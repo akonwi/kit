@@ -8,15 +8,10 @@ import (
 
 func (w shellView) activityListItem(theme ui.Theme, item activityListItem, states map[transcriptToolStateKey]transcriptMessage) ui.Widget {
 	switch item.Kind {
-	case activityListSpacer:
-		return keyedActivityItem{ID: item.ID, Child: ui.SizedBox{Height: 1}}
 	case activityListThinking:
-		return keyedActivityItem{ID: item.ID, Child: ui.Flex{
-			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
-			Children: []ui.Widget{
-				ui.Text{Value: "Thinking", Style: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrBold}},
-				markdownView{ID: item.ID, Source: item.Section.Thinking, BaseStyle: ui.Style{Foreground: theme.MutedForeground}},
-			},
+		return keyedActivityItem{ID: item.ID, Child: markdownView{
+			ID: item.ID, Source: item.Section.Thinking,
+			BaseStyle: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrItalic},
 		}}
 	case activityListProse:
 		style := ui.Style{Foreground: theme.Foreground}
@@ -34,11 +29,10 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 		}
 		return activityToolRowWidget{
 			Key: item.Key, Call: item.Call, State: state, Exists: exists, SourceAborted: item.Section.Aborted,
-			Expanded: w.Snapshot.ActivityExpanded[item.Key], Selected: w.Snapshot.ActivityCursor == item.Key,
-			OuterScroll:       w.Snapshot.ActivityScroll,
+			Selected:          w.Snapshot.ActivityCursor == item.Key,
 			SubagentAgentName: subagentName,
-			OnToggle:          w.Callbacks.ToggleActivityTool, OnSelect: w.Callbacks.SelectActivityTool,
-			OnOpenSubagent: w.Callbacks.OpenSubagentFromTool,
+			OnSelect:          w.Callbacks.SelectActivityTool,
+			OnOpenSubagent:    w.Callbacks.OpenSubagentFromTool,
 		}
 	}
 }
@@ -95,11 +89,8 @@ type activityToolRowWidget struct {
 	State               transcriptMessage
 	Exists              bool
 	SourceAborted       bool
-	Expanded            bool
 	Selected            bool
-	OuterScroll         *ui.ScrollController
 	SubagentAgentName   string
-	OnToggle            func(ui.EventContext, activityToolKey)
 	OnSelect            func(ui.EventContext, activityToolKey)
 	OnOpenSubagent      func(ui.EventContext, string)
 }
@@ -112,132 +103,78 @@ func (activityToolRowWidget) CreateState() ui.State { return &activityToolRowWid
 
 type activityToolRowWidgetState struct {
 	ui.StateBase
-	hovered           bool
-	followFinalOutput bool
-}
-
-func (s *activityToolRowWidgetState) DidUpdateWidget(old ui.Widget) {
-	previous := old.(activityToolRowWidget)
-	current := s.Widget().(activityToolRowWidget)
-	if previous.Key != current.Key || !current.Expanded {
-		s.followFinalOutput = false
-		return
-	}
-	previousState := resolveActivityToolState(previous.State, previous.Exists, previous.SourceAborted)
-	currentState := resolveActivityToolState(current.State, current.Exists, current.SourceAborted)
-	if previous.Expanded && (previousState == activityToolPending || previousState == activityToolRunning) &&
-		currentState == activityToolSucceeded && activityToolOutput(current.State, current.Exists) != "" {
-		s.followFinalOutput = true
-	}
+	width int
 }
 
 func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 	row := s.Widget().(activityToolRowWidget)
 	theme := ui.MustDepend[ui.Theme](ctx)
 	state := resolveActivityToolState(row.State, row.Exists, row.SourceAborted)
-	output := activityToolOutput(row.State, row.Exists)
-	command, commandSummarized := activityBashCommand(row.Call)
-	enrichment, enriched := detectActivityEnrichment(row.Call, row.State, row.Exists)
-	hasDetails := state != activityToolAborted && (enriched || output != "" || commandSummarized)
+	presentation := presentToolCall(row.Call, row.State, row.Exists)
+	narrow := s.width > 0 && s.width < 60
+	summary := presentation.Summary
+	if narrow && toolSummaryPrefersTail(row.Call) {
+		summary = truncateToolPathSummary(row.Call, summary, max(2, s.width-6))
+	}
+
 	background := theme.Background
-	if row.ContainerBackground {
-		background = theme.Surface
-	}
-	if row.ContainerBackground {
-		if s.hovered {
-			background = theme.SurfaceHovered
-		}
-	} else if row.Selected {
+	if row.Selected {
 		background = theme.SurfacePressed
-	} else if s.hovered {
-		background = theme.SurfaceHovered
 	}
-	style := activityToolHeaderStyle(theme, state)
-	icon := activityToolStateIcon(theme, state)
-	disclosure := " "
-	if hasDetails {
-		disclosure = glyphTriangleRight
-		if row.Expanded {
-			disclosure = glyphTriangleDown
-		}
+	name := ui.Widget(ui.Text{Value: presentation.Title, Style: activityToolHeaderStyle(theme, state), MaxLines: 1})
+	chipStyle := ui.Style{Foreground: theme.Foreground, Background: theme.Surface}
+	if state == activityToolAborted {
+		chipStyle.Foreground = theme.MutedForeground
 	}
-	argument := activityToolArgument(row.Call)
-	name := ui.Widget(ui.Text{Value: toolDisplayName(row.Call), Style: style, MaxLines: 1})
+	chip := ui.Widget(ui.Text{
+		Value: " " + summary + " ", Style: chipStyle,
+		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+	})
 	if agentName := row.SubagentAgentName; agentName != "" && row.OnOpenSubagent != nil {
-		name = subagentToolLink{
-			Name: agentName, Style: style,
+		chip = subagentToolLink{
+			Name: " " + agentName + " ", Style: chipStyle,
 			OnPressed: func(ctx ui.EventContext) { row.OnOpenSubagent(ctx, agentName) },
 		}
 	}
-	header := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, ui.Flex{
-		Axis: ui.Horizontal, Children: []ui.Widget{
-			icon, ui.SizedBox{Width: 1},
-			ui.Text{Value: disclosure, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
-			ui.SizedBox{Width: 1},
-			name,
-			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{Value: argument, Style: ui.Style{Foreground: theme.Foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		},
-	})
-	activate := func(eventContext ui.EventContext) {
-		if row.OnSelect != nil {
-			row.OnSelect(eventContext, row.Key)
+
+	headerHeight := 1
+	var headerContent ui.Widget
+	if narrow {
+		headerHeight = 2
+		headerContent = ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
+			CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+				ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+					activityToolStateIcon(theme, state), ui.SizedBox{Width: 1}, ui.Expanded(name),
+				}},
+				ui.Padding(ui.Insets{Left: 2}, ui.Flexible(chip)),
+			},
 		}
-		if hasDetails && row.OnToggle != nil {
-			row.OnToggle(eventContext, row.Key)
+	} else {
+		headerContent = ui.Flex{
+			Axis: ui.Horizontal, Children: []ui.Widget{
+				activityToolStateIcon(theme, state), ui.SizedBox{Width: 1},
+				ui.SizedBox{Width: 18, Child: name}, ui.SizedBox{Width: 1}, ui.Flexible(chip),
+			},
 		}
 	}
-	header = ui.DecoratedBox(ui.Decoration{}, mouseActivator{
-		OnPressed: activate,
-		OnHover: func(ui.EventContext) {
-			if !s.hovered {
-				s.SetState(func() { s.hovered = true })
+	header := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, headerContent)
+	return ui.SizedBox{Height: headerHeight, Child: mouseActivator{
+		OnPressed: func(eventContext ui.EventContext) {
+			if row.OnSelect != nil {
+				row.OnSelect(eventContext, row.Key)
 			}
 		},
-		OnHoverExit: func(ui.EventContext) {
-			if s.hovered {
-				s.SetState(func() { s.hovered = false })
-			}
+		Child: widthProbe{
+			WidthChanged: func(width int) {
+				if width != s.width {
+					s.width = width
+					s.MarkNeedsBuild()
+				}
+			},
+			Child: header,
 		},
-		Child: header,
-	})
-	children := []ui.Widget{ui.SizedBox{Height: 1, Child: header}}
-	if row.Expanded && hasDetails {
-		details := make([]ui.Widget, 0, 2)
-		usedEnrichment := false
-		if enriched {
-			content, measurement, metadata, ok := activityEnrichedPresentation(enrichment)
-			if ok {
-				details = append(details, toolOutputWell{
-					Key: row.Key, Output: measurement, Content: content, Rich: true,
-					Metadata: metadata, OuterScroll: row.OuterScroll,
-				})
-			} else {
-				details = append(details, toolOutputWell{
-					Key: row.Key, Output: activityEnrichmentUnavailable(enrichment), OuterScroll: row.OuterScroll,
-				})
-			}
-			usedEnrichment = true
-		}
-		if !usedEnrichment {
-			if commandSummarized {
-				details = append(details, ui.DecoratedBox(
-					ui.Decoration{Style: ui.Style{Background: theme.Surface}},
-					ui.Padding(ui.Symmetric(1, 0), ui.Text{Value: command, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true}),
-				))
-			}
-			if output != "" {
-				details = append(details, toolOutputWell{
-					Key: row.Key, Output: output, OuterScroll: row.OuterScroll,
-					StickyBottom: state == activityToolPending || state == activityToolRunning || state == activityToolFailed || s.followFinalOutput,
-				})
-			}
-		}
-		children = append(children, ui.Padding(ui.Insets{Left: 2}, ui.Flex{
-			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: details,
-		}))
-	}
-	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
+	}}
 }
 
 func activityToolStateIcon(theme ui.Theme, state activityToolState) ui.Widget {
@@ -245,7 +182,7 @@ func activityToolStateIcon(theme ui.Theme, state activityToolState) ui.Widget {
 	case activityToolPending, activityToolRunning:
 		return spinner{Style: ui.Style{Foreground: theme.MutedForeground}}
 	case activityToolSucceeded:
-		return ui.Text{Value: glyphCheck, Style: ui.Style{Foreground: theme.AccentText}}
+		return ui.Text{Value: " "}
 	case activityToolFailed:
 		return ui.Text{Value: glyphCross, Style: ui.Style{Foreground: theme.DangerText}}
 	default:

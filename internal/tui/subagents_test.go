@@ -424,7 +424,7 @@ func TestSubagentTranscriptUsesSharedToolWorkPresentation(t *testing.T) {
 	}})
 	application.Pump(100, 22)
 	text := strings.Join(paintedRows(application, 100, 22), "\n")
-	for _, expected := range []string{"Inspect README", "I'll inspect it.", "1 tool call", "read", "Inspection complete."} {
+	for _, expected := range []string{"Inspect README", "I'll inspect it.", "1 tool call", "Inspection complete."} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("shared transcript presentation missing %q:\n%s", expected, text)
 		}

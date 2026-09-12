@@ -41,14 +41,22 @@ func TestShellRendersTranscriptAndActivityMarkdown(t *testing.T) {
 		WorkspaceLayout: &layout, ActivityExpanded: map[activityToolKey]bool{},
 	}})
 	app.Pump(80, 28)
-	activity := strings.Join(paintedRows(app, 80, 28), "\n")
-	for _, expected := range []string{"Thinking", "Plan", "• read"} {
+	activityRows := paintedRows(app, 80, 28)
+	activity := strings.Join(activityRows, "\n")
+	for _, expected := range []string{"Reasoning", "Plan", "• read"} {
 		if !strings.Contains(activity, expected) {
 			t.Fatalf("Activity Markdown %q missing:\n%s", expected, activity)
 		}
 	}
+	if strings.Contains(activity, "Thinking") {
+		t.Fatalf("Activity still renders the Thinking label:\n%s", activity)
+	}
 	if strings.Contains(activity, "### Reasoning") || strings.Contains(activity, "## Plan") {
 		t.Fatalf("Activity Markdown source markers leaked:\n%s", activity)
+	}
+	column, row := findTextCell(t, activityRows, "inspect first")
+	if app.Cell(column, row).Attribute&ui.AttrItalic == 0 {
+		t.Fatalf("thinking prose is not italicized:\n%s", activity)
 	}
 }
 

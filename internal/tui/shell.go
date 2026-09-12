@@ -71,7 +71,6 @@ type shellSnapshot struct {
 	SubagentDismissName         string
 	SubagentDismissPending      bool
 	SubagentDismissError        string
-	HoveredActivityID           string
 	InlineActivityOpen          map[string]bool
 	ActivityExpanded            map[activityToolKey]bool
 	ActivityCursor              activityToolKey
@@ -102,7 +101,6 @@ type shellCallbacks struct {
 	OpenURL                    ui.TextChangedCallback
 	CopyCode                   ui.VoidCallback
 	OpenActivity               func(ui.EventContext, string)
-	HoverActivity              func(ui.EventContext, string)
 	ShowTranscript             ui.VoidCallback
 	CloseActivity              ui.VoidCallback
 	CancelSubagentTask         func(ui.EventContext, string, uint64)
@@ -116,9 +114,7 @@ type shellCallbacks struct {
 	CloseSubagentConversation  func(ui.EventContext, string)
 	ScrollSubagentTranscript   func(ui.EventContext, string, int)
 	ScrollActivity             func(ui.EventContext, int)
-	ToggleActivityTool         func(ui.EventContext, activityToolKey)
 	SelectActivityTool         func(ui.EventContext, activityToolKey)
-	MoveActivityTool           func(ui.EventContext, int)
 	ToggleBashOutput           func(ui.EventContext, string)
 	OpenBashHistory            func(ui.EventContext, int) bool
 	BashHistoryChanged         ui.TextChangedCallback
@@ -181,14 +177,6 @@ func (openPaletteIntent) IntentType() ui.IntentType { return "kit.command-palett
 type scrollActivityIntent struct{ Pages int }
 
 func (scrollActivityIntent) IntentType() ui.IntentType { return "kit.activity.scroll" }
-
-type moveActivityToolIntent struct{ Delta int }
-
-func (moveActivityToolIntent) IntentType() ui.IntentType { return "kit.activity.move-tool" }
-
-type toggleActivityToolIntent struct{}
-
-func (toggleActivityToolIntent) IntentType() ui.IntentType { return "kit.activity.toggle-tool" }
 
 type movePaletteIntent struct{ Delta int }
 
@@ -553,9 +541,7 @@ func (w shellView) transcriptRows(theme ui.Theme, presentation transcriptPresent
 			workView := w
 			if !interactiveWork {
 				workView.Snapshot.InlineActivityOpen = nil
-				workView.Snapshot.HoveredActivityID = ""
 				workView.Callbacks.OpenActivity = nil
-				workView.Callbacks.HoverActivity = nil
 			}
 			child = workView.transcriptWorkChip(theme, item, presentation.ToolStates)
 		}
@@ -603,14 +589,18 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	calls := displayItemToolCalls(item)
 	aborted := false
 	inProgress := false
+	failedCount := 0
 	for _, step := range item.Items {
 		aborted = aborted || step.Aborted
 	}
 	for _, call := range calls {
 		state, exists := toolStates[transcriptToolStateKey{TurnID: item.TurnID, ToolCallID: call.ID}]
+		resolved := resolveActivityToolState(state, exists, aborted)
+		if resolved == activityToolFailed {
+			failedCount++
+		}
 		if !aborted && (!exists || state.Pending) {
 			inProgress = true
-			break
 		}
 	}
 	countLabel := fmt.Sprintf("%d tool calls", len(calls))
@@ -623,13 +613,10 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			countLabel = "1 step"
 		}
 	}
-	toolSummary := w.transcriptToolSummary(theme, item.TurnID, calls, toolStates)
 	expanded := w.Snapshot.InlineActivityOpen[item.ID]
-	background := theme.Surface
+	rowStyle := ui.Style{}
 	if expanded {
-		background = theme.SurfacePressed
-	} else if item.ID == w.Snapshot.HoveredActivityID {
-		background = theme.SurfaceHovered
+		rowStyle.Background = theme.SurfacePressed
 	}
 	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: ui.Style{Foreground: theme.MutedForeground}})
 	if expanded {
@@ -637,86 +624,47 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	} else if inProgress {
 		prefix = spinner{Style: ui.Style{Foreground: theme.MutedForeground}}
 	}
-	row := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
+	countSpans := []ui.TextSpan{{Text: countLabel, Style: ui.Style{Foreground: theme.MutedForeground}}}
+	if failedCount > 0 {
+		failureLabel := fmt.Sprintf("%d failed", failedCount)
+		if failedCount == 1 {
+			failureLabel = "1 failed"
+		}
+		countSpans = append(countSpans, ui.TextSpan{
+			Text:  " " + glyphMiddleDot + " " + failureLabel,
+			Style: ui.Style{Foreground: theme.DangerText},
+		})
+	}
+	row := ui.DecoratedBox(ui.Decoration{Style: rowStyle}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
 		Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 			prefix,
 			ui.SizedBox{Width: 1},
-			ui.Text{Value: countLabel, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
-			ui.SizedBox{Width: 1},
-			ui.Expanded(toolSummary),
+			ui.RichText{Spans: countSpans},
+			ui.Expanded(ui.SizedBox{}),
 		},
 	}))
-	header := mouseActivator{
-		Child: ui.SizedBox{Height: 1, Child: row},
-		OnPressed: func(ctx ui.EventContext) {
-			if w.Callbacks.OpenActivity != nil {
-				w.Callbacks.OpenActivity(ctx, item.ID)
-			}
-		},
-		OnHover: func(ctx ui.EventContext) {
-			if w.Callbacks.HoverActivity != nil {
-				w.Callbacks.HoverActivity(ctx, item.ID)
-			}
-		},
-		OnHoverExit: func(ctx ui.EventContext) {
-			if w.Callbacks.HoverActivity != nil {
-				w.Callbacks.HoverActivity(ctx, "")
-			}
-		},
-	}
-	children := make([]ui.Widget, 0, 2)
-	for _, step := range item.Items {
-		if !step.Pending && assistantHasProse(step) {
-			children = append(children, transcriptAssistantEntry(theme, step.Message), ui.SizedBox{Height: 1})
-			break
+	activate := func(ctx ui.EventContext) {
+		if w.Callbacks.OpenActivity != nil {
+			w.Callbacks.OpenActivity(ctx, item.ID)
 		}
 	}
-	children = append(children, header)
+	header := mouseActivator{
+		Child:     ui.SizedBox{Height: 1, Child: row},
+		OnPressed: activate,
+	}
+	children := []ui.Widget{header}
 	if expanded {
 		children = append(children, inlineActivityWindow{
 			ID: item.ID, Source: item, States: toolStates,
-			Controller: w.Snapshot.ActivityScroll, List: w.Snapshot.ActivityList,
+			List:     w.Snapshot.ActivityList,
 			Expanded: w.Snapshot.ActivityExpanded, Cursor: w.Snapshot.ActivityCursor,
 			OuterScroll:           w.Snapshot.Scroll,
 			SubagentConversations: w.Snapshot.SubagentConversations,
-			OnToggleTool:          w.Callbacks.ToggleActivityTool, OnSelectTool: w.Callbacks.SelectActivityTool,
-			OnOpenSubagent: w.Callbacks.OpenSubagentFromTool,
+			OnSelectTool:          w.Callbacks.SelectActivityTool,
+			OnOpenSubagent:        w.Callbacks.OpenSubagentFromTool,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
-}
-
-func (w shellView) transcriptToolSummary(theme ui.Theme, turnID string, calls []transcriptToolCall, toolStates map[transcriptToolStateKey]transcriptMessage) ui.Widget {
-	visibleCount := min(8, len(calls))
-	children := make([]ui.Widget, 0, visibleCount+1)
-	prefix := func() string {
-		if len(children) == 0 {
-			return ""
-		}
-		return " " + glyphMiddleDot + " "
-	}
-	for _, call := range calls[:visibleCount] {
-		style := ui.Style{Foreground: theme.DisabledForeground}
-		agentName := subagentToolAgentName(call)
-		state, exists := toolStates[transcriptToolStateKey{TurnID: turnID, ToolCallID: call.ID}]
-		if agentName != "" && subagentToolConversationID(call, state, exists, w.Snapshot.SubagentConversations) != "" && w.Callbacks.OpenSubagentFromTool != nil {
-			children = append(children, ui.Flexible(subagentToolLink{
-				Name: prefix() + agentName, Style: style,
-				OnPressed: func(ctx ui.EventContext) { w.Callbacks.OpenSubagentFromTool(ctx, agentName) },
-			}))
-			continue
-		}
-		children = append(children, ui.Flexible(ui.Text{
-			Value: prefix() + toolDisplayName(call), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}))
-	}
-	if len(calls) > visibleCount {
-		children = append(children, ui.Flexible(ui.Text{
-			Value: prefix() + fmt.Sprintf("+%d more", len(calls)-visibleCount), Style: ui.Style{Foreground: theme.DisabledForeground},
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}))
-	}
-	return ui.Flex{Axis: ui.Horizontal, Children: children}
 }
 
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {

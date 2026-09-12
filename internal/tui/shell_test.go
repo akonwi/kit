@@ -402,7 +402,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 		t.Fatalf("completed turn slot = %q, want reserved blank row", got)
 	}
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"I’ll inspect it now.", "› 1 tool call read"} {
+	for _, expected := range []string{"I’ll inspect it now.", "› 1 tool call"} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("completed activity missing %q:\n%s", expected, text)
 		}
@@ -426,7 +426,7 @@ func TestLiveToolCallAppearsBeforeTurnFinishes(t *testing.T) {
 	}})
 	app.Pump(80, 18)
 	rows := paintedRows(app, 80, 18)
-	if findPaintedRow(rows, "⠋ 1 tool call read") < 0 {
+	if findPaintedRow(rows, "⠋ 1 tool call") < 0 {
 		t.Fatalf("running tool call chip missing before turn completion:\n%s", strings.Join(rows, "\n"))
 	}
 }
@@ -804,9 +804,6 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 			OpenActivity: func(_ ui.EventContext, sourceID string) {
 				s.SetState(func() { s.sourceID = sourceID })
 			},
-			ToggleActivityTool: func(_ ui.EventContext, key activityToolKey) {
-				s.SetState(func() { s.expanded[key] = !s.expanded[key] })
-			},
 			SelectActivityTool: func(_ ui.EventContext, key activityToolKey) {
 				s.SetState(func() { s.cursor = key })
 			},
@@ -820,7 +817,7 @@ func (s *activityHarnessState) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
-func TestSubagentToolNameOpensConversationFromTranscriptChip(t *testing.T) {
+func TestSubagentToolNameIsHiddenInCollapsedTranscriptChip(t *testing.T) {
 	t.Parallel()
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	state := &activityHarnessState{
@@ -837,13 +834,12 @@ func TestSubagentToolNameOpensConversationFromTranscriptChip(t *testing.T) {
 	application := uitest.New(activityHarness{State: state})
 	application.Pump(120, 20)
 	rows := paintedRows(application, 120, 20)
-	if findPaintedRow(rows, "bash · reviewer · read") < 0 {
-		t.Fatalf("transcript tool order changed:\n%s", strings.Join(rows, "\n"))
+	row := findPaintedRow(rows, "3 tool calls")
+	if row < 0 {
+		t.Fatalf("collapsed transcript chip missing:\n%s", strings.Join(rows, "\n"))
 	}
-	column, row := findTextCell(t, rows, "reviewer")
-	application.Click(column, row)
-	if state.openedSubagent != "reviewer" || state.sourceID != "" {
-		t.Fatalf("transcript chip click = opened:%q activity:%q", state.openedSubagent, state.sourceID)
+	if strings.Contains(rows[row], "Run command") || strings.Contains(rows[row], "reviewer") || strings.Contains(rows[row], "Read file") {
+		t.Fatalf("collapsed transcript chip exposes tool names: %q", rows[row])
 	}
 }
 
@@ -930,7 +926,7 @@ func TestInlineActivityDoesNotInstallPageKeyBindings(t *testing.T) {
 	}
 }
 
-func TestTurnWorkChipShowsSpinnerEightNamesAndOverflow(t *testing.T) {
+func TestTurnWorkChipShowsOnlySpinnerAndCountWhenCollapsed(t *testing.T) {
 	t.Parallel()
 
 	calls := make([]transcriptToolCall, 10)
@@ -952,9 +948,65 @@ func TestTurnWorkChipShowsSpinnerEightNamesAndOverflow(t *testing.T) {
 	if row < 0 {
 		t.Fatalf("running chip missing:\n%s", strings.Join(rows, "\n"))
 	}
-	for _, expected := range []string{"⠋ 10 tool calls", "tool1 · tool2 · tool3 · tool4 · tool5 · tool6 · tool7 · tool8 · +2 more"} {
-		if !strings.Contains(rows[row], expected) {
-			t.Errorf("chip row %q missing %q", rows[row], expected)
+	if !strings.Contains(rows[row], "⠋ 10 tool calls") {
+		t.Errorf("chip row %q missing spinner and count", rows[row])
+	}
+	if strings.Contains(rows[row], "Tool1") || strings.Contains(rows[row], "+2 more") {
+		t.Errorf("collapsed chip exposes tool names: %q", rows[row])
+	}
+	column, _ := findTextCell(t, rows, "10 tool calls")
+	if got := app.Cell(column, row).Background; got == ui.DefaultTheme().Surface {
+		t.Fatalf("collapsed chip uses raised surface background: %#v", got)
+	}
+}
+
+func TestTurnWorkChipSurfacesFailureCount(t *testing.T) {
+	t.Parallel()
+
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady,
+		Messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{
+				{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)},
+				{ID: "call_2", Name: "grep", Arguments: json.RawMessage(`{"pattern":"TODO","path":"docs"}`)},
+			}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", ToolStatus: "Completed", Text: "contents"},
+			{ID: "result_2", TurnID: "turn_1", Role: "tool", ToolCallID: "call_2", ToolName: "grep", ToolStatus: "Failed", IsError: true, Text: "not found"},
+		},
+		Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(100, 16)
+	rows := paintedRows(app, 100, 16)
+	if findPaintedRow(rows, "2 tool calls · 1 failed") < 0 {
+		t.Fatalf("failure count missing from collapsed batch:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestInlineActivityExpandsToNaturalTranscriptHeight(t *testing.T) {
+	t.Parallel()
+
+	calls := make([]transcriptToolCall, 15)
+	for index := range calls {
+		calls[index] = transcriptToolCall{
+			ID: fmt.Sprintf("call_%d", index+1), Name: fmt.Sprintf("tool%d", index+1), Arguments: json.RawMessage(`{}`),
+		}
+	}
+	sourceID := "turn-work:turn_1:assistant_1"
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady,
+		Messages: []transcriptMessage{{
+			ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: calls,
+		}},
+		Scroll:             &ui.ScrollController{},
+		InlineActivityOpen: map[string]bool{sourceID: true},
+		ActivityExpanded:   map[activityToolKey]bool{},
+	}})
+	app.Pump(100, 30)
+	app.Pump(100, 30)
+	text := strings.Join(paintedRows(app, 100, 30), "\n")
+	for _, expected := range []string{"Tool1", "Tool15"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("naturally expanded activity missing %q:\n%s", expected, text)
 		}
 	}
 }
@@ -979,7 +1031,7 @@ func TestInlineActivityDoesNotOpenWorkspacePane(t *testing.T) {
 	}
 }
 
-func TestExpandedInlineActivityShowsToolDetail(t *testing.T) {
+func TestExpandedInlineActivityShowsArgumentChipWithoutOutput(t *testing.T) {
 	t.Parallel()
 
 	command := "grep -R TerminalColors app | head -10; grep DEFAULT app | head"
@@ -996,18 +1048,50 @@ func TestExpandedInlineActivityShowsToolDetail(t *testing.T) {
 	app := uitest.New(activityHarness{State: state})
 	app.Pump(200, 24)
 	rows := paintedRows(app, 200, 24)
-	column, row := findTextCell(t, rows, "bash grep → head · grep → head")
+	column, row := findTextCell(t, rows, "grep → head · grep → head")
 	app.Click(column, row)
 	app.Pump(200, 24)
 	app.Pump(200, 24)
-	if !state.expanded[key] {
-		t.Fatal("inline activity tool did not expand")
+	if state.expanded[key] {
+		t.Fatal("output-free activity row expanded")
 	}
 	rows = paintedRows(app, 200, 24)
-	for _, expected := range []string{"✓ ▾ bash grep → head · grep → head", command, "done"} {
-		if findPaintedRow(rows, expected) < 0 {
-			t.Fatalf("expanded inline activity detail %q missing:\n%s", expected, strings.Join(rows, "\n"))
-		}
+	text := strings.Join(rows, "\n")
+	if !strings.Contains(text, "Run command") || !strings.Contains(text, "grep → head · grep → head") {
+		t.Fatalf("tool call and argument chip missing:\n%s", text)
+	}
+	if strings.Contains(text, command) || strings.Contains(text, "done") {
+		t.Fatalf("tool output or full command rendered:\n%s", text)
+	}
+	if strings.Contains(text, glyphCheck) {
+		t.Fatalf("successful tool call still renders a checkmark:\n%s", text)
+	}
+	column, row = findTextCell(t, rows, "grep → head · grep → head")
+	if got, want := app.Cell(column, row).Background, ui.DefaultTheme().Surface; got != want {
+		t.Fatalf("argument background = %#v, want chip surface %#v", got, want)
+	}
+}
+
+func TestActivityToolRowUsesTwoLinesAndTailPathAtNarrowWidth(t *testing.T) {
+	t.Parallel()
+
+	path := "docs/design/0012-native-macos-client.md"
+	state := &activityHarnessState{
+		messages: []transcriptMessage{
+			{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", ToolCalls: []transcriptToolCall{{
+				ID: "call_1", Name: "write", Arguments: json.RawMessage(`{"path":"` + path + `","content":"one\ntwo"}`),
+			}}},
+			{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "write", ToolStatus: "Completed", Text: "ok"},
+		},
+		sourceID: "turn-work:turn_1:assistant_1",
+	}
+	app := uitest.New(activityHarness{State: state})
+	app.Pump(40, 18)
+	app.Pump(40, 18)
+	rows := paintedRows(app, 40, 18)
+	summaryRow := findPaintedRow(rows, "⋯/0012-native-macos-client.md")
+	if summaryRow < 1 || !strings.Contains(rows[summaryRow-1], "Write 2 lines") {
+		t.Fatalf("narrow typed tool row missing:\n%s", strings.Join(rows, "\n"))
 	}
 }
 

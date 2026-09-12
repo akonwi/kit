@@ -2,6 +2,7 @@ package tui
 
 import (
 	"encoding/json"
+	"fmt"
 	"path/filepath"
 	"regexp"
 	"strconv"
@@ -137,56 +138,53 @@ func assistantHasProse(item turnTranscriptItem) bool {
 
 func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplayItem {
 	result := make([]transcriptDisplayItem, 0, len(items))
-	for start := 0; start < len(items); {
-		end := start + 1
-		for end < len(items) && items[end].TurnID == items[start].TurnID {
-			end++
+	appendProse := func(item turnTranscriptItem) {
+		if item.Pending || !assistantHasProse(item) {
+			return
 		}
-		turnItems := items[start:end]
-		turnID := items[start].TurnID
+		copy := item
+		result = append(result, transcriptDisplayItem{
+			Kind: transcriptDisplayAssistantProse, ID: "assistant-prose:" + item.ID,
+			TurnID: item.TurnID, Item: &copy,
+		})
+	}
+	for index := 0; index < len(items); {
+		item := items[index]
+		if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash {
+			copy := item
+			result = append(result, transcriptDisplayItem{
+				Kind: transcriptDisplaySingle, ID: "single:" + item.ID,
+				TurnID: item.TurnID, Item: &copy,
+			})
+			index++
+			continue
+		}
+		calls := assistantToolCalls(item.Message)
+		if len(calls) == 0 {
+			appendProse(item)
+			index++
+			continue
+		}
 
-		firstTool, lastTool := -1, -1
-		for index, item := range turnItems {
-			if item.Kind == transcriptItemAssistant && len(assistantToolCalls(item.Message)) > 0 {
-				if firstTool < 0 {
-					firstTool = index
-				}
-				lastTool = index
+		// Completed prose remains in the transcript immediately before the tool
+		// batch it introduced. A later assistant message with prose starts a new
+		// batch instead of being folded into earlier work from the same turn.
+		appendProse(item)
+		work := []turnTranscriptItem{item}
+		next := index + 1
+		for next < len(items) && items[next].TurnID == item.TurnID && items[next].Kind == transcriptItemAssistant {
+			candidate := items[next]
+			if len(assistantToolCalls(candidate.Message)) == 0 || assistantHasProse(candidate) {
+				break
 			}
+			work = append(work, candidate)
+			next++
 		}
-		for index, item := range turnItems {
-			if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash {
-				copy := item
-				result = append(result, transcriptDisplayItem{
-					Kind: transcriptDisplaySingle, ID: "single:" + item.ID,
-					TurnID: item.TurnID, Item: &copy,
-				})
-				continue
-			}
-			if firstTool >= 0 && index == firstTool {
-				work := make([]turnTranscriptItem, 0, lastTool-firstTool+1)
-				for _, candidate := range turnItems[firstTool : lastTool+1] {
-					if candidate.Kind == transcriptItemAssistant && (len(assistantToolCalls(candidate.Message)) > 0 || assistantHasProse(candidate)) {
-						work = append(work, candidate)
-					}
-				}
-				result = append(result, transcriptDisplayItem{
-					Kind: transcriptDisplayTurnWork, ID: "turn-work:" + turnID + ":" + work[0].ID,
-					TurnID: turnID, Items: work,
-				})
-			}
-			if firstTool >= 0 && index >= firstTool && index <= lastTool {
-				continue
-			}
-			if assistantHasProse(item) {
-				copy := item
-				result = append(result, transcriptDisplayItem{
-					Kind: transcriptDisplayAssistantProse, ID: "assistant-prose:" + item.ID,
-					TurnID: item.TurnID, Item: &copy,
-				})
-			}
-		}
-		start = end
+		result = append(result, transcriptDisplayItem{
+			Kind: transcriptDisplayTurnWork, ID: "turn-work:" + item.TurnID + ":" + item.ID,
+			TurnID: item.TurnID, Items: work,
+		})
+		index = next
 	}
 	return result
 }
@@ -215,13 +213,12 @@ func buildActivitySections(source transcriptDisplayItem) []activitySection {
 			continue
 		}
 		calls := assistantToolCalls(item.Message)
-		prose := assistantProse(item.Message)
 		thinking := assistantThinking(item.Message)
 		sections = append(sections, activitySection{
 			ID:       "activity-section:" + item.TurnID + ":" + item.ID,
 			TurnID:   item.TurnID,
 			Thinking: thinking,
-			Prose:    prose, Calls: calls, Aborted: item.Aborted,
+			Calls:    calls, Aborted: item.Aborted,
 		})
 	}
 	return sections
@@ -230,8 +227,7 @@ func buildActivitySections(source transcriptDisplayItem) []activitySection {
 type activityListItemKind int
 
 const (
-	activityListSpacer activityListItemKind = iota
-	activityListThinking
+	activityListThinking activityListItemKind = iota
 	activityListProse
 	activityListTool
 )
@@ -247,19 +243,13 @@ type activityListItem struct {
 func buildActivityListItems(source transcriptDisplayItem) []activityListItem {
 	sections := buildActivitySections(source)
 	items := make([]activityListItem, 0)
-	for sectionIndex, section := range sections {
-		if sectionIndex > 0 {
-			items = append(items, activityListItem{ID: section.ID + ":spacer", Kind: activityListSpacer, Section: section})
-		}
+	for _, section := range sections {
 		if strings.TrimSpace(section.Thinking) != "" {
 			items = append(items, activityListItem{ID: section.ID + ":thinking", Kind: activityListThinking, Section: section})
 		}
 		hasProse := strings.TrimSpace(section.Prose) != ""
 		if hasProse {
 			items = append(items, activityListItem{ID: section.ID + ":prose", Kind: activityListProse, Section: section})
-			if len(section.Calls) > 0 {
-				items = append(items, activityListItem{ID: section.ID + ":prose-spacer", Kind: activityListSpacer, Section: section})
-			}
 		}
 		for _, call := range section.Calls {
 			key := activityToolKey{TurnID: section.TurnID, ToolCallID: call.ID}
@@ -682,14 +672,198 @@ func subagentToolAgentName(call transcriptToolCall) string {
 	return strings.TrimSpace(agent)
 }
 
-func toolDisplayName(call transcriptToolCall) string {
-	if call.Name == "activate_skill" {
-		return "activate skill"
+type toolCallPresentation struct {
+	Title   string
+	Summary string
+}
+
+func presentToolCall(call transcriptToolCall, state transcriptMessage, exists bool) toolCallPresentation {
+	arguments := toolArguments(call)
+	path, _ := arguments["path"].(string)
+	summary := path
+	switch strings.ToLower(call.Name) {
+	case "bash", "shell", "exec", "exec_command":
+		command, _ := arguments["command"].(string)
+		return toolCallPresentation{Title: "Run command", Summary: toolSummaryOrFallback(call, presentBashCommand(command).Text)}
+	case "change_cwd":
+		return toolCallPresentation{Title: "Change directory", Summary: toolSummaryOrFallback(call, path)}
+	case "read":
+		if exists && resolveActivityToolState(state, true, false) == activityToolSucceeded {
+			_, lines, notice := activityReadContent(state)
+			if state.Text == "" {
+				summary += " " + glyphMiddleDot + " empty"
+			} else if lines > 0 {
+				start := toolIntegerArgument(arguments, "offset", 1)
+				summary += fmt.Sprintf(":%d–%d", start, start+lines-1)
+			}
+			if notice != "" {
+				summary += " " + glyphMiddleDot + " truncated"
+			}
+		}
+		return toolCallPresentation{Title: "Read file", Summary: toolSummaryOrFallback(call, summary)}
+	case "write":
+		content, ok := arguments["content"].(string)
+		if !ok {
+			return toolCallPresentation{Title: "Write file", Summary: toolSummaryOrFallback(call, path)}
+		}
+		return toolCallPresentation{Title: "Write " + activityLineMetadata(recordedLineCount(content)), Summary: toolSummaryOrFallback(call, path)}
+	case "edit":
+		edits := activityEdits(arguments)
+		title := "Edit file"
+		if len(edits) > 0 {
+			title = fmt.Sprintf("Edit %d sections", len(edits))
+			if len(edits) == 1 {
+				title = "Edit 1 section"
+			}
+		}
+		return toolCallPresentation{Title: title, Summary: toolSummaryOrFallback(call, path)}
+	case "edit_scratchpad":
+		return toolCallPresentation{Title: "Update scratchpad", Summary: activityEditMetadata(len(activityEdits(arguments)))}
+	case "grep":
+		if arguments == nil {
+			return toolCallPresentation{Title: "Search", Summary: fallbackToolArguments(call)}
+		}
+		return toolCallPresentation{Title: "Search", Summary: toolPatternScope(arguments)}
+	case "find", "glob":
+		if arguments == nil {
+			return toolCallPresentation{Title: "Find files", Summary: fallbackToolArguments(call)}
+		}
+		return toolCallPresentation{Title: "Find files", Summary: toolPatternScope(arguments)}
+	case "ls":
+		return toolCallPresentation{Title: "List directory", Summary: toolSummaryOrFallback(call, path)}
+	case "activate_skill":
+		name, _ := arguments["name"].(string)
+		return toolCallPresentation{Title: "Load skill", Summary: toolSummaryOrFallback(call, name)}
+	case "subagent":
+		action, _ := arguments["action"].(string)
+		title := map[string]string{
+			"start": "Start agent", "run": "Start agent", "spawn": "Start agent",
+			"message": "Message agent", "send": "Message agent", "wait": "Wait for agent",
+			"cancel": "Cancel agent", "dismiss": "Dismiss agent", "inspect": "Inspect agent",
+		}[action]
+		if title == "" {
+			title = "Inspect agents"
+		}
+		return toolCallPresentation{Title: title, Summary: toolSummaryOrFallback(call, subagentToolAgentName(call))}
+	default:
+		return toolCallPresentation{Title: humanizeToolName(call.Name), Summary: fallbackToolArguments(call)}
 	}
-	if agent := subagentToolAgentName(call); agent != "" {
-		return agent
+}
+
+func recordedLineCount(value string) int {
+	if value == "" {
+		return 0
 	}
-	return call.Name
+	lines := strings.Count(value, "\n")
+	if !strings.HasSuffix(value, "\n") {
+		lines++
+	}
+	return lines
+}
+
+func toolIntegerArgument(arguments map[string]any, key string, fallback int) int {
+	value, ok := arguments[key].(float64)
+	if !ok || value < 1 || value != float64(int(value)) {
+		return fallback
+	}
+	return int(value)
+}
+
+func toolSummaryPrefersTail(call transcriptToolCall) bool {
+	switch strings.ToLower(call.Name) {
+	case "change_cwd", "read", "write", "edit", "ls":
+		return true
+	default:
+		return false
+	}
+}
+
+func truncateToolPathSummary(call transcriptToolCall, value string, maxCells int) string {
+	arguments := toolArguments(call)
+	path, _ := arguments["path"].(string)
+	if path == "" || !strings.HasPrefix(value, path) {
+		return truncateToolPathTail(value, maxCells)
+	}
+	suffix := strings.TrimPrefix(value, path)
+	pathBudget := maxCells - workspaceTextWidth(suffix)
+	if pathBudget < 2 {
+		pathBudget = 2
+	}
+	return truncateToolPathTail(path, pathBudget) + suffix
+}
+
+func truncateToolPathTail(value string, maxCells int) string {
+	if maxCells < 2 || workspaceTextWidth(value) <= maxCells {
+		return value
+	}
+	budget := maxCells - workspaceTextWidth(glyphEllipsis+"/")
+	runes := []rune(value)
+	start := len(runes)
+	used := 0
+	for start > 0 {
+		width := workspaceTextWidth(string(runes[start-1]))
+		if used+width > budget {
+			break
+		}
+		used += width
+		start--
+	}
+	tail := strings.TrimLeft(string(runes[start:]), "/")
+	return glyphEllipsis + "/" + tail
+}
+
+func toolPatternScope(arguments map[string]any) string {
+	pattern, _ := arguments["pattern"].(string)
+	path, _ := arguments["path"].(string)
+	if path == "" {
+		path = "."
+	}
+	if pattern == "" {
+		return path
+	}
+	return pattern + " in " + path
+}
+
+func humanizeToolName(name string) string {
+	words := strings.Fields(strings.NewReplacer("_", " ", "-", " ").Replace(name))
+	for index, word := range words {
+		runes := []rune(strings.ToLower(word))
+		if len(runes) > 0 {
+			runes[0] = []rune(strings.ToUpper(string(runes[0])))[0]
+			words[index] = string(runes)
+		}
+	}
+	if len(words) == 0 {
+		return "Tool call"
+	}
+	return strings.Join(words, " ")
+}
+
+func toolSummaryOrFallback(call transcriptToolCall, summary string) string {
+	if strings.TrimSpace(summary) != "" {
+		return summary
+	}
+	return fallbackToolArguments(call)
+}
+
+func fallbackToolArguments(call transcriptToolCall) string {
+	if summary := formatToolArguments(call, false); summary != "" {
+		return summary
+	}
+	raw := strings.Join(strings.Fields(string(call.Arguments)), " ")
+	if raw == "" {
+		if call.ArgumentsTruncated {
+			return "arguments truncated"
+		}
+		return "no arguments"
+	}
+	if utf8.RuneCountInString(raw) > maxToolArgSummaryLength {
+		raw = truncateRunes(raw, maxToolArgSummaryLength-1) + glyphEllipsis
+	}
+	if call.ArgumentsTruncated {
+		raw += " " + glyphMiddleDot + " truncated"
+	}
+	return raw
 }
 
 func toolArgumentKeys(call transcriptToolCall) []string {

@@ -78,19 +78,65 @@ func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing
 	}
 	wantKinds := []transcriptDisplayKind{
 		transcriptDisplaySingle,
+		transcriptDisplayAssistantProse,
 		transcriptDisplayTurnWork,
 		transcriptDisplayAssistantProse,
 	}
 	if !reflect.DeepEqual(gotKinds, wantKinds) {
 		t.Fatalf("display kinds = %v, want %v", gotKinds, wantKinds)
 	}
-	work := display[1]
+	work := display[2]
 	if work.ID != "turn-work:turn_1:assistant_1" || len(work.Items) != 2 {
 		t.Fatalf("turn work = %+v", work)
 	}
 	calls := displayItemToolCalls(work)
 	if len(calls) != 2 || calls[0].Name != "read" || calls[1].Name != "grep" {
 		t.Fatalf("turn-work calls = %+v", calls)
+	}
+}
+
+func TestGroupTranscriptDisplayItemsSplitsToolBatchesAroundProse(t *testing.T) {
+	t.Parallel()
+
+	messages := []protocol.TranscriptMessage{
+		transcriptMessageWithContent("assistant_1", "turn_1", "assistant",
+			toolCallBlock("call_1", "read", `{"path":"README.md"}`)),
+		transcriptMessageWithContent("assistant_2", "turn_1", "assistant",
+			textBlock("That path is stale; searching instead."),
+			toolCallBlock("call_2", "grep", `{"pattern":"TODO","path":"docs"}`)),
+		transcriptMessageWithContent("assistant_3", "turn_1", "assistant", textBlock("Done.")),
+	}
+
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages))
+	if len(display) != 4 {
+		t.Fatalf("display = %+v, want work, prose, work, prose", display)
+	}
+	if display[0].Kind != transcriptDisplayTurnWork || display[0].ID != "turn-work:turn_1:assistant_1" ||
+		display[1].Kind != transcriptDisplayAssistantProse || assistantProse(display[1].Item.Message) != "That path is stale; searching instead." ||
+		display[2].Kind != transcriptDisplayTurnWork || display[2].ID != "turn-work:turn_1:assistant_2" ||
+		display[3].Kind != transcriptDisplayAssistantProse || assistantProse(display[3].Item.Message) != "Done." {
+		t.Fatalf("chronological display = %+v", display)
+	}
+}
+
+func TestGroupTranscriptDisplayItemsKeepsPendingProseToolBatchIdentityStable(t *testing.T) {
+	t.Parallel()
+
+	first := transcriptMessageWithContent("assistant_1", "turn_1", "assistant",
+		toolCallBlock("call_1", "read", `{"path":"README.md"}`))
+	second := transcriptMessageWithContent("assistant_2", "turn_1", "assistant",
+		textBlock("I need to search next."), toolCallBlock("call_2", "grep", `{"pattern":"TODO"}`))
+	items := buildTurnTranscriptItems([]protocol.TranscriptMessage{first, second})
+	items[1].Pending = true
+	pending := groupTranscriptDisplayItems(items)
+	items[1].Pending = false
+	completed := groupTranscriptDisplayItems(items)
+
+	if len(pending) != 2 || pending[1].ID != "turn-work:turn_1:assistant_2" {
+		t.Fatalf("pending display = %+v", pending)
+	}
+	if len(completed) != 3 || completed[2].ID != pending[1].ID {
+		t.Fatalf("completed display changed batch identity: %+v", completed)
 	}
 }
 
@@ -126,7 +172,7 @@ func TestPresentTranscriptKeepsPendingThinkingAndToolsVisible(t *testing.T) {
 		t.Fatalf("pending activity = %+v, want one work item", presentation.Items)
 	}
 	sections := buildActivitySections(presentation.Items[0])
-	if len(sections) != 1 || sections[0].Thinking != "Inspecting" || sections[0].Prose != "partial response" || len(sections[0].Calls) != 1 {
+	if len(sections) != 1 || sections[0].Thinking != "Inspecting" || sections[0].Prose != "" || len(sections[0].Calls) != 1 {
 		t.Fatalf("pending activity sections = %+v", sections)
 	}
 }
@@ -208,7 +254,7 @@ func TestBuildActivitySectionsPreservesAssistantBoundariesAndStableIDs(t *testin
 	if len(sections) != 2 {
 		t.Fatalf("activity sections = %+v, want 2", sections)
 	}
-	if sections[0].ID != "activity-section:turn_1:assistant_1" || sections[0].Prose != "First step" || len(sections[0].Calls) != 1 {
+	if sections[0].ID != "activity-section:turn_1:assistant_1" || sections[0].Prose != "" || len(sections[0].Calls) != 1 {
 		t.Fatalf("first activity section = %+v", sections[0])
 	}
 	if sections[1].ID != "activity-section:turn_1:assistant_2" || sections[1].Calls[0].Name != "grep" {
@@ -342,13 +388,48 @@ func TestPresentBashCommandMatchesMainPresentation(t *testing.T) {
 	}
 }
 
+func TestPresentToolCallUsesTypedTitlesAndSummaries(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name   string
+		call   transcriptToolCall
+		state  transcriptMessage
+		exists bool
+		want   toolCallPresentation
+	}{
+		{name: "read range", call: transcriptToolCall{Name: "read", Arguments: json.RawMessage(`{"path":"README.md","offset":4}`)}, state: transcriptMessage{Text: "four\nfive", ToolStatus: "Completed"}, exists: true, want: toolCallPresentation{Title: "Read file", Summary: "README.md:4–5"}},
+		{name: "write lines", call: transcriptToolCall{Name: "write", Arguments: json.RawMessage(`{"path":"notes.md","content":"one\ntwo\n"}`)}, want: toolCallPresentation{Title: "Write 2 lines", Summary: "notes.md"}},
+		{name: "edits", call: transcriptToolCall{Name: "edit", Arguments: json.RawMessage(`{"path":"main.go","edits":[{"oldText":"a","newText":"b"},{"oldText":"c","newText":"d"}]}`)}, want: toolCallPresentation{Title: "Edit 2 sections", Summary: "main.go"}},
+		{name: "search", call: transcriptToolCall{Name: "grep", Arguments: json.RawMessage(`{"pattern":"TODO","path":"docs"}`)}, want: toolCallPresentation{Title: "Search", Summary: "TODO in docs"}},
+		{name: "agent", call: transcriptToolCall{Name: "subagent", Arguments: json.RawMessage(`{"action":"message","agent":"reviewer"}`)}, want: toolCallPresentation{Title: "Message agent", Summary: "reviewer"}},
+		{name: "aborted read", call: transcriptToolCall{Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)}, state: transcriptMessage{ToolStatus: "Not run"}, exists: true, want: toolCallPresentation{Title: "Read file", Summary: "README.md"}},
+		{name: "fallback", call: transcriptToolCall{Name: "custom_tool", Arguments: json.RawMessage(`{"path":"tmp"}`)}, want: toolCallPresentation{Title: "Custom Tool", Summary: "tmp"}},
+		{name: "fallback non-string arguments", call: transcriptToolCall{Name: "custom_tool", Arguments: json.RawMessage(`{"limit":20}`)}, want: toolCallPresentation{Title: "Custom Tool", Summary: `{"limit":20}`}},
+		{name: "known malformed arguments", call: transcriptToolCall{Name: "read", Arguments: json.RawMessage(`{`)}, want: toolCallPresentation{Title: "Read file", Summary: `{`}},
+		{name: "malformed search arguments", call: transcriptToolCall{Name: "grep", Arguments: json.RawMessage(`{`)}, want: toolCallPresentation{Title: "Search", Summary: `{`}},
+		{name: "malformed find arguments", call: transcriptToolCall{Name: "find", Arguments: json.RawMessage(`{`)}, want: toolCallPresentation{Title: "Find files", Summary: `{`}},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			if got := presentToolCall(test.call, test.state, test.exists); got != test.want {
+				t.Fatalf("presentation = %+v, want %+v", got, test.want)
+			}
+		})
+	}
+}
+
+func TestTruncateToolPathTailPreservesInformativeEnd(t *testing.T) {
+	t.Parallel()
+	if got := truncateToolPathTail("docs/design/0012-native-macos-client.md", 24); got != "⋯/native-macos-client.md" {
+		t.Fatalf("tail path = %q", got)
+	}
+}
+
 func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
 	t.Parallel()
 
 	read := transcriptToolCall{ID: "read_1", Name: "read", Arguments: json.RawMessage(`{"path":"/tmp/file"}`)}
-	if got := toolDisplayName(read); got != "read" {
-		t.Fatalf("read display name = %q", got)
-	}
 	if got := formatToolArguments(read, false); got != "/tmp/file" {
 		t.Fatalf("read argument = %q", got)
 	}
@@ -359,17 +440,11 @@ func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
 	}
 
 	subagent := transcriptToolCall{ID: "agent_1", Name: "subagent", Arguments: json.RawMessage(`{"action":"run","agent":"reviewer","message":"inspect changes"}`)}
-	if got := toolDisplayName(subagent); got != "reviewer" {
-		t.Fatalf("subagent display name = %q", got)
-	}
 	if got := formatToolArguments(subagent, false); got != "inspect changes" {
 		t.Fatalf("subagent argument = %q", got)
 	}
 
 	skill := transcriptToolCall{ID: "skill_1", Name: "activate_skill", Arguments: json.RawMessage(`{"name":"vaxis-ui"}`)}
-	if got := toolDisplayName(skill); got != "activate skill" {
-		t.Fatalf("skill display name = %q", got)
-	}
 	if got := formatToolArguments(skill, false); got != "vaxis-ui" {
 		t.Fatalf("skill argument = %q", got)
 	}

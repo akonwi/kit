@@ -277,7 +277,6 @@ type appState struct {
 	subagentDismissGeneration    uint64
 	subagentDismissPending       bool
 	subagentDismissError         string
-	hoveredActivityID            string
 	inlineActivityOpen           map[string]bool
 	activityExpanded             map[activityToolKey]bool
 	activityCursor               activityToolKey
@@ -661,7 +660,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SubagentDismissName:         s.subagentDismissName,
 		SubagentDismissPending:      s.subagentDismissPending,
 		SubagentDismissError:        s.subagentDismissError,
-		HoveredActivityID:           s.hoveredActivityID,
 		InlineActivityOpen:          s.inlineActivityOpen,
 		ActivityExpanded:            s.activityExpanded,
 		ActivityCursor:              s.activityCursor,
@@ -708,11 +706,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			s.showToast(toastInput{Title: "Opened browser", Variant: toastInfo})
 		},
-		HoverActivity: func(_ ui.EventContext, sourceID string) {
-			if s.hoveredActivityID != sourceID {
-				s.SetState(func() { s.hoveredActivityID = sourceID })
-			}
-		},
 		OpenActivity: func(_ ui.EventContext, sourceID string) {
 			s.SetState(func() {
 				s.activityConversationID = ""
@@ -754,7 +747,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.activityConversationID = ""
 				s.activitySelected = false
 				s.inlineActivityOpen = make(map[string]bool)
-				s.hoveredActivityID = ""
 				s.activityExpanded = make(map[activityToolKey]bool)
 				s.activityCursor = activityToolKey{}
 			})
@@ -850,25 +842,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.activityScroll.ScrollByPages(pages)
 			}
 		},
-		ToggleActivityTool: func(_ ui.EventContext, key activityToolKey) {
-			s.SetState(func() {
-				s.activityExpanded[key] = !s.activityExpanded[key]
-			})
-		},
 		SelectActivityTool: func(_ ui.EventContext, key activityToolKey) {
 			s.SetState(func() { s.activityCursor = key })
-		},
-		MoveActivityTool: func(_ ui.EventContext, delta int) {
-			s.SetState(func() {
-				presentation := s.activityPresentation(presentedMessages, s.activityConversationID)
-				keys := activityToolKeys(presentation, s.activitySourceID)
-				s.activityCursor = moveActivityToolCursor(keys, s.activityCursor, delta)
-				if source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID); ok {
-					if index := activityToolListIndex(source, s.activityCursor); index >= 0 {
-						s.activityList.Reveal(s.activityCursor)
-					}
-				}
-			})
 		},
 		ToggleBashOutput: func(_ ui.EventContext, executionID string) {
 			s.SetState(func() { s.bashCollapsed[executionID] = !s.bashCollapsed[executionID] })
@@ -1469,9 +1444,14 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		presentation := presentTranscript(s.messages)
 		source, ok := transcriptActivitySource(presentation.Items, s.activitySourceID)
 		if !ok {
+			previousSourceID := s.activitySourceID
 			source, ok = equivalentActivitySource(presentation.Items, previousActivitySource)
 			if ok {
 				s.activitySourceID = source.ID
+				if s.inlineActivityOpen[previousSourceID] {
+					delete(s.inlineActivityOpen, previousSourceID)
+					s.inlineActivityOpen[source.ID] = true
+				}
 			}
 		}
 		if ok {
@@ -1496,7 +1476,6 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			s.activityConversationID = ""
 			s.activitySelected = false
 			s.inlineActivityOpen = make(map[string]bool)
-			s.hoveredActivityID = ""
 			s.activityExpanded = make(map[activityToolKey]bool)
 			s.activityCursor = activityToolKey{}
 		}
@@ -4195,7 +4174,6 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.subagentDismissPending = false
 	s.subagentDismissError = ""
 	s.inlineActivityOpen = make(map[string]bool)
-	s.hoveredActivityID = ""
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.activityCursor = activityToolKey{}
 	s.activeRun = nil

@@ -25,7 +25,11 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-WORK-001 — Register retained directory, file, and diff panes with
   stable identity, deduplication, predictable open/close/focus behavior, and
   preserved selection and scroll state across pane switches and responsive
-  narrow/wide transitions.
+  narrow/wide transitions. Accept transcript-originated file, recorded diff,
+  and search-match opens with relevant line anchors. Deduplicate mutable file
+  panes by workspace root and path regardless of origin, while retaining
+  separate historical diff evidence by stable transcript identity. See the
+  [tool activity working design](../design/tui-tool-activity.md).
 - [ ] TUI-DIR-001 — Provide a workspace-rooted directory explorer with lazy,
   bounded expansion; path filtering; keyboard and mouse navigation; visible
   loading, empty, and error states; refresh; and direct file opening. Depends on
@@ -50,6 +54,11 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [~] TUI-TRANSCRIPT-003 — Present model/thinking selection, context
   pressure/capacity, retry countdowns, compaction lifecycle, cancellation, and
   terminal run state without obscuring retained evidence.
+- [~] TUI-TRANSCRIPT-004 — Preserve chronological assistant prose and contiguous
+  tool-call batches; present each batch with count and failure state, and each
+  call as a human-readable action with a typed argument-summary chip. Expand
+  batches directly in transcript flow without nested scrolling or inline result
+  output. See the [tool activity design](../design/tui-tool-activity.md).
 
 ### Composer, sessions, and commands
 

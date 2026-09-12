@@ -259,8 +259,9 @@ func TestSnapshotReconcilesExpandedActivityAcrossLiveSourceIdentity(t *testing.T
 			ID: "live-assistant:call_1", TurnID: "turn_1", Role: "assistant",
 			ToolCalls: []transcriptToolCall{{ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)}},
 		}},
-		activitySourceID: "turn-work:turn_1:live-assistant:call_1",
-		activityExpanded: map[activityToolKey]bool{key: true},
+		activitySourceID:   "turn-work:turn_1:live-assistant:call_1",
+		activityExpanded:   map[activityToolKey]bool{key: true},
+		inlineActivityOpen: map[string]bool{"turn-work:turn_1:live-assistant:call_1": true},
 	}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{
 		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
@@ -272,6 +273,9 @@ func TestSnapshotReconcilesExpandedActivityAcrossLiveSourceIdentity(t *testing.T
 	}})
 	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
 		t.Fatalf("live Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
+	}
+	if !state.inlineActivityOpen[state.activitySourceID] {
+		t.Fatalf("reconciled Activity source is closed: %+v", state.inlineActivityOpen)
 	}
 }
 
