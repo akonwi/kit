@@ -1,8 +1,10 @@
 package tui
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"strings"
 	"testing"
 	"time"
@@ -14,6 +16,37 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
+
+type previewAttachmentSession struct{}
+
+func (previewAttachmentSession) UploadAttachment(context.Context, string, io.Reader) (protocol.AttachmentInfo, error) {
+	panic("unexpected upload")
+}
+
+func (previewAttachmentSession) OpenAttachment(context.Context, string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	return protocol.AttachmentInfo{}, nil, fmt.Errorf("preview unavailable")
+}
+
+func TestToolImageRendersAttachmentPreview(t *testing.T) {
+	t.Parallel()
+	view := shellView{Snapshot: shellSnapshot{
+		Phase:       phaseReady,
+		Session:     protocol.SessionInfo{ID: "session-1", Name: "Images", Model: "test/model"},
+		Attachments: previewAttachmentSession{},
+		Messages: []transcriptMessage{
+			{ID: "assistant-1", TurnID: "turn-1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call-1", Name: "show_image"}}},
+			{ID: "result-1", TurnID: "turn-1", Role: "tool", ToolCallID: "call-1", ToolName: "show_image", ToolStatus: "Completed", ToolContent: []protocol.TranscriptContent{{
+				Kind: protocol.TranscriptContentImage, AttachmentID: "attachment-1", Filename: "sample.png", MediaType: "image/png",
+			}}},
+		},
+	}}
+	application := uitest.New(view)
+	application.Pump(100, 30)
+	text := strings.Join(paintedRows(application, 100, 30), "\n")
+	if !strings.Contains(text, "sample.png") {
+		t.Fatalf("tool image preview was not rendered:\n%s", text)
+	}
+}
 
 func TestComposerAttachmentsRenderAboveInputSeparator(t *testing.T) {
 	t.Parallel()

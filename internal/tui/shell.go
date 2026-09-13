@@ -556,7 +556,7 @@ func (w shellView) transcriptRows(theme ui.Theme, presentation transcriptPresent
 				workView.Snapshot.InlineActivityOpen = nil
 				workView.Callbacks.OpenActivity = nil
 			}
-			child = workView.transcriptWorkChip(theme, item, presentation.ToolStates)
+			child = workView.transcriptWorkEntry(theme, item, presentation.ToolStates)
 		}
 		if child != nil {
 			children = append(children, keyedTranscriptItem{ID: item.ID, Child: child})
@@ -573,6 +573,30 @@ type keyedTranscriptItem struct {
 func (w keyedTranscriptItem) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) }
 
 func (w keyedTranscriptItem) Build(ui.BuildContext) ui.Widget { return w.Child }
+
+func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayItem, toolStates map[transcriptToolStateKey]transcriptMessage) ui.Widget {
+	children := []ui.Widget{w.transcriptWorkChip(theme, item, toolStates)}
+	if w.Snapshot.Attachments == nil {
+		return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
+	}
+	for _, workItem := range item.Items {
+		for _, call := range assistantToolCalls(workItem.Message) {
+			state, ok := toolStates[transcriptToolStateKey{TurnID: workItem.TurnID, ToolCallID: call.ID}]
+			if !ok {
+				continue
+			}
+			for _, block := range state.ToolContent {
+				if block.Kind == protocol.TranscriptContentImage && block.AttachmentID != "" {
+					children = append(children, ui.Padding(ui.Insets{Top: 1}, keyedTranscriptItem{
+						ID:    "tool-image:" + block.AttachmentID,
+						Child: attachmentPreview{Attachment: block, Loader: w.Snapshot.Attachments},
+					}))
+				}
+			}
+		}
+	}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
+}
 
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
