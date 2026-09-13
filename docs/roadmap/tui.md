@@ -10,10 +10,9 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [x] TUI-THEME-001 — Complete Kit's semantic vaxis/ui design language across
   terminal capabilities, surface hierarchy, focus, empty/error states, and
   responsive layouts.
-- [ ] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
+- [x] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
   compatibility, persist the selection, apply changes immediately, and provide
-  semantic fallbacks for incomplete themes. Depends on `CORE-MIG-004` and
-  `CORE-SET-001`.
+  semantic fallbacks for incomplete themes.
 - [~] TUI-SHELL-001 — Complete narrow/wide workspace behavior, retained pane
   state, focus cycling, draggable remembered ratios, and the pane registry used
   by R1 surfaces.

@@ -14,9 +14,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
   migrated sessions must open and continue through droids.
 - [ ] CORE-MIG-003 — Preserve records that cannot be migrated and report each
   failure clearly without corrupting old or newly migrated state.
-- [ ] CORE-MIG-004 — Preserve supported user settings, themes, agent definitions,
-  prompt templates, MCP configuration, and plugin manifests with documented
-  precedence; deferred surfaces remain untouched and discoverable Post-R1.
+- [ ] CORE-MIG-004 — Preserve supported user settings, agent definitions, prompt
+  templates, MCP configuration, and plugin manifests with documented precedence;
+  deferred surfaces remain untouched and discoverable Post-R1. Theme migration
+  is a documented user-managed workflow.
 - [ ] CORE-MIG-005 — Switch the production default from `~/.kit-v2` to `~/.kit`
   only through the explicit migration and release process.
 - [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
