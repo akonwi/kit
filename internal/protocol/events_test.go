@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"testing"
+	"time"
 )
 
 func TestSessionRenamedEventValidation(t *testing.T) {
@@ -90,6 +91,45 @@ func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
 	failed.ErrorMessage = ""
 	if err := failed.Validate(); err == nil {
 		t.Fatal("failed compaction accepted an empty error")
+	}
+}
+
+func TestSessionEventValidatesProviderRetryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	base := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test"}
+	scheduled := base
+	scheduled.Kind = SessionEventProviderRetryScheduled
+	scheduled.ProviderRetry = &ProviderRetry{Count: 2, RetryAt: time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano)}
+	if err := scheduled.Validate(); err != nil {
+		t.Fatalf("past scheduled retry Validate() error = %v", err)
+	}
+	scheduled.ProviderRetry.RetryAt = "not-a-time"
+	if err := scheduled.Validate(); err == nil {
+		t.Fatal("scheduled retry accepted an invalid deadline")
+	}
+
+	started := base
+	started.Kind = SessionEventProviderRetryStarted
+	started.ProviderRetry = &ProviderRetry{Count: 2}
+	if err := started.Validate(); err != nil {
+		t.Fatalf("started retry Validate() error = %v", err)
+	}
+	started.ProviderRetry.RetryAt = time.Now().UTC().Format(time.RFC3339Nano)
+	if err := started.Validate(); err == nil {
+		t.Fatal("started retry accepted a deadline")
+	}
+	started.ProviderRetry.RetryAt = ""
+	started.Text = "unrelated"
+	if err := started.Validate(); err == nil {
+		t.Fatal("started retry accepted assistant content")
+	}
+
+	unrelated := base
+	unrelated.Kind = SessionEventCompactionStarted
+	unrelated.ProviderRetry = &ProviderRetry{Count: 1}
+	if err := unrelated.Validate(); err == nil {
+		t.Fatal("unrelated event accepted provider retry state")
 	}
 }
 

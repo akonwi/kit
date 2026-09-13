@@ -9,6 +9,7 @@ import (
 	"mime"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 	"unicode/utf8"
 
@@ -25,26 +26,28 @@ const (
 )
 
 const (
-	EventRunStarted           EventKind = "run.started"
-	EventUserMessage          EventKind = "message.user"
-	EventAssistantStarted     EventKind = "assistant.started"
-	EventAssistantTextDelta   EventKind = "assistant.text.delta"
-	EventThinkingDelta        EventKind = "assistant.thinking.delta"
-	EventAssistantCompleted   EventKind = "assistant.completed"
-	EventToolPlanned          EventKind = "tool.planned"
-	EventToolStarted          EventKind = "tool.started"
-	EventToolUpdated          EventKind = "tool.updated"
-	EventToolCompleted        EventKind = "tool.completed"
-	EventCompactionStarted    EventKind = "compaction.started"
-	EventCompactionCompleted  EventKind = "compaction.completed"
-	EventCompactionFailed     EventKind = "compaction.failed"
-	EventContextUpdated       EventKind = "context.updated"
-	EventUsageUpdated         EventKind = "usage.updated"
-	EventRunFinished          EventKind = "run.finished"
-	EventSessionRenamed       EventKind = "session.renamed"
-	EventSubagentChanged      EventKind = "subagent.changed"
-	EventInteractionRequested EventKind = "interaction.requested"
-	EventInteractionResolved  EventKind = "interaction.resolved"
+	EventRunStarted             EventKind = "run.started"
+	EventUserMessage            EventKind = "message.user"
+	EventAssistantStarted       EventKind = "assistant.started"
+	EventAssistantTextDelta     EventKind = "assistant.text.delta"
+	EventThinkingDelta          EventKind = "assistant.thinking.delta"
+	EventAssistantCompleted     EventKind = "assistant.completed"
+	EventToolPlanned            EventKind = "tool.planned"
+	EventToolStarted            EventKind = "tool.started"
+	EventToolUpdated            EventKind = "tool.updated"
+	EventToolCompleted          EventKind = "tool.completed"
+	EventCompactionStarted      EventKind = "compaction.started"
+	EventCompactionCompleted    EventKind = "compaction.completed"
+	EventCompactionFailed       EventKind = "compaction.failed"
+	EventProviderRetryScheduled EventKind = "provider.retry.scheduled"
+	EventProviderRetryStarted   EventKind = "provider.retry.started"
+	EventContextUpdated         EventKind = "context.updated"
+	EventUsageUpdated           EventKind = "usage.updated"
+	EventRunFinished            EventKind = "run.finished"
+	EventSessionRenamed         EventKind = "session.renamed"
+	EventSubagentChanged        EventKind = "subagent.changed"
+	EventInteractionRequested   EventKind = "interaction.requested"
+	EventInteractionResolved    EventKind = "interaction.resolved"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -70,6 +73,7 @@ type NewEvent struct {
 	Status                 RunStatus
 	ErrorKind              ProviderErrorKind
 	ErrorMessage           string
+	ProviderRetry          *ProviderRetry
 	ContextTokens          int
 	ContextWindow          int
 	Usage                  *SessionUsage
@@ -204,6 +208,14 @@ func (event NewEvent) Validate() error {
 		if event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
 			return fmt.Errorf("failed compaction requires a renderer-safe error message")
 		}
+	case EventProviderRetryScheduled:
+		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt.IsZero() {
+			return fmt.Errorf("scheduled provider retry requires a positive count and deadline")
+		}
+	case EventProviderRetryStarted:
+		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || !event.ProviderRetry.RetryAt.IsZero() {
+			return fmt.Errorf("started provider retry requires a positive count without a deadline")
+		}
 	case EventContextUpdated:
 		if event.ContextTokens < 0 || event.ContextWindow <= 0 {
 			return fmt.Errorf("context update requires non-negative tokens and a positive window")
@@ -280,6 +292,13 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
+	}
+	isRetry := event.Kind == EventProviderRetryScheduled || event.Kind == EventProviderRetryStarted
+	if !isRetry && event.ProviderRetry != nil {
+		return fmt.Errorf("event kind %q cannot carry provider retry state", event.Kind)
+	}
+	if isRetry && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
+		return fmt.Errorf("provider retry event cannot carry assistant content")
 	}
 	if event.Kind != EventSessionRenamed && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
@@ -648,6 +667,25 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 			}
 			base.Kind = EventCompactionFailed
 			base.ErrorMessage = rendererSafeLiveError(data.Error)
+		case "attempt.retry_scheduled":
+			var data struct {
+				Retry   int       `json:"retry"`
+				RetryAt time.Time `json:"retry_at"`
+			}
+			if json.Unmarshal(typed.Data, &data) != nil || data.Retry <= 0 || data.RetryAt.IsZero() {
+				return nil
+			}
+			base.Kind = EventProviderRetryScheduled
+			base.ProviderRetry = &ProviderRetry{Count: data.Retry, RetryAt: data.RetryAt}
+		case "attempt.started":
+			var data struct {
+				Retry int `json:"retry"`
+			}
+			if json.Unmarshal(typed.Data, &data) != nil || data.Retry <= 0 {
+				return nil
+			}
+			base.Kind = EventProviderRetryStarted
+			base.ProviderRetry = &ProviderRetry{Count: data.Retry}
 		case "context.updated":
 			var data struct {
 				EstimatedInput int `json:"estimated_input"`

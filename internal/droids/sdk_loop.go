@@ -865,7 +865,9 @@ func (rt *sdkRuntime) scheduleRetry(ctx context.Context, turnID TurnID, message 
 	retryAt := time.Now().UTC().Add(delay)
 	rt.state.RetryAt = retryAt
 	attemptSettled, _ := lifecycleEvent("attempt.settled", turnID, rt.state.AttemptID, map[string]any{"status": ExecutionFailed})
-	event, _ := lifecycleEvent("attempt.retry_scheduled", turnID, rt.state.AttemptID, map[string]any{"retry": rt.state.RetryCount, "delay_ms": delay.Milliseconds()})
+	event, _ := lifecycleEvent("attempt.retry_scheduled", turnID, rt.state.AttemptID, map[string]any{
+		"retry": rt.state.RetryCount, "delay_ms": delay.Milliseconds(), "retry_at": retryAt,
+	})
 	if err := rt.commitLocked(context.WithoutCancel(ctx), []EncodedMutation{attempt}, []EncodedDurableEvent{attemptSettled, event}); err != nil {
 		rt.state = before
 		rt.mu.Unlock()

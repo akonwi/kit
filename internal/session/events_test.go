@@ -121,6 +121,44 @@ func TestProjectDroidEventCarriesAutomaticCompactionLifecycle(t *testing.T) {
 	}
 }
 
+func TestProjectDroidEventCarriesProviderRetryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	retryAt := time.Date(2026, time.January, 2, 3, 4, 5, 6, time.UTC)
+	scheduled := projectDroidEvent("session_1", "turn_1", "turn_1", droids.LifecycleEvent{
+		Kind: "attempt.retry_scheduled", Data: json.RawMessage(`{"retry":2,"retry_at":"2026-01-02T03:04:05.000000006Z"}`),
+	})
+	if len(scheduled) != 1 || scheduled[0].Kind != EventProviderRetryScheduled || scheduled[0].ProviderRetry == nil ||
+		scheduled[0].ProviderRetry.Count != 2 || !scheduled[0].ProviderRetry.RetryAt.Equal(retryAt) {
+		t.Fatalf("scheduled retry event = %+v", scheduled)
+	}
+	if err := scheduled[0].Validate(); err != nil {
+		t.Fatalf("scheduled retry validation = %v", err)
+	}
+
+	started := projectDroidEvent("session_1", "turn_1", "turn_1", droids.LifecycleEvent{
+		Kind: "attempt.started", Data: json.RawMessage(`{"retry":2}`),
+	})
+	if len(started) != 1 || started[0].Kind != EventProviderRetryStarted || started[0].ProviderRetry == nil ||
+		started[0].ProviderRetry.Count != 2 || !started[0].ProviderRetry.RetryAt.IsZero() {
+		t.Fatalf("started retry event = %+v", started)
+	}
+	if err := started[0].Validate(); err != nil {
+		t.Fatalf("started retry validation = %v", err)
+	}
+	started[0].Delta = "unrelated"
+	if err := started[0].Validate(); err == nil {
+		t.Fatal("started retry accepted assistant content")
+	}
+
+	initial := projectDroidEvent("session_1", "turn_1", "turn_1", droids.LifecycleEvent{
+		Kind: "attempt.started", Data: json.RawMessage(`{"retry":0}`),
+	})
+	if len(initial) != 0 {
+		t.Fatalf("initial attempt projected as retry = %+v", initial)
+	}
+}
+
 func TestProjectDroidEventCarriesAbsoluteCumulativeUsage(t *testing.T) {
 	t.Parallel()
 

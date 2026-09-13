@@ -982,3 +982,32 @@ func (s *daemonEchoStream) Events() <-chan droids.StreamEvent {
 }
 
 func (s *daemonEchoStream) Result() droids.AssistantMessage { return s.final }
+
+func TestProjectSessionEventPageCarriesProviderRetryLifecycle(t *testing.T) {
+	t.Parallel()
+
+	retryAt := time.Date(2026, time.January, 2, 3, 4, 5, 6, time.UTC)
+	page := kitsession.EventPage{
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 2,
+		Events: []kitsession.Event{
+			{StreamID: "stream_test", Sequence: 1, NewEvent: kitsession.NewEvent{
+				SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test",
+				Kind: kitsession.EventProviderRetryScheduled, ProviderRetry: &kitsession.ProviderRetry{Count: 1, RetryAt: retryAt},
+			}},
+			{StreamID: "stream_test", Sequence: 2, NewEvent: kitsession.NewEvent{
+				SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test",
+				Kind: kitsession.EventProviderRetryStarted, ProviderRetry: &kitsession.ProviderRetry{Count: 1},
+			}},
+		},
+	}
+	projected := projectSessionEventPage(page)
+	if err := projected.Validate(); err != nil {
+		t.Fatalf("projected page Validate() error = %v", err)
+	}
+	if got := projected.Events[0].ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != retryAt.Format(time.RFC3339Nano) {
+		t.Fatalf("scheduled provider retry = %+v", got)
+	}
+	if got := projected.Events[1].ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != "" {
+		t.Fatalf("started provider retry = %+v", got)
+	}
+}

@@ -229,6 +229,12 @@ type DroidError struct {
 	Cause     error `json:"-"`
 }
 
+// ProviderRetry is the authoritative retry delay for an execution.
+type ProviderRetry struct {
+	Count   int
+	RetryAt time.Time
+}
+
 // ExecutionSnapshot is the current execution projection.
 type ExecutionSnapshot struct {
 	TurnID           TurnID
@@ -236,6 +242,7 @@ type ExecutionSnapshot struct {
 	BoundaryReaction bool
 	Reason           string
 	Error            *DroidError
+	Retry            *ProviderRetry
 }
 
 // Outcome is one execution's terminal or paused result.

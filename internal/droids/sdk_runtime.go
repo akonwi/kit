@@ -1806,11 +1806,15 @@ func (rt *sdkRuntime) finalizeUnresolvedToolsLocked(status ExecutionStatus) ([]E
 }
 
 func executionSnapshot(state durableRuntime) ExecutionSnapshot {
-	return ExecutionSnapshot{
+	result := ExecutionSnapshot{
 		TurnID: state.TurnID, Status: state.Status, Reason: state.Reason,
 		BoundaryReaction: state.BoundaryReaction,
 		Error:            expandDurableError(state.Error),
 	}
+	if (state.Status == ExecutionRetrying || state.Status == ExecutionInterrupted) && state.RetryCount > 0 && !state.RetryAt.IsZero() {
+		result.Retry = &ProviderRetry{Count: state.RetryCount, RetryAt: state.RetryAt}
+	}
+	return result
 }
 
 func outcomeFromState(conversation ConversationID, state durableRuntime) Outcome {

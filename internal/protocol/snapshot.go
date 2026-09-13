@@ -168,6 +168,14 @@ func (snapshot SessionSnapshot) Validate() error {
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
+	if snapshot.ProviderRetry != nil {
+		if snapshot.ActiveRunID == "" || snapshot.ProviderRetry.Count <= 0 || snapshot.ProviderRetry.RetryAt == "" {
+			return fmt.Errorf("snapshot provider retry requires an active run, positive count, and deadline")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, snapshot.ProviderRetry.RetryAt); err != nil {
+			return fmt.Errorf("snapshot provider retry deadline is invalid: %w", err)
+		}
+	}
 	if snapshot.HasMoreMessages {
 		cursor, err := strconv.ParseUint(snapshot.PreviousMessageCursor, 10, 64)
 		if err != nil || cursor == 0 || len(snapshot.Messages) == 0 || cursor != uint64(snapshot.Messages[0].Sequence) {

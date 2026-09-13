@@ -282,6 +282,7 @@ type appState struct {
 	pendingInteractions              []protocol.InteractionRequest
 	followUpMutationPending          bool
 	runStopping                      bool
+	providerRetry                    *protocol.ProviderRetry
 	contextTokens                    int
 	contextWindow                    int
 	sessionUsage                     protocol.SessionUsage
@@ -478,7 +479,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.subagentRevealPending
+	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.subagentRevealPending || s.providerRetry != nil
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
@@ -908,7 +909,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Attachments:                  attachments,
 		Running:                      s.hasActiveWork(),
 		AgentRunning:                 s.runPending,
-		TurnActivity:                 s.turnActivity,
+		TurnActivity:                 s.presentedTurnActivity(time.Now()),
 		TurnThinking:                 s.turnThinking,
 		FollowUps:                    s.followUps,
 		PendingInteractions:          append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
@@ -1837,6 +1838,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.sessionUsage = snapshot.Usage
 	s.activeRunID = snapshot.ActiveRunID
 	s.runPending = snapshot.ActiveRunID != ""
+	s.providerRetry = cloneProviderRetry(snapshot.ProviderRetry)
 	if snapshot.ActiveRunID != "" && snapshot.ActiveRunID != s.terminalSettledRunID {
 		s.markTerminalRunStarted(snapshot.ActiveRunID)
 	}
@@ -2005,6 +2007,7 @@ func (s *appState) resetLiveRun() {
 	s.turnActivity = ""
 	s.turnThinking = ""
 	s.runStopping = false
+	s.providerRetry = nil
 	s.terminalRunActive = false
 	s.terminalRunID = ""
 	s.agentFeedbackPending = false
@@ -2045,6 +2048,39 @@ func (s *appState) setTurnThinking(thinking string) {
 		return
 	}
 	s.turnThinking = thinking
+}
+
+func cloneProviderRetry(retry *protocol.ProviderRetry) *protocol.ProviderRetry {
+	if retry == nil {
+		return nil
+	}
+	copy := *retry
+	return &copy
+}
+
+func providerRetryActivity(retry *protocol.ProviderRetry, now time.Time) string {
+	if retry == nil {
+		return ""
+	}
+	deadline, err := time.Parse(time.RFC3339Nano, retry.RetryAt)
+	if err != nil {
+		return ""
+	}
+	remaining := deadline.Sub(now)
+	seconds := int64(0)
+	if remaining > 0 {
+		seconds = int64((remaining + time.Second - 1) / time.Second)
+	}
+	return fmt.Sprintf("Retry %d in %ds…", retry.Count, seconds)
+}
+
+func (s *appState) presentedTurnActivity(now time.Time) string {
+	if !s.runStopping {
+		if activity := providerRetryActivity(s.providerRetry, now); activity != "" {
+			return activity
+		}
+	}
+	return s.turnActivity
 }
 
 type cwdToolDetails struct {
@@ -2236,6 +2272,12 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			} else {
 				s.setTurnActivity("Working…")
 			}
+		case protocol.SessionEventProviderRetryScheduled:
+			s.providerRetry = cloneProviderRetry(event.ProviderRetry)
+			s.setTurnThinking("")
+		case protocol.SessionEventProviderRetryStarted:
+			s.providerRetry = nil
+			s.setTurnActivity("Working…")
 		case protocol.SessionEventCompactionStarted:
 			s.setTurnThinking("")
 			s.setTurnActivity("Compacting session…")
@@ -2269,6 +2311,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				}
 			}
 			s.runStopping = false
+			s.providerRetry = nil
 			s.setTurnThinking("")
 			s.setTurnActivity("")
 		}

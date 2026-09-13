@@ -874,13 +874,18 @@ func TestSDKRetriesTransientProviderFailure(t *testing.T) {
 	droid, err := droids.Open(t.Context(), "conversation_retry", droids.Config{
 		Providers: providers, Model: "test/retry",
 		Retry: &droids.RetryPolicy{
-			Enabled: true, MaxRetries: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond,
+			Enabled: true, MaxRetries: 1, BaseDelay: 2 * time.Second, MaxDelay: 2 * time.Second,
 		},
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = droid.Close() })
+	subscription, err := droid.Subscribe(t.Context(), droids.SubscribeOptions{Buffer: 32})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer subscription.Close()
 	handle, err := droid.Prompt(t.Context(), droids.Input{
 		Content: []droids.InputContent{droids.TextInput{Text: "retry"}},
 	}, droids.PromptOptions{})
@@ -889,6 +894,32 @@ func TestSDKRetriesTransientProviderFailure(t *testing.T) {
 	}
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
+	var scheduled struct {
+		Retry   int       `json:"retry"`
+		RetryAt time.Time `json:"retry_at"`
+	}
+	for scheduled.Retry == 0 {
+		select {
+		case envelope := <-subscription.Events():
+			event, ok := envelope.Event.(droids.LifecycleEvent)
+			if !ok || event.Kind != "attempt.retry_scheduled" {
+				continue
+			}
+			if err := json.Unmarshal(event.Data, &scheduled); err != nil {
+				t.Fatal(err)
+			}
+		case <-ctx.Done():
+			t.Fatal("retry schedule event was not delivered")
+		}
+	}
+	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Active == nil || snapshot.Active.Retry == nil || snapshot.Active.Retry.Count != scheduled.Retry ||
+		!snapshot.Active.Retry.RetryAt.Equal(scheduled.RetryAt) {
+		t.Fatalf("retry snapshot = %+v, scheduled = %+v", snapshot.Active, scheduled)
+	}
 	outcome, err := handle.Wait(ctx)
 	if err != nil {
 		t.Fatal(err)

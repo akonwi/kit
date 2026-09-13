@@ -414,6 +414,12 @@ type SubagentMailboxItem struct {
 	CreatedAt      string `json:"createdAt"`
 }
 
+// ProviderRetry is an authoritative provider retry delay.
+type ProviderRetry struct {
+	Count   int    `json:"count"`
+	RetryAt string `json:"retryAt,omitempty"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo            `json:"session"`
@@ -422,6 +428,7 @@ type SessionSnapshot struct {
 	HasMoreMessages       bool                   `json:"hasMoreMessages,omitempty"`
 	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
 	ActiveRunID           string                 `json:"activeRunId,omitempty"`
+	ProviderRetry         *ProviderRetry         `json:"providerRetry,omitempty"`
 	ActiveBashExecutionID string                 `json:"activeBashExecutionId,omitempty"`
 	EventStreamID         string                 `json:"eventStreamId,omitempty"`
 	EventCursor           int64                  `json:"eventCursor,omitempty"`

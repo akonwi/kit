@@ -253,6 +253,11 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		SubagentMailbox:       make([]protocol.SubagentMailboxItem, 0, len(snapshot.SubagentMailbox)),
 		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
 	}
+	if snapshot.ProviderRetry != nil {
+		result.ProviderRetry = &protocol.ProviderRetry{
+			Count: snapshot.ProviderRetry.Count, RetryAt: snapshot.ProviderRetry.RetryAt.Format(time.RFC3339Nano),
+		}
+	}
 	for _, interaction := range snapshot.PendingInteractions {
 		result.PendingInteractions = append(result.PendingInteractions, projectInteractionRequest(interaction))
 	}
@@ -667,6 +672,12 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			SessionName:            event.SessionName,
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
 			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
+		}
+		if event.ProviderRetry != nil {
+			projected.ProviderRetry = &protocol.ProviderRetry{Count: event.ProviderRetry.Count}
+			if !event.ProviderRetry.RetryAt.IsZero() {
+				projected.ProviderRetry.RetryAt = event.ProviderRetry.RetryAt.Format(time.RFC3339Nano)
+			}
 		}
 		if event.Interaction != nil {
 			interaction := projectInteractionRequest(*event.Interaction)

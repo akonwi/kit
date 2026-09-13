@@ -49,7 +49,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   activation while preserving selectable text and terminal-native copying.
 - [~] TUI-TRANSCRIPT-003 — Present model/thinking selection, context
   pressure/capacity, retry countdowns, compaction lifecycle, cancellation, and
-  terminal run state without obscuring retained evidence.
+  terminal run state without obscuring retained evidence. Depends on
+  `CORE-RUN-003`, `CORE-RUN-004`, and `CORE-RUN-005`.
 
 ### Composer, sessions, and commands
 

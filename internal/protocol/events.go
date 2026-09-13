@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
 	"github.com/akonwi/kit/internal/identifier"
 )
@@ -17,26 +18,28 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventRunStarted           SessionEventKind = "run.started"
-	SessionEventUserMessage          SessionEventKind = "message.user"
-	SessionEventAssistantStarted     SessionEventKind = "assistant.started"
-	SessionEventAssistantTextDelta   SessionEventKind = "assistant.text.delta"
-	SessionEventThinkingDelta        SessionEventKind = "assistant.thinking.delta"
-	SessionEventAssistantCompleted   SessionEventKind = "assistant.completed"
-	SessionEventToolPlanned          SessionEventKind = "tool.planned"
-	SessionEventToolStarted          SessionEventKind = "tool.started"
-	SessionEventToolUpdated          SessionEventKind = "tool.updated"
-	SessionEventToolCompleted        SessionEventKind = "tool.completed"
-	SessionEventCompactionStarted    SessionEventKind = "compaction.started"
-	SessionEventCompactionCompleted  SessionEventKind = "compaction.completed"
-	SessionEventCompactionFailed     SessionEventKind = "compaction.failed"
-	SessionEventContextUpdated       SessionEventKind = "context.updated"
-	SessionEventUsageUpdated         SessionEventKind = "usage.updated"
-	SessionEventRunFinished          SessionEventKind = "run.finished"
-	SessionEventSessionRenamed       SessionEventKind = "session.renamed"
-	SessionEventSubagentChanged      SessionEventKind = "subagent.changed"
-	SessionEventInteractionRequested SessionEventKind = "interaction.requested"
-	SessionEventInteractionResolved  SessionEventKind = "interaction.resolved"
+	SessionEventRunStarted             SessionEventKind = "run.started"
+	SessionEventUserMessage            SessionEventKind = "message.user"
+	SessionEventAssistantStarted       SessionEventKind = "assistant.started"
+	SessionEventAssistantTextDelta     SessionEventKind = "assistant.text.delta"
+	SessionEventThinkingDelta          SessionEventKind = "assistant.thinking.delta"
+	SessionEventAssistantCompleted     SessionEventKind = "assistant.completed"
+	SessionEventToolPlanned            SessionEventKind = "tool.planned"
+	SessionEventToolStarted            SessionEventKind = "tool.started"
+	SessionEventToolUpdated            SessionEventKind = "tool.updated"
+	SessionEventToolCompleted          SessionEventKind = "tool.completed"
+	SessionEventCompactionStarted      SessionEventKind = "compaction.started"
+	SessionEventCompactionCompleted    SessionEventKind = "compaction.completed"
+	SessionEventCompactionFailed       SessionEventKind = "compaction.failed"
+	SessionEventProviderRetryScheduled SessionEventKind = "provider.retry.scheduled"
+	SessionEventProviderRetryStarted   SessionEventKind = "provider.retry.started"
+	SessionEventContextUpdated         SessionEventKind = "context.updated"
+	SessionEventUsageUpdated           SessionEventKind = "usage.updated"
+	SessionEventRunFinished            SessionEventKind = "run.finished"
+	SessionEventSessionRenamed         SessionEventKind = "session.renamed"
+	SessionEventSubagentChanged        SessionEventKind = "subagent.changed"
+	SessionEventInteractionRequested   SessionEventKind = "interaction.requested"
+	SessionEventInteractionResolved    SessionEventKind = "interaction.resolved"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -64,6 +67,7 @@ type SessionEvent struct {
 	Status                 RunStatus           `json:"status,omitempty"`
 	ErrorKind              ProviderErrorKind   `json:"errorKind,omitempty"`
 	ErrorMessage           string              `json:"errorMessage,omitempty"`
+	ProviderRetry          *ProviderRetry      `json:"providerRetry,omitempty"`
 	ContextTokens          int                 `json:"contextTokens,omitempty"`
 	ContextWindow          int                 `json:"contextWindow,omitempty"`
 	Usage                  *SessionUsage       `json:"usage,omitempty"`
@@ -172,6 +176,17 @@ func (event SessionEvent) Validate() error {
 		if event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
 			return fmt.Errorf("failed compaction requires an error message")
 		}
+	case SessionEventProviderRetryScheduled:
+		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt == "" {
+			return fmt.Errorf("scheduled provider retry requires a positive count and deadline")
+		}
+		if _, err := time.Parse(time.RFC3339Nano, event.ProviderRetry.RetryAt); err != nil {
+			return fmt.Errorf("scheduled provider retry deadline is invalid: %w", err)
+		}
+	case SessionEventProviderRetryStarted:
+		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt != "" {
+			return fmt.Errorf("started provider retry requires a positive count without a deadline")
+		}
 	case SessionEventContextUpdated:
 		if event.ContextTokens < 0 || event.ContextWindow <= 0 {
 			return fmt.Errorf("context update requires non-negative tokens and a positive window")
@@ -244,6 +259,13 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
+	}
+	isRetry := event.Kind == SessionEventProviderRetryScheduled || event.Kind == SessionEventProviderRetryStarted
+	if !isRetry && event.ProviderRetry != nil {
+		return fmt.Errorf("event kind %q cannot carry provider retry state", event.Kind)
+	}
+	if isRetry && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
+		return fmt.Errorf("provider retry event cannot carry assistant content")
 	}
 	if event.Kind != SessionEventSessionRenamed && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)

@@ -146,6 +146,12 @@ type SessionUsageCost struct {
 	Total      float64
 }
 
+// ProviderRetry is the authoritative provider retry currently delaying a run.
+type ProviderRetry struct {
+	Count   int
+	RetryAt time.Time
+}
+
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
@@ -153,6 +159,7 @@ type Snapshot struct {
 	HasMoreMessages       bool
 	Boundaries            []PendingBoundary
 	ActiveRunID           string
+	ProviderRetry         *ProviderRetry
 	ActiveBashExecutionID string
 	EventStreamID         string
 	EventCursor           int64
@@ -291,6 +298,14 @@ func (m *Manager) TranscriptPage(ctx context.Context, sessionID string, before u
 	return projectTranscriptPage(ctx, loaded.droid, before, "", false)
 }
 
+func projectProviderRetry(activeRunID string, active *droids.ExecutionSnapshot) *ProviderRetry {
+	if activeRunID == "" || active == nil || string(active.TurnID) != activeRunID || active.Retry == nil ||
+		(active.Status != droids.ExecutionRetrying && active.Status != droids.ExecutionInterrupted) {
+		return nil
+	}
+	return &ProviderRetry{Count: active.Retry.Count, RetryAt: active.Retry.RetryAt}
+}
+
 func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot, pendingInteractions []InteractionRequest) (Snapshot, error) {
 	activeRunID := loaded.activeRun
 	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
@@ -308,6 +323,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		Warnings:             append([]string(nil), loaded.configurationWarnings...),
 		PendingInteractions:  pendingInteractions,
 	}
+	result.ProviderRetry = projectProviderRetry(activeRunID, droidSnapshot.Active)
 	for _, definition := range loaded.bundle.Subagents.Catalog.Definitions() {
 		result.SubagentDefinitions = append(result.SubagentDefinitions, SubagentDefinition{
 			Name: definition.Name, Description: definition.Description, Model: definition.Model, Source: definition.Source,

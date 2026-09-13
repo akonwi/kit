@@ -105,25 +105,27 @@ func (transport *scriptedMutationTransport) GetSessionSnapshot(context.Context, 
 func TestAttachmentEventStreamIncludesRunLifecycleEvents(t *testing.T) {
 	t.Parallel()
 	batch := protocol.SessionEventBatch{
-		StreamID: "stream_test", FirstSequence: 1, LastSequence: 3,
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 5,
 		Events: []protocol.SessionEvent{
 			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventRunStarted, Status: protocol.RunStatusRunning},
-			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventAssistantCompleted, MessageID: "message_one"},
-			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
+			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventProviderRetryScheduled, ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}},
+			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventProviderRetryStarted, ProviderRetry: &protocol.ProviderRetry{Count: 1}},
+			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventAssistantCompleted, MessageID: "message_one"},
+			{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
 		},
 	}
 	encoded, err := json.Marshal(batch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := io.NopCloser(strings.NewReader("event: session.events\nid: stream_test:3\ndata: " + string(encoded) + "\n\n"))
+	body := io.NopCloser(strings.NewReader("event: session.events\nid: stream_test:5\ndata: " + string(encoded) + "\n\n"))
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
 	go stream.readSSE(t.Context(), body, "", true, "", "stream_test", 0, nil, true)
 	var received []protocol.SessionEvent
 	for events := range stream.Updates() {
 		received = append(received, events...)
 	}
-	if len(received) != 3 || received[0].Kind != protocol.SessionEventRunStarted || received[2].Kind != protocol.SessionEventRunFinished {
+	if len(received) != 5 || received[1].Kind != protocol.SessionEventProviderRetryScheduled || received[2].Kind != protocol.SessionEventProviderRetryStarted || received[4].Kind != protocol.SessionEventRunFinished {
 		t.Fatalf("attachment events = %#v", received)
 	}
 }
@@ -132,18 +134,20 @@ func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	t.Parallel()
 
 	batch := protocol.SessionEventBatch{
-		StreamID: "stream_test", FirstSequence: 1, LastSequence: 3,
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 5,
 		Events: []protocol.SessionEvent{
 			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_other", RunID: "run_other", Kind: protocol.SessionEventRunStarted, Status: protocol.RunStatusRunning},
 			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Kind: protocol.SessionEventRunStarted, Status: protocol.RunStatusRunning},
-			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
+			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Kind: protocol.SessionEventProviderRetryScheduled, ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}},
+			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Kind: protocol.SessionEventProviderRetryStarted, ProviderRetry: &protocol.ProviderRetry{Count: 1}},
+			{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Kind: protocol.SessionEventRunFinished, Status: protocol.RunStatusCompleted},
 		},
 	}
 	encoded, err := json.Marshal(batch)
 	if err != nil {
 		t.Fatal(err)
 	}
-	body := io.NopCloser(strings.NewReader(": connected\n\nevent: session.events\nid: stream_test:3\ndata: " + string(encoded) + "\n\n"))
+	body := io.NopCloser(strings.NewReader(": connected\n\nevent: session.events\nid: stream_test:5\ndata: " + string(encoded) + "\n\n"))
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent, 8), done: make(chan struct{})}
 	go stream.readSSE(t.Context(), body, "run_test", false, "", "", 0, nil, false)
 
@@ -154,7 +158,7 @@ func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("event stream error = %v", err)
 	}
-	if len(received) != 2 || received[0].Kind != protocol.SessionEventRunStarted || received[1].Kind != protocol.SessionEventRunFinished {
+	if len(received) != 4 || received[1].Kind != protocol.SessionEventProviderRetryScheduled || received[2].Kind != protocol.SessionEventProviderRetryStarted || received[3].Kind != protocol.SessionEventRunFinished {
 		t.Fatalf("received = %+v", received)
 	}
 }

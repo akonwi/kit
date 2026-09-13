@@ -121,6 +121,50 @@ func TestAttachedRunLifecycleFindsAutonomousRunBoundaries(t *testing.T) {
 	}
 }
 
+func TestProviderRetryEventsDriveCountdownState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 1, Kind: protocol.SessionEventProviderRetryScheduled,
+		ProviderRetry: &protocol.ProviderRetry{Count: 2, RetryAt: now.Add(3500 * time.Millisecond).Format(time.RFC3339Nano)},
+	}})
+	if got := state.presentedTurnActivity(now); got != "Retry 2 in 4s…" {
+		t.Fatalf("scheduled retry activity = %q", got)
+	}
+	if got := state.presentedTurnActivity(now.Add(10 * time.Second)); got != "Retry 2 in 0s…" {
+		t.Fatalf("past retry activity = %q", got)
+	}
+	state.setTurnActivity("Stopping…")
+	state.runStopping = true
+	if got := state.presentedTurnActivity(now); got != "Stopping…" {
+		t.Fatalf("stopping precedence activity = %q", got)
+	}
+	state.runStopping = false
+	state.applyRunEvents([]protocol.SessionEvent{{
+		Sequence: 2, Kind: protocol.SessionEventProviderRetryStarted,
+		ProviderRetry: &protocol.ProviderRetry{Count: 2},
+	}})
+	if state.providerRetry != nil || state.presentedTurnActivity(now) != "Working…" {
+		t.Fatalf("started retry state = retry %+v activity %q", state.providerRetry, state.presentedTurnActivity(now))
+	}
+}
+
+func TestProviderRetrySnapshotRestoresCountdownState(t *testing.T) {
+	t.Parallel()
+
+	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
+	state := &appState{}
+	state.applySnapshot(protocol.SessionSnapshot{
+		ActiveRunID:   "turn_test",
+		ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: now.Add(time.Second).Format(time.RFC3339Nano)},
+	})
+	if got := state.presentedTurnActivity(now); got != "Retry 1 in 1s…" {
+		t.Fatalf("restored retry activity = %q", got)
+	}
+}
+
 func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}

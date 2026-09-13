@@ -52,6 +52,28 @@ func TestSessionSnapshotAllowsStandaloneBashInsideParentTimeline(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotValidatesProviderRetry(t *testing.T) {
+	t.Parallel()
+
+	snapshot := validTranscriptSnapshot()
+	snapshot.ActiveRunID = "turn_2"
+	snapshot.ProviderRetry = &ProviderRetry{
+		Count: 1, RetryAt: time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano),
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("past provider retry Validate() error = %v", err)
+	}
+	snapshot.ActiveRunID = ""
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot provider retry accepted without an active run")
+	}
+	snapshot.ActiveRunID = "turn_2"
+	snapshot.ProviderRetry.RetryAt = "invalid"
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot provider retry accepted an invalid deadline")
+	}
+}
+
 func TestSessionSnapshotValidatesStructuredTranscript(t *testing.T) {
 	t.Parallel()
 
