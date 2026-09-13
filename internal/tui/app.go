@@ -5434,7 +5434,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			s.SetState(func() { s.status = "Stopping bash…" })
 			return
 		}
-		if !s.runPending {
+		if !s.runPending || s.runStopping {
 			return
 		}
 		run := s.activeRun

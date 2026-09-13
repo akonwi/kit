@@ -13,6 +13,7 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
+	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
@@ -85,6 +86,33 @@ func (appTestRun) Wait(context.Context) (protocol.PromptOutcome, error) {
 	return protocol.PromptOutcome{}, nil
 }
 func (appTestRun) Abort(context.Context) error { return nil }
+
+type recordingAbortRun struct {
+	calls chan struct{}
+}
+
+func (recordingAbortRun) ID() string { return "turn_test" }
+func (recordingAbortRun) Wait(context.Context) (protocol.PromptOutcome, error) {
+	return protocol.PromptOutcome{}, nil
+}
+func (run recordingAbortRun) Abort(context.Context) error {
+	run.calls <- struct{}{}
+	return nil
+}
+
+func TestDismissIgnoresRepeatedRunAbort(t *testing.T) {
+	calls := make(chan struct{}, 1)
+	state := &appState{
+		phase: phaseReady, runPending: true, runStopping: true,
+		activeRun: recordingAbortRun{calls: calls}, activeRunID: "turn_test",
+	}
+	state.dismiss(ui.EventContext{})
+	select {
+	case <-calls:
+		t.Fatal("repeated Escape issued another run abort")
+	case <-time.After(20 * time.Millisecond):
+	}
+}
 
 func TestAttachedSnapshotReconcilesCompletedAndSuccessorRuns(t *testing.T) {
 	t.Parallel()

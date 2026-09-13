@@ -146,9 +146,10 @@ Implemented state:
 
 ## Phase 4: harden cancellation presentation
 
-- [ ] Ignore repeated Escape requests while `runStopping` is true.
-- [ ] Add direct TUI tests proving one `Run.Abort` or `Session.Abort` request is
-  issued.
+- [x] Ignore repeated Escape requests while `runStopping` is true; covered by a
+  direct regression test that rejects a second `Run.Abort` request.
+- [ ] Add direct TUI tests proving the initial Escape issues one `Run.Abort` or
+  `Session.Abort` request.
 - [ ] Define visible abort timeout/failure feedback while waiting for
   authoritative settlement.
 - [ ] Test cancellation during provider retry, compaction, event-stream
