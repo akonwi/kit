@@ -19,7 +19,8 @@ Status: accepted direction; implementation in progress.
 The native TUI does not provide an `/attach` command. It recognizes attachments
 from a bracketed paste containing absolute paths, `file://` URLs, or multiple
 newline-separated paths. Terminal drag-and-drop is supported when the terminal
-represents the dropped files as pasted paths.
+represents the dropped files as pasted paths, including names containing spaces
+quoted or backslash-escaped on a single space-separated line.
 
 Path recognition is conservative: every non-empty pasted entry must resolve to
 a supported regular file or the paste remains ordinary composer text. Binary

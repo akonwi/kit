@@ -29,11 +29,11 @@ func pastedAttachmentPaths(previous, next string) ([]string, string, bool) {
 		if line == "" {
 			continue
 		}
-		path, ok := pastedAttachmentPath(line)
+		linePaths, ok := pastedAttachmentPathsInLine(line)
 		if !ok {
 			return nil, next, false
 		}
-		paths = append(paths, path)
+		paths = append(paths, linePaths...)
 	}
 	if len(paths) == 0 {
 		return nil, next, false
@@ -49,6 +49,75 @@ func attachmentPathsForComposerChange(previous, next string) ([]string, string, 
 	// multiple field updates. On the final update the complete composer is the
 	// only reliable attachment candidate.
 	return pastedAttachmentPaths("", next)
+}
+
+// pastedAttachmentPathsInLine resolves one pasted line to the attachment paths
+// it names. A line is either a single path that may contain unescaped spaces or
+// a shell-style list of quoted and backslash-escaped paths, which is how
+// terminals report drag-and-drop of names containing spaces.
+func pastedAttachmentPathsInLine(line string) ([]string, bool) {
+	if path, ok := pastedAttachmentPath(line); ok {
+		return []string{path}, true
+	}
+	tokens, ok := splitPastedPathTokens(line)
+	if !ok || len(tokens) == 0 {
+		return nil, false
+	}
+	paths := make([]string, 0, len(tokens))
+	for _, token := range tokens {
+		path, ok := pastedAttachmentPath(token)
+		if !ok {
+			return nil, false
+		}
+		paths = append(paths, path)
+	}
+	return paths, true
+}
+
+// splitPastedPathTokens splits a line on unquoted whitespace, honouring single
+// quotes, double quotes, and backslash escapes. It reports false when quoting
+// is unterminated, because the paste is then not a well-formed path list.
+func splitPastedPathTokens(line string) ([]string, bool) {
+	var tokens []string
+	var token strings.Builder
+	quote := rune(0)
+	escaped := false
+	started := false
+	for _, character := range line {
+		switch {
+		case escaped:
+			token.WriteRune(character)
+			escaped = false
+		case character == '\\' && quote != '\'':
+			escaped = true
+			started = true
+		case quote != 0:
+			if character == quote {
+				quote = 0
+				break
+			}
+			token.WriteRune(character)
+		case character == '\'' || character == '"':
+			quote = character
+			started = true
+		case character == ' ' || character == '\t':
+			if started {
+				tokens = append(tokens, token.String())
+				token.Reset()
+				started = false
+			}
+		default:
+			token.WriteRune(character)
+			started = true
+		}
+	}
+	if quote != 0 || escaped {
+		return nil, false
+	}
+	if started {
+		tokens = append(tokens, token.String())
+	}
+	return tokens, true
 }
 
 func pastedAttachmentPath(value string) (string, bool) {
