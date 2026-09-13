@@ -69,18 +69,6 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   behavior, guided questions, preferred diff layout, and remembered workspace
   ratios. Depends on `CORE-SET-002`.
 
-### Images and attachments
-
-- [x] TUI-ATT-001 — Stage image and text attachments; restore, queue, submit,
-  and remove them without losing composer state. Depends on `CORE-ATT-001`.
-- [x] TUI-ATT-002 — Always-visible half-block previews, safe fallback, and
-  system-app opening for user and explicit `show_image` transcript images.
-  Depends on `CORE-ATT-002`.
-- [x] TUI-ATT-003 — Preserve attachment identity and filenames for follow-ups
-  restored from the queue through bounded metadata hydration, with explicit
-  unavailable-attachment state. Staged blobs remain durable, while renderer-owned
-  composer drafts remain process-local pending `TUI-COMP-001`.
-
 ### User interaction and integrations
 
 - [ ] TUI-MCP-001 — Present MCP connection, authentication, failure, and debug
