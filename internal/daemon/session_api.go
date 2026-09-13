@@ -27,6 +27,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	Fork(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error)
 	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.SessionInfo, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	Delete(context.Context, string) error
@@ -81,6 +82,18 @@ func (s runtimeSessionService) Create(
 		return protocol.SessionInfo{}, err
 	}
 	return projectSession(record), nil
+}
+
+func (s runtimeSessionService) Fork(
+	ctx context.Context,
+	sourceSessionID string,
+	input protocol.ForkSessionInput,
+) (protocol.SessionInfo, error) {
+	result, err := s.manager.Fork(ctx, sourceSessionID, kitsession.ForkInput{ID: input.ID, Name: input.Name})
+	if err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	return projectSession(result.Session), nil
 }
 
 func (s runtimeSessionService) ChangeCWD(
@@ -935,6 +948,23 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, map[string]any{"sessions": records})
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/forks", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ForkSessionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		record, err := service.Fork(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusCreated, record)
+	})
 	mux.HandleFunc("PATCH /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.RenameSessionInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -1444,10 +1474,15 @@ func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
 	if !protocol.ValidSessionName(name) {
 		name = ""
 	}
+	parentName := record.ParentSessionName
+	if !protocol.ValidSessionName(parentName) {
+		parentName = ""
+	}
 	return protocol.SessionInfo{
-		ID: record.ID, CWD: record.CWD, Name: name,
-		Model:         record.ModelProvider + "/" + record.ModelID,
-		ThinkingLevel: record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
+		ID: record.ID, CWD: record.CWD, Name: name, ParentSessionID: record.ParentSessionID,
+		ParentSessionName: parentName,
+		Model:             record.ModelProvider + "/" + record.ModelID,
+		ThinkingLevel:     record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
 		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano),
 		UpdatedAt: record.UpdatedAt.Format(time.RFC3339Nano),
 	}

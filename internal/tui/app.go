@@ -3363,6 +3363,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.reloadSession()
 	case paletteCommandDebug:
 		s.SetState(func() { s.sessionDetailsOpen = true })
+	case paletteCommandFork:
+		s.forkCurrentSession(args)
 	case paletteCommandSessions:
 		s.openSessionExplorer()
 	case paletteCommandSubagents:
@@ -4636,6 +4638,71 @@ func (s *appState) createNewSession() {
 			})
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
+		})
+	}()
+}
+
+func (s *appState) forkCurrentSession(message string) {
+	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() {
+		return
+	}
+	options := s.Widget().(app).Options
+	childID, err := identifier.New("session_")
+	if err != nil {
+		s.showToast(toastInput{Title: "Could not fork session", Subtitle: err.Error(), Variant: toastError})
+		return
+	}
+	forkContext, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+	generation := s.sessionCreateGeneration + 1
+	sourceOperation := s.operation
+	sourceSessionID := s.session.ID
+	s.SetState(func() {
+		s.sessionCreateGeneration = generation
+		s.sessionCreatePending = true
+		s.sessionCreateCancel = cancel
+	})
+	runtime := s.Context().Runtime()
+	go func() {
+		created, err := options.Server.ForkSession(forkContext, sourceSessionID, protocol.ForkSessionInput{ID: childID})
+		var bound sessionclient.Session
+		var snapshot protocol.SessionSnapshot
+		var location string
+		if err == nil {
+			bound, snapshot, location, err = attachSessionForSwitch(forkContext, options.Server, created.ID, options.ResolveLocation)
+		}
+		cancel()
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if generation != s.sessionCreateGeneration {
+				return
+			}
+			s.sessionCreateCancel = nil
+			s.sessionCreatePending = false
+			if s.operation != sourceOperation || s.session.ID != sourceSessionID {
+				return
+			}
+			if err != nil {
+				s.showToast(toastInput{Title: "Fork failed", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			var operation uint64
+			s.SetState(func() {
+				s.installSession(bound, snapshot, location)
+				operation = s.operation
+			})
+			s.startVCSMonitoring()
+			s.watchAttachedSession(bound, operation)
+			if prompt := strings.TrimSpace(message); prompt != "" {
+				s.startPromptSubmission(prompt, func(ctx context.Context) (sessionclient.Run, error) {
+					if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
+						result, submitErr := structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: prompt})
+						return result.Run, submitErr
+					}
+					return bound.StartPrompt(ctx, prompt)
+				})
+			}
 		})
 	}()
 }

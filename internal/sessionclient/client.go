@@ -12,6 +12,7 @@ import (
 // Server discovers, creates, and binds authoritative sessions.
 type Server interface {
 	CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error)
 	RenameSession(context.Context, string, string) (protocol.SessionInfo, error)
 	DeleteSession(context.Context, string) error
 	DisposeTemporarySession(context.Context, string) error

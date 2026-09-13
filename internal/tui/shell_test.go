@@ -217,7 +217,8 @@ func TestSessionDetailsShowsAuthoritativeCumulativeUsage(t *testing.T) {
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, SessionDetailsOpen: true,
 		Session: protocol.SessionInfo{
-			ID: "session_1", Name: "Usage audit", Model: "openai-codex/gpt-5.6-sol", ThinkingLevel: "high",
+			ID: "session_1", Name: "Usage audit", ParentSessionID: "session_parent",
+			ParentSessionName: "Original work", Model: "openai-codex/gpt-5.6-sol", ThinkingLevel: "high",
 		},
 		ContextTokens: 41_000, ContextWindow: 128_000,
 		SessionUsage: protocol.SessionUsage{
@@ -232,7 +233,7 @@ func TestSessionDetailsShowsAuthoritativeCumulativeUsage(t *testing.T) {
 	for _, expected := range []string{
 		"Session details", "Usage audit", "Configuration",
 		"Model         openai-codex/gpt-5.6-sol", "Thinking      high",
-		"Context       41,000 / 128,000 tokens (32%)", "Cumulative usage",
+		"Context       41,000 / 128,000 tokens (32%)", "Parent        Original work (session_parent)", "Cumulative usage",
 		"Input         120,000", "Output        8,000", "Cache read    52,000",
 		"Cache write   3,000", "Reasoning     2,500", "Total         128,000",
 		"Cost          $1.23", "esc close",

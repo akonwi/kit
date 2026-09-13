@@ -1269,6 +1269,10 @@ func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessi
 	return s.createdResult, s.createErr
 }
 
+func (s *fakeServer) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	panic("unexpected ForkSession")
+}
+
 func (s *fakeServer) RenameSession(_ context.Context, sessionID, name string) (protocol.SessionInfo, error) {
 	if s.rename == nil {
 		panic("unexpected RenameSession")

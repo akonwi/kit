@@ -92,6 +92,10 @@ func (c *localServer) CreateSession(
 	return c.transport.CreateSession(ctx, input)
 }
 
+func (c *localServer) ForkSession(ctx context.Context, sourceSessionID string, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	return c.transport.ForkSession(ctx, sourceSessionID, input)
+}
+
 func (c *localServer) RenameSession(ctx context.Context, sessionID, name string) (protocol.SessionInfo, error) {
 	return c.transport.RenameSession(ctx, sessionID, name)
 }

@@ -39,6 +39,11 @@ type PutInput struct {
 	Validate  func(io.ReadSeeker) error
 }
 
+// SessionForker grants a linked child access to attachment identities inherited in its transcript.
+type SessionForker interface {
+	ForkSession(context.Context, string, string) error
+}
+
 type Store interface {
 	Put(context.Context, PutInput) (Record, error)
 	Stat(context.Context, string, string) (Record, error)

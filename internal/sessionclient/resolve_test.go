@@ -47,6 +47,9 @@ type resolveServer struct{ sessions []protocol.SessionInfo }
 func (s *resolveServer) CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	panic("unexpected CreateSession")
 }
+func (s *resolveServer) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	panic("unexpected ForkSession")
+}
 func (s *resolveServer) RenameSession(context.Context, string, string) (protocol.SessionInfo, error) {
 	panic("unexpected RenameSession")
 }

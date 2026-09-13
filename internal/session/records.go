@@ -32,6 +32,7 @@ type SessionRecord struct {
 	Name                  string
 	Persistent            bool
 	ParentSessionID       string
+	ParentSessionName     string // projected from the parent registry row; not persisted on the child
 	ModelProvider         string
 	ModelID               string
 	ThinkingLevel         string
@@ -44,14 +45,15 @@ type SessionRecord struct {
 
 // NewSession contains metadata required to create a persisted session.
 type NewSession struct {
-	ID              string
-	CWD             string
-	Name            string
-	Persistent      bool
-	ParentSessionID string
-	ModelProvider   string
-	ModelID         string
-	ThinkingLevel   string
+	ID                 string
+	CWD                string
+	Name               string
+	Persistent         bool
+	ParentSessionID    string
+	ModelProvider      string
+	ModelID            string
+	ThinkingLevel      string
+	DroidInitializedAt *time.Time
 }
 
 // RunStatus is the renderer-neutral state of an in-memory droid turn handle.

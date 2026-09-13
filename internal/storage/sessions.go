@@ -39,11 +39,15 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 	if input.Persistent {
 		persistent = 1
 	}
+	var initializedAt any
+	if input.DroidInitializedAt != nil {
+		initializedAt = input.DroidInitializedAt.UTC().Format(timestampLayout)
+	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO sessions(
 			id, cwd, name, persistent, parent_session_id,
-			model_provider, model_id, thinking_level, created_at, updated_at
-		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), ?, ?)
+			model_provider, model_id, thinking_level, droid_initialized_at, created_at, updated_at
+		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), ?, ?, ?)
 	`,
 		input.ID,
 		input.CWD,
@@ -53,6 +57,7 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 		input.ModelProvider,
 		input.ModelID,
 		input.ThinkingLevel,
+		initializedAt,
 		now.Format(timestampLayout),
 		now.Format(timestampLayout),
 	)

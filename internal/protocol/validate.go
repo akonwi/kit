@@ -210,6 +210,18 @@ func (input ChangeCWDInput) Validate() error {
 	return nil
 }
 
+// Validate checks a session-fork request crossing a transport boundary.
+func (input ForkSessionInput) Validate() error {
+	if input.ID != "" && !identifier.Valid(input.ID, "session_") {
+		return fmt.Errorf("child session id %q is not canonical", input.ID)
+	}
+	name := strings.TrimSpace(input.Name)
+	if name != "" && !ValidSessionName(name) {
+		return fmt.Errorf("session name must be renderer-safe UTF-8 and at most 256 bytes")
+	}
+	return nil
+}
+
 // Validate checks a session rename crossing a transport boundary.
 func (input RenameSessionInput) Validate() error {
 	name := strings.TrimSpace(input.Name)
@@ -353,6 +365,12 @@ func (session SessionInfo) Validate() error {
 	}
 	if !ValidSessionName(session.Name) {
 		return fmt.Errorf("session name is not renderer-safe UTF-8")
+	}
+	if session.ParentSessionID != "" && !identifier.Valid(session.ParentSessionID, "session_") {
+		return fmt.Errorf("parent session id is not canonical")
+	}
+	if (session.ParentSessionID == "" && session.ParentSessionName != "") || !ValidSessionName(session.ParentSessionName) {
+		return fmt.Errorf("parent session name is invalid")
 	}
 	if !filepath.IsAbs(session.CWD) || !validPathText(session.CWD) {
 		return fmt.Errorf("session cwd %q is not a safe bounded absolute path", session.CWD)

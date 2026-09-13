@@ -194,6 +194,10 @@ func (c *fakeSessionClient) CreateSession(
 	return c.created, c.createErr
 }
 
+func (c *fakeSessionClient) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	panic("unexpected ForkSession")
+}
+
 func (c *fakeSessionClient) RenameSession(context.Context, string, string) (protocol.SessionInfo, error) {
 	panic("unexpected RenameSession")
 }

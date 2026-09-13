@@ -55,6 +55,18 @@ type CreateInput struct {
 	Temporary     bool
 }
 
+// ForkInput identifies the linked child created from a settled session.
+type ForkInput struct {
+	ID   string
+	Name string
+}
+
+// ForkResult is the published child and its exact semantic fork point.
+type ForkResult struct {
+	Session SessionRecord
+	Point   droids.ForkPoint
+}
+
 // RunReservation identifies a durably admitted droid turn.
 type RunReservation struct {
 	SessionID string
@@ -470,6 +482,179 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	return SessionRecord{}, err
 }
 
+// Fork publishes a linked persistent child copied from a settled source.
+func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkInput) (ForkResult, error) {
+	if err := m.beginOperation(); err != nil {
+		return ForkResult{}, err
+	}
+	defer m.ops.Done()
+
+	source, err := m.runtime(ctx, sourceSessionID)
+	if err != nil {
+		return ForkResult{}, err
+	}
+
+	childID := input.ID
+	if childID == "" {
+		childID, err = identifier.New("session_")
+		if err != nil {
+			return ForkResult{}, err
+		}
+	} else if !identifier.Valid(childID, "session_") {
+		return ForkResult{}, fmt.Errorf("%w: invalid child session id", ErrInvalidInput)
+	}
+	if childID == sourceSessionID {
+		return ForkResult{}, fmt.Errorf("%w: child session id must differ from source", ErrInvalidInput)
+	}
+	name := strings.TrimSpace(input.Name)
+	if input.ID != "" {
+		if existing, lookupErr := m.store.GetSession(ctx, childID); lookupErr == nil {
+			if existing.ParentSessionID == sourceSessionID && existing.DroidInitializedAt != nil && (name == "" || existing.Name == name) {
+				childRuntime, runtimeErr := m.runtime(ctx, childID)
+				if runtimeErr == nil {
+					snapshot, snapshotErr := childRuntime.droid.Snapshot(ctx, droids.SnapshotOptions{})
+					if snapshotErr == nil && snapshot.Conversation.ForkedFrom != nil && snapshot.Conversation.ForkedFrom.ConversationID == droids.ConversationID(sourceSessionID) {
+						return ForkResult{Session: existing, Point: *snapshot.Conversation.ForkedFrom}, nil
+					}
+				}
+			}
+			return ForkResult{}, fmt.Errorf("%w: child session id is already in use", ErrInvalidInput)
+		} else if !errors.Is(lookupErr, ErrNotFound) {
+			return ForkResult{}, lookupErr
+		}
+	}
+
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return ForkResult{}, ErrClosed
+	}
+	if m.creating[childID] != nil || m.deleting[childID] || m.loading[childID] != nil || m.runtimes[childID] != nil {
+		m.mu.Unlock()
+		return ForkResult{}, fmt.Errorf("%w: child session id is already in use", ErrInvalidInput)
+	}
+	creation := &sessionCreation{done: make(chan struct{})}
+	m.creating[childID] = creation
+	m.mu.Unlock()
+	defer func() {
+		m.mu.Lock()
+		if m.creating[childID] == creation {
+			delete(m.creating, childID)
+		}
+		close(creation.done)
+		m.mu.Unlock()
+	}()
+	if _, lookupErr := m.store.GetSession(ctx, childID); lookupErr == nil {
+		return ForkResult{}, fmt.Errorf("%w: child session id is already in use", ErrInvalidInput)
+	} else if !errors.Is(lookupErr, ErrNotFound) {
+		return ForkResult{}, lookupErr
+	}
+
+	path := filepath.Join(m.droidDirectory, childID+".db")
+	if _, statErr := os.Stat(path); statErr == nil {
+		return ForkResult{}, fmt.Errorf("%w: child droid store already exists", ErrInvalidInput)
+	} else if !errors.Is(statErr, os.ErrNotExist) {
+		return ForkResult{}, statErr
+	}
+	destination, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: path})
+	if err != nil {
+		return ForkResult{}, fmt.Errorf("open child droid store: %w", err)
+	}
+	published := false
+	attachmentsForked := false
+	defer func() {
+		_ = destination.Close()
+		if !published && attachmentsForked {
+			_ = m.attachments.RemoveSession(context.Background(), childID)
+		}
+		if !published {
+			_ = os.Remove(path)
+			_ = os.Remove(path + "-wal")
+			_ = os.Remove(path + "-shm")
+		}
+	}()
+
+	source.transitionMu.Lock()
+	defer source.transitionMu.Unlock()
+	source.admissionMu.Lock()
+	defer source.admissionMu.Unlock()
+	record, err := m.sessionRecord(ctx, sourceSessionID)
+	if err != nil {
+		return ForkResult{}, err
+	}
+	if !record.Persistent {
+		return ForkResult{}, fmt.Errorf("%w: temporary sessions cannot be forked", ErrInvalidInput)
+	}
+	if name == "" {
+		name = forkSessionName(record.Name)
+	}
+	if !validSessionName(name) {
+		return ForkResult{}, fmt.Errorf("%w: fork name must be renderer-safe UTF-8 and at most 256 bytes", ErrInvalidInput)
+	}
+	source.mu.Lock()
+	busy := source.activeRun != "" || len(source.followUps) != 0
+	source.mu.Unlock()
+	m.bashMu.Lock()
+	busy = busy || m.bashActive[sourceSessionID] != nil
+	m.bashMu.Unlock()
+	if busy {
+		return ForkResult{}, ErrBusy
+	}
+	forked, err := source.droid.Fork(ctx, droids.ConversationID(childID), droids.ForkOptions{Store: destination})
+	if err != nil {
+		return ForkResult{}, err
+	}
+	if forked.Droid == nil {
+		return ForkResult{}, fmt.Errorf("fork child droid is unavailable")
+	}
+	if err := forked.Droid.Close(); err != nil {
+		return ForkResult{}, fmt.Errorf("close fork child: %w", err)
+	}
+	if err := destination.Close(); err != nil {
+		return ForkResult{}, fmt.Errorf("close child droid store: %w", err)
+	}
+	if m.attachments != nil {
+		forker, ok := m.attachments.(attachment.SessionForker)
+		if !ok {
+			return ForkResult{}, fmt.Errorf("fork attachments: attachment store does not support session forks")
+		}
+		attachmentsForked = true
+		if err := forker.ForkSession(ctx, sourceSessionID, childID); err != nil {
+			return ForkResult{}, fmt.Errorf("fork attachments: %w", err)
+		}
+	}
+
+	initializedAt := time.Now().UTC()
+	child, err := m.store.CreateSession(ctx, NewSession{
+		ID: childID, CWD: record.CWD, Name: name, Persistent: true,
+		ParentSessionID: sourceSessionID, ModelProvider: record.ModelProvider,
+		ModelID: record.ModelID, ThinkingLevel: record.ThinkingLevel,
+		DroidInitializedAt: &initializedAt,
+	})
+	if err != nil {
+		reconciled, lookupErr := m.store.GetSession(context.Background(), childID)
+		if lookupErr != nil || reconciled.ParentSessionID != sourceSessionID || reconciled.DroidInitializedAt == nil {
+			return ForkResult{}, err
+		}
+		child = reconciled
+	}
+	child.ParentSessionName = record.Name
+	published = true
+	return ForkResult{Session: child, Point: forked.Point}, nil
+}
+
+func forkSessionName(parent string) string {
+	name := "fork"
+	if strings.TrimSpace(parent) != "" {
+		name = "fork: " + strings.TrimSpace(parent)
+	}
+	for len(name) > 256 {
+		_, size := utf8.DecodeLastRuneInString(name)
+		name = name[:len(name)-size]
+	}
+	return name
+}
+
 func validSessionName(name string) bool {
 	if len(name) > 256 || !utf8.ValidString(name) || strings.IndexByte(name, 0) >= 0 {
 		return false
@@ -840,7 +1025,28 @@ func (m *Manager) List(ctx context.Context, cwd string) ([]SessionRecord, error)
 		}
 		cwd = filepath.Clean(cwd)
 	}
-	return m.store.ListSessions(ctx, cwd)
+	records, err := m.store.ListSessions(ctx, cwd)
+	if err != nil {
+		return nil, err
+	}
+	names := make(map[string]string, len(records))
+	for _, record := range records {
+		names[record.ID] = record.Name
+	}
+	for index := range records {
+		parentID := records[index].ParentSessionID
+		if parentID == "" {
+			continue
+		}
+		if name, ok := names[parentID]; ok {
+			records[index].ParentSessionName = name
+			continue
+		}
+		if parent, lookupErr := m.store.GetSession(ctx, parentID); lookupErr == nil {
+			records[index].ParentSessionName = parent.Name
+		}
+	}
+	return records, nil
 }
 
 func (m *Manager) touchSessionActivity(ctx context.Context, sessionID string, activityAt time.Time) error {
@@ -1626,7 +1832,16 @@ func (m *Manager) sessionRecord(ctx context.Context, sessionID string) (SessionR
 	if temporary {
 		return record, nil
 	}
-	return m.store.GetSession(ctx, sessionID)
+	record, err := m.store.GetSession(ctx, sessionID)
+	if err != nil {
+		return SessionRecord{}, err
+	}
+	if record.ParentSessionID != "" {
+		if parent, lookupErr := m.store.GetSession(ctx, record.ParentSessionID); lookupErr == nil {
+			record.ParentSessionName = parent.Name
+		}
+	}
+	return record, nil
 }
 
 func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime, error) {

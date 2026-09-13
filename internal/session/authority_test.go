@@ -1052,3 +1052,46 @@ func (s *authorityStream) Events() <-chan droids.StreamEvent {
 	return events
 }
 func (s *authorityStream) Result() droids.AssistantMessage { return s.message }
+
+func TestManagerForkPublishesAttachableChildWithParentLineage(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(
+		store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = manager.Shutdown(context.Background()) })
+	parent, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Name: "Parent", Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	childID := "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	forked, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{ID: childID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	retried, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{ID: childID})
+	if err != nil || retried.Session.ID != forked.Session.ID || retried.Point != forked.Point {
+		t.Fatalf("retry Fork() = %+v, %v; want %+v", retried, err, forked)
+	}
+	if forked.Session.ID == parent.ID || forked.Session.ParentSessionID != parent.ID {
+		t.Fatalf("forked session = %+v", forked.Session)
+	}
+	if forked.Session.CWD != parent.CWD || forked.Session.ModelProvider != parent.ModelProvider || forked.Session.ModelID != parent.ModelID || forked.Session.ThinkingLevel != parent.ThinkingLevel {
+		t.Fatalf("fork did not inherit configuration: parent=%+v child=%+v", parent, forked.Session)
+	}
+	attached, err := manager.Get(t.Context(), forked.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if attached.ParentSessionID != parent.ID {
+		t.Fatalf("attached parent = %q", attached.ParentSessionID)
+	}
+}

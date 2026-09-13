@@ -10,7 +10,7 @@ import (
 )
 
 const (
-	paletteMaxVisible   = 10
+	paletteMaxVisible   = 11
 	paletteMaxNameWidth = 32
 
 	paletteCommandCD        paletteCommandID = "cd"
@@ -22,6 +22,7 @@ const (
 	paletteCommandQuit      paletteCommandID = "quit"
 	paletteCommandReload    paletteCommandID = "reload"
 	paletteCommandDebug     paletteCommandID = "debug"
+	paletteCommandFork      paletteCommandID = "fork"
 	paletteCommandSessions  paletteCommandID = "sessions"
 	paletteCommandSubagents paletteCommandID = "subagents"
 	paletteCommandTheme     paletteCommandID = "theme"
@@ -371,12 +372,13 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
+		{ID: paletteCommandFork, Name: "fork", Description: "Fork the current session into a linked child session", Aliases: []string{"branch"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 		{ID: paletteCommandSubagents, Name: "subagents", Description: "Inspect delegated work", Aliases: []string{"agents", "delegates", "children"}},
 		{ID: paletteCommandTheme, Name: "theme", Description: "Choose UI colors", Aliases: []string{"appearance", "colors"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "theme": true, "thinking": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "theme": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {
@@ -410,7 +412,7 @@ func paletteCommandDisabledReason(commandID paletteCommandID, running bool) stri
 		return "idle only"
 	}
 	switch commandID {
-	case paletteCommandCD, paletteCommandCompact:
+	case paletteCommandCD, paletteCommandCompact, paletteCommandFork:
 		return "idle only"
 	default:
 		return ""

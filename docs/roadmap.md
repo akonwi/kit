@@ -65,8 +65,8 @@ It must provide:
 
 - safe backup and idempotent migration before using production data;
 - one CGO-free executable with reliable local daemon, TUI, and headless modes;
-- durable sessions, transcripts, configuration, concurrent isolation, and
-  recovery;
+- durable sessions, transcripts, configuration, concurrent isolation, semantic
+  session forking with lineage, and recovery;
 - supported provider authentication, model/thinking selection, compaction,
   cancellation, follow-up queueing, and automatic naming;
 - essential coding tools, supervised subagents, and production-ready MCP;

@@ -59,6 +59,10 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   and cursor behavior. Depends on `CORE-ATT-001`.
 - [ ] TUI-SESSION-001 — Expose session creation, opening, switching, naming,
   deletion, automatic names, and recovery errors through bounded native flows.
+- [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the
+  linked child returned by the server, optionally submit the message as its
+  first new prompt, and expose lineage and recoverable failures. Depends on
+  `CORE-FORK-001`.
 - [~] TUI-CMD-001 — Complete palette filtering, completion, arguments, nested
   pickers, keyboard/mouse behavior, and required command sources.
 - [ ] TUI-CMD-002 — Add the R1 command surfaces for settings, MCP, logout, and
@@ -118,8 +122,8 @@ resolving this decision.
   unchanged local state. Depends on `CORE-REVIEW-002`.
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
-- [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/handoff`, `/tree`, and other
-  commands when their owning Post-R1 capabilities are implemented.
+- [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
+  when their owning Post-R1 capabilities are implemented.
 - [ ] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
   click-through URL. Depends on `CORE-GH-001`.
 - [ ] TUI-PLUGIN-001 — Present plugin header/footer contributions, theme tokens,

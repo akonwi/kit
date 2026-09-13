@@ -48,6 +48,25 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 	return output, nil
 }
 
+// ForkSession creates a linked child from one settled persistent session.
+func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate session fork: %w", err)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sourceSessionID) + "/forks"
+	var output protocol.SessionInfo
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusCreated, &output); err != nil {
+		return protocol.SessionInfo{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.SessionInfo{}, fmt.Errorf("validate forked daemon session: %w", err)
+	}
+	if output.ParentSessionID != sourceSessionID || (input.ID != "" && output.ID != input.ID) {
+		return protocol.SessionInfo{}, fmt.Errorf("daemon session fork identity mismatch")
+	}
+	return output, nil
+}
+
 // RenameSession replaces one persisted session's display name.
 func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (protocol.SessionInfo, error) {
 	input := protocol.RenameSessionInput{Name: name}

@@ -13,6 +13,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/attachmentmeta"
@@ -22,12 +23,14 @@ import (
 
 const (
 	manifestFilename = "manifest.json"
+	ownersFilename   = "owners.json"
 	contentFilename  = "content"
 )
 
 type Filesystem struct {
 	root string
 	now  func() time.Time
+	mu   sync.Mutex
 }
 
 func NewFilesystem(root string) (*Filesystem, error) {
@@ -146,7 +149,7 @@ func (store *Filesystem) Stat(ctx context.Context, sessionID, id string) (Record
 	if err := validateRecord(record); err != nil {
 		return Record{}, fmt.Errorf("validate attachment manifest: %w", err)
 	}
-	if record.ID != id || record.SessionID != sessionID {
+	if record.ID != id || !store.recordOwnedBy(record, sessionID) {
 		return Record{}, ErrNotFound
 	}
 	contentPath := filepath.Join(directory, contentFilename)
@@ -163,6 +166,7 @@ func (store *Filesystem) Stat(ctx context.Context, sessionID, id string) (Record
 	if contentInfo.Size() != record.Size {
 		return Record{}, fmt.Errorf("attachment content size does not match manifest")
 	}
+	record.SessionID = sessionID
 	return record, nil
 }
 
@@ -195,7 +199,7 @@ func (store *Filesystem) Open(ctx context.Context, sessionID, id string) (Record
 	if err := validateRecord(record); err != nil {
 		return Record{}, nil, fmt.Errorf("validate attachment manifest: %w", err)
 	}
-	if record.ID != id || record.SessionID != sessionID {
+	if record.ID != id || !store.recordOwnedBy(record, sessionID) {
 		return Record{}, nil, ErrNotFound
 	}
 	contentPath := filepath.Join(directory, contentFilename)
@@ -216,24 +220,21 @@ func (store *Filesystem) Open(ctx context.Context, sessionID, id string) (Record
 		_ = content.Close()
 		return Record{}, nil, err
 	}
+	record.SessionID = sessionID
 	return record, content, nil
 }
 
-// Remove deletes one attachment only when it belongs to the requested session.
+// Remove deletes one attachment ownership, removing bytes after the last owner.
 func (store *Filesystem) Remove(ctx context.Context, sessionID, id string) error {
-	_, content, err := store.Open(ctx, sessionID, id)
-	if err != nil {
-		return err
-	}
-	_ = content.Close()
-	if err := os.RemoveAll(filepath.Join(store.root, id)); err != nil {
-		return fmt.Errorf("remove attachment: %w", err)
-	}
-	return syncDirectory(store.root)
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	return store.removeOwner(ctx, sessionID, id)
 }
 
 // RemoveSession deletes every readable attachment manifest owned by a session.
 func (store *Filesystem) RemoveSession(ctx context.Context, sessionID string) error {
+	store.mu.Lock()
+	defer store.mu.Unlock()
 	if sessionID == "" {
 		return ErrInvalidInput
 	}
@@ -257,14 +258,164 @@ func (store *Filesystem) RemoveSession(ctx context.Context, sessionID string) er
 			return fmt.Errorf("read attachment manifest: %w", err)
 		}
 		var record Record
-		if json.Unmarshal(data, &record) != nil || validateRecord(record) != nil || record.ID != entry.Name() || record.SessionID != sessionID {
+		if json.Unmarshal(data, &record) != nil || validateRecord(record) != nil || record.ID != entry.Name() || !store.recordOwnedBy(record, sessionID) {
 			continue
 		}
-		if err := os.RemoveAll(filepath.Join(store.root, entry.Name())); err != nil {
+		if err := store.removeOwner(ctx, sessionID, record.ID); err != nil {
 			return fmt.Errorf("remove session attachment: %w", err)
 		}
 	}
 	return syncDirectory(store.root)
+}
+
+// ForkSession grants child ownership of all source attachments while preserving IDs.
+func (store *Filesystem) ForkSession(ctx context.Context, sourceSessionID, childSessionID string) error {
+	if sourceSessionID == "" || childSessionID == "" || sourceSessionID == childSessionID {
+		return ErrInvalidInput
+	}
+	store.mu.Lock()
+	defer store.mu.Unlock()
+	entries, err := os.ReadDir(store.root)
+	if err != nil {
+		return fmt.Errorf("list attachments: %w", err)
+	}
+	for _, entry := range entries {
+		if err := ctx.Err(); err != nil {
+			return err
+		}
+		if !entry.IsDir() || !identifier.Valid(entry.Name(), IDPrefix) {
+			continue
+		}
+		manifestPath := filepath.Join(store.root, entry.Name(), manifestFilename)
+		data, readErr := os.ReadFile(manifestPath)
+		if readErr != nil {
+			continue
+		}
+		var record Record
+		if json.Unmarshal(data, &record) != nil || validateRecord(record) != nil || !store.recordOwnedBy(record, sourceSessionID) || store.recordOwnedBy(record, childSessionID) {
+			continue
+		}
+		owners, err := store.readOwners(record.ID)
+		if err != nil {
+			return err
+		}
+		owners = append(owners, childSessionID)
+		if err := store.writeOwners(record.ID, owners); err != nil {
+			return err
+		}
+	}
+	return syncDirectory(store.root)
+}
+
+func (store *Filesystem) removeOwner(ctx context.Context, sessionID, id string) error {
+	if sessionID == "" || !identifier.Valid(id, IDPrefix) {
+		return ErrInvalidInput
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	manifestPath := filepath.Join(store.root, id, manifestFilename)
+	data, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return ErrNotFound
+		}
+		return err
+	}
+	var record Record
+	if json.Unmarshal(data, &record) != nil || validateRecord(record) != nil || record.ID != id || !store.recordOwnedBy(record, sessionID) {
+		return ErrNotFound
+	}
+	owners, err := store.readOwners(id)
+	if err != nil {
+		return err
+	}
+	if record.SessionID == sessionID && len(owners) == 0 {
+		return os.RemoveAll(filepath.Join(store.root, id))
+	}
+	if record.SessionID == sessionID {
+		record.SessionID = owners[0]
+		owners = owners[1:]
+		if err := replaceManifest(manifestPath, record); err != nil {
+			return err
+		}
+	} else {
+		kept := owners[:0]
+		for _, owner := range owners {
+			if owner != sessionID {
+				kept = append(kept, owner)
+			}
+		}
+		owners = kept
+	}
+	return store.writeOwners(id, owners)
+}
+
+func (store *Filesystem) recordOwnedBy(record Record, sessionID string) bool {
+	if record.SessionID == sessionID {
+		return true
+	}
+	owners, err := store.readOwners(record.ID)
+	if err != nil {
+		return false
+	}
+	for _, owner := range owners {
+		if owner == sessionID {
+			return true
+		}
+	}
+	return false
+}
+
+func (store *Filesystem) readOwners(id string) ([]string, error) {
+	data, err := os.ReadFile(filepath.Join(store.root, id, ownersFilename))
+	if errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	}
+	if err != nil {
+		return nil, fmt.Errorf("read attachment owners: %w", err)
+	}
+	var owners []string
+	if err := json.Unmarshal(data, &owners); err != nil {
+		return nil, fmt.Errorf("decode attachment owners: %w", err)
+	}
+	return owners, nil
+}
+
+func (store *Filesystem) writeOwners(id string, owners []string) error {
+	path := filepath.Join(store.root, id, ownersFilename)
+	if len(owners) == 0 {
+		if err := os.Remove(path); err != nil && !errors.Is(err, os.ErrNotExist) {
+			return err
+		}
+		return syncDirectory(filepath.Dir(path))
+	}
+	data, err := json.Marshal(owners)
+	if err != nil {
+		return err
+	}
+	temporary := path + ".tmp"
+	if err := os.WriteFile(temporary, append(data, '\n'), 0o600); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return err
+	}
+	return syncDirectory(filepath.Dir(path))
+}
+
+func replaceManifest(path string, record Record) error {
+	temporary := path + ".tmp"
+	_ = os.Remove(temporary)
+	if err := writeManifest(temporary, record); err != nil {
+		return err
+	}
+	if err := os.Rename(temporary, path); err != nil {
+		_ = os.Remove(temporary)
+		return fmt.Errorf("replace attachment manifest: %w", err)
+	}
+	return syncDirectory(filepath.Dir(path))
 }
 
 func validatePutInput(input PutInput) error {

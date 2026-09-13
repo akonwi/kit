@@ -45,6 +45,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-SESSION-001 — Let multiple clients observe and control one
   authoritative session without lost updates or client-global active-session
   state.
+- [~] CORE-FORK-001 — Transactionally publish a settled session fork as a linked
+  child through droids semantic forking, with client-visible lineage, attachment
+  preservation, and an optional first child prompt, without changing the
+  session viewed by unrelated clients.
 - [~] CORE-RUN-001 — Complete streaming and recovery semantics for text,
   thinking, messages, tool activity, usage, provider errors, terminal state, and
   reconnecting clients.
@@ -171,8 +175,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Deferred workflows and compatibility
 
-- [ ] CORE-HANDOFF-001 — Implement session handoff and lineage without changing
-  the active session of unrelated clients.
+- [-] CORE-HANDOFF-001 — Superseded by the renamed R1 `/fork` workflow tracked
+  by `CORE-FORK-001`.
 - [ ] CORE-THREAD-001 — Expand bounded `#thread` references with escaping and
   active-session exclusion.
 - [ ] CORE-SCRATCH-001 — Implement guarded scratchpad reads/edits, autosave,

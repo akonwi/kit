@@ -35,12 +35,12 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 	palette.Close()
 	palette.OpenFor(true)
 	palette.Move(true, 1)
-	if palette.Selection != paletteCommandLogin {
-		t.Fatalf("running selection = %q, want login row", palette.Selection)
+	if palette.Selection != paletteCommandFork {
+		t.Fatalf("running selection = %q, want fork row", palette.Selection)
 	}
 	command, ok = palette.Selected(false, "")
-	if !ok || command.ID != paletteCommandLogin {
-		t.Fatalf("stable login selection = %#v, %v", command, ok)
+	if !ok || command.ID != paletteCommandFork {
+		t.Fatalf("stable fork selection = %#v, %v", command, ok)
 	}
 
 	palette.Close()
@@ -62,8 +62,8 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 		t.Fatalf("provider matches = %#v, want login", commands)
 	}
 	commands = filteredPaletteCommands(false, "threads")
-	if len(commands) != 1 || commands[0].ID != paletteCommandSessions {
-		t.Fatalf("threads matches = %#v, want sessions", commands)
+	if len(commands) == 0 || commands[0].ID != paletteCommandSessions {
+		t.Fatalf("threads matches = %#v, want sessions first", commands)
 	}
 	commands = filteredPaletteCommands(false, "refresh")
 	if len(commands) != 1 || commands[0].ID != paletteCommandReload {
@@ -185,7 +185,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 13 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 14 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -517,7 +517,7 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for range 5 {
+	for range 6 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	}
 	application.Enter()

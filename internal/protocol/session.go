@@ -16,6 +16,12 @@ type CreateSessionInput struct {
 	Temporary     bool   `json:"temporary,omitempty"`
 }
 
+// ForkSessionInput requests a linked child from a settled persistent session.
+type ForkSessionInput struct {
+	ID   string `json:"id,omitempty"`
+	Name string `json:"name,omitempty"`
+}
+
 // RenameSessionInput requests a new non-empty display name for a session.
 type RenameSessionInput struct {
 	Name string `json:"name"`
@@ -228,6 +234,8 @@ type SessionInfo struct {
 	ID                    string `json:"id"`
 	CWD                   string `json:"cwd"`
 	Name                  string `json:"name,omitempty"`
+	ParentSessionID       string `json:"parentSessionId,omitempty"`
+	ParentSessionName     string `json:"parentSessionName,omitempty"`
 	Model                 string `json:"model"`
 	ThinkingLevel         string `json:"thinkingLevel"`
 	ConfigurationRevision uint64 `json:"configurationRevision"`

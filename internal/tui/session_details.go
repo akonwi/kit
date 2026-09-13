@@ -38,6 +38,7 @@ func (surface sessionDetailsSurface) Build(ctx ui.BuildContext) ui.Widget {
 			sessionDetailsRow(theme, "Model", surface.Session.Model),
 			sessionDetailsRow(theme, "Thinking", thinking),
 			sessionDetailsRow(theme, "Context", contextValue),
+			sessionDetailsRow(theme, "Parent", sessionParentDisplay(surface.Session.ParentSessionID, surface.Session.ParentSessionName)),
 			ui.SizedBox{Height: 1},
 			sessionDetailsHeading(theme, "Cumulative usage"),
 			sessionDetailsRow(theme, "Input", formatUsageInteger(surface.Usage.Input)),
@@ -53,6 +54,16 @@ func (surface sessionDetailsSurface) Build(ctx ui.BuildContext) ui.Widget {
 		theme, "Session details", sessionDisplayName(surface.Session), body,
 		ui.Text{Value: "esc close", Style: ui.Style{Foreground: theme.MutedForeground}}, true,
 	)
+}
+
+func sessionParentDisplay(parentSessionID, parentSessionName string) string {
+	if parentSessionID == "" {
+		return "None"
+	}
+	if parentSessionName == "" {
+		return parentSessionID
+	}
+	return fmt.Sprintf("%s (%s)", parentSessionName, parentSessionID)
 }
 
 func sessionDetailsHeading(theme ui.Theme, value string) ui.Widget {

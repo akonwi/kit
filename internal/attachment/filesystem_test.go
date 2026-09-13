@@ -244,3 +244,55 @@ func TestFilesystemDetectsContentCorruption(t *testing.T) {
 		t.Fatalf("corrupt Open() = %v, %v, want validation error", content, err)
 	}
 }
+
+func TestFilesystemForkSessionSharesOwnershipUntilLastOwnerIsRemoved(t *testing.T) {
+	t.Parallel()
+	store, err := NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Put(context.Background(), PutInput{
+		SessionID: "session_parent", Filename: "notes.txt", MediaType: "text/plain",
+		Content: strings.NewReader("shared"), MaxBytes: 32,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ForkSession(context.Background(), "session_parent", "session_child"); err != nil {
+		t.Fatal(err)
+	}
+	child, content, err := store.Open(context.Background(), "session_child", record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = content.Close()
+	if child.SessionID != "session_child" {
+		t.Fatalf("child attachment session = %q", child.SessionID)
+	}
+	if err := store.RemoveSession(context.Background(), "session_parent"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.Stat(context.Background(), "session_child", record.ID); err != nil {
+		t.Fatalf("child lost shared attachment: %v", err)
+	}
+	if _, err := store.Stat(context.Background(), "session_parent", record.ID); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("parent Stat error = %v, want ErrNotFound", err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_child"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(store.root, record.ID)); !errors.Is(err, os.ErrNotExist) {
+		t.Fatalf("attachment bytes remain after last owner: %v", err)
+	}
+}
+
+func TestFilesystemRemoveRejectsNonCanonicalAttachmentID(t *testing.T) {
+	t.Parallel()
+	store, err := NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.Remove(context.Background(), "session_one", "../outside"); !errors.Is(err, ErrInvalidInput) {
+		t.Fatalf("Remove() error = %v, want ErrInvalidInput", err)
+	}
+}
