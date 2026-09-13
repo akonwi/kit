@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net/http"
 	"strings"
 	"sync"
 	"time"
@@ -155,6 +156,15 @@ func (c *localSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus
 
 func (c *localSession) FileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
 	return c.transport.GetSessionFileIndex(ctx, c.id)
+}
+
+func (c *localSession) TranscriptPage(ctx context.Context, before string) (protocol.TranscriptPage, error) {
+	page, err := c.transport.GetTranscriptPage(ctx, c.id, before)
+	var apiErr *daemon.APIError
+	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
+		return protocol.TranscriptPage{}, sessionclient.ErrTranscriptCursorUnavailable
+	}
+	return page, err
 }
 
 func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {

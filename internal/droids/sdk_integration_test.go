@@ -359,6 +359,25 @@ func exerciseDroid(t *testing.T, store droids.Store, externalRuns *atomic.Int32)
 	if len(history.Messages) != 4 {
 		t.Fatalf("history messages = %d, want 4", len(history.Messages))
 	}
+	for index, message := range history.Messages {
+		if message.Sequence == 0 || index > 0 && message.Sequence <= history.Messages[index-1].Sequence {
+			t.Fatalf("history message %d sequence = %d", index, message.Sequence)
+		}
+	}
+	recent, err := droid.History(t.Context(), droids.HistoryQuery{Limit: 2, Descending: true})
+	if err != nil {
+		t.Fatalf("descending History: %v", err)
+	}
+	if len(recent.Messages) != 2 || !recent.HasMore || recent.Messages[0].ID != history.Messages[3].ID || recent.Messages[1].ID != history.Messages[2].ID {
+		t.Fatalf("descending history = %+v", recent)
+	}
+	older, err := droid.History(t.Context(), droids.HistoryQuery{Before: recent.Next, Limit: 2, Descending: true})
+	if err != nil {
+		t.Fatalf("older descending History: %v", err)
+	}
+	if len(older.Messages) != 2 || older.HasMore || older.Messages[0].ID != history.Messages[1].ID || older.Messages[1].ID != history.Messages[0].ID {
+		t.Fatalf("older descending history = %+v", older)
+	}
 	call := history.Messages[1].Message.(droids.AssistantMessage).ToolCalls()[0]
 	result := history.Messages[2].Message.(droids.ToolResultMessage)
 	if call.ID == "" || call.ID != result.ToolCallID || call.ProviderCallID != "call_read_fixture" || result.ProviderCallID != call.ProviderCallID {

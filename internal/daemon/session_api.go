@@ -34,6 +34,7 @@ type sessionService interface {
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
+	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	FileIndex(context.Context, string) (protocol.SessionFileIndex, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
@@ -227,14 +228,19 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	if err != nil {
 		return protocol.SessionSnapshot{}, err
 	}
+	previousCursor := ""
+	if snapshot.HasMoreMessages {
+		previousCursor = strconv.FormatUint(snapshot.PreviousMessageCursor, 10)
+	}
 	result := protocol.SessionSnapshot{
 		Session: projectSession(snapshot.Session), ActiveRunID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
 		ContextTokens: snapshot.ContextTokens, ContextWindow: snapshot.ContextWindow,
-		Usage:             projectSessionUsage(snapshot.Usage),
-		Messages:          make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
+		Usage:                 projectSessionUsage(snapshot.Usage),
+		Messages:              make([]protocol.TranscriptMessage, 0, len(snapshot.Messages)),
+		PreviousMessageCursor: previousCursor, HasMoreMessages: snapshot.HasMoreMessages,
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
 		FollowUps: protocol.FollowUpQueue{
@@ -301,8 +307,41 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			Source: command.Source, Location: command.Location,
 		})
 	}
-	for _, message := range snapshot.Messages {
-		result.Messages = append(result.Messages, protocol.TranscriptMessage{
+	result.Messages = append(result.Messages, projectTranscriptMessages(snapshot.Messages)...)
+	for _, boundary := range snapshot.Boundaries {
+		result.PendingBoundaries = append(result.PendingBoundaries, protocol.PendingBoundary{
+			ID: boundary.ID, Kind: boundary.Kind, Source: boundary.Source,
+			Content:    projectTranscriptContent(boundary.Content),
+			Details:    append(json.RawMessage(nil), boundary.Details...),
+			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
+		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) TranscriptPage(ctx context.Context, sessionID, before string) (protocol.TranscriptPage, error) {
+	cursor, err := strconv.ParseUint(before, 10, 64)
+	if err != nil || cursor == 0 {
+		return protocol.TranscriptPage{}, fmt.Errorf("%w: transcript cursor is invalid", errInvalidSessionRequest)
+	}
+	page, err := s.manager.TranscriptPage(ctx, sessionID, cursor)
+	if err != nil {
+		return protocol.TranscriptPage{}, err
+	}
+	previousCursor := ""
+	if page.HasMoreMessages {
+		previousCursor = strconv.FormatUint(page.PreviousMessageCursor, 10)
+	}
+	return protocol.TranscriptPage{
+		SessionID: sessionID, Messages: projectTranscriptMessages(page.Messages),
+		PreviousMessageCursor: previousCursor, HasMoreMessages: page.HasMoreMessages,
+	}, nil
+}
+
+func projectTranscriptMessages(messages []kitsession.TranscriptMessage) []protocol.TranscriptMessage {
+	result := make([]protocol.TranscriptMessage, 0, len(messages))
+	for _, message := range messages {
+		result = append(result, protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence,
 			Role: message.Role, Content: projectTranscriptContent(message.Content),
 			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
@@ -313,15 +352,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			IsError:        message.IsError, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		})
 	}
-	for _, boundary := range snapshot.Boundaries {
-		result.PendingBoundaries = append(result.PendingBoundaries, protocol.PendingBoundary{
-			ID: boundary.ID, Kind: boundary.Kind, Source: boundary.Source,
-			Content:    projectTranscriptContent(boundary.Content),
-			Details:    append(json.RawMessage(nil), boundary.Details...),
-			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
-		})
-	}
-	return result, nil
+	return result
 }
 
 func (s runtimeSessionService) SubagentEvents(ctx context.Context, sessionID, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
@@ -928,6 +959,23 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, snapshot)
 	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/messages", func(writer http.ResponseWriter, request *http.Request) {
+		before := request.URL.Query().Get("before")
+		if before == "" || len(before) > 256 || strings.TrimSpace(before) != before {
+			writeSessionError(writer, fmt.Errorf("%w: before cursor is required", errInvalidSessionRequest))
+			return
+		}
+		result, err := service.TranscriptPage(request.Context(), request.PathValue("sessionID"), before)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid transcript page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
@@ -1445,7 +1493,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
+	case errors.Is(err, kitsession.ErrTranscriptCursorUnavailable), errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
 		status = http.StatusConflict
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull):

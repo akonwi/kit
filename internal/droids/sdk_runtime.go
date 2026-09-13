@@ -1358,7 +1358,10 @@ func (d *Droid) History(ctx context.Context, query HistoryQuery) (MessagePage, e
 	if d == nil || d.sdk == nil {
 		return MessagePage{}, fmt.Errorf("droids: History requires a droid opened with droids.Open")
 	}
-	page, err := d.sdk.store.Records(ctx, RecordQuery{After: query.After, Limit: query.Limit, Kind: messageRecordKind})
+	page, err := d.sdk.store.Records(ctx, RecordQuery{
+		After: query.After, Before: query.Before, Limit: query.Limit,
+		Kind: messageRecordKind, Descending: query.Descending,
+	})
 	if err != nil {
 		return MessagePage{}, err
 	}
@@ -1382,6 +1385,7 @@ func messagePageFromRecords(page RecordPage, reverse bool, conversation Conversa
 		if string(message.ID) != record.ID || message.ConversationID != conversation {
 			return MessagePage{}, fmt.Errorf("droids: message history record %q identity mismatch", record.ID)
 		}
+		message.Sequence = record.Sequence
 		result.Messages = append(result.Messages, message)
 	}
 	return result, nil

@@ -701,7 +701,7 @@ func TestTranscriptUsesMeasuredLazyList(t *testing.T) {
 	}
 	presentation := presentTranscript(messages)
 	widget := (shellView{}).transcriptList(
-		ui.DefaultTheme(), presentation, true, "session:test", &ui.ScrollController{}, false, nil,
+		ui.DefaultTheme(), presentation, true, "session:test", &ui.ScrollController{}, nil, false, nil,
 	)
 	keyed, ok := widget.(keyedTranscriptItem)
 	if !ok {

@@ -149,6 +149,22 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 	return output, nil
 }
 
+// GetTranscriptPage returns the complete-turn page preceding before.
+func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string) (protocol.TranscriptPage, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/messages?before=" + url.QueryEscape(before)
+	var output protocol.TranscriptPage
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.TranscriptPage{}, err
+	}
+	if err := output.ValidateBefore(before); err != nil {
+		return protocol.TranscriptPage{}, fmt.Errorf("validate daemon transcript page: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.TranscriptPage{}, fmt.Errorf("daemon transcript page identity mismatch")
+	}
+	return output, nil
+}
+
 // GetSessionVCSStatus returns volatile repository status for a session workspace.
 func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (protocol.SessionVCSStatus, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/vcs"

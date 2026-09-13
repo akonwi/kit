@@ -418,6 +418,8 @@ type SubagentMailboxItem struct {
 type SessionSnapshot struct {
 	Session               SessionInfo            `json:"session"`
 	Messages              []TranscriptMessage    `json:"messages"`
+	PreviousMessageCursor string                 `json:"previousMessageCursor,omitempty"`
+	HasMoreMessages       bool                   `json:"hasMoreMessages,omitempty"`
 	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
 	ActiveRunID           string                 `json:"activeRunId,omitempty"`
 	ActiveBashExecutionID string                 `json:"activeBashExecutionId,omitempty"`
@@ -436,6 +438,14 @@ type SessionSnapshot struct {
 	SubagentConversations []SubagentConversation `json:"subagentConversations,omitempty"`
 	SubagentMailbox       []SubagentMailboxItem  `json:"subagentMailbox,omitempty"`
 	PendingInteractions   []InteractionRequest   `json:"pendingInteractions,omitempty"`
+}
+
+// TranscriptPage is one complete-turn-bounded page preceding a cursor.
+type TranscriptPage struct {
+	SessionID             string              `json:"sessionId"`
+	Messages              []TranscriptMessage `json:"messages"`
+	PreviousMessageCursor string              `json:"previousMessageCursor,omitempty"`
+	HasMoreMessages       bool                `json:"hasMoreMessages,omitempty"`
 }
 
 // RunStatus is a canonical parent-run terminal state on the wire.

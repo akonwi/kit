@@ -3,6 +3,7 @@ package sessionclient
 
 import (
 	"context"
+	"errors"
 	"io"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -39,6 +40,14 @@ type Session interface {
 	Abort(context.Context, string) error
 	Subagent(context.Context, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
 	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
+}
+
+// ErrTranscriptCursorUnavailable indicates that older history must be restarted from a fresh snapshot.
+var ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
+
+// TranscriptPager is the optional older-history pagination surface.
+type TranscriptPager interface {
+	TranscriptPage(context.Context, string) (protocol.TranscriptPage, error)
 }
 
 // SubagentEventReader is the optional child live-event synchronization surface.

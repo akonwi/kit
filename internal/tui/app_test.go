@@ -229,6 +229,103 @@ func TestPendingTranscriptFollowUsesLatestCompletedLayout(t *testing.T) {
 	}
 }
 
+func TestSnapshotRefreshRetainsEarlierTranscriptMessages(t *testing.T) {
+	t.Parallel()
+
+	state := appState{messages: projectTranscript([]protocol.TranscriptMessage{
+		{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "earlier"}}},
+		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "previous window"}}},
+	})}
+	state.mergeSnapshotTranscript(projectTranscript([]protocol.TranscriptMessage{
+		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "refreshed overlap"}}},
+		{ID: "message_3", Sequence: 3, TurnID: "turn_3", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "latest window"}}},
+	}))
+
+	if len(state.messages) != 3 {
+		t.Fatalf("merged transcript count = %d, want 3", len(state.messages))
+	}
+	for index, want := range []string{"message_1", "message_2", "message_3"} {
+		if state.messages[index].ID != want {
+			t.Fatalf("merged transcript[%d] = %q, want %q", index, state.messages[index].ID, want)
+		}
+	}
+}
+
+func TestSnapshotRefreshDropsCachedHistoryWithoutOverlap(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		messages:                     []transcriptMessage{{ID: "message_1", Sequence: 1}, {ID: "message_2", Sequence: 2}},
+		transcriptHistoryInitialized: true,
+		transcriptHistoryCursor:      "1",
+		transcriptHistoryHasMore:     true,
+		transcriptHistoryLoading:     true,
+	}
+	projected := []transcriptMessage{{ID: "message_10", Sequence: 10}, {ID: "message_11", Sequence: 11}}
+	if state.mergeSnapshotTranscript(projected) {
+		t.Fatal("disjoint snapshot incorrectly retained cached history")
+	}
+	state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{PreviousMessageCursor: "10", HasMoreMessages: true})
+	if len(state.messages) != 2 || state.messages[0].ID != "message_10" {
+		t.Fatalf("disjoint snapshot merge = %+v", state.messages)
+	}
+	if state.transcriptHistoryCursor != "10" || state.transcriptHistoryLoading {
+		t.Fatalf("reset pagination = cursor %q loading %t", state.transcriptHistoryCursor, state.transcriptHistoryLoading)
+	}
+}
+
+func TestTranscriptAnchorRestoreSuppressesFollowRequest(t *testing.T) {
+	t.Parallel()
+
+	state := appState{transcriptHistoryRestore: 1}
+	state.requestTranscriptScroll()
+	if state.needsScroll || state.scrollPendingLayout {
+		t.Fatalf("anchor restoration queued transcript follow: needs %t pending %t", state.needsScroll, state.scrollPendingLayout)
+	}
+}
+
+func TestPrependTranscriptHistoryRejectsConflictingOverlap(t *testing.T) {
+	t.Parallel()
+
+	state := appState{messages: []transcriptMessage{{ID: "message_existing", Sequence: 4}}}
+	err := state.prependTranscriptHistory(protocol.TranscriptPage{Messages: []protocol.TranscriptMessage{{
+		ID: "message_other", Sequence: 4, TurnID: "turn_1", Role: "user",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "conflict"}},
+	}}})
+	if err == nil {
+		t.Fatal("conflicting transcript page was accepted")
+	}
+	if len(state.messages) != 1 || state.messages[0].ID != "message_existing" {
+		t.Fatalf("conflicting prepend mutated transcript: %+v", state.messages)
+	}
+}
+
+func TestPrependTranscriptHistoryAdvancesCursor(t *testing.T) {
+	t.Parallel()
+
+	state := appState{
+		messages:                 []transcriptMessage{{ID: "message_3", Sequence: 3}},
+		transcriptHistoryCursor:  "3",
+		transcriptHistoryHasMore: true,
+	}
+	err := state.prependTranscriptHistory(protocol.TranscriptPage{
+		Messages: []protocol.TranscriptMessage{
+			{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "one"}}},
+			{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "two"}}},
+		},
+		PreviousMessageCursor: "1", HasMoreMessages: true,
+	})
+	if err != nil {
+		t.Fatalf("prepend transcript history: %v", err)
+	}
+	if len(state.messages) != 3 || state.messages[0].Sequence != 1 || state.messages[2].Sequence != 3 {
+		t.Fatalf("prepended transcript = %+v", state.messages)
+	}
+	if state.transcriptHistoryCursor != "1" || !state.transcriptHistoryHasMore {
+		t.Fatalf("pagination state = cursor %q more %t", state.transcriptHistoryCursor, state.transcriptHistoryHasMore)
+	}
+}
+
 func TestSnapshotPreservesExpandedActivityForStableToolCall(t *testing.T) {
 	t.Parallel()
 

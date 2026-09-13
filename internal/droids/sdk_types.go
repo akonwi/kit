@@ -61,6 +61,7 @@ func NewFileInputData(filename, mediaType string, data []byte) FileInput {
 // metadata.
 type MessageEnvelope struct {
 	ID             MessageID
+	Sequence       uint64
 	ConversationID ConversationID
 	TurnID         TurnID
 	CreatedAt      time.Time
@@ -358,8 +359,10 @@ type TurnSnapshot struct {
 
 // HistoryQuery pages canonical messages.
 type HistoryQuery struct {
-	After uint64
-	Limit int
+	After      uint64
+	Before     uint64
+	Limit      int
+	Descending bool
 }
 
 // MessagePage is one page of canonical diagnostic messages.

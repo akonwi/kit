@@ -30,18 +30,19 @@ const (
 )
 
 var (
-	ErrBusy              = errors.New("session already has an active parent run")
-	ErrReloadBusy        = errors.New("session cannot be reloaded while work is active")
-	ErrConfigureBusy     = errors.New("session cannot be configured while work is active")
-	ErrDeleteBusy        = errors.New("session cannot be deleted while work is active")
-	ErrClosed            = errors.New("session manager is closed")
-	ErrInvalidInput      = errors.New("invalid session input")
-	ErrRunNotAbortable   = errors.New("run is not abortable")
-	ErrBashBusy          = errors.New("bash execution is busy")
-	ErrBashNotAbortable  = errors.New("bash execution is not abortable")
-	ErrDroidStoreMissing = errors.New("initialized session droid store is missing")
-	ErrNotTemporary      = errors.New("session is not temporary")
-	ErrTemporary         = errors.New("temporary session requires disposal")
+	ErrBusy                        = errors.New("session already has an active parent run")
+	ErrReloadBusy                  = errors.New("session cannot be reloaded while work is active")
+	ErrConfigureBusy               = errors.New("session cannot be configured while work is active")
+	ErrDeleteBusy                  = errors.New("session cannot be deleted while work is active")
+	ErrClosed                      = errors.New("session manager is closed")
+	ErrInvalidInput                = errors.New("invalid session input")
+	ErrRunNotAbortable             = errors.New("run is not abortable")
+	ErrBashBusy                    = errors.New("bash execution is busy")
+	ErrBashNotAbortable            = errors.New("bash execution is not abortable")
+	ErrDroidStoreMissing           = errors.New("initialized session droid store is missing")
+	ErrNotTemporary                = errors.New("session is not temporary")
+	ErrTemporary                   = errors.New("temporary session requires disposal")
+	ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
 )
 
 // CreateInput contains metadata for a new persisted or temporary session.
@@ -1366,13 +1367,12 @@ func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {
 		return
 	}
 	prompt := loaded.followUps[0]
-	loaded.followUps = loaded.followUps[1:]
 	loaded.mu.Unlock()
-	if _, err := m.StartPromptInput(context.Background(), sessionID, prompt); err == nil {
+	if _, err := m.StartPromptInput(context.Background(), sessionID, prompt); err != nil {
 		return
 	}
 	loaded.mu.Lock()
-	loaded.followUps = append([]PromptInput{prompt}, loaded.followUps...)
+	loaded.followUps = loaded.followUps[1:]
 	loaded.mu.Unlock()
 }
 

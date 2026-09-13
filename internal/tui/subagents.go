@@ -533,7 +533,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 				Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true,
 			})
 		}
-		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, true, leading)
+		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, nil, true, leading)
 	} else {
 		var state ui.Widget
 		if !loaded && loadError != "" {

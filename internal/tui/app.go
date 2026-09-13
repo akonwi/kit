@@ -131,6 +131,7 @@ type stagedAttachment struct {
 
 type transcriptMessage struct {
 	ID                     string
+	Sequence               int64
 	TurnID                 string
 	Role                   string
 	Text                   string
@@ -193,130 +194,144 @@ type appState struct {
 	deferredSessionSnapshot *protocol.SessionSnapshot
 	subagentWatchCancel     context.CancelFunc
 
-	phase                        phase
-	errorText                    string
-	status                       string
-	toasts                       toastController
-	toastCancels                 map[uint64]context.CancelFunc
-	eventToasts                  []toastInput
-	showToastOverride            func(toastInput)
-	composer                     string
-	composerCursorEndGeneration  uint64
-	composerDraftGeneration      uint64
-	composerCursorOffset         int
-	composerCursorGeneration     uint64
-	palette                      paletteController
-	paste                        pasteCoalescer
-	fileMention                  fileMentionController
-	fileIndex                    map[string]cachedFileIndex
-	configurationPicker          configurationPickerController
-	compactPending               bool
-	compactOperationID           string
-	sessionDetailsOpen           bool
-	sessionRename                currentSessionRenameController
-	sessionExplorer              sessionExplorerController
-	authReturnReady              bool
-	authFilter                   string
-	authSelection                int
-	authProviderID               string
-	authAPIKey                   string
-	authPending                  bool
-	session                      protocol.SessionInfo
-	bound                        sessionclient.Session
-	location                     string
-	locationBase                 string
-	vcsStatus                    *protocol.VCSStatus
-	vcsContext                   context.Context
-	vcsCancel                    context.CancelFunc
-	sessionDrafts                map[string]string
-	sessionDraftAttachments      map[string][]stagedAttachment
-	sessionDraftAttachmentIDs    map[string][]string
-	sessionSwitchCancel          context.CancelFunc
-	sessionSwitchGeneration      uint64
-	sessionCreateCancel          context.CancelFunc
-	sessionCreateGeneration      uint64
-	sessionCreatePending         bool
-	messages                     []transcriptMessage
-	liveMessages                 []transcriptMessage
-	liveAssistant                int
-	liveHasUser                  bool
-	liveTools                    map[string]int
-	liveContent                  map[int]liveContentBlock
-	liveSequence                 int64
-	metadataStreamID             string
-	metadataSequence             int64
-	turnActivity                 string
-	turnThinking                 string
-	followUps                    protocol.FollowUpQueue
-	composerAttachmentIDs        []string
-	composerAttachments          []stagedAttachment
-	attachmentUploadGeneration   uint64
-	pendingInteractions          []protocol.InteractionRequest
-	followUpMutationPending      bool
-	runStopping                  bool
-	contextTokens                int
-	contextWindow                int
-	sessionUsage                 protocol.SessionUsage
-	scroll                       ui.ScrollController
-	activityScroll               ui.ScrollController
-	activityList                 activityListController
-	activityFocus                ui.FocusNode
-	workspaceLayout              workspaceLayoutState
-	activitySourceID             string
-	activityConversationID       string
-	activitySelected             bool
-	subagentsOpen                bool
-	subagentDefinitions          []protocol.SubagentDefinition
-	subagentDiagnostics          []protocol.SubagentDiagnostic
-	subagentDiagnosticToasts     map[subagentDiagnosticToastKey]struct{}
-	subagentConversations        []protocol.SubagentConversation
-	subagentSelection            string
-	subagentPendingAgent         string
-	subagentPaneID               string
-	subagentTranscripts          map[string]protocol.SubagentTranscript
-	subagentTranscriptErrors     map[string]string
-	subagentTranscriptLoads      map[string]uint64
-	subagentTranscriptLoading    map[string]bool
-	subagentTranscriptOrder      []string
-	subagentScrolls              map[string]*ui.ScrollController
-	subagentScrollToEndID        string
-	subagentNeedsScroll          bool
-	subagentPendingLayout        bool
-	subagentLive                 map[string]protocol.SubagentLiveEventPage
-	subagentLiveLoads            map[string]uint64
-	subagentLiveLoading          map[string]bool
-	subagentRequestGeneration    uint64
-	subagentRosterGeneration     uint64
-	subagentRosterLoading        bool
-	subagentRosterRefreshPending bool
-	subagentRevealPending        bool
-	subagentRevealOffset         int
-	subagentDismissID            string
-	subagentDismissName          string
-	subagentDismissGeneration    uint64
-	subagentDismissPending       bool
-	subagentDismissError         string
-	inlineActivityOpen           map[string]bool
-	activityExpanded             map[activityToolKey]bool
-	activityCursor               activityToolKey
-	needsScroll                  bool
-	scrollPendingLayout          bool
-	activeRun                    sessionclient.Run
-	activeRunID                  string
-	runPending                   bool
-	terminalRunActive            bool
-	terminalRunID                string
-	terminalSettledRunID         string
-	agentFeedbackPending         bool
-	reloadPending                bool
-	cwdPending                   bool
-	prompt                       *promptAdmission
-	activeBash                   sessionclient.BashExecution
-	activeBashID                 string
-	bashStarting                 bool
-	bashAdmission                *bashAdmission
-	bashCollapsed                map[string]bool
-	bashHistory                  bashHistoryController
+	phase                            phase
+	errorText                        string
+	status                           string
+	toasts                           toastController
+	toastCancels                     map[uint64]context.CancelFunc
+	eventToasts                      []toastInput
+	showToastOverride                func(toastInput)
+	composer                         string
+	composerCursorEndGeneration      uint64
+	composerDraftGeneration          uint64
+	composerCursorOffset             int
+	composerCursorGeneration         uint64
+	palette                          paletteController
+	paste                            pasteCoalescer
+	fileMention                      fileMentionController
+	fileIndex                        map[string]cachedFileIndex
+	configurationPicker              configurationPickerController
+	compactPending                   bool
+	compactOperationID               string
+	sessionDetailsOpen               bool
+	sessionRename                    currentSessionRenameController
+	sessionExplorer                  sessionExplorerController
+	authReturnReady                  bool
+	authFilter                       string
+	authSelection                    int
+	authProviderID                   string
+	authAPIKey                       string
+	authPending                      bool
+	session                          protocol.SessionInfo
+	bound                            sessionclient.Session
+	location                         string
+	locationBase                     string
+	vcsStatus                        *protocol.VCSStatus
+	vcsContext                       context.Context
+	vcsCancel                        context.CancelFunc
+	sessionDrafts                    map[string]string
+	sessionDraftAttachments          map[string][]stagedAttachment
+	sessionDraftAttachmentIDs        map[string][]string
+	sessionSwitchCancel              context.CancelFunc
+	sessionSwitchGeneration          uint64
+	sessionCreateCancel              context.CancelFunc
+	sessionCreateGeneration          uint64
+	sessionCreatePending             bool
+	messages                         []transcriptMessage
+	liveMessages                     []transcriptMessage
+	transcriptList                   ui.SliverListController
+	transcriptHistoryInitialized     bool
+	transcriptHistoryCursor          string
+	transcriptHistoryHasMore         bool
+	transcriptHistoryLoading         bool
+	transcriptHistoryError           string
+	transcriptHistoryGeneration      uint64
+	transcriptHistoryAnchorID        string
+	transcriptHistoryAnchorInset     int
+	transcriptHistoryAnchorExpected  int
+	transcriptHistoryAnchorInput     uint64
+	transcriptHistoryInputGeneration uint64
+	transcriptHistoryAnchorEnd       bool
+	transcriptHistoryRestore         int
+	liveAssistant                    int
+	liveHasUser                      bool
+	liveTools                        map[string]int
+	liveContent                      map[int]liveContentBlock
+	liveSequence                     int64
+	metadataStreamID                 string
+	metadataSequence                 int64
+	turnActivity                     string
+	turnThinking                     string
+	followUps                        protocol.FollowUpQueue
+	composerAttachmentIDs            []string
+	composerAttachments              []stagedAttachment
+	attachmentUploadGeneration       uint64
+	pendingInteractions              []protocol.InteractionRequest
+	followUpMutationPending          bool
+	runStopping                      bool
+	contextTokens                    int
+	contextWindow                    int
+	sessionUsage                     protocol.SessionUsage
+	scroll                           ui.ScrollController
+	activityScroll                   ui.ScrollController
+	activityList                     activityListController
+	activityFocus                    ui.FocusNode
+	workspaceLayout                  workspaceLayoutState
+	activitySourceID                 string
+	activityConversationID           string
+	activitySelected                 bool
+	subagentsOpen                    bool
+	subagentDefinitions              []protocol.SubagentDefinition
+	subagentDiagnostics              []protocol.SubagentDiagnostic
+	subagentDiagnosticToasts         map[subagentDiagnosticToastKey]struct{}
+	subagentConversations            []protocol.SubagentConversation
+	subagentSelection                string
+	subagentPendingAgent             string
+	subagentPaneID                   string
+	subagentTranscripts              map[string]protocol.SubagentTranscript
+	subagentTranscriptErrors         map[string]string
+	subagentTranscriptLoads          map[string]uint64
+	subagentTranscriptLoading        map[string]bool
+	subagentTranscriptOrder          []string
+	subagentScrolls                  map[string]*ui.ScrollController
+	subagentScrollToEndID            string
+	subagentNeedsScroll              bool
+	subagentPendingLayout            bool
+	subagentLive                     map[string]protocol.SubagentLiveEventPage
+	subagentLiveLoads                map[string]uint64
+	subagentLiveLoading              map[string]bool
+	subagentRequestGeneration        uint64
+	subagentRosterGeneration         uint64
+	subagentRosterLoading            bool
+	subagentRosterRefreshPending     bool
+	subagentRevealPending            bool
+	subagentRevealOffset             int
+	subagentDismissID                string
+	subagentDismissName              string
+	subagentDismissGeneration        uint64
+	subagentDismissPending           bool
+	subagentDismissError             string
+	inlineActivityOpen               map[string]bool
+	activityExpanded                 map[activityToolKey]bool
+	activityCursor                   activityToolKey
+	needsScroll                      bool
+	scrollPendingLayout              bool
+	activeRun                        sessionclient.Run
+	activeRunID                      string
+	runPending                       bool
+	terminalRunActive                bool
+	terminalRunID                    string
+	terminalSettledRunID             string
+	agentFeedbackPending             bool
+	reloadPending                    bool
+	cwdPending                       bool
+	prompt                           *promptAdmission
+	activeBash                       sessionclient.BashExecution
+	activeBashID                     string
+	bashStarting                     bool
+	bashAdmission                    *bashAdmission
+	bashCollapsed                    map[string]bool
+	bashHistory                      bashHistoryController
 
 	instructions        auth.OpenAICodexDeviceInstructions
 	browserInstructions auth.AnthropicLoginInstructions
@@ -396,7 +411,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 		s.syncTerminalStatus(now, s.Context().EventContext().SetTitle)
 	}
 	keepTicking := false
-	if s.needsScroll {
+	if s.needsScroll && s.transcriptHistoryRestore == 0 {
 		if s.scrollPendingLayout {
 			// Live events can arrive before the deferred follow-up frame. Apply the
 			// latest completed layout now so repeated updates cannot starve follow.
@@ -411,6 +426,12 @@ func (s *appState) TickFrame(now time.Time) bool {
 			}
 			s.needsScroll = false
 		}
+	}
+	if s.restoreTranscriptHistoryAnchor() {
+		keepTicking = true
+	}
+	if s.maybeLoadTranscriptHistory() {
+		keepTicking = true
 	}
 	if s.subagentNeedsScroll {
 		controller := s.subagentScrolls[s.subagentScrollToEndID]
@@ -439,7 +460,210 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.subagentRevealPending
+	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.subagentRevealPending
+}
+
+func (s *appState) maybeLoadTranscriptHistory() bool {
+	if s.transcriptHistoryRestore != 0 || s.transcriptHistoryLoading || !s.transcriptHistoryHasMore || s.transcriptHistoryError != "" || s.phase != phaseReady {
+		return false
+	}
+	first, _, ok := s.transcriptList.VisibleRange()
+	if !ok || first > 2 {
+		return false
+	}
+	s.loadTranscriptHistory()
+	return s.transcriptHistoryLoading
+}
+
+func (s *appState) loadTranscriptHistory() {
+	pager, ok := s.bound.(sessionclient.TranscriptPager)
+	if !ok || s.transcriptHistoryLoading || !s.transcriptHistoryHasMore || s.transcriptHistoryCursor == "" {
+		return
+	}
+	sessionID := s.session.ID
+	cursor := s.transcriptHistoryCursor
+	bound := s.bound
+	attachmentContext := s.attachmentCtx
+	var generation uint64
+	s.SetState(func() {
+		s.transcriptHistoryGeneration++
+		generation = s.transcriptHistoryGeneration
+		s.transcriptHistoryLoading = true
+		s.transcriptHistoryError = ""
+	})
+	runtime := s.Context().Runtime()
+	go func() {
+		requestContext, cancel := context.WithTimeout(attachmentContext, 30*time.Second)
+		defer cancel()
+		page, err := pager.TranscriptPage(requestContext, cursor)
+		var refreshed *protocol.SessionSnapshot
+		if errors.Is(err, sessionclient.ErrTranscriptCursorUnavailable) {
+			snapshot, snapshotErr := bound.Snapshot(requestContext)
+			if snapshotErr == nil {
+				refreshed = &snapshot
+			}
+			err = snapshotErr
+		} else if err == nil {
+			if page.SessionID != sessionID {
+				err = fmt.Errorf("transcript page belongs to another session")
+			} else {
+				err = page.ValidateBefore(cursor)
+			}
+		}
+		if attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.session.ID != sessionID || s.transcriptHistoryGeneration != generation || !s.transcriptHistoryLoading || s.transcriptHistoryCursor != cursor {
+				return
+			}
+			if err == nil && refreshed == nil {
+				s.captureTranscriptHistoryAnchor()
+			}
+			s.SetState(func() {
+				s.transcriptHistoryLoading = false
+				if err != nil {
+					s.transcriptHistoryError = err.Error()
+					return
+				}
+				if refreshed != nil {
+					if refreshed.ActiveRunID != "" && refreshed.ActiveRunID == s.activeRunID {
+						// The bounded snapshot omits this active turn, so refresh only
+						// durable state and leave its streamed projection intact.
+						s.messages = projectTranscript(refreshed.Messages)
+						s.resetTranscriptHistoryFromSnapshot(*refreshed)
+					} else {
+						// The run settled while recovery was in flight. Reconcile the
+						// whole snapshot so its now-durable turn is not also kept live.
+						s.messages = nil
+						s.transcriptHistoryInitialized = false
+						s.applySnapshot(*refreshed)
+					}
+					return
+				}
+				if mergeErr := s.prependTranscriptHistory(page); mergeErr != nil {
+					s.transcriptHistoryError = mergeErr.Error()
+				}
+			})
+		})
+	}()
+}
+
+func (s *appState) retryTranscriptHistory(ui.EventContext) {
+	s.SetState(func() { s.transcriptHistoryError = "" })
+	s.loadTranscriptHistory()
+}
+
+func (s *appState) captureTranscriptHistoryAnchor() {
+	metrics := s.scroll.Metrics()
+	s.transcriptHistoryAnchorEnd = metrics.ScrollOffset >= metrics.MaxScrollOffset
+	s.transcriptHistoryAnchorID = ""
+	s.transcriptHistoryAnchorInset = 0
+	s.transcriptHistoryAnchorExpected = metrics.ScrollOffset
+	s.transcriptHistoryAnchorInput = s.transcriptHistoryInputGeneration
+	if s.transcriptHistoryAnchorEnd {
+		return
+	}
+	first, _, visible := s.transcriptList.VisibleRange()
+	if !visible {
+		return
+	}
+	presentation := s.mainTranscriptPresentation()
+	if first < 0 || first >= len(presentation.Items) {
+		return
+	}
+	s.needsScroll = false
+	s.scrollPendingLayout = false
+	s.transcriptHistoryAnchorID = presentation.Items[first].ID
+	if offset, measured := s.transcriptList.OffsetForIndex(first); measured {
+		s.transcriptHistoryAnchorInset = max(0, metrics.ScrollOffset-1-offset)
+	}
+}
+
+func (s *appState) mainTranscriptPresentation() transcriptPresentation {
+	messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
+	messages = append(messages, s.messages...)
+	messages = append(messages, s.liveMessages...)
+	return presentTranscript(messages)
+}
+
+func (s *appState) prependTranscriptHistory(page protocol.TranscriptPage) error {
+	older := projectTranscript(page.Messages)
+	sequenceByID := make(map[string]int64, len(s.messages))
+	idBySequence := make(map[int64]string, len(s.messages))
+	for _, message := range s.messages {
+		if message.ID != "" {
+			sequenceByID[message.ID] = message.Sequence
+		}
+		if message.Sequence > 0 {
+			idBySequence[message.Sequence] = message.ID
+		}
+	}
+	merged := make([]transcriptMessage, 0, len(older)+len(s.messages))
+	for _, message := range older {
+		if sequence, duplicate := sequenceByID[message.ID]; duplicate {
+			return fmt.Errorf("earlier transcript overlaps message %q at sequence %d", message.ID, sequence)
+		}
+		if id, duplicate := idBySequence[message.Sequence]; duplicate && id != message.ID {
+			return fmt.Errorf("earlier transcript overlaps conflicting sequence %d", message.Sequence)
+		}
+		merged = append(merged, message)
+	}
+	s.messages = append(merged, s.messages...)
+	s.transcriptHistoryCursor = page.PreviousMessageCursor
+	s.transcriptHistoryHasMore = page.HasMoreMessages
+	if s.transcriptHistoryAnchorEnd {
+		s.requestTranscriptScroll()
+		s.transcriptHistoryAnchorEnd = false
+	} else if s.transcriptHistoryAnchorID != "" {
+		s.transcriptHistoryRestore = 1
+	}
+	return nil
+}
+
+func (s *appState) restoreTranscriptHistoryAnchor() bool {
+	if s.transcriptHistoryRestore == 0 {
+		return false
+	}
+	presentation := s.mainTranscriptPresentation()
+	index := -1
+	for candidate := range presentation.Items {
+		if presentation.Items[candidate].ID == s.transcriptHistoryAnchorID {
+			index = candidate
+			break
+		}
+	}
+	if index < 0 || !s.transcriptList.Attached() {
+		s.transcriptHistoryRestore = 0
+		s.transcriptHistoryAnchorID = ""
+		return false
+	}
+	if s.transcriptHistoryInputGeneration != s.transcriptHistoryAnchorInput ||
+		(s.transcriptHistoryRestore != 2 && s.scroll.Metrics().ScrollOffset != s.transcriptHistoryAnchorExpected) {
+		s.transcriptHistoryRestore = 0
+		s.transcriptHistoryAnchorID = ""
+		return false
+	}
+	if s.transcriptHistoryRestore == 1 {
+		s.transcriptList.ScrollToIndex(index, ui.ScrollAlignStart)
+		s.transcriptHistoryRestore = 2
+		return true
+	}
+	if s.transcriptHistoryRestore == 2 {
+		// ScrollToIndex may be corrected during measured sliver layout. Capture
+		// that settled position before distinguishing later user movement.
+		s.transcriptHistoryAnchorExpected = s.scroll.Metrics().ScrollOffset
+		s.transcriptHistoryRestore = 3
+		return true
+	}
+	offset, ok := s.transcriptList.OffsetForIndex(index)
+	if !ok || !s.scroll.Attached() {
+		return true
+	}
+	s.scroll.ScrollToOffset(max(0, 1+offset+s.transcriptHistoryAnchorInset))
+	s.transcriptHistoryRestore = 0
+	s.transcriptHistoryAnchorID = ""
+	return false
 }
 
 func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
@@ -537,6 +761,9 @@ func equivalentActivitySource(items []transcriptDisplayItem, previous transcript
 }
 
 func (s *appState) requestTranscriptScroll() {
+	if s.transcriptHistoryRestore != 0 {
+		return
+	}
 	s.needsScroll = true
 	s.scrollPendingLayout = true
 }
@@ -629,77 +856,82 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		attachments = capable
 	}
 	snapshot := shellSnapshot{
-		Phase:                       s.phase,
-		Error:                       s.errorText,
-		Status:                      s.status,
-		Composer:                    s.composer,
-		ComposerAttachments:         append([]stagedAttachment(nil), s.composerAttachments...),
-		ComposerCursorEndGeneration: s.composerCursorEndGeneration,
-		ComposerCursorOffset:        s.composerCursorOffset,
-		ComposerCursorGeneration:    s.composerCursorGeneration,
-		PaletteOpen:                 s.palette.Open,
-		PaletteQuery:                s.palette.Query,
-		PaletteSelection:            s.palette.Selection,
-		PaletteCommands:             s.palette.Contributions,
-		ConfigurationPicker:         s.configurationPicker.Snapshot(),
-		SessionDetailsOpen:          s.sessionDetailsOpen,
-		SessionRename:               s.sessionRename.Snapshot(),
-		SessionExplorer:             s.sessionExplorer.Snapshot(),
-		AuthReturnReady:             s.authReturnReady,
-		AuthFilter:                  s.authFilter,
-		AuthSelection:               s.authSelection,
-		AuthProviderID:              s.authProviderID,
-		AuthAPIKey:                  s.authAPIKey,
-		AuthCode:                    s.authCode,
-		AuthPending:                 s.authPending,
-		Session:                     s.session,
-		Messages:                    presentedMessages,
-		Attachments:                 attachments,
-		Running:                     s.hasActiveWork(),
-		AgentRunning:                s.runPending,
-		TurnActivity:                s.turnActivity,
-		TurnThinking:                s.turnThinking,
-		FollowUps:                   s.followUps,
-		PendingInteractions:         append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
-		ContextTokens:               s.contextTokens,
-		ContextWindow:               s.contextWindow,
-		SessionUsage:                s.sessionUsage,
-		Scroll:                      &s.scroll,
-		ActivityScroll:              &s.activityScroll,
-		ActivityList:                &s.activityList,
-		ActivityFocus:               &s.activityFocus,
-		WorkspaceLayout:             &s.workspaceLayout,
-		ActivitySourceID:            s.activitySourceID,
-		ActivityConversationID:      s.activityConversationID,
-		ActivitySelected:            s.activitySelected,
-		SubagentsOpen:               s.subagentsOpen,
-		SubagentDefinitions:         append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
-		SubagentDiagnostics:         append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
-		SubagentConversations:       append([]protocol.SubagentConversation(nil), s.subagentConversations...),
-		SubagentSelection:           s.subagentSelection,
-		SubagentPaneID:              s.subagentPaneID,
-		SubagentTranscripts:         cloneSubagentTranscripts(s.subagentTranscripts),
-		SubagentTranscriptErrors:    cloneStringMap(s.subagentTranscriptErrors),
-		SubagentTranscriptOrder:     append([]string(nil), s.subagentTranscriptOrder...),
-		SubagentScroll:              s.subagentScrolls[s.subagentPaneID],
-		SubagentLive:                cloneSubagentLive(s.subagentLive),
-		SubagentDismissID:           s.subagentDismissID,
-		SubagentDismissName:         s.subagentDismissName,
-		SubagentDismissPending:      s.subagentDismissPending,
-		SubagentDismissError:        s.subagentDismissError,
-		InlineActivityOpen:          s.inlineActivityOpen,
-		ActivityExpanded:            s.activityExpanded,
-		ActivityCursor:              s.activityCursor,
-		BashRunning:                 s.activeBashID != "",
-		BashStarting:                s.bashStarting,
-		BashCollapsed:               s.bashCollapsed,
-		BashHistory:                 s.bashHistory,
-		FileMention:                 s.fileMention,
-		Instructions:                s.instructions,
-		BrowserInstructions:         s.browserInstructions,
-		Remaining:                   s.remaining,
-		Location:                    s.location,
-		Toasts:                      s.toasts.Snapshot(),
+		Phase:                        s.phase,
+		Error:                        s.errorText,
+		Status:                       s.status,
+		Composer:                     s.composer,
+		ComposerAttachments:          append([]stagedAttachment(nil), s.composerAttachments...),
+		ComposerCursorEndGeneration:  s.composerCursorEndGeneration,
+		ComposerCursorOffset:         s.composerCursorOffset,
+		ComposerCursorGeneration:     s.composerCursorGeneration,
+		PaletteOpen:                  s.palette.Open,
+		PaletteQuery:                 s.palette.Query,
+		PaletteSelection:             s.palette.Selection,
+		PaletteCommands:              s.palette.Contributions,
+		ConfigurationPicker:          s.configurationPicker.Snapshot(),
+		SessionDetailsOpen:           s.sessionDetailsOpen,
+		SessionRename:                s.sessionRename.Snapshot(),
+		SessionExplorer:              s.sessionExplorer.Snapshot(),
+		AuthReturnReady:              s.authReturnReady,
+		AuthFilter:                   s.authFilter,
+		AuthSelection:                s.authSelection,
+		AuthProviderID:               s.authProviderID,
+		AuthAPIKey:                   s.authAPIKey,
+		AuthCode:                     s.authCode,
+		AuthPending:                  s.authPending,
+		Session:                      s.session,
+		Messages:                     presentedMessages,
+		Attachments:                  attachments,
+		Running:                      s.hasActiveWork(),
+		AgentRunning:                 s.runPending,
+		TurnActivity:                 s.turnActivity,
+		TurnThinking:                 s.turnThinking,
+		FollowUps:                    s.followUps,
+		PendingInteractions:          append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
+		ContextTokens:                s.contextTokens,
+		ContextWindow:                s.contextWindow,
+		SessionUsage:                 s.sessionUsage,
+		Scroll:                       &s.scroll,
+		TranscriptList:               &s.transcriptList,
+		TranscriptHistoryInitialized: s.transcriptHistoryInitialized,
+		TranscriptHistoryHasMore:     s.transcriptHistoryHasMore,
+		TranscriptHistoryLoading:     s.transcriptHistoryLoading,
+		TranscriptHistoryError:       s.transcriptHistoryError,
+		ActivityScroll:               &s.activityScroll,
+		ActivityList:                 &s.activityList,
+		ActivityFocus:                &s.activityFocus,
+		WorkspaceLayout:              &s.workspaceLayout,
+		ActivitySourceID:             s.activitySourceID,
+		ActivityConversationID:       s.activityConversationID,
+		ActivitySelected:             s.activitySelected,
+		SubagentsOpen:                s.subagentsOpen,
+		SubagentDefinitions:          append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
+		SubagentDiagnostics:          append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
+		SubagentConversations:        append([]protocol.SubagentConversation(nil), s.subagentConversations...),
+		SubagentSelection:            s.subagentSelection,
+		SubagentPaneID:               s.subagentPaneID,
+		SubagentTranscripts:          cloneSubagentTranscripts(s.subagentTranscripts),
+		SubagentTranscriptErrors:     cloneStringMap(s.subagentTranscriptErrors),
+		SubagentTranscriptOrder:      append([]string(nil), s.subagentTranscriptOrder...),
+		SubagentScroll:               s.subagentScrolls[s.subagentPaneID],
+		SubagentLive:                 cloneSubagentLive(s.subagentLive),
+		SubagentDismissID:            s.subagentDismissID,
+		SubagentDismissName:          s.subagentDismissName,
+		SubagentDismissPending:       s.subagentDismissPending,
+		SubagentDismissError:         s.subagentDismissError,
+		InlineActivityOpen:           s.inlineActivityOpen,
+		ActivityExpanded:             s.activityExpanded,
+		ActivityCursor:               s.activityCursor,
+		BashRunning:                  s.activeBashID != "",
+		BashStarting:                 s.bashStarting,
+		BashCollapsed:                s.bashCollapsed,
+		BashHistory:                  s.bashHistory,
+		FileMention:                  s.fileMention,
+		Instructions:                 s.instructions,
+		BrowserInstructions:          s.browserInstructions,
+		Remaining:                    s.remaining,
+		Location:                     s.location,
+		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
 		OpenAuth: func(ui.EventContext) {
@@ -707,7 +939,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.enterAuthSelect(false)
 			}
 		},
-		SelectProvider: s.selectProvider,
+		SelectProvider:         s.selectProvider,
+		RetryTranscriptHistory: s.retryTranscriptHistory,
 		MoveProviderSelection: func(_ ui.EventContext, delta int) {
 			s.moveProviderSelection(delta)
 		},
@@ -1084,6 +1317,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
 	if ctx.Phase() != ui.CapturePhase {
 		return ui.EventIgnored
+	}
+	if mouse, ok := event.(ui.Mouse); ok && s.transcriptHistoryRestore != 0 {
+		switch mouse.Button {
+		case ui.MouseWheelUp, ui.MouseWheelDown, ui.MouseLeftButton:
+			s.transcriptHistoryInputGeneration++
+		}
 	}
 	if result, consumed := s.paste.Observe(ctx, event, s.handleKey); consumed {
 		return result
@@ -1491,7 +1730,10 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			})
 		}
 	}
-	s.messages = projected
+	preservedHistory := s.mergeSnapshotTranscript(projected)
+	if !s.transcriptHistoryInitialized || !preservedHistory {
+		s.resetTranscriptHistoryFromSnapshot(snapshot)
+	}
 	s.resetLiveRun()
 	if s.activitySourceID != "" && s.activityConversationID == "" {
 		presentation := presentTranscript(s.messages)
@@ -1563,6 +1805,62 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	}
 }
 
+func (s *appState) resetTranscriptHistoryFromSnapshot(snapshot protocol.SessionSnapshot) {
+	_, paginationAvailable := s.bound.(sessionclient.TranscriptPager)
+	s.transcriptHistoryInitialized = paginationAvailable
+	s.transcriptHistoryCursor = snapshot.PreviousMessageCursor
+	s.transcriptHistoryHasMore = paginationAvailable && snapshot.HasMoreMessages
+	s.transcriptHistoryLoading = false
+	s.transcriptHistoryError = ""
+	s.transcriptHistoryGeneration++
+	s.transcriptHistoryAnchorID = ""
+	s.transcriptHistoryRestore = 0
+}
+
+func (s *appState) mergeSnapshotTranscript(projected []transcriptMessage) bool {
+	if len(projected) == 0 || len(s.messages) == 0 || projected[0].Sequence <= 0 {
+		s.messages = projected
+		return false
+	}
+	existingByID := make(map[string]int64, len(s.messages))
+	existingBySequence := make(map[int64]string, len(s.messages))
+	for _, message := range s.messages {
+		if message.ID != "" {
+			existingByID[message.ID] = message.Sequence
+		}
+		if message.Sequence > 0 {
+			existingBySequence[message.Sequence] = message.ID
+		}
+	}
+	overlaps := false
+	for _, message := range projected {
+		if sequence, found := existingByID[message.ID]; found {
+			if sequence != message.Sequence {
+				s.messages = projected
+				return false
+			}
+			overlaps = true
+		}
+		if id, found := existingBySequence[message.Sequence]; found && id != message.ID {
+			s.messages = projected
+			return false
+		}
+	}
+	if !overlaps {
+		s.messages = projected
+		return false
+	}
+	firstSequence := projected[0].Sequence
+	prefix := make([]transcriptMessage, 0, len(s.messages)+len(projected))
+	for _, message := range s.messages {
+		if message.Sequence > 0 && message.Sequence < firstSequence {
+			prefix = append(prefix, message)
+		}
+	}
+	s.messages = append(prefix, projected...)
+	return true
+}
+
 func projectTranscriptContent(content []protocol.TranscriptContent) []protocol.TranscriptContent {
 	projected := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
@@ -1584,7 +1882,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 			}
 			execution := cloneBashExecution(*message.Bash)
 			result = append(result, transcriptMessage{
-				ID: message.ID, Role: "bash", Bash: &execution,
+				ID: message.ID, Sequence: message.Sequence, Role: "bash", Bash: &execution,
 				Pending: execution.Status == protocol.BashExecutionRunning,
 			})
 			continue
@@ -1628,7 +1926,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 			}
 		}
 		result = append(result, transcriptMessage{
-			ID: message.ID, TurnID: message.TurnID, Role: message.Role,
+			ID: message.ID, Sequence: message.Sequence, TurnID: message.TurnID, Role: message.Role,
 			Text: text, Thinking: thinking, Content: projectTranscriptContent(message.Content),
 			ToolCallID: message.ToolCallID, ToolCalls: calls,
 			ToolName: message.ToolName, ToolStatus: status,
@@ -4210,6 +4508,18 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composerAttachmentIDs = append([]string(nil), s.sessionDraftAttachmentIDs[snapshot.Session.ID]...)
 	s.composerCursorEndGeneration++
 	s.messages = nil
+	s.transcriptList = ui.SliverListController{}
+	s.transcriptHistoryInitialized = false
+	s.transcriptHistoryCursor = ""
+	s.transcriptHistoryHasMore = false
+	s.transcriptHistoryLoading = false
+	s.transcriptHistoryError = ""
+	s.transcriptHistoryGeneration++
+	s.transcriptHistoryAnchorID = ""
+	s.transcriptHistoryAnchorInset = 0
+	s.transcriptHistoryAnchorExpected = 0
+	s.transcriptHistoryAnchorEnd = false
+	s.transcriptHistoryRestore = 0
 	s.configurationPicker = configurationPickerController{}
 	s.sessionRename.Reset()
 	s.cwdPending = false
@@ -4640,7 +4950,9 @@ func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run
 		return false
 	}
 	if deferred := s.deferredSessionSnapshot; deferred != nil {
-		s.messages = projectTranscript(deferred.Messages)
+		if !s.mergeSnapshotTranscript(projectTranscript(deferred.Messages)) {
+			s.resetTranscriptHistoryFromSnapshot(*deferred)
+		}
 		s.applySubagentSnapshot(*deferred)
 		s.followUps = deferred.FollowUps
 		s.contextTokens = deferred.ContextTokens

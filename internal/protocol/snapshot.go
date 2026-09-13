@@ -6,6 +6,7 @@ import (
 	"math"
 	"mime"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -35,6 +36,118 @@ func (usage SessionUsage) Validate() error {
 	return nil
 }
 
+// Validate checks a transcript page received across a transport boundary.
+func (page TranscriptPage) Validate() error {
+	if !identifier.Valid(page.SessionID, "session_") {
+		return fmt.Errorf("transcript page session identity is invalid")
+	}
+	if page.HasMoreMessages {
+		cursor, err := strconv.ParseUint(page.PreviousMessageCursor, 10, 64)
+		if err != nil || cursor == 0 || len(page.Messages) == 0 || cursor != uint64(page.Messages[0].Sequence) {
+			return fmt.Errorf("transcript page previous-message cursor is invalid")
+		}
+	} else if page.PreviousMessageCursor != "" {
+		return fmt.Errorf("transcript page previous-message cursor requires older messages")
+	}
+	previous := int64(-1)
+	seen := make(map[string]struct{}, len(page.Messages))
+	closedTurns := make(map[string]struct{})
+	currentTurn := ""
+	toolCallsByTurn := make(map[string]map[string]string)
+	toolResultsByTurn := make(map[string]map[string]struct{})
+	for index, message := range page.Messages {
+		if message.ID == "" || message.Role != "bash" && message.TurnID == "" || message.Sequence <= previous {
+			return fmt.Errorf("transcript page message %d identity or sequence is invalid", index)
+		}
+		if _, duplicate := seen[message.ID]; duplicate {
+			return fmt.Errorf("transcript page message %d is duplicated", index)
+		}
+		seen[message.ID] = struct{}{}
+		if message.Role != "bash" && message.TurnID != currentTurn {
+			if _, reused := closedTurns[message.TurnID]; reused {
+				return fmt.Errorf("transcript page message %d reopens noncontiguous turn %q", index, message.TurnID)
+			}
+			if currentTurn != "" {
+				closedTurns[currentTurn] = struct{}{}
+			}
+			currentTurn = message.TurnID
+		}
+		switch message.Role {
+		case "user", "assistant", "tool", "context", "bash":
+		default:
+			return fmt.Errorf("transcript page message %d role %q is invalid", index, message.Role)
+		}
+		if err := message.validate(); err != nil {
+			return fmt.Errorf("transcript page message %d: %w", index, err)
+		}
+		if message.Role == "bash" && (message.Bash.ID != message.ID || message.Bash.SessionID != page.SessionID || message.Bash.Sequence != message.Sequence) {
+			return fmt.Errorf("transcript page message %d bash identity mismatch", index)
+		}
+		if message.Role == "assistant" {
+			calls := toolCallsByTurn[message.TurnID]
+			if calls == nil {
+				calls = make(map[string]string)
+				toolCallsByTurn[message.TurnID] = calls
+			}
+			for _, block := range message.Content {
+				if block.Kind != TranscriptContentToolCall {
+					continue
+				}
+				if _, duplicate := calls[block.ToolCallID]; duplicate {
+					return fmt.Errorf("transcript page message %d duplicates tool call %q in turn", index, block.ToolCallID)
+				}
+				calls[block.ToolCallID] = block.ToolName
+			}
+		}
+		if message.Role == "tool" {
+			callName, found := toolCallsByTurn[message.TurnID][message.ToolCallID]
+			if !found {
+				return fmt.Errorf("transcript page message %d has no preceding tool call %q in turn", index, message.ToolCallID)
+			}
+			if callName != message.ToolName {
+				return fmt.Errorf("transcript page message %d tool name %q does not match call name %q", index, message.ToolName, callName)
+			}
+			results := toolResultsByTurn[message.TurnID]
+			if results == nil {
+				results = make(map[string]struct{})
+				toolResultsByTurn[message.TurnID] = results
+			}
+			if _, duplicate := results[message.ToolCallID]; duplicate {
+				return fmt.Errorf("transcript page message %d duplicates result for tool call %q", index, message.ToolCallID)
+			}
+			results[message.ToolCallID] = struct{}{}
+		}
+		if _, err := time.Parse(time.RFC3339Nano, message.CreatedAt); err != nil {
+			return fmt.Errorf("transcript page message %d createdAt is invalid: %w", index, err)
+		}
+		previous = message.Sequence
+	}
+	return nil
+}
+
+// ValidateBefore checks a page against its requested exclusive cursor.
+func (page TranscriptPage) ValidateBefore(before string) error {
+	if err := page.Validate(); err != nil {
+		return err
+	}
+	cursor, err := strconv.ParseUint(before, 10, 64)
+	if err != nil || cursor == 0 {
+		return fmt.Errorf("requested transcript cursor is invalid")
+	}
+	for _, message := range page.Messages {
+		if message.Sequence < 0 || uint64(message.Sequence) >= cursor {
+			return fmt.Errorf("transcript page message does not precede requested cursor")
+		}
+	}
+	if page.HasMoreMessages {
+		previous, _ := strconv.ParseUint(page.PreviousMessageCursor, 10, 64)
+		if previous >= cursor {
+			return fmt.Errorf("transcript page cursor does not precede requested cursor")
+		}
+	}
+	return nil
+}
+
 // Validate checks a session snapshot received across a transport boundary.
 func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Session.Validate(); err != nil {
@@ -54,6 +167,14 @@ func (snapshot SessionSnapshot) Validate() error {
 	}
 	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
+	}
+	if snapshot.HasMoreMessages {
+		cursor, err := strconv.ParseUint(snapshot.PreviousMessageCursor, 10, 64)
+		if err != nil || cursor == 0 || len(snapshot.Messages) == 0 || cursor != uint64(snapshot.Messages[0].Sequence) {
+			return fmt.Errorf("snapshot previous-message cursor is invalid")
+		}
+	} else if snapshot.PreviousMessageCursor != "" {
+		return fmt.Errorf("snapshot previous-message cursor requires older messages")
 	}
 	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions ||
 		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {

@@ -132,6 +132,12 @@ type SubagentTask struct {
 	Error                  string
 }
 
+const (
+	transcriptPageMessageTarget = 50
+	transcriptPageMinimumTurns  = 4
+	transcriptHistoryReadLimit  = 64
+)
+
 type SessionUsageCost struct {
 	Input      float64
 	Output     float64
@@ -143,6 +149,8 @@ type SessionUsageCost struct {
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
+	PreviousMessageCursor uint64
+	HasMoreMessages       bool
 	Boundaries            []PendingBoundary
 	ActiveRunID           string
 	ActiveBashExecutionID string
@@ -161,6 +169,13 @@ type Snapshot struct {
 	SubagentConversations []SubagentConversation
 	SubagentMailbox       []SubagentMailboxItem
 	PendingInteractions   []InteractionRequest
+}
+
+// TranscriptPage is one page of older complete-turn history.
+type TranscriptPage struct {
+	Messages              []TranscriptMessage
+	PreviousMessageCursor uint64
+	HasMoreMessages       bool
 }
 
 // Snapshot projects canonical droid history directly. While a turn is active,
@@ -239,6 +254,41 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		}
 		loaded.mu.Lock()
 	}
+}
+
+// TranscriptPage returns complete turns preceding the exclusive durable cursor.
+func (m *Manager) TranscriptPage(ctx context.Context, sessionID string, before uint64) (TranscriptPage, error) {
+	if err := m.beginOperation(); err != nil {
+		return TranscriptPage{}, err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(sessionID) == "" || before == 0 {
+		return TranscriptPage{}, fmt.Errorf("%w: session id and transcript cursor are required", ErrInvalidInput)
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+	anchor, err := loaded.droid.History(ctx, droids.HistoryQuery{After: before - 1, Limit: 1})
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	if len(anchor.Messages) != 1 || anchor.Messages[0].Sequence != before {
+		return TranscriptPage{}, ErrTranscriptCursorUnavailable
+	}
+	preceding, err := loaded.droid.History(ctx, droids.HistoryQuery{Before: before, Limit: 1, Descending: true})
+	if err != nil {
+		return TranscriptPage{}, err
+	}
+	if len(preceding.Messages) == 1 && anchor.Messages[0].TurnID != "" && preceding.Messages[0].TurnID == anchor.Messages[0].TurnID {
+		return TranscriptPage{}, ErrTranscriptCursorUnavailable
+	}
+	return projectTranscriptPage(ctx, loaded.droid, before, "", false)
 }
 
 func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot, pendingInteractions []InteractionRequest) (Snapshot, error) {
@@ -333,29 +383,13 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 			AcceptedAt: pending.AcceptedAt,
 		})
 	}
-	var cursor uint64
-	var sequence int64
-	for {
-		page, err := loaded.droid.History(ctx, droids.HistoryQuery{After: cursor, Limit: 1000})
-		if err != nil {
-			return Snapshot{}, err
-		}
-		for _, envelope := range page.Messages {
-			if completeActiveStream && string(envelope.TurnID) == activeRunID {
-				continue
-			}
-			message, err := projectTranscriptMessage(envelope, sequence)
-			if err != nil {
-				return Snapshot{}, fmt.Errorf("project message %q: %w", envelope.ID, err)
-			}
-			result.Messages = append(result.Messages, message)
-			sequence++
-		}
-		cursor = page.Next
-		if !page.HasMore {
-			break
-		}
+	page, err := projectTranscriptPage(ctx, loaded.droid, 0, activeRunID, completeActiveStream)
+	if err != nil {
+		return Snapshot{}, err
 	}
+	result.Messages = page.Messages
+	result.PreviousMessageCursor = page.PreviousMessageCursor
+	result.HasMoreMessages = page.HasMoreMessages
 	return result, nil
 }
 
@@ -398,6 +432,80 @@ func projectSessionUsage(usage droids.SessionUsage) SessionUsage {
 			Total: usage.Cost.Total,
 		},
 	}
+}
+
+func projectTranscriptPage(ctx context.Context, droid *droids.Droid, before uint64, activeRunID string, omitActive bool) (TranscriptPage, error) {
+	var selected []droids.MessageEnvelope
+	var candidate []droids.MessageEnvelope
+	var candidateTurn string
+	cursor := before
+	turns := 0
+
+	includeCandidate := func() bool {
+		if len(candidate) == 0 {
+			return true
+		}
+		if turns >= transcriptPageMinimumTurns && len(selected)+len(candidate) > transcriptPageMessageTarget {
+			return false
+		}
+		selected = append(selected, candidate...)
+		candidate = nil
+		if candidateTurn != activeRunID {
+			turns++
+		}
+		candidateTurn = ""
+		return true
+	}
+
+	for {
+		page, err := droid.History(ctx, droids.HistoryQuery{
+			Before: cursor, Limit: transcriptHistoryReadLimit, Descending: true,
+		})
+		if err != nil {
+			return TranscriptPage{}, err
+		}
+		for _, envelope := range page.Messages {
+			if omitActive && string(envelope.TurnID) == activeRunID {
+				continue
+			}
+			turnID := string(envelope.TurnID)
+			if turnID == "" {
+				turnID = string(envelope.ID)
+			}
+			if len(candidate) > 0 && turnID != candidateTurn {
+				if !includeCandidate() {
+					return projectSelectedTranscript(selected, true)
+				}
+			}
+			if len(candidate) == 0 {
+				candidateTurn = turnID
+			}
+			candidate = append(candidate, envelope)
+		}
+		if !page.HasMore {
+			if !includeCandidate() {
+				return projectSelectedTranscript(selected, true)
+			}
+			return projectSelectedTranscript(selected, false)
+		}
+		cursor = page.Next
+	}
+}
+
+func projectSelectedTranscript(descending []droids.MessageEnvelope, hasMore bool) (TranscriptPage, error) {
+	result := TranscriptPage{HasMoreMessages: hasMore}
+	if hasMore && len(descending) > 0 {
+		result.PreviousMessageCursor = descending[len(descending)-1].Sequence
+	}
+	for index := len(descending) - 1; index >= 0; index-- {
+		envelope := descending[index]
+		message, err := projectTranscriptMessage(envelope, int64(envelope.Sequence))
+		if err != nil {
+			return TranscriptPage{}, fmt.Errorf("project message %q: %w", envelope.ID, err)
+		}
+		result.Messages = append(result.Messages, message)
+	}
+	return result, nil
 }
 
 func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (TranscriptMessage, error) {
