@@ -522,47 +522,61 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 	if len(presentation.Items) == 0 {
 		return emptyState(theme, "Ask a question or give a task.", "")
 	}
-	children := w.transcriptRows(theme, presentation, true)
-	return ui.Scrollbar{Child: ui.ScrollView{
-		Controller: w.Snapshot.Scroll,
-		Child:      ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}),
-	}}
+	return w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, true, nil)
 }
 
-func (w shellView) transcriptRows(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool) []ui.Widget {
-	children := make([]ui.Widget, 0, len(presentation.Items)*2)
-	for index, item := range presentation.Items {
-		if index > 0 {
-			children = append(children, keyedTranscriptItem{ID: "transcript-gap:" + item.ID, Child: ui.SizedBox{Height: 1}})
-		}
-		var child ui.Widget
-		switch item.Kind {
-		case transcriptDisplaySingle:
-			if item.Item.Kind == transcriptItemBash && item.Item.Message.Bash != nil {
-				execution := *item.Item.Message.Bash
-				child = transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
-					if w.Callbacks.ToggleBashOutput != nil {
-						w.Callbacks.ToggleBashOutput(ctx, execution.ID)
-					}
-				})
-			} else {
-				child = transcriptUserEntry(theme, item.Item.Message, w.Snapshot.Attachments)
-			}
-		case transcriptDisplayAssistantProse:
-			child = transcriptAssistantEntry(theme, item.Item.Message)
-		case transcriptDisplayTurnWork:
-			workView := w
-			if !interactiveWork {
-				workView.Snapshot.InlineActivityOpen = nil
-				workView.Callbacks.OpenActivity = nil
-			}
-			child = workView.transcriptWorkEntry(theme, item, presentation.ToolStates)
-		}
-		if child != nil {
-			children = append(children, keyedTranscriptItem{ID: item.ID, Child: child})
-		}
+func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool, identity string, controller *ui.ScrollController, followOutput bool, leading ui.Widget) ui.Widget {
+	// Measured sliver extents are indexed, so include the first stable item in
+	// the key. Appends retain measurements while session replacement and
+	// compaction remount the list instead of applying stale heights to new rows.
+	listKey := identity
+	if len(presentation.Items) > 0 {
+		listKey += ":" + presentation.Items[0].ID
 	}
-	return children
+	slivers := make([]ui.Widget, 0, 2)
+	if leading != nil {
+		slivers = append(slivers, ui.SliverToBox{Child: leading})
+	}
+	slivers = append(slivers, keyedTranscriptItem{ID: "transcript-list:" + listKey, Child: ui.SliverListBuilder{
+		Count: len(presentation.Items), EstimatedItemExtent: 4, Overscan: 2,
+		Builder: func(_ ui.BuildContext, index int) ui.Widget {
+			item := presentation.Items[index]
+			child := w.transcriptRow(theme, presentation, item, interactiveWork)
+			insets := ui.Insets{Top: 1, Left: 1, Right: 1}
+			if index == len(presentation.Items)-1 {
+				insets.Bottom = 1
+			}
+			return keyedTranscriptItem{ID: item.ID, Child: ui.Padding(insets, child)}
+		},
+	}})
+	return keyedTranscriptItem{ID: "transcript-viewport:" + identity, Child: ui.Scrollbar{Child: ui.CustomScrollView{
+		Controller: controller, FollowOutput: followOutput, Slivers: slivers,
+	}}}
+}
+
+func (w shellView) transcriptRow(theme ui.Theme, presentation transcriptPresentation, item transcriptDisplayItem, interactiveWork bool) ui.Widget {
+	switch item.Kind {
+	case transcriptDisplaySingle:
+		if item.Item.Kind == transcriptItemBash && item.Item.Message.Bash != nil {
+			execution := *item.Item.Message.Bash
+			return transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
+				if w.Callbacks.ToggleBashOutput != nil {
+					w.Callbacks.ToggleBashOutput(ctx, execution.ID)
+				}
+			})
+		}
+		return transcriptUserEntry(theme, item.Item.Message, w.Snapshot.Attachments)
+	case transcriptDisplayAssistantProse:
+		return transcriptAssistantEntry(theme, item.Item.Message)
+	case transcriptDisplayTurnWork:
+		workView := w
+		if !interactiveWork {
+			workView.Snapshot.InlineActivityOpen = nil
+			workView.Callbacks.OpenActivity = nil
+		}
+		return workView.transcriptWorkEntry(theme, item, presentation.ToolStates)
+	}
+	return nil
 }
 
 type keyedTranscriptItem struct {

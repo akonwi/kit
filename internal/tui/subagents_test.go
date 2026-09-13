@@ -492,6 +492,8 @@ func TestSubagentTranscriptRendersFinalResponseAtEnd(t *testing.T) {
 	application.Pump(100, 14)
 	scroll.ScrollToEnd()
 	application.Pump(100, 14)
+	// Measured slivers rebuild once after replacing estimated tail extents.
+	application.Pump(100, 14)
 	text := strings.Join(paintedRows(application, 100, 14), "\n")
 	if !strings.Contains(text, "FINAL SUBAGENT RESPONSE") {
 		t.Fatalf("final subagent response was not initially visible:\n%s", text)

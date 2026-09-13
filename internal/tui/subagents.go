@@ -517,7 +517,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 	}
 	messages := subagentPaneMessages(conversation, transcript, w.Snapshot.SubagentLive[conversationID])
 	presentation := presentTranscript(messages)
-	var rows []ui.Widget
+	var body ui.Widget
 	if len(presentation.Items) > 0 {
 		transcriptView := w
 		transcriptView.Snapshot.Scroll = controller
@@ -526,30 +526,34 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 				w.Callbacks.OpenSubagentActivity(ctx, conversationID, sourceID)
 			}
 		}
-		rows = transcriptView.transcriptRows(theme, presentation, true)
-	} else if !loaded && loadError != "" {
-		rows = []ui.Widget{ui.Center(ui.Flex{
-			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
-			Children: []ui.Widget{
-				ui.Text{Value: "Could not load transcript", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
-				ui.Text{Value: loadError, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
-			},
-		})}
-	} else if !loaded {
-		rows = []ui.Widget{ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))}
+		var leading ui.Widget
+		if loaded && loadError != "" {
+			leading = ui.Padding(ui.Insets{Top: 1, Left: 1, Right: 1}, ui.Text{
+				Value: "Transcript refresh failed: " + loadError,
+				Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true,
+			})
+		}
+		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, true, leading)
 	} else {
-		rows = []ui.Widget{ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})}
+		var state ui.Widget
+		if !loaded && loadError != "" {
+			state = ui.Center(ui.Flex{
+				Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
+				Children: []ui.Widget{
+					ui.Text{Value: "Could not load transcript", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
+					ui.Text{Value: loadError, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+				},
+			})
+		} else if !loaded {
+			state = ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))
+		} else {
+			state = ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})
+		}
+		body = ui.Scrollbar{Child: ui.CustomScrollView{
+			Controller: controller, FollowOutput: true,
+			Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), state)}},
+		}}
 	}
-	if loaded && loadError != "" {
-		rows = append([]ui.Widget{
-			ui.Text{Value: "Transcript refresh failed: " + loadError, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-			ui.SizedBox{Height: 1},
-		}, rows...)
-	}
-	body := ui.Scrollbar{Child: ui.CustomScrollView{
-		Controller: controller, FollowOutput: true,
-		Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})}},
-	}}
 	thinking, activity := subagentPendingStatus(messages)
 	hint := "page up/down scroll " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc back"
 	for _, conversation := range w.Snapshot.SubagentConversations {

@@ -689,6 +689,65 @@ func TestComposerAcceptsBracketedPasteWithoutTriggeringShortcuts(t *testing.T) {
 	}
 }
 
+func TestTranscriptUsesMeasuredLazyList(t *testing.T) {
+	t.Parallel()
+
+	messages := make([]transcriptMessage, 500)
+	for index := range messages {
+		messages[index] = transcriptMessage{
+			ID: fmt.Sprintf("message_%d", index), TurnID: fmt.Sprintf("turn_%d", index),
+			Role: "user", Text: fmt.Sprintf("message %d", index),
+		}
+	}
+	presentation := presentTranscript(messages)
+	widget := (shellView{}).transcriptList(
+		ui.DefaultTheme(), presentation, true, "session:test", &ui.ScrollController{}, false, nil,
+	)
+	keyed, ok := widget.(keyedTranscriptItem)
+	if !ok {
+		t.Fatalf("transcript root = %T, want keyedTranscriptItem", widget)
+	}
+	scrollbar, ok := keyed.Child.(ui.Scrollbar)
+	if !ok {
+		t.Fatalf("transcript child = %T, want ui.Scrollbar", keyed.Child)
+	}
+	scrollView, ok := scrollbar.Child.(ui.CustomScrollView)
+	if !ok {
+		t.Fatalf("scrollbar child = %T, want ui.CustomScrollView", scrollbar.Child)
+	}
+	if len(scrollView.Slivers) != 1 {
+		t.Fatalf("transcript slivers = %d, want 1", len(scrollView.Slivers))
+	}
+	listKey, ok := scrollView.Slivers[0].(keyedTranscriptItem)
+	if !ok {
+		t.Fatalf("transcript sliver wrapper = %T, want keyedTranscriptItem", scrollView.Slivers[0])
+	}
+	list, ok := listKey.Child.(ui.SliverListBuilder)
+	if !ok {
+		t.Fatalf("transcript sliver = %T, want ui.SliverListBuilder", listKey.Child)
+	}
+	if list.Count != len(presentation.Items) || list.ItemExtent != 0 || list.EstimatedItemExtent <= 0 || list.Overscan <= 0 {
+		t.Fatalf("lazy transcript list = %+v", list)
+	}
+
+	built := 0
+	builder := list.Builder
+	list.Builder = func(ctx ui.BuildContext, index int) ui.Widget {
+		built++
+		return builder(ctx, index)
+	}
+	listKey.Child = list
+	scrollView.Slivers[0] = listKey
+	scrollbar.Child = scrollView
+	keyed.Child = scrollbar
+	application := uitest.New(keyed)
+	application.Pump(80, 12)
+	application.Pump(80, 12)
+	if built == 0 || built >= len(presentation.Items)/2 {
+		t.Fatalf("built %d of %d transcript rows, want a bounded visible range", built, len(presentation.Items))
+	}
+}
+
 func TestTranscriptAndComposerTextAreMouseSelectable(t *testing.T) {
 	t.Parallel()
 
