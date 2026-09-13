@@ -155,6 +155,9 @@ type rejectingStore struct{}
 func (rejectingStore) Put(context.Context, attachment.PutInput) (attachment.Record, error) {
 	return attachment.Record{}, io.ErrClosedPipe
 }
+func (rejectingStore) Stat(context.Context, string, string) (attachment.Record, error) {
+	return attachment.Record{}, io.ErrClosedPipe
+}
 func (rejectingStore) Open(context.Context, string, string) (attachment.Record, io.ReadCloser, error) {
 	return attachment.Record{}, nil, io.ErrClosedPipe
 }

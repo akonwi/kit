@@ -1,13 +1,46 @@
 package tui
 
 import (
+	"context"
 	"net/url"
 	"os"
 	"path/filepath"
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/akonwi/kit/internal/protocol"
 )
+
+type restoredAttachmentResolver struct {
+	resolution protocol.AttachmentResolution
+	err        error
+}
+
+func (resolver restoredAttachmentResolver) ResolveAttachments(context.Context, []string) (protocol.AttachmentResolution, error) {
+	return resolver.resolution, resolver.err
+}
+
+func TestResolveRestoredAttachmentsUsesMetadataAndSafeMissingFallback(t *testing.T) {
+	t.Parallel()
+	foundID := "attachment_0123456789abcdef0123456789abcdef"
+	missingID := "attachment_abcdef0123456789abcdef0123456789"
+	info := protocol.AttachmentInfo{ID: foundID, Filename: "photo.png"}
+	rows := resolveRestoredAttachments(context.Background(), restoredAttachmentResolver{resolution: protocol.AttachmentResolution{
+		Attachments: []protocol.AttachmentInfo{info}, MissingAttachmentIDs: []string{missingID},
+	}}, []protocol.PromptInput{{AttachmentIDs: []string{foundID, missingID}}})
+	if rows[foundID].Filename != "photo.png" || rows[foundID].Error != "" {
+		t.Fatalf("resolved row = %#v", rows[foundID])
+	}
+	if rows[missingID].Filename != "attachment" || rows[missingID].Error == "" || rows[missingID].PreserveID || strings.Contains(rows[missingID].Filename, missingID) {
+		t.Fatalf("missing row = %#v", rows[missingID])
+	}
+	failed := resolveRestoredAttachments(context.Background(), restoredAttachmentResolver{err: context.DeadlineExceeded}, []protocol.PromptInput{{AttachmentIDs: []string{foundID}}})
+	state := &appState{composerAttachments: []stagedAttachment{failed[foundID]}}
+	if !failed[foundID].PreserveID || !reflect.DeepEqual(state.composerPromptAttachmentIDs(), []string{foundID}) {
+		t.Fatalf("transient failure row = %#v, prompt ids = %#v", failed[foundID], state.composerPromptAttachmentIDs())
+	}
+}
 
 func TestPastedAttachmentPathsRecognizesOnlyCompleteSupportedPathPastes(t *testing.T) {
 	directory := t.TempDir()

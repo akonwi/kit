@@ -76,10 +76,10 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [x] TUI-ATT-002 — Always-visible half-block previews, safe fallback, and
   system-app opening for user and explicit `show_image` transcript images.
   Depends on `CORE-ATT-002`.
-- [~] TUI-ATT-003 — Complete attachment identity for follow-ups restored from
-  the queue, which present raw attachment IDs instead of filenames, and decide
-  whether staged drafts must survive process restart. Visible failure state and
-  attachment identity already survive session switching.
+- [x] TUI-ATT-003 — Preserve attachment identity and filenames for follow-ups
+  restored from the queue through bounded metadata hydration, with explicit
+  unavailable-attachment state. Staged blobs remain durable, while renderer-owned
+  composer drafts remain process-local pending `TUI-COMP-001`.
 
 ### User interaction and integrations
 

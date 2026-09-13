@@ -29,8 +29,6 @@ type sessionMutationTransport interface {
 	GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error)
 }
 
-var _ sessionclient.AttachmentSession = (*localSession)(nil)
-
 type localSession struct {
 	transport          *daemon.Client
 	mutations          sessionMutationTransport
@@ -76,6 +74,7 @@ var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
 var _ sessionclient.AttachmentSession = (*localSession)(nil)
+var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
 var _ sessionclient.BashExecution = (*localBashExecution)(nil)
@@ -132,6 +131,10 @@ func (c *localSession) UploadAttachment(ctx context.Context, filename string, co
 
 func (c *localSession) OpenAttachment(ctx context.Context, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
 	return c.transport.OpenAttachment(ctx, c.id, attachmentID)
+}
+
+func (c *localSession) ResolveAttachments(ctx context.Context, attachmentIDs []string) (protocol.AttachmentResolution, error) {
+	return c.transport.ResolveAttachments(ctx, c.id, attachmentIDs)
 }
 
 func (c *localSession) Subagent(ctx context.Context, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {

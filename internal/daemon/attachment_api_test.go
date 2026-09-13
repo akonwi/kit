@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"errors"
 	"image"
 	"image/color"
 	"image/png"
@@ -39,6 +40,19 @@ func (service *recordingAttachmentService) Put(_ context.Context, sessionID stri
 func (service *recordingAttachmentService) Open(_ context.Context, sessionID, id string) (protocol.AttachmentInfo, io.ReadCloser, error) {
 	service.sessionID = sessionID
 	return service.info, io.NopCloser(bytes.NewReader(service.content)), nil
+}
+
+func (service *recordingAttachmentService) Resolve(_ context.Context, sessionID string, ids []string) (protocol.AttachmentResolution, error) {
+	service.sessionID = sessionID
+	result := protocol.AttachmentResolution{}
+	for _, id := range ids {
+		if id == service.info.ID {
+			result.Attachments = append(result.Attachments, service.info)
+		} else {
+			result.MissingAttachmentIDs = append(result.MissingAttachmentIDs, id)
+		}
+	}
+	return result, nil
 }
 
 func TestAttachmentRoutesUploadAndRetrieveImage(t *testing.T) {
@@ -82,6 +96,46 @@ func TestAttachmentRoutesUploadAndRetrieveImage(t *testing.T) {
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusOK || response.Header().Get("X-Kit-Attachment-ID") != info.ID || !bytes.Equal(response.Body.Bytes(), imageBytes.Bytes()) {
 		t.Fatalf("retrieval = %d, headers %#v, bytes %d", response.Code, response.Header(), response.Body.Len())
+	}
+}
+
+func TestAttachmentRouteResolvesMetadataAndReportsMissingIDs(t *testing.T) {
+	t.Parallel()
+	info := protocol.AttachmentInfo{
+		ID: "attachment_0123456789abcdef0123456789abcdef", SessionID: "session_one", Filename: "photo.png", MediaType: "image/png",
+		Size: 42, SHA256: strings.Repeat("a", 64), CreatedAt: time.Now().UTC().Format(time.RFC3339Nano), Width: 2, Height: 3,
+	}
+	missing := "attachment_abcdef0123456789abcdef0123456789"
+	service := &recordingAttachmentService{info: info}
+	mux := http.NewServeMux()
+	registerAttachmentRoutes(mux, service)
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_one/attachments/resolve", strings.NewReader(`{"attachmentIds":["`+info.ID+`","`+missing+`"]}`))
+	request.Header.Set("Content-Type", "application/json")
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusOK || !strings.Contains(response.Body.String(), `"filename":"photo.png"`) || !strings.Contains(response.Body.String(), missing) {
+		t.Fatalf("resolution = %d: %s", response.Code, response.Body.String())
+	}
+}
+
+func TestResolveAttachmentMetadataDistinguishesMissingFromStorageFailure(t *testing.T) {
+	t.Parallel()
+	foundID := "attachment_0123456789abcdef0123456789abcdef"
+	missingID := "attachment_abcdef0123456789abcdef0123456789"
+	record := attachment.Record{ID: foundID, SessionID: "session_one", Filename: "photo.png"}
+	result, err := resolveAttachmentMetadata(context.Background(), "session_one", []string{foundID, missingID}, func(_ context.Context, _, id string) (attachment.Record, error) {
+		if id == missingID {
+			return attachment.Record{}, attachment.ErrNotFound
+		}
+		return record, nil
+	})
+	if err != nil || len(result.Attachments) != 1 || result.Attachments[0].ID != foundID || len(result.MissingAttachmentIDs) != 1 || result.MissingAttachmentIDs[0] != missingID {
+		t.Fatalf("resolution = %#v, %v", result, err)
+	}
+	if _, err := resolveAttachmentMetadata(context.Background(), "session_one", []string{foundID}, func(context.Context, string, string) (attachment.Record, error) {
+		return attachment.Record{}, io.ErrUnexpectedEOF
+	}); !errors.Is(err, io.ErrUnexpectedEOF) {
+		t.Fatalf("storage failure = %v, want unexpected EOF", err)
 	}
 }
 

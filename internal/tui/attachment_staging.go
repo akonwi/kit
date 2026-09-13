@@ -256,10 +256,48 @@ func attachmentTranscriptContent(text string, items []stagedAttachment) []protoc
 	return content
 }
 
+func resolveRestoredAttachments(ctx context.Context, bound any, messages []protocol.PromptInput) map[string]stagedAttachment {
+	ids := make([]string, 0)
+	seen := make(map[string]struct{})
+	for _, message := range messages {
+		for _, id := range message.AttachmentIDs {
+			if _, exists := seen[id]; !exists {
+				seen[id] = struct{}{}
+				ids = append(ids, id)
+			}
+		}
+	}
+	if len(ids) == 0 {
+		return nil
+	}
+	rows := make(map[string]stagedAttachment, len(ids))
+	resolver, ok := bound.(sessionclient.AttachmentMetadataSession)
+	if !ok {
+		for _, id := range ids {
+			rows[id] = stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: "attachment", Error: "Attachment metadata is unavailable", PreserveID: true}
+		}
+		return rows
+	}
+	resolution, err := resolver.ResolveAttachments(ctx, ids)
+	if err != nil {
+		for _, id := range ids {
+			rows[id] = stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: "attachment", Error: "Could not restore attachment metadata: " + err.Error(), PreserveID: true}
+		}
+		return rows
+	}
+	for _, info := range resolution.Attachments {
+		rows[info.ID] = stagedAttachment{Info: info, Filename: info.Filename}
+	}
+	for _, id := range resolution.MissingAttachmentIDs {
+		rows[id] = stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: "attachment", Error: "Attachment is unavailable"}
+	}
+	return rows
+}
+
 func (s *appState) composerPromptAttachmentIDs() []string {
 	ids := append([]string(nil), s.composerAttachmentIDs...)
 	for _, item := range s.composerAttachments {
-		if item.Info.ID != "" && item.Error == "" {
+		if item.Info.ID != "" && (item.Error == "" || item.PreserveID) {
 			ids = append(ids, item.Info.ID)
 		}
 	}

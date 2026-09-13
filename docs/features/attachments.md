@@ -77,6 +77,14 @@ Message and tool-result associations are derived from canonical droid
 `FileInput`/`FileContent` records as required by ADR 0006; Kit does not maintain
 a parallel transcript association table.
 
+Clients hydrate restored attachment identities in one bounded metadata-only
+request to `POST /v1/sessions/{sessionID}/attachments/resolve`. The response
+returns validated `AttachmentInfo` records in requested order and explicitly
+lists unavailable IDs, allowing renderers to retain identity and show a failed
+attachment row without exposing a raw ID as a filename. Composer drafts remain
+renderer-owned, process-local state under ADR 0001; persistence across client
+restarts belongs to the durable composer work rather than attachment identity.
+
 Prompt admission accepts text plus ordered attachment IDs. The server validates
 ownership, lifecycle, prompt limits, and provider image capability before
 resolving images into provider-facing content. Text attachments are converted

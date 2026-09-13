@@ -116,6 +116,56 @@ func (store *Filesystem) Put(ctx context.Context, input PutInput) (record Record
 	return record, nil
 }
 
+// Stat returns validated attachment metadata without reading attachment bytes.
+func (store *Filesystem) Stat(ctx context.Context, sessionID, id string) (Record, error) {
+	if err := ctx.Err(); err != nil {
+		return Record{}, err
+	}
+	if sessionID == "" || !identifier.Valid(id, IDPrefix) {
+		return Record{}, ErrNotFound
+	}
+	directory := filepath.Join(store.root, id)
+	manifestPath := filepath.Join(directory, manifestFilename)
+	if err := requireRegularFile(manifestPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Record{}, ErrNotFound
+		}
+		return Record{}, fmt.Errorf("validate attachment manifest: %w", err)
+	}
+	manifestBytes, err := os.ReadFile(manifestPath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Record{}, ErrNotFound
+		}
+		return Record{}, fmt.Errorf("read attachment manifest: %w", err)
+	}
+	var record Record
+	if err := json.Unmarshal(manifestBytes, &record); err != nil {
+		return Record{}, fmt.Errorf("decode attachment manifest: %w", err)
+	}
+	if err := validateRecord(record); err != nil {
+		return Record{}, fmt.Errorf("validate attachment manifest: %w", err)
+	}
+	if record.ID != id || record.SessionID != sessionID {
+		return Record{}, ErrNotFound
+	}
+	contentPath := filepath.Join(directory, contentFilename)
+	if err := requireRegularFile(contentPath); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return Record{}, ErrNotFound
+		}
+		return Record{}, fmt.Errorf("validate attachment content: %w", err)
+	}
+	contentInfo, err := os.Stat(contentPath)
+	if err != nil {
+		return Record{}, fmt.Errorf("stat attachment content: %w", err)
+	}
+	if contentInfo.Size() != record.Size {
+		return Record{}, fmt.Errorf("attachment content size does not match manifest")
+	}
+	return record, nil
+}
+
 func (store *Filesystem) Open(ctx context.Context, sessionID, id string) (Record, io.ReadCloser, error) {
 	if err := ctx.Err(); err != nil {
 		return Record{}, nil, err

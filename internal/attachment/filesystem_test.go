@@ -36,6 +36,10 @@ func TestFilesystemPutAndOpen(t *testing.T) {
 	if record.SHA256 != "de7030234493a8bea844dbe1d8676e68a2c1a4b014c721f0425a22b6df66faec" {
 		t.Fatalf("sha256 = %q", record.SHA256)
 	}
+	stated, err := store.Stat(context.Background(), "session_one", record.ID)
+	if err != nil || stated != record {
+		t.Fatalf("Stat() = %#v, %v", stated, err)
+	}
 
 	opened, content, err := store.Open(context.Background(), "session_one", record.ID)
 	if err != nil {

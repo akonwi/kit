@@ -27,6 +27,7 @@ const (
 type attachmentService interface {
 	Put(context.Context, string, attachment.PutInput) (protocol.AttachmentInfo, error)
 	Open(context.Context, string, string) (protocol.AttachmentInfo, io.ReadCloser, error)
+	Resolve(context.Context, string, []string) (protocol.AttachmentResolution, error)
 }
 
 type runtimeAttachmentService struct {
@@ -63,6 +64,29 @@ func (service runtimeAttachmentService) Open(ctx context.Context, sessionID, id 
 	return projectAttachment(record), content, nil
 }
 
+func (service runtimeAttachmentService) Resolve(ctx context.Context, sessionID string, ids []string) (protocol.AttachmentResolution, error) {
+	if _, err := service.manager.Get(ctx, sessionID); err != nil {
+		return protocol.AttachmentResolution{}, err
+	}
+	return resolveAttachmentMetadata(ctx, sessionID, ids, service.store.Stat)
+}
+
+func resolveAttachmentMetadata(ctx context.Context, sessionID string, ids []string, stat func(context.Context, string, string) (attachment.Record, error)) (protocol.AttachmentResolution, error) {
+	resolution := protocol.AttachmentResolution{Attachments: make([]protocol.AttachmentInfo, 0, len(ids))}
+	for _, id := range ids {
+		record, err := stat(ctx, sessionID, id)
+		if err != nil {
+			if errors.Is(err, attachment.ErrNotFound) {
+				resolution.MissingAttachmentIDs = append(resolution.MissingAttachmentIDs, id)
+				continue
+			}
+			return protocol.AttachmentResolution{}, err
+		}
+		resolution.Attachments = append(resolution.Attachments, projectAttachment(record))
+	}
+	return resolution, nil
+}
+
 func projectAttachment(record attachment.Record) protocol.AttachmentInfo {
 	return protocol.AttachmentInfo{
 		ID: record.ID, SessionID: record.SessionID, Filename: record.Filename, MediaType: record.MediaType,
@@ -72,6 +96,28 @@ func projectAttachment(record attachment.Record) protocol.AttachmentInfo {
 }
 
 func registerAttachmentRoutes(mux *http.ServeMux, service attachmentService) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/attachments/resolve", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.AttachmentResolutionInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.Resolve(request.Context(), request.PathValue("sessionID"), input.AttachmentIDs)
+		if err != nil {
+			writeAttachmentError(writer, err)
+			return
+		}
+		if err := result.Validate(request.PathValue("sessionID"), input.AttachmentIDs); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid attachment resolution: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/attachments", func(writer http.ResponseWriter, request *http.Request) {
 		request.Body = http.MaxBytesReader(writer, request.Body, maxAttachmentRequestBytes)
 		mediaType, parameters, err := mime.ParseMediaType(request.Header.Get("Content-Type"))

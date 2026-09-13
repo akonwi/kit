@@ -390,6 +390,23 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	return output, nil
 }
 
+// ResolveAttachments returns bounded metadata for session-owned attachments.
+func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attachmentIDs []string) (protocol.AttachmentResolution, error) {
+	input := protocol.AttachmentResolutionInput{AttachmentIDs: attachmentIDs}
+	if err := input.Validate(); err != nil {
+		return protocol.AttachmentResolution{}, err
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/attachments/resolve"
+	var output protocol.AttachmentResolution
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.AttachmentResolution{}, err
+	}
+	if err := output.Validate(sessionID, attachmentIDs); err != nil {
+		return protocol.AttachmentResolution{}, fmt.Errorf("validate daemon attachment resolution: %w", err)
+	}
+	return output, nil
+}
+
 // OpenAttachment opens verified session-owned attachment bytes from the daemon.
 func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
 	registry, err := LoadRegistry(c.paths)

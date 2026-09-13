@@ -41,6 +41,7 @@ type PutInput struct {
 
 type Store interface {
 	Put(context.Context, PutInput) (Record, error)
+	Stat(context.Context, string, string) (Record, error)
 	Open(context.Context, string, string) (Record, io.ReadCloser, error)
 	Remove(context.Context, string, string) error
 	RemoveSession(context.Context, string) error

@@ -121,11 +121,12 @@ const (
 )
 
 type stagedAttachment struct {
-	Token     uint64
-	Info      protocol.AttachmentInfo
-	Filename  string
-	Uploading bool
-	Error     string
+	Token      uint64
+	Info       protocol.AttachmentInfo
+	Filename   string
+	Uploading  bool
+	Error      string
+	PreserveID bool
 }
 
 type transcriptMessage struct {
@@ -4310,7 +4311,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			s.SetState(func() { s.status = "Waiting for attachments to finish uploading…" })
 			return
 		}
-		if item.Error != "" {
+		if item.Error != "" && !item.PreserveID {
 			s.SetState(func() { s.status = "Remove failed attachments before sending" })
 			return
 		}
@@ -4448,6 +4449,10 @@ func (s *appState) restoreFollowUps(_ ui.EventContext) {
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
 		result, err := followUpSession.RestoreFollowUps(ctx)
+		var restoredAttachments map[string]stagedAttachment
+		if err == nil {
+			restoredAttachments = resolveRestoredAttachments(ctx, bound, result.Messages)
+		}
 		runtime.Dispatch(func() {
 			if s.operation != operation || s.bound != bound {
 				return
@@ -4461,7 +4466,7 @@ func (s *appState) restoreFollowUps(_ ui.EventContext) {
 				for _, message := range result.Messages {
 					texts = append(texts, message.Text)
 					for _, id := range message.AttachmentIDs {
-						s.composerAttachments = append(s.composerAttachments, stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: id})
+						s.composerAttachments = append(s.composerAttachments, restoredAttachments[id])
 					}
 				}
 				restored := strings.Join(texts, "\n\n")

@@ -65,6 +65,11 @@ type AttachmentSession interface {
 	OpenAttachment(context.Context, string) (protocol.AttachmentInfo, io.ReadCloser, error)
 }
 
+// AttachmentMetadataSession resolves attachment identities without transferring bytes.
+type AttachmentMetadataSession interface {
+	ResolveAttachments(context.Context, []string) (protocol.AttachmentResolution, error)
+}
+
 type StructuredPromptSession interface {
 	StartPromptInput(context.Context, protocol.PromptInput) (Run, error)
 	SubmitPromptInput(context.Context, protocol.PromptInput) (PromptSubmission, error)

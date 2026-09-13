@@ -14,7 +14,73 @@ const (
 	MaxPromptAttachmentBytes = 20 << 20
 	MaxImageAttachmentBytes  = 10 << 20
 	MaxTextAttachmentBytes   = 1 << 20
+	MaxAttachmentResolution  = 512
 )
+
+// AttachmentResolutionInput requests metadata for session-owned attachments.
+type AttachmentResolutionInput struct {
+	AttachmentIDs []string `json:"attachmentIds"`
+}
+
+// Validate checks the bounded canonical attachment identities.
+func (input AttachmentResolutionInput) Validate() error {
+	if len(input.AttachmentIDs) == 0 || len(input.AttachmentIDs) > MaxAttachmentResolution {
+		return fmt.Errorf("attachment resolution count is invalid")
+	}
+	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	for _, id := range input.AttachmentIDs {
+		if !identifier.Valid(id, "attachment_") {
+			return fmt.Errorf("attachment resolution id is invalid")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("attachment resolution ids must be unique")
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+// AttachmentResolution contains resolved metadata and unavailable identities.
+type AttachmentResolution struct {
+	Attachments          []AttachmentInfo `json:"attachments"`
+	MissingAttachmentIDs []string         `json:"missingAttachmentIds,omitempty"`
+}
+
+// Validate checks identities, metadata, and the requested session boundary.
+func (resolution AttachmentResolution) Validate(sessionID string, requested []string) error {
+	positions := make(map[string]int, len(requested))
+	for index, id := range requested {
+		positions[id] = index
+	}
+	seen := make(map[string]struct{}, len(requested))
+	lastPosition := -1
+	for _, info := range resolution.Attachments {
+		if err := info.Validate(); err != nil {
+			return err
+		}
+		position, requestedID := positions[info.ID]
+		if !requestedID || info.SessionID != sessionID || position <= lastPosition {
+			return fmt.Errorf("resolved attachment identity is invalid")
+		}
+		if _, duplicate := seen[info.ID]; duplicate {
+			return fmt.Errorf("resolved attachment identity is duplicated")
+		}
+		seen[info.ID], lastPosition = struct{}{}, position
+	}
+	for _, id := range resolution.MissingAttachmentIDs {
+		if _, requestedID := positions[id]; !requestedID {
+			return fmt.Errorf("missing attachment identity was not requested")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("attachment resolution identity is duplicated")
+		}
+		seen[id] = struct{}{}
+	}
+	if len(seen) != len(requested) {
+		return fmt.Errorf("attachment resolution is incomplete")
+	}
+	return nil
+}
 
 // AttachmentInfo is bounded metadata for server-owned attachment bytes.
 type AttachmentInfo struct {
