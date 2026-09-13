@@ -45,6 +45,38 @@ func TestRenderHalfBlockImagePairsVerticalPixels(t *testing.T) {
 	}
 }
 
+func TestRenderHalfBlockImageAveragesCoveredSourcePixels(t *testing.T) {
+	t.Parallel()
+
+	// A 1-pixel black/white checkerboard reduced 8x in each direction must
+	// produce mid grey. Nearest-neighbour sampling would return pure black or
+	// white depending on which pixel happened to be picked.
+	source := image.NewRGBA(image.Rect(0, 0, 64, 64))
+	for y := range 64 {
+		for x := range 64 {
+			value := uint8(0)
+			if (x+y)%2 == 0 {
+				value = 255
+			}
+			source.SetRGBA(x, y, color.RGBA{R: value, G: value, B: value, A: 255})
+		}
+	}
+
+	got := renderHalfBlockImage(source, 8, 4, color.RGBA{A: 255})
+	if got.Width != 8 || len(got.Rows) != 4 {
+		t.Fatalf("raster size = %dx%d cells, want 8x4", got.Width, len(got.Rows))
+	}
+	for row, cells := range got.Rows {
+		for column, cell := range cells {
+			for _, sample := range []color.RGBA{cell.Top, cell.Bottom} {
+				if sample.R < 120 || sample.R > 135 || sample.G != sample.R || sample.B != sample.R || sample.A != 255 {
+					t.Fatalf("cell (%d,%d) = %#v, want mid grey", column, row, cell)
+				}
+			}
+		}
+	}
+}
+
 func TestHalfBlockRasterWidgetPaintsUpperBlockColors(t *testing.T) {
 	t.Parallel()
 

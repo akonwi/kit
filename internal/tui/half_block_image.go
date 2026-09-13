@@ -6,6 +6,7 @@ import (
 	"math"
 
 	"go.rockorager.dev/vaxis/ui"
+	"golang.org/x/image/draw"
 )
 
 // halfBlockRaster is a terminal-cell projection of an image. Each cell stores
@@ -42,8 +43,10 @@ func halfBlockRasterWidget(raster halfBlockRaster) ui.Widget {
 }
 
 // renderHalfBlockImage fits src inside maxColumns by maxRows terminal cells.
-// A terminal cell represents two vertical image samples. Transparent pixels
-// are composited against background before the raster reaches the painter.
+// A terminal cell represents two vertical image samples. The image is
+// resampled with an area-weighted kernel so every source pixel contributes to
+// the sample covering it, then transparent pixels are composited against
+// background before the raster reaches the painter.
 func renderHalfBlockImage(src image.Image, maxColumns, maxRows int, background color.RGBA) halfBlockRaster {
 	if src == nil || maxColumns <= 0 || maxRows <= 0 {
 		return halfBlockRaster{}
@@ -61,12 +64,13 @@ func renderHalfBlockImage(src image.Image, maxColumns, maxRows int, background c
 	rows := (pixelRows + 1) / 2
 	raster := halfBlockRaster{Width: width, Rows: make([][]halfBlockCell, rows)}
 
+	scaled := resampleImage(src, width, pixelRows)
 	for row := range rows {
 		line := make([]halfBlockCell, width)
 		for column := range width {
-			line[column].Top = scaledImageSample(src, bounds, column, row*2, width, pixelRows, background)
+			line[column].Top = compositeImageColor(scaled.RGBAAt(column, row*2), background)
 			if bottomRow := row*2 + 1; bottomRow < pixelRows {
-				line[column].Bottom = scaledImageSample(src, bounds, column, bottomRow, width, pixelRows, background)
+				line[column].Bottom = compositeImageColor(scaled.RGBAAt(column, bottomRow), background)
 			} else {
 				line[column].Bottom = background
 			}
@@ -76,10 +80,21 @@ func renderHalfBlockImage(src image.Image, maxColumns, maxRows int, background c
 	return raster
 }
 
-func scaledImageSample(src image.Image, bounds image.Rectangle, column, row, width, height int, background color.RGBA) color.RGBA {
-	x := bounds.Min.X + min(bounds.Dx()-1, column*bounds.Dx()/width)
-	y := bounds.Min.Y + min(bounds.Dy()-1, row*bounds.Dy()/height)
-	return compositeImageColor(src.At(x, y), background)
+// resampleImage scales src to exactly width by height pixels. The result is
+// alpha-premultiplied, matching what color.Color.RGBA reports, so averaging
+// partially transparent pixels stays correct.
+func resampleImage(src image.Image, width, height int) *image.RGBA {
+	target := image.NewRGBA(image.Rect(0, 0, width, height))
+	bounds := src.Bounds()
+	if bounds.Dx() == width && bounds.Dy() == height {
+		draw.Copy(target, image.Point{}, src, bounds, draw.Src, nil)
+		return target
+	}
+	// CatmullRom widens its kernel when shrinking, so each output pixel is a
+	// weighted average of the source region it covers rather than a single
+	// nearest sample. It runs off the UI loop and the result is cached.
+	draw.CatmullRom.Scale(target, target.Bounds(), src, bounds, draw.Src, nil)
+	return target
 }
 
 func compositeImageColor(foreground color.Color, background color.RGBA) color.RGBA {
