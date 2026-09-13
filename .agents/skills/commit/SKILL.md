@@ -1,11 +1,11 @@
 ---
 name: commit
-description: Review staged/uncommitted changes, validate them, and create a git commit following Conventional Commits format
+description: Assess staged/uncommitted changes, validate them, and create a git commit following Conventional Commits format
 ---
 
 # Commit Skill
 
-Review the current git changes and prepare a commit following the project's standards.
+Assess the current git changes and prepare a commit following the project's standards.
 
 ## When to Activate
 
