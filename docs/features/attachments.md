@@ -68,8 +68,10 @@ metadata, never base64 data or local source paths. The server owns:
 - lifecycle and blob metadata without duplicating canonical droid message data;
 - staged, queued/claimed, consumed, and unreferenced lifecycle transitions;
 - validated reads for attached clients;
-- cleanup on removal and session deletion after canonical droid references are
-  accounted for.
+- cleanup on session deletion. A staged attachment that the user removes from
+  the composer, or abandons with a draft, stays until its session is deleted;
+  the bounded per-prompt and per-file limits make earlier reclamation
+  unnecessary.
 
 Message and tool-result associations are derived from canonical droid
 `FileInput`/`FileContent` records as required by ADR 0006; Kit does not maintain

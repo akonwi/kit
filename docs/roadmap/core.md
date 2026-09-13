@@ -89,11 +89,11 @@ IDs but must not redefine server, persistence, or protocol semantics.
   or parse presentation-oriented tool output.
 - [~] CORE-TOOL-001 — Route URL opening through validated client/platform ports
   and define safe behavior when no capable client is attached.
-- [ ] CORE-ATT-001 — Validate local image and attachment inputs, enforce provider
-  capabilities and bounds, persist durable references, and support submission,
-  restoration, transcript projection, and cleanup.
-- [ ] CORE-ATT-002 — Implement validated `show_image` results and a client-safe
-  transcript representation. Depends on `CORE-ATT-001`.
+- [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
+  capability and bounds enforcement, durable references, submission,
+  restoration, transcript projection, and cleanup on session deletion.
+- [~] CORE-ATT-002 — Implement validated `show_image` results. The client-safe
+  transcript image representation is in place. Depends on `CORE-ATT-001`.
 - [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
   `WEB-INT-001`.
 - [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
