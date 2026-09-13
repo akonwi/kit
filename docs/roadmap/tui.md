@@ -7,7 +7,7 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 
 ### Theme and shell
 
-- [~] TUI-THEME-001 — Complete Kit's semantic vaxis/ui design language across
+- [x] TUI-THEME-001 — Complete Kit's semantic vaxis/ui design language across
   terminal capabilities, surface hierarchy, focus, empty/error states, and
   responsive layouts.
 - [ ] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
