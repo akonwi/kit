@@ -206,7 +206,7 @@ func contentToWire[T any](content []T) ([]wireContent, error) {
 			if err != nil {
 				return nil, fmt.Errorf("droids: invalid file result: %w", err)
 			}
-			out = append(out, wireContent{Type: "file", Filename: value.Filename, MediaType: value.MediaType, URL: value.URL})
+			out = append(out, wireContent{Type: "file", Filename: value.Filename, MediaType: value.MediaType, URL: value.URL, AttachmentID: value.AttachmentID})
 		case ToolCall:
 			out = append(out, wireContent{
 				Type: "tool_call", ID: value.ID, ProviderCallID: value.ProviderCallID,
@@ -262,7 +262,7 @@ func resultContentFromWire(content []wireContent) ([]ResultContent, error) {
 		case "text":
 			out = append(out, TextContent{Text: block.Text, Signature: block.Signature})
 		case "file":
-			out = append(out, FileContent{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL})
+			out = append(out, FileContent{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL, AttachmentID: block.AttachmentID})
 		default:
 			return nil, fmt.Errorf("droids: unsupported result content kind %q", block.Type)
 		}

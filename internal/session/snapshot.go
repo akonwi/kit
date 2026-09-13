@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/subagent"
 )
 
@@ -422,6 +423,7 @@ func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (
 		projected.ToolName = typed.ToolName
 		projected.Details = append(json.RawMessage(nil), typed.Details...)
 		projected.IsError = typed.IsError
+		projectToolImagePresentation(projected.Content, typed.ToolName, typed.IsError, typed.Details)
 	case droids.ContextMessage:
 		projected.Role = "context"
 		projected.BoundaryID = typed.BoundaryID
@@ -432,6 +434,22 @@ func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (
 		return TranscriptMessage{}, fmt.Errorf("unsupported message %T", envelope.Message)
 	}
 	return projected, nil
+}
+
+func projectToolImagePresentation(content []TranscriptContent, toolName string, isError bool, raw json.RawMessage) {
+	details, marked := showimage.ParseDetails(raw)
+	marked = marked && !isError && toolName == showimage.ToolName
+	promoted := false
+	for index := range content {
+		block := &content[index]
+		attachmentID := block.AttachmentID
+		block.AttachmentID = ""
+		if !promoted && marked && block.Kind == TranscriptContentImage && attachmentID == details.AttachmentID &&
+			block.Filename == details.Filename && block.MediaType == details.MediaType {
+			block.AttachmentID = attachmentID
+			promoted = true
+		}
+	}
 }
 
 func projectTranscriptContent(message droids.Message) ([]TranscriptContent, error) {
@@ -538,7 +556,7 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
 				kind = TranscriptContentImage
 			}
-			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
+			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID})
 		default:
 			return nil, fmt.Errorf("unsupported content %T", raw)
 		}

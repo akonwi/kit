@@ -190,6 +190,11 @@ func Run(ctx context.Context, options RunOptions) error {
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools,
+		AttachmentStore: attachmentStore,
+		ShowImageEnabled: func(record kitsession.SessionRecord) bool {
+			_, model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
+			return resolveErr == nil && kitsession.ModelSupportsImageAttachment(model)
+		},
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
 	})
 	if err != nil {

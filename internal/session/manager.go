@@ -1014,7 +1014,7 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 		totalBytes += record.Size
 		if record.MediaType == "text/plain" {
 			textBytes += record.Size
-		} else if !modelSupportsImageAttachment(model) {
+		} else if !ModelSupportsImageAttachment(model) {
 			_ = reader.Close()
 			return nil, fmt.Errorf("%w: model %q does not support image attachments", ErrInvalidInput, model.ID)
 		}
@@ -1044,7 +1044,8 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 	return content, nil
 }
 
-func modelSupportsImageAttachment(model droids.Model) bool {
+// ModelSupportsImageAttachment reports whether Kit can send image content to a model.
+func ModelSupportsImageAttachment(model droids.Model) bool {
 	if model.API == droids.ModelAPIAnthropicMessages {
 		return false
 	}

@@ -7,9 +7,11 @@ import (
 	"reflect"
 	"strings"
 
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
@@ -53,6 +55,8 @@ type RuntimeBundleOptions struct {
 	PromptCommandLoader promptcommands.Loader
 	SubagentLoader      subagent.Loader
 	SubagentToolFactory subagent.ParentToolFactory
+	AttachmentStore     attachment.Store
+	ShowImageEnabled    func(SessionRecord) bool
 }
 
 type defaultRuntimeBundleBuilder struct {
@@ -63,6 +67,8 @@ type defaultRuntimeBundleBuilder struct {
 	promptCommandLoader promptcommands.Loader
 	subagentLoader      subagent.Loader
 	subagentToolFactory subagent.ParentToolFactory
+	attachmentStore     attachment.Store
+	showImageEnabled    func(SessionRecord) bool
 }
 
 // NewRuntimeBundleBuilder constructs Kit's standard atomic prompt/tool builder.
@@ -75,6 +81,9 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 	if (options.SubagentLoader == nil) != (options.SubagentToolFactory == nil) {
 		return nil, errors.New("session subagent loader and tool factory must be configured together")
 	}
+	if (options.AttachmentStore == nil) != (options.ShowImageEnabled == nil) {
+		return nil, errors.New("session attachment store and show-image capability must be configured together")
+	}
 	composer, err := systemprompt.New(options.Core)
 	if err != nil {
 		return nil, err
@@ -83,6 +92,8 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		composer: composer, registry: options.Registry, skillLoader: options.SkillLoader,
 		promptCommandLoader: options.PromptCommandLoader,
 		subagentLoader:      options.SubagentLoader, subagentToolFactory: options.SubagentToolFactory,
+		attachmentStore:  options.AttachmentStore,
+		showImageEnabled: options.ShowImageEnabled,
 	}
 	if options.Context != nil {
 		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
@@ -150,6 +161,13 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		}
 	}
 	tools := codingtools.NewDynamic(currentCWD)
+	if b.attachmentStore != nil && b.showImageEnabled(record) {
+		tool, toolErr := showimage.New(showimage.Options{SessionID: record.ID, CWD: showimage.CWDProvider(currentCWD), Store: b.attachmentStore})
+		if toolErr != nil {
+			return RuntimeBundle{}, toolErr
+		}
+		tools = append(tools, tool)
+	}
 	tools = append(tools, registry.ActivateTool())
 	if b.subagentLoader != nil {
 		tool, toolErr := b.subagentToolFactory.Tool(record.ID, subagents.Catalog)

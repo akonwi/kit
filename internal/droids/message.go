@@ -85,9 +85,10 @@ func NewImageData(mediaType string, data []byte) FileContent {
 // HTTPS URL or data URL. Applications resolve durable attachment references
 // into one of these provider-facing source forms before constructing messages.
 type FileContent struct {
-	Filename  string
-	MediaType string
-	URL       string
+	Filename     string
+	MediaType    string
+	URL          string
+	AttachmentID string
 }
 
 func (FileContent) isContent()       {}

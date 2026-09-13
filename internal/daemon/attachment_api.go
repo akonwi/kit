@@ -4,13 +4,8 @@ import (
 	"bufio"
 	"bytes"
 	"context"
-	"encoding/binary"
 	"errors"
 	"fmt"
-	"image"
-	"image/gif"
-	_ "image/jpeg"
-	_ "image/png"
 	"io"
 	"mime"
 	"net/http"
@@ -22,12 +17,10 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
-	_ "golang.org/x/image/webp"
 )
 
 const (
 	maxAttachmentRequestBytes = protocol.MaxImageAttachmentBytes + 64<<10
-	maxImageHeaderBytes       = 1 << 20
 	maxImagePixels            = 12_000_000
 )
 
@@ -175,57 +168,9 @@ func inspectAttachment(filename string, content io.Reader) (attachment.PutInput,
 		return attachment.PutInput{}, fmt.Errorf("%w: unsupported attachment type %q", attachment.ErrInvalidInput, mediaType)
 	}
 
-	var consumed bytes.Buffer
-	configuration, format, err := image.DecodeConfig(io.LimitReader(io.TeeReader(reader, &consumed), maxImageHeaderBytes))
-	if err != nil || "image/"+format != mediaType {
-		return attachment.PutInput{}, fmt.Errorf("%w: invalid %s image", attachment.ErrInvalidInput, strings.TrimPrefix(mediaType, "image/"))
-	}
-	if configuration.Width <= 0 || configuration.Height <= 0 || configuration.Width > 8192 || configuration.Height > 8192 || int64(configuration.Width)*int64(configuration.Height) > maxImagePixels {
-		return attachment.PutInput{}, fmt.Errorf("%w: image dimensions exceed limits", attachment.ErrInvalidInput)
-	}
-	input.Content = io.MultiReader(bytes.NewReader(consumed.Bytes()), reader)
-	input.MaxBytes = protocol.MaxImageAttachmentBytes
-	input.Width, input.Height = configuration.Width, configuration.Height
-	input.Validate = func(staged io.ReadSeeker) error {
-		return validateCompleteImage(staged, format, configuration)
-	}
-	return input, nil
-}
-
-func validateCompleteImage(staged io.Reader, format string, configuration image.Config) error {
-	data, err := io.ReadAll(staged)
-	if err != nil {
-		return err
-	}
-	switch format {
-	case "png":
-		if !bytes.HasSuffix(data, []byte("\x00\x00\x00\x00IEND\xaeB\x60\x82")) {
-			return errors.New("PNG does not end at IEND")
-		}
-	case "jpeg":
-		if !bytes.HasSuffix(data, []byte{0xff, 0xd9}) {
-			return errors.New("JPEG does not end at EOI")
-		}
-	case "gif":
-		if len(data) == 0 || data[len(data)-1] != 0x3b {
-			return errors.New("GIF does not end at its trailer")
-		}
-		if _, err := gif.DecodeAll(bytes.NewReader(data)); err != nil {
-			return err
-		}
-	case "webp":
-		if len(data) < 12 || string(data[:4]) != "RIFF" || string(data[8:12]) != "WEBP" || uint64(binary.LittleEndian.Uint32(data[4:8]))+8 != uint64(len(data)) {
-			return errors.New("WebP RIFF length is invalid")
-		}
-	}
-	decoded, decodedFormat, err := image.Decode(bytes.NewReader(data))
-	if err != nil {
-		return err
-	}
-	if decodedFormat != format || decoded.Bounds().Dx() != configuration.Width || decoded.Bounds().Dy() != configuration.Height {
-		return errors.New("decoded image does not match its header")
-	}
-	return nil
+	return attachment.InspectImage(filename, reader, attachment.ImageLimits{
+		MaxBytes: protocol.MaxImageAttachmentBytes, MaxWidth: 8192, MaxHeight: 8192, MaxPixels: maxImagePixels,
+	})
 }
 
 func writeAttachmentError(writer http.ResponseWriter, err error) {

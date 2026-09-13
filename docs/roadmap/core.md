@@ -92,8 +92,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
-- [~] CORE-ATT-002 — Implement validated `show_image` results. The client-safe
-  transcript image representation is in place. Depends on `CORE-ATT-001`.
+- [x] CORE-ATT-002 — Validated, attachment-backed `show_image` results with
+  explicit transcript-image presentation details. Depends on `CORE-ATT-001`.
 - [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
   `WEB-INT-001`.
 - [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained

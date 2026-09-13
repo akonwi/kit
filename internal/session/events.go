@@ -631,6 +631,7 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		base.Content, base.ContentTruncated = boundedLiveToolContent(typed.Result.Content)
 		base.Details, base.DetailsOmitted = boundedLiveToolDetails(typed.Result.Details)
 		base.IsError = typed.IsError
+		projectToolImagePresentation(base.Content, typed.ToolName, typed.IsError || base.DetailsOmitted, base.Details)
 		return []NewEvent{base}
 	case droids.LifecycleEvent:
 		switch typed.Kind {

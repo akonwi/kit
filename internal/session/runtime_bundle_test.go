@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/session"
@@ -46,6 +47,33 @@ func TestRuntimeBundleBuilderOwnsMatchingSkillCatalogAndTool(t *testing.T) {
 	}
 	if catalogSources != 1 {
 		t.Fatalf("catalog sources = %#v", bundle.Prompt.Sources)
+	}
+}
+
+func TestRuntimeBundleBuilderAddsShowImageOnlyWithAnAttachmentStore(t *testing.T) {
+	registry, err := skills.NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	store, err := attachment.NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: "core", Registry: registry, AttachmentStore: store,
+		ShowImageEnabled: func(session.SessionRecord) bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := builder.Build(t.Context(), session.SessionRecord{
+		ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir(),
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Tools) != 9 {
+		t.Fatalf("bundle tools = %d, want 9 including show_image", len(bundle.Tools))
 	}
 }
 
@@ -106,6 +134,9 @@ func TestRuntimeBundleBuilderRejectsInvalidDependencies(t *testing.T) {
 	}
 	if _, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{Core: "core", Registry: registry, SubagentLoader: &fixedSubagentLoader{}}); err == nil {
 		t.Fatal("NewRuntimeBundleBuilder() accepted a subagent loader without a tool factory")
+	}
+	if _, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{Core: "core", Registry: registry, AttachmentStore: &attachment.Filesystem{}}); err == nil {
+		t.Fatal("NewRuntimeBundleBuilder() accepted an attachment store without a capability gate")
 	}
 }
 
