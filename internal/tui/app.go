@@ -205,6 +205,7 @@ type appState struct {
 	composerCursorOffset         int
 	composerCursorGeneration     uint64
 	palette                      paletteController
+	paste                        pasteCoalescer
 	fileMention                  fileMentionController
 	fileIndex                    map[string]cachedFileIndex
 	configurationPicker          configurationPickerController
@@ -1083,10 +1084,17 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	if ctx.Phase() != ui.CapturePhase {
 		return ui.EventIgnored
 	}
+	if result, consumed := s.paste.Observe(ctx, event, s.handleKey); consumed {
+		return result
+	}
 	key, ok := event.(ui.Key)
 	if !ok {
 		return ui.EventIgnored
 	}
+	return s.handleKey(ctx, key)
+}
+
+func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	if s.subagentDismissID != "" {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled

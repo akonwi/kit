@@ -133,8 +133,18 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 }
 
 func (s *messageComposerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	if ctx.Phase() != ui.CapturePhase {
+		return ui.EventIgnored
+	}
+	// A coalesced bracketed paste reaches the editor as an insert intent rather
+	// than a key, so the surrounding markers establish paste provenance. The key
+	// check still covers terminals that report paste keys without markers.
+	if _, ok := event.(vaxis.PasteStartEvent); ok {
+		s.pasteChange = true
+		return ui.EventIgnored
+	}
 	key, ok := event.(ui.Key)
-	if ctx.Phase() == ui.CapturePhase && ok && key.EventType == vaxis.EventPaste && (key.Text != "" || key.Keycode == vaxis.KeyEnter) {
+	if ok && key.EventType == vaxis.EventPaste && (key.Text != "" || key.Keycode == vaxis.KeyEnter) {
 		s.pasteChange = true
 	}
 	return ui.EventIgnored
