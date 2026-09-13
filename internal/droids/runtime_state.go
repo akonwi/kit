@@ -1,6 +1,7 @@
 package droids
 
 import (
+	"encoding/hex"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -36,6 +37,12 @@ const (
 	cycleToolsAdmitted      cyclePhase = "tools_admitted"
 )
 
+type durableCompaction struct {
+	ID     string `json:"id"`
+	TurnID TurnID `json:"turn_id"`
+	Forced bool   `json:"forced,omitempty"`
+}
+
 type durableRuntime struct {
 	Status                  ExecutionStatus            `json:"status"`
 	CyclePhase              cyclePhase                 `json:"cycle_phase,omitempty"`
@@ -51,6 +58,7 @@ type durableRuntime struct {
 	ModelCycles             uint64                     `json:"model_cycles,omitempty"`
 	RetryCount              int                        `json:"retry_count,omitempty"`
 	RetryAt                 time.Time                  `json:"retry_at,omitempty"`
+	Compaction              *durableCompaction         `json:"compaction,omitempty"`
 	AbortRequested          bool                       `json:"abort_requested,omitempty"`
 	TerminatePending        bool                       `json:"terminate_pending,omitempty"`
 	Tools                   map[ToolCallID]durableTool `json:"tools,omitempty"`
@@ -307,6 +315,13 @@ func decodeLifecycleEvent(event StoredEvent, conversationID ConversationID) (Eve
 }
 
 func validateOpenedRuntime(state durableRuntime) error {
+	if state.Compaction != nil {
+		encodedID := strings.TrimPrefix(state.Compaction.ID, "compact_")
+		_, idErr := hex.DecodeString(encodedID)
+		if !strings.HasPrefix(state.Compaction.ID, "compact_") || len(encodedID) != 32 || idErr != nil || state.Compaction.TurnID == "" || state.Compaction.TurnID != state.TurnID || isTerminalStatus(state.Status) {
+			return fmt.Errorf("droids: persisted active compaction is invalid")
+		}
+	}
 	if err := validateUsage(state.Usage); err != nil {
 		return fmt.Errorf("droids: invalid persisted turn usage: %w", err)
 	}

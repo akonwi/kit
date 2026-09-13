@@ -73,6 +73,7 @@ type NewEvent struct {
 	Status                 RunStatus
 	ErrorKind              ProviderErrorKind
 	ErrorMessage           string
+	CompactionID           string
 	ProviderRetry          *ProviderRetry
 	ContextTokens          int
 	ContextWindow          int
@@ -151,7 +152,7 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -204,8 +205,11 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
 	case EventCompactionStarted, EventCompactionCompleted:
+		if !validLiveCompactionID(event.CompactionID) {
+			return fmt.Errorf("compaction event requires a valid identity")
+		}
 	case EventCompactionFailed:
-		if event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
+		if !validLiveCompactionID(event.CompactionID) || event.ErrorKind != "" || event.ErrorMessage == "" || rendererSafeLiveError(event.ErrorMessage) != event.ErrorMessage {
 			return fmt.Errorf("failed compaction requires a renderer-safe error message")
 		}
 	case EventProviderRetryScheduled:
@@ -292,6 +296,13 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
+	}
+	isCompaction := event.Kind == EventCompactionStarted || event.Kind == EventCompactionCompleted || event.Kind == EventCompactionFailed
+	if !isCompaction && event.CompactionID != "" {
+		return fmt.Errorf("event kind %q cannot carry compaction identity", event.Kind)
+	}
+	if isCompaction && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
+		return fmt.Errorf("compaction event cannot carry assistant content")
 	}
 	isRetry := event.Kind == EventProviderRetryScheduled || event.Kind == EventProviderRetryStarted
 	if !isRetry && event.ProviderRetry != nil {
@@ -654,19 +665,34 @@ func projectDroidEvent(sessionID, turnID, runID string, event droids.Event) []Ne
 		return []NewEvent{base}
 	case droids.LifecycleEvent:
 		switch typed.Kind {
-		case "compaction.started":
-			base.Kind = EventCompactionStarted
-		case "compaction.completed":
-			base.Kind = EventCompactionCompleted
-		case "compaction.failed":
+		case "compaction.started", "compaction.completed", "compaction.failed":
 			var data struct {
-				Error string `json:"error"`
+				CompactionID string `json:"compaction_id"`
+				OperationID  string `json:"operation_id"`
+				Error        string `json:"error"`
 			}
-			if json.Unmarshal(typed.Data, &data) != nil || strings.TrimSpace(data.Error) == "" {
-				data.Error = "Context compaction failed"
+			if json.Unmarshal(typed.Data, &data) != nil {
+				return nil
 			}
-			base.Kind = EventCompactionFailed
-			base.ErrorMessage = rendererSafeLiveError(data.Error)
+			base.CompactionID = data.CompactionID
+			if base.CompactionID == "" {
+				base.CompactionID = data.OperationID
+			}
+			if !validLiveCompactionID(base.CompactionID) {
+				return nil
+			}
+			switch typed.Kind {
+			case "compaction.started":
+				base.Kind = EventCompactionStarted
+			case "compaction.completed":
+				base.Kind = EventCompactionCompleted
+			case "compaction.failed":
+				if strings.TrimSpace(data.Error) == "" {
+					data.Error = "Context compaction failed"
+				}
+				base.Kind = EventCompactionFailed
+				base.ErrorMessage = rendererSafeLiveError(data.Error)
+			}
 		case "attempt.retry_scheduled":
 			var data struct {
 				Retry   int       `json:"retry"`
@@ -834,6 +860,10 @@ func liveTextChunkEnd(text string) int {
 		_, end = utf8.DecodeRuneInString(text)
 	}
 	return end
+}
+
+func validLiveCompactionID(id string) bool {
+	return id != "" && len(id) <= 256 && rendererSafeLiveError(id) == id
 }
 
 func rendererSafeLiveError(text string) string {

@@ -20,8 +20,9 @@ Related roadmap entries:
 - [ ] Add presentation coverage for context pressure thresholds and live updates.
 - [x] Present provider retry countdowns from authoritative snapshot and ordered
   lifecycle state, including reconnect and restart recovery.
-- [~] Present compaction lifecycle. The live path works, but pending state and
-  outcomes are not fully reconnect-safe.
+- [x] Present automatic compaction lifecycle from authoritative snapshots and
+  ordered events. Pending state survives daemon restart/reconnect, stale events
+  cannot replace newer operations, and replayed outcomes are deduplicated.
 - [~] Present cancellation. The live stopping state works, but invocation,
   repeated requests, failures, and dependent core behavior need hardening.
 - [x] Present terminal run and feedback state.
@@ -101,23 +102,45 @@ Related roadmap entries:
 
 ## Phase 3: make compaction lifecycle reconnect-safe
 
+Implemented state:
+
+- Automatic compactions receive stable `compact_...` identities. Active identity
+  and forced semantics are persisted atomically with `compaction.started` before
+  provider work begins.
+- Recovery treats a persisted compaction as mandatory work and reuses its
+  identity. Completion or failure emits one matching terminal lifecycle event
+  and atomically clears active state.
+- Active compaction is projected through droid, session, daemon, and protocol
+  snapshots. The session protocol is version 30.
+- Compaction lifecycle payloads are bounded and validated at session and wire
+  boundaries, including identity exclusivity and rejection of unrelated
+  assistant content.
+- Outcomes remain transient toast feedback keyed by compaction identity. The TUI
+  retains a bounded 16-identity deduplication window rather than adding recent
+  outcomes to retained session details.
+
 ### Core and protocol
 
-- [ ] Define authoritative active/recent compaction lifecycle state for session
-  snapshots.
-- [ ] Reconstruct pending automatic compaction after reconnect.
-- [ ] Preserve ordering between successful compaction and its context update.
-- [ ] Ensure completed and failed lifecycle replay does not duplicate user
-  feedback.
-- [ ] Decide whether the latest outcome belongs in retained session details or
-  remains deduplicated transient feedback; record the decision if architectural.
+- [x] Define authoritative active compaction snapshot state and identified
+  completed/failed lifecycle events.
+- [x] Reconstruct pending automatic compaction after daemon restart or client
+  reconnect.
+- [x] Preserve ordering between successful compaction and its context update by
+  committing both events with the checkpoint and runtime replacement.
+- [x] Give every lifecycle event a stable identity so replay can be deduplicated.
+- [x] Keep the latest outcome as deduplicated transient feedback rather than
+  retained session-detail state.
 
 ### TUI and tests
 
-- [ ] Apply snapshot compaction state to the fixed turn-status slot.
-- [ ] Test reconnect while compaction is pending.
-- [ ] Test completed and failed event replay and deduplication.
-- [ ] Test context pressure refresh after successful compaction.
+- [x] Apply snapshot compaction state to the fixed turn-status slot.
+- [x] Test snapshot restoration while compaction is pending.
+- [~] Test completed and failed event replay and deduplication. Completed replay,
+  stale older outcomes, and failed rendering are covered; direct failed-event
+  replay coverage remains.
+- [x] Test context pressure refresh after successful compaction.
+- [x] Reject stale same-stream snapshots before they can regress run,
+  compaction, retry, transcript, or usage state.
 - [ ] Test the complete manual flow: request, pending state, result, snapshot
   replacement, and repaint.
 
@@ -168,9 +191,10 @@ cancellation, event delivery, and timer-driven UI state.
 - [ ] `CORE-RUN-003` provides deterministic terminal cancellation behavior used
   by the TUI.
 - [ ] `CORE-RUN-004` exposes bounded retry countdown and recovery state.
-- [ ] `CORE-RUN-005` exposes reconnect-safe compaction lifecycle state.
-- [ ] Snapshot attachment and ordered live events converge on identical visible
-  state.
+- [x] `CORE-RUN-005` exposes reconnect-safe automatic compaction lifecycle
+  state; broader roadmap completion remains tracked in `docs/roadmap/core.md`.
+- [x] Snapshot attachment and ordered live events converge on identical retry
+  and automatic-compaction presentation state.
 - [ ] Retry, compaction, and cancellation status never obscures retained
   transcript evidence.
 - [~] Focused tests, the full Go suite, vet, and build pass. Targeted retry race

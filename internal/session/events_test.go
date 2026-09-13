@@ -103,11 +103,11 @@ func TestProjectDroidEventCarriesAutomaticCompactionLifecycle(t *testing.T) {
 		contextTokens int
 		contextWindow int
 	}{
-		{event: droids.LifecycleEvent{Kind: "compaction.started", Data: json.RawMessage(`{"estimated_input":100}`)}, kind: EventCompactionStarted},
-		{event: droids.LifecycleEvent{Kind: "compaction.completed", Data: json.RawMessage(`{"before":100,"after":20}`)}, kind: EventCompactionCompleted},
+		{event: droids.LifecycleEvent{Kind: "compaction.started", Data: json.RawMessage(`{"compaction_id":"compact_00000000000000000000000000000001","estimated_input":100}`)}, kind: EventCompactionStarted},
+		{event: droids.LifecycleEvent{Kind: "compaction.completed", Data: json.RawMessage(`{"compaction_id":"compact_00000000000000000000000000000001","before":100,"after":20}`)}, kind: EventCompactionCompleted},
 		{event: droids.LifecycleEvent{Kind: "context.updated", Data: json.RawMessage(`{"estimated_input":20,"context_window":200}`)}, kind: EventContextUpdated, contextTokens: 20, contextWindow: 200},
-		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"error":"Context compaction failed"}`)}, kind: EventCompactionFailed, error: "Context compaction failed"},
-		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"error":"bad\n\u202eerror"}`)}, kind: EventCompactionFailed, error: "bad error"},
+		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"compaction_id":"compact_00000000000000000000000000000001","error":"Context compaction failed"}`)}, kind: EventCompactionFailed, error: "Context compaction failed"},
+		{event: droids.LifecycleEvent{Kind: "compaction.failed", Data: json.RawMessage(`{"compaction_id":"compact_00000000000000000000000000000001","error":"bad\n\u202eerror"}`)}, kind: EventCompactionFailed, error: "bad error"},
 	}
 	for _, test := range tests {
 		projected := projectDroidEvent("session_1", "turn_1", "turn_1", test.event)
@@ -118,6 +118,11 @@ func TestProjectDroidEventCarriesAutomaticCompactionLifecycle(t *testing.T) {
 		if err := projected[0].Validate(); err != nil {
 			t.Fatalf("projected compaction event validation error = %v", err)
 		}
+	}
+	malformed := NewEvent{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventCompactionStarted,
+		CompactionID: "compact_00000000000000000000000000000001", Text: "unrelated"}
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("compaction event accepted assistant content")
 	}
 }
 

@@ -176,6 +176,12 @@ func (snapshot SessionSnapshot) Validate() error {
 			return fmt.Errorf("snapshot provider retry deadline is invalid: %w", err)
 		}
 	}
+	if snapshot.ActiveCompaction != nil {
+		if snapshot.ActiveRunID == "" || snapshot.ActiveCompaction.RunID != snapshot.ActiveRunID ||
+			!identifier.Valid(snapshot.ActiveCompaction.ID, "compact_") {
+			return fmt.Errorf("snapshot active compaction requires matching valid run and compaction identities")
+		}
+	}
 	if snapshot.HasMoreMessages {
 		cursor, err := strconv.ParseUint(snapshot.PreviousMessageCursor, 10, 64)
 		if err != nil || cursor == 0 || len(snapshot.Messages) == 0 || cursor != uint64(snapshot.Messages[0].Sequence) {

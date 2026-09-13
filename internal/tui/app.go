@@ -271,6 +271,7 @@ type appState struct {
 	liveTools                        map[string]int
 	liveContent                      map[int]liveContentBlock
 	liveSequence                     int64
+	liveStreamID                     string
 	metadataStreamID                 string
 	metadataSequence                 int64
 	turnActivity                     string
@@ -283,6 +284,9 @@ type appState struct {
 	followUpMutationPending          bool
 	runStopping                      bool
 	providerRetry                    *protocol.ProviderRetry
+	activeCompactionID               string
+	compactionOutcomeIDs             map[string]struct{}
+	compactionOutcomeOrder           []string
 	contextTokens                    int
 	contextWindow                    int
 	sessionUsage                     protocol.SessionUsage
@@ -1747,6 +1751,9 @@ func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapsho
 }
 
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
+	if s.liveSequence > 0 && snapshot.EventStreamID == s.liveStreamID && snapshot.EventCursor < s.liveSequence {
+		return
+	}
 	var previousActivitySource transcriptDisplayItem
 	if s.activitySourceID != "" && s.activityConversationID == "" {
 		messages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
@@ -1839,6 +1846,12 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.activeRunID = snapshot.ActiveRunID
 	s.runPending = snapshot.ActiveRunID != ""
 	s.providerRetry = cloneProviderRetry(snapshot.ProviderRetry)
+	s.activeCompactionID = ""
+	if snapshot.ActiveCompaction != nil && snapshot.ActiveCompaction.RunID == snapshot.ActiveRunID {
+		s.activeCompactionID = snapshot.ActiveCompaction.ID
+		s.setTurnThinking("")
+		s.setTurnActivity("Compacting session…")
+	}
 	if snapshot.ActiveRunID != "" && snapshot.ActiveRunID != s.terminalSettledRunID {
 		s.markTerminalRunStarted(snapshot.ActiveRunID)
 	}
@@ -1852,6 +1865,8 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if s.runPending {
 		if s.agentFeedbackPending {
 			s.turnActivity = "Waiting for feedback…"
+		} else if s.activeCompactionID != "" {
+			s.turnActivity = "Compacting session…"
 		} else {
 			s.turnActivity = "Working…"
 		}
@@ -2004,10 +2019,12 @@ func (s *appState) resetLiveRun() {
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
 	s.liveSequence = 0
+	s.liveStreamID = ""
 	s.turnActivity = ""
 	s.turnThinking = ""
 	s.runStopping = false
 	s.providerRetry = nil
+	s.activeCompactionID = ""
 	s.terminalRunActive = false
 	s.terminalRunID = ""
 	s.agentFeedbackPending = false
@@ -2074,6 +2091,26 @@ func providerRetryActivity(retry *protocol.ProviderRetry, now time.Time) string 
 	return fmt.Sprintf("Retry %d in %ds…", retry.Count, seconds)
 }
 
+func (s *appState) recordCompactionOutcome(id string) bool {
+	if id == "" {
+		return false
+	}
+	if s.compactionOutcomeIDs == nil {
+		s.compactionOutcomeIDs = make(map[string]struct{})
+	}
+	if _, duplicate := s.compactionOutcomeIDs[id]; duplicate {
+		return false
+	}
+	const limit = 16
+	if len(s.compactionOutcomeOrder) == limit {
+		delete(s.compactionOutcomeIDs, s.compactionOutcomeOrder[0])
+		s.compactionOutcomeOrder = s.compactionOutcomeOrder[1:]
+	}
+	s.compactionOutcomeIDs[id] = struct{}{}
+	s.compactionOutcomeOrder = append(s.compactionOutcomeOrder, id)
+	return true
+}
+
 func (s *appState) presentedTurnActivity(now time.Time) string {
 	if !s.runStopping {
 		if activity := providerRetryActivity(s.providerRetry, now); activity != "" {
@@ -2100,6 +2137,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			continue
 		}
 		s.liveSequence = event.Sequence
+		if event.StreamID != "" {
+			s.liveStreamID = event.StreamID
+		}
 		switch event.Kind {
 		case protocol.SessionEventRunStarted:
 			s.markTerminalRunStarted(event.RunID)
@@ -2279,14 +2319,29 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			s.providerRetry = nil
 			s.setTurnActivity("Working…")
 		case protocol.SessionEventCompactionStarted:
+			s.activeCompactionID = event.CompactionID
 			s.setTurnThinking("")
 			s.setTurnActivity("Compacting session…")
 		case protocol.SessionEventCompactionCompleted:
-			s.setTurnActivity("Working…")
-			s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
+			current := s.activeCompactionID == event.CompactionID
+			stale := s.activeCompactionID != "" && !current
+			if current {
+				s.activeCompactionID = ""
+				s.setTurnActivity("Working…")
+			}
+			if !stale && s.recordCompactionOutcome(event.CompactionID) {
+				s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
+			}
 		case protocol.SessionEventCompactionFailed:
-			s.setTurnActivity("Working…")
-			s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: event.ErrorMessage, Variant: toastError})
+			current := s.activeCompactionID == event.CompactionID
+			stale := s.activeCompactionID != "" && !current
+			if current {
+				s.activeCompactionID = ""
+				s.setTurnActivity("Working…")
+			}
+			if !stale && s.recordCompactionOutcome(event.CompactionID) {
+				s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: event.ErrorMessage, Variant: toastError})
+			}
 		case protocol.SessionEventContextUpdated:
 			s.contextTokens = event.ContextTokens
 			s.contextWindow = event.ContextWindow
@@ -2312,6 +2367,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			}
 			s.runStopping = false
 			s.providerRetry = nil
+			s.activeCompactionID = ""
 			s.setTurnThinking("")
 			s.setTurnActivity("")
 		}

@@ -235,6 +235,12 @@ type ProviderRetry struct {
 	RetryAt time.Time
 }
 
+// CompactionSnapshot is one active automatic context compaction.
+type CompactionSnapshot struct {
+	ID     string
+	TurnID TurnID
+}
+
 // ExecutionSnapshot is the current execution projection.
 type ExecutionSnapshot struct {
 	TurnID           TurnID
@@ -243,6 +249,7 @@ type ExecutionSnapshot struct {
 	Reason           string
 	Error            *DroidError
 	Retry            *ProviderRetry
+	Compaction       *CompactionSnapshot
 }
 
 // Outcome is one execution's terminal or paused result.

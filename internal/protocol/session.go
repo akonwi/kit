@@ -420,6 +420,12 @@ type ProviderRetry struct {
 	RetryAt string `json:"retryAt,omitempty"`
 }
 
+// ActiveCompaction is an authoritative automatic compaction in progress.
+type ActiveCompaction struct {
+	ID    string `json:"id"`
+	RunID string `json:"runId"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo            `json:"session"`
@@ -429,6 +435,7 @@ type SessionSnapshot struct {
 	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
 	ActiveRunID           string                 `json:"activeRunId,omitempty"`
 	ProviderRetry         *ProviderRetry         `json:"providerRetry,omitempty"`
+	ActiveCompaction      *ActiveCompaction      `json:"activeCompaction,omitempty"`
 	ActiveBashExecutionID string                 `json:"activeBashExecutionId,omitempty"`
 	EventStreamID         string                 `json:"eventStreamId,omitempty"`
 	EventCursor           int64                  `json:"eventCursor,omitempty"`

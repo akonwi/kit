@@ -168,21 +168,54 @@ func TestProviderRetrySnapshotRestoresCountdownState(t *testing.T) {
 func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted, CompactionID: "compact_00000000000000000000000000000001"}})
 	if state.turnActivity != "Compacting session…" {
 		t.Fatalf("started compaction activity = %q", state.turnActivity)
 	}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted},
+		{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted, CompactionID: "compact_00000000000000000000000000000001"},
 		{Sequence: 3, Kind: protocol.SessionEventContextUpdated, ContextTokens: 20, ContextWindow: 200},
 	})
 	if state.turnActivity != "Working…" || state.contextTokens != 20 || state.contextWindow != 200 || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
 		toasts[0].Subtitle != "Session context was compacted." || toasts[0].Variant != toastInfo {
 		t.Fatalf("completed compaction activity=%q context=%d/%d toasts=%+v", state.turnActivity, state.contextTokens, state.contextWindow, toasts)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Kind: protocol.SessionEventCompactionFailed, ErrorMessage: "Context compaction failed"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Kind: protocol.SessionEventCompactionFailed, CompactionID: "compact_00000000000000000000000000000002", ErrorMessage: "Context compaction failed"}})
 	if len(toasts) != 2 || toasts[1].Title != "Auto-compaction failed" || toasts[1].Subtitle != "Context compaction failed" || toasts[1].Variant != toastError {
 		t.Fatalf("failed compaction toasts = %+v", toasts)
+	}
+}
+
+func TestCompactionSnapshotAndDelayedEventsDoNotRegressNewerOperation(t *testing.T) {
+	const (
+		first  = "compact_00000000000000000000000000000001"
+		second = "compact_00000000000000000000000000000002"
+	)
+	var toasts []toastInput
+	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
+	state.applySnapshot(protocol.SessionSnapshot{
+		ActiveRunID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
+		ActiveCompaction: &protocol.ActiveCompaction{ID: first, RunID: "turn_test"},
+	})
+	if state.activeCompactionID != first || state.turnActivity != "Compacting session…" {
+		t.Fatalf("restored compaction = %q activity=%q", state.activeCompactionID, state.turnActivity)
+	}
+
+	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 5, Kind: protocol.SessionEventCompactionStarted, CompactionID: second}})
+	state.applySnapshot(protocol.SessionSnapshot{ActiveRunID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
+		ActiveCompaction: &protocol.ActiveCompaction{ID: first, RunID: "turn_test"}})
+	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 6, Kind: protocol.SessionEventCompactionCompleted, CompactionID: first}})
+	if state.activeCompactionID != second || state.turnActivity != "Compacting session…" || len(toasts) != 0 {
+		t.Fatalf("delayed state regressed: active=%q activity=%q toasts=%+v", state.activeCompactionID, state.turnActivity, toasts)
+	}
+
+	outcome := protocol.SessionEvent{StreamID: "stream_test", Kind: protocol.SessionEventCompactionCompleted, CompactionID: second}
+	outcome.Sequence = 7
+	state.applyRunEvents([]protocol.SessionEvent{outcome})
+	outcome.Sequence = 8
+	state.applyRunEvents([]protocol.SessionEvent{outcome})
+	if state.activeCompactionID != "" || len(toasts) != 1 {
+		t.Fatalf("duplicate outcome: active=%q toasts=%+v", state.activeCompactionID, toasts)
 	}
 }
 

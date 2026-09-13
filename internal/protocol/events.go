@@ -67,6 +67,7 @@ type SessionEvent struct {
 	Status                 RunStatus           `json:"status,omitempty"`
 	ErrorKind              ProviderErrorKind   `json:"errorKind,omitempty"`
 	ErrorMessage           string              `json:"errorMessage,omitempty"`
+	CompactionID           string              `json:"compactionId,omitempty"`
 	ProviderRetry          *ProviderRetry      `json:"providerRetry,omitempty"`
 	ContextTokens          int                 `json:"contextTokens,omitempty"`
 	ContextWindow          int                 `json:"contextWindow,omitempty"`
@@ -119,7 +120,7 @@ func (event SessionEvent) Validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -172,8 +173,11 @@ func (event SessionEvent) Validate() error {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
 	case SessionEventCompactionStarted, SessionEventCompactionCompleted:
+		if !validRendererText(event.CompactionID, 256) {
+			return fmt.Errorf("compaction event requires a valid identity")
+		}
 	case SessionEventCompactionFailed:
-		if event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
+		if !validRendererText(event.CompactionID, 256) || event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
 			return fmt.Errorf("failed compaction requires an error message")
 		}
 	case SessionEventProviderRetryScheduled:
@@ -259,6 +263,13 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
+	}
+	isCompaction := event.Kind == SessionEventCompactionStarted || event.Kind == SessionEventCompactionCompleted || event.Kind == SessionEventCompactionFailed
+	if !isCompaction && event.CompactionID != "" {
+		return fmt.Errorf("event kind %q cannot carry compaction identity", event.Kind)
+	}
+	if isCompaction && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
+		return fmt.Errorf("compaction event cannot carry assistant content")
 	}
 	isRetry := event.Kind == SessionEventProviderRetryScheduled || event.Kind == SessionEventProviderRetryStarted
 	if !isRetry && event.ProviderRetry != nil {

@@ -52,6 +52,26 @@ func TestSessionSnapshotAllowsStandaloneBashInsideParentTimeline(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotValidatesActiveCompaction(t *testing.T) {
+	t.Parallel()
+
+	snapshot := validTranscriptSnapshot()
+	snapshot.ActiveRunID = "turn_2"
+	snapshot.ActiveCompaction = &ActiveCompaction{ID: "compact_00000000000000000000000000000001", RunID: "turn_2"}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("active compaction Validate() error = %v", err)
+	}
+	snapshot.ActiveCompaction.RunID = "turn_other"
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot accepted compaction for another run")
+	}
+	snapshot.ActiveCompaction.RunID = "turn_2"
+	snapshot.ActiveCompaction.ID = "compact_short"
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot accepted malformed compaction identity")
+	}
+}
+
 func TestSessionSnapshotValidatesProviderRetry(t *testing.T) {
 	t.Parallel()
 

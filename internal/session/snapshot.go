@@ -152,6 +152,12 @@ type ProviderRetry struct {
 	RetryAt time.Time
 }
 
+// ActiveCompaction is an authoritative automatic compaction in progress.
+type ActiveCompaction struct {
+	ID    string
+	RunID string
+}
+
 type Snapshot struct {
 	Session               SessionRecord
 	Messages              []TranscriptMessage
@@ -160,6 +166,7 @@ type Snapshot struct {
 	Boundaries            []PendingBoundary
 	ActiveRunID           string
 	ProviderRetry         *ProviderRetry
+	ActiveCompaction      *ActiveCompaction
 	ActiveBashExecutionID string
 	EventStreamID         string
 	EventCursor           int64
@@ -306,6 +313,14 @@ func projectProviderRetry(activeRunID string, active *droids.ExecutionSnapshot) 
 	return &ProviderRetry{Count: active.Retry.Count, RetryAt: active.Retry.RetryAt}
 }
 
+func projectActiveCompaction(activeRunID string, active *droids.ExecutionSnapshot) *ActiveCompaction {
+	if activeRunID == "" || active == nil || string(active.TurnID) != activeRunID || active.Compaction == nil ||
+		active.Compaction.ID == "" || string(active.Compaction.TurnID) != activeRunID {
+		return nil
+	}
+	return &ActiveCompaction{ID: active.Compaction.ID, RunID: activeRunID}
+}
+
 func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, loaded *runtime, record SessionRecord, droidSnapshot droids.Snapshot, pendingInteractions []InteractionRequest) (Snapshot, error) {
 	activeRunID := loaded.activeRun
 	completeActiveStream := activeRunID != "" && loaded.runs[activeRunID] != nil &&
@@ -324,6 +339,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		PendingInteractions:  pendingInteractions,
 	}
 	result.ProviderRetry = projectProviderRetry(activeRunID, droidSnapshot.Active)
+	result.ActiveCompaction = projectActiveCompaction(activeRunID, droidSnapshot.Active)
 	for _, definition := range loaded.bundle.Subagents.Catalog.Definitions() {
 		result.SubagentDefinitions = append(result.SubagentDefinitions, SubagentDefinition{
 			Name: definition.Name, Description: definition.Description, Model: definition.Model, Source: definition.Source,

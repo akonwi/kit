@@ -67,6 +67,7 @@ func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
 	for _, kind := range []SessionEventKind{SessionEventCompactionStarted, SessionEventCompactionCompleted} {
 		event := base
 		event.Kind = kind
+		event.CompactionID = "compact_00000000000000000000000000000001"
 		if err := event.Validate(); err != nil {
 			t.Fatalf("%s Validate() error = %v", kind, err)
 		}
@@ -84,6 +85,7 @@ func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
 	}
 	failed := base
 	failed.Kind = SessionEventCompactionFailed
+	failed.CompactionID = "compact_00000000000000000000000000000001"
 	failed.ErrorMessage = "Context compaction failed"
 	if err := failed.Validate(); err != nil {
 		t.Fatalf("failed compaction Validate() error = %v", err)
@@ -91,6 +93,24 @@ func TestSessionEventValidatesAutomaticCompactionLifecycle(t *testing.T) {
 	failed.ErrorMessage = ""
 	if err := failed.Validate(); err == nil {
 		t.Fatal("failed compaction accepted an empty error")
+	}
+	malformed := base
+	malformed.Kind = SessionEventCompactionStarted
+	malformed.CompactionID = "bad\nidentity"
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("compaction accepted a malformed identity")
+	}
+	malformed.CompactionID = "compact_00000000000000000000000000000001"
+	malformed.Text = "unrelated"
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("compaction accepted assistant content")
+	}
+	malformed.Text = ""
+	malformed.Kind = SessionEventRunStarted
+	malformed.Status = RunStatusRunning
+	malformed.CompactionID = "compact_00000000000000000000000000000001"
+	if err := malformed.Validate(); err == nil {
+		t.Fatal("non-compaction event accepted a compaction identity")
 	}
 }
 
@@ -127,6 +147,7 @@ func TestSessionEventValidatesProviderRetryLifecycle(t *testing.T) {
 
 	unrelated := base
 	unrelated.Kind = SessionEventCompactionStarted
+	unrelated.CompactionID = "compact_00000000000000000000000000000001"
 	unrelated.ProviderRetry = &ProviderRetry{Count: 1}
 	if err := unrelated.Validate(); err == nil {
 		t.Fatal("unrelated event accepted provider retry state")

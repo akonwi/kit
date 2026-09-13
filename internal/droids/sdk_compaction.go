@@ -31,7 +31,13 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
 	}
-	if !force && !sdkShouldCompact(usage) {
+	rt.mu.Lock()
+	recovering := rt.state.Compaction != nil && rt.state.Compaction.TurnID == turnID && rt.state.Compaction.ID != ""
+	if recovering {
+		force = rt.state.Compaction.Forced
+	}
+	rt.mu.Unlock()
+	if !recovering && !force && !sdkShouldCompact(usage) {
 		return nil
 	}
 	prefixEnd := compactionPrefixEnd(messages)
@@ -42,13 +48,29 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		return nil
 	}
 
-	started, _ := lifecycleEvent("compaction.started", turnID, attemptID, map[string]any{
-		"estimated_input": usage.EstimatedInput, "prefix_messages": prefixEnd,
-	})
 	rt.mu.Lock()
-	if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{started}); err != nil {
+	if rt.state.TurnID != turnID || isTerminalStatus(rt.state.Status) {
 		rt.mu.Unlock()
-		return err
+		return nil
+	}
+	if rt.state.Compaction == nil {
+		compactionID, err := newID("compact_")
+		if err != nil {
+			rt.mu.Unlock()
+			return err
+		}
+		rt.state.Compaction = &durableCompaction{ID: compactionID, TurnID: turnID, Forced: force}
+		started, _ := lifecycleEvent("compaction.started", turnID, attemptID, map[string]any{
+			"compaction_id": compactionID, "estimated_input": usage.EstimatedInput, "prefix_messages": prefixEnd,
+		})
+		if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{started}); err != nil {
+			rt.state.Compaction = nil
+			rt.mu.Unlock()
+			return err
+		}
+	} else if rt.state.Compaction.ID == "" || rt.state.Compaction.TurnID != turnID {
+		rt.mu.Unlock()
+		return fmt.Errorf("droids: active compaction does not match turn")
 	}
 	rt.mu.Unlock()
 
@@ -175,11 +197,17 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		RecordID: string(checkpointID), Scope: RecordHistory,
 		Version: recordVersion, Payload: checkpointPayload,
 	}
+	if rt.state.Compaction == nil || rt.state.Compaction.ID == "" || rt.state.Compaction.TurnID != turnID {
+		rt.state = before
+		return fmt.Errorf("droids: active compaction identity was lost")
+	}
+	compactionID := rt.state.Compaction.ID
+	rt.state.Compaction = nil
 	completed, _ := lifecycleEvent("compaction.completed", turnID, rt.state.AttemptID, map[string]any{
-		"checkpoint_id": checkpointID, "before": usage.EstimatedInput, "after": after.EstimatedInput,
+		"compaction_id": compactionID, "checkpoint_id": checkpointID, "before": usage.EstimatedInput, "after": after.EstimatedInput,
 	})
 	contextUpdated, _ := lifecycleEvent("context.updated", turnID, rt.state.AttemptID, map[string]any{
-		"checkpoint_id": checkpointID, "estimated_input": after.EstimatedInput, "context_window": after.ContextWindow,
+		"compaction_id": compactionID, "checkpoint_id": checkpointID, "estimated_input": after.EstimatedInput, "context_window": after.ContextWindow,
 	})
 	if err := rt.commitLocked(ctx, []EncodedMutation{checkpoint}, []EncodedDurableEvent{completed, contextUpdated}); err != nil {
 		rt.state = before
@@ -298,8 +326,24 @@ func (rt *sdkRuntime) recordCompactionFailureLocked(turnID TurnID, failure error
 	if errors.Is(failure, context.Canceled) || errors.Is(failure, context.DeadlineExceeded) {
 		return failure
 	}
-	event, _ := lifecycleEvent("compaction.failed", turnID, rt.state.AttemptID, map[string]any{"error": safeRuntimeError(DroidErrorCompaction, failure)})
+	compactionID := ""
+	if rt.state.Compaction != nil && rt.state.Compaction.TurnID == turnID {
+		compactionID = rt.state.Compaction.ID
+	}
+	if compactionID == "" {
+		var err error
+		compactionID, err = newID("compact_")
+		if err != nil {
+			return errorsJoin(failure, err)
+		}
+	}
+	before := rt.state.Compaction
+	rt.state.Compaction = nil
+	event, _ := lifecycleEvent("compaction.failed", turnID, rt.state.AttemptID, map[string]any{
+		"compaction_id": compactionID, "error": safeRuntimeError(DroidErrorCompaction, failure),
+	})
 	if err := rt.commitLocked(context.Background(), nil, []EncodedDurableEvent{event}); err != nil {
+		rt.state.Compaction = before
 		return errorsJoin(failure, err)
 	}
 	return failure

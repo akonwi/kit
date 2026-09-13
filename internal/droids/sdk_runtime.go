@@ -1642,6 +1642,7 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 	rt.state.AttemptOpen = false
 	rt.state.CyclePhase = cycleReady
 	rt.state.TerminatePending = false
+	rt.state.Compaction = nil
 	rt.state.AbortRequested = status == ExecutionAborted
 	turn, err := turnHistoryMutation(rt.state, status)
 	if err != nil {
@@ -1813,6 +1814,9 @@ func executionSnapshot(state durableRuntime) ExecutionSnapshot {
 	}
 	if (state.Status == ExecutionRetrying || state.Status == ExecutionInterrupted) && state.RetryCount > 0 && !state.RetryAt.IsZero() {
 		result.Retry = &ProviderRetry{Count: state.RetryCount, RetryAt: state.RetryAt}
+	}
+	if state.Compaction != nil && state.Compaction.ID != "" && state.Compaction.TurnID == state.TurnID {
+		result.Compaction = &CompactionSnapshot{ID: state.Compaction.ID, TurnID: state.Compaction.TurnID}
 	}
 	return result
 }
