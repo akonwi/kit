@@ -73,9 +73,9 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 
 - [x] TUI-ATT-001 — Stage image and text attachments; restore, queue, submit,
   and remove them without losing composer state. Depends on `CORE-ATT-001`.
-- [~] TUI-ATT-002 — Render `show_image` previews once `CORE-ATT-002` lands.
-  Always-visible half-block previews, safe fallback, and system-app opening are
-  in place for transcript images. Depends on `CORE-ATT-002`.
+- [x] TUI-ATT-002 — Always-visible half-block previews, safe fallback, and
+  system-app opening for user and explicit `show_image` transcript images.
+  Depends on `CORE-ATT-002`.
 - [~] TUI-ATT-003 — Complete attachment identity for follow-ups restored from
   the queue, which present raw attachment IDs instead of filenames, and decide
   whether staged drafts must survive process restart. Visible failure state and
