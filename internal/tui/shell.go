@@ -11,6 +11,7 @@ import (
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -19,6 +20,7 @@ type shellSnapshot struct {
 	Error                       string
 	Status                      string
 	Composer                    string
+	ComposerAttachments         []stagedAttachment
 	ComposerCursorEndGeneration uint64
 	ComposerCursorOffset        int
 	ComposerCursorGeneration    uint64
@@ -39,6 +41,7 @@ type shellSnapshot struct {
 	AuthPending                 bool
 	Session                     protocol.SessionInfo
 	Messages                    []transcriptMessage
+	Attachments                 sessionclient.AttachmentSession
 	Running                     bool
 	AgentRunning                bool
 	TurnActivity                string
@@ -122,6 +125,7 @@ type shellCallbacks struct {
 	SelectFileMention          func(ui.EventContext, string)
 	ComposerChanged            ui.TextChangedCallback
 	ComposerPasted             ui.TextChangedCallback
+	RemoveAttachment           func(ui.EventContext, int)
 	RestoreFollowUps           ui.VoidCallback
 	RespondInteraction         func(ui.EventContext, protocol.InteractionResponse, func(error))
 	CopySelection              func(string)
@@ -402,6 +406,15 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 		}
 		pending := w.pendingSlot(theme)
 		pendingHeight := 1 + min(3, w.Snapshot.FollowUps.Count)
+		if len(w.Snapshot.ComposerAttachments) > 0 {
+			rows := make([]ui.Widget, 0, len(w.Snapshot.ComposerAttachments)+1)
+			rows = append(rows, pending)
+			for index, attachment := range w.Snapshot.ComposerAttachments {
+				rows = append(rows, composerAttachmentRow(theme, attachment, index, w.Callbacks.RemoveAttachment))
+			}
+			pending = ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}
+			pendingHeight += len(w.Snapshot.ComposerAttachments)
+		}
 		composer := w.composer(theme)
 		composerHeightLimit := composerMaxHeight
 		if len(w.Snapshot.PendingInteractions) > 0 {
@@ -533,7 +546,7 @@ func (w shellView) transcriptRows(theme ui.Theme, presentation transcriptPresent
 					}
 				})
 			} else {
-				child = transcriptUserEntry(theme, item.Item.Message)
+				child = transcriptUserEntry(theme, item.Item.Message, w.Snapshot.Attachments)
 			}
 		case transcriptDisplayAssistantProse:
 			child = transcriptAssistantEntry(theme, item.Item.Message)
@@ -561,14 +574,19 @@ func (w keyedTranscriptItem) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) 
 
 func (w keyedTranscriptItem) Build(ui.BuildContext) ui.Widget { return w.Child }
 
-func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage) ui.Widget {
-	content := markdownView{
-		ID: "transcript-user:" + message.ID, Source: message.TextContent(),
-		BaseStyle: ui.Style{Foreground: theme.Foreground},
+func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession) ui.Widget {
+	children := make([]ui.Widget, 0, len(message.Content)+1)
+	if text := message.TextContent(); text != "" {
+		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground}})
+	}
+	for _, block := range message.Content {
+		if block.Kind == protocol.TranscriptContentImage && block.AttachmentID != "" && attachments != nil {
+			children = append(children, attachmentPreview{Attachment: block, Loader: attachments})
+		}
 	}
 	return ui.DecoratedBox(
 		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText}, Left: true}},
-		ui.Padding(ui.Insets{Left: 2}, content),
+		ui.Padding(ui.Insets{Left: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
 	)
 }
 
@@ -769,6 +787,43 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		content = mouseActivator{Child: content, OnPrimaryDownCapture: w.Callbacks.ShowTranscript}
 	}
 	return content
+}
+
+func composerAttachmentRow(theme ui.Theme, attachment stagedAttachment, index int, remove func(ui.EventContext, int)) ui.Widget {
+	label := attachment.Filename
+	meta := "uploading…"
+	style := ui.Style{Foreground: theme.MutedForeground}
+	if attachment.Error != "" {
+		meta = "upload failed"
+		style.Foreground = theme.DangerText
+	} else if !attachment.Uploading && attachment.Info.Size > 0 {
+		meta = formatAttachmentBytes(attachment.Info.Size)
+		if attachment.Info.MediaType != "" {
+			meta += " " + glyphMiddleDot + " " + attachment.Info.MediaType
+		}
+	}
+	removeControl := ui.Widget(ui.Text{Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
+	if remove != nil {
+		removeControl = mouseActivator{Child: removeControl, OnPressed: func(ctx ui.EventContext) { remove(ctx, index) }}
+	}
+	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
+		Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
+			ui.Text{Value: "attachment", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
+			ui.Text{Value: " " + label + " ", Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+			ui.Expanded(ui.Text{Value: meta, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+			removeControl,
+		},
+	})}
+}
+
+func formatAttachmentBytes(size int64) string {
+	if size < 1024 {
+		return fmt.Sprintf("%d B", size)
+	}
+	if size < 1024*1024 {
+		return fmt.Sprintf("%.1f KiB", float64(size)/1024)
+	}
+	return fmt.Sprintf("%.1f MiB", float64(size)/(1024*1024))
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {

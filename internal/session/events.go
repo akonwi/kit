@@ -749,8 +749,8 @@ func validateLiveToolContent(block TranscriptContent) error {
 			return fmt.Errorf("text content is empty")
 		}
 	case TranscriptContentImage:
-		if block.Text != "" || block.Filename != "" || !validLiveMediaType(block.MediaType, true) {
-			return fmt.Errorf("image content requires an image media type only")
+		if block.Text != "" || !validLiveMediaType(block.MediaType, true) {
+			return fmt.Errorf("image content requires an image media type without text")
 		}
 	case TranscriptContentFile:
 		if strings.TrimSpace(block.Filename) == "" || block.Text != "" || !validLiveMediaType(block.MediaType, false) {

@@ -20,6 +20,14 @@ func openExternalURL(raw string) error {
 	default:
 		return fmt.Errorf("opening URLs is unsupported on %s", runtime.GOOS)
 	}
+	return startExternal(command)
+}
+
+func startExternalCommand(name string, argument string) error {
+	return startExternal(exec.Command(name, argument))
+}
+
+func startExternal(command *exec.Cmd) error {
 	if err := command.Start(); err != nil {
 		return fmt.Errorf("start browser opener: %w", err)
 	}

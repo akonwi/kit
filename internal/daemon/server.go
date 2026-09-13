@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/promptcommands"
@@ -112,6 +113,10 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return err
 	}
+	attachmentStore, err := attachment.NewFilesystem(paths.Attachments)
+	if err != nil {
+		return err
+	}
 	providers := options.Providers
 	customProviders := providers != nil
 	credentialSources := cloneCredentialSources(options.CredentialSources)
@@ -193,6 +198,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	sessionManager, err = kitsession.NewManager(
 		store, providers, bundleBuilder,
 		kitsession.WithDroidStoreDirectory(paths.Droids),
+		kitsession.WithAttachmentStore(attachmentStore),
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
@@ -256,9 +262,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:        store,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, fileIndexes: newSessionFileIndexCache(),
-			subagents: subagents, subagentTools: subagentTools,
+			subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
-		providers: providerAvailability,
+		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
+		providers:   providerAvailability,
 		requestStop: func() {
 			select {
 			case stop <- struct{}{}:
@@ -320,6 +327,7 @@ type localHandlerOptions struct {
 	token        string
 	store        *storage.Store
 	sessions     sessionService
+	attachments  attachmentService
 	providers    func(context.Context) []string
 	requestStop  func()
 }
@@ -345,6 +353,9 @@ func newHandler(options localHandlerOptions) http.Handler {
 	})
 	if options.sessions != nil {
 		registerSessionRoutes(mux, options.sessions)
+	}
+	if options.attachments != nil {
+		registerAttachmentRoutes(mux, options.attachments)
 	}
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {

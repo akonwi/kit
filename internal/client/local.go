@@ -29,6 +29,8 @@ type sessionMutationTransport interface {
 	GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error)
 }
 
+var _ sessionclient.AttachmentSession = (*localSession)(nil)
+
 type localSession struct {
 	transport          *daemon.Client
 	mutations          sessionMutationTransport
@@ -73,6 +75,7 @@ var (
 var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
+var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
 var _ sessionclient.BashExecution = (*localBashExecution)(nil)
@@ -122,6 +125,14 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 }
 
 func (c *localSession) ID() string { return c.id }
+
+func (c *localSession) UploadAttachment(ctx context.Context, filename string, content io.Reader) (protocol.AttachmentInfo, error) {
+	return c.transport.UploadAttachment(ctx, c.id, filename, content)
+}
+
+func (c *localSession) OpenAttachment(ctx context.Context, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	return c.transport.OpenAttachment(ctx, c.id, attachmentID)
+}
 
 func (c *localSession) Subagent(ctx context.Context, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
 	return c.transport.Subagent(ctx, c.id, input)
@@ -475,13 +486,17 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 }
 
 func (c *localSession) StartPrompt(ctx context.Context, text string) (sessionclient.Run, error) {
+	return c.StartPromptInput(ctx, protocol.PromptInput{Text: text})
+}
+
+func (c *localSession) StartPromptInput(ctx context.Context, input protocol.PromptInput) (sessionclient.Run, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(text) == "" {
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
 		return nil, fmt.Errorf("prompt is empty")
 	}
-	reservation, err := c.transport.StartPrompt(ctx, c.id, text)
+	reservation, err := c.transport.StartPromptInput(ctx, c.id, input)
 	if err != nil {
 		return nil, err
 	}
@@ -489,10 +504,14 @@ func (c *localSession) StartPrompt(ctx context.Context, text string) (sessioncli
 }
 
 func (c *localSession) SubmitPrompt(ctx context.Context, text string) (sessionclient.PromptSubmission, error) {
+	return c.SubmitPromptInput(ctx, protocol.PromptInput{Text: text})
+}
+
+func (c *localSession) SubmitPromptInput(ctx context.Context, input protocol.PromptInput) (sessionclient.PromptSubmission, error) {
 	if err := ctx.Err(); err != nil {
 		return sessionclient.PromptSubmission{}, err
 	}
-	result, err := c.transport.SubmitPrompt(ctx, c.id, text)
+	result, err := c.transport.SubmitPromptInput(ctx, c.id, input)
 	if err != nil {
 		return sessionclient.PromptSubmission{}, err
 	}

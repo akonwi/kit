@@ -13,6 +13,7 @@ require (
 	github.com/yuin/goldmark v1.8.4
 	go.rockorager.dev/vaxis v0.17.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.2
+	golang.org/x/image v0.35.0
 	golang.org/x/sync v0.22.0
 	golang.org/x/sys v0.47.0
 	golang.org/x/term v0.10.0

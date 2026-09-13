@@ -15,6 +15,31 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestComposerAttachmentsRenderAboveInputSeparator(t *testing.T) {
+	t.Parallel()
+
+	view := shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady,
+		Session: protocol.SessionInfo{
+			ID: "session-1", Name: "Attachments", Model: "test/model",
+		},
+		ComposerAttachments: []stagedAttachment{{
+			Filename: "image.png",
+			Info: protocol.AttachmentInfo{
+				ID: "attachment-1", Filename: "image.png", MediaType: "image/png", Size: 68,
+			},
+		}},
+	}}
+	application := uitest.New(view)
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	_, attachmentRow := findTextCell(t, rows, "attachment image.png")
+	_, composerRow := findTextCell(t, rows, "Ask kit to do something")
+	if composerRow-attachmentRow != 2 {
+		t.Fatalf("attachment row = %d, composer row = %d; want one separator row between them", attachmentRow, composerRow)
+	}
+}
+
 func TestHeaderControlsOwnExactHitRegions(t *testing.T) {
 	t.Parallel()
 

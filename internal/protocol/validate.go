@@ -380,8 +380,24 @@ func (session SessionInfo) Validate() error {
 
 // Validate checks a prompt request crossing a transport boundary.
 func (input PromptInput) Validate() error {
-	if strings.TrimSpace(input.Text) == "" || len(input.Text) > 128<<10 || !utf8.ValidString(input.Text) || strings.IndexByte(input.Text, 0) >= 0 {
-		return fmt.Errorf("prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB")
+	if len(input.Text) > 128<<10 || !utf8.ValidString(input.Text) || strings.IndexByte(input.Text, 0) >= 0 {
+		return fmt.Errorf("prompt text must be valid UTF-8 without NUL and at most 128 KiB")
+	}
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
+		return fmt.Errorf("prompt must include text or an attachment")
+	}
+	if len(input.AttachmentIDs) > 8 {
+		return fmt.Errorf("prompt has too many attachments")
+	}
+	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	for _, id := range input.AttachmentIDs {
+		if !identifier.Valid(id, "attachment_") {
+			return fmt.Errorf("prompt attachment id is invalid")
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("prompt attachment ids must be unique")
+		}
+		seen[id] = struct{}{}
 	}
 	return nil
 }
@@ -428,7 +444,7 @@ func (result RestoreFollowUpsResult) Validate() error {
 		return fmt.Errorf("too many restored follow-ups")
 	}
 	for _, message := range result.Messages {
-		if err := (PromptInput{Text: message}).Validate(); err != nil {
+		if err := message.Validate(); err != nil {
 			return err
 		}
 	}

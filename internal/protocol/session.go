@@ -143,7 +143,8 @@ type RunReservation struct {
 
 // PromptInput requests admission of one droid-owned turn.
 type PromptInput struct {
-	Text string `json:"text"`
+	Text          string   `json:"text"`
+	AttachmentIDs []string `json:"attachmentIds,omitempty"`
 }
 
 // FollowUpQueue is the renderer-safe projection of deferred session prompts.
@@ -161,7 +162,7 @@ type PromptSubmission struct {
 
 // RestoreFollowUpsResult returns every atomically drained follow-up.
 type RestoreFollowUpsResult struct {
-	Messages []string      `json:"messages"`
+	Messages []PromptInput `json:"messages"`
 	Queue    FollowUpQueue `json:"queue"`
 }
 
@@ -286,6 +287,7 @@ type TranscriptContent struct {
 	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
 	Filename           string                `json:"filename,omitempty"`
 	MediaType          string                `json:"mediaType,omitempty"`
+	AttachmentID       string                `json:"attachmentId,omitempty"`
 }
 
 // TranscriptMessage is one ordered persisted message projected for clients.

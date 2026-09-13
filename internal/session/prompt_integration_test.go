@@ -11,6 +11,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/session"
@@ -18,6 +19,91 @@ import (
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/systemprompt"
 )
+
+func TestManagerResolvesOrderedPromptAttachments(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	attachments, err := attachment.NewFilesystem(filepath.Join(base, "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAttachmentStore(attachments))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	first, err := attachments.Put(t.Context(), attachment.PutInput{SessionID: record.ID, Filename: "first.txt", MediaType: "text/plain", Content: strings.NewReader("alpha"), MaxBytes: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := attachments.Put(t.Context(), attachment.PutInput{SessionID: record.ID, Filename: "second.txt", MediaType: "text/plain", Content: strings.NewReader("beta"), MaxBytes: 16})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPromptInput(t.Context(), record.ID, session.PromptInput{Text: "inspect", AttachmentIDs: []string{first.ID, second.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	providers.mu.Lock()
+	request := providers.requests[len(providers.requests)-1]
+	providers.mu.Unlock()
+	user, ok := request.Messages[len(request.Messages)-1].(droids.UserMessage)
+	if !ok || len(user.Content) != 3 {
+		t.Fatalf("user content = %#v", request.Messages[len(request.Messages)-1])
+	}
+	for index, want := range []string{"inspect", "first.txt", "second.txt"} {
+		text, ok := user.Content[index].(droids.TextInput)
+		if !ok || !strings.Contains(text.Text, want) {
+			t.Fatalf("content[%d] = %#v, want %q", index, user.Content[index], want)
+		}
+	}
+}
+
+func TestManagerRejectsUnsupportedImageAttachmentBeforeProviderCall(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	attachments, err := attachment.NewFilesystem(filepath.Join(base, "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAttachmentStore(attachments))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	image, err := attachments.Put(t.Context(), attachment.PutInput{SessionID: record.ID, Filename: "image.png", MediaType: "image/png", Content: strings.NewReader("bytes"), MaxBytes: 16, Width: 1, Height: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.StartPromptInput(t.Context(), record.ID, session.PromptInput{AttachmentIDs: []string{image.ID}}); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("StartPromptInput() error = %v, want invalid input", err)
+	}
+	providers.mu.Lock()
+	calls := providers.calls
+	providers.mu.Unlock()
+	if calls != 0 {
+		t.Fatalf("provider calls = %d, want 0", calls)
+	}
+}
 
 func TestManagerBuildsIndependentContextForConcurrentSessions(t *testing.T) {
 	base := t.TempDir()

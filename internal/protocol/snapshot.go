@@ -399,8 +399,8 @@ func (block TranscriptContent) validate() error {
 			return fmt.Errorf("tool call requires either complete or explicitly truncated arguments")
 		}
 	case TranscriptContentImage:
-		if block.Text != "" || hasToolData || block.Filename != "" || !validMediaType(block.MediaType, true) {
-			return fmt.Errorf("image content requires an image media type only")
+		if block.Text != "" || hasToolData || !validMediaType(block.MediaType, true) {
+			return fmt.Errorf("image content requires an image media type without text or tool metadata")
 		}
 	case TranscriptContentFile:
 		if block.Text != "" || hasToolData || strings.TrimSpace(block.Filename) == "" || !validMediaType(block.MediaType, false) {

@@ -17,16 +17,22 @@ type Input struct {
 type InputContent interface{ isInputContent() }
 
 // TextInput is caller-provided text.
-type TextInput struct{ Text string }
+type TextInput struct {
+	Text         string
+	AttachmentID string
+	Filename     string
+	MediaType    string
+}
 
 func (TextInput) isInputContent() {}
 
 // FileInput is caller-provided file or image content. Providers select their
 // representation from MediaType.
 type FileInput struct {
-	Filename  string
-	MediaType string
-	URL       string
+	Filename     string
+	MediaType    string
+	URL          string
+	AttachmentID string
 }
 
 func (FileInput) isInputContent() {}

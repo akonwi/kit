@@ -66,6 +66,22 @@ func TestSessionSnapshotValidatesStructuredTranscript(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotAcceptsNamedImageContent(t *testing.T) {
+	t.Parallel()
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
+		ID: "message_3", TurnID: "turn_2", Sequence: 2, Role: "user",
+		Content: []TranscriptContent{{
+			Kind: TranscriptContentImage, Filename: "photo.png", MediaType: "image/png",
+			AttachmentID: "attachment_0123456789abcdef0123456789abcdef",
+		}},
+		CreatedAt: time.Unix(5, 0).UTC().Format(time.RFC3339Nano),
+	})
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("Validate() rejected named image content: %v", err)
+	}
+}
+
 func TestSessionSnapshotValidatesPromptCommands(t *testing.T) {
 	t.Parallel()
 	snapshot := validTranscriptSnapshot()

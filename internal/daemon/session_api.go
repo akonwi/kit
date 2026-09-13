@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
@@ -40,13 +41,13 @@ type sessionService interface {
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
-	StartPrompt(context.Context, string, string) (protocol.RunReservation, error)
-	SubmitPrompt(context.Context, string, string) (protocol.PromptSubmission, error)
+	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.RunReservation, error)
+	SubmitPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
-	RunPrompt(context.Context, string, string) (protocol.PromptOutcome, error)
+	RunPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
 	RespondInteraction(context.Context, string, protocol.InteractionResponse) error
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
@@ -64,6 +65,7 @@ type runtimeSessionService struct {
 	fileIndexes        *sessionFileIndexCache
 	subagents          *subagent.Supervisor
 	subagentTools      *subagent.ToolService
+	attachments        attachment.Store
 }
 
 func (s runtimeSessionService) Create(
@@ -105,11 +107,23 @@ func (s runtimeSessionService) Rename(
 }
 
 func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) error {
-	return s.manager.Delete(ctx, sessionID)
+	if err := s.manager.Delete(ctx, sessionID); err != nil {
+		return err
+	}
+	if s.attachments != nil {
+		return s.attachments.RemoveSession(ctx, sessionID)
+	}
+	return nil
 }
 
 func (s runtimeSessionService) DisposeTemporary(ctx context.Context, sessionID string) error {
-	return s.manager.DisposeTemporary(ctx, sessionID)
+	if err := s.manager.DisposeTemporary(ctx, sessionID); err != nil {
+		return err
+	}
+	if s.attachments != nil {
+		return s.attachments.RemoveSession(ctx, sessionID)
+	}
+	return nil
 }
 
 func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
@@ -562,7 +576,7 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 			Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
 			ToolCallID: block.ToolCallID, ToolName: block.ToolName,
 			Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
-			Filename: block.Filename, MediaType: block.MediaType,
+			Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID,
 		})
 	}
 	return result
@@ -718,11 +732,8 @@ func promptSectionKind(kind systemprompt.SectionKind) protocol.PromptSectionKind
 	}
 }
 
-func (s runtimeSessionService) StartPrompt(
-	ctx context.Context,
-	sessionID, text string,
-) (protocol.RunReservation, error) {
-	reservation, err := s.manager.StartPrompt(ctx, sessionID, text)
+func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
+	reservation, err := s.manager.StartPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
 	if err != nil {
 		return protocol.RunReservation{}, err
 	}
@@ -731,8 +742,8 @@ func (s runtimeSessionService) StartPrompt(
 	}, nil
 }
 
-func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID, text string) (protocol.PromptSubmission, error) {
-	result, err := s.manager.SubmitPrompt(ctx, sessionID, text)
+func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
+	result, err := s.manager.SubmitPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
 	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
@@ -745,7 +756,11 @@ func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID, text
 
 func (s runtimeSessionService) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
 	result, err := s.manager.RestoreFollowUps(ctx, sessionID)
-	return protocol.RestoreFollowUpsResult{Messages: result.Messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
+	messages := make([]protocol.PromptInput, 0, len(result.Messages))
+	for _, message := range result.Messages {
+		messages = append(messages, protocol.PromptInput{Text: message.Text, AttachmentIDs: append([]string(nil), message.AttachmentIDs...)})
+	}
+	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
 }
 
 func (s runtimeSessionService) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
@@ -774,11 +789,8 @@ func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string)
 	}, nil
 }
 
-func (s runtimeSessionService) RunPrompt(
-	ctx context.Context,
-	sessionID, text string,
-) (protocol.PromptOutcome, error) {
-	result, err := s.manager.RunPrompt(ctx, sessionID, text)
+func (s runtimeSessionService) RunPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
+	result, err := s.manager.RunPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
 	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
@@ -1193,7 +1205,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
-		result, err := service.SubmitPrompt(request.Context(), request.PathValue("sessionID"), input.Text)
+		result, err := service.SubmitPrompt(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
@@ -1238,9 +1250,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
-		result, err := service.StartPrompt(
-			request.Context(), request.PathValue("sessionID"), input.Text,
-		)
+		result, err := service.StartPrompt(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
@@ -1282,9 +1292,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
-		result, err := service.RunPrompt(
-			request.Context(), request.PathValue("sessionID"), input.Text,
-		)
+		result, err := service.RunPrompt(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return

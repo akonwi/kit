@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strconv"
@@ -325,11 +326,143 @@ func (c *Client) Subagent(ctx context.Context, sessionID string, input protocol.
 	return output, nil
 }
 
+// UploadAttachment streams one image or text file into session-owned storage.
+func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename string, content io.Reader) (protocol.AttachmentInfo, error) {
+	if content == nil || filename == "" {
+		return protocol.AttachmentInfo{}, fmt.Errorf("attachment filename and content are required")
+	}
+	registry, err := LoadRegistry(c.paths)
+	if err != nil {
+		return protocol.AttachmentInfo{}, err
+	}
+	if err := compatible(registry); err != nil {
+		return protocol.AttachmentInfo{}, err
+	}
+	token, err := loadToken(c.paths)
+	if err != nil {
+		return protocol.AttachmentInfo{}, err
+	}
+
+	bodyReader, bodyWriter := io.Pipe()
+	multipartWriter := multipart.NewWriter(bodyWriter)
+	request, err := http.NewRequestWithContext(ctx, http.MethodPost, registry.URL+"/v1/sessions/"+url.PathEscape(sessionID)+"/attachments", bodyReader)
+	if err != nil {
+		bodyReader.Close()
+		bodyWriter.Close()
+		return protocol.AttachmentInfo{}, fmt.Errorf("create attachment upload request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set(instanceHeader, registry.InstanceID)
+	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
+	request.Header.Set("Content-Type", multipartWriter.FormDataContentType())
+	go func() {
+		part, partErr := multipartWriter.CreateFormFile("file", filename)
+		if partErr == nil {
+			_, partErr = io.Copy(part, content)
+		}
+		if closeErr := multipartWriter.Close(); partErr == nil {
+			partErr = closeErr
+		}
+		_ = bodyWriter.CloseWithError(partErr)
+	}()
+
+	response, err := c.sessionHTTP.Do(request)
+	if err != nil {
+		bodyReader.CloseWithError(err)
+		return protocol.AttachmentInfo{}, fmt.Errorf("upload daemon attachment: %w", err)
+	}
+	defer response.Body.Close()
+	limited := io.LimitReader(response.Body, maxSessionResponseBytes)
+	if response.StatusCode != http.StatusCreated {
+		body, _ := io.ReadAll(limited)
+		return protocol.AttachmentInfo{}, decodeAPIError(response.StatusCode, body)
+	}
+	var output protocol.AttachmentInfo
+	if err := json.NewDecoder(limited).Decode(&output); err != nil {
+		return protocol.AttachmentInfo{}, fmt.Errorf("decode attachment response: %w", err)
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.AttachmentInfo{}, fmt.Errorf("validate daemon attachment: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.AttachmentInfo{}, fmt.Errorf("daemon attachment session identity mismatch")
+	}
+	return output, nil
+}
+
+// OpenAttachment opens verified session-owned attachment bytes from the daemon.
+func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	registry, err := LoadRegistry(c.paths)
+	if err != nil {
+		return protocol.AttachmentInfo{}, nil, err
+	}
+	if err := compatible(registry); err != nil {
+		return protocol.AttachmentInfo{}, nil, err
+	}
+	token, err := loadToken(c.paths)
+	if err != nil {
+		return protocol.AttachmentInfo{}, nil, err
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/attachments/" + url.PathEscape(attachmentID)
+	request, err := http.NewRequestWithContext(ctx, http.MethodGet, registry.URL+path, nil)
+	if err != nil {
+		return protocol.AttachmentInfo{}, nil, fmt.Errorf("create attachment request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set(instanceHeader, registry.InstanceID)
+	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
+	response, err := c.sessionHTTP.Do(request)
+	if err != nil {
+		return protocol.AttachmentInfo{}, nil, fmt.Errorf("open daemon attachment: %w", err)
+	}
+	if response.StatusCode != http.StatusOK {
+		defer response.Body.Close()
+		body, _ := io.ReadAll(io.LimitReader(response.Body, maxSessionResponseBytes))
+		return protocol.AttachmentInfo{}, nil, decodeAPIError(response.StatusCode, body)
+	}
+	disposition, parameters, dispositionErr := mime.ParseMediaType(response.Header.Get("Content-Disposition"))
+	width, widthErr := strconv.Atoi(response.Header.Get("X-Kit-Image-Width"))
+	height, heightErr := strconv.Atoi(response.Header.Get("X-Kit-Image-Height"))
+	info := protocol.AttachmentInfo{
+		ID: response.Header.Get("X-Kit-Attachment-ID"), SessionID: response.Header.Get("X-Kit-Session-ID"), Filename: parameters["filename"],
+		MediaType: response.Header.Get("Content-Type"), Size: response.ContentLength,
+		SHA256:    strings.TrimSuffix(strings.TrimPrefix(response.Header.Get("ETag"), `"sha256:`), `"`),
+		CreatedAt: response.Header.Get("X-Kit-Attachment-Created-At"), Width: width, Height: height,
+	}
+	if dispositionErr != nil || disposition != "inline" || widthErr != nil || heightErr != nil {
+		response.Body.Close()
+		return protocol.AttachmentInfo{}, nil, fmt.Errorf("daemon attachment returned malformed metadata")
+	}
+	if err := info.Validate(); err != nil || info.ID != attachmentID || info.SessionID != sessionID {
+		response.Body.Close()
+		if err == nil {
+			err = fmt.Errorf("attachment identity mismatch")
+		}
+		return protocol.AttachmentInfo{}, nil, fmt.Errorf("validate daemon attachment: %w", err)
+	}
+	return info, response.Body, nil
+}
+
+func decodeAPIError(statusCode int, body []byte) error {
+	var envelope struct {
+		Error string `json:"error"`
+	}
+	message := strings.TrimSpace(string(body))
+	if json.Unmarshal(body, &envelope) == nil && envelope.Error != "" {
+		message = envelope.Error
+	}
+	return &APIError{StatusCode: statusCode, Message: message}
+}
+
 // SubmitPrompt starts an idle prompt or queues it behind active work.
 func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (protocol.PromptSubmission, error) {
+	return c.SubmitPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
+}
+
+func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/submissions"
 	var output protocol.PromptSubmission
-	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusAccepted, &output); err != nil {
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
 		return protocol.PromptSubmission{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -369,9 +502,13 @@ func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protoc
 
 // StartPrompt admits a droid-owned turn and returns its canonical identity.
 func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
+	return c.StartPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
+}
+
+func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
 	var output protocol.RunReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusAccepted, &output); err != nil {
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
 		return protocol.RunReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -420,9 +557,13 @@ func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.
 
 // RunPrompt admits and waits for one droid turn.
 func (c *Client) RunPrompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
+	return c.RunPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
+}
+
+func (c *Client) RunPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
 	var output protocol.PromptOutcome
-	if err := c.sessionJSON(ctx, http.MethodPost, path, protocol.PromptInput{Text: text}, http.StatusOK, &output); err != nil {
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	if err := output.Validate(); err != nil {

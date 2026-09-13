@@ -331,7 +331,7 @@ func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
 		ToolCallID: "call_1", ToolName: "read",
 		Delta: droids.ToolResultDelta{Content: []droids.ResultContent{
 			droids.TextContent{Text: "first"},
-			droids.FileContent{MediaType: "image/png", URL: "data:image/png;base64,aW1hZ2U="},
+			droids.FileContent{Filename: "photo.png", MediaType: "image/png", URL: "data:image/png;base64,aW1hZ2U="},
 		}, IsError: true},
 	})
 	if len(projected) != 1 {
@@ -341,7 +341,7 @@ func TestProjectDroidEventPreservesAppendOnlyToolResultDeltas(t *testing.T) {
 	if event.Kind != EventToolUpdated || len(event.Content) != 2 || event.Content[0].Kind != TranscriptContentText || event.Content[0].Text != "first" || !event.IsError {
 		t.Fatalf("text delta = %+v", event)
 	}
-	if event.Content[1].Kind != TranscriptContentImage || event.Content[1].MediaType != "image/png" {
+	if event.Content[1].Kind != TranscriptContentImage || event.Content[1].Filename != "photo.png" || event.Content[1].MediaType != "image/png" {
 		t.Fatalf("image delta = %+v", event)
 	}
 	if err := event.Validate(); err != nil {

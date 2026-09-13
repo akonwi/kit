@@ -81,11 +81,12 @@ type BoundaryMessageWire struct {
 }
 
 type wireInputContent struct {
-	Type      string `json:"type"`
-	Text      string `json:"text,omitempty"`
-	Filename  string `json:"filename,omitempty"`
-	MediaType string `json:"media_type,omitempty"`
-	URL       string `json:"url,omitempty"`
+	Type         string `json:"type"`
+	Text         string `json:"text,omitempty"`
+	Filename     string `json:"filename,omitempty"`
+	MediaType    string `json:"media_type,omitempty"`
+	URL          string `json:"url,omitempty"`
+	AttachmentID string `json:"attachment_id,omitempty"`
 }
 
 type durableDroidError struct {
@@ -437,13 +438,13 @@ func inputToWire(content []InputContent) ([]wireInputContent, error) {
 			if value.Text == "" {
 				return nil, fmt.Errorf("droids: input text is empty")
 			}
-			out = append(out, wireInputContent{Type: "text", Text: value.Text})
+			out = append(out, wireInputContent{Type: "text", Text: value.Text, AttachmentID: value.AttachmentID, Filename: value.Filename, MediaType: value.MediaType})
 		case FileInput:
 			if _, err := NewFileInputURL(value.Filename, value.MediaType, value.URL); err != nil {
 				return nil, fmt.Errorf("droids: invalid file input: %w", err)
 			}
 			out = append(out, wireInputContent{
-				Type: "file", Filename: value.Filename, MediaType: value.MediaType, URL: value.URL,
+				Type: "file", Filename: value.Filename, MediaType: value.MediaType, URL: value.URL, AttachmentID: value.AttachmentID,
 			})
 		default:
 			return nil, fmt.Errorf("droids: unsupported input content %T", block)
@@ -457,9 +458,9 @@ func inputFromWire(content []wireInputContent) ([]InputContent, error) {
 	for _, block := range content {
 		switch block.Type {
 		case "text":
-			out = append(out, TextInput{Text: block.Text})
+			out = append(out, TextInput{Text: block.Text, AttachmentID: block.AttachmentID, Filename: block.Filename, MediaType: block.MediaType})
 		case "file":
-			out = append(out, FileInput{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL})
+			out = append(out, FileInput{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL, AttachmentID: block.AttachmentID})
 		default:
 			return nil, fmt.Errorf("droids: unsupported input content kind %q", block.Type)
 		}

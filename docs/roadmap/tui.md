@@ -74,8 +74,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-ATT-001 — Stage image and text attachments; restore, queue, submit,
   remove, and clean them up without losing composer state. Depends on
   `CORE-ATT-001`.
-- [ ] TUI-ATT-002 — Render explicit transcript image previews and open transcript
-  and `show_image` images in retained workspace panes with safe fallback.
+- [ ] TUI-ATT-002 — Render always-visible half-block previews for explicit
+  transcript and `show_image` images, with safe fallback and system-app opening.
   Depends on `CORE-ATT-002`.
 - [ ] TUI-ATT-003 — Preserve attachment identity and visible failure state across
   session switching, reconnect, and submission retry.
@@ -113,6 +113,8 @@ resolving this decision.
   evidence, preserving equivalent presentation for live and restored activity.
 - [ ] TUI-MERMAID-001 — Render Mermaid diagrams inline with a safe visual
   fallback, or adopt an explicitly reviewed native equivalent.
+- [ ] TUI-IMAGE-001 — Add retained `vaxis/ui` image paint operations upstream
+  and use them for native Kitty/Sixel transcript rendering with clipping.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,

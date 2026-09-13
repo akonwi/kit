@@ -686,11 +686,11 @@ func TestManagerFollowUpsQueueRestorePromoteAndAutoStart(t *testing.T) {
 		}
 	}
 	restored, err := manager.RestoreFollowUps(t.Context(), created.ID)
-	if err != nil || !reflect.DeepEqual(restored.Messages, []string{"second", "third"}) || restored.Queue.Count != 0 {
+	if err != nil || !reflect.DeepEqual(restored.Messages, []session.PromptInput{{Text: "second"}, {Text: "third"}}) || restored.Queue.Count != 0 {
 		t.Fatalf("RestoreFollowUps() = %+v, %v", restored, err)
 	}
 	for _, text := range restored.Messages {
-		if _, err := manager.SubmitPrompt(t.Context(), created.ID, text); err != nil {
+		if _, err := manager.SubmitPromptInput(t.Context(), created.ID, text); err != nil {
 			t.Fatal(err)
 		}
 	}

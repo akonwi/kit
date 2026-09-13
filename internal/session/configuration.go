@@ -232,6 +232,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
 	loaded.droid = replacementDroid
+	loaded.model = targetModel
 	loaded.bundle = cloneRuntimeBundle(replacement)
 	loaded.eventCursor = snapshot.LastEvent
 	loaded.events.replace(nextEvents)

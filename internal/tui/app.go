@@ -120,6 +120,14 @@ const (
 	phaseFailed
 )
 
+type stagedAttachment struct {
+	Token     uint64
+	Info      protocol.AttachmentInfo
+	Filename  string
+	Uploading bool
+	Error     string
+}
+
 type transcriptMessage struct {
 	ID                     string
 	TurnID                 string
@@ -193,6 +201,7 @@ type appState struct {
 	showToastOverride            func(toastInput)
 	composer                     string
 	composerCursorEndGeneration  uint64
+	composerDraftGeneration      uint64
 	composerCursorOffset         int
 	composerCursorGeneration     uint64
 	palette                      paletteController
@@ -218,6 +227,8 @@ type appState struct {
 	vcsContext                   context.Context
 	vcsCancel                    context.CancelFunc
 	sessionDrafts                map[string]string
+	sessionDraftAttachments      map[string][]stagedAttachment
+	sessionDraftAttachmentIDs    map[string][]string
 	sessionSwitchCancel          context.CancelFunc
 	sessionSwitchGeneration      uint64
 	sessionCreateCancel          context.CancelFunc
@@ -235,6 +246,9 @@ type appState struct {
 	turnActivity                 string
 	turnThinking                 string
 	followUps                    protocol.FollowUpQueue
+	composerAttachmentIDs        []string
+	composerAttachments          []stagedAttachment
+	attachmentUploadGeneration   uint64
 	pendingInteractions          []protocol.InteractionRequest
 	followUpMutationPending      bool
 	runStopping                  bool
@@ -338,6 +352,8 @@ func (s *appState) InitState() {
 	s.location = options.Location
 	s.locationBase = options.Location
 	s.sessionDrafts = make(map[string]string)
+	s.sessionDraftAttachments = make(map[string][]stagedAttachment)
+	s.sessionDraftAttachmentIDs = make(map[string][]string)
 	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
 	s.subagentTranscriptErrors = make(map[string]string)
 	s.subagentTranscriptLoads = make(map[string]uint64)
@@ -606,11 +622,16 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	presentedMessages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
+	var attachments sessionclient.AttachmentSession
+	if capable, ok := s.bound.(sessionclient.AttachmentSession); ok {
+		attachments = capable
+	}
 	snapshot := shellSnapshot{
 		Phase:                       s.phase,
 		Error:                       s.errorText,
 		Status:                      s.status,
 		Composer:                    s.composer,
+		ComposerAttachments:         append([]stagedAttachment(nil), s.composerAttachments...),
 		ComposerCursorEndGeneration: s.composerCursorEndGeneration,
 		ComposerCursorOffset:        s.composerCursorOffset,
 		ComposerCursorGeneration:    s.composerCursorGeneration,
@@ -631,6 +652,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AuthPending:                 s.authPending,
 		Session:                     s.session,
 		Messages:                    presentedMessages,
+		Attachments:                 attachments,
 		Running:                     s.hasActiveWork(),
 		AgentRunning:                s.runPending,
 		TurnActivity:                s.turnActivity,
@@ -877,11 +899,16 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			if s.phase != phaseReady {
 				return
 			}
+			if paths, composer, ok := attachmentPathsForComposerChange(s.composer, value); ok {
+				s.stageAttachments(paths, composer)
+				return
+			}
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
 				s.fileMention.Observe(s.composer, value, true)
 				s.composer = value
+				s.composerDraftGeneration++
 				if followTranscript {
 					s.requestTranscriptScroll()
 				}
@@ -906,11 +933,21 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				})
 			}()
 		},
+		RemoveAttachment: func(_ ui.EventContext, index int) {
+			s.removeComposerAttachment(index)
+		},
 		RestoreFollowUps: func(ctx ui.EventContext) {
 			s.restoreFollowUps(ctx)
 		},
 		ComposerChanged: func(ctx ui.EventContext, value string) {
 			if s.phase != phaseReady {
+				return
+			}
+			// Some terminals deliver bracketed paste text as a normal bulk field
+			// change. Retain attachment detection as a fallback instead of relying
+			// exclusively on the paste event marker.
+			if paths, composer, ok := attachmentPathsForComposerChange(s.composer, value); ok {
+				s.stageAttachments(paths, composer)
 				return
 			}
 			metrics := s.scroll.Metrics()
@@ -1027,8 +1064,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.SetState(func() { s.palette.Close() })
 				return
 			}
-			if s.composer != "" && s.phase == phaseReady {
-				s.SetState(func() { s.composer = "" })
+			if (s.composer != "" || len(s.composerAttachments) > 0 || len(s.composerAttachmentIDs) > 0) && s.phase == phaseReady {
+				s.SetState(func() {
+					s.composer = ""
+					s.composerAttachments = nil
+					s.composerAttachmentIDs = nil
+				})
 				return
 			}
 			ctx.Quit()
@@ -1517,8 +1558,6 @@ func projectTranscriptContent(content []protocol.TranscriptContent) []protocol.T
 	projected := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
 		switch block.Kind {
-		case protocol.TranscriptContentImage:
-			block = protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: "[image]"}
 		case protocol.TranscriptContentFile:
 			block = protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: "[file: " + block.Filename + "]"}
 		}
@@ -1556,7 +1595,9 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 					ArgumentsTruncated: block.ArgumentsTruncated,
 				})
 			case protocol.TranscriptContentImage:
-				textParts = append(textParts, "[image]")
+				if block.AttachmentID == "" {
+					textParts = append(textParts, "[image]")
+				}
 			case protocol.TranscriptContentFile:
 				textParts = append(textParts, "[file: "+block.Filename+"]")
 			}
@@ -1566,7 +1607,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		if text == "" && message.ErrorMessage != "" {
 			text = message.ErrorMessage
 		}
-		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" && len(calls) == 0 {
+		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" && len(calls) == 0 && len(message.Content) == 0 {
 			continue
 		}
 		status := ""
@@ -4126,8 +4167,19 @@ func attachSessionForSwitch(
 }
 
 func (s *appState) installSession(bound sessionclient.Session, snapshot protocol.SessionSnapshot, location string) {
+	if s.sessionDrafts == nil {
+		s.sessionDrafts = make(map[string]string)
+	}
+	if s.sessionDraftAttachments == nil {
+		s.sessionDraftAttachments = make(map[string][]stagedAttachment)
+	}
+	if s.sessionDraftAttachmentIDs == nil {
+		s.sessionDraftAttachmentIDs = make(map[string][]string)
+	}
 	if s.session.ID != "" {
 		s.sessionDrafts[s.session.ID] = s.composer
+		s.sessionDraftAttachments[s.session.ID] = append([]stagedAttachment(nil), s.composerAttachments...)
+		s.sessionDraftAttachmentIDs[s.session.ID] = append([]string(nil), s.composerAttachmentIDs...)
 	}
 	s.resetAttachmentContext()
 	s.fileMention.Close()
@@ -4145,6 +4197,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.locationBase = location
 	s.vcsStatus = nil
 	s.composer = s.sessionDrafts[snapshot.Session.ID]
+	s.composerAttachments = append([]stagedAttachment(nil), s.sessionDraftAttachments[snapshot.Session.ID]...)
+	s.composerAttachmentIDs = append([]string(nil), s.sessionDraftAttachmentIDs[snapshot.Session.ID]...)
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.configurationPicker = configurationPickerController{}
@@ -4243,23 +4297,44 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	if s.bound == nil {
 		return
 	}
+	for _, item := range s.composerAttachments {
+		if item.Uploading {
+			s.SetState(func() { s.status = "Waiting for attachments to finish uploading…" })
+			return
+		}
+		if item.Error != "" {
+			s.SetState(func() { s.status = "Remove failed attachments before sending" })
+			return
+		}
+	}
+	attachmentIDs := s.composerPromptAttachmentIDs()
+	if text == "" && len(attachmentIDs) == 0 {
+		if s.runPending {
+			s.promoteFollowUps()
+		}
+		return
+	}
 	if command, excludeFromContext, ok := parseDirectBash(value); ok {
 		s.startDirectBash(value, command, excludeFromContext)
 		return
 	}
 	if s.runPending {
-		if text == "" {
-			s.promoteFollowUps()
-		} else {
-			s.queueFollowUp(text)
-		}
-		return
-	}
-	if text == "" {
+		s.queueFollowUp(text)
 		return
 	}
 	bound := s.bound
+	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs}
 	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Run, error) {
+		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
+			result, err := structured.SubmitPromptInput(ctx, input)
+			if err != nil {
+				return nil, err
+			}
+			if result.Queued {
+				return nil, promptQueuedError{queue: result.Queue}
+			}
+			return result.Run, nil
+		}
 		if queueAware, ok := bound.(sessionclient.FollowUpSession); ok {
 			result, err := queueAware.SubmitPrompt(ctx, text)
 			if err != nil {
@@ -4280,10 +4355,19 @@ func (s *appState) queueFollowUp(text string) {
 		return
 	}
 	bound, operation, submittedDraft := s.bound, s.operation, s.composer
+	submittedGeneration := s.composerDraftGeneration
+	submittedAttachments := s.composerPromptAttachmentIDs()
+	submittedRows := append([]stagedAttachment(nil), s.composerAttachments...)
 	ctx, runtime := s.ctx, s.Context().Runtime()
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
-		result, err := followUpSession.SubmitPrompt(ctx, text)
+		var result sessionclient.PromptSubmission
+		var err error
+		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
+			result, err = structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments})
+		} else {
+			result, err = followUpSession.SubmitPrompt(ctx, text)
+		}
 		var snapshot protocol.SessionSnapshot
 		var snapshotErr error
 		if err == nil && !result.Queued {
@@ -4304,8 +4388,10 @@ func (s *appState) queueFollowUp(text string) {
 				}
 				if result.Queued {
 					s.followUps = result.Queue
-					if s.composer == submittedDraft {
+					if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
 						s.composer = ""
+						s.composerAttachmentIDs = nil
+						s.composerAttachments = nil
 					}
 					return
 				}
@@ -4321,11 +4407,18 @@ func (s *appState) queueFollowUp(text string) {
 				}
 				s.activeRun = result.Run
 				s.activeRunID = result.Run.ID()
-				if s.composer == submittedDraft {
+				if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
 					s.composer = ""
+					s.composerAttachmentIDs = nil
+					s.composerAttachments = nil
 				}
 			})
 			if err != nil {
+				s.SetState(func() {
+					if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
+						s.composerAttachments = submittedRows
+					}
+				})
 				s.showToast(toastInput{Title: "Could not queue follow-up", Subtitle: err.Error(), Variant: toastError})
 				return
 			}
@@ -4356,7 +4449,14 @@ func (s *appState) restoreFollowUps(_ ui.EventContext) {
 				if err != nil {
 					return
 				}
-				restored := strings.Join(result.Messages, "\n\n")
+				texts := make([]string, 0, len(result.Messages))
+				for _, message := range result.Messages {
+					texts = append(texts, message.Text)
+					for _, id := range message.AttachmentIDs {
+						s.composerAttachments = append(s.composerAttachments, stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: id})
+					}
+				}
+				restored := strings.Join(texts, "\n\n")
 				if restored != "" && s.composer != "" {
 					restored += "\n\n" + s.composer
 				}
@@ -4434,14 +4534,18 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 	}
 	admission := &promptAdmission{}
 	bound := s.bound
+	submittedBaseAttachmentIDs := append([]string(nil), s.composerAttachmentIDs...)
+	submittedRows := append([]stagedAttachment(nil), s.composerAttachments...)
 	operation := s.operation
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.composer = ""
+		s.composerAttachmentIDs = nil
+		s.composerAttachments = nil
 		s.status = "esc abort · ctrl+c detach"
 		s.resetLiveRun()
 		s.turnActivity = "Working…"
-		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display})
+		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display, Content: attachmentTranscriptContent(display, submittedRows)})
 		s.liveHasUser = true
 		s.requestTranscriptScroll()
 		s.runPending = true
@@ -4475,6 +4579,17 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 				return
 			}
 			if s.ctx.Err() == nil {
+				runtime.Dispatch(func() {
+					if operation == s.operation {
+						s.SetState(func() {
+							if s.composer == "" {
+								s.composer = display
+								s.composerAttachmentIDs = submittedBaseAttachmentIDs
+								s.composerAttachments = submittedRows
+							}
+						})
+					}
+				})
 				s.finishRun(runtime, operation, protocol.PromptOutcome{}, err)
 			}
 			return

@@ -3,6 +3,7 @@ package sessionclient
 
 import (
 	"context"
+	"io"
 
 	"github.com/akonwi/kit/internal/protocol"
 )
@@ -55,6 +56,18 @@ type SubagentEventReader interface {
 // runs as well as session-level invalidations.
 type SessionEventWatcher interface {
 	Watch(context.Context) (protocol.SessionSnapshot, EventStream, error)
+}
+
+// StructuredPromptSession admits prompts and follow-ups with durable attachment IDs.
+// AttachmentSession streams validated files to and from session-owned storage.
+type AttachmentSession interface {
+	UploadAttachment(context.Context, string, io.Reader) (protocol.AttachmentInfo, error)
+	OpenAttachment(context.Context, string) (protocol.AttachmentInfo, io.ReadCloser, error)
+}
+
+type StructuredPromptSession interface {
+	StartPromptInput(context.Context, protocol.PromptInput) (Run, error)
+	SubmitPromptInput(context.Context, protocol.PromptInput) (PromptSubmission, error)
 }
 
 // FollowUpSession is the optional queue-aware prompt surface.

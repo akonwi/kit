@@ -5,6 +5,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"strings"
@@ -13,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
@@ -20,8 +22,11 @@ import (
 )
 
 const (
-	maxPromptTextBytes = 128 << 10
-	maxFollowUps       = 64
+	maxPromptTextBytes           = 128 << 10
+	maxPromptAttachments         = 8
+	maxPromptAttachmentBytes     = 20 << 20
+	maxPromptTextAttachmentBytes = 1 << 20
+	maxFollowUps                 = 64
 )
 
 var (
@@ -88,6 +93,7 @@ type Manager struct {
 	store                 Repository
 	providers             droids.Providers
 	bundleBuilder         RuntimeBundleBuilder
+	attachments           attachment.Store
 	mailbox               subagent.Repository
 	subagentOwnerCanceler interface{ CancelOwner(string) }
 	droidDirectory        string
@@ -150,6 +156,7 @@ type temporaryDisposal struct {
 
 type runtime struct {
 	droid        *droids.Droid
+	model        droids.Model
 	store        droids.Store
 	closeStore   func() error
 	bundle       RuntimeBundle
@@ -173,13 +180,19 @@ type runtime struct {
 	runs                  map[string]*liveRun
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
-	followUps             []string
+	followUps             []PromptInput
 	interactions          *interactionBroker
 }
 
 func (r *runtime) signalEventChangedLocked() {
 	close(r.eventChanged)
 	r.eventChanged = make(chan struct{})
+}
+
+// PromptInput is one ordered prompt with optional durable attachments.
+type PromptInput struct {
+	Text          string
+	AttachmentIDs []string
 }
 
 // FollowUpQueue is the renderer-safe state of one session's deferred prompts.
@@ -197,7 +210,7 @@ type PromptSubmission struct {
 
 // FollowUpRestore contains every atomically drained follow-up in queue order.
 type FollowUpRestore struct {
-	Messages []string
+	Messages []PromptInput
 	Queue    FollowUpQueue
 }
 
@@ -216,7 +229,20 @@ type liveRun struct {
 }
 
 type ManagerOption func(*managerOptions) error
-type managerOptions struct{ droidDirectory string }
+type managerOptions struct {
+	droidDirectory string
+	attachments    attachment.Store
+}
+
+func WithAttachmentStore(store attachment.Store) ManagerOption {
+	return func(options *managerOptions) error {
+		if store == nil {
+			return fmt.Errorf("attachment store is required")
+		}
+		options.attachments = store
+		return nil
+	}
+}
 
 func WithDroidStoreDirectory(directory string) ManagerOption {
 	return func(options *managerOptions) error {
@@ -270,7 +296,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	manager := &Manager{
-		store: store, providers: providers, bundleBuilder: bundleBuilder,
+		store: store, providers: providers, bundleBuilder: bundleBuilder, attachments: options.attachments,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
 		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
@@ -835,9 +861,14 @@ func (m *Manager) touchSessionActivity(ctx context.Context, sessionID string, ac
 	return m.store.TouchSession(ctx, sessionID, activityAt)
 }
 
-// SubmitPrompt atomically starts an idle session or queues a follow-up for its active turn.
+// SubmitPrompt preserves the text-only caller contract.
 func (m *Manager) SubmitPrompt(ctx context.Context, sessionID, prompt string) (PromptSubmission, error) {
-	if err := validatePromptText(prompt); err != nil {
+	return m.SubmitPromptInput(ctx, sessionID, PromptInput{Text: prompt})
+}
+
+// SubmitPromptInput atomically starts an idle session or queues a structured follow-up.
+func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, prompt PromptInput) (PromptSubmission, error) {
+	if err := validatePromptInput(prompt); err != nil {
 		return PromptSubmission{}, err
 	}
 	loaded, err := m.runtime(ctx, sessionID)
@@ -852,13 +883,18 @@ func (m *Manager) SubmitPrompt(ctx context.Context, sessionID, prompt string) (P
 			loaded.mu.Unlock()
 			return PromptSubmission{}, fmt.Errorf("%w: follow-up queue capacity reached", ErrBusy)
 		}
-		loaded.followUps = append(loaded.followUps, prompt)
+		loaded.mu.Unlock()
+		if _, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt); err != nil {
+			return PromptSubmission{}, err
+		}
+		loaded.mu.Lock()
+		loaded.followUps = append(loaded.followUps, clonePromptInputs([]PromptInput{prompt})[0])
 		queue := projectFollowUpQueue(loaded.followUps)
 		loaded.mu.Unlock()
 		return PromptSubmission{Queued: true, Queue: queue}, nil
 	}
 	loaded.mu.Unlock()
-	reservation, err := m.StartPrompt(ctx, sessionID, prompt)
+	reservation, err := m.StartPromptInput(ctx, sessionID, prompt)
 	if err != nil {
 		return PromptSubmission{}, err
 	}
@@ -874,7 +910,7 @@ func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (Follo
 	loaded.transitionMu.Lock()
 	defer loaded.transitionMu.Unlock()
 	loaded.mu.Lock()
-	messages := append([]string(nil), loaded.followUps...)
+	messages := clonePromptInputs(loaded.followUps)
 	loaded.followUps = nil
 	queue := projectFollowUpQueue(loaded.followUps)
 	loaded.mu.Unlock()
@@ -903,9 +939,13 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 			loaded.mu.Unlock()
 			return FollowUpPromotion{Promoted: promoted, Queue: queue}, nil
 		}
-		text := loaded.followUps[0]
+		prompt := loaded.followUps[0]
 		loaded.mu.Unlock()
-		if _, err := loaded.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: text}}}, droids.PromptOptions{Steer: true}); err != nil {
+		content, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt)
+		if err == nil {
+			_, err = loaded.droid.Prompt(ctx, droids.Input{Content: content}, droids.PromptOptions{Steer: true})
+		}
+		if err != nil {
 			loaded.mu.Lock()
 			queue := projectFollowUpQueue(loaded.followUps)
 			loaded.mu.Unlock()
@@ -918,6 +958,104 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 	}
 }
 
+func validatePromptInput(input PromptInput) error {
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
+		return fmt.Errorf("%w: prompt must include text or an attachment", ErrInvalidInput)
+	}
+	if input.Text != "" {
+		if err := validatePromptText(input.Text); err != nil {
+			return err
+		}
+	}
+	if len(input.AttachmentIDs) > maxPromptAttachments {
+		return fmt.Errorf("%w: prompt has too many attachments", ErrInvalidInput)
+	}
+	seen := make(map[string]struct{}, len(input.AttachmentIDs))
+	for _, id := range input.AttachmentIDs {
+		if !identifier.Valid(id, attachment.IDPrefix) {
+			return fmt.Errorf("%w: invalid attachment id", ErrInvalidInput)
+		}
+		if _, duplicate := seen[id]; duplicate {
+			return fmt.Errorf("%w: duplicate attachment id", ErrInvalidInput)
+		}
+		seen[id] = struct{}{}
+	}
+	return nil
+}
+
+func clonePromptInputs(inputs []PromptInput) []PromptInput {
+	cloned := make([]PromptInput, len(inputs))
+	for index, input := range inputs {
+		cloned[index] = PromptInput{Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...)}
+	}
+	return cloned
+}
+
+func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, model droids.Model, input PromptInput) ([]droids.InputContent, error) {
+	content := make([]droids.InputContent, 0, len(input.AttachmentIDs)+1)
+	if strings.TrimSpace(input.Text) != "" {
+		content = append(content, droids.TextInput{Text: input.Text})
+	}
+	if len(input.AttachmentIDs) == 0 {
+		return content, nil
+	}
+	if m.attachments == nil {
+		return nil, fmt.Errorf("%w: attachments are unavailable", ErrInvalidInput)
+	}
+	var totalBytes, textBytes int64
+	for _, id := range input.AttachmentIDs {
+		record, reader, err := m.attachments.Open(ctx, sessionID, id)
+		if err != nil {
+			if errors.Is(err, attachment.ErrNotFound) || errors.Is(err, attachment.ErrInvalidInput) {
+				return nil, fmt.Errorf("%w: attachment %q is unavailable", ErrInvalidInput, id)
+			}
+			return nil, fmt.Errorf("resolve attachment %q: %w", id, err)
+		}
+		totalBytes += record.Size
+		if record.MediaType == "text/plain" {
+			textBytes += record.Size
+		} else if !modelSupportsImageAttachment(model) {
+			_ = reader.Close()
+			return nil, fmt.Errorf("%w: model %q does not support image attachments", ErrInvalidInput, model.ID)
+		}
+		if totalBytes > maxPromptAttachmentBytes || textBytes > maxPromptTextAttachmentBytes {
+			_ = reader.Close()
+			return nil, fmt.Errorf("%w: prompt attachment size limit exceeded", ErrInvalidInput)
+		}
+		data, readErr := io.ReadAll(io.LimitReader(reader, record.Size+1))
+		closeErr := reader.Close()
+		if readErr != nil {
+			return nil, fmt.Errorf("read attachment %q: %w", id, readErr)
+		}
+		if closeErr != nil {
+			return nil, fmt.Errorf("close attachment %q: %w", id, closeErr)
+		}
+		if record.MediaType == "text/plain" {
+			content = append(content, droids.TextInput{
+				Text:         fmt.Sprintf("\n\n--- attachment: %q ---\n%s\n--- end attachment ---", record.Filename, data),
+				AttachmentID: record.ID, Filename: record.Filename, MediaType: record.MediaType,
+			})
+		} else {
+			file := droids.NewFileInputData(record.Filename, record.MediaType, data)
+			file.AttachmentID = record.ID
+			content = append(content, file)
+		}
+	}
+	return content, nil
+}
+
+func modelSupportsImageAttachment(model droids.Model) bool {
+	if model.API == droids.ModelAPIAnthropicMessages {
+		return false
+	}
+	for _, supported := range model.Input {
+		if supported == "image" {
+			return true
+		}
+	}
+	return false
+}
+
 func validatePromptText(prompt string) error {
 	if strings.TrimSpace(prompt) == "" || len(prompt) > maxPromptTextBytes || !utf8.ValidString(prompt) || strings.IndexByte(prompt, 0) >= 0 {
 		return fmt.Errorf("%w: prompt must be non-empty valid UTF-8 without NUL and at most 128 KiB", ErrInvalidInput)
@@ -925,10 +1063,13 @@ func validatePromptText(prompt string) error {
 	return nil
 }
 
-func projectFollowUpQueue(messages []string) FollowUpQueue {
+func projectFollowUpQueue(messages []PromptInput) FollowUpQueue {
 	queue := FollowUpQueue{Count: len(messages), Previews: make([]string, 0, len(messages))}
 	for _, message := range messages {
-		preview := strings.Join(strings.Fields(message), " ")
+		preview := strings.Join(strings.Fields(message.Text), " ")
+		if preview == "" && len(message.AttachmentIDs) > 0 {
+			preview = "Attachment"
+		}
 		runes := []rune(preview)
 		if len(runes) > 160 {
 			preview = string(runes[:159]) + "…"
@@ -938,8 +1079,13 @@ func projectFollowUpQueue(messages []string) FollowUpQueue {
 	return queue
 }
 
-// StartPrompt admits one droid turn and returns its canonical identity.
+// StartPrompt preserves the text-only caller contract.
 func (m *Manager) StartPrompt(ctx context.Context, sessionID, prompt string) (RunReservation, error) {
+	return m.StartPromptInput(ctx, sessionID, PromptInput{Text: prompt})
+}
+
+// StartPromptInput admits one structured droid turn and returns its canonical identity.
+func (m *Manager) StartPromptInput(ctx context.Context, sessionID string, prompt PromptInput) (RunReservation, error) {
 	return m.startPrompt(ctx, sessionID, prompt, "", "")
 }
 
@@ -948,10 +1094,10 @@ func (m *Manager) StartPromptCommand(ctx context.Context, sessionID, name, args 
 	if strings.TrimSpace(name) != name || name == "" || len(name) > 128 || len(args) > maxPromptTextBytes || !utf8.ValidString(args) || strings.IndexByte(args, 0) >= 0 {
 		return RunReservation{}, fmt.Errorf("%w: prompt command name or arguments are invalid", ErrInvalidInput)
 	}
-	return m.startPrompt(ctx, sessionID, "", name, args)
+	return m.startPrompt(ctx, sessionID, PromptInput{}, name, args)
 }
 
-func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandName, commandArgs string) (RunReservation, error) {
+func (m *Manager) startPrompt(ctx context.Context, sessionID string, input PromptInput, commandName, commandArgs string) (RunReservation, error) {
 	if err := m.beginAdmission(); err != nil {
 		return RunReservation{}, err
 	}
@@ -960,7 +1106,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		ctx = context.Background()
 	}
 	if commandName == "" {
-		if err := validatePromptText(prompt); err != nil {
+		if err := validatePromptInput(input); err != nil {
 			return RunReservation{}, err
 		}
 	}
@@ -990,11 +1136,12 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 			release()
 			return RunReservation{}, fmt.Errorf("prompt command %q: %w", commandName, ErrNotFound)
 		}
-		prompt, err = command.Expand(commandArgs)
+		expanded, err := command.Expand(commandArgs)
 		if err != nil {
 			release()
 			return RunReservation{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, commandName, err)
 		}
+		input = PromptInput{Text: expanded}
 	}
 	snapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
@@ -1004,6 +1151,11 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	if snapshot.Active != nil {
 		release()
 		return RunReservation{}, ErrBusy
+	}
+	content, err := m.resolvePromptContent(ctx, sessionID, loaded.model, input)
+	if err != nil {
+		release()
+		return RunReservation{}, err
 	}
 	subscription, err := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{
 		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
@@ -1023,9 +1175,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 		release()
 		return RunReservation{}, err
 	}
-	handle, err := loaded.droid.Prompt(ctx, droids.Input{
-		Content: []droids.InputContent{droids.TextInput{Text: prompt}},
-	}, droids.PromptOptions{})
+	handle, err := loaded.droid.Prompt(ctx, droids.Input{Content: content}, droids.PromptOptions{})
 	if err != nil {
 		subscription.Close()
 		release()
@@ -1038,7 +1188,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID, prompt, commandNam
 	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
 	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, []NewEvent{
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
-		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(prompt)},
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(input.Text)},
 	})
 	if err == nil {
 		m.mu.Lock()
@@ -1092,7 +1242,11 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 }
 
 func (m *Manager) RunPrompt(ctx context.Context, sessionID, prompt string) (PromptResult, error) {
-	reservation, err := m.StartPrompt(ctx, sessionID, prompt)
+	return m.RunPromptInput(ctx, sessionID, PromptInput{Text: prompt})
+}
+
+func (m *Manager) RunPromptInput(ctx context.Context, sessionID string, prompt PromptInput) (PromptResult, error) {
+	reservation, err := m.StartPromptInput(ctx, sessionID, prompt)
 	if err != nil {
 		return PromptResult{}, err
 	}
@@ -1213,11 +1367,11 @@ func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {
 	prompt := loaded.followUps[0]
 	loaded.followUps = loaded.followUps[1:]
 	loaded.mu.Unlock()
-	if _, err := m.StartPrompt(context.Background(), sessionID, prompt); err == nil {
+	if _, err := m.StartPromptInput(context.Background(), sessionID, prompt); err == nil {
 		return
 	}
 	loaded.mu.Lock()
-	loaded.followUps = append([]string{prompt}, loaded.followUps...)
+	loaded.followUps = append([]PromptInput{prompt}, loaded.followUps...)
 	loaded.mu.Unlock()
 }
 
@@ -1534,8 +1688,9 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = closeStore()
 		return nil, err
 	}
+	model, _ := m.providers.Model(record.ModelProvider + "/" + record.ModelID)
 	loaded = &runtime{
-		droid: droid, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
+		droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
 		runs: make(map[string]*liveRun), interactions: interactions,
 	}

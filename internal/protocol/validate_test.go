@@ -206,8 +206,13 @@ func validReloadResult() ReloadSessionResult {
 
 func TestPromptInputValidate(t *testing.T) {
 	t.Parallel()
-	if err := (PromptInput{Text: "hello"}).Validate(); err != nil {
+	if err := (PromptInput{Text: "hello", AttachmentIDs: []string{"attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}).Validate(); err != nil {
 		t.Fatalf("Validate() prompt error = %v", err)
+	}
+	for _, ids := range [][]string{{"bad"}, {"attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", "attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}, make([]string, MaxAttachmentsPerPrompt+1)} {
+		if err := (PromptInput{Text: "hello", AttachmentIDs: ids}).Validate(); err == nil {
+			t.Fatalf("Validate() accepted attachment IDs %#v", ids)
+		}
 	}
 	for _, text := range []string{"", "   ", "bad\x00prompt", strings.Repeat("<", (128<<10)+1)} {
 		if err := (PromptInput{Text: text}).Validate(); err == nil {

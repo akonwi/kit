@@ -133,6 +133,6 @@ commits are omitted.
 | Change | R1 decision | Tracking |
 | --- | --- | --- |
 | Add validated `show_image` and explicit transcript image previews (`a2c7434`) | Required | `CORE-ATT-002`, `TUI-ATT-002` |
-| Open transcript images in retained workspace panes (`e6c181f`) | Required | `TUI-ATT-002` |
+| Open transcript images in retained workspace panes (`e6c181f`) | Superseded | Always-visible transcript previews with system-app opening; `TUI-ATT-002` |
 | Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Post-R1 | `CORE-REVIEW-001`, `TUI-REVIEW-001` |
 | Upgrade the TypeScript Pi runtime to 0.85 (`1971d71`) | Superseded | Native droids decision; ADRs 0001 and 0006 |

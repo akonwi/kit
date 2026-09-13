@@ -33,6 +33,7 @@ type TranscriptContent struct {
 	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
 	Filename           string                `json:"filename,omitempty"`
 	MediaType          string                `json:"mediaType,omitempty"`
+	AttachmentID       string                `json:"attachmentId,omitempty"`
 }
 
 type TranscriptMessage struct {
@@ -507,7 +508,9 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 	for _, raw := range content {
 		switch block := any(raw).(type) {
 		case droids.TextInput:
-			if block.Text != "" {
+			if block.AttachmentID != "" {
+				result = append(result, TranscriptContent{Kind: TranscriptContentFile, Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID})
+			} else if block.Text != "" {
 				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: block.Text})
 			}
 		case droids.TextContent:
@@ -529,7 +532,7 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
 				kind = TranscriptContentImage
 			}
-			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType})
+			result = append(result, TranscriptContent{Kind: kind, Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID})
 		case droids.FileContent:
 			kind := TranscriptContentFile
 			if strings.HasPrefix(strings.ToLower(block.MediaType), "image/") {
