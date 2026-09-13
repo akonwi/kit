@@ -245,7 +245,7 @@ func (w sessionRenameSurface) Build(ctx ui.BuildContext) ui.Widget {
 	children = append(children, ui.DecoratedBox(
 		ui.Decoration{
 			Style:  ui.Style{Background: theme.Background},
-			Border: ui.BorderAll(ui.Style{Foreground: theme.PrimaryText}),
+			Border: ui.BorderAll(ui.Style{Foreground: theme.PrimaryText, Background: theme.Background}),
 		},
 		ui.Padding(ui.Insets{Top: 1, Right: 1, Bottom: 1, Left: 1}, ui.Flex{
 			Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, Children: []ui.Widget{field},

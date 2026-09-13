@@ -54,7 +54,7 @@ func transcriptBashEntry(theme ui.Theme, execution protocol.BashExecution, colla
 		}))
 	}
 	return ui.DecoratedBox(
-		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.SuccessText}, Left: true}},
+		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.SuccessText, Background: theme.Background}, Left: true}},
 		ui.Padding(ui.Insets{Left: 2}, ui.Flex{
 			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
 			CrossAxisAlignment: ui.CrossAxisStretch, Children: children,

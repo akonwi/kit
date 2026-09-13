@@ -14,6 +14,7 @@ const (
 	glyphCrossJunction  = "┼"
 	glyphTriangleRight  = "▸"
 	glyphTriangleDown   = "▾"
+	glyphTriangleUp     = "▲"
 	glyphEllipsis       = "⋯"
 	glyphBullet         = "•"
 	glyphTaskUnchecked  = "☐"

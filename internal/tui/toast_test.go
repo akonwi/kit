@@ -5,6 +5,7 @@ import (
 	"testing"
 	"time"
 
+	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
@@ -97,6 +98,71 @@ func TestToastDetailWrapsWithinTheCard(t *testing.T) {
 	for _, expected := range []string{"Subagent definition warning", `subagent "code-reviewer"`, "exact model identifier", "/Users/person/agents/reviewer.md"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("wrapped toast detail missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestToastCardUsesSemanticThemeForEveryPaintedCell(t *testing.T) {
+	t.Parallel()
+
+	background := ui.RGB(9, 12, 18)
+	meta := ui.RGB(80, 170, 220)
+	secondary := ui.RGB(150, 160, 175)
+	application := uitest.New(themeAdapter{
+		Definition: kittheme.Definition{Tokens: map[string]kittheme.Color{
+			kittheme.TokenBackground:    {R: 9, G: 12, B: 18, A: 0xff},
+			kittheme.TokenMetaText:      {R: 80, G: 170, B: 220, A: 0xff},
+			kittheme.TokenTextSecondary: {R: 150, G: 160, B: 175, A: 0xff},
+		}},
+		Child: toastItem{
+			Toast: toastRecord{ID: 1, toastInput: toastInput{
+				Title: "Theme applied", Subtitle: "Dark preview", Variant: toastInfo, Persistent: true,
+			}},
+			OnDismiss: func(ui.EventContext) {},
+		},
+	})
+	application.Pump(48, 8)
+
+	borderCells := 0
+	for row := 0; row < 8; row++ {
+		for column := 0; column < 48; column++ {
+			cell := application.Cell(column, row)
+			if strings.Contains("┌┐└┘─│", cell.Grapheme) {
+				borderCells++
+				if cell.Foreground != meta || cell.Background != background {
+					t.Fatalf("border cell %q style = fg:%v bg:%v, want fg:%v bg:%v", cell.Grapheme, cell.Foreground, cell.Background, meta, background)
+				}
+			}
+		}
+	}
+	if borderCells == 0 {
+		t.Fatal("toast painted no border cells")
+	}
+	for value, foreground := range map[string]ui.Color{"●": meta, "Theme applied": meta, "Dark preview": secondary} {
+		column, row := findPaintedCellSequence(t, application, 48, 8, value)
+		cell := application.Cell(column, row)
+		if cell.Foreground != foreground || cell.Background != background {
+			t.Fatalf("%q style = fg:%v bg:%v, want fg:%v bg:%v", value, cell.Foreground, cell.Background, foreground, background)
+		}
+	}
+	column, row := findPaintedCellSequence(t, application, 48, 8, glyphTimes)
+	if got := application.Cell(column, row).Background; got != background {
+		t.Fatalf("idle close background = %v, want %v", got, background)
+	}
+}
+
+func TestToastVariantAppearanceUsesSemanticStatusColors(t *testing.T) {
+	t.Parallel()
+
+	semantic := semanticFallback(ui.DefaultTheme())
+	semantic.Tokens[kittheme.TokenMetaText] = ui.RGB(1, 2, 3)
+	semantic.Tokens[kittheme.TokenWarningText] = ui.RGB(4, 5, 6)
+	semantic.Tokens[kittheme.TokenErrorText] = ui.RGB(7, 8, 9)
+	for variant, want := range map[toastVariant]ui.Color{
+		toastInfo: semantic.Token(kittheme.TokenMetaText), toastWarning: semantic.Token(kittheme.TokenWarningText), toastError: semantic.Token(kittheme.TokenErrorText),
+	} {
+		if got := toastAppearance(semantic, variant); got != want {
+			t.Fatalf("variant %d appearance = %v, want %v", variant, got, want)
 		}
 	}
 }

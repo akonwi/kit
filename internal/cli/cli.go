@@ -20,6 +20,8 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
+	"github.com/akonwi/kit/internal/settings"
+	kittheme "github.com/akonwi/kit/internal/theme"
 	"github.com/akonwi/kit/internal/tui"
 )
 
@@ -139,6 +141,33 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		fmt.Fprintf(stderr, "kit: configure API-key login: %v\n", err)
 		return 1
 	}
+	settingsStore, err := settings.NewStore(paths.Settings)
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: configure settings: %v\n", err)
+		return 1
+	}
+	loadedSettings, settingsWarnings, err := settingsStore.Load()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: load settings: %v; using system theme\n", err)
+		loadedSettings.Theme = kittheme.SystemName
+	}
+	for _, warning := range settingsWarnings {
+		fmt.Fprintf(stderr, "kit: %v\n", warning)
+	}
+	var themeDefinition kittheme.Definition
+	if loadedSettings.Theme != kittheme.SystemName {
+		var diagnostics []kittheme.Diagnostic
+		themeDefinition, diagnostics, err = kittheme.Load(paths.Themes, loadedSettings.Theme)
+		if err != nil {
+			fmt.Fprintf(stderr, "kit: load theme %q: %v; using system theme\n", loadedSettings.Theme, err)
+			loadedSettings.Theme = kittheme.SystemName
+			themeDefinition = kittheme.Definition{}
+		} else {
+			for _, diagnostic := range diagnostics {
+				fmt.Fprintf(stderr, "kit: theme %q: %v\n", loadedSettings.Theme, diagnostic)
+			}
+		}
+	}
 	runErr := tui.Run(tui.Options{
 		Context:              ctx,
 		Server:               server,
@@ -158,6 +187,9 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		Login:                login,
 		BrowserLogin:         browserLogin,
 		APIKeyLogin:          apiKeyLogin,
+		ThemeName:            loadedSettings.Theme,
+		ThemeDefinition:      themeDefinition,
+		ThemeService:         interactiveThemeService{directory: paths.Themes, settings: settingsStore},
 	})
 	if options.Temporary {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)

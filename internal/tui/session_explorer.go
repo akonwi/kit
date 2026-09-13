@@ -825,16 +825,17 @@ type sessionExplorerRowState struct {
 func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
 	row := s.Widget().(sessionExplorerRow)
 	theme := ui.MustDepend[ui.Theme](ctx)
+	presentation := resolvePickerRowPresentation(ctx, theme)
 	background := theme.Background
-	primary := theme.Foreground
+	primary := presentation.ItemText
 	secondary := theme.MutedForeground
 	if row.Current {
 		primary = theme.PrimaryText
 	}
 	if row.Selected {
-		background = theme.Foreground
-		primary = theme.Background
-		secondary = theme.Background
+		background = presentation.FocusedBg
+		primary = presentation.FocusedText
+		secondary = presentation.FocusedText
 	} else if row.Interactive && s.hovered {
 		background = theme.SurfaceHovered
 	}

@@ -17,6 +17,7 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
+	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
@@ -62,6 +63,9 @@ type Options struct {
 	Login                DeviceLogin
 	BrowserLogin         BrowserLogin
 	APIKeyLogin          APIKeyLogin
+	ThemeName            string
+	ThemeDefinition      kittheme.Definition
+	ThemeService         ThemeService
 
 	appDone        <-chan struct{}
 	terminalStatus *terminalStatusReporter
@@ -99,7 +103,10 @@ func Run(options Options) error {
 	options.appDone = done
 	options.terminalStatus = newTerminalStatusReporter()
 	defer options.terminalStatus.Close()
-	err := ui.Run(app{Options: options}, ui.WithShortcuts(nativeRootShortcuts()))
+	err := ui.Run(
+		themeAdapter{Definition: options.ThemeDefinition, Child: app{Options: options}},
+		ui.WithShortcuts(nativeRootShortcuts()),
+	)
 	close(done)
 	cancel()
 	return err
@@ -207,6 +214,12 @@ type appState struct {
 	composerCursorOffset             int
 	composerCursorGeneration         uint64
 	palette                          paletteController
+	themePicker                      themePickerController
+	themeName                        string
+	themeDefinition                  kittheme.Definition
+	themeGeneration                  uint64
+	themeLoadActive                  bool
+	applyTheme                       func(kittheme.Definition)
 	paste                            pasteCoalescer
 	fileMention                      fileMentionController
 	fileIndex                        map[string]cachedFileIndex
@@ -354,6 +367,11 @@ type appState struct {
 
 func (s *appState) InitState() {
 	options := s.Widget().(app).Options
+	s.themeName = options.ThemeName
+	if s.themeName == "" {
+		s.themeName = kittheme.SystemName
+	}
+	s.themeDefinition = options.ThemeDefinition
 	s.ctx, s.cancel = context.WithCancel(options.Context)
 	s.resetAttachmentContext()
 	s.available = cloneProviders(options.AvailableProviders)
@@ -848,6 +866,11 @@ func (s *appState) activityPresentation(mainMessages []transcriptMessage, conver
 }
 
 func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
+	if control, ok := ui.Depend[ThemeControl](ctx); ok {
+		s.applyTheme = control.Apply
+	} else {
+		s.applyTheme = func(kittheme.Definition) {}
+	}
 	presentedMessages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
@@ -868,6 +891,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaletteQuery:                 s.palette.Query,
 		PaletteSelection:             s.palette.Selection,
 		PaletteCommands:              s.palette.Contributions,
+		ThemePicker:                  s.themePicker.Snapshot(),
 		ConfigurationPicker:          s.configurationPicker.Snapshot(),
 		SessionDetailsOpen:           s.sessionDetailsOpen,
 		SessionRename:                s.sessionRename.Snapshot(),
@@ -1213,6 +1237,13 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
+		SelectTheme: func(_ ui.EventContext, index int) {
+			if index == s.themePicker.Selection && s.themePicker.previewValid && !s.themePicker.Loading {
+				s.commitTheme()
+				return
+			}
+			s.selectTheme(index)
+		},
 		OpenSessionRename: func(ui.EventContext) {
 			s.openCurrentSessionRename()
 		},
@@ -1265,6 +1296,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
+			if s.themePicker.Open {
+				if s.themePicker.Pending {
+					ctx.Quit()
+				} else {
+					s.cancelThemePicker()
+				}
+				return
+			}
 			if s.sessionRename.Open {
 				if !s.sessionRename.Pending {
 					s.SetState(func() { s.sessionRename.Cancel() })
@@ -1368,6 +1407,23 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		return ui.EventIgnored
+	}
+	if s.themePicker.Open {
+		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+			return ui.EventHandled
+		}
+		count := len(s.themePicker.Names)
+		switch {
+		case key.MatchString("Escape") || key.MatchString("Ctrl+c"):
+			return ui.EventIgnored
+		case key.MatchString("Up") && count > 0:
+			s.selectTheme((s.themePicker.Selection - 1 + count) % count)
+		case key.MatchString("Down") && count > 0:
+			s.selectTheme((s.themePicker.Selection + 1) % count)
+		case key.MatchString("Enter"):
+			s.commitTheme()
+		}
+		return ui.EventHandled
 	}
 	if s.configurationPicker.Mode != configurationPickerClosed {
 		var apply, handled bool
@@ -3150,7 +3206,7 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
+	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
 		s.subagentDismissID != "" || s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
@@ -3212,9 +3268,142 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.openSessionExplorer()
 	case paletteCommandSubagents:
 		s.openSubagents()
+	case paletteCommandTheme:
+		s.openThemePicker()
 	case paletteCommandThinking:
 		s.openConfigurationPicker(configurationPickerThinking)
 	}
+}
+
+func (s *appState) openThemePicker() {
+	service := s.Widget().(app).Options.ThemeService
+	if service == nil {
+		s.showToast(toastInput{Title: "Theme picker unavailable", Variant: toastWarning})
+		return
+	}
+	s.themeGeneration++
+	generation := s.themeGeneration
+	s.SetState(func() {
+		s.themePicker = themePickerController{Open: true, Loading: true, CommittedName: s.themeName,
+			CommittedDefinition: s.themeDefinition, PreviewDefinition: s.themeDefinition, previewValid: true}
+	})
+	runtime := s.Context().Runtime()
+	go func() {
+		names, err := service.Discover()
+		runtime.Dispatch(func() {
+			if generation != s.themeGeneration || !s.themePicker.Open {
+				return
+			}
+			s.SetState(func() {
+				if err != nil {
+					s.themePicker.Loading = false
+					s.themePicker.Err = fmt.Errorf("discover themes: %w", err)
+					return
+				}
+				s.themePicker.OpenNames(names, s.themeName, s.themeDefinition)
+			})
+		})
+	}()
+}
+
+func (s *appState) selectTheme(index int) {
+	service := s.Widget().(app).Options.ThemeService
+	if service == nil || !s.themePicker.Open || s.themePicker.Pending || index < 0 || index >= len(s.themePicker.Names) {
+		return
+	}
+	s.themeGeneration++
+	generation := s.themeGeneration
+	name := s.themePicker.Names[index]
+	s.SetState(func() {
+		s.themePicker.Selection = index
+		s.themePicker.Loading = name != kittheme.SystemName
+		s.themePicker.Err = nil
+		s.themePicker.Diagnostics = nil
+		s.themePicker.previewValid = name == kittheme.SystemName
+		if name == kittheme.SystemName {
+			s.themePicker.PreviewDefinition = kittheme.Definition{}
+		}
+	})
+	if name == kittheme.SystemName {
+		s.applyTheme(kittheme.Definition{})
+		return
+	}
+	if s.themeLoadActive {
+		return
+	}
+	s.themeLoadActive = true
+	runtime := s.Context().Runtime()
+	go func() {
+		definition, diagnostics, err := service.Load(name)
+		runtime.Dispatch(func() {
+			s.themeLoadActive = false
+			if generation != s.themeGeneration || !s.themePicker.Open || s.themePicker.Selection != index {
+				if s.themePicker.Open && len(s.themePicker.Names) > 0 {
+					s.selectTheme(s.themePicker.Selection)
+				}
+				return
+			}
+			s.SetState(func() {
+				s.themePicker.Loading = false
+				s.themePicker.Diagnostics = diagnostics
+				s.themePicker.Err = err
+				s.themePicker.previewValid = err == nil
+				if err == nil {
+					s.themePicker.PreviewDefinition = definition
+				}
+			})
+			if err == nil {
+				s.applyTheme(definition)
+			}
+		})
+	}()
+}
+
+func (s *appState) commitTheme() {
+	service := s.Widget().(app).Options.ThemeService
+	if service == nil || !s.themePicker.Open || s.themePicker.Loading || s.themePicker.Pending || !s.themePicker.previewValid || len(s.themePicker.Names) == 0 {
+		return
+	}
+	name := s.themePicker.Names[s.themePicker.Selection]
+	definition := s.themePicker.PreviewDefinition
+	s.themeGeneration++
+	generation := s.themeGeneration
+	s.SetState(func() { s.themePicker.Pending = true })
+	runtime := s.Context().Runtime()
+	go func() {
+		err := service.Save(name)
+		runtime.Dispatch(func() {
+			if generation != s.themeGeneration || !s.themePicker.Open {
+				return
+			}
+			rollback := s.themePicker.CommittedDefinition
+			s.SetState(func() {
+				if err != nil {
+					s.themePicker.Pending = false
+					s.themePicker.Err = fmt.Errorf("save theme %q: %w", name, err)
+					s.themePicker.PreviewDefinition = rollback
+					s.themePicker.previewValid = false
+					return
+				}
+				s.themeName = name
+				s.themeDefinition = definition
+				s.themePicker.Close()
+			})
+			if err != nil {
+				s.applyTheme(rollback)
+			}
+		})
+	}()
+}
+
+func (s *appState) cancelThemePicker() {
+	if !s.themePicker.Open || s.themePicker.Pending {
+		return
+	}
+	s.themeGeneration++
+	definition := s.themePicker.CommittedDefinition
+	s.SetState(func() { s.themePicker.Close() })
+	s.applyTheme(definition)
 }
 
 func (s *appState) openSubagents() {
@@ -5043,6 +5232,10 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
+	if s.themePicker.Open {
+		s.cancelThemePicker()
+		return
+	}
 	if s.subagentDismissID != "" {
 		if !s.subagentDismissPending {
 			s.SetState(func() {

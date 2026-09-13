@@ -22,8 +22,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
   management, credential migration, and consistent private, locked, atomic,
   generation-checked storage for every supported provider.
-- [ ] CORE-SET-001 — Validate and atomically persist shared settings, apply
-  changes immediately where safe, and return actionable save errors.
+- [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
+  immediately where safe, and return actionable save errors.
 - [ ] CORE-SET-002 — Persist and resolve R1 defaults for model/thinking
   selection, retry behavior, guided questions, diff layout, and workspace layout
   without client-local drift.

@@ -422,33 +422,32 @@ func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	if row.Current {
 		marker = glyphCheck + " "
 	}
-	foreground := theme.Foreground
+	presentation := resolvePickerRowPresentation(ctx, theme)
+	background := theme.Background
+	foreground := presentation.ItemText
 	detailsForeground := theme.MutedForeground
 	if row.Selected {
-		foreground = theme.Background
-		detailsForeground = theme.Background
+		background = presentation.FocusedBg
+		foreground = presentation.FocusedText
+		detailsForeground = presentation.FocusedText
 	}
-	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	var content ui.Widget = label
 	if row.Details != "" {
 		children := []ui.Widget{
 			ui.SizedBox{Width: 24, Child: label},
 			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 		}
 		if row.Meta != "" {
 			children = append(children,
 				ui.SizedBox{Width: 1},
-				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
 			)
 		}
 		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 	}
-	rowTheme := theme
-	rowTheme.Foreground = theme.Background
-	rowTheme.Primary = theme.Foreground
-	rowTheme.PrimaryHovered = theme.Foreground
-	return ui.Provider[ui.Theme]{Value: rowTheme, Child: ui.ListTile{
+	return ui.Provider[ui.Theme]{Value: presentation.Theme, Child: ui.ListTile{
 		Title: content, Selected: row.Selected, OnPressed: row.OnPressed,
 		Padding: ui.Insets{Right: 1}, MinHeight: 1,
 	}}

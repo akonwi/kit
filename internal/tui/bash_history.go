@@ -139,6 +139,7 @@ type bashHistorySurface struct {
 
 func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
+	rowPresentation := resolvePickerRowPresentation(ctx, theme)
 	entries := w.Controller.filtered()
 	selection := 0
 	for index, entry := range entries {
@@ -164,11 +165,11 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 			description = "excluded from context"
 		}
 		selected := entry.ID == w.Controller.Selection
-		style := ui.Style{Foreground: theme.Foreground}
+		style := ui.Style{Foreground: rowPresentation.ItemText}
 		secondary := ui.Style{Foreground: theme.MutedForeground}
 		if selected {
-			style = ui.Style{Foreground: theme.Background, Background: theme.Foreground}
-			secondary.Background = theme.Foreground
+			style = ui.Style{Foreground: rowPresentation.FocusedText, Background: rowPresentation.FocusedBg}
+			secondary = style
 		}
 		row := ui.DecoratedBox(ui.Decoration{Style: style}, ui.Flex{
 			Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
@@ -210,7 +211,7 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent,
 		Child: proportionalWidth{Percent: 80, Min: 48, Max: workspaceMinPrimary - 2, Child: ui.FocusScope{
 			Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
-				ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border})},
+				ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})},
 				content,
 			),
 		}},

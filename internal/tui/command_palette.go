@@ -24,6 +24,7 @@ const (
 	paletteCommandDebug     paletteCommandID = "debug"
 	paletteCommandSessions  paletteCommandID = "sessions"
 	paletteCommandSubagents paletteCommandID = "subagents"
+	paletteCommandTheme     paletteCommandID = "theme"
 	paletteCommandThinking  paletteCommandID = "thinking"
 )
 
@@ -139,20 +140,26 @@ type paletteOptionRow struct {
 
 func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
-	rowTheme := theme
-	rowTheme.Foreground = theme.Background
-	rowTheme.Primary = theme.Foreground
-	rowTheme.PrimaryHovered = theme.Foreground
-	primary := theme.Foreground
+	presentation := resolvePickerRowPresentation(ctx, theme)
+	rowTheme := presentation.Theme
+	background := theme.Background
+	primary := presentation.ItemText
 	if w.Selected {
-		primary = theme.Background
+		background = presentation.FocusedBg
+		primary = presentation.FocusedText
 	}
 	if w.DisabledReason != "" {
 		primary = theme.DisabledForeground
 		rowTheme.Primary = theme.SurfaceHovered
 		rowTheme.PrimaryHovered = theme.SurfaceHovered
+		if w.Selected {
+			background = theme.SurfaceHovered
+		}
 	}
 	secondary := theme.MutedForeground
+	if w.Selected {
+		secondary = presentation.FocusedText
+	}
 	if w.DisabledReason != "" {
 		secondary = theme.DisabledForeground
 	}
@@ -162,12 +169,12 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Width: w.NameWidth, Child: ui.Text{
-			Value: w.Command.Name, Style: ui.Style{Foreground: primary},
+			Value: w.Command.Name, Style: ui.Style{Foreground: primary, Background: background},
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}},
 		ui.SizedBox{Width: 1},
 		ui.Expanded(ui.Text{
-			Value: description, Style: ui.Style{Foreground: secondary},
+			Value: description, Style: ui.Style{Foreground: secondary, Background: background},
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}),
 	}}
@@ -366,9 +373,10 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 		{ID: paletteCommandSubagents, Name: "subagents", Description: "Inspect delegated work", Aliases: []string{"agents", "delegates", "children"}},
+		{ID: paletteCommandTheme, Name: "theme", Description: "Choose UI colors", Aliases: []string{"appearance", "colors"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "thinking": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "theme": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

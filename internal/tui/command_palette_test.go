@@ -89,6 +89,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) == 0 || commands[0].ID != paletteCommandNew {
 		t.Fatalf("new matches = %#v, want new first", commands)
 	}
+	commands = filteredPaletteCommands(false, "appearance")
+	if len(commands) != 1 || commands[0].ID != paletteCommandTheme {
+		t.Fatalf("appearance matches = %#v, want theme", commands)
+	}
 	commands = filteredPaletteCommands(false, "effort")
 	if len(commands) != 1 || commands[0].ID != paletteCommandThinking {
 		t.Fatalf("effort matches = %#v, want thinking", commands)
@@ -181,7 +185,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 12 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 13 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}

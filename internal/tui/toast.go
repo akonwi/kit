@@ -6,6 +6,7 @@ import (
 	"strings"
 	"time"
 
+	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -328,21 +329,31 @@ func (s *toastItemState) InitState() {
 func (s *toastItemState) Build(ctx ui.BuildContext) ui.Widget {
 	w := s.Widget().(toastItem)
 	theme := ui.MustDepend[ui.Theme](ctx)
-	color := toastAppearance(theme, w.Toast.Variant)
+	semantic, ok := ui.Depend[SemanticTheme](ctx)
+	if !ok {
+		semantic = semanticFallback(theme)
+	}
+	background := semantic.Token(kittheme.TokenBackground)
+	color := toastAppearance(semantic, w.Toast.Variant)
+	variantStyle := ui.Style{Foreground: color, Background: background}
 	text := []ui.Widget{ui.Text{
-		Value: w.Toast.Title, Style: ui.Style{Foreground: color},
+		Value: w.Toast.Title, Style: variantStyle,
 		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 	}}
 	if w.Toast.Subtitle != "" {
 		text = append(text, ui.Text{
-			Value: w.Toast.Subtitle, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true,
+			Value: w.Toast.Subtitle, Style: ui.Style{Foreground: semantic.Token(kittheme.TokenTextSecondary), Background: background}, SoftWrap: true,
 			Overflow: ui.TextOverflowEllipsis, MaxLines: toastDetailMaxLines,
 		})
 	}
-	children := []ui.Widget{ui.Flexible(ui.Flex{
-		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
-		CrossAxisAlignment: ui.CrossAxisStart, Children: text,
-	})}
+	children := []ui.Widget{
+		ui.Text{Value: toastVariantIcon(w.Toast.Variant), Style: variantStyle, MaxLines: 1},
+		ui.SizedBox{Width: 1},
+		ui.Flexible(ui.Flex{
+			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
+			CrossAxisAlignment: ui.CrossAxisStart, Children: text,
+		}),
+	}
 	if w.Toast.Persistent && w.OnDismiss != nil {
 		children = append(children, ui.SizedBox{Width: 1}, toastClose{OnPressed: w.OnDismiss})
 	}
@@ -353,8 +364,8 @@ func (s *toastItemState) Build(ctx ui.BuildContext) ui.Widget {
 	card := mouseActivator{
 		Child: ui.DecoratedBox(
 			ui.Decoration{
-				Style:  ui.Style{Background: theme.Background},
-				Border: ui.BorderLine(color),
+				Style:  ui.Style{Background: background},
+				Border: ui.BorderAll(variantStyle),
 			},
 			ui.Padding(ui.All(1), content),
 		),
@@ -433,7 +444,11 @@ type toastCloseState struct {
 
 func (s *toastCloseState) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
-	style := ui.Style{Foreground: theme.MutedForeground}
+	semantic, ok := ui.Depend[SemanticTheme](ctx)
+	if !ok {
+		semantic = semanticFallback(theme)
+	}
+	style := ui.Style{Foreground: semantic.Token(kittheme.TokenTextMuted), Background: semantic.Token(kittheme.TokenBackground)}
 	if s.hovered {
 		style.Background = theme.SurfaceHovered
 		style.Foreground = theme.Foreground
@@ -454,13 +469,24 @@ func (s *toastCloseState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 }
 
-func toastAppearance(theme ui.Theme, variant toastVariant) ui.Color {
+func toastAppearance(theme SemanticTheme, variant toastVariant) ui.Color {
 	switch variant {
 	case toastError:
-		return theme.DangerText
+		return theme.Token(kittheme.TokenErrorText)
 	case toastWarning:
-		return theme.WarningText
+		return theme.Token(kittheme.TokenWarningText)
 	default:
-		return theme.AccentText
+		return theme.Token(kittheme.TokenMetaText)
+	}
+}
+
+func toastVariantIcon(variant toastVariant) string {
+	switch variant {
+	case toastError:
+		return glyphCross
+	case toastWarning:
+		return glyphTriangleUp
+	default:
+		return glyphCircleFilled
 	}
 }

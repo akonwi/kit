@@ -189,6 +189,7 @@ type fileMentionSurface struct {
 
 func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
+	rowPresentation := resolvePickerRowPresentation(ctx, theme)
 	entries := w.Controller.filtered()
 	selection := 0
 	for index, entry := range entries {
@@ -212,11 +213,11 @@ func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 	for _, entry := range entries {
 		entry := entry
 		selected := entry.Path == w.Controller.Selection
-		style := ui.Style{Foreground: theme.Foreground}
+		style := ui.Style{Foreground: rowPresentation.ItemText}
 		secondary := ui.Style{Foreground: theme.MutedForeground}
 		if selected {
-			style = ui.Style{Foreground: theme.Background, Background: theme.Foreground}
-			secondary.Background = theme.Foreground
+			style = ui.Style{Foreground: rowPresentation.FocusedText, Background: rowPresentation.FocusedBg}
+			secondary = style
 		}
 		description := ""
 		if entry.IsDir {
@@ -239,6 +240,6 @@ func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 	)})
 	anchor := w.Controller.Anchor
 	return composerOverlayPositioner{BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor, Child: proportionalWidth{Percent: 80, Min: 48, Max: workspaceMinPrimary - 2, Child: ui.DecoratedBox(
-		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border})}, content,
+		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})}, content,
 	)}}
 }

@@ -230,7 +230,7 @@ func renderMarkdownBlock(
 	case kitmarkdown.BlockCode:
 		child = markdownCodeBlock(theme, base, block.Language, block.Code)
 	case kitmarkdown.BlockRule:
-		child = ui.Divider{Style: ui.Style{Foreground: theme.Border}}
+		child = ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}}
 	case kitmarkdown.BlockTable:
 		child = markdownTable(theme, base, block)
 	default:
@@ -291,6 +291,7 @@ func markdownCodeBlock(theme ui.Theme, base ui.Style, _ string, source string) u
 	// The semantic block retains its language for future syntax highlighting;
 	// this presentation deliberately spends no transcript row displaying it.
 	display := expandMarkdownTabs(source)
+	base.Background = theme.Surface
 	spans := []ui.TextSpan{{Text: display, Style: base}}
 	content := ui.ConstrainedBox{
 		Constraints: ui.Constraints{MinHeight: 1},
@@ -355,7 +356,7 @@ func markdownAlignedTable(
 		if row.Header && rowIndex+1 < len(block.Rows) {
 			separators := make([]ui.Widget, columnCount)
 			for index := range separators {
-				separators[index] = ui.Divider{Style: ui.Style{Foreground: theme.Border}}
+				separators[index] = ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}}
 			}
 			rows = append(rows, ui.TableRow{Children: separators})
 		}
@@ -412,7 +413,7 @@ func markdownFlatTable(theme ui.Theme, base ui.Style, block kitmarkdown.Block) u
 		}
 		rows = append(rows, ui.RichText{Spans: spans, SoftWrap: true})
 		if row.Header && rowIndex+1 < len(block.Rows) {
-			rows = append(rows, ui.Divider{Style: ui.Style{Foreground: theme.Border}})
+			rows = append(rows, ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}})
 		}
 	}
 	return ui.Flex{
@@ -519,7 +520,7 @@ func markdownRunSpan(theme ui.Theme, base ui.Style, run kitmarkdown.Run) ui.Text
 
 func wrapMarkdownQuote(theme ui.Theme, child ui.Widget) ui.Widget {
 	return ui.DecoratedBox(
-		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.Border}, Left: true}},
+		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}, Left: true}},
 		ui.Padding(ui.Insets{Left: 2}, child),
 	)
 }

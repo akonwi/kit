@@ -28,6 +28,7 @@ type shellSnapshot struct {
 	PaletteQuery                 string
 	PaletteSelection             paletteCommandID
 	PaletteCommands              []paletteCommand
+	ThemePicker                  themePickerSnapshot
 	ConfigurationPicker          configurationPickerSnapshot
 	SessionDetailsOpen           bool
 	SessionRename                sessionRenameSnapshot
@@ -141,6 +142,7 @@ type shellCallbacks struct {
 	MovePaletteSelection       selectionMovedCallback
 	RunPaletteQuery            ui.TextChangedCallback
 	RunPaletteCommand          func(ui.EventContext, paletteCommandID)
+	SelectTheme                func(ui.EventContext, int)
 	OpenSessionRename          ui.VoidCallback
 	OpenModel                  ui.VoidCallback
 	OpenThinking               ui.VoidCallback
@@ -211,7 +213,10 @@ func (dismissSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.
 func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	w.presentation = presentTranscript(w.Snapshot.Messages)
-	content := ui.Widget(ui.SelectionArea{Child: w.baseShell(theme)})
+	content := ui.Widget(ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}},
+		ui.SelectionArea{Child: w.baseShell(theme)},
+	))
 	overlays := w.authOverlays(theme)
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.FileMention.Open {
 		controller := w.Snapshot.FileMention
@@ -283,6 +288,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		overlays = append(overlays, modalDialogEntry(subagentDismissSurface{
 			Name: w.Snapshot.SubagentDismissName, Pending: w.Snapshot.SubagentDismissPending, Error: w.Snapshot.SubagentDismissError,
 		}))
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.ThemePicker.Open {
+		overlays = append(overlays, ui.OverlayEntry{Modal: true, Barrier: clearModalBarrier{}, Child: themePickerSurface{
+			Snapshot:  w.Snapshot.ThemePicker,
+			Callbacks: themePickerCallbacks{Select: w.Callbacks.SelectTheme},
+		}})
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
 		overlays = append(overlays, ui.OverlayEntry{
@@ -437,18 +448,18 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			Open: workspaceOpen, ActivitySelected: w.Snapshot.ActivitySelected,
 			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
 			Pending: pending, PendingHeight: pendingHeight,
-			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme)}},
+			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme), Background: theme.Background}},
 			Composer:          composer, ComposerHeightLimit: composerHeightLimit,
-			PaneSeparator: ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border}},
-			Activity:      secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border},
+			PaneSeparator: ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
+			Activity:      secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border, Background: theme.Background},
 			LayoutState: w.Snapshot.WorkspaceLayout,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		w.header(theme),
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		body,
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		w.footer(theme),
 	}}
 }
@@ -634,7 +645,7 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
 	if text := message.TextContent(); text != "" {
-		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground}})
+		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground, Background: theme.Background}})
 	}
 	for _, block := range message.Content {
 		if block.Kind == protocol.TranscriptContentImage && block.AttachmentID != "" && attachments != nil {
@@ -642,13 +653,16 @@ func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, att
 		}
 	}
 	return ui.DecoratedBox(
-		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText}, Left: true}},
+		ui.Decoration{
+			Style:  ui.Style{Background: theme.Background},
+			Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText, Background: theme.Background}, Left: true},
+		},
 		ui.Padding(ui.Insets{Left: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
 	)
 }
 
 func transcriptAssistantEntry(theme ui.Theme, message protocol.TranscriptMessage) ui.Widget {
-	style := ui.Style{Foreground: theme.Foreground}
+	style := ui.Style{Foreground: theme.Foreground, Background: theme.Background}
 	if message.StopReason == "aborted" {
 		style.Foreground = theme.MutedForeground
 	} else if message.IsError {
@@ -689,17 +703,15 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 		}
 	}
 	expanded := w.Snapshot.InlineActivityOpen[item.ID]
-	rowStyle := ui.Style{}
+	mutedStyle := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
+	rowStyle := ui.Style{Background: theme.Background}
+	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: mutedStyle})
 	if expanded {
-		rowStyle.Background = theme.SurfacePressed
-	}
-	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: ui.Style{Foreground: theme.MutedForeground}})
-	if expanded {
-		prefix = ui.Text{Value: glyphTriangleDown, Style: ui.Style{Foreground: theme.MutedForeground}}
+		prefix = ui.Text{Value: glyphTriangleDown, Style: mutedStyle}
 	} else if inProgress {
-		prefix = spinner{Style: ui.Style{Foreground: theme.MutedForeground}}
+		prefix = spinner{Style: mutedStyle}
 	}
-	countSpans := []ui.TextSpan{{Text: countLabel, Style: ui.Style{Foreground: theme.MutedForeground}}}
+	countSpans := []ui.TextSpan{{Text: countLabel, Style: mutedStyle}}
 	if failedCount > 0 {
 		failureLabel := fmt.Sprintf("%d failed", failedCount)
 		if failedCount == 1 {
@@ -707,7 +719,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 		}
 		countSpans = append(countSpans, ui.TextSpan{
 			Text:  " " + glyphMiddleDot + " " + failureLabel,
-			Style: ui.Style{Foreground: theme.DangerText},
+			Style: ui.Style{Foreground: theme.DangerText, Background: theme.Background},
 		})
 	}
 	row := ui.DecoratedBox(ui.Decoration{Style: rowStyle}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
@@ -772,7 +784,7 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 			ui.Decoration{Style: ui.Style{Background: theme.Background}},
 			ui.Flex{Axis: ui.Horizontal, Children: tabs},
 		)},
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 	}}
 }
 
@@ -1215,7 +1227,7 @@ func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget, b
 				ui.Padding(ui.Insets{Top: 1, Right: 2, Bottom: 1, Left: 2}, ui.Flex{
 					Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: bodyChildren,
 				}),
-				dialogDivider{Style: ui.Style{Foreground: theme.Border}},
+				dialogDivider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 				ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
 			},
 		}
@@ -1230,7 +1242,7 @@ func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget, b
 	return proportionalWidth{Percent: 70, Min: 48, Max: 96, Child: ui.DecoratedBox(
 		ui.Decoration{
 			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
-			Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
+			Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background}),
 		},
 		content,
 	)}

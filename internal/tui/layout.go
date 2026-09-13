@@ -1,22 +1,50 @@
 package tui
 
-import "go.rockorager.dev/vaxis/ui"
+import (
+	kittheme "github.com/akonwi/kit/internal/theme"
+	"go.rockorager.dev/vaxis/ui"
+)
 
 // pickerModalMinHeight keeps picker-style dialogs visually stable when their
 // current result sets contain only a few rows.
 const pickerModalMinHeight = 20
 
+type pickerRowPresentation struct {
+	Theme       ui.Theme
+	ItemText    ui.Color
+	FocusedText ui.Color
+	FocusedBg   ui.Color
+}
+
+func resolvePickerRowPresentation(ctx ui.BuildContext, theme ui.Theme) pickerRowPresentation {
+	semantic, ok := ui.Depend[SemanticTheme](ctx)
+	if !ok {
+		semantic = semanticFallback(theme)
+	}
+	focusedBackground := semantic.Token(kittheme.TokenPickerFocusedBackground)
+	rowTheme := theme
+	rowTheme.Primary = focusedBackground
+	rowTheme.PrimaryHovered = focusedBackground
+	return pickerRowPresentation{
+		Theme:       rowTheme,
+		ItemText:    semantic.Token(kittheme.TokenPickerItemText),
+		FocusedText: semantic.Token(kittheme.TokenPickerFocusedText),
+		FocusedBg:   focusedBackground,
+	}
+}
+
 // pickerDialogContent owns the shared border and fixed footer structure for
 // picker-style dialogs. Callers own the body above the divider.
 func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {
+	borderStyle := ui.Style{Foreground: theme.Border, Background: theme.Background}
 	return ui.DecoratedBox(
 		ui.Decoration{
 			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
-			Border: ui.BorderAll(ui.Style{Foreground: theme.Border}),
+			Border: ui.BorderAll(borderStyle),
 		},
 		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 			ui.Expanded(body),
-			dialogDivider{Style: ui.Style{Foreground: theme.Border}},
+			dialogDivider{Style: borderStyle},
 			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
 		}},
 	)

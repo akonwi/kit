@@ -229,7 +229,7 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 	}
 	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.Expanded(body),
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint,
 			Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
@@ -578,10 +578,10 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 				Child: ui.Text{Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}},
 			}},
 		}})},
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		ui.Expanded(body),
 		ui.Padding(ui.Symmetric(1, 0), pendingActivityRow(theme, thinking, activity)),
-		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		})},

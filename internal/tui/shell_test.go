@@ -196,8 +196,8 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	}
 	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "✓ high")
 	selectedStyle := thinkingApp.Cell(selectedColumn, selectedRow).Style
-	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Foreground {
-		t.Fatalf("selected thinking label style = %+v, want foreground %v on background %v", selectedStyle, thinkingTheme.Background, thinkingTheme.Foreground)
+	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Selection {
+		t.Fatalf("selected thinking label style = %+v, want foreground %v on background %v", selectedStyle, thinkingTheme.Background, thinkingTheme.Selection)
 	}
 	longQuery := "anthropic-model-query-with-full-width"
 	queryApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
@@ -614,6 +614,11 @@ func TestComposerGrowthKeepsChromeVisibleInShortViewport(t *testing.T) {
 	}
 	if strings.TrimSpace(rows[height-6]) != strings.Repeat("─", width) {
 		t.Fatalf("composer separator = %q", rows[height-6])
+	}
+	for column := 0; column < width; column++ {
+		if got, want := app.Cell(column, height-6).Style.Background, ui.DefaultTheme().Background; got != want {
+			t.Fatalf("composer separator background at column %d = %v, want %v", column, got, want)
+		}
 	}
 	for offset, expected := range []string{"line 01", "line 02", "line 03"} {
 		if got := strings.TrimSpace(rows[height-5+offset]); got != expected {
@@ -1071,9 +1076,24 @@ func TestTurnWorkChipShowsOnlySpinnerAndCountWhenCollapsed(t *testing.T) {
 	if strings.Contains(rows[row], "Tool1") || strings.Contains(rows[row], "+2 more") {
 		t.Errorf("collapsed chip exposes tool names: %q", rows[row])
 	}
-	column, _ := findTextCell(t, rows, "10 tool calls")
-	if got := app.Cell(column, row).Background; got == ui.DefaultTheme().Surface {
-		t.Fatalf("collapsed chip uses raised surface background: %#v", got)
+	column, row := findPaintedCellSequence(t, app, 160, 16, "10 tool calls")
+	if got, want := app.Cell(column, row).Background, ui.DefaultTheme().Background; got != want {
+		t.Fatalf("collapsed chip background = %#v, want transcript background %#v", got, want)
+	}
+}
+
+func TestTranscriptUserEntryUsesTranscriptBackground(t *testing.T) {
+	t.Parallel()
+
+	theme := ui.DefaultTheme()
+	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
+		ID:      "user_1",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the file"}},
+	}, nil))
+	app.Pump(40, 4)
+	column, row := findPaintedCellSequence(t, app, 40, 4, "Inspect the file")
+	if got := app.Cell(column, row).Background; got != theme.Background {
+		t.Fatalf("user message background = %#v, want transcript background %#v", got, theme.Background)
 	}
 }
 
