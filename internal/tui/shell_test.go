@@ -17,22 +17,41 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
-type previewAttachmentSession struct{}
+type previewAttachmentSession struct {
+	release <-chan struct{}
+	done    chan<- struct{}
+}
 
 func (previewAttachmentSession) UploadAttachment(context.Context, string, io.Reader) (protocol.AttachmentInfo, error) {
 	panic("unexpected upload")
 }
 
-func (previewAttachmentSession) OpenAttachment(context.Context, string) (protocol.AttachmentInfo, io.ReadCloser, error) {
-	return protocol.AttachmentInfo{}, nil, fmt.Errorf("preview unavailable")
+func (s previewAttachmentSession) OpenAttachment(ctx context.Context, _ string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	select {
+	case <-ctx.Done():
+		return protocol.AttachmentInfo{}, nil, ctx.Err()
+	case <-s.release:
+		return protocol.AttachmentInfo{}, previewReadCloser{Reader: strings.NewReader("not an image"), done: s.done}, nil
+	}
+}
+
+type previewReadCloser struct {
+	io.Reader
+	done chan<- struct{}
+}
+
+func (r previewReadCloser) Close() error {
+	close(r.done)
+	return nil
 }
 
 func TestToolImageRendersAttachmentPreview(t *testing.T) {
 	t.Parallel()
+	release, done := make(chan struct{}), make(chan struct{})
 	view := shellView{Snapshot: shellSnapshot{
 		Phase:       phaseReady,
 		Session:     protocol.SessionInfo{ID: "session-1", Name: "Images", Model: "test/model"},
-		Attachments: previewAttachmentSession{},
+		Attachments: previewAttachmentSession{release: release, done: done},
 		Messages: []transcriptMessage{
 			{ID: "assistant-1", TurnID: "turn-1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call-1", Name: "show_image"}}},
 			{ID: "result-1", TurnID: "turn-1", Role: "tool", ToolCallID: "call-1", ToolName: "show_image", ToolStatus: "Completed", ToolContent: []protocol.TranscriptContent{{
@@ -45,6 +64,12 @@ func TestToolImageRendersAttachmentPreview(t *testing.T) {
 	text := strings.Join(paintedRows(application, 100, 30), "\n")
 	if !strings.Contains(text, "sample.png") {
 		t.Fatalf("tool image preview was not rendered:\n%s", text)
+	}
+	close(release)
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("preview loader did not finish")
 	}
 }
 

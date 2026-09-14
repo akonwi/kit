@@ -57,15 +57,11 @@ func (s *attachmentPreviewState) InitState() {
 			decoded, _, err = image.Decode(reader)
 			if err == nil {
 				raster := renderHalfBlockImage(decoded, attachmentPreviewColumns, attachmentPreviewRows, color.RGBA{A: 255})
-				if s.ctx.Err() == nil {
-					runtimeUI.Dispatch(func() { s.SetState(func() { s.info, s.raster, s.loaded = info, raster, true }) })
-				}
+				s.dispatchIfActive(runtimeUI, func() { s.info, s.raster, s.loaded = info, raster, true })
 				return
 			}
 		}
-		if s.ctx.Err() == nil {
-			runtimeUI.Dispatch(func() { s.SetState(func() { s.err, s.loaded = err, true }) })
-		}
+		s.dispatchIfActive(runtimeUI, func() { s.err, s.loaded = err, true })
 	}()
 }
 
@@ -73,6 +69,15 @@ func (s *attachmentPreviewState) Dispose() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+}
+
+func (s *attachmentPreviewState) dispatchIfActive(runtimeUI ui.Runtime, update func()) {
+	runtimeUI.Dispatch(func() {
+		if s.ctx.Err() != nil {
+			return
+		}
+		s.SetState(update)
+	})
 }
 
 func (s *attachmentPreviewState) Build(ctx ui.BuildContext) ui.Widget {
@@ -115,8 +120,8 @@ func (s *attachmentPreviewState) open(config attachmentPreview) {
 			defer reader.Close()
 			err = materializeAndOpenAttachment(info.Filename, reader)
 		}
-		if err != nil && s.ctx.Err() == nil {
-			runtimeUI.Dispatch(func() { s.SetState(func() { s.openErr = err }) })
+		if err != nil {
+			s.dispatchIfActive(runtimeUI, func() { s.openErr = err })
 		}
 	}()
 }
