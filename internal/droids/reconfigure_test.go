@@ -9,7 +9,7 @@ import (
 
 func TestReconfigureAppliesToNextProviderRequestWithoutInterruptingInflightRequest(t *testing.T) {
 	providers := newReconfigureProviders()
-	droid, err := Open(t.Context(), "conversation_reconfigure", Config{
+	droid, err := Spawn(t.Context(), "conversation_reconfigure", Config{
 		Providers: providers, Model: "test/reconfigure", SystemPrompt: "before", Reasoning: "low",
 	})
 	if err != nil {

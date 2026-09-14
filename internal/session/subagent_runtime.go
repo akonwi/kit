@@ -98,7 +98,7 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	if err != nil {
 		return nil, fmt.Errorf("open child droid store: %w", err)
 	}
-	droid, err := droids.Open(ctx, droids.ConversationID(conversation.ID), droids.Config{
+	droid, err := droids.Spawn(ctx, droids.ConversationID(conversation.ID), droids.Config{
 		Store: store, Providers: f.providers, Model: conversation.Model,
 		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: bundle.Tools,
 	})

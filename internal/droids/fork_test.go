@@ -11,7 +11,7 @@ import (
 
 func TestForkDefersProviderReplayValidationUntilChildPrompt(t *testing.T) {
 	providers := newForkTestProviders()
-	source, err := Open(t.Context(), "conversation_deferred_source", Config{
+	source, err := Spawn(t.Context(), "conversation_deferred_source", Config{
 		Providers: providers, Model: "test/fork-test",
 	})
 	if err != nil {
@@ -75,7 +75,7 @@ func TestHistoryRejectsPersistedMessageIdentityMismatch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	droid, err := Open(t.Context(), "conversation_history", Config{
+	droid, err := Spawn(t.Context(), "conversation_history", Config{
 		Store: store, Providers: newForkTestProviders(), Model: "test/fork-test",
 	})
 	if err != nil {
@@ -123,7 +123,7 @@ func TestForkCapturesHistoryAcrossStorePages(t *testing.T) {
 		t.Fatal(err)
 	}
 	providers := newForkTestProviders()
-	source, err := Open(t.Context(), "conversation_paged_source", Config{
+	source, err := Spawn(t.Context(), "conversation_paged_source", Config{
 		Store: sourceStore, Providers: providers, Model: "test/fork-test",
 	})
 	if err != nil {

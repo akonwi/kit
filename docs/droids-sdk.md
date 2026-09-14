@@ -569,7 +569,7 @@ A caller that only wants execution to proceed does not need to inspect this
 state first:
 
 ```go
-droid, err := droids.Open(ctx, id, config)
+droid, err := droids.Spawn(ctx, id, config)
 if err != nil {
     return err
 }
@@ -1593,7 +1593,7 @@ if err != nil {
     return nil, err
 }
 
-droid, err := droids.Open(ctx, droids.ConversationID(sessionID), droids.Config{
+droid, err := droids.Spawn(ctx, droids.ConversationID(sessionID), droids.Config{
     Store:     store,
     Providers: providers,
     Model:     model,

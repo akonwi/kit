@@ -28,7 +28,7 @@ func TestSDKCumulativeUsageCountsRetriesAbortsForksAndLegacyRebuild(t *testing.T
 		fallback: later,
 	}
 	store := droids.NewMemoryStore()
-	droid, err := droids.Open(t.Context(), "conversation_usage", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_usage", droids.Config{
 		Store: store, Providers: providers, Model: "test/usage",
 		Retry: &droids.RetryPolicy{Enabled: true, MaxRetries: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 	})
@@ -165,7 +165,7 @@ func TestSDKCumulativeUsageCountsRetriesAbortsForksAndLegacyRebuild(t *testing.T
 	}); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_usage", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_usage", droids.Config{
 		Store: store, Providers: providers, Model: "test/usage",
 	})
 	if err != nil {
@@ -191,7 +191,7 @@ func TestSDKCumulativeUsageIncludesEveryToolLoopModelCycle(t *testing.T) {
 			return droids.ToolText("ok"), nil
 		},
 	})
-	droid, err := droids.Open(t.Context(), "conversation_usage_tools", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_usage_tools", droids.Config{
 		Providers: providers, Model: "test/usage", Tools: []droids.AnyTool{tool},
 	})
 	if err != nil {
@@ -217,7 +217,7 @@ type usageToolArgs struct{}
 
 func TestSDKObservedTerminalUsagePersistsWhenAbortWinsBeforeAccounting(t *testing.T) {
 	providers := &observedCancellationProviders{started: make(chan struct{}), release: make(chan struct{})}
-	droid, err := droids.Open(t.Context(), "conversation_usage_abort_race", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_usage_abort_race", droids.Config{
 		Providers: providers, Model: "test/observed",
 	})
 	if err != nil {
@@ -310,7 +310,7 @@ func (*observedCancellationStream) Close() error { return nil }
 func TestSDKUsageContributionReconcilesAmbiguousCommitOnce(t *testing.T) {
 	providers := &usageProviders{fallback: droids.Usage{Input: 3, Output: 2, TotalTokens: 5}}
 	store := &ambiguousUsageStore{Store: droids.NewMemoryStore()}
-	droid, err := droids.Open(t.Context(), "conversation_usage_ambiguous", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_usage_ambiguous", droids.Config{
 		Store: store, Providers: providers, Model: "test/usage",
 	})
 	if err != nil {
@@ -359,7 +359,7 @@ func TestSDKMalformedProviderUsageIsNotAggregated(t *testing.T) {
 	providers := &usageProviders{responses: []droids.AssistantMessage{
 		usageMessage(droids.StopReasonStop, droids.Usage{Input: -1, Output: 2, TotalTokens: 1}),
 	}}
-	droid, err := droids.Open(t.Context(), "conversation_invalid_usage", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_invalid_usage", droids.Config{
 		Providers: providers, Model: "test/usage",
 	})
 	if err != nil {
@@ -387,7 +387,7 @@ func TestSDKFailedCompactionAddsObservedSummaryUsage(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.summaryUsage = droids.Usage{Input: 7, Output: 2, TotalTokens: 9}
 	providers.summaryStopReason = droids.StopReasonError
-	droid, err := droids.Open(t.Context(), "conversation_failed_compaction_usage", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_failed_compaction_usage", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -413,7 +413,7 @@ func TestSDKExplicitCompactionAddsSummaryProviderUsage(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.normalUsage = droids.Usage{Input: 2, Output: 1, TotalTokens: 3}
 	providers.summaryUsage = droids.Usage{Input: 7, Output: 2, TotalTokens: 9}
-	droid, err := droids.Open(t.Context(), "conversation_compaction_usage", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_compaction_usage", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {

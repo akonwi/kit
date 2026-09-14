@@ -28,7 +28,7 @@ func TestSDKForkPreservesAncestryAndDivergesAcrossStores(t *testing.T) {
 			childStore := test.childStore(t)
 			providers := newReadProviders()
 			var toolRuns atomic.Int32
-			source, err := droids.Open(t.Context(), "conversation_fork_source", droids.Config{
+			source, err := droids.Spawn(t.Context(), "conversation_fork_source", droids.Config{
 				Store: sourceStore, Providers: providers, Model: "test/read",
 				Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 			})
@@ -152,7 +152,7 @@ func TestSDKForkAcceptsFailedAndAbortedSources(t *testing.T) {
 	t.Run("failed", func(t *testing.T) {
 		providers := &retryProviders{}
 		retry := droids.RetryPolicy{Enabled: false}
-		source, err := droids.Open(t.Context(), "conversation_failed_source", droids.Config{
+		source, err := droids.Spawn(t.Context(), "conversation_failed_source", droids.Config{
 			Providers: providers, Model: "test/retry", Retry: &retry,
 		})
 		if err != nil {
@@ -178,7 +178,7 @@ func TestSDKForkAcceptsFailedAndAbortedSources(t *testing.T) {
 
 	t.Run("aborted", func(t *testing.T) {
 		providers := newSteeringProviders()
-		source, err := droids.Open(t.Context(), "conversation_aborted_source", droids.Config{
+		source, err := droids.Spawn(t.Context(), "conversation_aborted_source", droids.Config{
 			Providers: providers, Model: "test/steer",
 		})
 		if err != nil {
@@ -215,7 +215,7 @@ func TestSDKForkAcceptsFailedAndAbortedSources(t *testing.T) {
 
 func TestSDKForkRejectsOccupiedSource(t *testing.T) {
 	providers := newSteeringProviders()
-	source, err := droids.Open(t.Context(), "conversation_fork_busy", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_fork_busy", droids.Config{
 		Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -243,7 +243,7 @@ func TestSDKForkRejectsPausedSource(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
 	budget := droids.ExecutionPolicy{Budget: droids.ExecutionBudget{MaxModelCycles: 1}}
-	source, err := droids.Open(t.Context(), "conversation_fork_paused", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_fork_paused", droids.Config{
 		Providers: providers, Model: "test/read", Execution: &budget,
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -271,7 +271,7 @@ func TestSDKForkRejectsPausedSource(t *testing.T) {
 
 func TestSDKForkSerializesWithPromptAdmission(t *testing.T) {
 	providers := newSteeringProviders()
-	source, err := droids.Open(t.Context(), "conversation_prompt_race_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_prompt_race_source", droids.Config{
 		Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -336,7 +336,7 @@ func TestSDKForkSerializesWithPromptAdmission(t *testing.T) {
 
 func TestSDKForkSerializesWithBoundaryAdmission(t *testing.T) {
 	providers := newReadProviders()
-	source, err := droids.Open(t.Context(), "conversation_boundary_race_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_boundary_race_source", droids.Config{
 		Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -393,7 +393,7 @@ func TestSDKForkSerializesWithBoundaryAdmission(t *testing.T) {
 
 func TestSDKConcurrentForksAttachOneDestinationDroid(t *testing.T) {
 	providers := newReadProviders()
-	source, err := droids.Open(t.Context(), "conversation_concurrent_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_concurrent_source", droids.Config{
 		Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -442,7 +442,7 @@ func TestSDKConcurrentForksAttachOneDestinationDroid(t *testing.T) {
 func TestSDKForkReopensAndContinues(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
-	source, err := droids.Open(t.Context(), "conversation_reopen_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_reopen_source", droids.Config{
 		Providers: providers, Model: "test/read", Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -458,7 +458,7 @@ func TestSDKForkReopensAndContinues(t *testing.T) {
 	if err := forked.Droid.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_reopen_child", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_reopen_child", droids.Config{
 		Store: destination, Providers: providers, Model: "test/read", Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -480,7 +480,7 @@ func TestSDKForkReopensAndContinues(t *testing.T) {
 
 func TestSDKForkDetectsExistingDestinationWithoutAttaching(t *testing.T) {
 	providers := newReadProviders()
-	source, err := droids.Open(t.Context(), "conversation_existing_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_existing_source", droids.Config{
 		Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -509,7 +509,7 @@ func TestSDKForkDetectsExistingDestinationWithoutAttaching(t *testing.T) {
 
 func TestSDKForkReconcilesCanceledDestinationInitialization(t *testing.T) {
 	providers := newReadProviders()
-	source, err := droids.Open(t.Context(), "conversation_canceled_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_canceled_source", droids.Config{
 		Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -531,7 +531,7 @@ func TestSDKForkReconcilesCanceledDestinationInitialization(t *testing.T) {
 
 func TestSDKForkReconcilesAmbiguousDestinationInitialization(t *testing.T) {
 	providers := newReadProviders()
-	source, err := droids.Open(t.Context(), "conversation_ambiguous_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_ambiguous_source", droids.Config{
 		Providers: providers, Model: "test/read",
 	})
 	if err != nil {

@@ -52,7 +52,7 @@ func buildRuntimeRequestConfiguration(model Model, config RequestConfiguration) 
 // observes the replacement.
 func (d *Droid) Reconfigure(config RequestConfiguration) error {
 	if d == nil || d.sdk == nil {
-		return fmt.Errorf("droids: Reconfigure requires a droid opened with droids.Open")
+		return fmt.Errorf("droids: Reconfigure requires a droid opened with droids.Spawn")
 	}
 	next, err := buildRuntimeRequestConfiguration(d.model, config)
 	if err != nil {

@@ -18,7 +18,7 @@ import (
 
 func TestSDKPromptAdmissionKeyIsIdempotent(t *testing.T) {
 	providers := newReadProviders()
-	droid, err := droids.Open(t.Context(), "conversation_admission", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_admission", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&atomic.Int32{})},
 	})
@@ -50,7 +50,7 @@ func TestSDKPromptAdmissionKeyIsIdempotent(t *testing.T) {
 func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 	providers := &reactionProviders{}
 	store := droids.NewMemoryStore()
-	droid, err := droids.Open(t.Context(), "conversation_reaction", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_reaction", droids.Config{
 		Store: store, Providers: providers, Model: "test/reaction",
 	})
 	if err != nil {
@@ -144,7 +144,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 	if err := droid.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_reaction", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_reaction", droids.Config{
 		Store: store, Providers: providers, Model: "test/reaction",
 	})
 	if err != nil {
@@ -159,7 +159,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 
 func TestSDKActiveBoundaryIsDurablyAssociatedBeforeCompletion(t *testing.T) {
 	providers := newSteeringProviders()
-	droid, err := droids.Open(t.Context(), "conversation_active_boundary", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_active_boundary", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -198,7 +198,7 @@ func TestSDKActiveBoundaryIsDurablyAssociatedBeforeCompletion(t *testing.T) {
 func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T) {
 	providers := newLimitSteeringProviders()
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_reaction_limit_steering", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_reaction_limit_steering", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/limit-steer",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -290,7 +290,7 @@ func TestSDKMemoryAndSQLite(t *testing.T) {
 		}
 		t.Cleanup(func() { _ = reopenedStore.Close() })
 		providers := newReadProviders()
-		droid, err := droids.Open(t.Context(), "conversation_integration", droids.Config{
+		droid, err := droids.Spawn(t.Context(), "conversation_integration", droids.Config{
 			Store: reopenedStore, Providers: providers, Model: "test/read",
 			Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		})
@@ -322,7 +322,7 @@ func exerciseDroid(t *testing.T, store droids.Store, externalRuns *atomic.Int32)
 		runs = &localRuns
 	}
 	providers := newReadProviders()
-	droid, err := droids.Open(t.Context(), "conversation_integration", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_integration", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(runs)},
 	})
@@ -396,7 +396,7 @@ func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
 	store := droids.NewMemoryStore()
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_turn_query", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_turn_query", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -420,7 +420,7 @@ func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
 	if err := droid.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_turn_query", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_turn_query", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -437,7 +437,7 @@ func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
 func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	store := droids.NewMemoryStore()
 	providers := newReadProviders()
-	droid, err := droids.Open(t.Context(), "conversation_boundary_receipt", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_boundary_receipt", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -459,7 +459,7 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	if err := droid.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_boundary_receipt", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_boundary_receipt", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 	})
 	if err != nil {
@@ -502,7 +502,7 @@ func TestSDKAbortPendingHookProducesReplayableTerminalContext(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
 	hookStarted := make(chan struct{})
-	droid, err := droids.Open(t.Context(), "conversation_abort_hook", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_abort_hook", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(ctx context.Context, _ droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
@@ -533,7 +533,7 @@ func TestSDKAbortPendingHookProducesReplayableTerminalContext(t *testing.T) {
 	if err := droid.Close(); err != nil {
 		t.Fatal(err)
 	}
-	reopened, err := droids.Open(t.Context(), "conversation_abort_hook", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_abort_hook", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -556,7 +556,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 	hookStarted := make(chan struct{})
 	var signalOnce sync.Once
 	var firstContext droids.ToolContext
-	first, err := droids.Open(t.Context(), "conversation_hook", droids.Config{
+	first, err := droids.Spawn(t.Context(), "conversation_hook", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(ctx context.Context, call droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
@@ -587,7 +587,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 	}
 
 	var resumedContext droids.ToolContext
-	second, err := droids.Open(t.Context(), "conversation_hook", droids.Config{
+	second, err := droids.Spawn(t.Context(), "conversation_hook", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(_ context.Context, call droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
@@ -621,7 +621,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 
 func TestSDKPauseWinsRaceWithFinalResponse(t *testing.T) {
 	providers := newSteeringProviders()
-	droid, err := droids.Open(t.Context(), "conversation_pause_race", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_pause_race", droids.Config{
 		Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -652,7 +652,7 @@ func TestSDKPauseWinsRaceWithFinalResponse(t *testing.T) {
 
 func TestSDKAbortWinsRaceWithFinalResponse(t *testing.T) {
 	providers := newSteeringProviders()
-	droid, err := droids.Open(t.Context(), "conversation_abort_race", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_abort_race", droids.Config{
 		Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -683,7 +683,7 @@ func TestSDKAbortWinsRaceWithFinalResponse(t *testing.T) {
 
 func TestSDKSteeringKeepsNoToolResponseAlive(t *testing.T) {
 	providers := newSteeringProviders()
-	droid, err := droids.Open(t.Context(), "conversation_steer", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_steer", droids.Config{
 		Providers: providers, Model: "test/steer",
 	})
 	if err != nil {
@@ -736,7 +736,7 @@ func TestSDKSteeringKeepsNoToolResponseAlive(t *testing.T) {
 }
 
 func TestSDKSteeringRequiresActiveTurn(t *testing.T) {
-	droid, err := droids.Open(t.Context(), "conversation_idle_steer", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_idle_steer", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: newSteeringProviders(), Model: "test/steer",
 	})
 	if err != nil {
@@ -760,7 +760,7 @@ func TestSDKSteeringRequiresActiveTurn(t *testing.T) {
 func TestSDKLengthTruncatedToolCallGetsSyntheticResult(t *testing.T) {
 	providers := &truncatedToolProviders{}
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_truncated", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_truncated", droids.Config{
 		Providers: providers, Model: "test/truncated",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -796,7 +796,7 @@ func TestSDKLengthTruncatedToolCallGetsSyntheticResult(t *testing.T) {
 func TestSDKCycleBudgetPausesAndResumeRenewsIt(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_budget", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_budget", droids.Config{
 		Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		Execution: &droids.ExecutionPolicy{
@@ -841,7 +841,7 @@ func TestSDKCycleBudgetPausesAndResumeRenewsIt(t *testing.T) {
 func TestSDKRunsMoreThanOneHundredModelCycles(t *testing.T) {
 	providers := &longLoopProviders{toolCycles: 105}
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_long", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_long", droids.Config{
 		Providers: providers, Model: "test/long",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -871,7 +871,7 @@ func TestSDKRunsMoreThanOneHundredModelCycles(t *testing.T) {
 
 func TestSDKRetriesTransientProviderFailure(t *testing.T) {
 	providers := &retryProviders{}
-	droid, err := droids.Open(t.Context(), "conversation_retry", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_retry", droids.Config{
 		Providers: providers, Model: "test/retry",
 		Retry: &droids.RetryPolicy{
 			Enabled: true, MaxRetries: 1, BaseDelay: 2 * time.Second, MaxDelay: 2 * time.Second,
@@ -935,7 +935,7 @@ func TestSDKRetriesTransientProviderFailure(t *testing.T) {
 func TestSDKSettlementFailureReturnsWaitAndShutdownErrors(t *testing.T) {
 	store := &failSettlementStore{Store: droids.NewMemoryStore()}
 	providers := &retryProviders{alwaysSucceed: true}
-	droid, err := droids.Open(t.Context(), "conversation_settlement_failure", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_settlement_failure", droids.Config{
 		Store: store, Providers: providers, Model: "test/retry",
 	})
 	if err != nil {
@@ -962,7 +962,7 @@ func TestSDKRawToolResultFailureBlocksContinuation(t *testing.T) {
 	store := &failRawResultStore{Store: droids.NewMemoryStore()}
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
-	droid, err := droids.Open(t.Context(), "conversation_raw_failure", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_raw_failure", droids.Config{
 		Store: store, Providers: providers, Model: "test/read",
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
@@ -1008,7 +1008,7 @@ func TestSDKRawToolResultFailureBlocksContinuation(t *testing.T) {
 func TestSDKReconcilesAmbiguousCommit(t *testing.T) {
 	store := &ambiguousStore{Store: droids.NewMemoryStore()}
 	providers := &retryProviders{alwaysSucceed: true}
-	droid, err := droids.Open(t.Context(), "conversation_ambiguous", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_ambiguous", droids.Config{
 		Store: store, Providers: providers, Model: "test/retry",
 	})
 	if err != nil {
@@ -1032,7 +1032,7 @@ func TestSDKReconcilesAmbiguousCommit(t *testing.T) {
 
 func TestSDKSubscriptionReplaysAndFollowsDurableEvents(t *testing.T) {
 	providers := &retryProviders{alwaysSucceed: true}
-	droid, err := droids.Open(t.Context(), "conversation_subscription", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_subscription", droids.Config{
 		Providers: providers, Model: "test/retry",
 	})
 	if err != nil {
@@ -1074,7 +1074,7 @@ func TestSDKSubscriptionReplaysAndFollowsDurableEvents(t *testing.T) {
 
 func TestSDKAutomaticCompactionPreservesHistory(t *testing.T) {
 	providers := &compactionProviders{}
-	droid, err := droids.Open(t.Context(), "conversation_compaction", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_compaction", droids.Config{
 		Providers: providers, Model: "test/compact",
 	})
 	if err != nil {

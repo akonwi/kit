@@ -261,7 +261,7 @@ func TestActivateSkillHonorsCancellation(t *testing.T) {
 func TestActivateSkillRunsThroughDroidAndPersistsDetails(t *testing.T) {
 	registry := mustRegistry(t)
 	providers := &activationProviders{arguments: []byte(`{"name":"kit-customization"}`)}
-	droid, err := droids.Open(t.Context(), "conversation_skill_activation", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_skill_activation", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/skills",
 		Tools: []droids.AnyTool{registry.ActivateTool()},
 	})
@@ -302,7 +302,7 @@ func TestActivateSkillRunsThroughDroidAndPersistsDetails(t *testing.T) {
 func TestActivateSkillSchemaRejectsAdditionalArgumentsThroughDroid(t *testing.T) {
 	registry := mustRegistry(t)
 	providers := &activationProviders{arguments: []byte(`{"name":"kit-customization","extra":true}`)}
-	droid, err := droids.Open(t.Context(), "conversation_skill_invalid", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_skill_invalid", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/skills",
 		Tools: []droids.AnyTool{registry.ActivateTool()},
 	})

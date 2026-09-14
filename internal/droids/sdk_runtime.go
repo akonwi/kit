@@ -144,8 +144,8 @@ func (s *sdkSubscription) close(err error) {
 	})
 }
 
-// Open finds or creates one autonomous droid conversation.
-func Open(ctx context.Context, id ConversationID, config Config) (*Droid, error) {
+// Spawn finds or creates one autonomous droid conversation.
+func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error) {
 	if id == "" {
 		return nil, fmt.Errorf("droids: conversation id is required")
 	}
@@ -345,7 +345,7 @@ func newSDKExecution(runtime *sdkRuntime, turnID TurnID) *sdkExecution {
 // Prompt durably starts a turn or steers the current turn.
 func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) (ExecutionHandle, error) {
 	if d == nil || d.sdk == nil {
-		return nil, fmt.Errorf("droids: Prompt requires a droid opened with droids.Open")
+		return nil, fmt.Errorf("droids: Prompt requires a droid opened with droids.Spawn")
 	}
 	message, err := inputToMessage(input)
 	if err != nil {
@@ -430,7 +430,7 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 // result reports whether the handle belongs to an earlier admission.
 func (d *Droid) React(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
 	if d == nil || d.sdk == nil {
-		return nil, false, fmt.Errorf("droids: React requires a droid opened with droids.Open")
+		return nil, false, fmt.Errorf("droids: React requires a droid opened with droids.Spawn")
 	}
 	if !validBoundedContextValue(admissionKey, 256) {
 		return nil, false, fmt.Errorf("droids: reaction admission key is invalid")
@@ -671,7 +671,7 @@ func (rt *sdkRuntime) releaseRunLocked() {
 // Inform durably records an external boundary message.
 func (d *Droid) Inform(ctx context.Context, message BoundaryMessage) error {
 	if d == nil || d.sdk == nil {
-		return fmt.Errorf("droids: Inform requires a droid opened with droids.Open")
+		return fmt.Errorf("droids: Inform requires a droid opened with droids.Spawn")
 	}
 	wire, err := boundaryToWire(message)
 	if err != nil {
@@ -763,7 +763,7 @@ func (d *Droid) Inform(ctx context.Context, message BoundaryMessage) error {
 // BoundaryReceived reports whether an idempotency receipt is durable.
 func (d *Droid) BoundaryReceived(ctx context.Context, id string) (bool, error) {
 	if d == nil || d.sdk == nil {
-		return false, fmt.Errorf("droids: BoundaryReceived requires a droid opened with droids.Open")
+		return false, fmt.Errorf("droids: BoundaryReceived requires a droid opened with droids.Spawn")
 	}
 	if err := contextError(ctx); err != nil {
 		return false, err
@@ -781,7 +781,7 @@ func (d *Droid) BoundaryReceived(ctx context.Context, id string) (bool, error) {
 // pending, or durably associated with a turn.
 func (d *Droid) BoundaryStatus(ctx context.Context, id string) (BoundaryStatus, error) {
 	if d == nil || d.sdk == nil {
-		return BoundaryStatus{}, fmt.Errorf("droids: BoundaryStatus requires a droid opened with droids.Open")
+		return BoundaryStatus{}, fmt.Errorf("droids: BoundaryStatus requires a droid opened with droids.Spawn")
 	}
 	if err := contextError(ctx); err != nil {
 		return BoundaryStatus{}, err
@@ -811,7 +811,7 @@ func (d *Droid) BoundaryStatus(ctx context.Context, id string) (BoundaryStatus, 
 // Pause requests a durable pause at the next safe model boundary.
 func (d *Droid) Pause(ctx context.Context, reason string) error {
 	if d == nil || d.sdk == nil {
-		return fmt.Errorf("droids: Pause requires a droid opened with droids.Open")
+		return fmt.Errorf("droids: Pause requires a droid opened with droids.Spawn")
 	}
 	rt := d.sdk
 	rt.mu.Lock()
@@ -839,7 +839,7 @@ func (d *Droid) Pause(ctx context.Context, reason string) error {
 // Resume continues paused or safely recoverable work and otherwise does nothing.
 func (d *Droid) Resume(ctx context.Context) (returnErr error) {
 	if d == nil || d.sdk == nil {
-		return fmt.Errorf("droids: Resume requires a droid opened with droids.Open")
+		return fmt.Errorf("droids: Resume requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -1179,7 +1179,7 @@ func (rt *sdkRuntime) finishShutdown(d *Droid, cancel, resumeCancel, contextCanc
 // WaitQuiescent waits until no model, retry, or tool work is runnable.
 func (d *Droid) WaitQuiescent(ctx context.Context) (QuiescentState, error) {
 	if d == nil || d.sdk == nil {
-		return QuiescentState{}, fmt.Errorf("droids: WaitQuiescent requires a droid opened with droids.Open")
+		return QuiescentState{}, fmt.Errorf("droids: WaitQuiescent requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -1239,7 +1239,7 @@ func quiescentState(rt *sdkRuntime) QuiescentState {
 // Snapshot returns a bounded current droid projection.
 func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot, error) {
 	if d == nil || d.sdk == nil {
-		return Snapshot{}, fmt.Errorf("droids: Snapshot requires a droid opened with droids.Open")
+		return Snapshot{}, fmt.Errorf("droids: Snapshot requires a droid opened with droids.Spawn")
 	}
 	if err := contextError(ctx); err != nil {
 		return Snapshot{}, err
@@ -1311,7 +1311,7 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 // Turn returns the canonical terminal state of one settled turn.
 func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 	if d == nil || d.sdk == nil {
-		return TurnSnapshot{}, fmt.Errorf("droids: Turn requires a droid opened with droids.Open")
+		return TurnSnapshot{}, fmt.Errorf("droids: Turn requires a droid opened with droids.Spawn")
 	}
 	if id == "" {
 		return TurnSnapshot{}, fmt.Errorf("droids: turn id is required")
@@ -1356,7 +1356,7 @@ func (d *Droid) Turn(ctx context.Context, id TurnID) (TurnSnapshot, error) {
 // History pages canonical diagnostic messages.
 func (d *Droid) History(ctx context.Context, query HistoryQuery) (MessagePage, error) {
 	if d == nil || d.sdk == nil {
-		return MessagePage{}, fmt.Errorf("droids: History requires a droid opened with droids.Open")
+		return MessagePage{}, fmt.Errorf("droids: History requires a droid opened with droids.Spawn")
 	}
 	page, err := d.sdk.store.Records(ctx, RecordQuery{
 		After: query.After, Before: query.Before, Limit: query.Limit,
@@ -1394,7 +1394,7 @@ func messagePageFromRecords(page RecordPage, reverse bool, conversation Conversa
 // Subscribe replays durable events then follows live durable/transient events.
 func (d *Droid) Subscribe(ctx context.Context, options SubscribeOptions) (Subscription, error) {
 	if d == nil || d.sdk == nil {
-		return nil, fmt.Errorf("droids: Subscribe requires a droid opened with droids.Open")
+		return nil, fmt.Errorf("droids: Subscribe requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()

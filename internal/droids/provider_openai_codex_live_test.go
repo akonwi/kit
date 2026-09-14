@@ -150,7 +150,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 				return ToolText("tool-replay-ok"), nil
 			},
 		})
-		droid, err := Open(context.Background(), "codex-live-tool-replay", Config{
+		droid, err := Spawn(context.Background(), "codex-live-tool-replay", Config{
 			Store:        store,
 			Providers:    providers,
 			Model:        "openai-codex/" + modelID,

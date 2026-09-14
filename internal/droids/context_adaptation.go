@@ -78,7 +78,7 @@ type durableCompactionReceipt struct {
 // changing the conversation.
 func (d *Droid) AssessContext(ctx context.Context, target ContextTarget) (ContextAssessment, error) {
 	if d == nil || d.sdk == nil {
-		return ContextAssessment{}, fmt.Errorf("droids: AssessContext requires a droid opened with droids.Open")
+		return ContextAssessment{}, fmt.Errorf("droids: AssessContext requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -138,7 +138,7 @@ func (d *Droid) AssessContext(ctx context.Context, target ContextTarget) (Contex
 // is validated against both current and target configurations.
 func (d *Droid) CompactContext(ctx context.Context, options CompactContextOptions) (CompactContextResult, error) {
 	if d == nil || d.sdk == nil {
-		return CompactContextResult{}, fmt.Errorf("droids: CompactContext requires a droid opened with droids.Open")
+		return CompactContextResult{}, fmt.Errorf("droids: CompactContext requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()

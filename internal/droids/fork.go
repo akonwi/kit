@@ -18,7 +18,7 @@ const (
 // returned child.
 func (d *Droid) Fork(ctx context.Context, id ConversationID, options ForkOptions) (ForkResult, error) {
 	if d == nil || d.sdk == nil {
-		return ForkResult{}, fmt.Errorf("droids: Fork requires a droid opened with droids.Open")
+		return ForkResult{}, fmt.Errorf("droids: Fork requires a droid opened with droids.Spawn")
 	}
 	if ctx == nil {
 		ctx = context.Background()
@@ -112,7 +112,7 @@ func (d *Droid) Fork(ctx context.Context, id ConversationID, options ForkOptions
 	}
 
 	config.Store = destination
-	child, err := Open(reconcileContext, id, config)
+	child, err := Spawn(reconcileContext, id, config)
 	if err != nil {
 		return ForkResult{}, fmt.Errorf("droids: open forked conversation: %w", err)
 	}

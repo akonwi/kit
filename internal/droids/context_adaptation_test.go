@@ -20,7 +20,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	providers := newAdaptationProviders()
 	providers.activeSummaryFails = true
 	store := droids.NewMemoryStore()
-	droid, err := droids.Open(t.Context(), "conversation_adapt", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt", droids.Config{
 		Store: store, Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -119,7 +119,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	}
 	providers.smallUnavailable = true
 
-	reopened, err := droids.Open(t.Context(), "conversation_adapt", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_adapt", droids.Config{
 		Store: store, Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -136,7 +136,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 
 func TestSDKForcedCompactionIgnoresAutomaticThreshold(t *testing.T) {
 	providers := newAdaptationProviders()
-	droid, err := droids.Open(t.Context(), "conversation_force_compact", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_force_compact", droids.Config{
 		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -174,7 +174,7 @@ func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	droid, err := droids.Open(t.Context(), "conversation_adapt_sqlite", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_sqlite", droids.Config{
 		Store: store, Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -201,7 +201,7 @@ func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = reopenedStore.Close() })
-	reopened, err := droids.Open(t.Context(), "conversation_adapt_sqlite", droids.Config{
+	reopened, err := droids.Spawn(t.Context(), "conversation_adapt_sqlite", droids.Config{
 		Store: reopenedStore, Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -217,7 +217,7 @@ func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 func TestSDKAmbiguousCompactionCommitReconcilesReceiptAndCheckpoint(t *testing.T) {
 	providers := newAdaptationProviders()
 	store := &ambiguousCompactionStore{Store: droids.NewMemoryStore()}
-	droid, err := droids.Open(t.Context(), "conversation_adapt_ambiguous", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_ambiguous", droids.Config{
 		Store: store, Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -270,7 +270,7 @@ func (store *ambiguousCompactionStore) Commit(ctx context.Context, request droid
 func TestSDKQuiescentCompactionUsesInheritedMessageProvenanceInReadyFork(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.rejectActiveForSmall = true
-	source, err := droids.Open(t.Context(), "conversation_adapt_source", droids.Config{
+	source, err := droids.Spawn(t.Context(), "conversation_adapt_source", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -312,7 +312,7 @@ func TestSDKQuiescentCompactionUsesInheritedMessageProvenanceInReadyFork(t *test
 func TestSDKCompactionRejectsReplacementUnsafeForCurrentModel(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.divergentMeasure = true
-	droid, err := droids.Open(t.Context(), "conversation_adapt_current_safety", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_current_safety", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -345,7 +345,7 @@ func TestSDKCompactionRejectsReplacementUnsafeForCurrentModel(t *testing.T) {
 
 func TestSDKCompactionReceiptWinsOverLaterBusyState(t *testing.T) {
 	providers := newAdaptationProviders()
-	droid, err := droids.Open(t.Context(), "conversation_adapt_receipt_busy", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_receipt_busy", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -418,7 +418,7 @@ func TestSDKQuiescentCompactionPreservesBoundaryAcceptedDuringSummary(t *testing
 	providers := newAdaptationProviders()
 	providers.blockSummary = make(chan struct{})
 	providers.summaryStarted = make(chan struct{})
-	droid, err := droids.Open(t.Context(), "conversation_adapt_boundary", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_boundary", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -507,7 +507,7 @@ func TestSDKAssessContextPropagatesReplayValidationCancellation(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.blockValidation = make(chan struct{})
 	providers.validationStarted = make(chan struct{})
-	droid, err := droids.Open(t.Context(), "conversation_adapt_assess_cancel", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_assess_cancel", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {
@@ -540,7 +540,7 @@ func TestSDKShutdownCancelsQuiescentCompaction(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.blockSummary = make(chan struct{})
 	providers.summaryStarted = make(chan struct{})
-	droid, err := droids.Open(t.Context(), "conversation_adapt_shutdown", droids.Config{
+	droid, err := droids.Spawn(t.Context(), "conversation_adapt_shutdown", droids.Config{
 		Providers: providers, Model: "test/active",
 	})
 	if err != nil {

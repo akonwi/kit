@@ -1943,7 +1943,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 }
 
 func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, error) {
-	droid, err := droids.Open(ctx, droids.ConversationID(record.ID), droids.Config{
+	droid, err := droids.Spawn(ctx, droids.ConversationID(record.ID), droids.Config{
 		Store: store, Providers: m.providers,
 		Model:     record.ModelProvider + "/" + record.ModelID,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
