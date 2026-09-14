@@ -830,6 +830,14 @@ func presentToolCall(call transcriptToolCall, state transcriptMessage, exists bo
 			summary = "available sessions"
 		}
 		return toolCallPresentation{Title: title, Summary: toolSummaryOrFallback(call, summary)}
+	case "create_session":
+		name, _ := arguments["name"].(string)
+		cwd, _ := arguments["cwd"].(string)
+		summary := strings.TrimSpace(name)
+		if summary != "" && strings.TrimSpace(cwd) != "" {
+			summary += " " + glyphMiddleDot + " " + strings.TrimSpace(cwd)
+		}
+		return toolCallPresentation{Title: "Create session", Summary: toolSummaryOrFallback(call, summary)}
 	case "subagent":
 		action, _ := arguments["action"].(string)
 		title := map[string]string{
@@ -970,6 +978,8 @@ func toolArgumentKeys(call transcriptToolCall) []string {
 		return []string{"message", "requestId", "sessionId"}
 	case "activate_skill":
 		return []string{"name"}
+	case "create_session":
+		return []string{"name", "cwd", "prompt"}
 	default:
 		return []string{"command", "path", "agent"}
 	}

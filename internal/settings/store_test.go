@@ -250,6 +250,25 @@ func TestStoreSerializesConcurrentUpdates(t *testing.T) {
 	}
 }
 
+func TestLoadDefaultModel(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"defaultModel":"openai-codex/gpt-5.6-sol"}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err := store.Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(warnings) != 0 || loaded.DefaultModel != "openai-codex/gpt-5.6-sol" {
+		t.Fatalf("settings = %+v, warnings = %+v", loaded, warnings)
+	}
+}
+
 func TestLoadModelOverrides(t *testing.T) {
 	t.Parallel()
 

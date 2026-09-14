@@ -48,12 +48,13 @@ var (
 
 // CreateInput contains metadata for a new persisted or temporary session.
 type CreateInput struct {
-	ID            string
-	CWD           string
-	Name          string
-	Model         string
-	ThinkingLevel string
-	Temporary     bool
+	ID              string
+	CWD             string
+	Name            string
+	Model           string
+	ThinkingLevel   string
+	Temporary       bool
+	ParentSessionID string
 }
 
 // ForkInput identifies the linked child created from a settled session.
@@ -453,7 +454,7 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 		m.mu.Unlock()
 	}()
 	requested := NewSession{
-		ID: id, CWD: cwd, Name: name, Persistent: !input.Temporary,
+		ID: id, CWD: cwd, Name: name, Persistent: !input.Temporary, ParentSessionID: input.ParentSessionID,
 		ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
 	}
 	if input.Temporary {

@@ -23,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/settings"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -202,9 +203,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		},
 	}
 	peerTools := &peer.ToolService{}
+	sessionTools := &sessiontool.ToolService{}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
-		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools,
+		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools, SessionToolFactory: sessionTools,
 		AttachmentStore: attachmentStore,
 		ShowImageEnabled: func(record kitsession.SessionRecord) bool {
 			model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
@@ -225,6 +227,16 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("create session manager: %w", err)
 	}
 	peerTools.Service = sessionManager
+	sessionTools.Service = modelSessionService{
+		manager: sessionManager, providers: providers, availableProviders: providerAvailability,
+		configuredDefault: func() (string, error) {
+			current, _, loadErr := settingsStore.Load()
+			if loadErr != nil {
+				return "", fmt.Errorf("load default model: %w", loadErr)
+			}
+			return current.DefaultModel, nil
+		},
+	}
 	if err := subagents.SetEventSink(sessionManager); err != nil {
 		return fmt.Errorf("connect subagent event sink: %w", err)
 	}

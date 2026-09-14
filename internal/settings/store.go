@@ -21,6 +21,7 @@ import (
 // Unrecognized JSON fields are retained internally when settings are updated.
 type Settings struct {
 	Theme          string
+	DefaultModel   string
 	ModelOverrides map[string]ModelOverride
 
 	fields map[string]json.RawMessage
@@ -176,6 +177,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 			result.Theme = name
 		}
 	}
+	if raw, ok := fields["defaultModel"]; ok {
+		var selector string
+		if err := json.Unmarshal(raw, &selector); err != nil || !validModelSelector(selector) {
+			warnings = append(warnings, Warning{Field: "defaultModel", Err: errors.New("must be an exact provider/model selector; ignoring")})
+		} else {
+			result.DefaultModel = selector
+		}
+	}
 	if raw, ok := fields["modelOverrides"]; ok {
 		var overrides map[string]json.RawMessage
 		if err := json.Unmarshal(raw, &overrides); err != nil {
@@ -238,7 +247,7 @@ func defaultSettings() Settings {
 }
 
 func cloneSettings(source Settings) Settings {
-	result := Settings{Theme: source.Theme, fields: make(map[string]json.RawMessage, len(source.fields))}
+	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

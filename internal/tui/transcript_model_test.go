@@ -503,6 +503,9 @@ func TestPresentToolCallUsesTypedTitlesAndSummaries(t *testing.T) {
 		{name: "ask session", call: transcriptToolCall{Name: "peer_session", Arguments: json.RawMessage(`{"action":"send","sessionId":"session_peer","message":"Review the scheduler"}`)}, want: toolCallPresentation{Title: "Ask session", Summary: "Review the scheduler"}},
 		{name: "inspect peer query", call: transcriptToolCall{Name: "peer_session", Arguments: json.RawMessage(`{"action":"inspect","requestId":"peer_request"}`)}, want: toolCallPresentation{Title: "Inspect peer query", Summary: "peer_request"}},
 		{name: "wait for peer query", call: transcriptToolCall{Name: "peer_session", Arguments: json.RawMessage(`{"action":"wait","requestId":"peer_request","timeoutSeconds":30}`)}, want: toolCallPresentation{Title: "Wait for peer query", Summary: "peer_request"}},
+		{name: "create session", call: transcriptToolCall{Name: "create_session", Arguments: json.RawMessage(`{"cwd":"/tmp/project","name":"Investigate API","prompt":"Inspect it"}`)}, want: toolCallPresentation{Title: "Create session", Summary: "Investigate API · /tmp/project"}},
+		{name: "create session missing name", call: transcriptToolCall{Name: "create_session", Arguments: json.RawMessage(`{"cwd":"/tmp/project"}`)}, want: toolCallPresentation{Title: "Create session", Summary: "/tmp/project"}},
+		{name: "create session malformed", call: transcriptToolCall{Name: "create_session", Arguments: json.RawMessage(`{`)}, want: toolCallPresentation{Title: "Create session", Summary: `{`}},
 		{name: "aborted read", call: transcriptToolCall{Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`)}, state: transcriptMessage{ToolStatus: "Not run"}, exists: true, want: toolCallPresentation{Title: "Read file", Summary: "README.md"}},
 		{name: "fallback", call: transcriptToolCall{Name: "custom_tool", Arguments: json.RawMessage(`{"path":"tmp"}`)}, want: toolCallPresentation{Title: "Custom Tool", Summary: "tmp"}},
 		{name: "fallback non-string arguments", call: transcriptToolCall{Name: "custom_tool", Arguments: json.RawMessage(`{"limit":20}`)}, want: toolCallPresentation{Title: "Custom Tool", Summary: `{"limit":20}`}},
@@ -547,6 +550,11 @@ func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
 	peer := transcriptToolCall{ID: "peer_1", Name: "peer_session", Arguments: json.RawMessage(`{"action":"send","sessionId":"session_peer","message":"inspect peer changes"}`)}
 	if got := formatToolArguments(peer, false); got != "inspect peer changes" {
 		t.Fatalf("peer session argument = %q", got)
+	}
+
+	createSession := transcriptToolCall{ID: "session_1", Name: "create_session", Arguments: json.RawMessage(`{"cwd":"/tmp/project","name":"Investigate API","prompt":"inspect"}`)}
+	if got := formatToolArguments(createSession, true); got != "Investigate API" {
+		t.Fatalf("create session argument = %q", got)
 	}
 
 	skill := transcriptToolCall{ID: "skill_1", Name: "activate_skill", Arguments: json.RawMessage(`{"name":"vaxis-ui"}`)}

@@ -12,6 +12,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
+	"github.com/akonwi/kit/internal/sessiontool"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/subagent"
@@ -57,6 +58,7 @@ type RuntimeBundleOptions struct {
 	SubagentLoader      subagent.Loader
 	SubagentToolFactory subagent.ParentToolFactory
 	PeerToolFactory     peer.ToolFactory
+	SessionToolFactory  sessiontool.ToolFactory
 	AttachmentStore     attachment.Store
 	ShowImageEnabled    func(SessionRecord) bool
 }
@@ -70,6 +72,7 @@ type defaultRuntimeBundleBuilder struct {
 	subagentLoader      subagent.Loader
 	subagentToolFactory subagent.ParentToolFactory
 	peerToolFactory     peer.ToolFactory
+	sessionToolFactory  sessiontool.ToolFactory
 	attachmentStore     attachment.Store
 	showImageEnabled    func(SessionRecord) bool
 }
@@ -95,9 +98,10 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		composer: composer, registry: options.Registry, skillLoader: options.SkillLoader,
 		promptCommandLoader: options.PromptCommandLoader,
 		subagentLoader:      options.SubagentLoader, subagentToolFactory: options.SubagentToolFactory,
-		peerToolFactory:  options.PeerToolFactory,
-		attachmentStore:  options.AttachmentStore,
-		showImageEnabled: options.ShowImageEnabled,
+		peerToolFactory:    options.PeerToolFactory,
+		sessionToolFactory: options.SessionToolFactory,
+		attachmentStore:    options.AttachmentStore,
+		showImageEnabled:   options.ShowImageEnabled,
 	}
 	if options.Context != nil {
 		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
@@ -180,12 +184,21 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		}
 		tools = append(tools, tool)
 	}
-	if b.peerToolFactory != nil && record.Persistent {
-		tool, toolErr := b.peerToolFactory.Tool(record.ID)
-		if toolErr != nil {
-			return RuntimeBundle{}, toolErr
+	if record.Persistent {
+		if b.peerToolFactory != nil {
+			tool, toolErr := b.peerToolFactory.Tool(record.ID)
+			if toolErr != nil {
+				return RuntimeBundle{}, toolErr
+			}
+			tools = append(tools, tool)
 		}
-		tools = append(tools, tool)
+		if b.sessionToolFactory != nil {
+			tool, toolErr := b.sessionToolFactory.Tool(record.ID)
+			if toolErr != nil {
+				return RuntimeBundle{}, toolErr
+			}
+			tools = append(tools, tool)
+		}
 	}
 	return RuntimeBundle{
 		Prompt: systemprompt.Result{
