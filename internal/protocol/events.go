@@ -38,6 +38,7 @@ const (
 	SessionEventRunFinished            SessionEventKind = "run.finished"
 	SessionEventSessionRenamed         SessionEventKind = "session.renamed"
 	SessionEventSubagentChanged        SessionEventKind = "subagent.changed"
+	SessionEventPeerQueryChanged       SessionEventKind = "peer_query.changed"
 	SessionEventInteractionRequested   SessionEventKind = "interaction.requested"
 	SessionEventInteractionResolved    SessionEventKind = "interaction.resolved"
 )
@@ -75,6 +76,7 @@ type SessionEvent struct {
 	SessionName            string              `json:"sessionName,omitempty"`
 	SubagentConversationID string              `json:"subagentConversationId,omitempty"`
 	SubagentTaskID         string              `json:"subagentTaskId,omitempty"`
+	PeerRequestID          string              `json:"peerRequestId,omitempty"`
 	Interaction            *InteractionRequest `json:"interaction,omitempty"`
 	InteractionID          string              `json:"interactionId,omitempty"`
 	InteractionResolution  string              `json:"interactionResolution,omitempty"`
@@ -106,6 +108,10 @@ func (event SessionEvent) Validate() error {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
 		}
+	} else if event.Kind == SessionEventPeerQueryChanged {
+		if event.TurnID != "" || event.RunID != "" || !identifier.Valid(event.PeerRequestID, "peer_") {
+			return fmt.Errorf("peer query event requires request identity without turn identity")
+		}
 	} else {
 		if event.TurnID == "" || event.RunID == "" {
 			return fmt.Errorf("event turn and run ids are required")
@@ -113,8 +119,8 @@ func (event SessionEvent) Validate() error {
 		if event.RunID != event.TurnID {
 			return fmt.Errorf("event run identity must equal its droid turn identity")
 		}
-		if event.SubagentConversationID != "" || event.SubagentTaskID != "" {
-			return fmt.Errorf("parent run event cannot carry subagent identity")
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" {
+			return fmt.Errorf("parent run event cannot carry external identity")
 		}
 	}
 	if len(event.Content) > maxSessionEventContentBlocks {
@@ -208,8 +214,12 @@ func (event SessionEvent) Validate() error {
 		}
 	case SessionEventSubagentChanged:
 		if !validRendererText(event.SubagentConversationID, 128) ||
-			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || payloadBytes != 0 {
+			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || event.PeerRequestID != "" || payloadBytes != 0 {
 			return fmt.Errorf("subagent event identity or payload is invalid")
+		}
+	case SessionEventPeerQueryChanged:
+		if payloadBytes != 0 {
+			return fmt.Errorf("peer query event payload is invalid")
 		}
 	case SessionEventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
@@ -240,7 +250,7 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind == SessionEventSessionRenamed {
 		if payloadBytes != len(event.SessionName) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
-			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
 			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
 			return fmt.Errorf("session rename event carries invalid payload")
 		}
@@ -372,7 +382,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSubagentChanged {
+		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSubagentChanged || event.Kind == SessionEventPeerQueryChanged {
 			previous = event.Sequence
 			continue
 		}

@@ -10,6 +10,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
@@ -55,6 +56,7 @@ type RuntimeBundleOptions struct {
 	PromptCommandLoader promptcommands.Loader
 	SubagentLoader      subagent.Loader
 	SubagentToolFactory subagent.ParentToolFactory
+	PeerToolFactory     peer.ToolFactory
 	AttachmentStore     attachment.Store
 	ShowImageEnabled    func(SessionRecord) bool
 }
@@ -67,6 +69,7 @@ type defaultRuntimeBundleBuilder struct {
 	promptCommandLoader promptcommands.Loader
 	subagentLoader      subagent.Loader
 	subagentToolFactory subagent.ParentToolFactory
+	peerToolFactory     peer.ToolFactory
 	attachmentStore     attachment.Store
 	showImageEnabled    func(SessionRecord) bool
 }
@@ -92,6 +95,7 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		composer: composer, registry: options.Registry, skillLoader: options.SkillLoader,
 		promptCommandLoader: options.PromptCommandLoader,
 		subagentLoader:      options.SubagentLoader, subagentToolFactory: options.SubagentToolFactory,
+		peerToolFactory:  options.PeerToolFactory,
 		attachmentStore:  options.AttachmentStore,
 		showImageEnabled: options.ShowImageEnabled,
 	}
@@ -171,6 +175,13 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	tools = append(tools, registry.ActivateTool())
 	if b.subagentLoader != nil {
 		tool, toolErr := b.subagentToolFactory.Tool(record.ID, subagents.Catalog)
+		if toolErr != nil {
+			return RuntimeBundle{}, toolErr
+		}
+		tools = append(tools, tool)
+	}
+	if b.peerToolFactory != nil && record.Persistent {
+		tool, toolErr := b.peerToolFactory.Tool(record.ID)
 		if toolErr != nil {
 			return RuntimeBundle{}, toolErr
 		}

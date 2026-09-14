@@ -20,6 +20,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
@@ -187,9 +188,10 @@ func Run(ctx context.Context, options RunOptions) error {
 			return model.Provider + "/" + model.ID, effectiveThinking, nil
 		},
 	}
+	peerTools := &peer.ToolService{}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
-		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools,
+		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools,
 		AttachmentStore: attachmentStore,
 		ShowImageEnabled: func(record kitsession.SessionRecord) bool {
 			_, model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
@@ -208,6 +210,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
 	}
+	peerTools.Service = sessionManager
 	if err := subagents.SetEventSink(sessionManager); err != nil {
 		return fmt.Errorf("connect subagent event sink: %w", err)
 	}
@@ -219,6 +222,9 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	if err := sessionManager.StartSubagentMailbox(); err != nil {
 		return fmt.Errorf("start subagent mailbox delivery: %w", err)
+	}
+	if err := sessionManager.StartPeerQueries(ctx); err != nil {
+		return fmt.Errorf("start peer query delivery: %w", err)
 	}
 	listener, err = net.Listen("tcp4", "127.0.0.1:0")
 	if err != nil {

@@ -347,6 +347,14 @@ func (s *Store) ArchiveSession(ctx context.Context, id string, archivedAt time.T
 	if err := archiveOwnedSubagents(ctx, tx, id, archivedAt); err != nil {
 		return fmt.Errorf("archive session %q subagents: %w", id, err)
 	}
+	if _, err := tx.ExecContext(ctx, `
+		UPDATE peer_session_queries
+		SET state = 'recipient_archived', terminal_error = 'recipient session was archived',
+		    completed_at = ?, generation = generation + 1
+		WHERE recipient_session_id = ? AND state = 'queued'
+	`, formatted, id); err != nil {
+		return fmt.Errorf("archive session %q peer queries: %w", id, err)
+	}
 	if err := tx.Commit(); err != nil {
 		return fmt.Errorf("commit archived session %q: %w", id, err)
 	}

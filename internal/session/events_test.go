@@ -42,6 +42,18 @@ func TestSubagentChangedEventIsSessionScoped(t *testing.T) {
 	}
 }
 
+func TestPeerQueryChangedEventIsSessionScoped(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{SessionID: "session_test", Kind: EventPeerQueryChanged, PeerRequestID: "peer_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.TurnID = "turn_parent"
+	if err := event.Validate(); err == nil {
+		t.Fatal("peer event accepted parent turn identity")
+	}
+}
+
 func TestProjectDroidEventPreservesExpectedLiveActivity(t *testing.T) {
 	t.Parallel()
 

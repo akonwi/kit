@@ -49,6 +49,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
   child through droids semantic forking, with client-visible lineage, attachment
   preservation, and an optional first child prompt, without changing the
   session viewed by unrelated clients.
+- [x] CORE-PEER-001 — Let persistent session droids discover eligible peers and
+  exchange bounded, durable, correlated queries through independently scheduled
+  recipient turns, with restart-safe delivery, terminal replies, cycle limits,
+  and no peer lifecycle authority, as defined by ADR 0014.
 - [~] CORE-RUN-001 — Complete streaming and recovery semantics for text,
   thinking, messages, tool activity, usage, provider errors, terminal state, and
   reconnecting clients.

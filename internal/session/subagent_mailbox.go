@@ -369,7 +369,7 @@ func (m *Manager) deliverSubagentMailboxAutonomously(ctx context.Context, loaded
 		return m.markSubagentMailboxDelivered(ctx, []subagent.MailboxItem{item})
 	}
 	turnID := string(handle.TurnID())
-	if _, err := m.launchAdmittedRunLocked(loaded, item.OwnerSessionID, handle, subscription, true, []NewEvent{{
+	if _, err := m.launchAdmittedRunLocked(loaded, item.OwnerSessionID, handle, subscription, true, nil, []NewEvent{{
 		SessionID: item.OwnerSessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning,
 	}}); err != nil {
 		releaseSlot()

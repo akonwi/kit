@@ -46,6 +46,7 @@ const (
 	EventRunFinished            EventKind = "run.finished"
 	EventSessionRenamed         EventKind = "session.renamed"
 	EventSubagentChanged        EventKind = "subagent.changed"
+	EventPeerQueryChanged       EventKind = "peer_query.changed"
 	EventInteractionRequested   EventKind = "interaction.requested"
 	EventInteractionResolved    EventKind = "interaction.resolved"
 )
@@ -81,6 +82,7 @@ type NewEvent struct {
 	SessionName            string
 	SubagentConversationID string
 	SubagentTaskID         string
+	PeerRequestID          string
 	Interaction            *InteractionRequest
 	InteractionID          string
 	InteractionResolution  string
@@ -138,6 +140,10 @@ func (event NewEvent) Validate() error {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
 		}
+	} else if event.Kind == EventPeerQueryChanged {
+		if event.TurnID != "" || event.RunID != "" || !identifier.Valid(event.PeerRequestID, "peer_") {
+			return fmt.Errorf("peer query event requires request identity without turn identity")
+		}
 	} else {
 		if event.TurnID == "" || event.RunID == "" {
 			return fmt.Errorf("turn and run ids are required")
@@ -145,8 +151,8 @@ func (event NewEvent) Validate() error {
 		if event.RunID != event.TurnID {
 			return fmt.Errorf("run identity must equal droid turn identity")
 		}
-		if event.SubagentConversationID != "" || event.SubagentTaskID != "" {
-			return fmt.Errorf("parent run event cannot carry subagent identity")
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" {
+			return fmt.Errorf("parent run event cannot carry external identity")
 		}
 	}
 	if len(event.Content) > maxLiveEventContentBlocks {
@@ -235,7 +241,7 @@ func (event NewEvent) Validate() error {
 		if strings.TrimSpace(event.SessionName) != event.SessionName || !validSessionName(event.SessionName) || event.SessionName == "" {
 			return fmt.Errorf("session rename event requires a renderer-safe name")
 		}
-	case EventSubagentChanged:
+	case EventSubagentChanged, EventPeerQueryChanged:
 	case EventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
 			return fmt.Errorf("interaction request event is invalid")
@@ -265,7 +271,7 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind == EventSessionRenamed {
 		if payloadBytes != len(event.SessionName) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
-			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
 			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
 			return fmt.Errorf("session rename event carries invalid payload")
 		}
@@ -274,9 +280,12 @@ func (event NewEvent) Validate() error {
 		if !identifier.Valid(event.SubagentConversationID, "subagent_") ||
 			(event.SubagentTaskID != "" && !identifier.Valid(event.SubagentTaskID, "task_")) ||
 			payloadBytes != 0 || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
-			event.ContextTokens != 0 || event.ContextWindow != 0 || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.PeerRequestID != "" || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
 			return fmt.Errorf("subagent event carries invalid identity or payload")
 		}
+	}
+	if event.Kind == EventPeerQueryChanged && (payloadBytes != 0 || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil || event.SubagentConversationID != "" || event.SubagentTaskID != "") {
+		return fmt.Errorf("peer query event carries invalid payload")
 	}
 	switch event.ErrorKind {
 	case "", ProviderErrorAuthentication, ProviderErrorEntitlement,

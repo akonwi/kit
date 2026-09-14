@@ -816,6 +816,20 @@ func presentToolCall(call transcriptToolCall, state transcriptMessage, exists bo
 	case "activate_skill":
 		name, _ := arguments["name"].(string)
 		return toolCallPresentation{Title: "Load skill", Summary: toolSummaryOrFallback(call, name)}
+	case "peer_session":
+		action, _ := arguments["action"].(string)
+		title := map[string]string{
+			"discover": "Discover sessions", "send": "Ask session",
+			"inspect": "Inspect peer query", "wait": "Wait for peer query",
+		}[action]
+		if title == "" {
+			title = "Peer session"
+		}
+		summary := formatToolArguments(call, false)
+		if action == "discover" && summary == "" {
+			summary = "available sessions"
+		}
+		return toolCallPresentation{Title: title, Summary: toolSummaryOrFallback(call, summary)}
 	case "subagent":
 		action, _ := arguments["action"].(string)
 		title := map[string]string{
@@ -952,6 +966,8 @@ func toolArgumentKeys(call transcriptToolCall) []string {
 	switch call.Name {
 	case "subagent":
 		return []string{"message", "action"}
+	case "peer_session":
+		return []string{"message", "requestId", "sessionId"}
 	case "activate_skill":
 		return []string{"name"}
 	default:

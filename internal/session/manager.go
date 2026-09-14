@@ -18,6 +18,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/subagent"
 )
 
@@ -108,6 +109,8 @@ type Manager struct {
 	bundleBuilder         RuntimeBundleBuilder
 	attachments           attachment.Store
 	mailbox               subagent.Repository
+	peerQueries           peer.Repository
+	peerLimits            peer.Limits
 	subagentOwnerCanceler interface{ CancelOwner(string) }
 	droidDirectory        string
 	temporaryDroids       bool
@@ -138,6 +141,8 @@ type Manager struct {
 	mailboxBlocked    map[string]bool
 	mailboxSlots      chan struct{}
 	mailboxStarted    bool
+	peerWorkers       map[string]*mailboxReactionWorker
+	peerStarted       bool
 
 	bashMu           sync.Mutex
 	bashActive       map[string]*activeBashExecution
@@ -239,6 +244,7 @@ type liveRun struct {
 	done           chan struct{}
 	completeStream bool
 	autonomous     bool
+	peerRequest    *peer.Request
 }
 
 type ManagerOption func(*managerOptions) error
@@ -316,12 +322,16 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
 		shutdownDone: make(chan struct{}), mailboxWorkers: make(map[string]*mailboxReactionWorker),
 		mailboxBlocked: make(map[string]bool), mailboxSlots: make(chan struct{}, maxConcurrentReactions),
+		peerLimits: peer.DefaultLimits(), peerWorkers: make(map[string]*mailboxReactionWorker),
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
 	}
 	if mailbox, ok := store.(subagent.Repository); ok {
 		manager.mailbox = mailbox
+	}
+	if queries, ok := store.(peer.Repository); ok {
+		manager.peerQueries = queries
 	}
 	return manager, nil
 }
@@ -1394,7 +1404,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 	}
 	turnID := string(handle.TurnID())
 	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
-	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, []NewEvent{
+	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, nil, []NewEvent{
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(input.Text)},
 	})
@@ -1409,7 +1419,7 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 	return reservation, err
 }
 
-func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, handle droids.ExecutionHandle, subscription droids.Subscription, autonomous bool, initialEvents []NewEvent) (RunReservation, error) {
+func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, handle droids.ExecutionHandle, subscription droids.Subscription, autonomous bool, peerRequest *peer.Request, initialEvents []NewEvent) (RunReservation, error) {
 	release := func() {
 		loaded.mu.Unlock()
 		loaded.admissionMu.Unlock()
@@ -1423,7 +1433,7 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 	}
 	run := &liveRun{record: RunProjection{
 		ID: turnID, SessionID: sessionID, TurnID: turnID, Status: RunStatusRunning,
-	}, done: make(chan struct{}), completeStream: true, autonomous: autonomous}
+	}, done: make(chan struct{}), completeStream: true, autonomous: autonomous, peerRequest: peerRequest}
 	pruneRuns(loaded.runs, 128)
 	loaded.activeRun = turnID
 	loaded.runs[turnID] = run
@@ -1540,6 +1550,9 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 		loaded.events.invalidate()
 	}
 	result := promptResultFromOutcome(sessionID, turnID, outcome, errors.Join(waitErr, drainErr))
+	if run.peerRequest != nil {
+		m.completePeerRun(*run.peerRequest, result)
+	}
 
 	loaded.transitionMu.Lock()
 	loaded.mu.Lock()

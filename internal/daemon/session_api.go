@@ -688,6 +688,7 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			Usage:                  projectSessionUsagePointer(event.Usage),
 			SessionName:            event.SessionName,
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
+			PeerRequestID: event.PeerRequestID,
 			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
 		}
 		if event.ProviderRetry != nil {
