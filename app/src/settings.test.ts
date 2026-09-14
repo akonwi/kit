@@ -28,8 +28,53 @@ describe("sanitizeSettings default model", () => {
 		expect(
 			sanitizeSettings({ defaultModel: "/claude" }).defaultModel,
 		).toBeUndefined();
+	});
+});
+
+describe("sanitizeSettings model overrides", () => {
+	test("keeps positive-integer contextWindow keyed by canonical selectors", () => {
 		expect(
-			sanitizeSettings({ defaultModel: "anthropic/" }).defaultModel,
+			sanitizeSettings({
+				modelOverrides: {
+					"anthropic/claude-sonnet-4-5": { contextWindow: 8192 },
+					"  openai/gpt-5  ": { contextWindow: 4096 },
+				},
+			}).modelOverrides,
+		).toEqual({
+			"anthropic/claude-sonnet-4-5": { contextWindow: 8192 },
+			"openai/gpt-5": { contextWindow: 4096 },
+		});
+	});
+
+	test("drops non-positive, fractional, and non-numeric contextWindow", () => {
+		expect(
+			sanitizeSettings({
+				modelOverrides: {
+					"anthropic/claude-sonnet-4-5": { contextWindow: 0 },
+					"openai/gpt-5": { contextWindow: -1 },
+					"google/gemini-2.5-pro": { contextWindow: 1.5 },
+					"mistral/large": { contextWindow: "8192" },
+				},
+			}).modelOverrides,
+		).toBeUndefined();
+	});
+
+	test("drops malformed selectors and non-object overrides", () => {
+		expect(
+			sanitizeSettings({
+				modelOverrides: {
+					"claude-sonnet": { contextWindow: 8192 },
+					"/claude": { contextWindow: 8192 },
+					"anthropic/": { contextWindow: 8192 },
+					"anthropic/claude-sonnet-4-5": 8192,
+				},
+			}).modelOverrides,
+		).toBeUndefined();
+	});
+
+	test("drops a non-object modelOverrides value", () => {
+		expect(
+			sanitizeSettings({ modelOverrides: "all" }).modelOverrides,
 		).toBeUndefined();
 	});
 });

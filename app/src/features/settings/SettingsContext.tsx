@@ -1,5 +1,11 @@
 import type { Accessor, JSX } from "solid-js";
-import { createContext, createMemo, createSignal, useContext } from "solid-js";
+import {
+	createComponent,
+	createContext,
+	createMemo,
+	createSignal,
+	useContext,
+} from "solid-js";
 import type { Settings } from "../../settings";
 import type {
 	BooleanSettingsRowData,
@@ -25,8 +31,17 @@ type SettingsProviderProps = {
 	onSelectDefaultModel: (
 		currentSelector: string | undefined,
 	) => Promise<string | null | undefined>;
+	onEditModelOverride: (
+		currentOverrides: Settings["modelOverrides"],
+	) => Promise<ModelOverrideEdit | undefined>;
 	onSave: (settings: Settings) => Promise<void>;
 	children: JSX.Element;
+};
+
+/** A single edit to modelOverrides: null contextWindow clears the override. */
+export type ModelOverrideEdit = {
+	selector: string;
+	contextWindow: number | null;
 };
 
 const SettingsContext = createContext<SettingsContextValue>();
@@ -50,6 +65,15 @@ function cloneSettings(settings: Settings): Settings {
 			typeof settings.retry === "object" && settings.retry !== null
 				? { ...settings.retry }
 				: settings.retry,
+		...(settings.modelOverrides
+			? {
+					modelOverrides: Object.fromEntries(
+						Object.entries(settings.modelOverrides).map(
+							([selector, override]) => [selector, { ...override }],
+						),
+					),
+				}
+			: {}),
 	};
 }
 
@@ -60,6 +84,7 @@ export function SettingsProvider(props: SettingsProviderProps) {
 	const [focusedRowIndex, setFocusedRowIndex] = createSignal(0);
 	const [error, setError] = createSignal<string | null>(null);
 	let selectingModel = false;
+	let editingOverride = false;
 
 	const rows = createMemo<SettingsRowData[]>(() => {
 		const current = settings();
@@ -69,6 +94,13 @@ export function SettingsProvider(props: SettingsProviderProps) {
 					(option) => option.selector === configuredModel,
 				)?.label ?? configuredModel)
 			: "Automatic";
+		const overrideCount = Object.keys(current.modelOverrides ?? {}).length;
+		const overridesSummary =
+			overrideCount === 0
+				? "None"
+				: overrideCount === 1
+					? "1 override"
+					: `${overrideCount} overrides`;
 		return [
 			{
 				id: "defaultModel",
@@ -76,6 +108,13 @@ export function SettingsProvider(props: SettingsProviderProps) {
 				label: "Default Model",
 				help: "Used when starting a new session.",
 				value: configuredLabel,
+			},
+			{
+				id: "modelOverrides",
+				kind: "choice",
+				label: "Model Context Windows",
+				help: "Per-model contextWindow overrides.",
+				value: overridesSummary,
 			},
 			{
 				id: "sessionNaming",
@@ -134,6 +173,31 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		}
 	}
 
+	async function editModelOverride(): Promise<void> {
+		if (editingOverride) return;
+		editingOverride = true;
+		try {
+			const current = cloneSettings(settings());
+			const edit = await props.onEditModelOverride(current.modelOverrides);
+			if (edit === undefined) return;
+			const overrides = { ...(current.modelOverrides ?? {}) };
+			if (edit.contextWindow === null) {
+				delete overrides[edit.selector];
+			} else {
+				overrides[edit.selector] = { contextWindow: edit.contextWindow };
+			}
+			const next: Settings = { ...current };
+			if (Object.keys(overrides).length > 0) {
+				next.modelOverrides = overrides;
+			} else {
+				delete next.modelOverrides;
+			}
+			await persist(next);
+		} finally {
+			editingOverride = false;
+		}
+	}
+
 	function focusRow(index: number): void {
 		const max = Math.max(0, rows().length - 1);
 		setFocusedRowIndex(Math.max(0, Math.min(index, max)));
@@ -143,6 +207,10 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		const row = rows()[index];
 		if (!row || row.disabled) return;
 		if (row.kind === "choice") {
+			if (row.id === "modelOverrides") {
+				await editModelOverride();
+				return;
+			}
 			await selectDefaultModel();
 			return;
 		}
@@ -157,9 +225,12 @@ export function SettingsProvider(props: SettingsProviderProps) {
 		actions: { toggleBoolean, focusRow, activateRow },
 	};
 
-	return (
-		<SettingsContext.Provider value={value}>
-			{props.children}
-		</SettingsContext.Provider>
-	);
+	// createComponent with a lazy children getter matches the Solid compiler
+	// output and keeps context propagation working under eager JSX runtimes.
+	return createComponent(SettingsContext.Provider, {
+		value,
+		get children() {
+			return props.children;
+		},
+	});
 }

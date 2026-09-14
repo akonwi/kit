@@ -234,6 +234,14 @@ func (rt *sdkRuntime) measureContextFor(
 	)
 }
 
+func configuredContextModel(model Model, configuration *runtimeRequestConfiguration) Model {
+	if configuration != nil && configuration.contextWindow > 0 {
+		model.ContextWindow = configuration.contextWindow
+		model.MaxInputTokens = configuration.contextWindow
+	}
+	return model
+}
+
 func (rt *sdkRuntime) measureContextWithConfiguration(
 	ctx context.Context,
 	provider Provider,
@@ -243,6 +251,9 @@ func (rt *sdkRuntime) measureContextWithConfiguration(
 	messages []Message,
 	configuration *runtimeRequestConfiguration,
 ) (ContextUsage, error) {
+	if model.Provider == rt.droid.model.Provider && model.ID == rt.droid.model.ID {
+		model = configuredContextModel(model, configuration)
+	}
 	tools := append([]ToolSchema(nil), configuration.toolSchemas...)
 	request := Request{
 		SystemPrompt: configuration.systemPrompt, Messages: messages,

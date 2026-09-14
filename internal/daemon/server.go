@@ -23,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/settings"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/subagent"
@@ -202,10 +203,23 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
 	}
+	settingsStore, err := settings.NewStore(paths.Settings)
+	if err != nil {
+		return fmt.Errorf("create settings store: %w", err)
+	}
+	modelContextWindow := func(selector string) int {
+		current, _, loadErr := settingsStore.Load()
+		if loadErr != nil {
+			logger.Warn("load model overrides", "error", loadErr)
+			return 0
+		}
+		return current.ModelOverrides[selector].ContextWindow
+	}
 	sessionManager, err = kitsession.NewManager(
 		store, providers, bundleBuilder,
 		kitsession.WithDroidStoreDirectory(paths.Droids),
 		kitsession.WithAttachmentStore(attachmentStore),
+		kitsession.WithModelContextWindow(modelContextWindow),
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
@@ -272,7 +286,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		token:        token,
 		store:        store,
 		sessions: runtimeSessionService{
-			manager: sessionManager, availableProviders: providerAvailability, fileIndexes: newSessionFileIndexCache(),
+			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
 			subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},

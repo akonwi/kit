@@ -190,6 +190,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		ThemeName:            loadedSettings.Theme,
 		ThemeDefinition:      themeDefinition,
 		ThemeService:         interactiveThemeService{directory: paths.Themes, settings: settingsStore},
+		ModelOverrideService: interactiveModelOverrideService{settings: settingsStore},
 	})
 	if options.Temporary {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)

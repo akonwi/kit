@@ -151,12 +151,13 @@ type AfterToolCallHook func(context.Context, ToolContext, ToolResult) (*ToolResu
 
 // Config configures one autonomous droid.
 type Config struct {
-	Store        Store
-	Providers    Providers
-	Model        string
-	SystemPrompt string
-	Reasoning    string
-	Tools        []AnyTool
+	Store         Store
+	Providers     Providers
+	Model         string
+	ContextWindow int
+	SystemPrompt  string
+	Reasoning     string
+	Tools         []AnyTool
 
 	Retry      *RetryPolicy
 	Execution  *ExecutionPolicy

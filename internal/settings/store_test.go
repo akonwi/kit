@@ -249,3 +249,52 @@ func TestStoreSerializesConcurrentUpdates(t *testing.T) {
 		t.Fatalf("final theme = %q", loaded.Theme)
 	}
 }
+
+func TestLoadModelOverrides(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "settings.json")
+	document := `{"modelOverrides":{"anthropic/claude-sonnet-4-6":{"contextWindow":16000},"invalid":{"contextWindow":42},"openai/gpt":{"contextWindow":0}}}`
+	if err := os.WriteFile(path, []byte(document), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	loaded, warnings, err := newTestStore(t, path).Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := loaded.ModelOverrides["anthropic/claude-sonnet-4-6"].ContextWindow; got != 16000 {
+		t.Fatalf("contextWindow = %d, want 16000", got)
+	}
+	if len(loaded.ModelOverrides) != 1 || len(warnings) != 2 {
+		t.Fatalf("overrides = %#v, warnings = %#v", loaded.ModelOverrides, warnings)
+	}
+}
+
+func TestStoreUpdatesAndClearsModelContextWindow(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"theme":"system","future":{"kept":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store, err := NewStore(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	updated, err := store.UpdateModelContextWindow("openai-codex/gpt-5.6-sol", 1_000_000)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if updated.ModelOverrides["openai-codex/gpt-5.6-sol"].ContextWindow != 1_000_000 {
+		t.Fatalf("updated settings = %+v", updated)
+	}
+	if _, err := store.UpdateModelContextWindow("openai-codex/gpt-5.6-sol", 0); err != nil {
+		t.Fatal(err)
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(raw) != "{\n  \"future\": {\n    \"kept\": true\n  },\n  \"theme\": \"system\"\n}\n" {
+		t.Fatalf("settings document = %s", raw)
+	}
+}

@@ -9,6 +9,7 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"unicode/utf8"
 
@@ -19,9 +20,15 @@ import (
 // Settings contains the settings currently consumed by the native application.
 // Unrecognized JSON fields are retained internally when settings are updated.
 type Settings struct {
-	Theme string
+	Theme          string
+	ModelOverrides map[string]ModelOverride
 
 	fields map[string]json.RawMessage
+}
+
+// ModelOverride contains user request defaults for one exact model selector.
+type ModelOverride struct {
+	ContextWindow int `json:"contextWindow,omitempty"`
 }
 
 // Warning describes a setting that could not be used and fell back safely.
@@ -64,6 +71,44 @@ func (s *Store) Load() (Settings, []Warning, error) {
 
 // UpdateTheme validates and persists the selected theme after re-reading the
 // latest settings. The returned settings can be applied immediately by callers.
+// UpdateModelContextWindow sets or clears one exact model context-window override.
+func (s *Store) UpdateModelContextWindow(selector string, contextWindow int) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update model context window: store is nil")
+	}
+	if !validModelSelector(selector) || contextWindow < 0 {
+		return Settings{}, fmt.Errorf("update model context window: invalid override %q=%d", selector, contextWindow)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	if current.ModelOverrides == nil {
+		current.ModelOverrides = make(map[string]ModelOverride)
+	}
+	if contextWindow == 0 {
+		delete(current.ModelOverrides, selector)
+	} else {
+		current.ModelOverrides[selector] = ModelOverride{ContextWindow: contextWindow}
+	}
+	if len(current.ModelOverrides) == 0 {
+		delete(current.fields, "modelOverrides")
+		current.ModelOverrides = nil
+	} else {
+		encoded, marshalErr := json.Marshal(current.ModelOverrides)
+		if marshalErr != nil {
+			return Settings{}, marshalErr
+		}
+		current.fields["modelOverrides"] = encoded
+	}
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(current), nil
+}
+
 func (s *Store) UpdateTheme(name string) (Settings, error) {
 	if s == nil {
 		return Settings{}, errors.New("update settings theme: store is nil")
@@ -131,6 +176,23 @@ func (s *Store) load() (Settings, []Warning, error) {
 			result.Theme = name
 		}
 	}
+	if raw, ok := fields["modelOverrides"]; ok {
+		var overrides map[string]json.RawMessage
+		if err := json.Unmarshal(raw, &overrides); err != nil {
+			warnings = append(warnings, Warning{Field: "modelOverrides", Err: errors.New("must be an object; ignoring")})
+		} else {
+			result.ModelOverrides = make(map[string]ModelOverride, len(overrides))
+			for selector, encoded := range overrides {
+				var override ModelOverride
+				err := json.Unmarshal(encoded, &override)
+				if err != nil || !validModelSelector(selector) || override.ContextWindow <= 0 {
+					warnings = append(warnings, Warning{Field: "modelOverrides." + selector, Err: errors.New("must contain a positive integer contextWindow for an exact provider/model selector; ignoring")})
+					continue
+				}
+				result.ModelOverrides[selector] = override
+			}
+		}
+	}
 	return cloneSettings(result), warnings, nil
 }
 
@@ -177,10 +239,21 @@ func defaultSettings() Settings {
 
 func cloneSettings(source Settings) Settings {
 	result := Settings{Theme: source.Theme, fields: make(map[string]json.RawMessage, len(source.fields))}
+	if source.ModelOverrides != nil {
+		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
+		for selector, override := range source.ModelOverrides {
+			result.ModelOverrides[selector] = override
+		}
+	}
 	for name, value := range source.fields {
 		result.fields[name] = append(json.RawMessage(nil), value...)
 	}
 	return result
+}
+
+func validModelSelector(selector string) bool {
+	provider, model, found := strings.Cut(selector, "/")
+	return found && strings.TrimSpace(provider) == provider && strings.TrimSpace(model) == model && provider != "" && model != ""
 }
 
 func validThemeName(name string) bool {

@@ -107,6 +107,7 @@ type Manager struct {
 	store                 Repository
 	providers             droids.Providers
 	bundleBuilder         RuntimeBundleBuilder
+	modelContextWindow    func(string) int
 	attachments           attachment.Store
 	mailbox               subagent.Repository
 	peerQueries           peer.Repository
@@ -249,8 +250,20 @@ type liveRun struct {
 
 type ManagerOption func(*managerOptions) error
 type managerOptions struct {
-	droidDirectory string
-	attachments    attachment.Store
+	droidDirectory     string
+	attachments        attachment.Store
+	modelContextWindow func(string) int
+}
+
+// WithModelContextWindow supplies a context-window override for an exact model selector.
+func WithModelContextWindow(resolve func(string) int) ManagerOption {
+	return func(options *managerOptions) error {
+		if resolve == nil {
+			return fmt.Errorf("model context window resolver is required")
+		}
+		options.modelContextWindow = resolve
+		return nil
+	}
 }
 
 func WithAttachmentStore(store attachment.Store) ManagerOption {
@@ -315,7 +328,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	manager := &Manager{
-		store: store, providers: providers, bundleBuilder: bundleBuilder, attachments: options.attachments,
+		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
 		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
@@ -1943,9 +1956,14 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 }
 
 func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, error) {
+	selector := record.ModelProvider + "/" + record.ModelID
+	contextWindow := 0
+	if m.modelContextWindow != nil {
+		contextWindow = m.modelContextWindow(selector)
+	}
 	droid, err := droids.Spawn(ctx, droids.ConversationID(record.ID), droids.Config{
 		Store: store, Providers: m.providers,
-		Model:     record.ModelProvider + "/" + record.ModelID,
+		Model: selector, ContextWindow: contextWindow,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
 		Tools: bundle.Tools,
 	})

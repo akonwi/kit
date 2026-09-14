@@ -8,6 +8,11 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 )
 
+// ModelOverrideService persists model-specific context-window settings.
+type ModelOverrideService interface {
+	SetContextWindow(selector string, contextWindow int) error
+}
+
 type configurationPickerMode uint8
 
 const (
@@ -26,6 +31,9 @@ type configurationPickerController struct {
 	CurrentModel    string
 	CurrentThinking string
 	Models          []protocol.ModelCapability
+	EditingContext  bool
+	EditModel       string
+	EditValue       string
 	generation      uint64
 }
 
@@ -39,6 +47,9 @@ type configurationPickerSnapshot struct {
 	CurrentModel    string
 	CurrentThinking string
 	Models          []protocol.ModelCapability
+	EditingContext  bool
+	EditModel       string
+	EditValue       string
 }
 
 func (controller *configurationPickerController) Begin(mode configurationPickerMode, currentModel, currentThinking string) uint64 {
@@ -94,7 +105,8 @@ func (controller *configurationPickerController) Snapshot() configurationPickerS
 		Mode: controller.Mode, Loading: controller.Loading, Pending: controller.Pending,
 		Error: controller.Error, Query: controller.Query, Selection: controller.Selection,
 		CurrentModel: controller.CurrentModel, CurrentThinking: controller.CurrentThinking,
-		Models: append([]protocol.ModelCapability(nil), controller.Models...),
+		Models:         append([]protocol.ModelCapability(nil), controller.Models...),
+		EditingContext: controller.EditingContext, EditModel: controller.EditModel, EditValue: controller.EditValue,
 	}
 }
 
@@ -170,13 +182,37 @@ func (controller *configurationPickerController) ResolveApply(generation uint64,
 	return true
 }
 
+func (controller *configurationPickerController) BeginContextEdit() bool {
+	if controller.Mode != configurationPickerModel || controller.Pending || controller.Selection == "" {
+		return false
+	}
+	index := modelCapabilityIndex(controller.Models, controller.Selection)
+	if index < 0 {
+		return false
+	}
+	controller.EditingContext = true
+	controller.EditModel = controller.Selection
+	controller.EditValue = fmt.Sprint(controller.Models[index].ContextWindow)
+	controller.Error = ""
+	return true
+}
+
 func (controller *configurationPickerController) HandleKey(key ui.Key) (bool, bool) {
 	if controller.Mode == configurationPickerClosed || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
 		return false, false
 	}
+	if controller.EditingContext && !key.MatchString("Escape") && !key.MatchString("Enter") {
+		return false, false
+	}
 	switch {
 	case key.MatchString("Escape"):
-		controller.Close()
+		if controller.EditingContext {
+			controller.EditingContext = false
+			controller.EditModel = ""
+			controller.EditValue = ""
+		} else {
+			controller.Close()
+		}
 		return false, true
 	case key.MatchString("Up"):
 		controller.Move(-1)
@@ -194,6 +230,22 @@ func (controller *configurationPickerController) HandleKey(key ui.Key) (bool, bo
 func (controller *configurationPickerController) HandleEditorKey(key ui.Key) bool {
 	if controller.Mode != configurationPickerModel || controller.Pending || key.EventType == ui.EventRelease {
 		return false
+	}
+	if controller.EditingContext {
+		value := controller.EditValue
+		if key.EventType == vaxis.EventPaste {
+			value += palettePasteText(key)
+		} else if key.MatchString("Backspace") {
+			runes := []rune(value)
+			if len(runes) > 0 {
+				value = string(runes[:len(runes)-1])
+			}
+		} else if key.Text != "" && key.Text[0] >= '0' && key.Text[0] <= '9' {
+			value += key.Text
+		}
+		controller.EditValue = value
+		controller.Error = ""
+		return true
 	}
 	query := controller.Query
 	if key.EventType == vaxis.EventPaste {
@@ -285,12 +337,22 @@ func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 		body = ui.Center(ui.Text{Value: "Loading…", Style: ui.Style{Foreground: theme.MutedForeground}})
 	case surface.Snapshot.Error != "" && len(surface.Snapshot.Models) == 0:
 		body = ui.Center(ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true})
+	case surface.Snapshot.EditingContext:
+		cursor := len(surface.Snapshot.EditValue)
+		body = ui.Padding(ui.Insets{Top: 1, Left: 2, Right: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+			ui.Text{Value: surface.Snapshot.EditModel, Style: ui.Style{Foreground: theme.MutedForeground}},
+			ui.SizedBox{Height: 1},
+			textInput(theme, textInputConfig{Value: surface.Snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true}),
+		}})
 	case surface.Snapshot.Mode == configurationPickerModel:
 		body = surface.modelBody(theme)
 	default:
 		body = surface.thinkingBody(theme)
 	}
-	footerText := "↑↓ move · enter apply · esc close"
+	footerText := "↑↓ move · enter apply · ctrl+o overrides · esc close"
+	if surface.Snapshot.EditingContext {
+		footerText = "enter save · blank clears · esc back"
+	}
 	if surface.Snapshot.Pending {
 		footerText = "Applying configuration…"
 	}

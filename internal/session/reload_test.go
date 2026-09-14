@@ -33,9 +33,11 @@ func TestReloadSessionRefreshesContextAndPreservesRuntimeStream(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &authorityProviders{}
+	contextWindow := 100_000
 	manager, err := session.NewManager(
 		store, providers, newContextRuntimeBundleBuilder(t, home, resolver),
 		session.WithDroidStoreDirectory(filepath.Join(base, "droids")),
+		session.WithModelContextWindow(func(string) int { return contextWindow }),
 	)
 	if err != nil {
 		t.Fatal(err)
@@ -55,7 +57,11 @@ func TestReloadSessionRefreshesContextAndPreservesRuntimeStream(t *testing.T) {
 		t.Fatal(err)
 	}
 	beforeIDs := transcriptIDs(before)
+	if before.ContextWindow != 100_000 {
+		t.Fatalf("initial context window = %d", before.ContextWindow)
+	}
 
+	contextWindow = 1_000_000
 	writeContext(t, contextPath, "reload-context-two")
 	metadata, err := manager.ReloadSession(t.Context(), record.ID)
 	if err != nil {
@@ -73,6 +79,9 @@ func TestReloadSessionRefreshesContextAndPreservesRuntimeStream(t *testing.T) {
 	}
 	if after.EventStreamID != before.EventStreamID {
 		t.Fatalf("event stream changed across live reload: before=%q after=%q", before.EventStreamID, after.EventStreamID)
+	}
+	if after.ContextWindow != 1_000_000 {
+		t.Fatalf("reloaded context window = %d", after.ContextWindow)
 	}
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "second"); err != nil {
 		t.Fatal(err)

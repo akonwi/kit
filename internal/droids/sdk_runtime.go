@@ -159,6 +159,9 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err != nil {
 		return nil, err
 	}
+	if config.ContextWindow < 0 {
+		return nil, fmt.Errorf("droids: Config.ContextWindow must not be negative")
+	}
 	if config.Store == nil {
 		config.Store = NewMemoryStore()
 	}
@@ -186,7 +189,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	config.Retry = &retry
 
 	requestConfig, err := buildRuntimeRequestConfiguration(model, RequestConfiguration{
-		SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, Tools: config.Tools,
+		SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, ContextWindow: config.ContextWindow, Tools: config.Tools,
 	})
 	if err != nil {
 		return nil, err

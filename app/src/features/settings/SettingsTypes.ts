@@ -8,7 +8,7 @@ export type BooleanSettingsRowData = {
 };
 
 export type ChoiceSettingsRowData = {
-	id: "defaultModel";
+	id: "defaultModel" | "modelOverrides";
 	kind: "choice";
 	label: string;
 	help: string;

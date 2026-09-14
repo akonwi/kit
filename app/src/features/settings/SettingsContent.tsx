@@ -8,6 +8,7 @@ import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
 import { BooleanSettingsRow } from "./BooleanSettingsRow";
 import { ChoiceSettingsRow } from "./ChoiceSettingsRow";
+import type { ModelOverrideEdit } from "./SettingsContext";
 import { SettingsProvider, useSettingsContext } from "./SettingsContext";
 import type { SettingsModelOption } from "./SettingsTypes";
 
@@ -17,6 +18,9 @@ type SettingsContentProps = {
 	onSelectDefaultModel: (
 		currentSelector: string | undefined,
 	) => Promise<string | null | undefined>;
+	onEditModelOverride: (
+		currentOverrides: Settings["modelOverrides"],
+	) => Promise<ModelOverrideEdit | undefined>;
 	onSave: (settings: Settings) => Promise<void>;
 	onClose: () => void;
 	active?: boolean;
@@ -156,6 +160,7 @@ export function SettingsContent(props: SettingsContentProps) {
 			initialSettings={props.initialSettings}
 			modelOptions={props.modelOptions}
 			onSelectDefaultModel={props.onSelectDefaultModel}
+			onEditModelOverride={props.onEditModelOverride}
 			onSave={props.onSave}
 		>
 			<SettingsDialog

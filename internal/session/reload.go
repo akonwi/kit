@@ -76,8 +76,12 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	if currentGeneration != workspaceGeneration || currentCWD != workspaceCWD {
 		return ReloadResult{}, fmt.Errorf("%w: session cwd changed during reload", ErrReloadBusy)
 	}
+	contextWindow := 0
+	if m.modelContextWindow != nil {
+		contextWindow = m.modelContextWindow(record.ModelProvider + "/" + record.ModelID)
+	}
 	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
-		SystemPrompt: replacement.Prompt.Prompt, Reasoning: record.ThinkingLevel, Tools: replacement.Tools,
+		SystemPrompt: replacement.Prompt.Prompt, Reasoning: record.ThinkingLevel, ContextWindow: contextWindow, Tools: replacement.Tools,
 	}); err != nil {
 		return ReloadResult{}, fmt.Errorf("apply replacement runtime bundle for session %q: %w", sessionID, err)
 	}

@@ -15,6 +15,8 @@ export type Settings = {
 	keybindings?: KeybindingSettings;
 	/** Default model selector for new sessions, in provider/model-id form. */
 	defaultModel?: string;
+	/** Per-model overrides keyed by provider/model-id selector. */
+	modelOverrides?: Record<string, ModelOverrideSettings>;
 	/** Auto-open the pager for long assistant responses */
 	pager?: boolean;
 	/** Auto-generate a session title after the first couple of turns */
@@ -34,6 +36,11 @@ export type Settings = {
 		baseDelayMs?: number;
 		maxDelayMs?: number;
 	};
+};
+
+export type ModelOverrideSettings = {
+	/** Context budget to use for this model. Positive integer. */
+	contextWindow?: number;
 };
 
 export type ResolvedRetrySettings = {
@@ -122,6 +129,32 @@ function sanitizeKeybindings(value: unknown): KeybindingSettings | undefined {
 	return Object.keys(keybindings).length > 0 ? keybindings : undefined;
 }
 
+function isModelSelector(value: string): boolean {
+	return value.includes("/") && !value.startsWith("/") && !value.endsWith("/");
+}
+
+function sanitizeModelOverrides(
+	value: unknown,
+): Record<string, ModelOverrideSettings> | undefined {
+	if (!isRecord(value)) return undefined;
+	const overrides: Record<string, ModelOverrideSettings> = {};
+	for (const [selector, override] of Object.entries(value)) {
+		const name = selector.trim();
+		if (!name || !isModelSelector(name)) continue;
+		if (!isRecord(override)) continue;
+		const entry: ModelOverrideSettings = {};
+		if (
+			typeof override.contextWindow === "number" &&
+			Number.isInteger(override.contextWindow) &&
+			override.contextWindow > 0
+		) {
+			entry.contextWindow = override.contextWindow;
+		}
+		if (Object.keys(entry).length > 0) overrides[name] = entry;
+	}
+	return Object.keys(overrides).length > 0 ? overrides : undefined;
+}
+
 export function sanitizeSettings(raw: unknown): Settings {
 	if (!isRecord(raw)) {
 		return { ...DEFAULTS };
@@ -131,12 +164,10 @@ export function sanitizeSettings(raw: unknown): Settings {
 	const keybindings = sanitizeKeybindings(raw.keybindings);
 	const defaultModelValue =
 		typeof raw.defaultModel === "string" ? raw.defaultModel.trim() : "";
-	const defaultModel =
-		defaultModelValue.includes("/") &&
-		!defaultModelValue.startsWith("/") &&
-		!defaultModelValue.endsWith("/")
-			? defaultModelValue
-			: undefined;
+	const defaultModel = isModelSelector(defaultModelValue)
+		? defaultModelValue
+		: undefined;
+	const modelOverrides = sanitizeModelOverrides(raw.modelOverrides);
 	const pager = typeof raw.pager === "boolean" ? raw.pager : DEFAULTS.pager;
 	const sessionNaming =
 		typeof raw.sessionNaming === "boolean"
@@ -178,6 +209,7 @@ export function sanitizeSettings(raw: unknown): Settings {
 		theme,
 		...(keybindings ? { keybindings } : {}),
 		...(defaultModel ? { defaultModel } : {}),
+		...(modelOverrides ? { modelOverrides } : {}),
 		pager,
 		sessionNaming,
 		...(workspace?.paneRatio !== undefined ? { workspace } : {}),

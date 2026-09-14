@@ -16,6 +16,22 @@ import (
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 )
 
+func TestSDKConfigOverridesActiveModelContextWindow(t *testing.T) {
+	droid, err := droids.Spawn(t.Context(), "conversation_context_override", droids.Config{
+		Providers: newAdaptationProviders(), Model: "test/active", ContextWindow: 1_000_000,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot, err := droid.Snapshot(t.Context(), droids.SnapshotOptions{RecentMessageLimit: 1})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.Context.Usage.ContextWindow != 1_000_000 || snapshot.Context.Usage.MaxInputTokens != 1_000_000 {
+		t.Fatalf("context usage = %+v", snapshot.Context.Usage)
+	}
+}
+
 func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.activeSummaryFails = true

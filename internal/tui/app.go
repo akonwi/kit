@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"sort"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -66,6 +67,7 @@ type Options struct {
 	ThemeName            string
 	ThemeDefinition      kittheme.Definition
 	ThemeService         ThemeService
+	ModelOverrideService ModelOverrideService
 
 	appDone        <-chan struct{}
 	terminalStatus *terminalStatusReporter
@@ -1259,7 +1261,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.openConfigurationPicker(configurationPickerThinking)
 		},
 		ConfigurationQuery: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.configurationPicker.SetQuery(value) })
+			s.SetState(func() {
+				if s.configurationPicker.EditingContext {
+					s.configurationPicker.EditValue = value
+					s.configurationPicker.Error = ""
+				} else {
+					s.configurationPicker.SetQuery(value)
+				}
+			})
 		},
 		SelectConfiguration: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.configurationPicker.Select(value) })
@@ -1431,6 +1440,14 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		return ui.EventHandled
 	}
 	if s.configurationPicker.Mode != configurationPickerClosed {
+		if key.EventType != ui.EventRelease && key.MatchString("Ctrl+o") {
+			s.SetState(func() { s.configurationPicker.BeginContextEdit() })
+			return ui.EventHandled
+		}
+		if s.configurationPicker.EditingContext && key.EventType != ui.EventRelease && key.MatchString("Enter") {
+			s.saveModelContextWindow()
+			return ui.EventHandled
+		}
 		var apply, handled bool
 		s.SetState(func() {
 			apply, handled = s.configurationPicker.HandleKey(key)
@@ -4119,6 +4136,34 @@ func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 			s.SetState(func() { s.configurationPicker.Resolve(generation, catalog, err) })
 		})
 	}()
+}
+
+func (s *appState) saveModelContextWindow() {
+	service := s.Widget().(app).Options.ModelOverrideService
+	if service == nil {
+		s.SetState(func() { s.configurationPicker.Error = "Context-window settings are unavailable" })
+		return
+	}
+	value := 0
+	if text := strings.TrimSpace(s.configurationPicker.EditValue); text != "" {
+		parsed, err := strconv.Atoi(text)
+		if err != nil || parsed <= 0 {
+			s.SetState(func() { s.configurationPicker.Error = "Enter a positive integer, or leave blank to clear" })
+			return
+		}
+		value = parsed
+	}
+	selector := s.configurationPicker.EditModel
+	if err := service.SetContextWindow(selector, value); err != nil {
+		s.SetState(func() { s.configurationPicker.Error = err.Error() })
+		return
+	}
+	s.SetState(func() {
+		s.configurationPicker.EditingContext = false
+		s.configurationPicker.EditModel = ""
+		s.configurationPicker.EditValue = ""
+	})
+	s.openConfigurationPicker(configurationPickerModel)
 }
 
 func (s *appState) applyConfigurationSelection() {

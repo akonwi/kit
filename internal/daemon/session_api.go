@@ -63,6 +63,7 @@ type sessionService interface {
 type runtimeSessionService struct {
 	manager            *kitsession.Manager
 	availableProviders func(context.Context) []string
+	modelContextWindow func(string) int
 	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
 	fileIndexes        *sessionFileIndexCache
 	subagents          *subagent.Supervisor
@@ -169,6 +170,12 @@ func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalo
 	}
 	result := protocol.ModelCatalog{Models: make([]protocol.ModelCapability, 0, len(models))}
 	for _, model := range models {
+		if s.modelContextWindow != nil {
+			if contextWindow := s.modelContextWindow(model.ID); contextWindow > 0 {
+				model.ContextWindow = contextWindow
+				model.MaxInputTokens = contextWindow
+			}
+		}
 		thinking := make([]protocol.ThinkingLevel, 0, len(model.ThinkingLevels))
 		for _, level := range model.ThinkingLevels {
 			thinking = append(thinking, protocol.ThinkingLevel(level))

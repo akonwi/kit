@@ -395,7 +395,9 @@ export class AgentRuntime {
 		this.fileDiscoveredSubagents = [];
 		this.systemPromptAdditions = options?.systemPromptAdditions ?? [];
 		this.systemPromptSlots = [];
-		const defaultModel = resolveDefaultModel(session.model);
+		const defaultModel = this.applyModelOverride(
+			resolveDefaultModel(session.model),
+		);
 		const initialThinkingLevel = clampThinkingLevel(
 			session.thinkingLevel,
 			defaultModel,
@@ -2018,7 +2020,15 @@ export class AgentRuntime {
 		await this.modelAdaptationPromise;
 	}
 
+	private applyModelOverride(model: Model<Api>): Model<Api> {
+		const contextWindow =
+			this._settings.modelOverrides?.[`${model.provider}/${model.id}`]
+				?.contextWindow;
+		return contextWindow === undefined ? model : { ...model, contextWindow };
+	}
+
 	setModel(model: Model<Api>): void {
+		model = this.applyModelOverride(model);
 		this.agent.setModel(model);
 		this.touchSession({ model: model.id });
 		this.bus.publish("session.model.changed", {

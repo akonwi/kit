@@ -2,6 +2,7 @@ import type { InternalPluginAPI } from "../../plugins";
 import type { Settings } from "../../settings";
 import { CHECK } from "../../shell/glyphs";
 import { SettingsContent } from "./SettingsContent";
+import type { ModelOverrideEdit } from "./SettingsContext";
 import type { SettingsModelOption } from "./SettingsTypes";
 
 async function persistSettings(
@@ -17,6 +18,55 @@ function modelOptions(kit: InternalPluginAPI): SettingsModelOption[] {
 		selector: `${model.provider}/${model.id}`,
 		description: model.provider,
 	}));
+}
+
+function parseContextWindow(value: string): number | null | undefined {
+	const trimmed = value.trim();
+	if (trimmed === "") return null;
+	if (!/^\d+$/.test(trimmed)) return undefined;
+	const parsed = Number.parseInt(trimmed, 10);
+	return Number.isSafeInteger(parsed) && parsed > 0 ? parsed : undefined;
+}
+
+async function editModelOverride(
+	kit: InternalPluginAPI,
+	models: SettingsModelOption[],
+	currentOverrides: Settings["modelOverrides"],
+): Promise<ModelOverrideEdit | undefined> {
+	const overrides = currentOverrides ?? {};
+	const selector = await kit.ui.select<string>({
+		title: "Model Context Windows",
+		message: "Pick a model to override its contextWindow.",
+		filterable: true,
+		placeholder: "Filter models",
+		options: models.map((model) => {
+			const contextWindow = overrides[model.selector]?.contextWindow;
+			return {
+				label:
+					contextWindow !== undefined ? `${model.label} ${CHECK}` : model.label,
+				value: model.selector,
+				description:
+					contextWindow !== undefined
+						? `${model.selector} \u00b7 ${contextWindow}`
+						: model.selector,
+			};
+		}),
+	});
+	if (selector === undefined) return undefined;
+	const existing = overrides[selector]?.contextWindow;
+	let message = "Positive integer. Leave blank to clear the override.";
+	for (;;) {
+		const answer = await kit.ui.input({
+			title: `Context Window \u00b7 ${selector}`,
+			message,
+			placeholder: "e.g. 8192",
+			initialValue: existing !== undefined ? String(existing) : undefined,
+		});
+		if (answer === undefined) return undefined;
+		const contextWindow = parseContextWindow(answer);
+		if (contextWindow !== undefined) return { selector, contextWindow };
+		message = "Enter a positive integer, or leave blank to clear the override.";
+	}
 }
 
 export function SettingsPlugin(kit: InternalPluginAPI): void {
@@ -55,6 +105,9 @@ export function SettingsPlugin(kit: InternalPluginAPI): void {
 							],
 						});
 					}}
+					onEditModelOverride={(currentOverrides) =>
+						editModelOverride(kit, models, currentOverrides)
+					}
 					onSave={(settings) => persistSettings(kit, settings)}
 					onClose={() => props.done(undefined)}
 					active={props.active}

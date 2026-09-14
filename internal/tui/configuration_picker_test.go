@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -14,6 +15,25 @@ func TestCompactionAndConfigurationPendingCountAsActiveWork(t *testing.T) {
 	}
 	if !(&appState{configurationPicker: configurationPickerController{Pending: true}}).hasActiveWork() {
 		t.Fatal("configuration application was not treated as active work")
+	}
+}
+
+func TestConfigurationPickerEditsSelectedModelContextWindow(t *testing.T) {
+	controller := configurationPickerController{}
+	generation := controller.Begin(configurationPickerModel, "openai-codex/gpt-5.6-sol", "medium")
+	controller.Resolve(generation, protocol.ModelCatalog{Models: []protocol.ModelCapability{{
+		ID: "openai-codex/gpt-5.6-sol", Name: "GPT-5.6 Sol", Available: true, ContextWindow: 1_000_000,
+	}}}, nil)
+	if !controller.BeginContextEdit() || controller.EditModel != "openai-codex/gpt-5.6-sol" || controller.EditValue != "1000000" {
+		t.Fatalf("context editor = %+v", controller)
+	}
+	controller.HandleEditorKey(ui.Key{Keycode: vaxis.KeyBackspace, EventType: vaxis.EventPress})
+	if controller.EditValue != "100000" {
+		t.Fatalf("edited value = %q", controller.EditValue)
+	}
+	controller.HandleKey(ui.Key{Keycode: vaxis.KeyEsc, EventType: vaxis.EventPress})
+	if controller.EditingContext || controller.Mode != configurationPickerModel {
+		t.Fatalf("escape did not return to model picker: %+v", controller)
 	}
 }
 
