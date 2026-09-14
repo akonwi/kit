@@ -114,7 +114,7 @@ export function mergeItems(
 		return {
 			name: agent.name,
 			description: agent.description,
-			model: conversation?.model ?? agent.model,
+			model: agent.model,
 			source: agent.source,
 			pluginName: agent.pluginName,
 			status: conversation?.status ?? "inactive",

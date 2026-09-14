@@ -36,6 +36,19 @@ describe("subagents presentation", () => {
 		expect(items[2]?.status).toBe("inactive");
 	});
 
+	test("mergeItems shows the refreshed definition model for configured agents", () => {
+		const definition = { ...agent("scout"), model: "anthropic/claude-sonnet" };
+		const active = {
+			...conversation("scout", "idle"),
+			model: "openai/gpt-old",
+		};
+
+		const items = mergeItems([definition], [active]);
+
+		expect(items[0]?.model).toBe("anthropic/claude-sonnet");
+		expect(items[0]?.conversation?.model).toBe("openai/gpt-old");
+	});
+
 	test("mergeItems keeps conversations without a matching definition", () => {
 		const items = mergeItems([], [conversation("ghost", "idle")]);
 		expect(items).toHaveLength(1);
