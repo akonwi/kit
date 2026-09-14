@@ -42,6 +42,13 @@ type Model struct {
 	API      ModelAPI
 	BaseURL  string
 
+	// provider is the capability snapshot that resolved this model. Keeping the
+	// binding private prevents callers from pairing model metadata with a
+	// different provider implementation.
+	provider              Provider
+	catalogContextWindow  int
+	catalogMaxInputTokens int
+
 	Reasoning                     bool
 	ReasoningMode                 ReasoningMode
 	ReasoningLevels               []string // supported explicit Droids levels
@@ -53,6 +60,51 @@ type Model struct {
 	OutputLimitMode               OutputLimitMode
 
 	Cost Cost
+}
+
+// WithContextWindow returns a copy of m with the context-window override.
+// A non-positive value restores the catalog limits. Provider capability
+// validation remains authoritative when a request is made.
+func (m Model) WithContextWindow(contextWindow int) Model {
+	m = cloneModel(m)
+	if contextWindow <= 0 {
+		m.ContextWindow = m.catalogContextWindow
+		m.MaxInputTokens = m.catalogMaxInputTokens
+		return m
+	}
+	m.ContextWindow = contextWindow
+	m.MaxInputTokens = contextWindow
+	return m
+}
+
+func (m Model) boundProvider() Provider { return m.provider }
+
+// IsZero reports whether m is the zero model value.
+func (m Model) IsZero() bool { return m.ID == "" && m.Provider == "" && m.provider == nil }
+
+func (m Model) metadata() Model {
+	m = cloneModel(m)
+	m.provider = nil
+	m.catalogContextWindow = 0
+	m.catalogMaxInputTokens = 0
+	return m
+}
+
+// BindModel returns model bound to its owning provider. It is intended for
+// custom Providers implementations; NewProviders binds resolved models
+// automatically. Binding validates identity only, not model capabilities.
+func BindModel(provider Provider, model Model) (Model, error) {
+	if provider == nil || model.Provider == "" || model.ID == "" {
+		return Model{}, fmt.Errorf("droids: model binding requires provider and model identity")
+	}
+	if provider.ID() != model.Provider {
+		return Model{}, fmt.Errorf("droids: provider %q does not match model provider %q", provider.ID(), model.Provider)
+	}
+	model = cloneModel(model)
+	model.provider = provider
+	model.catalogContextWindow = model.ContextWindow
+	model.catalogMaxInputTokens = model.MaxInputTokens
+	return model, nil
 }
 
 const defaultRequestMaxTokens = 4096

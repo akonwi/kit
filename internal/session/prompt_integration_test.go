@@ -573,12 +573,12 @@ func (p *sessionCompactionProviders) Models() []droids.Model {
 func (p *sessionCompactionProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *sessionCompactionProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *sessionCompactionProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *sessionCompactionProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "compact" || id == "test/compact"

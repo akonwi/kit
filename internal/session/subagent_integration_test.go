@@ -41,7 +41,7 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	childFactory, err := session.NewChildRuntimeFactory(providers, childBundles, filepath.Join(paths.Droids, "subagents"))
+	childFactory, err := session.NewChildRuntimeFactory(providers, childBundles, filepath.Join(paths.Droids, "subagents"), nil)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -54,7 +54,7 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 		t.Fatal(err)
 	}
 	tools := &subagent.ToolService{Supervisor: supervisor, Owners: store, ResolveConfiguration: func(_ context.Context, selector, thinking string) (string, string, error) {
-		_, model, err := providers.Resolve(selector)
+		model, err := providers.Resolve(selector)
 		if err != nil {
 			return "", "", err
 		}
@@ -190,11 +190,11 @@ type subagentIntegrationProviders struct {
 }
 
 func (p *subagentIntegrationProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *subagentIntegrationProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *subagentIntegrationProviders) Resolve(id string) (droids.Model, error) {
 	if id != "test/echo" && id != "echo" {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), p.model(), nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), p.model())
 }
 func (*subagentIntegrationProviders) Model(id string) (droids.Model, bool) {
 	return (&subagentIntegrationProviders{}).model(), id == "test/echo" || id == "echo"

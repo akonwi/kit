@@ -4,9 +4,8 @@ import "context"
 
 // Droid is one live autonomous conversation opened through Open.
 type Droid struct {
-	sdk       *sdkRuntime
-	providers Providers
-	model     Model
+	sdk   *sdkRuntime
+	model Model
 }
 
 // Close shuts the droid down without a deadline. It does not close a Store

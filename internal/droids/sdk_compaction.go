@@ -76,12 +76,12 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 
 	provider := rt.provider
 	model := rt.droid.model
-	if rt.config.Compaction.Model != "" {
-		resolvedProvider, resolvedModel, err := rt.config.Providers.Resolve(rt.config.Compaction.Model)
-		if err != nil {
-			return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: resolve compaction model %q: %w", rt.config.Compaction.Model, err))
+	if !rt.config.Compaction.Model.IsZero() {
+		resolvedModel := cloneModel(rt.config.Compaction.Model)
+		if resolvedModel.boundProvider() == nil || resolvedModel.boundProvider().ID() != resolvedModel.Provider {
+			return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction Model must be resolved"))
 		}
-		provider, model = resolvedProvider, resolvedModel
+		provider, model = resolvedModel.boundProvider(), resolvedModel
 	}
 	if err := provider.ValidateReplay(ctx, model, messages[:prefixEnd]); err != nil {
 		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction prefix is not replayable: %w", err))
@@ -265,7 +265,7 @@ func (rt *sdkRuntime) measureContextWithConfiguration(
 		if err != nil {
 			return ContextUsage{}, err
 		}
-		usage.Model = cloneModel(model)
+		usage.Model = model.metadata()
 		return usage, nil
 	}
 	return estimateContextUsage(

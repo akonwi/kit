@@ -13,14 +13,18 @@ import (
 // Provider configs into a single Providers registry that routes each request to
 // the provider that owns the model. This mirrors pi-ai's Models registry.
 
+// ModelResolver resolves selectors into provider-bound model snapshots.
+type ModelResolver interface {
+	Resolve(selector string) (Model, error)
+}
+
 // Providers is the model-abstraction layer: a registry over one or more
 // Provider configs. It lists models and streams a request against whichever
 // registered provider owns the target model.
 type Providers interface {
+	ModelResolver
 	// Models returns every model across all registered providers.
 	Models() []Model
-	// Resolve returns the concrete provider and model for a selector.
-	Resolve(selector string) (Provider, Model, error)
 	// Model resolves a user-facing id to a concrete model. The id may be bare
 	// ("gpt-5.6") or namespaced ("openai/gpt-5.6") to disambiguate.
 	Model(id string) (Model, bool)
@@ -158,25 +162,39 @@ func (r *registry) Models() []Model {
 	return out
 }
 
-func (r *registry) Resolve(selector string) (Provider, Model, error) {
-	model, ok := r.Model(selector)
-	if !ok {
-		return nil, Model{}, fmt.Errorf("droids: unknown model %q", selector)
-	}
+func (r *registry) Resolve(selector string) (Model, error) {
 	r.mu.RLock()
-	entry, ok := r.entries[model.Provider]
-	if ok {
-		models := make(map[string]Model, len(entry.models))
-		for id, candidate := range entry.models {
-			models[id] = cloneModel(candidate)
+	defer r.mu.RUnlock()
+
+	providerID, modelID := "", selector
+	if candidateProvider, candidateModel, namespaced := strings.Cut(selector, "/"); namespaced {
+		if entry, exists := r.entries[candidateProvider]; exists {
+			if _, exists := entry.models[candidateModel]; exists {
+				providerID, modelID = candidateProvider, candidateModel
+			}
 		}
-		entry.models = models
 	}
-	r.mu.RUnlock()
+	if providerID == "" {
+		if r.ambiguous[selector] {
+			return Model{}, fmt.Errorf("droids: unknown model %q", selector)
+		}
+		providerID = r.index[selector]
+	}
+	entry, ok := r.entries[providerID]
 	if !ok {
-		return nil, Model{}, fmt.Errorf("droids: unknown provider %q", model.Provider)
+		return Model{}, fmt.Errorf("droids: unknown model %q", selector)
 	}
-	return &resolvedProvider{entry: entry}, model, nil
+	model, ok := entry.models[modelID]
+	if !ok {
+		return Model{}, fmt.Errorf("droids: unknown model %q", selector)
+	}
+	models := make(map[string]Model, len(entry.models))
+	for id, candidate := range entry.models {
+		models[id] = cloneModel(candidate)
+	}
+	entry.models = models
+	provider := &resolvedProvider{entry: entry}
+	return BindModel(provider, model)
 }
 
 func (r *registry) Model(id string) (Model, bool) {

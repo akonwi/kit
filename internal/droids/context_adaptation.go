@@ -200,7 +200,7 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 			rt.mu.Unlock()
 			return CompactContextResult{}, ErrBusy
 		}
-		if flight.target != target || flight.force != force {
+		if contextTargetSelector(flight.target) != contextTargetSelector(target) || flight.target.Reasoning != target.Reasoning || flight.force != force {
 			rt.mu.Unlock()
 			return CompactContextResult{}, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", options.OperationID, ErrConflict)
 		}
@@ -263,20 +263,19 @@ func (rt *sdkRuntime) finishContextCompaction(flight *contextMaintenanceFlight, 
 }
 
 func (d *Droid) resolveContextTarget(target ContextTarget) (resolvedContextTarget, error) {
-	provider, model, err := d.sdk.config.Providers.Resolve(target.Model)
-	if err != nil {
-		return resolvedContextTarget{}, fmt.Errorf("droids: resolve target model %q: %w", target.Model, err)
+	model := cloneModel(target.Model)
+	if model.boundProvider() == nil || model.Provider == "" || model.ID == "" {
+		return resolvedContextTarget{}, fmt.Errorf("droids: target Model must be resolved")
 	}
-	canonicalModel := model.Provider + "/" + model.ID
-	if canonicalModel != target.Model {
-		return resolvedContextTarget{}, fmt.Errorf("droids: target model %q did not resolve exactly to %q", target.Model, canonicalModel)
+	if model.boundProvider().ID() != model.Provider {
+		return resolvedContextTarget{}, fmt.Errorf("droids: target Model provider binding does not match %q", model.Provider)
 	}
 	maxTokens, err := resolveRequestMaxTokens(model, 0, target.Reasoning)
 	if err != nil {
 		return resolvedContextTarget{}, err
 	}
 	return resolvedContextTarget{
-		public: target, provider: provider, model: model, maxTokens: maxTokens,
+		public: target, provider: model.boundProvider(), model: model, maxTokens: maxTokens,
 	}, nil
 }
 
@@ -468,18 +467,18 @@ func (rt *sdkRuntime) compactCandidate(
 	// model only when the target cannot replay the unmodified prefix.
 	provider := target.provider
 	model := target.model
-	if rt.config.Compaction.Model != "" {
-		resolvedProvider, resolvedModel, err := rt.config.Providers.Resolve(rt.config.Compaction.Model)
-		if err != nil {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: resolve compaction model %q: %w", rt.config.Compaction.Model, err)
+	if !rt.config.Compaction.Model.IsZero() {
+		resolvedModel := cloneModel(rt.config.Compaction.Model)
+		if resolvedModel.boundProvider() == nil || resolvedModel.boundProvider().ID() != resolvedModel.Provider {
+			return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: compaction Model must be resolved")
 		}
-		provider, model = resolvedProvider, resolvedModel
+		provider, model = resolvedModel.boundProvider(), resolvedModel
 	}
 	if err := validateContextReplay(ctx, provider, model, prefix); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return nil, wireMessageEnvelope{}, ContextUsage{}, err
 		}
-		if rt.config.Compaction.Model == "" && (model.Provider != rt.droid.model.Provider || model.ID != rt.droid.model.ID) {
+		if rt.config.Compaction.Model.IsZero() && (model.Provider != rt.droid.model.Provider || model.ID != rt.droid.model.ID) {
 			provider, model = rt.provider, rt.droid.model
 			err = validateContextReplay(ctx, provider, model, prefix)
 		}
@@ -705,7 +704,7 @@ func boolPointer(value bool) *bool { return &value }
 
 func compactionIntentMutation(operationID string, target ContextTarget, force bool) (EncodedMutation, error) {
 	payload, err := json.Marshal(durableCompactionIntent{
-		OperationID: operationID, TargetModel: target.Model, Reasoning: target.Reasoning, Force: boolPointer(force),
+		OperationID: operationID, TargetModel: contextTargetSelector(target), Reasoning: target.Reasoning, Force: boolPointer(force),
 	})
 	if err != nil {
 		return EncodedMutation{}, err
@@ -721,7 +720,7 @@ func (intent durableCompactionIntent) effectiveForce(target ContextTarget, reque
 	if intent.OperationID == "" || intent.TargetModel == "" {
 		return false, fmt.Errorf("droids: persisted compaction intent is incomplete")
 	}
-	if intent.TargetModel != target.Model || canonicalContextReasoning(intent.Reasoning) != target.Reasoning ||
+	if intent.TargetModel != contextTargetSelector(target) || canonicalContextReasoning(intent.Reasoning) != target.Reasoning ||
 		intent.Force != nil && *intent.Force != requested {
 		return false, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", intent.OperationID, ErrConflict)
 	}
@@ -753,17 +752,18 @@ func findCompactionIntent(ctx context.Context, store Store, operationID string) 
 }
 
 func newDurableCompactionReceipt(result CompactContextResult) (durableCompactionReceipt, error) {
-	if result.OperationID == "" || result.Target.Model == "" {
+	if result.OperationID == "" || contextTargetSelector(result.Target) == "" {
 		return durableCompactionReceipt{}, fmt.Errorf("droids: compaction receipt is incomplete")
 	}
 	beforeModel := result.Before.Model.Provider + "/" + result.Before.Model.ID
 	afterModel := result.After.Model.Provider + "/" + result.After.Model.ID
-	if beforeModel != result.Target.Model || afterModel != result.Target.Model ||
+	targetModel := contextTargetSelector(result.Target)
+	if beforeModel != targetModel || afterModel != targetModel ||
 		result.Before.EstimatedInput < 0 || result.After.EstimatedInput < 0 {
 		return durableCompactionReceipt{}, fmt.Errorf("droids: compaction receipt usage is invalid")
 	}
 	return durableCompactionReceipt{
-		OperationID: result.OperationID, TargetModel: result.Target.Model,
+		OperationID: result.OperationID, TargetModel: targetModel,
 		Reasoning: result.Target.Reasoning, Force: boolPointer(result.Forced), Compacted: result.Compacted,
 		CheckpointID: result.CheckpointID,
 		Before:       durableUsage(result.Before), After: durableUsage(result.After),
@@ -774,7 +774,7 @@ func (receipt durableCompactionReceipt) result(target ContextTarget, force bool)
 	if receipt.OperationID == "" || receipt.TargetModel == "" {
 		return CompactContextResult{}, fmt.Errorf("droids: persisted compaction receipt is incomplete")
 	}
-	if receipt.TargetModel != target.Model || canonicalContextReasoning(receipt.Reasoning) != target.Reasoning ||
+	if receipt.TargetModel != contextTargetSelector(target) || canonicalContextReasoning(receipt.Reasoning) != target.Reasoning ||
 		receipt.Force != nil && *receipt.Force != force {
 		return CompactContextResult{}, fmt.Errorf("droids: context operation id %q was reused with a different target: %w", receipt.OperationID, ErrConflict)
 	}
@@ -907,12 +907,10 @@ func settledContextStatus(state durableRuntime) bool {
 }
 
 func canonicalRequestedContextTarget(target ContextTarget) (ContextTarget, error) {
-	if target.Model != strings.TrimSpace(target.Model) || !validBoundedContextValue(target.Model, maxContextModelBytes) {
-		return ContextTarget{}, fmt.Errorf("droids: target model is invalid")
-	}
-	separator := strings.IndexByte(target.Model, '/')
-	if separator <= 0 || separator == len(target.Model)-1 {
-		return ContextTarget{}, fmt.Errorf("droids: target model must be an exact provider/model id")
+	selector := contextTargetSelector(target)
+	if target.Model.boundProvider() == nil || target.Model.Provider == "" || target.Model.ID == "" ||
+		!validBoundedContextValue(selector, maxContextModelBytes) {
+		return ContextTarget{}, fmt.Errorf("droids: target Model must be resolved")
 	}
 	if target.Reasoning != strings.TrimSpace(target.Reasoning) {
 		return ContextTarget{}, fmt.Errorf("droids: target reasoning level is invalid")
@@ -922,6 +920,13 @@ func canonicalRequestedContextTarget(target ContextTarget) (ContextTarget, error
 		return ContextTarget{}, fmt.Errorf("droids: target reasoning level is invalid")
 	}
 	return target, nil
+}
+
+func contextTargetSelector(target ContextTarget) string {
+	if target.Model.Provider == "" || target.Model.ID == "" {
+		return ""
+	}
+	return target.Model.Provider + "/" + target.Model.ID
 }
 
 func canonicalContextReasoning(reasoning string) string {

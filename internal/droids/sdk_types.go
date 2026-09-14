@@ -132,7 +132,8 @@ type ExecutionPolicy struct {
 // CompactionConfig contains the only public automatic-compaction overrides.
 type CompactionConfig struct {
 	Prompt string
-	Model  string
+	// Model is an optional resolved alternate model. Its zero value uses the active model.
+	Model Model
 }
 
 // ToolContext identifies the durable call being processed.
@@ -151,13 +152,11 @@ type AfterToolCallHook func(context.Context, ToolContext, ToolResult) (*ToolResu
 
 // Config configures one autonomous droid.
 type Config struct {
-	Store         Store
-	Providers     Providers
-	Model         string
-	ContextWindow int
-	SystemPrompt  string
-	Reasoning     string
-	Tools         []AnyTool
+	Store        Store
+	Model        Model
+	SystemPrompt string
+	Reasoning    string
+	Tools        []AnyTool
 
 	Retry      *RetryPolicy
 	Execution  *ExecutionPolicy
@@ -312,7 +311,7 @@ type ContextSnapshot struct {
 // ContextTarget identifies a model configuration against which active context
 // should be measured or compacted.
 type ContextTarget struct {
-	Model     string
+	Model     Model
 	Reasoning string
 }
 

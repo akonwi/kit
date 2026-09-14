@@ -147,6 +147,32 @@ func TestProvidersStreamValidatesModelCapabilities(t *testing.T) {
 	}
 }
 
+func TestResolvedModelBindingAndContextWindowCopy(t *testing.T) {
+	providers, err := NewProviders(OpenAI{APIKey: "test"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, err := providers.Resolve("openai/gpt-4o-mini")
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider := model.boundProvider()
+	if provider == nil {
+		t.Fatal("resolved model did not retain its provider binding")
+	}
+	originalWindow := model.ContextWindow
+	overridden := model.WithContextWindow(1_000_000)
+	if model.ContextWindow != originalWindow || overridden.ContextWindow != 1_000_000 {
+		t.Fatalf("WithContextWindow mutated source: source=%d copy=%d", model.ContextWindow, overridden.ContextWindow)
+	}
+	if reset := overridden.WithContextWindow(0); reset.ContextWindow != originalWindow {
+		t.Fatalf("reset context window = %d, want %d", reset.ContextWindow, originalWindow)
+	}
+	if overridden.boundProvider() != provider {
+		t.Fatal("WithContextWindow dropped provider binding")
+	}
+}
+
 func TestProviderCatalogUsesConfiguredIdentityAndBaseURL(t *testing.T) {
 	providers, err := NewProviders(OpenAI{
 		ID:      "gateway",
@@ -194,7 +220,7 @@ func TestRefreshModelsOverlaysCompleteCatalogEntries(t *testing.T) {
 		t.Fatal(err)
 	}
 	droid, err := Spawn(context.Background(), "catalog-refresh", Config{
-		Store: NewMemoryStore(), Providers: providers, Model: "gateway/gpt-4o-mini",
+		Store: NewMemoryStore(), Model: resolvedTestModel(providers, "gateway/gpt-4o-mini"),
 	})
 	if err != nil {
 		t.Fatal(err)

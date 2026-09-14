@@ -831,12 +831,12 @@ func (p *configurationProviders) Model(id string) (droids.Model, bool) {
 	}
 	return droids.Model{}, false
 }
-func (p *configurationProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *configurationProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (*configurationProviders) RefreshModels(context.Context) error { return nil }
 func (p *configurationProviders) Stream(ctx context.Context, model droids.Model, request droids.Request) droids.Stream {

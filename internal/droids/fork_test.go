@@ -12,7 +12,7 @@ import (
 func TestForkDefersProviderReplayValidationUntilChildPrompt(t *testing.T) {
 	providers := newForkTestProviders()
 	source, err := Spawn(t.Context(), "conversation_deferred_source", Config{
-		Providers: providers, Model: "test/fork-test",
+		Model: resolvedTestModel(providers, "test/fork-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -75,8 +75,9 @@ func TestHistoryRejectsPersistedMessageIdentityMismatch(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
+	providers := newForkTestProviders()
 	droid, err := Spawn(t.Context(), "conversation_history", Config{
-		Store: store, Providers: newForkTestProviders(), Model: "test/fork-test",
+		Store: store, Model: resolvedTestModel(providers, "test/fork-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -124,7 +125,7 @@ func TestForkCapturesHistoryAcrossStorePages(t *testing.T) {
 	}
 	providers := newForkTestProviders()
 	source, err := Spawn(t.Context(), "conversation_paged_source", Config{
-		Store: sourceStore, Providers: providers, Model: "test/fork-test",
+		Store: sourceStore, Model: resolvedTestModel(providers, "test/fork-test"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -288,11 +289,11 @@ func newForkTestProviders() *forkTestProviders {
 }
 
 func (p *forkTestProviders) Models() []Model { return []Model{p.model} }
-func (p *forkTestProviders) Resolve(selector string) (Provider, Model, error) {
+func (p *forkTestProviders) Resolve(selector string) (Model, error) {
 	if selector != "test/fork-test" && selector != "fork-test" {
-		return nil, Model{}, errors.New("unknown model")
+		return Model{}, errors.New("unknown model")
 	}
-	return p.provider, p.model, nil
+	return BindModel(p.provider, p.model)
 }
 func (p *forkTestProviders) Model(selector string) (Model, bool) {
 	if selector == "test/fork-test" || selector == "fork-test" {

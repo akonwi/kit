@@ -173,10 +173,11 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		return ConfigureSessionResult{Session: applied, EventStreamID: loaded.events.streamID}, nil
 	}
 	targetRecord.ConfigurationRevision = record.ConfigurationRevision + 1
-	target := droids.ContextTarget{Model: targetModel.Provider + "/" + targetModel.ID, Reasoning: effectiveThinking}
+	targetSelector := targetModel.Provider + "/" + targetModel.ID
+	target := droids.ContextTarget{Model: targetModel, Reasoning: effectiveThinking}
 	assessment, err := loaded.droid.AssessContext(ctx, target)
 	if err != nil {
-		return ConfigureSessionResult{}, fmt.Errorf("assess session %q context for %q: %w", sessionID, target.Model, err)
+		return ConfigureSessionResult{}, fmt.Errorf("assess session %q context for %q: %w", sessionID, targetSelector, err)
 	}
 	var compaction droids.CompactContextResult
 	if assessment.RequiresCompaction {
@@ -186,7 +187,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		}
 		compaction, err = loaded.droid.CompactContext(ctx, droids.CompactContextOptions{OperationID: operationID, Target: target})
 		if err != nil {
-			return ConfigureSessionResult{}, fmt.Errorf("adapt session %q context for %q: %w", sessionID, target.Model, err)
+			return ConfigureSessionResult{}, fmt.Errorf("adapt session %q context for %q: %w", sessionID, targetSelector, err)
 		}
 	}
 	replacement, err := m.bundleBuilder.Build(ctx, targetRecord, loaded.workspace.CWD)
@@ -209,7 +210,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 
 	transitionContext, cancelTransition := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
 	defer cancelTransition()
-	replacementDroid, snapshot, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement)
+	replacementDroid, snapshot, effectiveModel, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement)
 	if err != nil {
 		return ConfigureSessionResult{}, fmt.Errorf("open replacement droid: %w", err)
 	}
@@ -232,7 +233,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
 	loaded.droid = replacementDroid
-	loaded.model = targetModel
+	loaded.model = effectiveModel
 	loaded.bundle = cloneRuntimeBundle(replacement)
 	loaded.eventCursor = snapshot.LastEvent
 	loaded.events.replace(nextEvents)
@@ -283,7 +284,7 @@ func (m *Manager) configureLiveThinking(ctx context.Context, sessionID string, l
 		return ConfigureSessionResult{}, err
 	}
 	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
-		SystemPrompt: loaded.bundle.Prompt.Prompt, Reasoning: effectiveThinking, Tools: loaded.bundle.Tools,
+		SystemPrompt: loaded.bundle.Prompt.Prompt, Reasoning: effectiveThinking, ContextWindow: loaded.model.ContextWindow, Tools: loaded.bundle.Tools,
 	}); err != nil {
 		m.quarantineRuntime(record.ID, loaded, nil)
 		return ConfigureSessionResult{}, fmt.Errorf("apply session %q thinking: %w", record.ID, err)
@@ -333,7 +334,7 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	}
 	result, err := loaded.droid.CompactContext(ctx, droids.CompactContextOptions{
 		OperationID: operationID,
-		Target:      droids.ContextTarget{Model: record.ModelProvider + "/" + record.ModelID, Reasoning: record.ThinkingLevel},
+		Target:      droids.ContextTarget{Model: loaded.model, Reasoning: record.ThinkingLevel},
 		Force:       true,
 	})
 	if err != nil {
@@ -403,12 +404,12 @@ func (m *Manager) requireQuiescentTransition(ctx context.Context, sessionID stri
 }
 
 func (m *Manager) resolveExactModel(selector string) (droids.Model, error) {
-	provider, model, err := m.providers.Resolve(selector)
+	model, err := m.providers.Resolve(selector)
 	if err != nil {
 		return droids.Model{}, fmt.Errorf("%w: unknown model %q", ErrInvalidInput, selector)
 	}
 	exact := model.Provider + "/" + model.ID
-	if provider == nil || provider.ID() != model.Provider || selector != exact || model.Provider == "" || model.ID == "" {
+	if selector != exact || model.Provider == "" || model.ID == "" {
 		return droids.Model{}, fmt.Errorf("%w: model must use exact provider/model id, got %q", ErrInvalidInput, selector)
 	}
 	return model, nil

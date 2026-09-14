@@ -58,9 +58,9 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, ok := providers.Model("openai-codex/" + modelID)
-	if !ok {
-		t.Fatalf("OpenAI Codex model %q is not in the reviewed catalog", modelID)
+	model, err := providers.Resolve("openai-codex/" + modelID)
+	if err != nil {
+		t.Fatalf("OpenAI Codex model %q is not in the reviewed catalog: %v", modelID, err)
 	}
 
 	t.Run("text", func(t *testing.T) {
@@ -153,7 +153,7 @@ func TestLiveOpenAICodexResponses(t *testing.T) {
 		droid, err := Spawn(context.Background(), "codex-live-tool-replay", Config{
 			Store:        store,
 			Providers:    providers,
-			Model:        "openai-codex/" + modelID,
+			Model:        model,
 			SystemPrompt: "You must call reveal_code exactly once, then reply with exactly the code it returns.",
 			Tools:        []AnyTool{reveal},
 			Reasoning:    "low",

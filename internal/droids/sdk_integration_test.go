@@ -19,7 +19,7 @@ import (
 func TestSDKPromptAdmissionKeyIsIdempotent(t *testing.T) {
 	providers := newReadProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_admission", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/read",
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&atomic.Int32{})},
 	})
 	if err != nil {
@@ -51,7 +51,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 	providers := &reactionProviders{}
 	store := droids.NewMemoryStore()
 	droid, err := droids.Spawn(t.Context(), "conversation_reaction", droids.Config{
-		Store: store, Providers: providers, Model: "test/reaction",
+		Store: store, Model: resolvedTestModel(providers, "test/reaction"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -145,7 +145,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened, err := droids.Spawn(t.Context(), "conversation_reaction", droids.Config{
-		Store: store, Providers: providers, Model: "test/reaction",
+		Store: store, Model: resolvedTestModel(providers, "test/reaction"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -160,7 +160,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 func TestSDKActiveBoundaryIsDurablyAssociatedBeforeCompletion(t *testing.T) {
 	providers := newSteeringProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_active_boundary", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/steer",
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/steer"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -199,7 +199,7 @@ func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T
 	providers := newLimitSteeringProviders()
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_reaction_limit_steering", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/limit-steer",
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/limit-steer"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -291,7 +291,7 @@ func TestSDKMemoryAndSQLite(t *testing.T) {
 		t.Cleanup(func() { _ = reopenedStore.Close() })
 		providers := newReadProviders()
 		droid, err := droids.Spawn(t.Context(), "conversation_integration", droids.Config{
-			Store: reopenedStore, Providers: providers, Model: "test/read",
+			Store: reopenedStore, Model: resolvedTestModel(providers, "test/read"),
 			Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		})
 		if err != nil {
@@ -323,7 +323,7 @@ func exerciseDroid(t *testing.T, store droids.Store, externalRuns *atomic.Int32)
 	}
 	providers := newReadProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_integration", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(runs)},
 	})
 	if err != nil {
@@ -397,7 +397,7 @@ func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_turn_query", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -421,7 +421,7 @@ func TestSDKTurnReturnsCanonicalOutcomeAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened, err := droids.Spawn(t.Context(), "conversation_turn_query", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -438,7 +438,7 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 	store := droids.NewMemoryStore()
 	providers := newReadProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_boundary_receipt", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -460,7 +460,7 @@ func TestSDKBoundaryIDRemainsIdempotentAcrossReopen(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened, err := droids.Spawn(t.Context(), "conversation_boundary_receipt", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -503,7 +503,7 @@ func TestSDKAbortPendingHookProducesReplayableTerminalContext(t *testing.T) {
 	var toolRuns atomic.Int32
 	hookStarted := make(chan struct{})
 	droid, err := droids.Spawn(t.Context(), "conversation_abort_hook", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(ctx context.Context, _ droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
 			close(hookStarted)
@@ -534,7 +534,7 @@ func TestSDKAbortPendingHookProducesReplayableTerminalContext(t *testing.T) {
 		t.Fatal(err)
 	}
 	reopened, err := droids.Spawn(t.Context(), "conversation_abort_hook", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -557,7 +557,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 	var signalOnce sync.Once
 	var firstContext droids.ToolContext
 	first, err := droids.Spawn(t.Context(), "conversation_hook", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(ctx context.Context, call droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
 			firstContext = call
@@ -588,7 +588,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 
 	var resumedContext droids.ToolContext
 	second, err := droids.Spawn(t.Context(), "conversation_hook", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		BeforeToolCall: func(_ context.Context, call droids.ToolContext, _ droids.ToolCall) (droids.BeforeToolResult, error) {
 			resumedContext = call
@@ -622,7 +622,7 @@ func TestSDKDurableHookResumesAfterReopen(t *testing.T) {
 func TestSDKPauseWinsRaceWithFinalResponse(t *testing.T) {
 	providers := newSteeringProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_pause_race", droids.Config{
-		Providers: providers, Model: "test/steer",
+		Model: resolvedTestModel(providers, "test/steer"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -653,7 +653,7 @@ func TestSDKPauseWinsRaceWithFinalResponse(t *testing.T) {
 func TestSDKAbortWinsRaceWithFinalResponse(t *testing.T) {
 	providers := newSteeringProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_abort_race", droids.Config{
-		Providers: providers, Model: "test/steer",
+		Model: resolvedTestModel(providers, "test/steer"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -684,7 +684,7 @@ func TestSDKAbortWinsRaceWithFinalResponse(t *testing.T) {
 func TestSDKSteeringKeepsNoToolResponseAlive(t *testing.T) {
 	providers := newSteeringProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_steer", droids.Config{
-		Providers: providers, Model: "test/steer",
+		Model: resolvedTestModel(providers, "test/steer"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -736,8 +736,9 @@ func TestSDKSteeringKeepsNoToolResponseAlive(t *testing.T) {
 }
 
 func TestSDKSteeringRequiresActiveTurn(t *testing.T) {
+	providers := newSteeringProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_idle_steer", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: newSteeringProviders(), Model: "test/steer",
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/steer"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -761,7 +762,7 @@ func TestSDKLengthTruncatedToolCallGetsSyntheticResult(t *testing.T) {
 	providers := &truncatedToolProviders{}
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_truncated", droids.Config{
-		Providers: providers, Model: "test/truncated",
+		Model: resolvedTestModel(providers, "test/truncated"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -797,7 +798,7 @@ func TestSDKCycleBudgetPausesAndResumeRenewsIt(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_budget", droids.Config{
-		Providers: providers, Model: "test/read",
+		Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 		Execution: &droids.ExecutionPolicy{
 			Budget:        droids.ExecutionBudget{MaxModelCycles: 1},
@@ -842,7 +843,7 @@ func TestSDKRunsMoreThanOneHundredModelCycles(t *testing.T) {
 	providers := &longLoopProviders{toolCycles: 105}
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_long", droids.Config{
-		Providers: providers, Model: "test/long",
+		Model: resolvedTestModel(providers, "test/long"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -872,7 +873,7 @@ func TestSDKRunsMoreThanOneHundredModelCycles(t *testing.T) {
 func TestSDKRetriesTransientProviderFailure(t *testing.T) {
 	providers := &retryProviders{}
 	droid, err := droids.Spawn(t.Context(), "conversation_retry", droids.Config{
-		Providers: providers, Model: "test/retry",
+		Model: resolvedTestModel(providers, "test/retry"),
 		Retry: &droids.RetryPolicy{
 			Enabled: true, MaxRetries: 1, BaseDelay: 2 * time.Second, MaxDelay: 2 * time.Second,
 		},
@@ -936,7 +937,7 @@ func TestSDKSettlementFailureReturnsWaitAndShutdownErrors(t *testing.T) {
 	store := &failSettlementStore{Store: droids.NewMemoryStore()}
 	providers := &retryProviders{alwaysSucceed: true}
 	droid, err := droids.Spawn(t.Context(), "conversation_settlement_failure", droids.Config{
-		Store: store, Providers: providers, Model: "test/retry",
+		Store: store, Model: resolvedTestModel(providers, "test/retry"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -963,7 +964,7 @@ func TestSDKRawToolResultFailureBlocksContinuation(t *testing.T) {
 	providers := newReadProviders()
 	var toolRuns atomic.Int32
 	droid, err := droids.Spawn(t.Context(), "conversation_raw_failure", droids.Config{
-		Store: store, Providers: providers, Model: "test/read",
+		Store: store, Model: resolvedTestModel(providers, "test/read"),
 		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
 	})
 	if err != nil {
@@ -1009,7 +1010,7 @@ func TestSDKReconcilesAmbiguousCommit(t *testing.T) {
 	store := &ambiguousStore{Store: droids.NewMemoryStore()}
 	providers := &retryProviders{alwaysSucceed: true}
 	droid, err := droids.Spawn(t.Context(), "conversation_ambiguous", droids.Config{
-		Store: store, Providers: providers, Model: "test/retry",
+		Store: store, Model: resolvedTestModel(providers, "test/retry"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1033,7 +1034,7 @@ func TestSDKReconcilesAmbiguousCommit(t *testing.T) {
 func TestSDKSubscriptionReplaysAndFollowsDurableEvents(t *testing.T) {
 	providers := &retryProviders{alwaysSucceed: true}
 	droid, err := droids.Spawn(t.Context(), "conversation_subscription", droids.Config{
-		Providers: providers, Model: "test/retry",
+		Model: resolvedTestModel(providers, "test/retry"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1075,7 +1076,7 @@ func TestSDKSubscriptionReplaysAndFollowsDurableEvents(t *testing.T) {
 func TestSDKAutomaticCompactionPreservesHistory(t *testing.T) {
 	providers := &compactionProviders{}
 	droid, err := droids.Spawn(t.Context(), "conversation_compaction", droids.Config{
-		Providers: providers, Model: "test/compact",
+		Model: resolvedTestModel(providers, "test/compact"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -1206,12 +1207,12 @@ func newLimitSteeringProviders() *limitSteeringProviders {
 	return &limitSteeringProviders{started: make(chan struct{}), release: make(chan struct{})}
 }
 func (p *limitSteeringProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *limitSteeringProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *limitSteeringProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *limitSteeringProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "test/limit-steer" || id == "limit-steer"
@@ -1249,12 +1250,12 @@ type reactionProviders struct {
 }
 
 func (p *reactionProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *reactionProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *reactionProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *reactionProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "test/reaction" || id == "reaction"
@@ -1285,12 +1286,12 @@ func (p *readProviders) Models() []droids.Model { return []droids.Model{p.model(
 func (p *readProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *readProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *readProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *readProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/read" || id == "read" {
@@ -1355,12 +1356,12 @@ func (p *steeringProviders) Models() []droids.Model { return []droids.Model{p.mo
 func (p *steeringProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *steeringProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *steeringProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *steeringProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/steer" || id == "steer" {
@@ -1424,12 +1425,12 @@ func (p *truncatedToolProviders) Models() []droids.Model { return []droids.Model
 func (p *truncatedToolProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *truncatedToolProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *truncatedToolProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *truncatedToolProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/truncated" || id == "truncated" {
@@ -1478,12 +1479,12 @@ func (p *longLoopProviders) Models() []droids.Model { return []droids.Model{p.mo
 func (p *longLoopProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *longLoopProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *longLoopProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *longLoopProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/long" || id == "long" {
@@ -1525,12 +1526,12 @@ func (p *retryProviders) Models() []droids.Model { return []droids.Model{p.model
 func (p *retryProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *retryProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *retryProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *retryProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/retry" || id == "retry" {
@@ -1568,12 +1569,12 @@ func (p *compactionProviders) Models() []droids.Model { return []droids.Model{p.
 func (p *compactionProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *compactionProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *compactionProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *compactionProviders) Model(id string) (droids.Model, bool) {
 	if id == "test/compact" || id == "compact" {

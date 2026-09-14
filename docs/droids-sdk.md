@@ -194,8 +194,7 @@ identity, lineage, atomicity, and recovery contract.
 ```go
 type Config struct {
     Store        Store
-    Providers    Providers
-    Model        string
+    Model        Model // resolved, provider-bound active model
     SystemPrompt string
     Reasoning    string
     Tools        []AnyTool
@@ -211,8 +210,21 @@ type Config struct {
 
 Required fields:
 
-- `Providers`
 - `Model`
+
+Callers resolve active and alternate models before passing them to Droids:
+
+```go
+model, err := providers.Resolve("openai-codex/gpt-5.6-sol")
+if err != nil {
+    return err
+}
+model = model.WithContextWindow(1_000_000)
+```
+
+Resolved models retain an immutable provider/catalog snapshot. Provider
+compatibility is authoritative at request time; `WithContextWindow` does not
+compare an override with catalog limits.
 
 Defaults:
 
@@ -1127,7 +1139,10 @@ type ContextMeasurer interface {
 }
 
 type Providers interface {
-    Resolve(selector string) (Provider, Model, error)
+    Models() []Model
+    Resolve(selector string) (Model, error)
+    Model(id string) (Model, bool)
+    RefreshModels(context.Context) error
 }
 ```
 

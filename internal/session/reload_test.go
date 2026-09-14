@@ -90,12 +90,20 @@ func TestReloadSessionRefreshesContextAndPreservesRuntimeStream(t *testing.T) {
 	if err := os.Remove(contextPath); err != nil {
 		t.Fatal(err)
 	}
+	contextWindow = 0
 	metadata, err = manager.ReloadSession(t.Context(), record.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if paths := contextSourcePaths(session.PromptMetadata{Sources: metadata.Sources, Diagnostics: metadata.Diagnostics}); len(paths) != 0 {
 		t.Fatalf("removed context remains sourced: %#v", paths)
+	}
+	cleared, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cleared.ContextWindow != 128_000 {
+		t.Fatalf("cleared context window = %d", cleared.ContextWindow)
 	}
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "third"); err != nil {
 		t.Fatal(err)

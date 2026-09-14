@@ -68,7 +68,7 @@ func exerciseLiveSDKStore(t *testing.T, store droids.Store, providers droids.Pro
 		},
 	})
 	droid, err := droids.Spawn(t.Context(), droids.ConversationID("live_"+strings.ReplaceAll(t.Name(), "/", "_")), droids.Config{
-		Store: store, Providers: providers, Model: model, Tools: []droids.AnyTool{read},
+		Store: store, Model: model, Tools: []droids.AnyTool{read},
 		SystemPrompt: "Use the available read-only tool when asked to read a fixture.",
 	})
 	if err != nil {

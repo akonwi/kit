@@ -17,8 +17,12 @@ func TestCompactionCancellationDoesNotRecordFailureLifecycle(t *testing.T) {
 }
 
 func TestLegacyCompactionIdentityPreservesOriginalNonForcedSemantics(t *testing.T) {
-	target := ContextTarget{Model: "test/model", Reasoning: "off"}
-	legacyIntent := durableCompactionIntent{OperationID: "legacy_operation", TargetModel: target.Model, Reasoning: target.Reasoning}
+	model, err := BindModel(AdaptProvider("test", []Model{{Provider: "test", ID: "model"}}, nil), Model{Provider: "test", ID: "model"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := ContextTarget{Model: model, Reasoning: "off"}
+	legacyIntent := durableCompactionIntent{OperationID: "legacy_operation", TargetModel: contextTargetSelector(target), Reasoning: target.Reasoning}
 	force, err := legacyIntent.effectiveForce(target, true)
 	if err != nil || force {
 		t.Fatalf("legacy intent force = %v, %v; want original false semantics", force, err)
@@ -28,7 +32,7 @@ func TestLegacyCompactionIdentityPreservesOriginalNonForcedSemantics(t *testing.
 		MaxInputTokens: 90, Remaining: 90,
 	}
 	legacyReceipt := durableCompactionReceipt{
-		OperationID: "legacy_operation", TargetModel: target.Model, Reasoning: target.Reasoning,
+		OperationID: "legacy_operation", TargetModel: contextTargetSelector(target), Reasoning: target.Reasoning,
 		Before: usage, After: usage,
 	}
 	result, err := legacyReceipt.result(target, true)

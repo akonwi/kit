@@ -1912,7 +1912,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	} else {
 		store = droids.NewMemoryStore()
 	}
-	droid, snapshot, err := m.openDroid(ctx, record, store, bundle)
+	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle)
 	if err != nil {
 		_ = closeStore()
 		return nil, fmt.Errorf("open runtime for session %q: %w", record.ID, err)
@@ -1930,7 +1930,6 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = closeStore()
 		return nil, err
 	}
-	model, _ := m.providers.Model(record.ModelProvider + "/" + record.ModelID)
 	loaded = &runtime{
 		droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
@@ -1955,27 +1954,39 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	return loaded, nil
 }
 
-func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, error) {
-	selector := record.ModelProvider + "/" + record.ModelID
-	contextWindow := 0
+func (m *Manager) applyModelContextWindow(selector string, model droids.Model) droids.Model {
 	if m.modelContextWindow != nil {
-		contextWindow = m.modelContextWindow(selector)
+		if contextWindow := m.modelContextWindow(selector); contextWindow > 0 {
+			return model.WithContextWindow(contextWindow)
+		}
 	}
+	return model
+}
+
+func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, droids.Model, error) {
+	selector := record.ModelProvider + "/" + record.ModelID
+	model, err := m.resolveExactModel(selector)
+	if err != nil {
+		return nil, droids.Snapshot{}, droids.Model{}, err
+	}
+	if canonical := model.Provider + "/" + model.ID; canonical != selector {
+		return nil, droids.Snapshot{}, droids.Model{}, fmt.Errorf("resolved model %q as %q", selector, canonical)
+	}
+	model = m.applyModelContextWindow(selector, model)
 	droid, err := droids.Spawn(ctx, droids.ConversationID(record.ID), droids.Config{
-		Store: store, Providers: m.providers,
-		Model: selector, ContextWindow: contextWindow,
+		Store: store, Model: model,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
 		Tools: bundle.Tools,
 	})
 	if err != nil {
-		return nil, droids.Snapshot{}, err
+		return nil, droids.Snapshot{}, droids.Model{}, err
 	}
 	snapshot, err := droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
 		_ = droid.Close()
-		return nil, droids.Snapshot{}, err
+		return nil, droids.Snapshot{}, droids.Model{}, err
 	}
-	return droid, snapshot, nil
+	return droid, snapshot, model, nil
 }
 
 func (m *Manager) resumeRuntimeWithLimits(loaded *runtime, sessionID string) {

@@ -900,12 +900,12 @@ func (p *daemonEchoProviders) Models() []droids.Model {
 func (p *daemonEchoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }
-func (p *daemonEchoProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *daemonEchoProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 
 func (p *daemonEchoProviders) Model(id string) (droids.Model, bool) {

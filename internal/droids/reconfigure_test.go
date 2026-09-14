@@ -9,8 +9,9 @@ import (
 
 func TestReconfigureAppliesToNextProviderRequestWithoutInterruptingInflightRequest(t *testing.T) {
 	providers := newReconfigureProviders()
+	model := resolvedTestModel(providers, "test/reconfigure").WithContextWindow(1_000_000)
 	droid, err := Spawn(t.Context(), "conversation_reconfigure", Config{
-		Providers: providers, Model: "test/reconfigure", SystemPrompt: "before", Reasoning: "low",
+		Model: model, SystemPrompt: "before", Reasoning: "low",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -24,6 +25,13 @@ func TestReconfigureAppliesToNextProviderRequestWithoutInterruptingInflightReque
 	<-providers.started
 	if err := droid.Reconfigure(RequestConfiguration{SystemPrompt: "after", Reasoning: "high"}); err != nil {
 		t.Fatal(err)
+	}
+	configuration := droid.sdk.currentRequestConfiguration()
+	if configuration.contextWindow != 0 {
+		t.Fatalf("omitted context-window override = %d, want zero", configuration.contextWindow)
+	}
+	if got := configuredContextModel(droid.model, configuration).ContextWindow; got != 1_000_000 {
+		t.Fatalf("effective context window after reconfigure = %d, want 1000000", got)
 	}
 	close(providers.release)
 	if _, err := first.Wait(t.Context()); err != nil {
@@ -70,12 +78,12 @@ func (p *reconfigureProviders) Model(id string) (Model, bool) {
 	}
 	return Model{}, false
 }
-func (p *reconfigureProviders) Resolve(id string) (Provider, Model, error) {
+func (p *reconfigureProviders) Resolve(id string) (Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, Model{}, errors.New("unknown model")
+		return Model{}, errors.New("unknown model")
 	}
-	return AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return BindModel(AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *reconfigureProviders) Stream(ctx context.Context, _ Model, request Request) Stream {
 	p.mu.Lock()

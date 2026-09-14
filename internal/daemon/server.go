@@ -150,6 +150,18 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create subagent loader: %w", err)
 	}
+	settingsStore, err := settings.NewStore(paths.Settings)
+	if err != nil {
+		return fmt.Errorf("create settings store: %w", err)
+	}
+	modelContextWindow := func(selector string) int {
+		current, _, loadErr := settingsStore.Load()
+		if loadErr != nil {
+			logger.Warn("load model overrides", "error", loadErr)
+			return 0
+		}
+		return current.ModelOverrides[selector].ContextWindow
+	}
 	childBundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
@@ -157,7 +169,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create child runtime bundle builder: %w", err)
 	}
-	childFactory, err := kitsession.NewChildRuntimeFactory(providers, childBundleBuilder, filepath.Join(paths.Droids, "subagents"))
+	childFactory, err := kitsession.NewChildRuntimeFactory(providers, childBundleBuilder, filepath.Join(paths.Droids, "subagents"), modelContextWindow)
 	if err != nil {
 		return fmt.Errorf("create child runtime factory: %w", err)
 	}
@@ -168,7 +180,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	subagentTools := &subagent.ToolService{
 		Supervisor: subagents, Owners: store,
 		ResolveConfiguration: func(ctx context.Context, selector, thinking string) (string, string, error) {
-			provider, model, err := providers.Resolve(selector)
+			model, err := providers.Resolve(selector)
 			if err != nil {
 				return "", "", err
 			}
@@ -179,7 +191,7 @@ func Run(ctx context.Context, options RunOptions) error {
 					break
 				}
 			}
-			if provider == nil || provider.ID() != model.Provider || !available {
+			if !available {
 				return "", "", fmt.Errorf("provider %q is unavailable", model.Provider)
 			}
 			effectiveThinking, err := kitsession.ResolveCompatibleThinkingLevel(model, thinking)
@@ -195,25 +207,13 @@ func Run(ctx context.Context, options RunOptions) error {
 		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools,
 		AttachmentStore: attachmentStore,
 		ShowImageEnabled: func(record kitsession.SessionRecord) bool {
-			_, model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
+			model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
 			return resolveErr == nil && kitsession.ModelSupportsImageAttachment(model)
 		},
 		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
 	})
 	if err != nil {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
-	}
-	settingsStore, err := settings.NewStore(paths.Settings)
-	if err != nil {
-		return fmt.Errorf("create settings store: %w", err)
-	}
-	modelContextWindow := func(selector string) int {
-		current, _, loadErr := settingsStore.Load()
-		if loadErr != nil {
-			logger.Warn("load model overrides", "error", loadErr)
-			return 0
-		}
-		return current.ModelOverrides[selector].ContextWindow
 	}
 	sessionManager, err = kitsession.NewManager(
 		store, providers, bundleBuilder,

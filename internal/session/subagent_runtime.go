@@ -19,14 +19,15 @@ import (
 
 // ChildRuntimeFactory constructs isolated persistent droids for subagent conversations.
 type ChildRuntimeFactory struct {
-	providers     droids.Providers
-	bundleBuilder RuntimeBundleBuilder
-	directory     string
+	providers          droids.Providers
+	bundleBuilder      RuntimeBundleBuilder
+	directory          string
+	modelContextWindow func(string) int
 }
 
 // NewChildRuntimeFactory constructs the child runtime boundary. bundleBuilder
 // must omit the parent-facing subagent tool to prohibit nested delegation.
-func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBundleBuilder, droidDirectory string) (*ChildRuntimeFactory, error) {
+func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBundleBuilder, droidDirectory string, modelContextWindow func(string) int) (*ChildRuntimeFactory, error) {
 	if providers == nil {
 		return nil, errors.New("child runtime providers are required")
 	}
@@ -43,7 +44,7 @@ func NewChildRuntimeFactory(providers droids.Providers, bundleBuilder RuntimeBun
 	if err := securefs.MakePrivateDir(absolute); err != nil {
 		return nil, fmt.Errorf("create child droid directory: %w", err)
 	}
-	return &ChildRuntimeFactory{providers: providers, bundleBuilder: bundleBuilder, directory: absolute}, nil
+	return &ChildRuntimeFactory{providers: providers, bundleBuilder: bundleBuilder, directory: absolute, modelContextWindow: modelContextWindow}, nil
 }
 
 // Delete removes a closed child conversation store and SQLite sidecars.
@@ -98,8 +99,18 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	if err != nil {
 		return nil, fmt.Errorf("open child droid store: %w", err)
 	}
+	model, err := f.providers.Resolve(conversation.Model)
+	if err == nil && f.modelContextWindow != nil {
+		if contextWindow := f.modelContextWindow(conversation.Model); contextWindow > 0 {
+			model = model.WithContextWindow(contextWindow)
+		}
+	}
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("resolve child model: %w", err)
+	}
 	droid, err := droids.Spawn(ctx, droids.ConversationID(conversation.ID), droids.Config{
-		Store: store, Providers: f.providers, Model: conversation.Model,
+		Store: store, Model: model,
 		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: bundle.Tools,
 	})
 	if err != nil {

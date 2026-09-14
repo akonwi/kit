@@ -48,7 +48,7 @@ func estimateContextUsage(systemPrompt string, tools []ToolSchema, model Model, 
 		}
 	}
 	return ContextUsage{
-		Model: cloneModel(model), EstimatedInput: input,
+		Model: model.metadata(), EstimatedInput: input,
 		ReservedOutput: reservedOutput, ContextWindow: model.ContextWindow,
 		MaxInputTokens: model.MaxInputTokens, Remaining: remaining,
 	}

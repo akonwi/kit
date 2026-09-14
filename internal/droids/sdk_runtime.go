@@ -149,19 +149,21 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if id == "" {
 		return nil, fmt.Errorf("droids: conversation id is required")
 	}
-	if config.Providers == nil {
-		return nil, fmt.Errorf("droids: Config.Providers is required")
+	if !config.Compaction.Model.IsZero() {
+		compactionProvider := config.Compaction.Model.boundProvider()
+		if compactionProvider == nil || compactionProvider.ID() != config.Compaction.Model.Provider {
+			return nil, fmt.Errorf("droids: Config.Compaction.Model must be a resolved model")
+		}
 	}
-	if config.Model == "" {
-		return nil, fmt.Errorf("droids: Config.Model is required")
+	model := cloneModel(config.Model)
+	provider := model.boundProvider()
+	if provider == nil || model.Provider == "" || model.ID == "" {
+		return nil, fmt.Errorf("droids: Config.Model must be a resolved model")
 	}
-	provider, model, err := config.Providers.Resolve(config.Model)
-	if err != nil {
-		return nil, err
+	if provider.ID() != model.Provider {
+		return nil, fmt.Errorf("droids: Config.Model provider binding does not match %q", model.Provider)
 	}
-	if config.ContextWindow < 0 {
-		return nil, fmt.Errorf("droids: Config.ContextWindow must not be negative")
-	}
+	config.Model = model
 	if config.Store == nil {
 		config.Store = NewMemoryStore()
 	}
@@ -189,12 +191,12 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	config.Retry = &retry
 
 	requestConfig, err := buildRuntimeRequestConfiguration(model, RequestConfiguration{
-		SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, ContextWindow: config.ContextWindow, Tools: config.Tools,
+		SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, Tools: config.Tools,
 	})
 	if err != nil {
 		return nil, err
 	}
-	d := &Droid{providers: config.Providers, model: model}
+	d := &Droid{model: model}
 	initial := newDurableRuntime()
 	record, err := runtimeEncodedRecord(initial)
 	if err != nil {

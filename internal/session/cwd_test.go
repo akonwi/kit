@@ -484,12 +484,12 @@ func (p *cwdToolProviders) Models() []droids.Model { return []droids.Model{p.mod
 func (p *cwdToolProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "echo" || id == "test/echo"
 }
-func (p *cwdToolProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *cwdToolProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (*cwdToolProviders) RefreshModels(context.Context) error { return nil }
 func (*cwdToolProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {

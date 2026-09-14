@@ -29,7 +29,7 @@ func TestSDKCumulativeUsageCountsRetriesAbortsForksAndLegacyRebuild(t *testing.T
 	}
 	store := droids.NewMemoryStore()
 	droid, err := droids.Spawn(t.Context(), "conversation_usage", droids.Config{
-		Store: store, Providers: providers, Model: "test/usage",
+		Store: store, Model: resolvedTestModel(providers, "test/usage"),
 		Retry: &droids.RetryPolicy{Enabled: true, MaxRetries: 1, BaseDelay: time.Millisecond, MaxDelay: time.Millisecond},
 	})
 	if err != nil {
@@ -166,7 +166,7 @@ func TestSDKCumulativeUsageCountsRetriesAbortsForksAndLegacyRebuild(t *testing.T
 		t.Fatal(err)
 	}
 	reopened, err := droids.Spawn(t.Context(), "conversation_usage", droids.Config{
-		Store: store, Providers: providers, Model: "test/usage",
+		Store: store, Model: resolvedTestModel(providers, "test/usage"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -192,7 +192,7 @@ func TestSDKCumulativeUsageIncludesEveryToolLoopModelCycle(t *testing.T) {
 		},
 	})
 	droid, err := droids.Spawn(t.Context(), "conversation_usage_tools", droids.Config{
-		Providers: providers, Model: "test/usage", Tools: []droids.AnyTool{tool},
+		Model: resolvedTestModel(providers, "test/usage"), Tools: []droids.AnyTool{tool},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -218,7 +218,7 @@ type usageToolArgs struct{}
 func TestSDKObservedTerminalUsagePersistsWhenAbortWinsBeforeAccounting(t *testing.T) {
 	providers := &observedCancellationProviders{started: make(chan struct{}), release: make(chan struct{})}
 	droid, err := droids.Spawn(t.Context(), "conversation_usage_abort_race", droids.Config{
-		Providers: providers, Model: "test/observed",
+		Model: resolvedTestModel(providers, "test/observed"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -256,12 +256,12 @@ type observedCancellationProviders struct {
 }
 
 func (p *observedCancellationProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *observedCancellationProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *observedCancellationProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return &observedCancellationProvider{owner: p}, model, nil
+	return droids.BindModel(&observedCancellationProvider{owner: p}, model)
 }
 func (p *observedCancellationProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "observed" || id == "test/observed"
@@ -311,7 +311,7 @@ func TestSDKUsageContributionReconcilesAmbiguousCommitOnce(t *testing.T) {
 	providers := &usageProviders{fallback: droids.Usage{Input: 3, Output: 2, TotalTokens: 5}}
 	store := &ambiguousUsageStore{Store: droids.NewMemoryStore()}
 	droid, err := droids.Spawn(t.Context(), "conversation_usage_ambiguous", droids.Config{
-		Store: store, Providers: providers, Model: "test/usage",
+		Store: store, Model: resolvedTestModel(providers, "test/usage"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -360,7 +360,7 @@ func TestSDKMalformedProviderUsageIsNotAggregated(t *testing.T) {
 		usageMessage(droids.StopReasonStop, droids.Usage{Input: -1, Output: 2, TotalTokens: 1}),
 	}}
 	droid, err := droids.Spawn(t.Context(), "conversation_invalid_usage", droids.Config{
-		Providers: providers, Model: "test/usage",
+		Model: resolvedTestModel(providers, "test/usage"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -388,7 +388,7 @@ func TestSDKFailedCompactionAddsObservedSummaryUsage(t *testing.T) {
 	providers.summaryUsage = droids.Usage{Input: 7, Output: 2, TotalTokens: 9}
 	providers.summaryStopReason = droids.StopReasonError
 	droid, err := droids.Spawn(t.Context(), "conversation_failed_compaction_usage", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -396,7 +396,7 @@ func TestSDKFailedCompactionAddsObservedSummaryUsage(t *testing.T) {
 	t.Cleanup(func() { _ = droid.Close() })
 	seedAdaptationHistory(t, droid, 4)
 	if _, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "usage_failed_compaction", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "usage_failed_compaction", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}); err == nil {
 		t.Fatal("CompactContext succeeded with a failed summary response")
 	}
@@ -414,7 +414,7 @@ func TestSDKExplicitCompactionAddsSummaryProviderUsage(t *testing.T) {
 	providers.normalUsage = droids.Usage{Input: 2, Output: 1, TotalTokens: 3}
 	providers.summaryUsage = droids.Usage{Input: 7, Output: 2, TotalTokens: 9}
 	droid, err := droids.Spawn(t.Context(), "conversation_compaction_usage", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -429,7 +429,7 @@ func TestSDKExplicitCompactionAddsSummaryProviderUsage(t *testing.T) {
 		t.Fatalf("usage before compaction = %+v", before.Usage)
 	}
 	if _, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "usage_compaction", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "usage_compaction", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}); err != nil {
 		t.Fatal(err)
 	}
@@ -480,12 +480,12 @@ type usageProviders struct {
 }
 
 func (p *usageProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *usageProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *usageProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *usageProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "usage" || id == "test/usage"

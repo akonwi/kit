@@ -261,8 +261,12 @@ func TestActivateSkillHonorsCancellation(t *testing.T) {
 func TestActivateSkillRunsThroughDroidAndPersistsDetails(t *testing.T) {
 	registry := mustRegistry(t)
 	providers := &activationProviders{arguments: []byte(`{"name":"kit-customization"}`)}
+	model, err := providers.Resolve("test/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
 	droid, err := droids.Spawn(t.Context(), "conversation_skill_activation", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/skills",
+		Store: droids.NewMemoryStore(), Model: model,
 		Tools: []droids.AnyTool{registry.ActivateTool()},
 	})
 	if err != nil {
@@ -302,8 +306,12 @@ func TestActivateSkillRunsThroughDroidAndPersistsDetails(t *testing.T) {
 func TestActivateSkillSchemaRejectsAdditionalArgumentsThroughDroid(t *testing.T) {
 	registry := mustRegistry(t)
 	providers := &activationProviders{arguments: []byte(`{"name":"kit-customization","extra":true}`)}
+	model, err := providers.Resolve("test/skills")
+	if err != nil {
+		t.Fatal(err)
+	}
 	droid, err := droids.Spawn(t.Context(), "conversation_skill_invalid", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/skills",
+		Store: droids.NewMemoryStore(), Model: model,
 		Tools: []droids.AnyTool{registry.ActivateTool()},
 	})
 	if err != nil {
@@ -374,12 +382,13 @@ type activationProviders struct {
 }
 
 func (p *activationProviders) Models() []droids.Model { return []droids.Model{p.model()} }
-func (p *activationProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p *activationProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", id)
+		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	provider := droids.AdaptProvider("test", p.Models(), p.Stream)
+	return droids.BindModel(provider, model)
 }
 func (p *activationProviders) Model(id string) (droids.Model, bool) {
 	return p.model(), id == "skills" || id == "test/skills"

@@ -157,12 +157,12 @@ func (reloadProviders) Models() []droids.Model {
 		ContextWindow: 128_000, MaxOutputTokens: 8_192,
 	}}
 }
-func (p reloadProviders) Resolve(id string) (droids.Provider, droids.Model, error) {
+func (p reloadProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
-		return nil, droids.Model{}, errors.New("unknown model")
+		return droids.Model{}, errors.New("unknown model")
 	}
-	return droids.AdaptProvider("test", p.Models(), p.Stream), model, nil
+	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p reloadProviders) Model(id string) (droids.Model, bool) {
 	return p.Models()[0], id == "echo" || id == "test/echo"

@@ -17,8 +17,10 @@ import (
 )
 
 func TestSDKConfigOverridesActiveModelContextWindow(t *testing.T) {
+	providers := newAdaptationProviders()
+	model := resolvedTestModel(providers, "test/active").WithContextWindow(1_000_000)
 	droid, err := droids.Spawn(t.Context(), "conversation_context_override", droids.Config{
-		Providers: newAdaptationProviders(), Model: "test/active", ContextWindow: 1_000_000,
+		Model: model,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -37,19 +39,19 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	providers.activeSummaryFails = true
 	store := droids.NewMemoryStore()
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt", droids.Config{
-		Store: store, Providers: providers, Model: "test/active",
+		Store: store, Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	seedAdaptationHistory(t, droid, 4)
 
-	target := droids.ContextTarget{Model: "test/small", Reasoning: "off"}
+	target := droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"}
 	assessment, err := droid.AssessContext(t.Context(), target)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if assessment.Target.Model != "test/small" || !assessment.ReplayCompatible || !assessment.RequiresCompaction {
+	if assessment.Target.Model.Provider != "test" || assessment.Target.Model.ID != "small" || !assessment.ReplayCompatible || !assessment.RequiresCompaction {
 		t.Fatalf("assessment = %+v", assessment)
 	}
 	beforeHistory, err := droid.History(t.Context(), droids.HistoryQuery{Limit: 100})
@@ -71,7 +73,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	if err != nil {
 		t.Fatal(err)
 	}
-	if !result.Compacted || result.CheckpointID == "" || result.Target.Model != "test/small" || sdkShouldCompactForTest(result.After) {
+	if !result.Compacted || result.CheckpointID == "" || result.Target.Model.Provider != "test" || result.Target.Model.ID != "small" || sdkShouldCompactForTest(result.After) {
 		t.Fatalf("compaction result = %+v", result)
 	}
 	if result.After.EstimatedInput >= result.Before.EstimatedInput {
@@ -104,7 +106,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	}
 	compactions := providers.compactions.Load()
 	replayed, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "context_model_switch_1", Target: droids.ContextTarget{Model: "test/small", Reasoning: "none"},
+		OperationID: "context_model_switch_1", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "none"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -113,7 +115,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 		t.Fatalf("replayed result = %+v, want %+v; compactions=%d", replayed, result, providers.compactions.Load())
 	}
 	if _, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "context_model_switch_1", Target: droids.ContextTarget{Model: "test/active"},
+		OperationID: "context_model_switch_1", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/active")},
 	}); !errors.Is(err, droids.ErrConflict) {
 		t.Fatalf("reused operation target error = %v", err)
 	}
@@ -136,7 +138,7 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 	providers.smallUnavailable = true
 
 	reopened, err := droids.Spawn(t.Context(), "conversation_adapt", droids.Config{
-		Store: store, Providers: providers, Model: "test/active",
+		Store: store, Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -153,14 +155,14 @@ func TestSDKAssessesAndIdempotentlyCompactsSettledContextForTargetModel(t *testi
 func TestSDKForcedCompactionIgnoresAutomaticThreshold(t *testing.T) {
 	providers := newAdaptationProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_force_compact", droids.Config{
-		Store: droids.NewMemoryStore(), Providers: providers, Model: "test/active",
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = droid.Close() })
 	seedAdaptationHistory(t, droid, 4)
-	target := droids.ContextTarget{Model: "test/active", Reasoning: "off"}
+	target := droids.ContextTarget{Model: resolvedTestModel(providers, "test/active"), Reasoning: "off"}
 	assessment, err := droid.AssessContext(t.Context(), target)
 	if err != nil {
 		t.Fatal(err)
@@ -191,14 +193,14 @@ func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 		t.Fatal(err)
 	}
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_sqlite", droids.Config{
-		Store: store, Providers: providers, Model: "test/active",
+		Store: store, Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	seedAdaptationHistory(t, droid, 4)
 	options := droids.CompactContextOptions{
-		OperationID: "context_sqlite", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "context_sqlite", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}
 	original, err := droid.CompactContext(t.Context(), options)
 	if err != nil || !original.Compacted {
@@ -218,7 +220,7 @@ func TestSDKCompactionReceiptPersistsInSQLite(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = reopenedStore.Close() })
 	reopened, err := droids.Spawn(t.Context(), "conversation_adapt_sqlite", droids.Config{
-		Store: reopenedStore, Providers: providers, Model: "test/active",
+		Store: reopenedStore, Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -234,7 +236,7 @@ func TestSDKAmbiguousCompactionCommitReconcilesReceiptAndCheckpoint(t *testing.T
 	providers := newAdaptationProviders()
 	store := &ambiguousCompactionStore{Store: droids.NewMemoryStore()}
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_ambiguous", droids.Config{
-		Store: store, Providers: providers, Model: "test/active",
+		Store: store, Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -243,7 +245,7 @@ func TestSDKAmbiguousCompactionCommitReconcilesReceiptAndCheckpoint(t *testing.T
 	seedAdaptationHistory(t, droid, 4)
 	store.failCompleted.Store(true)
 	options := droids.CompactContextOptions{
-		OperationID: "context_ambiguous", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "context_ambiguous", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}
 	result, err := droid.CompactContext(t.Context(), options)
 	if err != nil || !result.Compacted || result.CheckpointID == "" {
@@ -287,7 +289,7 @@ func TestSDKQuiescentCompactionUsesInheritedMessageProvenanceInReadyFork(t *test
 	providers := newAdaptationProviders()
 	providers.rejectActiveForSmall = true
 	source, err := droids.Spawn(t.Context(), "conversation_adapt_source", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -300,7 +302,7 @@ func TestSDKQuiescentCompactionUsesInheritedMessageProvenanceInReadyFork(t *test
 	}
 	t.Cleanup(func() { _ = forked.Droid.Close() })
 
-	assessment, err := forked.Droid.AssessContext(t.Context(), droids.ContextTarget{Model: "test/small", Reasoning: "off"})
+	assessment, err := forked.Droid.AssessContext(t.Context(), droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -308,7 +310,7 @@ func TestSDKQuiescentCompactionUsesInheritedMessageProvenanceInReadyFork(t *test
 		t.Fatalf("fork assessment = %+v", assessment)
 	}
 	result, err := forked.Droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "context_fork_switch", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "context_fork_switch", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -329,7 +331,7 @@ func TestSDKCompactionRejectsReplacementUnsafeForCurrentModel(t *testing.T) {
 	providers := newAdaptationProviders()
 	providers.divergentMeasure = true
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_current_safety", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -341,12 +343,12 @@ func TestSDKCompactionRejectsReplacementUnsafeForCurrentModel(t *testing.T) {
 		t.Fatal(err)
 	}
 	if _, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "context_current_unsafe", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "context_current_unsafe", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}); !errors.Is(err, droids.ErrContextNotAdaptable) {
 		t.Fatalf("CompactContext() error = %v", err)
 	}
 	if _, err := droid.CompactContext(t.Context(), droids.CompactContextOptions{
-		OperationID: "context_current_unsafe", Target: droids.ContextTarget{Model: "test/active"},
+		OperationID: "context_current_unsafe", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/active")},
 	}); !errors.Is(err, droids.ErrConflict) {
 		t.Fatalf("failed operation target reuse error = %v", err)
 	}
@@ -362,14 +364,14 @@ func TestSDKCompactionRejectsReplacementUnsafeForCurrentModel(t *testing.T) {
 func TestSDKCompactionReceiptWinsOverLaterBusyState(t *testing.T) {
 	providers := newAdaptationProviders()
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_receipt_busy", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = droid.Close() })
 	options := droids.CompactContextOptions{
-		OperationID: "context_noop", Target: droids.ContextTarget{Model: "test/active"},
+		OperationID: "context_noop", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/active")},
 	}
 	before, err := droid.Snapshot(t.Context(), droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
@@ -435,7 +437,7 @@ func TestSDKQuiescentCompactionPreservesBoundaryAcceptedDuringSummary(t *testing
 	providers.blockSummary = make(chan struct{})
 	providers.summaryStarted = make(chan struct{})
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_boundary", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -443,7 +445,7 @@ func TestSDKQuiescentCompactionPreservesBoundaryAcceptedDuringSummary(t *testing
 	t.Cleanup(func() { _ = droid.Close() })
 	seedAdaptationHistory(t, droid, 4)
 	options := droids.CompactContextOptions{
-		OperationID: "context_boundary", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+		OperationID: "context_boundary", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 	}
 	result := make(chan compactCallResult, 1)
 	go func() {
@@ -524,7 +526,7 @@ func TestSDKAssessContextPropagatesReplayValidationCancellation(t *testing.T) {
 	providers.blockValidation = make(chan struct{})
 	providers.validationStarted = make(chan struct{})
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_assess_cancel", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -533,7 +535,7 @@ func TestSDKAssessContextPropagatesReplayValidationCancellation(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	result := make(chan error, 1)
 	go func() {
-		_, err := droid.AssessContext(ctx, droids.ContextTarget{Model: "test/small", Reasoning: "off"})
+		_, err := droid.AssessContext(ctx, droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"})
 		result <- err
 	}()
 	select {
@@ -557,7 +559,7 @@ func TestSDKShutdownCancelsQuiescentCompaction(t *testing.T) {
 	providers.blockSummary = make(chan struct{})
 	providers.summaryStarted = make(chan struct{})
 	droid, err := droids.Spawn(t.Context(), "conversation_adapt_shutdown", droids.Config{
-		Providers: providers, Model: "test/active",
+		Model: resolvedTestModel(providers, "test/active"),
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -566,7 +568,7 @@ func TestSDKShutdownCancelsQuiescentCompaction(t *testing.T) {
 	compactDone := make(chan error, 1)
 	go func() {
 		_, err := droid.CompactContext(context.Background(), droids.CompactContextOptions{
-			OperationID: "context_shutdown", Target: droids.ContextTarget{Model: "test/small", Reasoning: "off"},
+			OperationID: "context_shutdown", Target: droids.ContextTarget{Model: resolvedTestModel(providers, "test/small"), Reasoning: "off"},
 		})
 		compactDone <- err
 	}()
@@ -643,16 +645,16 @@ func (p *adaptationProviders) Models() []droids.Model {
 	return []droids.Model{p.activeModel(), p.smallModel()}
 }
 
-func (p *adaptationProviders) Resolve(selector string) (droids.Provider, droids.Model, error) {
+func (p *adaptationProviders) Resolve(selector string) (droids.Model, error) {
 	model, ok := p.Model(selector)
 	if !ok {
-		return nil, droids.Model{}, fmt.Errorf("unknown model %q", selector)
+		return droids.Model{}, fmt.Errorf("unknown model %q", selector)
 	}
-	provider := &adaptationProvider{owner: p}
+	provider := droids.Provider(&adaptationProvider{owner: p})
 	if p.divergentMeasure {
-		return &measuredAdaptationProvider{adaptationProvider: provider}, model, nil
+		provider = &measuredAdaptationProvider{adaptationProvider: provider.(*adaptationProvider)}
 	}
-	return provider, model, nil
+	return droids.BindModel(provider, model)
 }
 
 func (p *adaptationProviders) Model(selector string) (droids.Model, bool) {
