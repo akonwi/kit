@@ -382,19 +382,25 @@ func TestInteractionDockReplacesComposerAndShowsQueuePosition(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 80, 20
+	workspaceFocusMoves := 0
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Composer: "preserved draft", Scroll: &ui.ScrollController{},
 		PendingInteractions: []protocol.InteractionRequest{
 			{ID: "interaction_one", Kind: protocol.InteractionConfirm, Title: "Deploy now?", Detail: "This updates production."},
 			{ID: "interaction_two", Kind: protocol.InteractionInput, Title: "Release note"},
 		},
-	}})
+	}, Callbacks: shellCallbacks{MoveWorkspaceFocus: func(ui.EventContext) { workspaceFocusMoves++ }}})
 	app.Pump(width, height)
 	painted := strings.Join(paintedRows(app, width, height), "\n")
 	for _, expected := range []string{"Deploy now?", "1 of 2", "This updates production.", "Yes", "No", "y yes · n no · esc cancel", "Cancel"} {
 		if !strings.Contains(painted, expected) {
 			t.Fatalf("interaction dock does not contain %q:\n%s", expected, painted)
 		}
+	}
+	app.Tab()
+	app.ShiftTab()
+	if workspaceFocusMoves != 0 {
+		t.Fatalf("interaction focus trap moved workspace focus %d times", workspaceFocusMoves)
 	}
 }
 

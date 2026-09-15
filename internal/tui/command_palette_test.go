@@ -89,6 +89,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) == 0 || commands[0].ID != paletteCommandNew {
 		t.Fatalf("new matches = %#v, want new first", commands)
 	}
+	commands = filteredPaletteCommands(false, "panes")
+	if len(commands) != 1 || commands[0].ID != paletteCommandTabs {
+		t.Fatalf("panes matches = %#v, want tabs", commands)
+	}
 	commands = filteredPaletteCommands(false, "appearance")
 	if len(commands) != 1 || commands[0].ID != paletteCommandTheme {
 		t.Fatalf("appearance matches = %#v, want theme", commands)
@@ -102,6 +106,9 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if !paletteCommandAvailable(paletteCommandSessions, true) {
 		t.Fatal("sessions was unavailable during active work")
+	}
+	if !paletteCommandAvailable(paletteCommandTabs, true) {
+		t.Fatal("tabs was unavailable during active work")
 	}
 	if !paletteCommandAvailable(paletteCommandNew, true) {
 		t.Fatal("new was unavailable during active work")
@@ -185,7 +192,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 14 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 15 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -430,6 +437,16 @@ func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing
 	state.runPaletteCommand(ui.EventContext{}, paletteCommandCD)
 	if !state.palette.Open || presented.Title != "Command unavailable" || presented.Subtitle != "Available when the session is idle." || presented.Variant != toastWarning {
 		t.Fatalf("disabled app activation = open:%v toast:%+v", state.palette.Open, presented)
+	}
+}
+
+func TestTabsActionExplainsAgentOnlyWorkspace(t *testing.T) {
+	t.Parallel()
+	var presented toastInput
+	state := &appState{showToastOverride: func(toast toastInput) { presented = toast }}
+	state.openWorkspacePicker()
+	if state.workspacePickerOpen || presented.Title != "No workspace tabs" || presented.Subtitle != "Open a secondary surface first." {
+		t.Fatalf("Agent-only tabs action = picker:%t toast:%+v", state.workspacePickerOpen, presented)
 	}
 }
 

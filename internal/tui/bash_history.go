@@ -209,7 +209,7 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	})
 	return composerOverlayPositioner{
 		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent,
-		Child: proportionalWidth{Percent: 80, Min: 48, Max: workspaceMinPrimary - 2, Child: ui.FocusScope{
+		Child: proportionalWidth{Percent: 80, Min: 48, Max: composerOverlayMaxWidth, Child: ui.FocusScope{
 			Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
 				ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})},
 				content,

@@ -239,7 +239,7 @@ func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 		ui.Text{Value: "↑↓ move · enter insert · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 	)})
 	anchor := w.Controller.Anchor
-	return composerOverlayPositioner{BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor, Child: proportionalWidth{Percent: 80, Min: 48, Max: workspaceMinPrimary - 2, Child: ui.DecoratedBox(
+	return composerOverlayPositioner{BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor, Child: proportionalWidth{Percent: 80, Min: 48, Max: composerOverlayMaxWidth, Child: ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})}, content,
 	)}}
 }

@@ -296,11 +296,20 @@ type appState struct {
 	activityScroll                   ui.ScrollController
 	activityList                     activityListController
 	activityFocus                    ui.FocusNode
+	subagentFocuses                  map[string]*ui.FocusNode
+	workspace                        workspaceController
+	workspacePickerOpen              bool
+	workspacePickerQuery             string
+	workspacePickerSelection         int
+	workspacePickerScroll            ui.ScrollController
+	workspacePickerRevealPending     bool
+	workspacePickerRevealOffset      int
 	workspaceLayout                  workspaceLayoutState
 	activitySourceID                 string
 	activityConversationID           string
 	activitySelected                 bool
 	subagentsOpen                    bool
+	subagentFilter                   string
 	subagentDefinitions              []protocol.SubagentDefinition
 	subagentDiagnostics              []protocol.SubagentDiagnostic
 	subagentDiagnosticToasts         map[subagentDiagnosticToastKey]struct{}
@@ -402,6 +411,7 @@ func (s *appState) InitState() {
 	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentDiagnosticToasts = make(map[subagentDiagnosticToastKey]struct{})
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentFocuses = make(map[string]*ui.FocusNode)
 	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
 	s.subagentLiveLoads = make(map[string]uint64)
 	s.subagentLiveLoading = make(map[string]bool)
@@ -477,6 +487,14 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.sessionExplorer.TickFrame() {
 		keepTicking = true
 	}
+	if s.workspacePickerRevealPending {
+		if s.workspacePickerScroll.Attached() {
+			s.workspacePickerScroll.ScrollToOffset(s.workspacePickerRevealOffset)
+			s.workspacePickerRevealPending = false
+		} else {
+			keepTicking = true
+		}
+	}
 	if s.subagentRevealPending {
 		if s.activityScroll.Attached() {
 			s.activityScroll.ScrollToOffset(s.subagentRevealOffset)
@@ -485,7 +503,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.subagentRevealPending || s.providerRetry != nil
+	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
@@ -931,20 +949,25 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivityScroll:               &s.activityScroll,
 		ActivityList:                 &s.activityList,
 		ActivityFocus:                &s.activityFocus,
+		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
+		Workspace:                    s.workspace.Snapshot(),
+		WorkspacePickerOpen:          s.workspacePickerOpen,
+		WorkspacePickerQuery:         s.workspacePickerQuery,
+		WorkspacePickerSelection:     s.workspacePickerSelection,
+		WorkspacePickerScroll:        &s.workspacePickerScroll,
 		WorkspaceLayout:              &s.workspaceLayout,
 		ActivitySourceID:             s.activitySourceID,
 		ActivityConversationID:       s.activityConversationID,
 		ActivitySelected:             s.activitySelected,
 		SubagentsOpen:                s.subagentsOpen,
+		SubagentFilter:               s.subagentFilter,
 		SubagentDefinitions:          append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
 		SubagentDiagnostics:          append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
 		SubagentConversations:        append([]protocol.SubagentConversation(nil), s.subagentConversations...),
 		SubagentSelection:            s.subagentSelection,
-		SubagentPaneID:               s.subagentPaneID,
 		SubagentTranscripts:          cloneSubagentTranscripts(s.subagentTranscripts),
 		SubagentTranscriptErrors:     cloneStringMap(s.subagentTranscriptErrors),
-		SubagentTranscriptOrder:      append([]string(nil), s.subagentTranscriptOrder...),
-		SubagentScroll:               s.subagentScrolls[s.subagentPaneID],
+		SubagentScrolls:              cloneScrollControllerMap(s.subagentScrolls),
 		SubagentLive:                 cloneSubagentLive(s.subagentLive),
 		SubagentDismissID:            s.subagentDismissID,
 		SubagentDismissName:          s.subagentDismissName,
@@ -1023,7 +1046,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			if s.activityFocus.HasFocus() {
 				ctx.FocusNext()
 			}
-			s.SetState(func() { s.activitySelected = false })
+			s.SetState(func() {
+				s.clearSubagentActivityForConversationChange("")
+				s.workspace.SelectAgent()
+				s.activitySelected = false
+				s.subagentPaneID = ""
+			})
 		},
 		CloseActivity: func(ctx ui.EventContext) {
 			if s.activityFocus.HasFocus() {
@@ -1036,7 +1064,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.activitySourceID = ""
 				s.activityConversationID = ""
-				s.activitySelected = false
+				s.syncWorkspaceSelection()
 				s.inlineActivityOpen = make(map[string]bool)
 				s.activityExpanded = make(map[activityToolKey]bool)
 				s.activityCursor = activityToolKey{}
@@ -1049,14 +1077,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.requestSubagentDismiss(conversationID, generation)
 		},
 		SelectSubagent: func(_ ui.EventContext, name string) {
-			s.SetState(func() {
-				s.subagentSelection = name
-				s.activitySelected = true
-			})
+			s.SetState(func() { s.subagentSelection = name })
 		},
 		MoveSubagentSelection: func(_ ui.EventContext, delta int) {
 			s.SetState(func() {
-				items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+				items := filteredSubagentRosterItems(subagentRosterItems(s.subagentDefinitions, s.subagentConversations), s.subagentFilter)
 				if len(items) == 0 {
 					s.subagentSelection = ""
 					return
@@ -1073,28 +1098,83 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.activityScroll.ScrollToOffset(subagentRosterOffset(items, index))
 			})
 		},
-		ShowSubagentRoster: func(ui.EventContext) {
-			s.cancelPendingSubagentToolOpen()
+		SubagentFilterChanged: func(_ ui.EventContext, query string) {
 			s.SetState(func() {
-				s.subagentPaneID = ""
-				s.activitySelected = true
-				items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
-				if selected, ok := selectedSubagentRosterItem(items, s.subagentSelection); ok {
-					s.subagentSelection = selected.Name
-					s.subagentRevealOffset = subagentRosterOffset(items, subagentRosterSelectionIndex(items, selected.Name))
-					s.subagentRevealPending = true
+				s.subagentFilter = query
+				items := filteredSubagentRosterItems(subagentRosterItems(s.subagentDefinitions, s.subagentConversations), query)
+				if len(items) == 0 {
+					s.subagentSelection = ""
+				} else {
+					s.subagentSelection = items[0].Name
 				}
 			})
 		},
 		OpenSubagentConversation: func(_ ui.EventContext, conversationID string) {
 			s.cancelPendingSubagentToolOpen()
-			if !s.subagentsOpen {
+			if s.subagentWatchCancel == nil {
 				s.openSubagents()
 			}
 			s.openSubagentConversation(conversationID)
 		},
+		SelectWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
+			if descriptor.Kind == workspacePaneSubagentConversation {
+				s.openSubagentConversation(descriptor.ResourceID)
+			}
+		},
+		CloseWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
+			if descriptor.Kind == workspacePaneSubagentConversation {
+				s.closeSubagentConversation(descriptor.ResourceID)
+				if s.workspacePickerOpen {
+					s.SetState(func() {
+						s.workspacePickerSelection = min(s.workspacePickerSelection, len(s.workspace.Panes()))
+						s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+					})
+				}
+			}
+		},
+		OpenWorkspacePicker: func(ui.EventContext) { s.openWorkspacePicker() },
+		CloseWorkspacePicker: func(ui.EventContext) {
+			s.SetState(func() {
+				s.workspacePickerOpen = false
+				s.workspacePickerQuery = ""
+				s.workspacePickerSelection = 0
+				s.workspacePickerRevealPending = false
+			})
+		},
+		WorkspacePickerQuery: func(_ ui.EventContext, query string) {
+			s.SetState(func() {
+				s.workspacePickerQuery = query
+				s.workspacePickerSelection = 0
+				s.requestWorkspacePickerReveal(0)
+			})
+		},
+		WorkspacePickerSelection: func(_ ui.EventContext, selection int) {
+			s.SetState(func() {
+				s.workspacePickerSelection = max(0, selection)
+				s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+			})
+		},
+		MoveWorkspaceFocus: func(ui.EventContext) {
+			s.SetState(func() { s.workspace.MoveFocus() })
+		},
+		MoveWorkspaceSelection: func(_ ui.EventContext, delta int) {
+			selectedConversationID := ""
+			s.SetState(func() {
+				if s.workspace.MoveSelection(delta) {
+					syncPane, paneSelected := s.workspace.SelectedPane()
+					if paneSelected && syncPane.Kind == workspacePaneSubagentConversation {
+						selectedConversationID = syncPane.ResourceID
+					}
+					s.clearSubagentActivityForConversationChange(selectedConversationID)
+					s.syncWorkspaceSelection()
+				}
+			})
+			if selectedConversationID != "" {
+				s.refreshSubagentTranscript(selectedConversationID)
+			}
+		},
 		OpenSubagentActivity: func(_ ui.EventContext, conversationID, sourceID string) {
-			s.activityFocus.RequestFocus()
+			s.subagentFocus(conversationID).RequestFocus()
 			s.SetState(func() {
 				presentation := s.activityPresentation(presentedMessages, conversationID)
 				opening := !s.inlineActivityOpen[sourceID]
@@ -1122,11 +1202,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		CloseSubagentConversation: func(_ ui.EventContext, conversationID string) {
 			s.closeSubagentConversation(conversationID)
-		},
-		ScrollSubagentTranscript: func(_ ui.EventContext, conversationID string, pages int) {
-			if scroll := s.subagentScrolls[conversationID]; scroll != nil && scroll.Attached() {
-				scroll.ScrollByPages(pages)
-			}
 		},
 		ScrollActivity: func(_ ui.EventContext, pages int) {
 			if s.activityScroll.Attached() {
@@ -1850,7 +1925,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		} else {
 			s.activitySourceID = ""
 			s.activityConversationID = ""
-			s.activitySelected = false
+			s.syncWorkspaceSelection()
 			s.inlineActivityOpen = make(map[string]bool)
 			s.activityExpanded = make(map[activityToolKey]bool)
 			s.activityCursor = activityToolKey{}
@@ -3386,6 +3461,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.openSessionExplorer()
 	case paletteCommandSubagents:
 		s.openSubagents()
+	case paletteCommandTabs:
+		s.openWorkspacePicker()
 	case paletteCommandTheme:
 		s.openThemePicker()
 	case paletteCommandThinking:
@@ -3533,8 +3610,7 @@ func (s *appState) openSubagents() {
 		s.subagentRosterLoading = false
 		s.subagentRosterRefreshPending = false
 		s.subagentsOpen = true
-		s.subagentPaneID = ""
-		s.activitySelected = true
+		s.subagentFilter = ""
 	})
 	s.refreshSubagents()
 	if s.subagentWatchCancel != nil {
@@ -3559,7 +3635,7 @@ func (s *appState) openSubagents() {
 							continue
 						}
 						runtime.Dispatch(func() {
-							if s.subagentsOpen && s.bound == bound && s.subagentRequestGeneration == watchGeneration {
+							if s.subagentWorkspaceActive() && s.bound == bound && s.subagentRequestGeneration == watchGeneration {
 								s.refreshSubagents()
 							}
 						})
@@ -3582,14 +3658,15 @@ func (s *appState) openSubagents() {
 				return
 			case <-ticker.C:
 				runtime.Dispatch(func() {
-					if !s.subagentsOpen || s.bound != bound || s.subagentRequestGeneration != watchGeneration {
+					if !s.subagentWorkspaceActive() || s.bound != bound || s.subagentRequestGeneration != watchGeneration {
 						return
 					}
-					if !s.subagentRosterLoading {
+					refreshRoster, conversationID := s.visibleSubagentRefreshTargets()
+					if refreshRoster {
 						s.refreshSubagents()
 					}
-					if s.subagentPaneID != "" {
-						s.refreshSubagentTranscript(s.subagentPaneID)
+					if conversationID != "" {
+						s.refreshSubagentTranscript(conversationID)
 					}
 				})
 			}
@@ -3598,25 +3675,42 @@ func (s *appState) openSubagents() {
 }
 
 func (s *appState) closeSubagents() {
+	s.SetState(func() {
+		s.subagentsOpen = false
+		s.subagentFilter = ""
+		s.subagentRevealPending = false
+		s.subagentPendingAgent = ""
+	})
+	s.stopSubagentWatchIfIdle()
+}
+
+func (s *appState) visibleSubagentRefreshTargets() (bool, string) {
+	return s.subagentsOpen && !s.subagentRosterLoading, s.subagentPaneID
+}
+
+func (s *appState) subagentWorkspaceActive() bool {
+	if s.subagentsOpen {
+		return true
+	}
+	for _, pane := range s.workspace.Panes() {
+		if pane.Kind == workspacePaneSubagentConversation {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *appState) stopSubagentWatchIfIdle() {
+	if s.subagentWorkspaceActive() {
+		return
+	}
 	if s.subagentWatchCancel != nil {
 		s.subagentWatchCancel()
 		s.subagentWatchCancel = nil
 	}
-	s.SetState(func() {
-		s.subagentRequestGeneration++
-		s.subagentsOpen = false
-		s.activitySelected = false
-		s.subagentRevealPending = false
-		s.subagentPendingAgent = ""
-		s.subagentRosterLoading = false
-		s.subagentRosterRefreshPending = false
-		if s.activityConversationID != "" {
-			s.activitySourceID = ""
-			s.activityConversationID = ""
-			s.inlineActivityOpen = make(map[string]bool)
-			s.activityCursor = activityToolKey{}
-		}
-	})
+	s.subagentRequestGeneration++
+	s.subagentRosterLoading = false
+	s.subagentRosterRefreshPending = false
 }
 
 func (s *appState) refreshSubagents() {
@@ -3663,7 +3757,7 @@ func (s *appState) startSubagentRosterRequest(rosterGeneration uint64) {
 					s.acceptSubagentResult(result)
 				}
 			}
-			if refreshPending && s.subagentsOpen && s.bound == bound {
+			if refreshPending && s.subagentWorkspaceActive() && s.bound == bound {
 				s.startSubagentRosterRequest(s.subagentRosterGeneration)
 			}
 		})
@@ -3684,6 +3778,7 @@ func (s *appState) acceptSubagentResult(result protocol.SubagentOperationResult)
 			s.subagentPendingAgent = ""
 		}
 	})
+	s.stopSubagentWatchIfIdle()
 	if requestedAgent == "" {
 		return
 	}
@@ -3712,13 +3807,12 @@ func (s *appState) openSubagentFromTool(agentName string) {
 	s.SetState(func() {
 		s.subagentPendingAgent = agentName
 		s.subagentSelection = agentName
-		s.activitySelected = true
 	})
 	s.refreshSubagents()
 }
 
 func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) {
-	previousItems := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+	previousItems := filteredSubagentRosterItems(subagentRosterItems(s.subagentDefinitions, s.subagentConversations), s.subagentFilter)
 	previousSelected, previousOK := selectedSubagentRosterItem(previousItems, s.subagentSelection)
 	previousIndex := -1
 	previousOffset := 0
@@ -3731,7 +3825,7 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 	s.applySubagentDiagnostics(s.session.ID, result.Diagnostics)
 	s.subagentConversations = append([]protocol.SubagentConversation(nil), result.Conversations...)
 	s.reconcileSubagentTabs()
-	items := subagentRosterItems(s.subagentDefinitions, s.subagentConversations)
+	items := filteredSubagentRosterItems(subagentRosterItems(s.subagentDefinitions, s.subagentConversations), s.subagentFilter)
 	selected, ok := selectedSubagentRosterItem(items, s.subagentSelection)
 	if !ok {
 		s.subagentSelection = ""
@@ -3742,7 +3836,7 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 	s.subagentSelection = selected.Name
 	index := subagentRosterSelectionIndex(items, selected.Name)
 	offset := subagentRosterOffset(items, index)
-	rosterVisible := s.subagentsOpen && s.subagentPaneID == ""
+	rosterVisible := s.subagentsOpen
 	selectionMoved := !previousOK || previousSelected.Name != selected.Name || previousIndex != index || previousOffset != offset
 	if rosterVisible && selectionMoved {
 		s.subagentRevealOffset = offset
@@ -3770,9 +3864,11 @@ func (s *appState) reconcileSubagentTabs() {
 		s.advanceSubagentLiveLoad(conversationID)
 		s.subagentLiveLoading[conversationID] = false
 		delete(s.subagentScrolls, conversationID)
+		delete(s.subagentFocuses, conversationID)
 		delete(s.subagentLive, conversationID)
-		if s.subagentPaneID == conversationID {
-			s.subagentPaneID = ""
+		identity, err := workspacePaneIdentityFor(subagentWorkspacePane(conversationID))
+		if err == nil {
+			s.workspace.Close(identity)
 		}
 		if s.activityConversationID == conversationID {
 			s.activitySourceID = ""
@@ -3787,6 +3883,7 @@ func (s *appState) reconcileSubagentTabs() {
 		}
 	}
 	s.subagentTranscriptOrder = retained
+	s.syncWorkspaceSelection()
 }
 
 func (s *appState) cancelSubagentTask(taskID string, generation uint64) {
@@ -3819,35 +3916,61 @@ func (s *appState) cancelSubagentTask(taskID string, generation uint64) {
 	}()
 }
 
+func (s *appState) subagentFocus(conversationID string) *ui.FocusNode {
+	if s.subagentFocuses == nil {
+		s.subagentFocuses = make(map[string]*ui.FocusNode)
+	}
+	if s.subagentFocuses[conversationID] == nil {
+		s.subagentFocuses[conversationID] = &ui.FocusNode{}
+	}
+	return s.subagentFocuses[conversationID]
+}
+
 func (s *appState) requestSubagentScrollToEnd(conversationID string) {
 	s.subagentScrollToEndID = conversationID
 	s.subagentNeedsScroll = true
 	s.subagentPendingLayout = true
 }
 
-func (s *appState) openSubagentConversation(conversationID string) {
-	if !s.subagentsOpen || s.bound == nil {
+func (s *appState) clearSubagentActivityForConversationChange(conversationID string) {
+	if s.activityConversationID == "" || s.activityConversationID == conversationID {
 		return
 	}
+	s.activitySourceID = ""
+	s.activityConversationID = ""
+	s.inlineActivityOpen = make(map[string]bool)
+	s.activityCursor = activityToolKey{}
+}
+
+func (s *appState) openSubagentConversation(conversationID string) {
+	if s.bound == nil {
+		return
+	}
+	var openErr error
 	s.SetState(func() {
-		newTab := !containsSubagentTab(s.subagentTranscriptOrder, conversationID)
+		_, newTab, err := s.workspace.Open(subagentWorkspacePane(conversationID))
+		if err != nil {
+			openErr = err
+			return
+		}
+		s.subagentsOpen = false
+		s.subagentFilter = ""
 		s.subagentTranscriptOrder = ensureSubagentTab(s.subagentTranscriptOrder, conversationID)
 		if s.subagentScrolls[conversationID] == nil {
 			s.subagentScrolls[conversationID] = &ui.ScrollController{}
 		}
-		s.subagentPaneID = conversationID
-		if s.activityConversationID != "" && s.activityConversationID != conversationID {
-			s.activitySourceID = ""
-			s.activityConversationID = ""
-			s.inlineActivityOpen = make(map[string]bool)
-			s.activityCursor = activityToolKey{}
-		}
+		s.subagentFocus(conversationID)
+		s.syncWorkspaceSelection()
+		s.clearSubagentActivityForConversationChange(conversationID)
 		if newTab {
 			s.requestSubagentScrollToEnd(conversationID)
 		}
-		s.activitySelected = true
 		s.subagentRevealPending = false
 	})
+	if openErr != nil {
+		s.showToast(toastInput{Title: "Could not open workspace tab", Subtitle: openErr.Error(), Variant: toastWarning})
+		return
+	}
 	s.refreshSubagentTranscript(conversationID)
 }
 
@@ -3942,6 +4065,10 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 
 func (s *appState) closeSubagentConversation(conversationID string) {
 	s.SetState(func() {
+		identity, err := workspacePaneIdentityFor(subagentWorkspacePane(conversationID))
+		if err == nil {
+			s.workspace.Close(identity)
+		}
 		delete(s.subagentTranscripts, conversationID)
 		delete(s.subagentTranscriptErrors, conversationID)
 		s.advanceSubagentTranscriptLoad(conversationID)
@@ -3949,6 +4076,7 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 		s.advanceSubagentLiveLoad(conversationID)
 		s.subagentLiveLoading[conversationID] = false
 		delete(s.subagentScrolls, conversationID)
+		delete(s.subagentFocuses, conversationID)
 		delete(s.subagentLive, conversationID)
 		for index, id := range s.subagentTranscriptOrder {
 			if id == conversationID {
@@ -3956,9 +4084,7 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 				break
 			}
 		}
-		if s.subagentPaneID == conversationID {
-			s.subagentPaneID = ""
-		}
+		s.syncWorkspaceSelection()
 		if s.activityConversationID == conversationID {
 			s.activitySourceID = ""
 			s.activityConversationID = ""
@@ -3971,6 +4097,68 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 			s.subagentPendingLayout = false
 		}
 	})
+	s.stopSubagentWatchIfIdle()
+}
+
+func (s *appState) openWorkspacePicker() {
+	if !s.workspace.StripVisible() {
+		s.showToast(toastInput{Title: "No workspace tabs", Subtitle: "Open a secondary surface first.", Variant: toastWarning})
+		return
+	}
+	s.SetState(func() {
+		s.workspacePickerOpen = true
+		s.workspacePickerQuery = ""
+		s.workspacePickerSelection = s.workspaceSelectedIndex()
+		s.workspacePickerScroll = ui.ScrollController{}
+		s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+	})
+}
+
+func (s *appState) requestWorkspacePickerReveal(selection int) {
+	viewport := s.workspacePickerScroll.Metrics().ViewportHeight
+	offset := max(0, selection-5)
+	if viewport > 0 {
+		current := s.workspacePickerScroll.Metrics().ScrollOffset
+		offset = current
+		if selection < current {
+			offset = selection
+		} else if selection >= current+viewport {
+			offset = selection - viewport + 1
+		}
+	}
+	s.workspacePickerRevealOffset = max(0, offset)
+	s.workspacePickerRevealPending = true
+}
+
+func (s *appState) workspaceSelectedIndex() int {
+	selected := s.workspace.SelectedIdentity()
+	if selected == workspaceAgentIdentity {
+		return 0
+	}
+	for index, pane := range s.workspace.Panes() {
+		identity, err := workspacePaneIdentityFor(pane)
+		if err == nil && identity == selected {
+			return index + 1
+		}
+	}
+	return 0
+}
+
+func (s *appState) syncWorkspaceSelection() {
+	if !s.workspace.StripVisible() {
+		s.workspacePickerOpen = false
+		s.workspacePickerQuery = ""
+		s.workspacePickerSelection = 0
+		s.workspacePickerRevealPending = false
+	}
+	pane, selected := s.workspace.SelectedPane()
+	if !selected || pane.Kind != workspacePaneSubagentConversation {
+		s.subagentPaneID = ""
+		s.activitySelected = false
+		return
+	}
+	s.subagentPaneID = pane.ResourceID
+	s.activitySelected = true
 }
 
 func (s *appState) advanceSubagentLiveLoad(conversationID string) uint64 {
@@ -4021,6 +4209,22 @@ func cloneSubagentTranscripts(input map[string]protocol.SubagentTranscript) map[
 	for id, transcript := range input {
 		transcript.Messages = append([]protocol.TranscriptMessage(nil), transcript.Messages...)
 		output[id] = transcript
+	}
+	return output
+}
+
+func cloneScrollControllerMap(input map[string]*ui.ScrollController) map[string]*ui.ScrollController {
+	output := make(map[string]*ui.ScrollController, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func cloneFocusNodeMap(input map[string]*ui.FocusNode) map[string]*ui.FocusNode {
+	output := make(map[string]*ui.FocusNode, len(input))
+	for key, value := range input {
+		output[key] = value
 	}
 	return output
 }
@@ -4083,6 +4287,10 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 				s.subagentDismissGeneration = 0
 				s.subagentDismissPending = false
 				s.subagentDismissError = ""
+				identity, identityErr := workspacePaneIdentityFor(subagentWorkspacePane(conversationID))
+				if identityErr == nil {
+					s.workspace.Close(identity)
+				}
 				delete(s.subagentTranscripts, conversationID)
 				delete(s.subagentTranscriptErrors, conversationID)
 				s.advanceSubagentTranscriptLoad(conversationID)
@@ -4090,6 +4298,7 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 				s.advanceSubagentLiveLoad(conversationID)
 				s.subagentLiveLoading[conversationID] = false
 				delete(s.subagentScrolls, conversationID)
+				delete(s.subagentFocuses, conversationID)
 				delete(s.subagentLive, conversationID)
 				for index, id := range s.subagentTranscriptOrder {
 					if id == conversationID {
@@ -4097,8 +4306,12 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 						break
 					}
 				}
-				if s.subagentPaneID == conversationID {
-					s.subagentPaneID = ""
+				s.syncWorkspaceSelection()
+				if s.activityConversationID == conversationID {
+					s.activitySourceID = ""
+					s.activityConversationID = ""
+					s.inlineActivityOpen = make(map[string]bool)
+					s.activityCursor = activityToolKey{}
 				}
 				if s.subagentScrollToEndID == conversationID {
 					s.subagentScrollToEndID = ""
@@ -4107,7 +4320,10 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 				}
 			})
 			s.showToast(toastInput{Title: "Subagent dismissed", Variant: toastInfo})
-			s.refreshSubagents()
+			s.stopSubagentWatchIfIdle()
+			if s.subagentWorkspaceActive() {
+				s.refreshSubagents()
+			}
 		})
 	}()
 }
@@ -4933,10 +5149,18 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.scroll = ui.ScrollController{}
 	s.activityScroll = ui.ScrollController{}
 	s.activityList = activityListController{}
+	s.workspace.Reset()
+	s.workspacePickerOpen = false
+	s.workspacePickerQuery = ""
+	s.workspacePickerSelection = 0
+	s.workspacePickerScroll = ui.ScrollController{}
+	s.workspacePickerRevealPending = false
+	s.workspacePickerRevealOffset = 0
 	s.activitySourceID = ""
 	s.activityConversationID = ""
 	s.activitySelected = false
 	s.subagentsOpen = false
+	s.subagentFilter = ""
 	s.subagentRequestGeneration++
 	s.subagentRosterLoading = false
 	s.subagentRosterRefreshPending = false
@@ -4952,6 +5176,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentTranscriptOrder = nil
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentFocuses = make(map[string]*ui.FocusNode)
 	s.subagentScrollToEndID = ""
 	s.subagentNeedsScroll = false
 	s.subagentPendingLayout = false

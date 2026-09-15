@@ -25,6 +25,7 @@ const (
 	paletteCommandFork      paletteCommandID = "fork"
 	paletteCommandSessions  paletteCommandID = "sessions"
 	paletteCommandSubagents paletteCommandID = "subagents"
+	paletteCommandTabs      paletteCommandID = "tabs"
 	paletteCommandTheme     paletteCommandID = "theme"
 	paletteCommandThinking  paletteCommandID = "thinking"
 )
@@ -375,10 +376,11 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandFork, Name: "fork", Description: "Fork the current session into a linked child session", Aliases: []string{"branch"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
 		{ID: paletteCommandSubagents, Name: "subagents", Description: "Inspect delegated work", Aliases: []string{"agents", "delegates", "children"}},
+		{ID: paletteCommandTabs, Name: "tabs", Description: "Open a workspace tab", Aliases: []string{"panes", "workspace"}},
 		{ID: paletteCommandTheme, Name: "theme", Description: "Choose UI colors", Aliases: []string{"appearance", "colors"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "theme": true, "thinking": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "tabs": true, "theme": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

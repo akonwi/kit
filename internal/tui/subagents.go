@@ -13,8 +13,6 @@ import (
 type subagentRosterItem struct {
 	Name            string
 	Description     string
-	Model           string
-	Source          protocol.SubagentSource
 	Status          string
 	UpdatedAt       string
 	Conversation    protocol.SubagentConversation
@@ -31,11 +29,9 @@ func subagentRosterItems(definitions []protocol.SubagentDefinition, conversation
 	for _, definition := range definitions {
 		definitionNames[definition.Name] = struct{}{}
 		item := subagentRosterItem{
-			Name: definition.Name, Description: definition.Description, Model: definition.Model,
-			Source: definition.Source, Status: "inactive",
+			Name: definition.Name, Description: definition.Description, Status: "inactive",
 		}
 		if conversation, ok := conversationsByName[definition.Name]; ok {
-			item.Model = conversation.Model
 			item.Status = conversation.State
 			item.UpdatedAt = conversation.UpdatedAt
 			item.Conversation = conversation
@@ -49,7 +45,7 @@ func subagentRosterItems(definitions []protocol.SubagentDefinition, conversation
 		}
 		items = append(items, subagentRosterItem{
 			Name: conversation.AgentName, Description: "Previously active subagent conversation",
-			Model: conversation.Model, Status: conversation.State, UpdatedAt: conversation.UpdatedAt,
+			Status: conversation.State, UpdatedAt: conversation.UpdatedAt,
 			Conversation: conversation, HasConversation: true,
 		})
 	}
@@ -61,6 +57,21 @@ func subagentRosterItems(definitions []protocol.SubagentDefinition, conversation
 		return strings.ToLower(items[i].Name) < strings.ToLower(items[j].Name)
 	})
 	return items
+}
+
+func filteredSubagentRosterItems(items []subagentRosterItem, query string) []subagentRosterItem {
+	query = strings.ToLower(strings.TrimSpace(query))
+	if query == "" {
+		return items
+	}
+	filtered := make([]subagentRosterItem, 0, len(items))
+	for _, item := range items {
+		haystack := strings.ToLower(strings.Join([]string{item.Name, item.Description, item.Status}, " "))
+		if strings.Contains(haystack, query) {
+			filtered = append(filtered, item)
+		}
+	}
+	return filtered
 }
 
 func selectedSubagentRosterItem(items []subagentRosterItem, selectedName string) (subagentRosterItem, bool) {
@@ -94,7 +105,7 @@ func subagentRosterOffset(items []subagentRosterItem, index int) int {
 			break
 		}
 	}
-	return max(0, index*3+headerOffset-3)
+	return max(0, index*2+headerOffset-2)
 }
 
 func selectedSubagentTask(conversation protocol.SubagentConversation) (protocol.SubagentTask, bool) {
@@ -145,23 +156,6 @@ func subagentStatusPresentation(theme ui.Theme, status string) (string, string, 
 	}
 }
 
-func subagentSourceLabel(source protocol.SubagentSource, hasConversation bool) string {
-	switch source.Kind {
-	case "plugin":
-		if source.PluginID != "" {
-			return "plugin:" + source.PluginID
-		}
-		return "plugin"
-	case "user", "project":
-		return source.Kind
-	default:
-		if hasConversation {
-			return "active"
-		}
-		return ""
-	}
-}
-
 func subagentRelativeTime(value string, now time.Time) string {
 	updated, err := time.Parse(time.RFC3339Nano, value)
 	if err != nil {
@@ -183,8 +177,9 @@ func subagentRelativeTime(value string, now time.Time) string {
 	}
 }
 
-func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
-	items := subagentRosterItems(w.Snapshot.SubagentDefinitions, w.Snapshot.SubagentConversations)
+func (w shellView) subagentsPane(ctx ui.BuildContext, theme ui.Theme) ui.Widget {
+	items := filteredSubagentRosterItems(subagentRosterItems(w.Snapshot.SubagentDefinitions, w.Snapshot.SubagentConversations), w.Snapshot.SubagentFilter)
+	rowPresentation := resolvePickerRowPresentation(ctx, theme)
 	selectedName := w.Snapshot.SubagentSelection
 	if selectedName == "" && len(items) > 0 {
 		selectedName = items[0].Name
@@ -202,16 +197,22 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 			rows = append(rows, ui.Padding(ui.Symmetric(1, 0), ui.Text{Value: "Available", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}))
 			availableStarted = true
 		}
-		rows = append(rows, w.subagentRosterRow(theme, item, item.Name == selectedName))
+		rows = append(rows, w.subagentRosterRow(theme, rowPresentation, item, item.Name == selectedName))
 	}
 
 	var body ui.Widget
 	if len(items) == 0 {
+		emptyTitle := "No subagents available"
+		emptyHint := "Add .md files to $KIT_HOME/agents/"
+		if strings.TrimSpace(w.Snapshot.SubagentFilter) != "" {
+			emptyTitle = "No matching subagents"
+			emptyHint = "Try another search"
+		}
 		body = ui.Center(ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 			ui.Text{Value: "k i t", Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1},
 			ui.Text{Value: strings.Repeat(glyphHeavyLine, 11), Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
-			ui.Text{Value: "No subagents available", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
-			ui.Text{Value: "Add .md files to $KIT_HOME/agents/", Style: ui.Style{Foreground: theme.DisabledForeground}, MaxLines: 1},
+			ui.Text{Value: emptyTitle, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
+			ui.Text{Value: emptyHint, Style: ui.Style{Foreground: theme.DisabledForeground}, MaxLines: 1},
 		}})
 	} else {
 		body = ui.Scrollbar{Child: ui.ScrollView{
@@ -222,13 +223,21 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 	hint := "↑↓ select " + glyphMiddleDot + " esc close"
 	if selected, ok := selectedSubagentRosterItem(items, selectedName); ok && selected.HasConversation {
 		hint = "↑↓ select " + glyphMiddleDot + " enter open"
-		if _, cancellable := selectedSubagentTask(selected.Conversation); cancellable {
-			hint += " " + glyphMiddleDot + " c cancel"
-		}
 		hint += " " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc close"
 	}
+	fieldTheme := theme
+	fieldTheme.Surface = theme.Background
+	fieldTheme.SurfaceHovered = theme.Background
+	queryCursor := len(w.Snapshot.SubagentFilter)
+	query := ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
+		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}}, ui.SizedBox{Width: 1},
+		textInput(fieldTheme, textInputConfig{
+			Value: w.Snapshot.SubagentFilter, Placeholder: "Search subagents…", CursorOffset: &queryCursor,
+			OnChanged: w.Callbacks.SubagentFilterChanged, AutoFocus: true,
+		}),
+	}})
 	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Expanded(body),
+		query, ui.SizedBox{Height: 1}, ui.Expanded(body),
 		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint,
@@ -245,14 +254,6 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 		openSubagentIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if selected, ok := selectedSubagentRosterItem(items, selectedName); ok && selected.HasConversation && w.Callbacks.OpenSubagentConversation != nil {
 				w.Callbacks.OpenSubagentConversation(ctx, selected.Conversation.ID)
-			}
-			return ui.EventHandled
-		},
-		cancelSubagentIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if selected, ok := selectedSubagentRosterItem(items, selectedName); ok && selected.HasConversation && w.Callbacks.CancelSubagentTask != nil {
-				if task, cancellable := selectedSubagentTask(selected.Conversation); cancellable {
-					w.Callbacks.CancelSubagentTask(ctx, task.ID, task.CancellationGeneration)
-				}
 			}
 			return ui.EventHandled
 		},
@@ -280,7 +281,7 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 	}
 	content = ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: ui.ShortcutMap{
 		"Up": moveSubagentIntent{Delta: -1}, "Down": moveSubagentIntent{Delta: 1},
-		"Enter": openSubagentIntent{}, "c": cancelSubagentIntent{}, "Ctrl+d": dismissSubagentIntent{},
+		"Enter": openSubagentIntent{}, "Ctrl+d": dismissSubagentIntent{},
 		"Page_Up": scrollActivityIntent{Pages: -1}, "Page_Down": scrollActivityIntent{Pages: 1},
 	}, Child: content}}
 	if w.Snapshot.ActivityFocus != nil {
@@ -288,50 +289,45 @@ func (w shellView) subagentsPane(theme ui.Theme) ui.Widget {
 			OnPrimaryDownCapture: func(ui.EventContext) { w.Snapshot.ActivityFocus.RequestFocus() },
 			DefaultMouseShape:    true, Child: content,
 		}
-		content = ui.FocusScope{AutoFocus: w.Snapshot.ActivitySelected, Child: content}
+		content = ui.FocusScope{AutoFocus: w.Snapshot.SubagentsOpen, Child: content}
 	}
 	return content
 }
 
-func (w shellView) subagentRosterRow(theme ui.Theme, item subagentRosterItem, selected bool) ui.Widget {
-	glyph, status, statusStyle := subagentStatusPresentation(theme, item.Status)
-	metadata := item.Model
-	if source := subagentSourceLabel(item.Source, item.HasConversation); source != "" {
-		if metadata != "" {
-			metadata += " " + glyphMiddleDot + " "
-		}
-		metadata += source
+func subagentStatusWidget(status string, glyph string, style ui.Style) ui.Widget {
+	if status == "running" {
+		return spinner{Style: style}
 	}
-	if relative := subagentRelativeTime(item.UpdatedAt, time.Now()); relative != "" {
-		if metadata != "" {
-			metadata += " " + glyphMiddleDot + " "
-		}
-		metadata += relative
-	}
-	statusText := status
-	if !item.HasConversation {
-		statusText = ""
-	} else {
-		statusText += " " + glyphChevronRight
-	}
+	return ui.Text{Value: glyph, Style: style, MaxLines: 1}
+}
+
+func (w shellView) subagentRosterRow(theme ui.Theme, presentation pickerRowPresentation, item subagentRosterItem, selected bool) ui.Widget {
+	glyph, _, statusStyle := subagentStatusPresentation(theme, item.Status)
+	lastActive := subagentRelativeTime(item.UpdatedAt, time.Now())
 	background := theme.Background
+	primary := presentation.ItemText
+	secondary := theme.MutedForeground
 	if selected {
-		background = theme.SurfacePressed
+		background = presentation.FocusedBg
+		primary = presentation.FocusedText
+		secondary = presentation.FocusedText
 	}
+	statusStyle.Background = background
+	status := subagentStatusWidget(item.Status, glyph, statusStyle)
 	heading := []ui.Widget{
-		ui.Expanded(ui.Text{Value: glyph + " " + item.Name, Style: statusStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+		status,
+		ui.SizedBox{Width: 1},
+		ui.Expanded(ui.Text{Value: item.Name, Style: ui.Style{Foreground: primary, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 	}
-	if statusText != "" {
-		heading = append(heading, ui.Text{Value: statusText, Style: statusStyle, MaxLines: 1})
+	if lastActive != "" {
+		heading = append(heading, ui.Text{Value: lastActive, Style: ui.Style{Foreground: secondary, Background: background}, MaxLines: 1})
 	}
-	content := ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: background}}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: heading}},
-			ui.Text{Value: item.Description, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-			ui.Text{Value: metadata, Style: ui.Style{Foreground: theme.DisabledForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		},
-	}))
-	return mouseActivator{
+	content := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: heading}},
+		ui.Text{Value: item.Description, Style: ui.Style{Foreground: secondary, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+	}}
+	return ui.Provider[ui.Theme]{Value: presentation.Theme, Child: ui.ListTile{
+		Title: content, Selected: selected, MinHeight: 2, Padding: ui.Insets{Right: 1, Left: 1},
 		OnPressed: func(ctx ui.EventContext) {
 			if w.Callbacks.SelectSubagent != nil {
 				w.Callbacks.SelectSubagent(ctx, item.Name)
@@ -340,8 +336,7 @@ func (w shellView) subagentRosterRow(theme ui.Theme, item subagentRosterItem, se
 				w.Callbacks.OpenSubagentConversation(ctx, item.Conversation.ID)
 			}
 		},
-		Child: content,
-	}
+	}}
 }
 
 func subagentConversationIDForAgent(conversations []protocol.SubagentConversation, agentName string) string {
@@ -499,8 +494,7 @@ func subagentPendingStatus(messages []transcriptMessage) (thinking, activity str
 	return "", ""
 }
 
-func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string) ui.Widget {
-	label := subagentConversationLabel(w.Snapshot.SubagentConversations, conversationID)
+func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string, active bool) ui.Widget {
 	conversation := protocol.SubagentConversation{ID: conversationID}
 	for _, candidate := range w.Snapshot.SubagentConversations {
 		if candidate.ID == conversationID {
@@ -508,12 +502,15 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 			break
 		}
 	}
-	state := conversation.State
 	transcript, loaded := w.Snapshot.SubagentTranscripts[conversationID]
 	loadError := w.Snapshot.SubagentTranscriptErrors[conversationID]
-	controller := w.Snapshot.SubagentScroll
-	if controller == nil {
+	controller := w.Snapshot.SubagentScrolls[conversationID]
+	if controller == nil && active {
 		controller = w.Snapshot.ActivityScroll
+	}
+	focus := w.Snapshot.SubagentFocuses[conversationID]
+	if focus == nil && active {
+		focus = w.Snapshot.ActivityFocus
 	}
 	messages := subagentPaneMessages(conversation, transcript, w.Snapshot.SubagentLive[conversationID])
 	presentation := presentTranscript(messages)
@@ -555,37 +552,27 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 		}}
 	}
 	thinking, activity := subagentPendingStatus(messages)
-	hint := "page up/down scroll " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc back"
+	hint := "ctrl+d dismiss"
 	for _, conversation := range w.Snapshot.SubagentConversations {
 		if conversation.ID == conversationID {
 			if _, cancellable := selectedSubagentTask(conversation); cancellable {
-				hint = "page up/down scroll " + glyphMiddleDot + " c cancel " + glyphMiddleDot + " ctrl+d dismiss " + glyphMiddleDot + " esc back"
+				hint = "c cancel " + glyphMiddleDot + " ctrl+d dismiss"
 			}
 			break
 		}
 	}
-	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Text{Value: label, Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
-			ui.Text{Value: " " + glyphMiddleDot + " " + state, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
-			ui.Expanded(ui.SizedBox{}),
-			workspaceWideOnly{LayoutState: w.Snapshot.WorkspaceLayout, Child: mouseActivator{
-				OnPressed: func(ctx ui.EventContext) {
-					if w.Callbacks.CloseSubagentConversation != nil {
-						w.Callbacks.CloseSubagentConversation(ctx, conversationID)
-					}
-				},
-				Child: ui.Text{Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}},
-			}},
-		}})},
-		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
-		ui.Expanded(body),
-		ui.Padding(ui.Symmetric(1, 0), pendingActivityRow(theme, thinking, activity)),
+	children := []ui.Widget{ui.Expanded(body)}
+	if thinking != "" || activity != "" {
+		children = append(children, ui.Padding(ui.Symmetric(1, 0), pendingActivityRow(theme, thinking, activity)))
+	}
+	children = append(children,
 		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 		ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		})},
-	}})
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
+	)
+	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children})
 	actions := map[ui.IntentType]ui.ActionFunc{
 		cancelSubagentIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			for _, conversation := range w.Snapshot.SubagentConversations {
@@ -607,32 +594,19 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string)
 			}
 			return ui.EventHandled
 		},
-		scrollActivityIntent{}.IntentType(): func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.ScrollSubagentTranscript != nil {
-				w.Callbacks.ScrollSubagentTranscript(ctx, conversationID, intent.(scrollActivityIntent).Pages)
-			}
-			return ui.EventHandled
-		},
-		ui.DismissIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Callbacks.ShowSubagentRoster != nil {
-				w.Callbacks.ShowSubagentRoster(ctx)
-			}
-			return ui.EventHandled
-		},
 	}
-	if w.Snapshot.ActivityFocus != nil {
-		content = ui.Focus(w.Snapshot.ActivityFocus, content)
+	if focus != nil {
+		content = ui.FocusWithOptions(focus, ui.FocusOptions{SkipTraversal: !active}, content)
 	}
 	content = ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: ui.ShortcutMap{
 		"c": cancelSubagentIntent{}, "Ctrl+d": dismissSubagentIntent{},
-		"Page_Up": scrollActivityIntent{Pages: -1}, "Page_Down": scrollActivityIntent{Pages: 1},
 	}, Child: content}}
-	if w.Snapshot.ActivityFocus != nil {
+	if focus != nil {
 		content = mouseActivator{
-			OnPrimaryDownCapture: func(ui.EventContext) { w.Snapshot.ActivityFocus.RequestFocus() },
+			OnPrimaryDownCapture: func(ui.EventContext) { focus.RequestFocus() },
 			DefaultMouseShape:    true, Child: content,
 		}
-		content = ui.FocusScope{AutoFocus: w.Snapshot.ActivitySelected, Child: content}
+		content = ui.FocusScope{AutoFocus: active && w.Snapshot.ActivitySelected, Child: content}
 	}
 	return content
 }

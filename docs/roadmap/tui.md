@@ -13,11 +13,11 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [x] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
   compatibility, persist the selection, apply changes immediately, and provide
   semantic fallbacks for incomplete themes.
-- [~] TUI-SHELL-001 — Complete the full-width Agent/workspace tab shell,
+- [x] TUI-SHELL-001 — Complete the full-width Agent/workspace tab shell,
   retained pane state, `Tab`/`Shift+Tab` content-composer focus cycling, labeled
   overflow and modal pane picker,
   the modal subagent roster/status picker with explicitly opened conversation
-  tabs, and the pane registry used by R1 surfaces. See
+  tabs, and the extensible pane registry used by supported surfaces. See
   [ADR 0018](../adrs/0018-retained-native-workspace-shell.md).
 - [~] TUI-SHELL-002 — Complete layered focus and deterministic overlay
   precedence for the built-in keymap.
@@ -29,23 +29,28 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   and scroll state across pane switches and responsive
   terminal-width transitions. Accept Agent-originated file and search-match
   opens with relevant line anchors. Deduplicate mutable file panes by workspace
-  root and path regardless of origin. See
-  [ADR 0018](../adrs/0018-retained-native-workspace-shell.md) and the
+  incarnation and canonical relative path regardless of origin. See
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md) and the
   [tool activity working design](../design/tui-tool-activity.md).
 - [ ] TUI-DIR-001 — Provide a modal workspace-rooted file picker with lazy,
   bounded directory expansion; path filtering; keyboard and mouse navigation;
   visible loading, empty, and error states; refresh; and direct opening into a
-  retained File tab. Depends on `CORE-WORK-001`.
+  retained File tab. Depends on `CORE-WORK-001`. See
+  [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 - [ ] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
   line numbers, vertical and horizontal navigation, truncation/staleness
   feedback, refresh that preserves position when possible, and safe binary or
-  unreadable-file handling. Depends on `CORE-WORK-001`.
+  unreadable-file handling. Depends on `CORE-WORK-001`. See
+  [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 - [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
   including agent edits, with changed-file and hunk navigation, semantic
   added/removed/context styling, line-number gutters, unified and split layouts
   where width permits,
   and explicit loading, empty, stale, truncated, and error states. Depends on
-  `CORE-DIFF-001`.
+  `CORE-DIFF-001`. See
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 
 ### Transcript and activity
 
@@ -120,13 +125,15 @@ resolving this decision.
   autosave feedback. Depends on `CORE-SCRATCH-001`.
 - [ ] TUI-REVIEW-001 — Extend File and Diff tabs with inline revision-pinned
   file/line/range notes, plus modal review-target and changed-file navigation;
-  do not add a separate Review tab. Depends on `CORE-REVIEW-001`.
+  do not add a separate Review tab. Depends on `CORE-REVIEW-001`. See
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 - [ ] TUI-REVIEW-002 — Project each saved inline review comment immediately as
   the same structured attachment and as a chip above the composer on every tab;
   keep inline comments and chips synchronized through edit, anchor navigation,
   removal, stale state, restoration, ordered submission, and successful
   consumption. Refresh remote data without resetting unchanged local state.
-  Depends on `CORE-REVIEW-002`.
+  Depends on `CORE-REVIEW-002`. See
+  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands

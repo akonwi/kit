@@ -13,6 +13,91 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func selectedSubagentWorkspace(conversationID string) workspaceControllerSnapshot {
+	identity, err := workspacePaneIdentityFor(subagentWorkspacePane(conversationID))
+	if err != nil {
+		panic(err)
+	}
+	return workspaceControllerSnapshot{
+		Panes: []workspacePaneDescriptor{subagentWorkspacePane(conversationID)}, Selected: identity,
+	}
+}
+
+type subagentPickerNavigationHarness struct {
+	State *subagentPickerNavigationState
+}
+
+func (w subagentPickerNavigationHarness) CreateState() ui.State { return w.State }
+
+type subagentPickerNavigationState struct {
+	ui.StateBase
+	selection string
+}
+
+func (s *subagentPickerNavigationState) Build(ui.BuildContext) ui.Widget {
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+			SubagentsOpen: true, SubagentSelection: s.selection,
+			ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+			SubagentDefinitions: []protocol.SubagentDefinition{
+				{Name: "reviewer", Description: "Reviews code changes"},
+				{Name: "scout", Description: "Finds repository evidence"},
+			},
+		},
+		Callbacks: shellCallbacks{MoveSubagentSelection: func(_ ui.EventContext, delta int) {
+			s.SetState(func() {
+				if delta > 0 {
+					s.selection = "scout"
+				} else {
+					s.selection = "reviewer"
+				}
+			})
+		}},
+	}
+}
+
+func TestSubagentPickerArrowNavigationMovesVisibleFocus(t *testing.T) {
+	t.Parallel()
+	application := uitest.New(subagentPickerNavigationHarness{State: &subagentPickerNavigationState{selection: "reviewer"}})
+	application.Pump(100, 20)
+	rows := paintedRows(application, 100, 20)
+	reviewerColumn, reviewerRow := findTextCell(t, rows, "reviewer")
+	scoutColumn, scoutRow := findTextCell(t, rows, "scout")
+	focusedBackground := application.Cell(reviewerColumn, reviewerRow).Style.Background
+	idleBackground := application.Cell(scoutColumn, scoutRow).Style.Background
+	if focusedBackground == idleBackground {
+		t.Fatalf("initial picker rows share background %#v; focused item is not visible", focusedBackground)
+	}
+
+	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	application.Pump(100, 20)
+	if got := application.Cell(reviewerColumn, reviewerRow).Style.Background; got != idleBackground {
+		t.Fatalf("reviewer background after Down = %#v, want idle %#v", got, idleBackground)
+	}
+	if got := application.Cell(scoutColumn, scoutRow).Style.Background; got != focusedBackground {
+		t.Fatalf("scout background after Down = %#v, want focused %#v", got, focusedBackground)
+	}
+}
+
+func TestSubagentPickerSearchFieldReceivesInitialFocus(t *testing.T) {
+	t.Parallel()
+	query := ""
+	application := uitest.New(shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+			SubagentsOpen: true, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+			SubagentDefinitions: []protocol.SubagentDefinition{{Name: "reviewer", Description: "Reviews changes"}},
+		},
+		Callbacks: shellCallbacks{SubagentFilterChanged: func(_ ui.EventContext, value string) { query = value }},
+	})
+	application.Pump(100, 24)
+	application.Key("c")
+	if query != "c" {
+		t.Fatalf("search query = %q, want c", query)
+	}
+}
+
 func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 	t.Parallel()
 	layout := &workspaceLayoutState{}
@@ -57,14 +142,13 @@ func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 	rows := paintedRows(application, 140, 24)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
-		glyphCircleFilled + " scout", "running " + glyphChevronRight, "inspects repositories",
-		"test/echo · user · just now",
+		"Open subagent", "Search subagents…", spinnerFrames[0] + " scout", "inspects repositories", "just now",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("subagent workspace missing %q:\n%s", expected, text)
 		}
 	}
-	for _, omitted := range []string{"1 agent", "1 conversation", "Available agents", "Delegated work", "#1 running"} {
+	for _, omitted := range []string{"1 agent", "1 conversation", "Available agents", "Delegated work", "#1 running", "test/echo", "user", "running " + glyphChevronRight} {
 		if strings.Contains(text, omitted) {
 			t.Fatalf("subagent workspace unexpectedly contains %q:\n%s", omitted, text)
 		}
@@ -79,7 +163,7 @@ func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 	application.Send(vaxis.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl})
 	application.Enter()
 	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if moved != 1 || canceled != "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || dismissed != conversationID || opened != conversationID {
+	if moved != 1 || canceled != "" || dismissed != conversationID || opened != conversationID {
 		t.Fatalf("keyboard actions = move:%d cancel:%q dismiss:%q open:%q", moved, canceled, dismissed, opened)
 	}
 	if !closed || parentAborted {
@@ -91,14 +175,13 @@ func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 	application.Tab()
 	application.Key("c")
 	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if canceled != "" || closed || !parentAborted {
-		t.Fatalf("composer-focused actions = cancel:%q closed:%t parent aborted:%t", canceled, closed, parentAborted)
+	if canceled != "" || !closed || parentAborted {
+		t.Fatalf("modal focus trap actions = cancel:%q closed:%t parent aborted:%t", canceled, closed, parentAborted)
 	}
-	parentAborted = false
 	application.Click(column, row)
 	application.Key("c")
 	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if canceled != "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" || !closed || parentAborted {
+	if canceled != "" || !closed || parentAborted {
 		t.Fatalf("refocused roster actions = cancel:%q closed:%t parent aborted:%t", canceled, closed, parentAborted)
 	}
 }
@@ -118,14 +201,16 @@ func TestSubagentsWorkspaceGroupsAvailableDefinitionsWithoutRepeatedStatus(t *te
 	text := strings.Join(paintedRows(application, 100, 20), "\n")
 	for _, expected := range []string{
 		"Available", glyphCircleEmpty + " reviewer", "Reviews code changes",
-		"test/reviewer · project", glyphCircleEmpty + " scout", "Finds repository evidence", "user",
+		glyphCircleEmpty + " scout", "Finds repository evidence",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("available subagent list missing %q:\n%s", expected, text)
 		}
 	}
-	if strings.Contains(text, "available") {
-		t.Fatalf("available group repeated status on each row:\n%s", text)
+	for _, omitted := range []string{"available", "test/reviewer", "project", "user"} {
+		if strings.Contains(text, omitted) {
+			t.Fatalf("simplified available list contains %q:\n%s", omitted, text)
+		}
 	}
 }
 
@@ -270,8 +355,8 @@ func TestSubagentTranscriptShowsLoadFailure(t *testing.T) {
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	view := shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
-		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		Workspace:                selectedSubagentWorkspace(conversationID),
 		SubagentTranscriptErrors: map[string]string{conversationID: "transcript unavailable"},
 	}}
 	application := uitest.New(view)
@@ -328,8 +413,8 @@ func TestSubagentTranscriptShowsCompletionSummaryWhileHistoryLoads(t *testing.T)
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
-		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		Workspace: selectedSubagentWorkspace(conversationID),
 		SubagentConversations: []protocol.SubagentConversation{{
 			ID: conversationID, AgentName: "reviewer", State: "idle", LastResultSummary: "The final review found no soundness issues.",
 		}},
@@ -406,8 +491,8 @@ func TestSubagentTranscriptUsesSharedToolWorkPresentation(t *testing.T) {
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
-		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		Workspace:             selectedSubagentWorkspace(conversationID),
 		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
 		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
 			ConversationID: conversationID,
@@ -428,31 +513,6 @@ func TestSubagentTranscriptUsesSharedToolWorkPresentation(t *testing.T) {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("shared transcript presentation missing %q:\n%s", expected, text)
 		}
-	}
-}
-
-func TestChildActivityPageScrollStaysWithSubagentTranscript(t *testing.T) {
-	t.Parallel()
-	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	childPages, parentPages := 0, 0
-	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
-		SubagentsOpen: true, ActivitySelected: true, ActivitySourceID: "turn-work:child", ActivityConversationID: conversationID,
-		WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
-		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "running"}},
-	}, Callbacks: shellCallbacks{
-		ScrollSubagentTranscript: func(_ ui.EventContext, id string, pages int) {
-			if id == conversationID {
-				childPages += pages
-			}
-		},
-		ScrollActivity: func(_ ui.EventContext, pages int) { parentPages += pages },
-	}})
-	application.Pump(100, 20)
-	application.Send(vaxis.Key{Keycode: vaxis.KeyPgDown})
-	if childPages != 1 || parentPages != 0 {
-		t.Fatalf("page scroll = child:%d parent:%d", childPages, parentPages)
 	}
 }
 
@@ -484,16 +544,18 @@ func TestSubagentTranscriptRendersFinalResponseAtEnd(t *testing.T) {
 	scroll := &ui.ScrollController{}
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
-		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID}, SubagentScroll: scroll,
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		Workspace: selectedSubagentWorkspace(conversationID), SubagentScrolls: map[string]*ui.ScrollController{conversationID: scroll},
 		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
 		SubagentTranscripts:   map[string]protocol.SubagentTranscript{conversationID: {ConversationID: conversationID, Messages: messages}},
 	}})
 	application.Pump(100, 14)
-	scroll.ScrollToEnd()
-	application.Pump(100, 14)
-	// Measured slivers rebuild once after replacing estimated tail extents.
-	application.Pump(100, 14)
+	// Measured slivers rebuild after replacing estimated tail extents, so mirror
+	// the app's pending-layout follow pass before settling at the end.
+	for range 3 {
+		scroll.ScrollToEnd()
+		application.Pump(100, 14)
+	}
 	text := strings.Join(paintedRows(application, 100, 14), "\n")
 	if !strings.Contains(text, "FINAL SUBAGENT RESPONSE") {
 		t.Fatalf("final subagent response was not initially visible:\n%s", text)
@@ -506,11 +568,11 @@ func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 	scroll := &ui.ScrollController{}
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	now := time.Now().Format(time.RFC3339Nano)
-	back := false
+	dismissedShell := false
 	view := shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo", ThinkingLevel: "medium"},
-		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: layout, ActivityScroll: scroll, ActivityFocus: &ui.FocusNode{},
-		SubagentPaneID: conversationID, SubagentTranscriptOrder: []string{conversationID},
+		ActivitySelected: true, TurnActivity: "Working...", WorkspaceLayout: layout, ActivityScroll: scroll, ActivityFocus: &ui.FocusNode{},
+		Workspace: selectedSubagentWorkspace(conversationID),
 		SubagentConversations: []protocol.SubagentConversation{{
 			ID: conversationID, AgentName: "scout", Model: "test/echo", State: "completed", Generation: 1, UpdatedAt: now,
 		}},
@@ -521,17 +583,25 @@ func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 				{ID: "assistant_1", TurnID: "turn_1", Sequence: 1, Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Found the evidence"}}, StopReason: "stop", CreatedAt: now},
 			},
 		}},
-	}, Callbacks: shellCallbacks{ShowSubagentRoster: func(ui.EventContext) { back = true }}}
+	}, Callbacks: shellCallbacks{Dismiss: func(ui.EventContext) { dismissedShell = true }}}
 	application := uitest.New(view)
 	application.Pump(100, 22)
-	text := strings.Join(paintedRows(application, 100, 22), "\n")
-	for _, expected := range []string{"Transcript", "Subagents", "scout", "Inspect the repository", "Found the evidence", "esc back"} {
+	rows := paintedRows(application, 100, 22)
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{"Agent", "scout", "Inspect the repository", "Found the evidence", "ctrl+d dismiss", "Ask kit to do something…"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("retained transcript missing %q:\n%s", expected, text)
 		}
 	}
+	_, hintRow := findTextCell(t, rows, "ctrl+d dismiss")
+	if got := strings.TrimSpace(rows[hintRow+1]); got != strings.Repeat("─", 100) {
+		t.Fatalf("subagent bottom border = %q, want full-width divider", got)
+	}
+	if !strings.Contains(rows[hintRow+2], "Working...") {
+		t.Fatalf("main Agent pending row = %q, want below subagent border", rows[hintRow+2])
+	}
 	application.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if !back {
-		t.Fatal("escape did not return to the subagent roster")
+	if !dismissedShell {
+		t.Fatal("escape did not reach the shell dismiss action")
 	}
 }

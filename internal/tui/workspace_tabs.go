@@ -12,6 +12,7 @@ const (
 
 type workspaceTab struct {
 	Label    string
+	Activity workspacePaneActivity
 	Selected bool
 	Closable bool
 	OnSelect ui.VoidCallback
@@ -28,12 +29,22 @@ type workspaceTabState struct {
 func (s *workspaceTabState) Build(ctx ui.BuildContext) ui.Widget {
 	tab := s.Widget().(workspaceTab)
 	theme := ui.MustDepend[ui.Theme](ctx)
-	tabWidth := workspaceTabWidth(tab.Label, tab.Closable)
+	widthLabel := tab.Label
+	if marker := tab.Activity.marker(); marker != "" {
+		widthLabel += " " + marker
+	}
+	tabWidth := workspaceTabWidth(widthLabel, tab.Closable)
 	labelWidth := tabWidth
 	if tab.Closable {
 		labelWidth -= 2
 	}
-	displayLabel := truncateWorkspaceTabLabel(tab.Label, max(1, labelWidth-2))
+	contentWidth := max(1, labelWidth-2)
+	marker := tab.Activity.marker()
+	labelContentWidth := contentWidth
+	if marker != "" {
+		labelContentWidth = max(1, contentWidth-workspaceTextWidth(marker)-1)
+	}
+	displayLabel := truncateWorkspaceTabLabel(tab.Label, labelContentWidth)
 	foreground := theme.MutedForeground
 	if tab.Selected || s.hovered {
 		foreground = theme.Foreground
@@ -52,12 +63,15 @@ func (s *workspaceTabState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() { s.hovered = false })
 		}
 	}
+	labelStyle := ui.Style{Foreground: foreground, Background: background}
+	labelChildren := []ui.Widget{ui.Text{Value: " " + displayLabel, Style: labelStyle, Overflow: ui.TextOverflowClip, MaxLines: 1}}
+	if marker != "" {
+		labelChildren = append(labelChildren, ui.SizedBox{Width: 1}, workspaceActivityMarker(tab.Activity, labelStyle))
+	}
+	labelChildren = append(labelChildren, ui.Expanded(ui.Text{Value: " ", Style: labelStyle, MaxLines: 1}))
 	children := []ui.Widget{mouseActivator{
 		OnPressed: tab.OnSelect, OnHover: hover, OnHoverExit: exit,
-		Child: ui.SizedBox{Width: labelWidth, Height: 1, Child: ui.Text{
-			Value: " " + displayLabel + " ", Style: ui.Style{Foreground: foreground, Background: background},
-			Overflow: ui.TextOverflowClip, MaxLines: 1,
-		}},
+		Child: ui.SizedBox{Width: labelWidth, Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: labelChildren}},
 	}}
 	if tab.Closable {
 		closeForeground := theme.MutedForeground
@@ -73,6 +87,13 @@ func (s *workspaceTabState) Build(ctx ui.BuildContext) ui.Widget {
 		})
 	}
 	return ui.SizedBox{Width: tabWidth, Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: children}}
+}
+
+func workspaceActivityMarker(activity workspacePaneActivity, style ui.Style) ui.Widget {
+	if activity == workspacePaneActivityRunning {
+		return spinner{Style: style}
+	}
+	return ui.Text{Value: activity.marker(), Style: style, MaxLines: 1}
 }
 
 func workspaceTabWidth(label string, closable bool) int {

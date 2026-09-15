@@ -61,20 +61,25 @@ type shellSnapshot struct {
 	ActivityScroll               *ui.ScrollController
 	ActivityList                 *activityListController
 	ActivityFocus                *ui.FocusNode
+	SubagentFocuses              map[string]*ui.FocusNode
+	Workspace                    workspaceControllerSnapshot
+	WorkspacePickerOpen          bool
+	WorkspacePickerQuery         string
+	WorkspacePickerSelection     int
+	WorkspacePickerScroll        *ui.ScrollController
 	WorkspaceLayout              *workspaceLayoutState
 	ActivitySourceID             string
 	ActivityConversationID       string
 	ActivitySelected             bool
 	SubagentsOpen                bool
+	SubagentFilter               string
 	SubagentDefinitions          []protocol.SubagentDefinition
 	SubagentDiagnostics          []protocol.SubagentDiagnostic
 	SubagentConversations        []protocol.SubagentConversation
 	SubagentSelection            string
-	SubagentPaneID               string
 	SubagentTranscripts          map[string]protocol.SubagentTranscript
 	SubagentTranscriptErrors     map[string]string
-	SubagentTranscriptOrder      []string
-	SubagentScroll               *ui.ScrollController
+	SubagentScrolls              map[string]*ui.ScrollController
 	SubagentLive                 map[string]protocol.SubagentLiveEventPage
 	SubagentDismissID            string
 	SubagentDismissName          string
@@ -117,12 +122,19 @@ type shellCallbacks struct {
 	DismissSubagent            func(ui.EventContext, string, uint64)
 	SelectSubagent             func(ui.EventContext, string)
 	MoveSubagentSelection      selectionMovedCallback
-	ShowSubagentRoster         ui.VoidCallback
+	SubagentFilterChanged      ui.TextChangedCallback
 	OpenSubagentConversation   func(ui.EventContext, string)
+	SelectWorkspacePane        func(ui.EventContext, workspacePaneDescriptor)
+	CloseWorkspacePane         func(ui.EventContext, workspacePaneDescriptor)
+	OpenWorkspacePicker        ui.VoidCallback
+	CloseWorkspacePicker       ui.VoidCallback
+	WorkspacePickerQuery       ui.TextChangedCallback
+	WorkspacePickerSelection   func(ui.EventContext, int)
+	MoveWorkspaceFocus         ui.VoidCallback
+	MoveWorkspaceSelection     func(ui.EventContext, int)
 	OpenSubagentActivity       func(ui.EventContext, string, string)
 	OpenSubagentFromTool       func(ui.EventContext, string)
 	CloseSubagentConversation  func(ui.EventContext, string)
-	ScrollSubagentTranscript   func(ui.EventContext, string, int)
 	ScrollActivity             func(ui.EventContext, int)
 	SelectActivityTool         func(ui.EventContext, activityToolKey)
 	ToggleBashOutput           func(ui.EventContext, string)
@@ -186,6 +198,10 @@ type openPaletteIntent struct{}
 
 func (openPaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.open" }
 
+type moveWorkspaceSelectionIntent struct{ Delta int }
+
+func (moveWorkspaceSelectionIntent) IntentType() ui.IntentType { return "kit.workspace.move-selection" }
+
 type scrollActivityIntent struct{ Pages int }
 
 func (scrollActivityIntent) IntentType() ui.IntentType { return "kit.activity.scroll" }
@@ -221,27 +237,19 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.FileMention.Open {
 		controller := w.Snapshot.FileMention
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		primaryPercent := 100
-		if w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide {
-			primaryPercent = 60
-		}
 		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
 			Controller: &controller, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: primaryPercent,
+			BottomInset: composerHeight + 4, PrimaryPercent: 100,
 			OnSelect: w.Callbacks.SelectFileMention,
 		}})
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.BashHistory.Open {
 		controller := w.Snapshot.BashHistory
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		primaryPercent := 100
-		if w.Snapshot.WorkspaceLayout != nil && w.Snapshot.WorkspaceLayout.Wide {
-			primaryPercent = 60
-		}
 		overlays = append(overlays, ui.OverlayEntry{
 			Modal: true, Barrier: clearModalBarrier{},
 			Child: bashHistorySurface{
-				Controller: &controller, BottomInset: composerHeight + 4, PrimaryPercent: primaryPercent,
+				Controller: &controller, BottomInset: composerHeight + 4, PrimaryPercent: 100,
 				OnQuery:  w.Callbacks.BashHistoryChanged,
 				OnSelect: w.Callbacks.SelectBashHistory,
 			},
@@ -284,6 +292,15 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
 		}
 	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspacePickerOpen {
+		overlays = append(overlays, modalDialogEntry(w.workspacePickerDialog(ctx, theme)))
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SubagentsOpen {
+		overlays = append(overlays, modalDialogEntry(dialogSurface(
+			theme, "Open subagent", "",
+			ui.SizedBox{Height: 18, Child: w.subagentsPane(ctx, theme)}, nil, false,
+		)))
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SubagentDismissID != "" {
 		overlays = append(overlays, modalDialogEntry(subagentDismissSurface{
 			Name: w.Snapshot.SubagentDismissName, Pending: w.Snapshot.SubagentDismissPending, Error: w.Snapshot.SubagentDismissError,
@@ -317,6 +334,10 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		}})
 	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
+	workspaceFocusTrapped := len(w.Snapshot.PendingInteractions) > 0
+	for _, overlay := range overlays {
+		workspaceFocusTrapped = workspaceFocusTrapped || overlay.Modal
+	}
 
 	actions := map[ui.IntentType]ui.ActionFunc{
 		quitIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
@@ -326,11 +347,23 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceFocus != nil {
+				w.Callbacks.MoveWorkspaceFocus(ctx)
+			}
 			ctx.FocusNext()
 			return ui.EventHandled
 		},
 		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceFocus != nil {
+				w.Callbacks.MoveWorkspaceFocus(ctx)
+			}
 			ctx.FocusPrevious()
+			return ui.EventHandled
+		},
+		moveWorkspaceSelectionIntent{}.IntentType(): func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceSelection != nil {
+				w.Callbacks.MoveWorkspaceSelection(ctx, intent.(moveWorkspaceSelectionIntent).Delta)
+			}
 			return ui.EventHandled
 		},
 	}
@@ -342,6 +375,10 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady {
 		shortcuts["Ctrl+p"] = openPaletteIntent{}
+		if w.workspaceSnapshot().StripVisible() {
+			shortcuts["Ctrl+]"] = moveWorkspaceSelectionIntent{Delta: 1}
+			shortcuts["Ctrl+["] = moveWorkspaceSelectionIntent{Delta: -1}
+		}
 		actions[openPaletteIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Callbacks.OpenPalette != nil {
 				w.Callbacks.OpenPalette(ctx)
@@ -363,10 +400,8 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			activityFocused := w.Snapshot.ActivityFocus == nil || w.Snapshot.ActivityFocus.HasFocus()
-			if w.Snapshot.SubagentsOpen && w.Snapshot.ActivitySelected && activityFocused && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" {
-				if w.Snapshot.SubagentPaneID != "" && w.Callbacks.ShowSubagentRoster != nil {
-					w.Callbacks.ShowSubagentRoster(ctx)
-				} else if w.Callbacks.CloseActivity != nil {
+			if w.Snapshot.SubagentsOpen && activityFocused && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" {
+				if w.Callbacks.CloseActivity != nil {
 					w.Callbacks.CloseActivity(ctx)
 				}
 			} else if w.Callbacks.Dismiss != nil {
@@ -416,11 +451,27 @@ func (w shellView) conversationVisible() bool {
 func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 	body := ui.Widget(ui.Expanded(w.body(theme)))
 	if w.conversationVisible() {
-		workspaceOpen := w.Snapshot.SubagentsOpen
-		secondaryPane := w.subagentsPane(theme)
-		if w.Snapshot.SubagentPaneID != "" {
-			secondaryPane = w.subagentTranscriptPane(theme, w.Snapshot.SubagentPaneID)
+		workspace := w.workspaceSnapshot()
+		_, paneSelected := workspace.SelectedPane()
+		retainedPanes := make([]ui.Widget, 0, len(workspace.Panes))
+		for _, descriptor := range workspace.Panes {
+			definition, ok := workspacePaneDefinitions[descriptor.Kind]
+			if !ok {
+				continue
+			}
+			identity, err := definition.Identity(descriptor)
+			if err != nil {
+				continue
+			}
+			active := workspace.Selected == identity
+			retainedPanes = append(retainedPanes, retainedWorkspacePane{
+				Identity: identity, Active: active,
+				Child: definition.Build(w, theme, descriptor, workspacePanePresentation{
+					Active: active, Visible: active, Focused: active && w.workspacePaneFocused(descriptor),
+				}),
+			})
 		}
+		secondaryPane := ui.Widget(retainedWorkspacePaneStack{Panes: retainedPanes})
 		pending := w.pendingSlot(theme)
 		pendingHeight := 1 + min(3, w.Snapshot.FollowUps.Count)
 		if len(w.Snapshot.ComposerAttachments) > 0 {
@@ -445,14 +496,12 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			}}
 		}
 		body = ui.Expanded(conversationWorkspaceHost{
-			Open: workspaceOpen, ActivitySelected: w.Snapshot.ActivitySelected,
+			Open: workspace.StripVisible(), ActivitySelected: paneSelected,
 			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
 			Pending: pending, PendingHeight: pendingHeight,
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme), Background: theme.Background}},
 			Composer:          composer, ComposerHeightLimit: composerHeightLimit,
-			PaneSeparator: ui.Divider{Axis: ui.Vertical, Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
-			Activity:      secondaryPane, SeparatorStyle: ui.Style{Foreground: theme.Border, Background: theme.Background},
-			LayoutState: w.Snapshot.WorkspaceLayout,
+			Activity: secondaryPane, LayoutState: w.Snapshot.WorkspaceLayout,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
@@ -754,35 +803,60 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }
 
+func (w shellView) workspacePaneFocused(descriptor workspacePaneDescriptor) bool {
+	if descriptor.Kind == workspacePaneSubagentConversation {
+		focus := w.Snapshot.SubagentFocuses[descriptor.ResourceID]
+		return focus != nil && focus.HasFocus()
+	}
+	return false
+}
+
+func (w shellView) workspaceSnapshot() workspaceControllerSnapshot {
+	workspace := w.Snapshot.Workspace
+	if workspace.Selected == "" {
+		workspace.Selected = workspaceAgentIdentity
+	}
+	return workspace
+}
+
 func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
-	tabs := []ui.Widget{workspaceTab{Label: "Transcript", Selected: !w.Snapshot.ActivitySelected, OnSelect: w.Callbacks.ShowTranscript}}
-	if w.Snapshot.SubagentsOpen {
+	workspace := w.workspaceSnapshot()
+	tabs := []workspaceTab{{
+		Label: "Agent", Selected: workspace.Selected == workspaceAgentIdentity, OnSelect: w.Callbacks.ShowTranscript,
+	}}
+	selectedIndex := 0
+	for _, descriptor := range workspace.Panes {
+		descriptor := descriptor
+		definition, ok := workspacePaneDefinitions[descriptor.Kind]
+		if !ok {
+			continue
+		}
+		identity, err := definition.Identity(descriptor)
+		if err != nil {
+			continue
+		}
 		tabs = append(tabs, workspaceTab{
-			Label: "Subagents", Selected: w.Snapshot.ActivitySelected && w.Snapshot.SubagentPaneID == "", Closable: true,
-			OnSelect: w.Callbacks.ShowSubagentRoster, OnClose: w.Callbacks.CloseActivity,
+			Label: definition.Label(w.Snapshot, descriptor), Activity: definition.Activity(w.Snapshot, descriptor),
+			Selected: workspace.Selected == identity, Closable: definition.Closable,
+			OnSelect: func(ctx ui.EventContext) {
+				if w.Callbacks.SelectWorkspacePane != nil {
+					w.Callbacks.SelectWorkspacePane(ctx, descriptor)
+				}
+			},
+			OnClose: func(ctx ui.EventContext) {
+				if w.Callbacks.CloseWorkspacePane != nil {
+					w.Callbacks.CloseWorkspacePane(ctx, descriptor)
+				}
+			},
 		})
-		for _, conversationID := range w.Snapshot.SubagentTranscriptOrder {
-			conversationID := conversationID
-			label := subagentConversationLabel(w.Snapshot.SubagentConversations, conversationID)
-			tabs = append(tabs, workspaceTab{
-				Label: label, Selected: w.Snapshot.ActivitySelected && w.Snapshot.SubagentPaneID == conversationID, Closable: true,
-				OnSelect: func(ctx ui.EventContext) {
-					if w.Callbacks.OpenSubagentConversation != nil {
-						w.Callbacks.OpenSubagentConversation(ctx, conversationID)
-					}
-				},
-				OnClose: func(ctx ui.EventContext) {
-					if w.Callbacks.CloseSubagentConversation != nil {
-						w.Callbacks.CloseSubagentConversation(ctx, conversationID)
-					}
-				},
-			})
+		if workspace.Selected == identity {
+			selectedIndex = len(tabs) - 1
 		}
 	}
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
 			ui.Decoration{Style: ui.Style{Background: theme.Background}},
-			ui.Flex{Axis: ui.Horizontal, Children: tabs},
+			workspaceTabStrip{Tabs: tabs, Selected: selectedIndex, OnOverflow: w.Callbacks.OpenWorkspacePicker},
 		)},
 		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 	}}
