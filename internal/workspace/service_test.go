@@ -75,6 +75,9 @@ func TestListDirectoryPaginatesStableObservation(t *testing.T) {
 	if got := []string{first.Entries[0].Name, first.Entries[1].Name}; strings.Join(got, ",") != "a.txt,b.txt" || first.NextCursor == "" {
 		t.Fatalf("first page = %+v", first)
 	}
+	if err := first.Validate(); err != nil {
+		t.Fatalf("first page validation: %v", err)
+	}
 	if err := os.Remove(filepath.Join(root, "c.txt")); err != nil {
 		t.Fatal(err)
 	}
@@ -84,6 +87,26 @@ func TestListDirectoryPaginatesStableObservation(t *testing.T) {
 	}
 	if len(second.Entries) != 1 || second.Entries[0].Name != "c.txt" || second.Revision != first.Revision {
 		t.Fatalf("second page = %+v", second)
+	}
+	if err := second.Validate(); err != nil {
+		t.Fatalf("second page validation: %v", err)
+	}
+}
+
+func TestListEmptyDirectoryReturnsValidEmptyCollections(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	service := NewService()
+	ref := service.Ref("session_test", root)
+	page, err := service.List(t.Context(), ref.SessionID, root, protocol.ListDirectoryInput{WorkspaceID: ref.WorkspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Entries == nil || page.Omissions == nil || len(page.Entries) != 0 || len(page.Omissions) != 0 {
+		t.Fatalf("empty page collections = entries:%#v omissions:%#v", page.Entries, page.Omissions)
+	}
+	if err := page.Validate(); err != nil {
+		t.Fatalf("empty page validation: %v", err)
 	}
 }
 

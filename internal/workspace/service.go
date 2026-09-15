@@ -215,7 +215,7 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, input protoco
 		return protocol.DirectoryPage{}, &Error{Code: NotDirectory, Message: "workspace path is not a directory"}
 	}
 	raw, err := dir.ReadDir(s.limits.MaxDirectoryEntries + 1)
-	if err != nil {
+	if err != nil && !errors.Is(err, io.EOF) {
 		return protocol.DirectoryPage{}, classify(err, NotDirectory)
 	}
 	truncated := len(raw) > s.limits.MaxDirectoryEntries
@@ -354,9 +354,9 @@ func staleCursor() error {
 }
 func (s *Service) page(obs *observation, ref protocol.WorkspaceRef, offset, size int, base string) protocol.DirectoryPage {
 	end := min(offset+size, len(obs.entries))
-	result := protocol.DirectoryPage{SessionID: obs.sessionID, Workspace: ref, Path: obs.directory, Revision: obs.revision, Truncated: obs.truncated, TruncationReason: obs.truncationReason, Omissions: append([]protocol.WorkspaceOmission(nil), obs.omissions...)}
+	result := protocol.DirectoryPage{SessionID: obs.sessionID, Workspace: ref, Path: obs.directory, Revision: obs.revision, Truncated: obs.truncated, TruncationReason: obs.truncationReason, Omissions: append([]protocol.WorkspaceOmission{}, obs.omissions...)}
 	for {
-		result.Entries = append([]protocol.WorkspaceDirectoryEntry(nil), obs.entries[offset:end]...)
+		result.Entries = append([]protocol.WorkspaceDirectoryEntry{}, obs.entries[offset:end]...)
 		result.NextCursor = ""
 		if end < len(obs.entries) {
 			payload := fmt.Sprintf("%s.%d.%d", base, end, size)
