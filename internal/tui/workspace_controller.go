@@ -26,10 +26,14 @@ var workspacePaneKinds = [...]workspacePaneKind{
 // retained resource without storing widgets, callbacks, focus nodes, or runtime
 // lifecycle.
 type workspacePaneDescriptor struct {
-	Kind        workspacePaneKind
-	ResourceID  string
-	WorkspaceID string
-	Path        string
+	Kind             workspacePaneKind
+	ResourceID       string
+	WorkspaceID      string
+	Path             string
+	ExpectedRevision string
+	RevealStartLine  int
+	RevealEndLine    int
+	OpenGeneration   uint64
 }
 
 func subagentWorkspacePane(conversationID string) workspacePaneDescriptor {
@@ -80,6 +84,7 @@ type workspaceController struct {
 	selected       workspacePaneIdentity
 	focusOwner     workspaceFocusOwner
 	secondaryLimit int
+	openGeneration uint64
 }
 
 func (c *workspaceController) Panes() []workspacePaneDescriptor {
@@ -120,6 +125,10 @@ func (c *workspaceController) Open(descriptor workspacePaneDescriptor) (workspac
 	identity, err := workspacePaneIdentityFor(descriptor)
 	if err != nil {
 		return "", false, err
+	}
+	if descriptor.Kind == workspacePaneFile {
+		c.openGeneration++
+		descriptor.OpenGeneration = c.openGeneration
 	}
 	for index, pane := range c.panes {
 		candidate, candidateErr := workspacePaneIdentityFor(pane)
@@ -250,6 +259,7 @@ func (c *workspaceController) Reset() {
 	c.panes = nil
 	c.selected = ""
 	c.focusOwner = workspaceFocusContent
+	c.openGeneration = 0
 }
 
 func workspacePaneIdentityFor(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {

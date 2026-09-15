@@ -338,6 +338,7 @@ func (s *appState) activateWorkspaceFilePickerRow(row workspaceFilePickerRow) {
 			}
 		case protocol.WorkspaceEntryFile:
 			descriptor := fileWorkspacePane(row.Key.WorkspaceID, row.Entry.Path)
+			descriptor.ExpectedRevision = row.Entry.FileRevision
 			var openErr error
 			s.SetState(func() {
 				_, _, openErr = s.workspace.Open(descriptor)

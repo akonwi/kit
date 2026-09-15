@@ -64,11 +64,12 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 		},
 		Available: func(shellSnapshot, workspacePaneDescriptor) bool { return true },
 		Activity:  func(shellSnapshot, workspacePaneDescriptor) workspacePaneActivity { return workspacePaneActivityNone },
-		Build: func(_ shellView, theme ui.Theme, descriptor workspacePaneDescriptor, _ workspacePanePresentation) ui.Widget {
-			return ui.Center(ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-				ui.Text{Value: descriptor.Path, Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis},
-				ui.Text{Value: "File viewer is coming in the next slice.", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
-			}})
+		Build: func(view shellView, _ ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
+			return workspaceFilePane{
+				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
+				Files: view.WorkspaceFiles, Presentation: presentation,
+				OnFocusRequest: view.Callbacks.FocusWorkspaceContent,
+			}
 		},
 	},
 	workspacePaneSubagentConversation: {

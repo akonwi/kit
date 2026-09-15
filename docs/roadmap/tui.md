@@ -38,7 +38,7 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   retained File tab. Depends on `CORE-WORK-001`. See
   [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
   [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
-- [ ] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
+- [x] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
   line numbers, vertical and horizontal navigation, truncation/staleness
   feedback, refresh that preserves position when possible, and safe binary or
   unreadable-file handling. Depends on `CORE-WORK-001`. See

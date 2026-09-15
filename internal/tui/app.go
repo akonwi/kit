@@ -972,6 +972,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivityFocus:                &s.activityFocus,
 		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
 		Workspace:                    s.workspace.Snapshot(),
+		CurrentWorkspaceID:           s.workspaceID,
 		WorkspaceFilePicker:          s.workspaceFilePicker,
 		WorkspaceFilePickerScroll:    &s.workspaceFilePickerScroll,
 		WorkspacePickerOpen:          s.workspacePickerOpen,
@@ -1218,6 +1219,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		MoveWorkspaceFocus: func(ui.EventContext) {
 			s.SetState(func() { s.workspace.MoveFocus() })
+		},
+		FocusWorkspaceContent: func(ui.EventContext) {
+			s.SetState(func() { s.workspace.SetFocusOwner(workspaceFocusContent) })
 		},
 		MoveWorkspaceSelection: func(_ ui.EventContext, delta int) {
 			selectedConversationID := ""
@@ -1501,7 +1505,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		Dismiss: s.dismiss,
 	}
-	return shellView{Snapshot: snapshot, Callbacks: callbacks}
+	files, _ := s.bound.(sessionclient.WorkspaceFilesSession)
+	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files}
 }
 
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {

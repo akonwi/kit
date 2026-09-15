@@ -63,6 +63,7 @@ type shellSnapshot struct {
 	ActivityFocus                *ui.FocusNode
 	SubagentFocuses              map[string]*ui.FocusNode
 	Workspace                    workspaceControllerSnapshot
+	CurrentWorkspaceID           string
 	WorkspaceFilePicker          workspaceFilePickerController
 	WorkspaceFilePickerScroll    *ui.ScrollController
 	WorkspacePickerOpen          bool
@@ -140,6 +141,7 @@ type shellCallbacks struct {
 	WorkspacePickerQuery        ui.TextChangedCallback
 	WorkspacePickerSelection    func(ui.EventContext, int)
 	MoveWorkspaceFocus          ui.VoidCallback
+	FocusWorkspaceContent       ui.VoidCallback
 	MoveWorkspaceSelection      func(ui.EventContext, int)
 	OpenSubagentActivity        func(ui.EventContext, string, string)
 	OpenSubagentFromTool        func(ui.EventContext, string)
@@ -182,9 +184,10 @@ type shellCallbacks struct {
 }
 
 type shellView struct {
-	Snapshot     shellSnapshot
-	Callbacks    shellCallbacks
-	presentation transcriptPresentation
+	Snapshot       shellSnapshot
+	Callbacks      shellCallbacks
+	WorkspaceFiles sessionclient.WorkspaceFilesSession
+	presentation   transcriptPresentation
 }
 
 type quitIntent struct{}
