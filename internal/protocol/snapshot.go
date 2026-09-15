@@ -376,7 +376,7 @@ func validateSubagentSnapshot(snapshot SessionSnapshot) error {
 	for index, conversation := range snapshot.SubagentConversations {
 		if !identifier.Valid(conversation.ID, "subagent_") || !validRendererText(conversation.AgentName, 128) ||
 			!validRendererText(conversation.Model, 256) || strings.Count(conversation.Model, "/") != 1 ||
-			conversation.Generation == 0 || conversation.QueuedTasks < 0 ||
+			ThinkingLevel(conversation.ThinkingLevel).Validate() != nil || conversation.Generation == 0 || conversation.QueuedTasks < 0 ||
 			(conversation.ActiveTaskID != "" && !identifier.Valid(conversation.ActiveTaskID, "task_")) ||
 			(conversation.LastCompletedTaskID != "" && !identifier.Valid(conversation.LastCompletedTaskID, "task_")) ||
 			!validSubagentConversationState(conversation.State) || len(conversation.Tasks) > 20 {

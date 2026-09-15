@@ -400,6 +400,7 @@ type SubagentConversation struct {
 	ID                  string         `json:"id"`
 	AgentName           string         `json:"agentName"`
 	Model               string         `json:"model"`
+	ThinkingLevel       string         `json:"thinkingLevel"`
 	State               string         `json:"state"`
 	Generation          uint64         `json:"generation"`
 	ActiveTaskID        string         `json:"activeTaskId,omitempty"`

@@ -256,6 +256,9 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	if err != nil || started.Task == nil || started.Conversation == nil {
 		t.Fatalf("Subagent(start) = %#v, %v", started, err)
 	}
+	if started.Conversation.Model != "test/echo" || started.Conversation.ThinkingLevel != "off" {
+		t.Fatalf("started subagent configuration = %#v", started.Conversation)
+	}
 	select {
 	case event := <-changedEvents:
 		if event.SubagentConversationID != started.Conversation.ID || event.SubagentTaskID != started.Task.ID {
@@ -278,7 +281,8 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	if observed.Conversations[0].Tasks[0].ID != started.Task.ID || observed.Conversations[0].LastResultSummary == "" {
+	if observed.Conversations[0].Tasks[0].ID != started.Task.ID || observed.Conversations[0].LastResultSummary == "" ||
+		observed.Conversations[0].Model != "test/echo" || observed.Conversations[0].ThinkingLevel != "off" {
 		t.Fatalf("observer roster = %#v", observed.Conversations)
 	}
 	childEvents, err := observer.GetSubagentEvents(t.Context(), sessionID, observed.Conversations[0].ID, "", 0)
@@ -290,8 +294,9 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		t.Fatalf("child transcript = %#v, %v", transcript, err)
 	}
 	snapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
-	if err != nil || len(snapshot.SubagentDefinitions) != 1 || snapshot.SubagentDefinitions[0].Name != "scout" {
-		t.Fatalf("snapshot subagents = %#v, %v", snapshot.SubagentDefinitions, err)
+	if err != nil || len(snapshot.SubagentDefinitions) != 1 || snapshot.SubagentDefinitions[0].Name != "scout" ||
+		len(snapshot.SubagentConversations) != 1 || snapshot.SubagentConversations[0].ThinkingLevel != "off" {
+		t.Fatalf("snapshot subagents = definitions:%#v conversations:%#v, %v", snapshot.SubagentDefinitions, snapshot.SubagentConversations, err)
 	}
 	cancel()
 	select {

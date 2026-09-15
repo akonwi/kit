@@ -120,7 +120,7 @@ func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 				Name: "scout", Description: "inspects repositories", Source: protocol.SubagentSource{Kind: "user", Path: "/tmp/scout.md"},
 			}},
 			SubagentConversations: []protocol.SubagentConversation{{
-				ID: conversationID, AgentName: "scout", Model: "test/echo", State: "running", Generation: 2,
+				ID: conversationID, AgentName: "scout", Model: "test/echo", ThinkingLevel: "medium", State: "running", Generation: 2,
 				ActiveTaskID: "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", UpdatedAt: time.Now().Format(time.RFC3339Nano),
 				Tasks: []protocol.SubagentTask{{
 					ID: "task_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", State: "running", CancellationGeneration: 3,
@@ -142,13 +142,13 @@ func TestSubagentsWorkspaceRendersMergedRosterWithoutCountHeader(t *testing.T) {
 	rows := paintedRows(application, 140, 24)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
-		"Open subagent", "Search subagents…", spinnerFrames[0] + " scout", "inspects repositories", "just now",
+		"Open subagent", "Search subagents…", spinnerFrames[0] + " scout", "Echo (medium)", "inspects repositories",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("subagent workspace missing %q:\n%s", expected, text)
 		}
 	}
-	for _, omitted := range []string{"1 agent", "1 conversation", "Available agents", "Delegated work", "#1 running", "test/echo", "user", "running " + glyphChevronRight} {
+	for _, omitted := range []string{"1 agent", "1 conversation", "Available agents", "Delegated work", "#1 running", "user", "running " + glyphChevronRight} {
 		if strings.Contains(text, omitted) {
 			t.Fatalf("subagent workspace unexpectedly contains %q:\n%s", omitted, text)
 		}
@@ -190,7 +190,7 @@ func TestSubagentsWorkspaceGroupsAvailableDefinitionsWithoutRepeatedStatus(t *te
 	t.Parallel()
 	layout := &workspaceLayoutState{}
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo", ThinkingLevel: "medium"},
 		SubagentsOpen: true, ActivitySelected: true, WorkspaceLayout: layout, ActivityScroll: &ui.ScrollController{},
 		SubagentDefinitions: []protocol.SubagentDefinition{
 			{Name: "reviewer", Description: "Reviews code changes", Model: "test/reviewer", Source: protocol.SubagentSource{Kind: "project", Path: "/repo/.kit/agents/reviewer.md"}},
@@ -200,8 +200,8 @@ func TestSubagentsWorkspaceGroupsAvailableDefinitionsWithoutRepeatedStatus(t *te
 	application.Pump(100, 20)
 	text := strings.Join(paintedRows(application, 100, 20), "\n")
 	for _, expected := range []string{
-		"Available", glyphCircleEmpty + " reviewer", "Reviews code changes",
-		glyphCircleEmpty + " scout", "Finds repository evidence",
+		"Available", glyphCircleEmpty + " reviewer", "Reviewer (medium)", "Reviews code changes",
+		glyphCircleEmpty + " scout", "Echo (medium)", "Finds repository evidence",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("available subagent list missing %q:\n%s", expected, text)
@@ -211,6 +211,23 @@ func TestSubagentsWorkspaceGroupsAvailableDefinitionsWithoutRepeatedStatus(t *te
 		if strings.Contains(text, omitted) {
 			t.Fatalf("simplified available list contains %q:\n%s", omitted, text)
 		}
+	}
+}
+
+func TestSubagentRosterRowPreservesNameBesideConfiguration(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultTheme()
+	presentation := pickerRowPresentation{Theme: theme, ItemText: theme.Foreground, FocusedText: theme.Foreground, FocusedBg: theme.Surface}
+	application := uitest.New((shellView{Snapshot: shellSnapshot{Session: protocol.SessionInfo{
+		Model: "test/echo", ThinkingLevel: "medium",
+	}}}).subagentRosterRow(theme, presentation, subagentRosterItem{
+		Name: "repository-security-reviewer", Description: "Reviews repository security", Status: "inactive",
+	}, false))
+	application.Pump(50, 2)
+	row := paintedRows(application, 50, 2)[0]
+	want := " " + glyphCircleEmpty + " repository-security-reviewer     Echo (medium) "
+	if row != want {
+		t.Fatalf("configured subagent row = %q, want %q", row, want)
 	}
 }
 

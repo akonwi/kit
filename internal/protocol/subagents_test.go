@@ -65,7 +65,7 @@ func TestSubagentOperationResultValidation(t *testing.T) {
 		}},
 		Warning: "Requested model unavailable; using active model.",
 		Conversations: []protocol.SubagentConversation{{
-			ID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentName: "scout", Model: "test/echo", State: "running",
+			ID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentName: "scout", Model: "test/echo", ThinkingLevel: "medium", State: "running",
 			Generation: 1, UpdatedAt: now,
 			Tasks: []protocol.SubagentTask{{ID: "task_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", Sequence: 1, State: "queued", CancellationGeneration: 1, QueuedAt: now}},
 		}},
@@ -73,6 +73,15 @@ func TestSubagentOperationResultValidation(t *testing.T) {
 	if err := result.Validate(); err != nil {
 		t.Fatal(err)
 	}
+	result.Conversations[0].ThinkingLevel = ""
+	if err := result.Validate(); err == nil {
+		t.Fatal("result accepted a missing subagent thinking level")
+	}
+	result.Conversations[0].ThinkingLevel = "extreme"
+	if err := result.Validate(); err == nil {
+		t.Fatal("result accepted an invalid subagent thinking level")
+	}
+	result.Conversations[0].ThinkingLevel = "medium"
 	result.Conversations[0].Tasks[0].State = "mystery"
 	if err := result.Validate(); err == nil {
 		t.Fatal("result accepted an invalid task state")

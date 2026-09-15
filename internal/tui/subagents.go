@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis/ui"
@@ -13,8 +12,9 @@ import (
 type subagentRosterItem struct {
 	Name            string
 	Description     string
+	Model           string
+	ThinkingLevel   string
 	Status          string
-	UpdatedAt       string
 	Conversation    protocol.SubagentConversation
 	HasConversation bool
 }
@@ -29,11 +29,12 @@ func subagentRosterItems(definitions []protocol.SubagentDefinition, conversation
 	for _, definition := range definitions {
 		definitionNames[definition.Name] = struct{}{}
 		item := subagentRosterItem{
-			Name: definition.Name, Description: definition.Description, Status: "inactive",
+			Name: definition.Name, Description: definition.Description, Model: definition.Model, Status: "inactive",
 		}
 		if conversation, ok := conversationsByName[definition.Name]; ok {
+			item.Model = conversation.Model
+			item.ThinkingLevel = conversation.ThinkingLevel
 			item.Status = conversation.State
-			item.UpdatedAt = conversation.UpdatedAt
 			item.Conversation = conversation
 			item.HasConversation = true
 		}
@@ -45,7 +46,7 @@ func subagentRosterItems(definitions []protocol.SubagentDefinition, conversation
 		}
 		items = append(items, subagentRosterItem{
 			Name: conversation.AgentName, Description: "Previously active subagent conversation",
-			Status: conversation.State, UpdatedAt: conversation.UpdatedAt,
+			Model: conversation.Model, ThinkingLevel: conversation.ThinkingLevel, Status: conversation.State,
 			Conversation: conversation, HasConversation: true,
 		})
 	}
@@ -66,7 +67,7 @@ func filteredSubagentRosterItems(items []subagentRosterItem, query string) []sub
 	}
 	filtered := make([]subagentRosterItem, 0, len(items))
 	for _, item := range items {
-		haystack := strings.ToLower(strings.Join([]string{item.Name, item.Description, item.Status}, " "))
+		haystack := strings.ToLower(strings.Join([]string{item.Name, item.Description, item.Model, item.ThinkingLevel, item.Status}, " "))
 		if strings.Contains(haystack, query) {
 			filtered = append(filtered, item)
 		}
@@ -153,27 +154,6 @@ func subagentStatusPresentation(theme ui.Theme, status string) (string, string, 
 		return glyphCircleEmpty, "completed", ui.Style{Foreground: theme.MutedForeground}
 	default:
 		return glyphCircleEmpty, "available", ui.Style{Foreground: theme.MutedForeground}
-	}
-}
-
-func subagentRelativeTime(value string, now time.Time) string {
-	updated, err := time.Parse(time.RFC3339Nano, value)
-	if err != nil {
-		return ""
-	}
-	elapsed := now.Sub(updated)
-	if elapsed < 0 {
-		elapsed = 0
-	}
-	switch {
-	case elapsed < time.Minute:
-		return "just now"
-	case elapsed < time.Hour:
-		return fmt.Sprintf("%dm ago", int(elapsed/time.Minute))
-	case elapsed < 24*time.Hour:
-		return fmt.Sprintf("%dh ago", int(elapsed/time.Hour))
-	default:
-		return fmt.Sprintf("%dd ago", int(elapsed/(24*time.Hour)))
 	}
 }
 
@@ -303,7 +283,21 @@ func subagentStatusWidget(status string, glyph string, style ui.Style) ui.Widget
 
 func (w shellView) subagentRosterRow(theme ui.Theme, presentation pickerRowPresentation, item subagentRosterItem, selected bool) ui.Widget {
 	glyph, _, statusStyle := subagentStatusPresentation(theme, item.Status)
-	lastActive := subagentRelativeTime(item.UpdatedAt, time.Now())
+	model := item.Model
+	if model == "" {
+		model = w.Snapshot.Session.Model
+	}
+	thinking := item.ThinkingLevel
+	if thinking == "" {
+		thinking = w.Snapshot.Session.ThinkingLevel
+	}
+	configuration := modelDisplayName(model)
+	if thinking != "" {
+		if configuration != "" {
+			configuration += " "
+		}
+		configuration += "(" + thinking + ")"
+	}
 	background := theme.Background
 	primary := presentation.ItemText
 	secondary := theme.MutedForeground
@@ -319,8 +313,14 @@ func (w shellView) subagentRosterRow(theme ui.Theme, presentation pickerRowPrese
 		ui.SizedBox{Width: 1},
 		ui.Expanded(ui.Text{Value: item.Name, Style: ui.Style{Foreground: primary, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 	}
-	if lastActive != "" {
-		heading = append(heading, ui.Text{Value: lastActive, Style: ui.Style{Foreground: secondary, Background: background}, MaxLines: 1})
+	if configuration != "" {
+		heading = append(heading, ui.ConstrainedBox{
+			Constraints: ui.Constraints{MaxWidth: 32},
+			Child: ui.Text{
+				Value: configuration, Style: ui.Style{Foreground: secondary, Background: background},
+				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+			},
+		})
 	}
 	content := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: heading}},

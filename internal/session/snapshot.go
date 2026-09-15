@@ -99,6 +99,7 @@ type SubagentConversation struct {
 	ID                  string
 	AgentName           string
 	Model               string
+	ThinkingLevel       string
 	State               string
 	Generation          uint64
 	ActiveTaskID        string
@@ -368,7 +369,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		for _, conversation := range conversations {
 			projected := SubagentConversation{
 				ID: string(conversation.ID), AgentName: conversation.Agent.Name, Model: conversation.Model,
-				State: string(conversation.State), Generation: conversation.Generation,
+				ThinkingLevel: conversation.ThinkingLevel, State: string(conversation.State), Generation: conversation.Generation,
 				ActiveTaskID: string(conversation.ActiveTaskID), QueuedTasks: conversation.QueuedTasks,
 				LastCompletedTaskID: string(conversation.LastCompletedTaskID), LastResultSummary: conversation.LastResultSummary,
 				UpdatedAt: conversation.UpdatedAt,

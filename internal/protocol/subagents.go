@@ -126,7 +126,7 @@ func (result SubagentOperationResult) Validate() error {
 		}
 		conversations = append(conversations, SubagentConversation{
 			ID: "subagent_00000000000000000000000000000000", AgentName: "validation", Model: "validation/model",
-			State: "idle", Generation: 1,
+			ThinkingLevel: "off", State: "idle", Generation: 1,
 			UpdatedAt: time.Unix(0, 0).UTC().Format(time.RFC3339Nano), Tasks: tasks,
 		})
 	}

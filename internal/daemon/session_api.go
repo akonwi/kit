@@ -394,7 +394,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	for _, conversation := range snapshot.SubagentConversations {
 		projected := protocol.SubagentConversation{
 			ID: conversation.ID, AgentName: conversation.AgentName, Model: conversation.Model,
-			State: conversation.State, Generation: conversation.Generation,
+			ThinkingLevel: conversation.ThinkingLevel, State: conversation.State, Generation: conversation.Generation,
 			ActiveTaskID: conversation.ActiveTaskID, QueuedTasks: conversation.QueuedTasks,
 			LastCompletedTaskID: conversation.LastCompletedTaskID, LastResultSummary: conversation.LastResultSummary,
 			UpdatedAt: conversation.UpdatedAt.Format(time.RFC3339Nano),
@@ -662,7 +662,7 @@ func (s runtimeSessionService) Subagent(ctx context.Context, sessionID string, i
 func (s runtimeSessionService) projectSubagentConversation(ctx context.Context, conversation subagent.Conversation) (protocol.SubagentConversation, error) {
 	projected := protocol.SubagentConversation{
 		ID: string(conversation.ID), AgentName: conversation.Agent.Name, Model: conversation.Model,
-		State: string(conversation.State), Generation: conversation.Generation,
+		ThinkingLevel: conversation.ThinkingLevel, State: string(conversation.State), Generation: conversation.Generation,
 		ActiveTaskID: string(conversation.ActiveTaskID), QueuedTasks: conversation.QueuedTasks,
 		LastCompletedTaskID: string(conversation.LastCompletedTaskID), LastResultSummary: conversation.LastResultSummary,
 		UpdatedAt: conversation.UpdatedAt.Format(time.RFC3339Nano),
