@@ -43,6 +43,14 @@ type Session interface {
 	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
 }
 
+// WorkspaceFilesSession is the optional bounded workspace exploration surface.
+type WorkspaceFilesSession interface {
+	WorkspaceLimits() protocol.WorkspaceLimits
+	Workspace(context.Context) (protocol.WorkspaceRef, error)
+	ListDirectory(context.Context, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
+	ReadWorkspaceFile(context.Context, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+}
+
 // ErrTranscriptCursorUnavailable indicates that older history must be restarted from a fresh snapshot.
 var ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
 

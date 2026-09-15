@@ -2,7 +2,7 @@
 // interactive pickers such as composer file mentions.
 //
 // The scan mirrors what a developer expects a project browser to show:
-// hierarchical .gitignore and .kitignore rules apply, version-control and
+// hierarchical .gitignore rules apply, version-control and
 // dependency directories are always skipped, symlinked files are listed but
 // symlinked directories are never traversed, and the result is bounded.
 package fileindex
@@ -19,10 +19,6 @@ import (
 // DefaultMaxEntries bounds the combined number of files and directories a scan
 // returns when Options.MaxEntries is zero.
 const DefaultMaxEntries = 4000
-
-// KitIgnoreFile is the Kit-specific ignore file evaluated after .gitignore in
-// the same directory, so it may override git's rules.
-const KitIgnoreFile = ".kitignore"
 
 var builtInExcludes = map[string]bool{".git": true, "node_modules": true}
 
@@ -125,7 +121,7 @@ func (s *scanner) walk(directory, relativeDirectory string, rules []ignorefile.R
 		if !isFile {
 			continue
 		}
-		if name == ".git" || name == ".gitignore" || name == KitIgnoreFile {
+		if name == ".git" || name == ".gitignore" {
 			continue
 		}
 		if ignorefile.Ignored(relative, false, false, rules) {
@@ -144,29 +140,21 @@ func (s *scanner) walk(directory, relativeDirectory string, rules []ignorefile.R
 	return nil
 }
 
-// readIgnoreRules loads .gitignore then .kitignore from directory. Missing or
-// non-regular files contribute no rules.
+// readIgnoreRules loads .gitignore from directory. Missing or non-regular
+// files contribute no rules.
 func (s *scanner) readIgnoreRules(directory, base string) ([]ignorefile.Rule, error) {
-	var rules []ignorefile.Rule
-	for _, name := range []string{".gitignore", KitIgnoreFile} {
-		if err := s.ctx.Err(); err != nil {
-			return nil, err
-		}
-		path := filepath.Join(directory, name)
-		info, err := os.Lstat(path)
-		if err != nil || !info.Mode().IsRegular() {
-			continue
-		}
-		file, err := os.Open(path)
-		if err != nil {
-			continue
-		}
-		parsed, err := ignorefile.Parse(s.ctx, file, base)
-		_ = file.Close()
-		if err != nil {
-			return nil, err
-		}
-		rules = append(rules, parsed...)
+	if err := s.ctx.Err(); err != nil {
+		return nil, err
 	}
-	return rules, nil
+	path := filepath.Join(directory, ".gitignore")
+	info, err := os.Lstat(path)
+	if err != nil || !info.Mode().IsRegular() {
+		return nil, nil
+	}
+	file, err := os.Open(path)
+	if err != nil {
+		return nil, nil
+	}
+	defer file.Close()
+	return ignorefile.Parse(s.ctx, file, base)
 }

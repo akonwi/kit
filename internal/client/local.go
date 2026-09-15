@@ -74,6 +74,7 @@ var (
 var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
+var _ sessionclient.WorkspaceFilesSession = (*localSession)(nil)
 var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
@@ -162,6 +163,37 @@ func (c *localSession) FileIndex(ctx context.Context) (protocol.SessionFileIndex
 	return c.transport.GetSessionFileIndex(ctx, c.id)
 }
 
+func (c *localSession) WorkspaceLimits() protocol.WorkspaceLimits {
+	return protocol.DefaultWorkspaceLimits()
+}
+
+func (c *localSession) Workspace(ctx context.Context) (protocol.WorkspaceRef, error) {
+	result, err := c.transport.GetWorkspace(ctx, c.id)
+	return result, projectWorkspaceError(err)
+}
+
+func (c *localSession) ListDirectory(ctx context.Context, input protocol.ListDirectoryInput) (protocol.DirectoryPage, error) {
+	result, err := c.transport.ListWorkspaceDirectory(ctx, c.id, input)
+	return result, projectWorkspaceError(err)
+}
+
+func (c *localSession) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
+	result, err := c.transport.ReadWorkspaceFile(ctx, c.id, input)
+	return result, projectWorkspaceError(err)
+}
+
+func projectWorkspaceError(err error) error {
+	var apiError *daemon.APIError
+	if !errors.As(err, &apiError) || apiError.Code == "" {
+		return err
+	}
+	projected := &protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(apiError.Code), Message: apiError.Message, Details: apiError.Details}
+	if projected.Validate() != nil {
+		return fmt.Errorf("daemon returned malformed workspace error")
+	}
+	return projected
+}
+
 func (c *localSession) TranscriptPage(ctx context.Context, before string) (protocol.TranscriptPage, error) {
 	page, err := c.transport.GetTranscriptPage(ctx, c.id, before)
 	var apiErr *daemon.APIError
@@ -236,7 +268,7 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 		c.pendingCWDTarget, c.pendingCWDMutation = target, mutationID
 		c.mu.Unlock()
 	}
-	result, err := c.transport.ChangeSessionCWDWithID(ctx, c.id, mutationID, target)
+	result, err := c.transport.ChangeSessionWorkspaceCWDWithID(ctx, c.id, mutationID, target)
 	if err != nil {
 		var apiError *daemon.APIError
 		if errors.As(err, &apiError) && apiError.StatusCode < 500 {
@@ -248,7 +280,7 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 		}
 		retryContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 		var retryErr error
-		result, retryErr = c.transport.ChangeSessionCWDWithID(retryContext, c.id, mutationID, target)
+		result, retryErr = c.transport.ChangeSessionWorkspaceCWDWithID(retryContext, c.id, mutationID, target)
 		cancel()
 		if retryErr != nil {
 			var retryAPIError *daemon.APIError
@@ -263,12 +295,13 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 	}
 	c.mu.Lock()
 	c.cacheGeneration++
-	c.snapshot.Session = result
+	c.snapshot.Session = result.Session
+	c.snapshot.Workspace = &result.Workspace
 	if c.pendingCWDMutation == mutationID {
 		c.pendingCWDTarget, c.pendingCWDMutation = "", ""
 	}
 	c.mu.Unlock()
-	return result, nil
+	return result.Session, nil
 }
 
 func (c *localSession) clearPendingCWD(mutationID string) {

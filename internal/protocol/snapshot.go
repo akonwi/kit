@@ -153,6 +153,11 @@ func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Session.Validate(); err != nil {
 		return fmt.Errorf("snapshot session: %w", err)
 	}
+	if snapshot.Workspace != nil {
+		if err := snapshot.Workspace.Validate(); err != nil || snapshot.Workspace.SessionID != snapshot.Session.ID || snapshot.Workspace.CWD != snapshot.Session.CWD {
+			return fmt.Errorf("snapshot workspace is invalid")
+		}
+	}
 	if snapshot.Session.ThinkingLevel == "" {
 		return fmt.Errorf("snapshot session thinking level is missing")
 	}

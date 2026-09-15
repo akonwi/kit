@@ -10,6 +10,18 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
+func TestSessionCWDChangedEventIsSessionScoped(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{SessionID: "session_test", Kind: EventSessionCWDChanged, CWD: "/workspace"}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.TurnID, event.RunID = "turn_test", "turn_test"
+	if err := event.Validate(); err == nil {
+		t.Fatal("cwd event accepted parent turn identity")
+	}
+}
+
 func TestSessionRenamedEventIsSessionScoped(t *testing.T) {
 	t.Parallel()
 	event := NewEvent{SessionID: "session_test", Kind: EventSessionRenamed, SessionName: "Renamed session"}
