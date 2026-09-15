@@ -18,7 +18,7 @@ const (
 	maxSubscriptionReplay     = 1000
 	maxPendingSteering        = 64
 	maxPendingBoundaries      = 64
-	maxAutonomousReactions    = 8
+	maxAutonomousReactions    = 15
 )
 
 type sdkRuntime struct {

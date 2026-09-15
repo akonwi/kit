@@ -94,7 +94,7 @@ func TestSDKReactStartsIdempotentBoundaryOnlyTurn(t *testing.T) {
 		t.Fatalf("reaction context = %T, want ContextMessage", providers.requests[0].Messages[0])
 	}
 	providers.mu.Unlock()
-	for index := 1; index < 8; index++ {
+	for index := 1; index < 15; index++ {
 		id := fmt.Sprintf("mail_%032x", index)
 		if err := droid.Inform(t.Context(), droids.BoundaryMessage{
 			ID: id, Kind: "subagent_result", Source: "subagent",
@@ -206,7 +206,7 @@ func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = droid.Close() })
-	for index := 0; index < 7; index++ {
+	for index := 0; index < 14; index++ {
 		id := fmt.Sprintf("mail_%032x", index+1)
 		if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: id, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "chain"}}}); err != nil {
 			t.Fatal(err)
@@ -219,11 +219,11 @@ func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T
 			t.Fatal(err)
 		}
 	}
-	eighthID := "mail_88888888888888888888888888888888"
-	if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: eighthID, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "eighth"}}}); err != nil {
+	limitID := "mail_88888888888888888888888888888888"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{ID: limitID, Kind: "subagent_result", Content: []droids.InputContent{droids.TextInput{Text: "fifteenth"}}}); err != nil {
 		t.Fatal(err)
 	}
-	handle, _, err := droid.React(t.Context(), "mailbox:"+eighthID)
+	handle, _, err := droid.React(t.Context(), "mailbox:"+limitID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -245,18 +245,18 @@ func TestSDKReactionLimitDefersUntilSteeringToolContinuationSettles(t *testing.T
 		t.Fatalf("blocked boundary status = %+v, %v", status, err)
 	}
 	requests := providers.Requests()
-	if len(requests) != 10 {
-		t.Fatalf("provider requests = %d, want 10", len(requests))
+	if len(requests) != 17 {
+		t.Fatalf("provider requests = %d, want 17", len(requests))
 	}
 	var sawSteering, sawToolResult bool
-	for _, message := range requests[8].Messages {
+	for _, message := range requests[15].Messages {
 		if user, ok := message.(droids.UserMessage); ok && len(user.Content) == 1 {
 			if text, ok := user.Content[0].(droids.TextInput); ok && text.Text == "user steering" {
 				sawSteering = true
 			}
 		}
 	}
-	for _, message := range requests[9].Messages {
+	for _, message := range requests[16].Messages {
 		_, sawToolResult = message.(droids.ToolResultMessage)
 		if sawToolResult {
 			break
@@ -1224,10 +1224,10 @@ func (p *limitSteeringProviders) Stream(_ context.Context, _ droids.Model, reque
 	call := len(p.requests)
 	p.mu.Unlock()
 	message := droids.AssistantMessage{Provider: "test", Model: "limit-steer", StopReason: droids.StopReasonStop, Content: []droids.AssistantContent{droids.TextContent{Text: "complete"}}}
-	if call == 8 {
+	if call == 15 {
 		return &blockingReadStream{message: message, started: p.started, release: p.release}
 	}
-	if call == 9 {
+	if call == 16 {
 		return sdkStaticStream(droids.AssistantMessage{
 			Provider: "test", Model: "limit-steer", StopReason: droids.StopReasonToolUse,
 			Content: []droids.AssistantContent{droids.ToolCall{ID: "call_read_fixture", Name: "read_fixture", Arguments: []byte(`{"path":"fixture.txt"}`)}},
