@@ -437,6 +437,7 @@ type ActiveCompaction struct {
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo            `json:"session"`
+	Workspace             *WorkspaceRef          `json:"workspace,omitempty"`
 	Messages              []TranscriptMessage    `json:"messages"`
 	PreviousMessageCursor string                 `json:"previousMessageCursor,omitempty"`
 	HasMoreMessages       bool                   `json:"hasMoreMessages,omitempty"`

@@ -30,6 +30,7 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
+	"github.com/akonwi/kit/internal/workspace"
 	"github.com/gofrs/flock"
 )
 
@@ -299,7 +300,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:        store,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
-			subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
+			workspaces: workspace.NewService(), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
 		providers:   providerAvailability,

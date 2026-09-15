@@ -23,7 +23,9 @@ const maxSessionResponseBytes = 8 << 20
 // APIError is a non-success response from the local session protocol.
 type APIError struct {
 	StatusCode int
+	Code       string
 	Message    string
+	Details    map[string]string
 }
 
 func (e *APIError) Error() string {
@@ -137,6 +139,54 @@ func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) 
 }
 
 // GetSessionFileIndex returns project paths indexed on the session host.
+// GetWorkspace returns the current logical workspace for a session.
+func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.WorkspaceRef, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace"
+	var output protocol.WorkspaceRef
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.WorkspaceRef{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.WorkspaceRef{}, fmt.Errorf("validate daemon workspace: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.WorkspaceRef{}, fmt.Errorf("daemon workspace identity mismatch")
+	}
+	return output, nil
+}
+
+// ListWorkspaceDirectory returns a bounded page of immediate workspace children.
+func (c *Client) ListWorkspaceDirectory(ctx context.Context, sessionID string, input protocol.ListDirectoryInput) (protocol.DirectoryPage, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace/directories"
+	var output protocol.DirectoryPage
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.DirectoryPage{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.DirectoryPage{}, fmt.Errorf("validate daemon directory page: %w", err)
+	}
+	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
+		return protocol.DirectoryPage{}, fmt.Errorf("daemon directory identity mismatch")
+	}
+	return output, nil
+}
+
+// ReadWorkspaceFile returns a bounded guarded UTF-8 workspace preview.
+func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace/files/read"
+	var output protocol.WorkspaceFileRead
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.WorkspaceFileRead{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.WorkspaceFileRead{}, fmt.Errorf("validate daemon workspace file: %w", err)
+	}
+	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
+		return protocol.WorkspaceFileRead{}, fmt.Errorf("daemon workspace file identity mismatch")
+	}
+	return output, nil
+}
+
 func (c *Client) GetSessionFileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/files"
 	var output protocol.SessionFileIndex
@@ -238,20 +288,26 @@ func (c *Client) ChangeSessionCWD(ctx context.Context, sessionID, target string)
 // ChangeSessionCWDWithID changes one session's relative filesystem scope using
 // a client-selected idempotency identity.
 func (c *Client) ChangeSessionCWDWithID(ctx context.Context, sessionID, mutationID, target string) (protocol.SessionInfo, error) {
+	result, err := c.ChangeSessionWorkspaceCWDWithID(ctx, sessionID, mutationID, target)
+	return result.Session, err
+}
+
+// ChangeSessionWorkspaceCWDWithID returns both session metadata and workspace identity.
+func (c *Client) ChangeSessionWorkspaceCWDWithID(ctx context.Context, sessionID, mutationID, target string) (protocol.ChangeWorkspaceCWDResult, error) {
 	input := protocol.ChangeCWDInput{MutationID: mutationID, Path: target}
 	if err := input.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate session cwd request: %w", err)
+		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("validate session cwd request: %w", err)
 	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/cwd"
-	var output protocol.SessionInfo
+	var output protocol.ChangeWorkspaceCWDResult
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
-		return protocol.SessionInfo{}, err
+		return protocol.ChangeWorkspaceCWDResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate daemon session cwd result: %w", err)
+		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("validate daemon session cwd result: %w", err)
 	}
-	if output.ID != sessionID {
-		return protocol.SessionInfo{}, fmt.Errorf("daemon session cwd identity mismatch")
+	if output.Session.ID != sessionID {
+		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("daemon session cwd identity mismatch")
 	}
 	return output, nil
 }
@@ -497,13 +553,32 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 
 func decodeAPIError(statusCode int, body []byte) error {
 	var envelope struct {
-		Error string `json:"error"`
+		Error json.RawMessage `json:"error"`
 	}
 	message := strings.TrimSpace(string(body))
-	if json.Unmarshal(body, &envelope) == nil && envelope.Error != "" {
-		message = envelope.Error
+	apiError := &APIError{StatusCode: statusCode}
+	if json.Unmarshal(body, &envelope) == nil && len(envelope.Error) > 0 {
+		var plain string
+		if json.Unmarshal(envelope.Error, &plain) == nil {
+			apiError.Message = plain
+			return apiError
+		}
+		var typed struct {
+			Code    string            `json:"code"`
+			Message string            `json:"message"`
+			Details map[string]string `json:"details"`
+		}
+		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
+			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
+			if workspaceError.Validate() != nil {
+				return fmt.Errorf("daemon returned malformed workspace error")
+			}
+			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, typed.Details
+			return apiError
+		}
 	}
-	return &APIError{StatusCode: statusCode, Message: message}
+	apiError.Message = message
+	return apiError
 }
 
 // SubmitPrompt starts an idle prompt or queues it behind active work.
@@ -765,14 +840,7 @@ func (c *Client) sessionJSON(
 	limited := io.LimitReader(response.Body, maxSessionResponseBytes)
 	if response.StatusCode != expectedStatus {
 		body, _ := io.ReadAll(limited)
-		var envelope struct {
-			Error string `json:"error"`
-		}
-		message := strings.TrimSpace(string(body))
-		if json.Unmarshal(body, &envelope) == nil && envelope.Error != "" {
-			message = envelope.Error
-		}
-		return &APIError{StatusCode: response.StatusCode, Message: message}
+		return decodeAPIError(response.StatusCode, body)
 	}
 	if output == nil {
 		_, _ = io.Copy(io.Discard, limited)

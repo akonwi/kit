@@ -89,10 +89,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Workspace data, tools, attachments, and interactions
 
-- [ ] CORE-WORK-001 — Expose bounded, client-safe directory listings and file
+- [x] CORE-WORK-001 — Expose bounded, client-safe directory listings and file
   reads rooted in and unable to escape the session workspace, with canonical
   paths, revisions, truncation, and explicit missing, binary, permission, and
-  stale-data errors.
+  stale-data errors, as defined by ADR 0019.
 - [ ] CORE-DIFF-001 — Expose bounded, revision-aware file and hunk diff data for
   working-tree and agent edit results without requiring clients to execute Git
   or parse presentation-oriented tool output.

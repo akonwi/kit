@@ -41,6 +41,15 @@ func (eventStreamTestService) WaitEvents(ctx context.Context, _ string, _ string
 	return protocol.SessionEventBatch{}, ctx.Err()
 }
 
+func TestRuntimeSessionServiceWorkspaceUnavailableWithoutService(t *testing.T) {
+	t.Parallel()
+	_, err := (runtimeSessionService{}).Workspace(t.Context(), "session_test")
+	var workspaceErr *protocol.WorkspaceError
+	if !errors.As(err, &workspaceErr) || workspaceErr.Code != protocol.WorkspaceErrorUnavailable {
+		t.Fatalf("workspace error = %v", err)
+	}
+}
+
 func TestSessionEventStreamValidatesBeforeCommittingResponse(t *testing.T) {
 	t.Parallel()
 

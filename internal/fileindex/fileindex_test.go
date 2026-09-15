@@ -27,7 +27,7 @@ func paths(entries []Entry) []string {
 	return out
 }
 
-func TestScanListsDirectoriesThenFilesRespectingIgnoreRules(t *testing.T) {
+func TestScanListsDirectoriesThenFilesRespectingGitIgnore(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()
 	writeFile(t, root, ".gitignore", "*.tmp\nbuild/\nsecret.txt\n")
@@ -51,10 +51,12 @@ func TestScanListsDirectoriesThenFilesRespectingIgnoreRules(t *testing.T) {
 		t.Fatal(err)
 	}
 	want := []string{
+		"private/",
 		"src/",
 		"src/sub/",
+		".kitignore",
 		"README.md",
-		"secret.txt",
+		"private/notes.md",
 		"src/keep.tmp",
 		"src/main.go",
 		"src/sub/lib.go",
@@ -62,7 +64,7 @@ func TestScanListsDirectoriesThenFilesRespectingIgnoreRules(t *testing.T) {
 	if got := paths(entries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("scan paths = %q, want %q", got, want)
 	}
-	if !entries[0].IsDir || entries[2].IsDir {
+	if !entries[0].IsDir || entries[3].IsDir {
 		t.Fatalf("entry kinds = %+v", entries)
 	}
 }

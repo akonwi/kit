@@ -19,6 +19,7 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	kitvcs "github.com/akonwi/kit/internal/vcs"
+	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
 
 const maxSessionRequestBytes = 1 << 20
@@ -28,7 +29,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 type sessionService interface {
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	Fork(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error)
-	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.SessionInfo, error)
+	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.ChangeWorkspaceCWDResult, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	Delete(context.Context, string) error
 	DisposeTemporary(context.Context, string) error
@@ -38,6 +39,9 @@ type sessionService interface {
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	FileIndex(context.Context, string) (protocol.SessionFileIndex, error)
+	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
+	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
+	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	WaitEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
@@ -66,6 +70,7 @@ type runtimeSessionService struct {
 	modelContextWindow func(string) int
 	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
 	fileIndexes        *sessionFileIndexCache
+	workspaces         *kitworkspace.Service
 	subagents          *subagent.Supervisor
 	subagentTools      *subagent.ToolService
 	attachments        attachment.Store
@@ -97,16 +102,29 @@ func (s runtimeSessionService) Fork(
 	return projectSession(result.Session), nil
 }
 
+func (s runtimeSessionService) workspaceService() (*kitworkspace.Service, error) {
+	if s.workspaces == nil {
+		return nil, &kitworkspace.Error{Code: kitworkspace.Unavailable, Message: "workspace service is unavailable"}
+	}
+	return s.workspaces, nil
+}
+
 func (s runtimeSessionService) ChangeCWD(
 	ctx context.Context,
 	sessionID string,
 	input protocol.ChangeCWDInput,
-) (protocol.SessionInfo, error) {
+) (protocol.ChangeWorkspaceCWDResult, error) {
+	workspaces, err := s.workspaceService()
+	if err != nil {
+		return protocol.ChangeWorkspaceCWDResult{}, err
+	}
 	result, err := s.manager.ChangeCWDWithID(ctx, sessionID, input.MutationID, input.Path)
 	if err != nil {
-		return protocol.SessionInfo{}, err
+		return protocol.ChangeWorkspaceCWDResult{}, err
 	}
-	return projectSession(result.Session), nil
+	sessionInfo := projectSession(result.Session)
+	workspaceRef := workspaces.Ref(sessionID, result.Session.CWD)
+	return protocol.ChangeWorkspaceCWDResult{Session: sessionInfo, Workspace: workspaceRef}, nil
 }
 
 func (s runtimeSessionService) Rename(
@@ -125,6 +143,9 @@ func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) err
 	if err := s.manager.Delete(ctx, sessionID); err != nil {
 		return err
 	}
+	if s.workspaces != nil {
+		s.workspaces.RemoveSession(sessionID)
+	}
 	if s.attachments != nil {
 		return s.attachments.RemoveSession(ctx, sessionID)
 	}
@@ -134,6 +155,9 @@ func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) err
 func (s runtimeSessionService) DisposeTemporary(ctx context.Context, sessionID string) error {
 	if err := s.manager.DisposeTemporary(ctx, sessionID); err != nil {
 		return err
+	}
+	if s.workspaces != nil {
+		s.workspaces.RemoveSession(sessionID)
 	}
 	if s.attachments != nil {
 		return s.attachments.RemoveSession(ctx, sessionID)
@@ -193,6 +217,64 @@ func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalo
 	return result, nil
 }
 
+func (s runtimeSessionService) Workspace(ctx context.Context, sessionID string) (protocol.WorkspaceRef, error) {
+	workspaces, err := s.workspaceService()
+	if err != nil {
+		return protocol.WorkspaceRef{}, err
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.WorkspaceRef{}, err
+	}
+	return workspaces.Ref(sessionID, record.CWD), nil
+}
+
+func (s runtimeSessionService) ListDirectory(ctx context.Context, sessionID string, input protocol.ListDirectoryInput) (protocol.DirectoryPage, error) {
+	workspaces, err := s.workspaceService()
+	if err != nil {
+		return protocol.DirectoryPage{}, err
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DirectoryPage{}, err
+	}
+	result, err := workspaces.List(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.DirectoryPage{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DirectoryPage{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.DirectoryPage{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
+	workspaces, err := s.workspaceService()
+	if err != nil {
+		return protocol.WorkspaceFileRead{}, err
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.WorkspaceFileRead{}, err
+	}
+	result, err := workspaces.Read(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.WorkspaceFileRead{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.WorkspaceFileRead{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.WorkspaceFileRead{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
 func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
 	record, err := s.manager.Get(ctx, sessionID)
 	if err != nil {
@@ -244,6 +326,10 @@ func (s runtimeSessionService) VCS(ctx context.Context, sessionID string) (proto
 }
 
 func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
+	workspaces, workspaceErr := s.workspaceService()
+	if workspaceErr != nil {
+		return protocol.SessionSnapshot{}, workspaceErr
+	}
 	snapshot, err := s.manager.Snapshot(ctx, sessionID)
 	if err != nil {
 		return protocol.SessionSnapshot{}, err
@@ -252,8 +338,10 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	if snapshot.HasMoreMessages {
 		previousCursor = strconv.FormatUint(snapshot.PreviousMessageCursor, 10)
 	}
+	projectedWorkspace := workspaces.Ref(snapshot.Session.ID, snapshot.Session.CWD)
+	workspaceRef := &projectedWorkspace
 	result := protocol.SessionSnapshot{
-		Session: projectSession(snapshot.Session), ActiveRunID: snapshot.ActiveRunID,
+		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveRunID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
@@ -642,19 +730,25 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 }
 
 func (s runtimeSessionService) Events(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
+	if _, err := s.workspaceService(); err != nil {
+		return protocol.SessionEventBatch{}, err
+	}
 	page, err := s.manager.Events(ctx, sessionID, streamID, after)
 	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
-	return projectSessionEventPage(page), nil
+	return s.projectSessionEventPage(page), nil
 }
 
 func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
+	if _, err := s.workspaceService(); err != nil {
+		return protocol.SessionEventBatch{}, err
+	}
 	page, err := s.manager.WaitEvents(ctx, sessionID, streamID, after)
 	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
-	return projectSessionEventPage(page), nil
+	return s.projectSessionEventPage(page), nil
 }
 
 func projectInteractionRequest(request kitsession.InteractionRequest) protocol.InteractionRequest {
@@ -673,6 +767,10 @@ func projectInteractionRequest(request kitsession.InteractionRequest) protocol.I
 }
 
 func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBatch {
+	return (runtimeSessionService{}).projectSessionEventPage(page)
+}
+
+func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBatch {
 	batch := protocol.SessionEventBatch{
 		StreamID: page.StreamID, FirstSequence: page.FirstSequence, LastSequence: page.LastSequence,
 		ResyncRequired: page.ResyncRequired, UsageBaseline: projectSessionUsagePointer(page.UsageBaseline),
@@ -697,6 +795,10 @@ func projectSessionEventPage(page kitsession.EventPage) protocol.SessionEventBat
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
 			PeerRequestID: event.PeerRequestID,
 			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
+		}
+		if event.Kind == kitsession.EventSessionCWDChanged && s.workspaces != nil {
+			workspaceRef := s.workspaces.Ref(event.SessionID, event.CWD)
+			projected.Workspace = &workspaceRef
 		}
 		if event.ProviderRetry != nil {
 			projected.ProviderRetry = &protocol.ProviderRetry{Count: event.ProviderRetry.Count}
@@ -1025,6 +1127,52 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid transcript page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/workspace", func(writer http.ResponseWriter, request *http.Request) {
+		result, err := service.Workspace(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid workspace reference: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/workspace/directories", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ListDirectoryInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ListDirectory(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid directory page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/workspace/files/read", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ReadWorkspaceFileInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ReadWorkspaceFile(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid workspace file: %w", err))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -1545,6 +1693,27 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 }
 
 func writeSessionError(writer http.ResponseWriter, err error) {
+	var workspaceErr *kitworkspace.Error
+	if errors.As(err, &workspaceErr) {
+		if validationErr := workspaceErr.Validate(); validationErr != nil {
+			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+		status := map[protocol.WorkspaceErrorCode]int{
+			kitworkspace.InvalidPath: http.StatusBadRequest, kitworkspace.NotFound: http.StatusNotFound,
+			kitworkspace.NotDirectory: http.StatusBadRequest, kitworkspace.NotFile: http.StatusBadRequest,
+			kitworkspace.PermissionDenied: http.StatusForbidden, kitworkspace.OutsideWorkspace: http.StatusForbidden,
+			kitworkspace.SymlinkTraversal: http.StatusBadRequest, kitworkspace.BinaryFile: http.StatusUnsupportedMediaType,
+			kitworkspace.StaleWorkspace: http.StatusConflict, kitworkspace.StaleFile: http.StatusConflict,
+			kitworkspace.StaleCursor: http.StatusConflict, kitworkspace.LimitExceeded: http.StatusRequestEntityTooLarge,
+			kitworkspace.CapacityExceeded: http.StatusTooManyRequests, kitworkspace.Unavailable: http.StatusServiceUnavailable,
+		}[workspaceErr.Code]
+		if status == 0 {
+			status = http.StatusInternalServerError
+		}
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": workspaceErr.Code, "message": workspaceErr.Message, "details": workspaceErr.Details}})
+		return
+	}
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {

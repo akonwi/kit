@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"math"
 	"mime"
+	"path/filepath"
 	"strings"
 	"sync"
 	"time"
@@ -45,6 +46,7 @@ const (
 	EventUsageUpdated           EventKind = "usage.updated"
 	EventRunFinished            EventKind = "run.finished"
 	EventSessionRenamed         EventKind = "session.renamed"
+	EventSessionCWDChanged      EventKind = "session.cwd.changed"
 	EventSubagentChanged        EventKind = "subagent.changed"
 	EventPeerQueryChanged       EventKind = "peer_query.changed"
 	EventInteractionRequested   EventKind = "interaction.requested"
@@ -80,6 +82,7 @@ type NewEvent struct {
 	ContextWindow          int
 	Usage                  *SessionUsage
 	SessionName            string
+	CWD                    string
 	SubagentConversationID string
 	SubagentTaskID         string
 	PeerRequestID          string
@@ -132,9 +135,9 @@ func (event NewEvent) Validate() error {
 	if event.SessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
-	if event.Kind == EventSessionRenamed {
+	if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged {
 		if event.TurnID != "" || event.RunID != "" {
-			return fmt.Errorf("session rename event cannot carry parent turn identity")
+			return fmt.Errorf("session metadata event cannot carry parent turn identity")
 		}
 	} else if event.Kind == EventSubagentChanged {
 		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
@@ -158,7 +161,7 @@ func (event NewEvent) Validate() error {
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution)
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -241,6 +244,10 @@ func (event NewEvent) Validate() error {
 		if strings.TrimSpace(event.SessionName) != event.SessionName || !validSessionName(event.SessionName) || event.SessionName == "" {
 			return fmt.Errorf("session rename event requires a renderer-safe name")
 		}
+	case EventSessionCWDChanged:
+		if !filepath.IsAbs(event.CWD) || !validWorkspacePath(event.CWD) {
+			return fmt.Errorf("session cwd event requires a safe absolute cwd")
+		}
 	case EventSubagentChanged, EventPeerQueryChanged:
 	case EventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
@@ -274,6 +281,11 @@ func (event NewEvent) Validate() error {
 			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
 			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
 			return fmt.Errorf("session rename event carries invalid payload")
+		}
+	}
+	if event.Kind == EventSessionCWDChanged {
+		if payloadBytes != len(event.CWD) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil || event.ContextTokens != 0 || event.ContextWindow != 0 || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			return fmt.Errorf("session cwd event carries invalid payload")
 		}
 	}
 	if event.Kind == EventSubagentChanged {
@@ -322,6 +334,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventSessionRenamed && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
+	}
+	if event.Kind != EventSessionCWDChanged && event.CWD != "" {
+		return fmt.Errorf("event kind %q cannot carry a cwd", event.Kind)
 	}
 	if event.Kind != EventInteractionRequested && event.Interaction != nil {
 		return fmt.Errorf("event kind %q cannot carry an interaction request", event.Kind)
