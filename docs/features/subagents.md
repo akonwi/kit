@@ -100,17 +100,19 @@ after runtime cleanup.
 
 ## Native workspace
 
-Open `/subagents` from the command palette to view the current session's roster.
-The pane merges active conversations with discovered definitions, sorts active
-states before available agents, and shows each agent's status, description,
-model, source, and latest activity. Selecting a conversation opens a retained
-child transcript tab. Child panes project durable history and live events
-through the same transcript presentation used by the parent, including Markdown,
-buffered assistant prose, pending thinking, tool-work chips, and inline tool
-activity. Transcript panes follow live output when pinned, open at the final
-response, and use the durable completion summary while full history is still
-loading. Subagent-name labels in transcript work chips and Activity
-tool rows open that same retained tab. Running work can be cancelled, and
-conversations are dismissed through confirmed destructive dismissal. The workspace follows the
-standard wide split and narrow tab layouts and refreshes only while the
-Subagents pane is open.
+Open `/subagents` from the command palette to show the current session's modal
+roster and status picker. It merges active conversations with discovered
+definitions, sorts active states before available agents, and shows each agent's
+status, description, model, source, and latest activity. Selecting a durable
+conversation creates or focuses its retained child transcript tab. Starting or
+activating background work does not create tabs or change their order.
+
+Child tabs project durable history and live events through the same transcript
+presentation used by the parent, including Markdown, buffered assistant prose,
+pending thinking, tool-work chips, and inline tool activity. They follow live
+output when pinned, open at the final response, and use the durable completion
+summary while full history is still loading. Subagent-name labels in Agent work
+chips and Activity tool rows open that same retained tab. Running work can be
+cancelled, and conversations are dismissed through confirmed destructive
+dismissal. The picker refreshes while open; an individual conversation refreshes
+while its tab is active.

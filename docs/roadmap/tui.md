@@ -13,33 +13,37 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [x] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
   compatibility, persist the selection, apply changes immediately, and provide
   semantic fallbacks for incomplete themes.
-- [~] TUI-SHELL-001 — Complete narrow/wide workspace behavior, retained pane
-  state, focus cycling, draggable remembered ratios, and the pane registry used
-  by R1 surfaces.
+- [~] TUI-SHELL-001 — Complete the full-width Agent/workspace tab shell,
+  retained pane state, `Tab`/`Shift+Tab` content-composer focus cycling, labeled
+  overflow and modal pane picker,
+  the modal subagent roster/status picker with explicitly opened conversation
+  tabs, and the pane registry used by R1 surfaces. See
+  [ADR 0018](../adrs/0018-retained-native-workspace-shell.md).
 - [~] TUI-SHELL-002 — Complete layered focus and deterministic overlay
   precedence for the built-in keymap.
 
 ### Directory, file, and diff workspace
 
-- [ ] TUI-WORK-001 — Register retained directory, file, and diff panes with
-  stable identity, deduplication, predictable open/close/focus behavior, and
-  preserved selection and scroll state across pane switches and responsive
-  narrow/wide transitions. Accept transcript-originated file, recorded diff,
-  and search-match opens with relevant line anchors. Deduplicate mutable file
-  panes by workspace root and path regardless of origin, while retaining
-  separate historical diff evidence by stable transcript identity. See the
+- [ ] TUI-WORK-001 — Register retained file and diff panes with stable identity,
+  deduplication, predictable open/close/focus behavior, and preserved selection
+  and scroll state across pane switches and responsive
+  terminal-width transitions. Accept Agent-originated file and search-match
+  opens with relevant line anchors. Deduplicate mutable file panes by workspace
+  root and path regardless of origin. See
+  [ADR 0018](../adrs/0018-retained-native-workspace-shell.md) and the
   [tool activity working design](../design/tui-tool-activity.md).
-- [ ] TUI-DIR-001 — Provide a workspace-rooted directory explorer with lazy,
-  bounded expansion; path filtering; keyboard and mouse navigation; visible
-  loading, empty, and error states; refresh; and direct file opening. Depends on
-  `CORE-WORK-001`.
+- [ ] TUI-DIR-001 — Provide a modal workspace-rooted file picker with lazy,
+  bounded directory expansion; path filtering; keyboard and mouse navigation;
+  visible loading, empty, and error states; refresh; and direct opening into a
+  retained File tab. Depends on `CORE-WORK-001`.
 - [ ] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
   line numbers, vertical and horizontal navigation, truncation/staleness
   feedback, refresh that preserves position when possible, and safe binary or
   unreadable-file handling. Depends on `CORE-WORK-001`.
-- [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree and agent
-  edits with changed-file and hunk navigation, semantic added/removed/context
-  styling, line-number gutters, unified and split layouts where width permits,
+- [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
+  including agent edits, with changed-file and hunk navigation, semantic
+  added/removed/context styling, line-number gutters, unified and split layouts
+  where width permits,
   and explicit loading, empty, stale, truncated, and error states. Depends on
   `CORE-DIFF-001`.
 
@@ -70,8 +74,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
   persistence failures. Depends on `CORE-SET-001`.
 - [ ] TUI-SET-002 — Expose R1 settings for default model/thinking, retry
-  behavior, guided questions, preferred diff layout, and remembered workspace
-  ratios. Depends on `CORE-SET-002`.
+  behavior, guided questions, and preferred diff layout. Depends on
+  `CORE-SET-002`.
 
 ### User interaction and integrations
 
@@ -114,12 +118,15 @@ resolving this decision.
   draft attachments, restoration, submission, and failure recovery.
 - [ ] TUI-SCRATCH-001 — Add a scratchpad workspace with guarded edits and
   autosave feedback. Depends on `CORE-SCRATCH-001`.
-- [ ] TUI-REVIEW-001 — Extend `TUI-DIFF-001` with review target pickers,
-  skipped-file navigation, full-file panes, and revision-pinned file/line/range
-  notes. Depends on `CORE-REVIEW-001`.
-- [ ] TUI-REVIEW-002 — Project, remove, restore, draft, and submit structured
-  review attachments immediately; refresh remote data without resetting
-  unchanged local state. Depends on `CORE-REVIEW-002`.
+- [ ] TUI-REVIEW-001 — Extend File and Diff tabs with inline revision-pinned
+  file/line/range notes, plus modal review-target and changed-file navigation;
+  do not add a separate Review tab. Depends on `CORE-REVIEW-001`.
+- [ ] TUI-REVIEW-002 — Project each saved inline review comment immediately as
+  the same structured attachment and as a chip above the composer on every tab;
+  keep inline comments and chips synchronized through edit, anchor navigation,
+  removal, stale state, restoration, ordered submission, and successful
+  consumption. Refresh remote data without resetting unchanged local state.
+  Depends on `CORE-REVIEW-002`.
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands

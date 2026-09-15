@@ -49,7 +49,8 @@ outer frame:
 - Workspace hints remain inside the workspace pane that owns them; do not move
   them into global header metadata.
 - Global chrome describes only the attached session. Subagent status remains in
-  transcript activity and the Subagents workspace surfaces.
+  Agent activity, notifications, the modal subagent picker, and explicitly
+  opened conversation tabs.
 - Width-aware contribution packing may hide lower-priority items, but it must
   preserve these ownership roles and use labeled overflow.
 
@@ -113,8 +114,8 @@ Examples: `InlinePicker`, compact overflow pickers, toast notifications.
 Examples: model and plugin confirmation, short input, selection, and guided-question requests.
 
 - Replaces the composer and pending-status row while an interaction is active
-- Spans the primary transcript column without a modal backdrop
-- Leaves the transcript visible, selectable, and mouse-scrollable
+- Spans the full content width without a modal backdrop
+- Leaves the selected Agent/workspace surface visible, selectable, and mouse-scrollable
 - Owns keyboard focus and provides explicit submit and cancel actions
 - Uses a measured, bounded share of terminal height and windows long content
 - Preserves and restores the composer draft, cursor, attachments, and queued follow-ups
@@ -151,15 +152,15 @@ Examples: Pager and fatal-error presentation.
 - Prefer `ScreenLayout` for absolute takeover surfaces with header/content/footer slots
 - Prefer `ScreenHeader` for structured screen headers
 - Content owns scrolling; header and footer remain fixed
-- This category does not include Code Review or other workspace panes
+- This category does not include File, Diff, or other workspace tabs
 
 Root application states may own their root layout directly when they are not overlays. Do not force the main shell into `ScreenLayout` merely for visual consistency.
 
 ### Workspace surface
 
-Examples: Code Review, files, scratchpad, activity, releases, MCP, diagrams, and sub-agent panes.
+Examples: files, diffs, scratchpad, activity, releases, MCP, diagrams, and explicitly opened subagent conversations.
 
-A workspace surface is persistent layout, not an overlay tier. It coexists with the transcript or replaces it in narrow mode and is retained across tab switches.
+A workspace surface is persistent layout, not an overlay tier. Agent and retained workspace panes are full-width peer tabs at every viewport size, with the composer fixed below them.
 
 ## Screen Layout Primitives
 
@@ -208,19 +209,23 @@ tmux, or another native terminal workflow.
 - Global chrome describes only the attached session and its active run.
 - The daemon's multi-session capability should make attach/detach and terminal
   multiplexing safe without demanding permanent visual presence.
-- Subagents belong to their owning session and use the workspace-pane model
-  from the main-branch UX.
-- A singleton Subagents pane presents the session's roster and status.
-- Opening a subagent from the roster, transcript activity, or another supported
-  entry point creates or activates one retained workspace tab for that agent.
-- Individual subagent tabs show that agent's conversation/activity. Reopening
-  the same agent focuses the existing tab rather than duplicating it.
-- In narrow mode, the roster and individual subagent views participate in the
-  standard workspace tab layout; do not introduce a separate global drawer.
+- Subagents belong to their owning session.
+- A modal picker presents the session's roster and status; there is no retained
+  Subagents roster tab.
+- Selecting a conversation from the picker, Agent activity, a notification, or
+  another explicit entry point creates or activates one retained workspace tab
+  for that durable conversation.
+- Starting or activating background subagent work does not automatically create
+  a tab, change tab order, or steal focus.
+- Individual subagent tabs show that conversation's activity. Reopening the same
+  conversation focuses the existing tab rather than duplicating it.
 
 ## Workspace Tabs and Panes
 
-Workspace architecture is documented in `app/docs/features/workspace-panes.md`.
+Native v2 workspace architecture is documented in
+`docs/adrs/0018-retained-native-workspace-shell.md`. The main-worktree
+`app/docs/features/workspace-panes.md` remains a feature reference, not the v2
+host-layout contract.
 
 ### Registry contract
 
@@ -232,11 +237,16 @@ Pane descriptors are plain data in `WorkspacePane`. Each entry in `WORKSPACE_PAN
 - `available` — optional runtime availability
 - `render` — retained pane body
 
-Do not store JSX, components, or callbacks in pane descriptors. Identity should reflect the resource being opened; for example, file panes deduplicate by repository and resolved path.
+Do not store JSX, components, or callbacks in pane descriptors. Identity reflects the resource: mutable files use workspace incarnation plus canonical path, review-pinned files use review target plus path, diffs use their authoritative logical working-tree/commit/branch target, and subagent tabs use durable conversation identity. Line, range, and hunk anchors are navigation input rather than identity. Do not create retained tabs for transcript-recorded diffs or arbitrary historical snapshots.
 
 ### Chrome ownership
 
-- `WorkspacePaneHost` owns the primary/secondary separator, pane sizing, wide/narrow switching, tab strip, collapse behavior, and retention.
+- `WorkspacePaneHost` owns the full-width Agent/workspace tab strip, labeled overflow, modal pane picker, selection, and retention.
+- Agent is permanently first and contains the existing transcript presentation unchanged; omit the strip while no secondary pane is open.
+- The composer remains fixed and available beneath every selected tab. `Tab` and `Shift+Tab` move focus between the selected Agent/workspace content and composer; active modal or interaction layers trap those focus intents locally.
+- Directory browsing uses the modal workspace file picker, not a retained Explorer tab. Opening a file creates or selects its File tab.
+- Review is a workflow across File and Diff tabs, not a Review tab. Comments render inline at their anchored lines or ranges and project immediately as synchronized structured attachment chips above the fixed composer on every tab. Activating a chip reveals its resource and anchor; target, changed-file, draft-summary, and submission flows use bounded modals.
+- The subagent roster uses a modal status picker. Only explicitly opened durable conversations become retained tabs.
 - Pane bodies must not add another outer edge border.
 - The tab owns the pane title.
 - Use `WorkspacePanelLayout` for the shared optional-header/body/footer structure.
@@ -248,7 +258,8 @@ Do not store JSX, components, or callbacks in pane descriptors. Identity should 
 
 - The active tab is visually distinct without adding a second framed container around its pane.
 - Use `CHEVRON_LEFT` / `CHEVRON_RIGHT` for strip navigation and `TIMES` for closable tabs.
-- Preserve tab order when revealing an active tab; use the shared overflow picker when the strip cannot show every item.
+- Preserve tab order when revealing an active tab. Keep Agent and the selected tab visible where width permits and use a labeled count such as `⋯ 3 more` for overflow.
+- The pane-list and overflow action opens the shared picker as a modal dialog; do not replace the selected content surface with an ad hoc list.
 - Pane labels should stay concise. Disambiguate resource labels only when duplicates are present.
 
 ### Body and lifecycle
@@ -257,7 +268,7 @@ Do not store JSX, components, or callbacks in pane descriptors. Identity should 
 - Hidden pane bodies remain mounted when local editor, selection, or scroll state must survive tab switches.
 - Gate keyboard layers, mouse interaction, focus, polling, and expensive watchers with the pane's `active` state where appropriate.
 - Call `onFocusRequest` before a mouse action assumes keyboard ownership.
-- When the primary and secondary surfaces cannot both meet their minimum useful widths, use labeled narrow-mode tabs rather than a dialog fallback.
+- Terminal resizing preserves the selected tab and retained state; width changes only label packing, overflow, wrapping, and feature-owned internal layout.
 
 ### In-pane drawers
 
@@ -354,7 +365,8 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Use the `diffAdded*`, `diffRemoved*`, and `diffCursor*` token families rather than custom tints.
 - Keep line-number gutters visually distinct from content while preserving one cursor state across the row.
 - Use named glyphs such as `DASHED_VERTICAL` and `DIAMOND` for diff markers.
-- Render a saved annotation immediately after its anchored line or range.
+- Render a saved annotation immediately after its anchored line or range and project the same comment as a structured attachment chip above the composer.
+- Keep inline annotations and chips synchronized through edit, anchor navigation, removal, stale state, submission, and successful consumption.
 - Use `ReviewNoteBox` for saved review/file annotations and `MessageComposer` for inline editing.
 - Changed-file and normal-file notes must share the same annotation surface, padding, border, and text hierarchy.
 

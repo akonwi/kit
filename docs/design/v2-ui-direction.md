@@ -40,8 +40,8 @@ The first review established these constraints:
   boundary and the shell does not draw a complete enclosing frame;
 - keep multi-session multiplexing architectural rather than ambient TUI UX;
   users compose one-session Kit clients through terminal tabs, panes, or tmux;
-- preserve main's subagent oversight through a Subagents roster pane and
-  retained per-subagent activity tabs;
+- preserve subagent oversight through a modal roster/status picker and retained
+  tabs for explicitly opened durable conversations;
 - keep one universal command palette rather than adding a separate noun
   switcher or shortcut;
 - rank palette results in one list instead of grouping them visibly;
@@ -64,7 +64,7 @@ Kit v2 is viewport-native:
  kit                                      model · thinking
 ──────────────────────────────────────────────────────────
 
- transcript and workspace
+ Agent and workspace tabs
 
 ──────────────────────────────────────────────────────────
  ▌ composer
@@ -85,17 +85,15 @@ the removed frame.
 ## Current product shape
 
 ```text
-┌─ header ────────────────────────────────────────────────────────┐
-│ session name                              model · thinking      │
-├─ primary transcript ───────────────┬─ retained workspace ───────┤
-│ conversation                       │ pane tabs                  │
-│ streaming prose                    │ review / scratch / files   │
-│ compressed tool activity           │ activity / subagents       │
-├─ pending state / attachments ──────┴────────────────────────────┤
-│ composer                                                        │
-├─ status ────────────────────────────────────────────────────────┤
-│ mode / queue                                      cwd / VCS     │
-└─────────────────────────────────────────────────────────────────┘
+ session name                                      model · thinking
+──────────────────────────────────────────────────────────────────
+ Agent   server.go 2   Diff 1   reviewer   ⋯ more
+──────────────────────────────────────────────────────────────────
+ selected full-width Agent or retained workspace surface
+──────────────────────────────────────────────────────────────────
+ composer
+──────────────────────────────────────────────────────────────────
+ mode / queue                                          cwd / VCS
 ```
 
 The application has a strong transcript-first center. Work details progressively
@@ -115,18 +113,21 @@ of input.
    each renderer owns presentation.
 4. **Retained workspace state.** Pane selection, drafts, scroll, and editor state
    survive tab and responsive-layout changes.
-5. **Responsive split-to-tabs behavior.** Narrow terminals retain the same
-   information architecture rather than falling back to unrelated dialogs.
+5. **Full-width tab continuity.** Agent and retained workspace tabs use the
+   same information architecture at every terminal width; narrow terminals use
+   labeled overflow rather than an unrelated layout or dialog fallback.
 6. **Derived keyboard hints.** The keymap/intent registry remains the only source
    for visible shortcuts.
 7. **Progressive disclosure.** Tool calls, long output, skipped diff sections,
    and secondary navigation begin compact.
-8. **Safe draft semantics.** Review and file feedback remain revision-scoped and
+8. **Safe draft semantics.** Review and file feedback remain revision-scoped,
+   appear inline and as synchronized attachment chips above the composer, and
    fail closed when stale.
 9. **Quiet empty states.** Primary empties may use the Kit wordmark; local list
    empties remain terse and contextual.
-10. **Subagent workspace model.** A session-level roster pane discovers
-    subagents; opening one creates or activates its retained workspace tab.
+10. **Subagent workspace model.** A session-level modal picker discovers
+    subagents; explicitly opening a conversation creates or activates its
+    retained workspace tab without background work changing tab order.
 
 ## Friction to address
 
@@ -139,7 +140,6 @@ of input.
 - Fixed-height dialogs leave large empty regions for narrow result sets.
 - Clipped descriptions and separators can resemble rendering errors; truncation
   does not always communicate omission.
-- The collapsed-workspace `<` handle has little meaning without learned context.
 - Model configuration such as `medium` is shown without a label.
 - Important status competes for header/footer width and can disappear into
   anonymous overflow.
@@ -156,11 +156,13 @@ Each TUI presents one attached session. The UI clearly communicates whether
 that session's turn is running, queued, detached, completed, or interrupted,
 while terminal tabs and multiplexers compose multiple clients naturally.
 
-### 2. Subagent oversight belongs to the session workspace
+### 2. Subagent oversight is available on demand
 
-A Subagents pane presents the attached session's roster. Opening an agent from
-the roster or transcript creates or activates one retained activity tab for
-that agent; subagent state does not become global session chrome.
+A modal picker presents the attached session's roster and status. Opening a
+conversation from the picker, Agent activity, or a notification creates or
+activates one retained conversation tab. Starting background work does not
+create tabs or change their order, and subagent state does not become global
+session chrome.
 
 ### 3. The transcript is the narrative; Activity is the evidence
 
@@ -185,9 +187,9 @@ because a slot exists.
 
 ### 6. Surfaces have one owner
 
-The shell owns global chrome and split layout. Workspace hosts own tabs and
-edges. Pane bodies own only their local context and actions. Borders communicate
-ownership or focus, never decoration.
+The shell owns global chrome, full-width tabs, overflow, and the fixed composer.
+Workspace hosts own retention. Pane bodies own only their local context and
+actions. Borders communicate ownership or focus, never decoration.
 
 ### 7. Text must be honest
 
@@ -200,10 +202,11 @@ Every pointer action has a discoverable keyboard path and visible focus state.
 The active surface owns input; hidden retained surfaces do no work and consume no
 input.
 
-### 9. Wide and narrow layouts share one information architecture
+### 9. Every viewport uses one tabbed information architecture
 
-A split becomes tabs or a drawer at named thresholds. State and terminology do
-not change merely because the viewport does.
+Agent and workspace panes are full-width peer tabs at every terminal size.
+Width changes only label packing, labeled overflow, wrapping, and feature-owned
+internal layout; state and terminology do not change with the viewport.
 
 ### 10. Interruption semantics are explicit
 
@@ -219,16 +222,15 @@ Kit daemon                                  architectural, not TUI navigation
 
 TUI client
 ├── one attached session
-│   ├── transcript + composer
+│   ├── fixed composer
 │   ├── run state and queue
-│   ├── workspace panes
+│   ├── full-width Agent and workspace tabs
 │   │   ├── activity
-│   │   ├── code review
+│   │   ├── files with inline review comments
+│   │   ├── diffs with inline review comments
 │   │   ├── scratchpad
-│   │   ├── files
 │   │   ├── MCP / releases / diagrams
-│   │   ├── Subagents roster
-│   │   └── retained subagent activity tabs
+│   │   └── explicitly opened subagent conversation tabs
 │   └── subagent lineage + mailbox
 └── on-demand surfaces
     ├── universal ranked palette
@@ -246,7 +248,7 @@ their terminal's native workflow.
 | Surface | Purpose | Presentation |
 | --- | --- | --- |
 | Persistent chrome | Session name top-left; model/thinking/context and update contributions top-right; transient status bottom-left; cwd/Git bottom-right; composer | Fixed rows with established ownership |
-| Workspace surface | Transcript and retained task context | Wide split; narrow tabs/drawer |
+| Workspace surface | Agent transcript and retained task context | Full-width tabs with labeled overflow and a modal pane picker |
 | Transient overlay | Universal palette, contextual pickers, toasts, context menus | No heavy frame; content-hugging within bounds |
 | Dialog | Settings, login, guided questions, destructive confirmation | Centered modal with bounded content |
 | Takeover | Pager, fatal errors, migration/recovery | Full viewport with fixed header/footer |
@@ -279,12 +281,14 @@ their terminal's native workflow.
 
 ```text
 Ctrl+P       universal palette: actions, explorers, files, panes, prompts
-Tab          next visible workspace surface
-Shift+Tab    previous visible workspace surface
+Tab          move focus between selected content and composer
+Shift+Tab    move focus in the reverse direction
 Escape       cancel the innermost reversible interaction
 ```
 
-Additional pane bindings remain open. Every action remains rebindable and
+Previous/next tab selection is a separate intent whose default bindings remain
+part of `TUI-KEY-001`. Modal pickers, dialogs, and interaction docks intercept
+focus traversal within their active layer. Every action remains rebindable and
 visible hints come from the active intent registry.
 
 ## Mockup scenarios
@@ -294,7 +298,7 @@ candidate v2 states:
 
 1. first attach to one session;
 2. active streaming run with queue and transcript subagent activity;
-3. Subagents roster and retained per-agent activity tab;
+3. modal Subagents picker and retained conversation tab;
 4. narrow terminal;
 5. single ranked, content-hugging command palette.
 

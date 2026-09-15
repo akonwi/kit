@@ -26,8 +26,9 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
   immediately where safe, and return actionable save errors.
 - [ ] CORE-SET-002 — Persist and resolve R1 defaults for model/thinking
-  selection, retry behavior, guided questions, diff layout, and workspace layout
-  without client-local drift.
+  selection, retry behavior, guided questions, and diff layout without
+  client-local drift. Renderer-specific workspace layout is client state, not a
+  shared setting.
 
 ### Daemon, sessions, and runtime
 
@@ -94,8 +95,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
   paths, revisions, truncation, and explicit missing, binary, permission, and
   stale-data errors.
 - [ ] CORE-DIFF-001 — Expose bounded, revision-aware file and hunk diff data for
-  working-tree and agent edit results without requiring clients to execute Git
-  or parse presentation-oriented tool output.
+  working-tree changes, including agent edits, without requiring clients to
+  execute Git or parse presentation-oriented tool output.
 - [~] CORE-TOOL-001 — Route URL opening through validated client/platform ports
   and define safe behavior when no capable client is attached.
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
