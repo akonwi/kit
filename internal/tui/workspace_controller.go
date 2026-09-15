@@ -14,22 +14,30 @@ type workspacePaneKind string
 
 const (
 	workspacePaneSubagentConversation workspacePaneKind = "subagent-conversation"
+	workspacePaneFile                 workspacePaneKind = "file"
 )
 
 var workspacePaneKinds = [...]workspacePaneKind{
 	workspacePaneSubagentConversation,
+	workspacePaneFile,
 }
 
 // workspacePaneDescriptor is renderer-neutral client state. It identifies a
 // retained resource without storing widgets, callbacks, focus nodes, or runtime
 // lifecycle.
 type workspacePaneDescriptor struct {
-	Kind       workspacePaneKind
-	ResourceID string
+	Kind        workspacePaneKind
+	ResourceID  string
+	WorkspaceID string
+	Path        string
 }
 
 func subagentWorkspacePane(conversationID string) workspacePaneDescriptor {
 	return workspacePaneDescriptor{Kind: workspacePaneSubagentConversation, ResourceID: conversationID}
+}
+
+func fileWorkspacePane(workspaceID, path string) workspacePaneDescriptor {
+	return workspacePaneDescriptor{Kind: workspacePaneFile, WorkspaceID: workspaceID, Path: path}
 }
 
 type workspacePaneIdentity string
@@ -108,6 +116,7 @@ func (c *workspaceController) SelectedPane() (workspacePaneDescriptor, bool) {
 
 func (c *workspaceController) Open(descriptor workspacePaneDescriptor) (workspacePaneIdentity, bool, error) {
 	descriptor.ResourceID = strings.TrimSpace(descriptor.ResourceID)
+	descriptor.WorkspaceID = strings.TrimSpace(descriptor.WorkspaceID)
 	identity, err := workspacePaneIdentityFor(descriptor)
 	if err != nil {
 		return "", false, err
@@ -248,9 +257,7 @@ func workspacePaneIdentityFor(descriptor workspacePaneDescriptor) (workspacePane
 	if !ok {
 		return "", fmt.Errorf("unsupported workspace pane kind %q", descriptor.Kind)
 	}
-	resourceID := strings.TrimSpace(descriptor.ResourceID)
-	if resourceID == "" {
-		return "", fmt.Errorf("workspace pane %q resource identity is required", descriptor.Kind)
-	}
-	return definition.Identity(workspacePaneDescriptor{Kind: descriptor.Kind, ResourceID: resourceID})
+	descriptor.ResourceID = strings.TrimSpace(descriptor.ResourceID)
+	descriptor.WorkspaceID = strings.TrimSpace(descriptor.WorkspaceID)
+	return definition.Identity(descriptor)
 }

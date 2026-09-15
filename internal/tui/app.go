@@ -298,6 +298,19 @@ type appState struct {
 	activityFocus                    ui.FocusNode
 	subagentFocuses                  map[string]*ui.FocusNode
 	workspace                        workspaceController
+	workspaceID                      string
+	workspaceFilePicker              workspaceFilePickerController
+	workspaceFilePickerScroll        ui.ScrollController
+	workspaceFilePickerContext       context.Context
+	workspaceFilePickerCancel        context.CancelFunc
+	workspaceFilePickerQueue         []workspaceFilePickerJob
+	workspaceFilePickerActive        int
+	workspaceFilePickerMaxActive     int
+	workspaceFilePickerMaxPending    int
+	filePickerRefreshHook            func()
+	filePickerLoadHook               func(string, string)
+	workspaceFilePickerRevealPending bool
+	workspaceFilePickerRevealOffset  int
 	workspacePickerOpen              bool
 	workspacePickerQuery             string
 	workspacePickerSelection         int
@@ -487,6 +500,14 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.sessionExplorer.TickFrame() {
 		keepTicking = true
 	}
+	if s.workspaceFilePickerRevealPending {
+		if s.workspaceFilePickerScroll.Attached() {
+			s.workspaceFilePickerScroll.ScrollToOffset(s.workspaceFilePickerRevealOffset)
+			s.workspaceFilePickerRevealPending = false
+		} else {
+			keepTicking = true
+		}
+	}
 	if s.workspacePickerRevealPending {
 		if s.workspacePickerScroll.Attached() {
 			s.workspacePickerScroll.ScrollToOffset(s.workspacePickerRevealOffset)
@@ -503,7 +524,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
+	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
@@ -951,6 +972,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivityFocus:                &s.activityFocus,
 		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
 		Workspace:                    s.workspace.Snapshot(),
+		WorkspaceFilePicker:          s.workspaceFilePicker,
+		WorkspaceFilePickerScroll:    &s.workspaceFilePickerScroll,
 		WorkspacePickerOpen:          s.workspacePickerOpen,
 		WorkspacePickerQuery:         s.workspacePickerQuery,
 		WorkspacePickerSelection:     s.workspacePickerSelection,
@@ -1119,20 +1142,59 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SelectWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
 			if descriptor.Kind == workspacePaneSubagentConversation {
 				s.openSubagentConversation(descriptor.ResourceID)
+				return
 			}
+			s.SetState(func() {
+				if identity, err := workspacePaneIdentityFor(descriptor); err == nil {
+					s.workspace.Select(identity)
+					s.syncWorkspaceSelection()
+				}
+			})
 		},
 		CloseWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
 			if descriptor.Kind == workspacePaneSubagentConversation {
 				s.closeSubagentConversation(descriptor.ResourceID)
-				if s.workspacePickerOpen {
-					s.SetState(func() {
-						s.workspacePickerSelection = min(s.workspacePickerSelection, len(s.workspace.Panes()))
-						s.requestWorkspacePickerReveal(s.workspacePickerSelection)
-					})
-				}
+			} else {
+				s.SetState(func() {
+					if identity, err := workspacePaneIdentityFor(descriptor); err == nil {
+						s.workspace.Close(identity)
+						s.syncWorkspaceSelection()
+					}
+				})
+			}
+			if s.workspacePickerOpen {
+				s.SetState(func() {
+					s.workspacePickerSelection = min(s.workspacePickerSelection, len(s.workspace.Panes()))
+					s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+				})
 			}
 		},
-		OpenWorkspacePicker: func(ui.EventContext) { s.openWorkspacePicker() },
+		OpenWorkspaceFilePicker:  func(ui.EventContext) { s.openWorkspaceFilePicker() },
+		CloseWorkspaceFilePicker: func(ui.EventContext) { s.SetState(func() { s.closeWorkspaceFilePicker() }) },
+		WorkspaceFilePickerQuery: func(_ ui.EventContext, query string) {
+			s.SetState(func() {
+				s.workspaceFilePicker.Query = query
+				s.workspaceFilePicker.ensureSelection()
+				s.requestWorkspaceFilePickerReveal()
+			})
+		},
+		MoveWorkspaceFilePicker: func(_ ui.EventContext, delta int) {
+			s.SetState(func() {
+				s.workspaceFilePicker.move(delta)
+				s.requestWorkspaceFilePickerReveal()
+			})
+		},
+		ActivateWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) { s.activateWorkspaceFilePickerRow(row) },
+		SelectWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) {
+			if workspaceFilePickerRowSelectable(row) {
+				s.SetState(func() {
+					s.workspaceFilePicker.Selection = row.Key
+					s.workspaceFilePicker.SelectionKind = row.Kind
+				})
+			}
+		},
+		RefreshWorkspaceFilePicker: func(ui.EventContext) { s.refreshWorkspaceFilePicker() },
+		OpenWorkspacePicker:        func(ui.EventContext) { s.openWorkspacePicker() },
 		CloseWorkspacePicker: func(ui.EventContext) {
 			s.SetState(func() {
 				s.workspacePickerOpen = false
@@ -1782,9 +1844,22 @@ func bootstrapSession(
 	return selected, bound, snapshot, nil
 }
 
+func (s *appState) snapshotMetadataStale(snapshot protocol.SessionSnapshot) bool {
+	return s.metadataStreamID != "" && (snapshot.EventStreamID != s.metadataStreamID || snapshot.EventCursor < s.metadataSequence)
+}
+
 func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapshot) {
+	staleMetadata := s.snapshotMetadataStale(snapshot)
+	if !staleMetadata {
+		s.reconcileWorkspaceIdentity(snapshot.Workspace)
+	}
 	if snapshot.Session.ID != "" {
+		name, cwd := snapshot.Session.Name, snapshot.Session.CWD
+		if staleMetadata {
+			name, cwd = s.session.Name, s.session.CWD
+		}
 		s.session = snapshot.Session
+		s.session.Name, s.session.CWD = name, cwd
 	}
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	s.contextTokens = snapshot.ContextTokens
@@ -1833,10 +1908,12 @@ func (s *appState) applySubagentDiagnostics(sessionID string, diagnostics []prot
 }
 
 func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapshot) {
-	if snapshot.Session.ID == "" {
+	if snapshot.Session.ID == "" || (s.metadataStreamID != "" && snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor < s.metadataSequence) {
 		return
 	}
+	s.reconcileWorkspaceIdentity(snapshot.Workspace)
 	s.session.Name = snapshot.Session.Name
+	s.session.CWD = snapshot.Session.CWD
 	s.metadataStreamID = snapshot.EventStreamID
 	s.metadataSequence = snapshot.EventCursor
 	s.sessionExplorer.ApplyExternalRename(snapshot.Session.ID, snapshot.Session.Name)
@@ -1845,6 +1922,10 @@ func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapsho
 func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if s.liveSequence > 0 && snapshot.EventStreamID == s.liveStreamID && snapshot.EventCursor < s.liveSequence {
 		return
+	}
+	staleMetadata := s.snapshotMetadataStale(snapshot)
+	if !staleMetadata {
+		s.reconcileWorkspaceIdentity(snapshot.Workspace)
 	}
 	var previousActivitySource transcriptDisplayItem
 	if s.activitySourceID != "" && s.activityConversationID == "" {
@@ -1856,12 +1937,12 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
 	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
-		name := snapshot.Session.Name
-		if s.metadataStreamID != "" && (snapshot.EventStreamID != s.metadataStreamID || snapshot.EventCursor < s.metadataSequence) {
-			name = s.session.Name
+		name, cwd := snapshot.Session.Name, snapshot.Session.CWD
+		if staleMetadata {
+			name, cwd = s.session.Name, s.session.CWD
 		}
 		s.session = snapshot.Session
-		s.session.Name = name
+		s.session.Name, s.session.CWD = name, cwd
 	}
 	s.followUps = snapshot.FollowUps
 	s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
@@ -2689,9 +2770,9 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.followTranscriptIfPinned()
 }
 
-func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) {
+func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (changedCWD string) {
 	for _, event := range events {
-		if event.Kind != protocol.SessionEventSessionRenamed || event.SessionID != s.session.ID {
+		if (event.Kind != protocol.SessionEventSessionRenamed && event.Kind != protocol.SessionEventSessionCWDChanged) || event.SessionID != s.session.ID {
 			continue
 		}
 		if (s.metadataStreamID != "" && event.StreamID != s.metadataStreamID) ||
@@ -2700,9 +2781,24 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) {
 		}
 		s.metadataStreamID = event.StreamID
 		s.metadataSequence = event.Sequence
-		s.session.Name = event.SessionName
-		s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
+		switch event.Kind {
+		case protocol.SessionEventSessionRenamed:
+			s.session.Name = event.SessionName
+			s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
+		case protocol.SessionEventSessionCWDChanged:
+			if event.Workspace == nil {
+				continue
+			}
+			s.invalidateFileMentions()
+			s.session.CWD = event.Workspace.CWD
+			s.location = event.Workspace.CWD
+			s.locationBase = event.Workspace.CWD
+			s.vcsStatus = nil
+			s.reconcileWorkspaceIdentity(event.Workspace)
+			changedCWD = event.Workspace.CWD
+		}
 	}
+	return changedCWD
 }
 
 func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
@@ -2803,13 +2899,19 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				for updates := range stream.Updates() {
 					hasMetadata := false
 					for _, event := range updates {
-						hasMetadata = hasMetadata || event.Kind == protocol.SessionEventSessionRenamed
+						hasMetadata = hasMetadata || event.Kind == protocol.SessionEventSessionRenamed || event.Kind == protocol.SessionEventSessionCWDChanged
 					}
 					if hasMetadata {
 						copy := append([]protocol.SessionEvent(nil), updates...)
 						runtime.Dispatch(func() {
 							if operation == s.operation && s.bound == bound {
-								s.SetState(func() { s.applySessionMetadataEvents(copy) })
+								changedCWD := ""
+								s.SetState(func() { changedCWD = s.applySessionMetadataEvents(copy) })
+								if changedCWD != "" {
+									s.refreshLocation(changedCWD)
+									s.startVCSMonitoring()
+									s.refreshFileIndex(runtime)
+								}
 							}
 						})
 					}
@@ -5150,6 +5252,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activityScroll = ui.ScrollController{}
 	s.activityList = activityListController{}
 	s.workspace.Reset()
+	s.workspaceID = ""
+	s.closeWorkspaceFilePicker()
 	s.workspacePickerOpen = false
 	s.workspacePickerQuery = ""
 	s.workspacePickerSelection = 0

@@ -1041,6 +1041,11 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 		reloadPending:    true,
 	}
 	state.resetAttachmentContext()
+	pickerContext, pickerCancel := context.WithCancel(state.attachmentCtx)
+	state.workspaceFilePickerContext = pickerContext
+	state.workspaceFilePickerCancel = pickerCancel
+	state.workspaceFilePicker = readyFilePickerController()
+	state.workspaceFilePicker.Query = "source query"
 	t.Cleanup(func() { state.attachmentCancel() })
 	sourceAttachment := state.attachmentCtx
 	target := protocol.SessionSnapshot{
@@ -1062,6 +1067,14 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	case <-state.attachmentCtx.Done():
 		t.Fatal("target attachment context was already canceled")
 	default:
+	}
+	select {
+	case <-pickerContext.Done():
+	default:
+		t.Fatal("source file-picker requests were not canceled")
+	}
+	if state.workspaceFilePicker.Open || state.workspaceFilePicker.Query != "" || state.workspaceFilePickerContext != nil {
+		t.Fatalf("source file-picker invocation leaked into target: %+v", state.workspaceFilePicker)
 	}
 	if state.session.ID != target.Session.ID || state.bound.ID() != target.Session.ID || state.operation != 5 {
 		t.Fatalf("installed binding session=%q bound=%q operation=%d", state.session.ID, state.bound.ID(), state.operation)

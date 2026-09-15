@@ -32,7 +32,7 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   incarnation and canonical relative path regardless of origin. See
   [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md) and the
   [tool activity working design](../design/tui-tool-activity.md).
-- [ ] TUI-DIR-001 — Provide a modal workspace-rooted file picker with lazy,
+- [x] TUI-DIR-001 — Provide a modal workspace-rooted file picker with lazy,
   bounded directory expansion; path filtering; keyboard and mouse navigation;
   visible loading, empty, and error states; refresh; and direct opening into a
   retained File tab. Depends on `CORE-WORK-001`. See

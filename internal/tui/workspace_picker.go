@@ -30,7 +30,8 @@ func (w shellView) workspacePickerItems() []workspacePickerItem {
 	items := []workspacePickerItem{{
 		Identity: workspaceAgentIdentity, Label: "Agent", Metadata: "conversation", Available: true,
 	}}
-	for _, descriptor := range workspace.Panes {
+	labels := workspacePaneLabels(w.Snapshot, workspace.Panes)
+	for paneIndex, descriptor := range workspace.Panes {
 		definition, ok := workspacePaneDefinitions[descriptor.Kind]
 		if !ok {
 			continue
@@ -51,7 +52,7 @@ func (w shellView) workspacePickerItems() []workspacePickerItem {
 			}
 		}
 		items = append(items, workspacePickerItem{
-			Identity: identity, Descriptor: descriptor, Label: definition.Label(w.Snapshot, descriptor), Metadata: metadata,
+			Identity: identity, Descriptor: descriptor, Label: labels[paneIndex], Metadata: metadata,
 			Available: available, Closable: definition.Closable,
 		})
 	}

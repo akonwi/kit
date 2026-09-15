@@ -25,6 +25,8 @@ const (
 	MaxWorkspacePreviewLines     = 5_000
 	MaxWorkspaceCursorBytes      = 512
 	MaxWorkspaceRevisionBytes    = 128
+	MaxWorkspaceActiveRequests   = 4
+	MaxWorkspacePendingRequests  = 16
 )
 
 // WorkspaceState describes whether a session's published cwd can be explored.
@@ -58,7 +60,7 @@ func DefaultWorkspaceLimits() WorkspaceLimits {
 		MaxDirectoryEntries: MaxDirectoryEntries, MaxDirectoryResponseBytes: MaxDirectoryResponseBytes,
 		MaxDirectoryObservationBytes: MaxDirectoryObservationBytes,
 		MaxPreviewBytes:              MaxWorkspacePreviewBytes, MaxPreviewLines: MaxWorkspacePreviewLines,
-		MaxActiveRequests: 4, MaxPendingRequests: 16,
+		MaxActiveRequests: MaxWorkspaceActiveRequests, MaxPendingRequests: MaxWorkspacePendingRequests,
 	}
 }
 
@@ -191,7 +193,7 @@ func (r WorkspaceRef) Validate() error {
 	if r.SessionID == "" || !filepath.IsAbs(r.CWD) || filepath.Clean(r.CWD) != r.CWD || !validPathText(r.CWD) || !validWorkspaceToken(r.WorkspaceID, "workspace_") || (r.State != WorkspaceReady && r.State != WorkspaceUnavailable) {
 		return fmt.Errorf("workspace reference is invalid")
 	}
-	if r.Limits.MaxPathBytes != MaxWorkspacePathBytes || r.Limits.MaxPathComponents != MaxWorkspacePathComponents || r.Limits.DefaultDirectoryPageSize <= 0 || r.Limits.MaxDirectoryPageSize < r.Limits.DefaultDirectoryPageSize || r.Limits.MaxDirectoryPageSize > MaxDirectoryPageSize || r.Limits.MaxDirectoryEntries <= 0 || r.Limits.MaxDirectoryEntries > MaxDirectoryEntries || r.Limits.MaxDirectoryResponseBytes <= 0 || r.Limits.MaxDirectoryResponseBytes > MaxDirectoryResponseBytes || r.Limits.MaxDirectoryObservationBytes <= 0 || r.Limits.MaxDirectoryObservationBytes > MaxDirectoryObservationBytes || r.Limits.MaxPreviewBytes <= 0 || r.Limits.MaxPreviewBytes > MaxWorkspacePreviewBytes || r.Limits.MaxPreviewLines <= 0 || r.Limits.MaxPreviewLines > MaxWorkspacePreviewLines || r.Limits.MaxActiveRequests <= 0 || r.Limits.MaxPendingRequests < 0 {
+	if r.Limits.MaxPathBytes != MaxWorkspacePathBytes || r.Limits.MaxPathComponents != MaxWorkspacePathComponents || r.Limits.DefaultDirectoryPageSize <= 0 || r.Limits.MaxDirectoryPageSize < r.Limits.DefaultDirectoryPageSize || r.Limits.MaxDirectoryPageSize > MaxDirectoryPageSize || r.Limits.MaxDirectoryEntries <= 0 || r.Limits.MaxDirectoryEntries > MaxDirectoryEntries || r.Limits.MaxDirectoryResponseBytes <= 0 || r.Limits.MaxDirectoryResponseBytes > MaxDirectoryResponseBytes || r.Limits.MaxDirectoryObservationBytes <= 0 || r.Limits.MaxDirectoryObservationBytes > MaxDirectoryObservationBytes || r.Limits.MaxPreviewBytes <= 0 || r.Limits.MaxPreviewBytes > MaxWorkspacePreviewBytes || r.Limits.MaxPreviewLines <= 0 || r.Limits.MaxPreviewLines > MaxWorkspacePreviewLines || r.Limits.MaxActiveRequests <= 0 || r.Limits.MaxActiveRequests > MaxWorkspaceActiveRequests || r.Limits.MaxPendingRequests < 0 || r.Limits.MaxPendingRequests > MaxWorkspacePendingRequests {
 		return fmt.Errorf("workspace limits are invalid")
 	}
 	return nil

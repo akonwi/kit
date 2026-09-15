@@ -63,6 +63,8 @@ type shellSnapshot struct {
 	ActivityFocus                *ui.FocusNode
 	SubagentFocuses              map[string]*ui.FocusNode
 	Workspace                    workspaceControllerSnapshot
+	WorkspaceFilePicker          workspaceFilePickerController
+	WorkspaceFilePickerScroll    *ui.ScrollController
 	WorkspacePickerOpen          bool
 	WorkspacePickerQuery         string
 	WorkspacePickerSelection     int
@@ -104,72 +106,79 @@ type providerSelectedCallback func(ui.EventContext, string)
 type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
-	OpenAuth                   ui.VoidCallback
-	SelectProvider             providerSelectedCallback
-	MoveProviderSelection      selectionMovedCallback
-	AuthFilterChanged          ui.TextChangedCallback
-	AuthAPIKeyChanged          ui.TextChangedCallback
-	SubmitAPIKey               ui.TextChangedCallback
-	AuthCodeChanged            ui.TextChangedCallback
-	SubmitAuthCode             ui.TextChangedCallback
-	OpenURL                    ui.TextChangedCallback
-	CopyCode                   ui.VoidCallback
-	OpenActivity               func(ui.EventContext, string)
-	ShowTranscript             ui.VoidCallback
-	CloseActivity              ui.VoidCallback
-	RetryTranscriptHistory     ui.VoidCallback
-	CancelSubagentTask         func(ui.EventContext, string, uint64)
-	DismissSubagent            func(ui.EventContext, string, uint64)
-	SelectSubagent             func(ui.EventContext, string)
-	MoveSubagentSelection      selectionMovedCallback
-	SubagentFilterChanged      ui.TextChangedCallback
-	OpenSubagentConversation   func(ui.EventContext, string)
-	SelectWorkspacePane        func(ui.EventContext, workspacePaneDescriptor)
-	CloseWorkspacePane         func(ui.EventContext, workspacePaneDescriptor)
-	OpenWorkspacePicker        ui.VoidCallback
-	CloseWorkspacePicker       ui.VoidCallback
-	WorkspacePickerQuery       ui.TextChangedCallback
-	WorkspacePickerSelection   func(ui.EventContext, int)
-	MoveWorkspaceFocus         ui.VoidCallback
-	MoveWorkspaceSelection     func(ui.EventContext, int)
-	OpenSubagentActivity       func(ui.EventContext, string, string)
-	OpenSubagentFromTool       func(ui.EventContext, string)
-	CloseSubagentConversation  func(ui.EventContext, string)
-	ScrollActivity             func(ui.EventContext, int)
-	SelectActivityTool         func(ui.EventContext, activityToolKey)
-	ToggleBashOutput           func(ui.EventContext, string)
-	OpenBashHistory            func(ui.EventContext, int) bool
-	BashHistoryChanged         ui.TextChangedCallback
-	SelectBashHistory          func(ui.EventContext, string)
-	SelectFileMention          func(ui.EventContext, string)
-	ComposerChanged            ui.TextChangedCallback
-	ComposerPasted             ui.TextChangedCallback
-	RemoveAttachment           func(ui.EventContext, int)
-	RestoreFollowUps           ui.VoidCallback
-	RespondInteraction         func(ui.EventContext, protocol.InteractionResponse, func(error))
-	CopySelection              func(string)
-	DismissToast               func(uint64)
-	OpenPalette                ui.VoidCallback
-	PaletteQueryChanged        ui.TextChangedCallback
-	MovePaletteSelection       selectionMovedCallback
-	RunPaletteQuery            ui.TextChangedCallback
-	RunPaletteCommand          func(ui.EventContext, paletteCommandID)
-	SelectTheme                func(ui.EventContext, int)
-	OpenSessionRename          ui.VoidCallback
-	OpenModel                  ui.VoidCallback
-	OpenThinking               ui.VoidCallback
-	ConfigurationQuery         ui.TextChangedCallback
-	SelectConfiguration        func(ui.EventContext, string)
-	ApplyConfiguration         ui.VoidCallback
-	SelectSession              func(ui.EventContext, string)
-	SessionRenameChanged       ui.TextChangedCallback
-	SubmitCurrentSessionRename ui.TextChangedCallback
-	RenameSessionChanged       ui.TextChangedCallback
-	SubmitSessionRename        ui.TextChangedCallback
-	Submit                     ui.TextChangedCallback
-	Retry                      ui.VoidCallback
-	Quit                       ui.VoidCallback
-	Dismiss                    ui.VoidCallback
+	OpenAuth                    ui.VoidCallback
+	SelectProvider              providerSelectedCallback
+	MoveProviderSelection       selectionMovedCallback
+	AuthFilterChanged           ui.TextChangedCallback
+	AuthAPIKeyChanged           ui.TextChangedCallback
+	SubmitAPIKey                ui.TextChangedCallback
+	AuthCodeChanged             ui.TextChangedCallback
+	SubmitAuthCode              ui.TextChangedCallback
+	OpenURL                     ui.TextChangedCallback
+	CopyCode                    ui.VoidCallback
+	OpenActivity                func(ui.EventContext, string)
+	ShowTranscript              ui.VoidCallback
+	CloseActivity               ui.VoidCallback
+	RetryTranscriptHistory      ui.VoidCallback
+	CancelSubagentTask          func(ui.EventContext, string, uint64)
+	DismissSubagent             func(ui.EventContext, string, uint64)
+	SelectSubagent              func(ui.EventContext, string)
+	MoveSubagentSelection       selectionMovedCallback
+	SubagentFilterChanged       ui.TextChangedCallback
+	OpenSubagentConversation    func(ui.EventContext, string)
+	SelectWorkspacePane         func(ui.EventContext, workspacePaneDescriptor)
+	CloseWorkspacePane          func(ui.EventContext, workspacePaneDescriptor)
+	OpenWorkspaceFilePicker     ui.VoidCallback
+	CloseWorkspaceFilePicker    ui.VoidCallback
+	WorkspaceFilePickerQuery    ui.TextChangedCallback
+	MoveWorkspaceFilePicker     func(ui.EventContext, int)
+	ActivateWorkspaceFilePicker func(ui.EventContext, workspaceFilePickerRow)
+	SelectWorkspaceFilePicker   func(ui.EventContext, workspaceFilePickerRow)
+	RefreshWorkspaceFilePicker  ui.VoidCallback
+	OpenWorkspacePicker         ui.VoidCallback
+	CloseWorkspacePicker        ui.VoidCallback
+	WorkspacePickerQuery        ui.TextChangedCallback
+	WorkspacePickerSelection    func(ui.EventContext, int)
+	MoveWorkspaceFocus          ui.VoidCallback
+	MoveWorkspaceSelection      func(ui.EventContext, int)
+	OpenSubagentActivity        func(ui.EventContext, string, string)
+	OpenSubagentFromTool        func(ui.EventContext, string)
+	CloseSubagentConversation   func(ui.EventContext, string)
+	ScrollActivity              func(ui.EventContext, int)
+	SelectActivityTool          func(ui.EventContext, activityToolKey)
+	ToggleBashOutput            func(ui.EventContext, string)
+	OpenBashHistory             func(ui.EventContext, int) bool
+	BashHistoryChanged          ui.TextChangedCallback
+	SelectBashHistory           func(ui.EventContext, string)
+	SelectFileMention           func(ui.EventContext, string)
+	ComposerChanged             ui.TextChangedCallback
+	ComposerPasted              ui.TextChangedCallback
+	RemoveAttachment            func(ui.EventContext, int)
+	RestoreFollowUps            ui.VoidCallback
+	RespondInteraction          func(ui.EventContext, protocol.InteractionResponse, func(error))
+	CopySelection               func(string)
+	DismissToast                func(uint64)
+	OpenPalette                 ui.VoidCallback
+	PaletteQueryChanged         ui.TextChangedCallback
+	MovePaletteSelection        selectionMovedCallback
+	RunPaletteQuery             ui.TextChangedCallback
+	RunPaletteCommand           func(ui.EventContext, paletteCommandID)
+	SelectTheme                 func(ui.EventContext, int)
+	OpenSessionRename           ui.VoidCallback
+	OpenModel                   ui.VoidCallback
+	OpenThinking                ui.VoidCallback
+	ConfigurationQuery          ui.TextChangedCallback
+	SelectConfiguration         func(ui.EventContext, string)
+	ApplyConfiguration          ui.VoidCallback
+	SelectSession               func(ui.EventContext, string)
+	SessionRenameChanged        ui.TextChangedCallback
+	SubmitCurrentSessionRename  ui.TextChangedCallback
+	RenameSessionChanged        ui.TextChangedCallback
+	SubmitSessionRename         ui.TextChangedCallback
+	Submit                      ui.TextChangedCallback
+	Retry                       ui.VoidCallback
+	Quit                        ui.VoidCallback
+	Dismiss                     ui.VoidCallback
 }
 
 type shellView struct {
@@ -197,6 +206,10 @@ func (moveProviderIntent) IntentType() ui.IntentType { return "kit.auth.move-pro
 type openPaletteIntent struct{}
 
 func (openPaletteIntent) IntentType() ui.IntentType { return "kit.command-palette.open" }
+
+type openWorkspaceFilePickerIntent struct{}
+
+func (openWorkspaceFilePickerIntent) IntentType() ui.IntentType { return "kit.workspace-files.open" }
 
 type moveWorkspaceSelectionIntent struct{ Delta int }
 
@@ -292,6 +305,19 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
 		}
 	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspaceFilePicker.Open {
+		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
+			Controller: w.Snapshot.WorkspaceFilePicker, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
+			Callbacks: workspaceFilePickerCallbacks{
+				QueryChanged: w.Callbacks.WorkspaceFilePickerQuery,
+				Move:         w.Callbacks.MoveWorkspaceFilePicker,
+				Activate:     w.Callbacks.ActivateWorkspaceFilePicker,
+				Select:       w.Callbacks.SelectWorkspaceFilePicker,
+				Refresh:      w.Callbacks.RefreshWorkspaceFilePicker,
+				Close:        w.Callbacks.CloseWorkspaceFilePicker,
+			},
+		}))
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspacePickerOpen {
 		overlays = append(overlays, modalDialogEntry(w.workspacePickerDialog(ctx, theme)))
 	}
@@ -375,6 +401,15 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady {
 		shortcuts["Ctrl+p"] = openPaletteIntent{}
+		if !workspaceFocusTrapped {
+			shortcuts["Ctrl+o"] = openWorkspaceFilePickerIntent{}
+			actions[openWorkspaceFilePickerIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+				if w.Callbacks.OpenWorkspaceFilePicker != nil {
+					w.Callbacks.OpenWorkspaceFilePicker(ctx)
+				}
+				return ui.EventHandled
+			}
+		}
 		if w.workspaceSnapshot().StripVisible() {
 			shortcuts["Ctrl+]"] = moveWorkspaceSelectionIntent{Delta: 1}
 			shortcuts["Ctrl+["] = moveWorkspaceSelectionIntent{Delta: -1}
@@ -825,7 +860,8 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 		Label: "Agent", Selected: workspace.Selected == workspaceAgentIdentity, OnSelect: w.Callbacks.ShowTranscript,
 	}}
 	selectedIndex := 0
-	for _, descriptor := range workspace.Panes {
+	labels := workspacePaneLabels(w.Snapshot, workspace.Panes)
+	for paneIndex, descriptor := range workspace.Panes {
 		descriptor := descriptor
 		definition, ok := workspacePaneDefinitions[descriptor.Kind]
 		if !ok {
@@ -836,7 +872,7 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 			continue
 		}
 		tabs = append(tabs, workspaceTab{
-			Label: definition.Label(w.Snapshot, descriptor), Activity: definition.Activity(w.Snapshot, descriptor),
+			Label: labels[paneIndex], Activity: definition.Activity(w.Snapshot, descriptor),
 			Selected: workspace.Selected == identity, Closable: definition.Closable,
 			OnSelect: func(ctx ui.EventContext) {
 				if w.Callbacks.SelectWorkspacePane != nil {

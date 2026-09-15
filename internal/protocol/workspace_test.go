@@ -67,3 +67,21 @@ func TestWorkspaceFileReadValidate(t *testing.T) {
 		t.Fatal("mismatched byte count validated")
 	}
 }
+
+func TestWorkspaceRequestConcurrencyLimitsAreBoundedAndAllowNoPendingQueue(t *testing.T) {
+	t.Parallel()
+	workspace := WorkspaceRef{SessionID: "session_test", CWD: "/workspace", WorkspaceID: "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", State: WorkspaceReady, Limits: DefaultWorkspaceLimits()}
+	workspace.Limits.MaxPendingRequests = 0
+	if err := workspace.Validate(); err != nil {
+		t.Fatalf("zero pending requests rejected: %v", err)
+	}
+	workspace.Limits.MaxActiveRequests = MaxWorkspaceActiveRequests + 1
+	if workspace.Validate() == nil {
+		t.Fatal("excess active requests validated")
+	}
+	workspace.Limits = DefaultWorkspaceLimits()
+	workspace.Limits.MaxPendingRequests = MaxWorkspacePendingRequests + 1
+	if workspace.Validate() == nil {
+		t.Fatal("excess pending requests validated")
+	}
+}
