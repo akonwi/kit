@@ -3564,6 +3564,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.SetState(func() { s.sessionDetailsOpen = true })
 	case paletteCommandFork:
 		s.forkCurrentSession(args)
+	case paletteCommandFiles:
+		s.openWorkspaceFilePicker()
 	case paletteCommandSessions:
 		s.openSessionExplorer()
 	case paletteCommandSubagents:

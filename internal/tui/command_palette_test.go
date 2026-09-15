@@ -35,12 +35,12 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 	palette.Close()
 	palette.OpenFor(true)
 	palette.Move(true, 1)
-	if palette.Selection != paletteCommandFork {
-		t.Fatalf("running selection = %q, want fork row", palette.Selection)
+	if palette.Selection != paletteCommandFiles {
+		t.Fatalf("running selection = %q, want files row", palette.Selection)
 	}
 	command, ok = palette.Selected(false, "")
-	if !ok || command.ID != paletteCommandFork {
-		t.Fatalf("stable fork selection = %#v, %v", command, ok)
+	if !ok || command.ID != paletteCommandFiles {
+		t.Fatalf("stable files selection = %#v, %v", command, ok)
 	}
 
 	palette.Close()
@@ -93,6 +93,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	if len(commands) != 1 || commands[0].ID != paletteCommandTabs {
 		t.Fatalf("panes matches = %#v, want tabs", commands)
 	}
+	commands = filteredPaletteCommands(false, "files")
+	if len(commands) == 0 || commands[0].ID != paletteCommandFiles {
+		t.Fatalf("files matches = %#v, want files first", commands)
+	}
 	commands = filteredPaletteCommands(false, "appearance")
 	if len(commands) != 1 || commands[0].ID != paletteCommandTheme {
 		t.Fatalf("appearance matches = %#v, want theme", commands)
@@ -109,6 +113,9 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 	}
 	if !paletteCommandAvailable(paletteCommandTabs, true) {
 		t.Fatal("tabs was unavailable during active work")
+	}
+	if !paletteCommandAvailable(paletteCommandFiles, true) {
+		t.Fatal("files was unavailable during active work")
 	}
 	if !paletteCommandAvailable(paletteCommandNew, true) {
 		t.Fatal("new was unavailable during active work")
@@ -192,12 +199,13 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 15 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 16 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
 	state.palette.SetContributions(contributions, false)
 	state.palette.OpenFor(false)
+	state.palette.SetQuery(false, "review")
 	application := uitest.New(paletteHarness{State: state})
 	application.Pump(80, 24)
 	text := strings.Join(paintedRows(application, 80, 24), "\n")
@@ -205,7 +213,10 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 		t.Fatalf("prompt command palette =\n%s", text)
 	}
 	rows := paintedRows(application, 80, 24)
-	_, reviewRow := findTextCell(t, rows, "review")
+	reviewRow := findPaintedRow(rows, "Review recent changes")
+	if reviewRow < 0 {
+		t.Fatalf("review result row missing:\n%s", strings.Join(rows, "\n"))
+	}
 	application.Click(40, reviewRow)
 	application.Pump(80, 24)
 	if state.executed != paletteCommandID("prompt:review") || state.palette.Open {
@@ -267,7 +278,7 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
 		"Search commands…", "cd", "Change working directory", "login", "Connect another provider", "new", "Start a new session", "quit", "Exit Kit",
-		"reload", "Reload session context", "sessions", "Browse sessions", "↑↓ move · enter run · esc close",
+		"reload", "Reload session context", "files", "Open a workspace file", "↑↓ move · enter run · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("palette missing %q:\n%s", expected, text)
@@ -344,7 +355,7 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 	}
 	runningRows := paintedRows(application, width, height)
 	for name, description := range map[string]string{
-		"model": "Change session model", "new": "Start a new session", "sessions": "Browse sessions", "reload": "Reload session context",
+		"model": "Change session model", "new": "Start a new session", "files": "Open a workspace file", "reload": "Reload session context",
 	} {
 		column, row := findTextCell(t, runningRows, name)
 		if !strings.Contains(runningRows[row], description) || application.Cell(column, row).Style.Foreground != ui.DefaultTheme().Foreground {
@@ -534,7 +545,7 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for range 6 {
+	for range 7 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	}
 	application.Enter()
