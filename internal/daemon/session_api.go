@@ -38,7 +38,7 @@ type sessionService interface {
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
-	FileIndex(context.Context, string) (protocol.SessionFileIndex, error)
+	FileIndex(context.Context, string, bool) (protocol.SessionFileIndex, error)
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
@@ -275,22 +275,22 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 	return result, nil
 }
 
-func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
+func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string, refresh bool) (protocol.SessionFileIndex, error) {
 	record, err := s.manager.Get(ctx, sessionID)
 	if err != nil {
 		return protocol.SessionFileIndex{}, err
 	}
-	var entries []fileindex.Entry
+	var indexed fileindex.Result
 	if s.fileIndexes != nil {
-		entries, err = s.fileIndexes.load(ctx, sessionID, record.CWD)
+		indexed, err = s.fileIndexes.load(ctx, sessionID, record.CWD, refresh)
 	} else {
-		entries, err = fileindex.Scan(ctx, record.CWD, fileindex.Options{})
+		indexed, err = fileindex.ScanResult(ctx, record.CWD, fileindex.Options{})
 	}
 	if err != nil {
 		return protocol.SessionFileIndex{}, err
 	}
-	result := protocol.SessionFileIndex{SessionID: sessionID, CWD: record.CWD, Entries: make([]protocol.FileIndexEntry, 0, len(entries))}
-	for _, entry := range entries {
+	result := protocol.SessionFileIndex{SessionID: sessionID, CWD: record.CWD, Entries: make([]protocol.FileIndexEntry, 0, len(indexed.Entries)), Truncated: indexed.Truncated}
+	for _, entry := range indexed.Entries {
 		result.Entries = append(result.Entries, protocol.FileIndexEntry{Path: entry.Path, IsDir: entry.IsDir})
 	}
 	return result, nil
@@ -1178,7 +1178,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeJSON(writer, http.StatusOK, result)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
-		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"))
+		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"), request.URL.Query().Get("refresh") == "true")
 		if err != nil {
 			writeSessionError(writer, err)
 			return

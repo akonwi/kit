@@ -2,7 +2,7 @@
 
 ## Status
 
-Proposed
+Accepted
 
 ## Context
 
@@ -35,18 +35,27 @@ Workspace file contracts are accepted in
 ### Workspace file picker
 
 The workspace file action opens Kit's standard picker modal above the selected
-Agent or workspace surface. It starts at the attached session's workspace root
-and combines lazy, bounded directory traversal with path filtering.
+Agent or workspace surface. It uses the attached session's bounded indexed
+project-path source, shared with composer `@` mentions, and presents one flat
+fuzzy-searchable list. The shared source owns session and cwd association,
+entries, loading, error, truncation, cache freshness, generation, cancellation,
+and guarded asynchronous completion so simultaneous picker consumers do not
+start independent index loads.
 
-Enter on a file opens or selects its retained File tab and dismisses the modal.
-Directories expand in place and never create tabs. The picker owns its query,
-expanded paths, observation pages, focused row, loading, and errors for one
-dialog invocation; this state is not restored across session switches.
+Enter on a regular file opens or selects its retained File tab through the
+current `WorkspaceRef` and dismisses the modal. Indexed directory entries may
+improve path matching and presentation, but they do not require drill-down and
+do not create tabs. Explicit refresh supersedes and cancels an older index load
+and forces the daemon to rebuild rather than reuse its freshness cache.
+The modal owns only its query, focused path, current workspace reference, and
+invocation lifecycle; cwd changes and session replacement close and reset it.
+The 4,000-entry index bound is presented explicitly when the source reports
+truncation.
 
-Observation pages are keyed by server directory revision. Expansion and
-selection use workspace incarnation plus canonical path so refresh can preserve
-valid navigation state. Opaque server pagination cursors remain observation
-cache data rather than navigation state.
+The workspace directory-listing contract remains available unchanged for
+future static directory or tree displays. It is not the global file picker's
+loading model. Retained File panes continue to read content through the
+`WorkspaceFilesSession` contract and treat its `WorkspaceRef` as authoritative.
 
 ### File and Diff panes
 
@@ -115,10 +124,12 @@ ADR 0018's input, hit-testing, polling, generation, and disposal rules.
 
 Tests must establish:
 
-- lazy bounded directory expansion, filtering, pagination, refresh, loading,
-  empty, and error behavior in the file picker;
-- directory refresh replacing revision-keyed observations while preserving
-  valid path-keyed expansion and selection;
+- shared indexed-source single-load behavior, fuzzy filtering, refresh,
+  loading, empty, error, and explicit truncation presentation in both pickers;
+- generation and cancellation guards for refresh, cwd changes, and session
+  replacement;
+- keyboard and primary-mouse navigation plus guarded opening of regular files
+  through the current workspace reference;
 - identity and deduplication across every supported origin for mutable and
   review-pinned files and working-tree, commit-review, and branch-review diffs;
 - repeated opens revealing anchors without remounting or reordering panes;
@@ -138,13 +149,15 @@ Tests must establish:
 
 The accepted shell can ship independently with Agent and subagent conversations
 while File, Diff, and review work proceeds behind explicit server contracts.
-Directory browsing remains a bounded modal, evidence remains in retained
+Indexed file navigation remains a bounded modal, evidence remains in retained
 full-width panes, and review stays synchronized with both its evidence and the
-composer without adding a Review tab.
+composer without adding a Review tab. Static directory/tree surfaces may still
+use the separate bounded directory contracts when their presentation requires
+that hierarchy.
 
-This work adds feature-specific identity, stale-state, pagination, and review
-coordination complexity. Those concerns remain outside the generic workspace
-controller and must not weaken its client-local lifecycle boundaries.
+This work adds feature-specific identity, stale-state, indexed-source, and
+review coordination complexity. Those concerns remain outside the generic
+workspace controller and must not weaken its client-local lifecycle boundaries.
 
 ## Related
 

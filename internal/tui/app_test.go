@@ -1046,6 +1046,7 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	state.workspaceFilePickerCancel = pickerCancel
 	state.workspaceFilePicker = readyFilePickerController()
 	state.workspaceFilePicker.Query = "source query"
+	state.indexedFiles = indexedFileSource{SessionID: "session_source", CWD: "/source", Entries: []protocol.FileIndexEntry{{Path: "source.go"}}}
 	t.Cleanup(func() { state.attachmentCancel() })
 	sourceAttachment := state.attachmentCtx
 	target := protocol.SessionSnapshot{
@@ -1075,6 +1076,9 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	}
 	if state.workspaceFilePicker.Open || state.workspaceFilePicker.Query != "" || state.workspaceFilePickerContext != nil {
 		t.Fatalf("source file-picker invocation leaked into target: %+v", state.workspaceFilePicker)
+	}
+	if state.indexedFiles.SessionID != "" || state.indexedFiles.Entries != nil {
+		t.Fatalf("source indexed files leaked into target: %+v", state.indexedFiles)
 	}
 	if state.session.ID != target.Session.ID || state.bound.ID() != target.Session.ID || state.operation != 5 {
 		t.Fatalf("installed binding session=%q bound=%q operation=%d", state.session.ID, state.bound.ID(), state.operation)

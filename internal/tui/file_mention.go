@@ -13,25 +13,19 @@ import (
 const fileMentionMaxVisible = 10
 
 type fileMentionController struct {
-	Open       bool
-	Loading    bool
-	Query      string
-	Selection  string
-	Anchor     int
-	QueryEnd   int
-	Entries    []protocol.FileIndexEntry
-	generation uint64
-	cwd        string
+	Open      bool
+	Query     string
+	Selection string
+	Anchor    int
+	QueryEnd  int
 }
 
 func (f *fileMentionController) Close() {
 	f.Open = false
-	f.Loading = false
 	f.Query = ""
 	f.Selection = ""
 	f.Anchor = 0
 	f.QueryEnd = 0
-	f.generation++
 }
 
 // Observe tracks an inline @query after a contiguous composer edit. Mentions
@@ -54,7 +48,6 @@ func (f *fileMentionController) Observe(previous, next string, pasted bool) (ope
 			return false
 		}
 		f.Query = query
-		f.Selection = firstFileMentionPath(f.filtered())
 		return false
 	}
 	if pasted || newEnd-start != 1 || start >= len(next) || next[start] != '@' {
@@ -68,12 +61,10 @@ func (f *fileMentionController) Observe(previous, next string, pasted bool) (ope
 		}
 	}
 	f.Open = true
-	f.Loading = true
 	f.Query = ""
 	f.Anchor = start
 	f.QueryEnd = newEnd
 	f.Selection = ""
-	f.generation++
 	return true
 }
 
@@ -93,23 +84,8 @@ func changedRange(previous, next string) (start, previousEnd, nextEnd int) {
 	return start, previousEnd, nextEnd
 }
 
-func (f *fileMentionController) Loaded(generation uint64, cwd string, entries []protocol.FileIndexEntry) bool {
-	if !f.Open || generation != f.generation || cwd != f.cwd {
-		return false
-	}
-	f.Loading = false
-	f.Entries = append([]protocol.FileIndexEntry(nil), entries...)
-	f.Selection = firstFileMentionPath(f.filtered())
-	return true
-}
-
-func (f *fileMentionController) BeginLoad(cwd string) uint64 {
-	f.cwd = cwd
-	return f.generation
-}
-
-func (f *fileMentionController) filtered() []protocol.FileIndexEntry {
-	return ui.DefaultFuzzySelectFilter(f.Query, f.Entries, func(entry protocol.FileIndexEntry) ui.FuzzySelectItem {
+func (f *fileMentionController) filtered(entries []protocol.FileIndexEntry) []protocol.FileIndexEntry {
+	return ui.DefaultFuzzySelectFilter(f.Query, entries, func(entry protocol.FileIndexEntry) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{Title: entry.Path}
 	})
 }
@@ -121,8 +97,18 @@ func firstFileMentionPath(entries []protocol.FileIndexEntry) string {
 	return entries[0].Path
 }
 
-func (f *fileMentionController) Move(delta int) {
-	entries := f.filtered()
+func (f *fileMentionController) ensureSelection(entries []protocol.FileIndexEntry) {
+	filtered := f.filtered(entries)
+	for _, entry := range filtered {
+		if entry.Path == f.Selection {
+			return
+		}
+	}
+	f.Selection = firstFileMentionPath(filtered)
+}
+
+func (f *fileMentionController) Move(entries []protocol.FileIndexEntry, delta int) {
+	entries = f.filtered(entries)
 	if len(entries) == 0 {
 		return
 	}
@@ -140,8 +126,8 @@ func (f *fileMentionController) Move(delta int) {
 	f.Selection = entries[index].Path
 }
 
-func (f *fileMentionController) Selected() (protocol.FileIndexEntry, bool) {
-	for _, entry := range f.filtered() {
+func (f *fileMentionController) Selected(entries []protocol.FileIndexEntry) (protocol.FileIndexEntry, bool) {
+	for _, entry := range f.filtered(entries) {
 		if entry.Path == f.Selection {
 			return entry, true
 		}
@@ -160,19 +146,19 @@ func (f *fileMentionController) Insert(text string, entry protocol.FileIndexEntr
 	return next, cursor, true
 }
 
-func (f *fileMentionController) HandleKey(key ui.Key) (protocol.FileIndexEntry, bool, bool) {
+func (f *fileMentionController) HandleKey(entries []protocol.FileIndexEntry, key ui.Key) (protocol.FileIndexEntry, bool, bool) {
 	if !f.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
 		return protocol.FileIndexEntry{}, false, false
 	}
 	switch {
 	case key.MatchString("Up"):
-		f.Move(-1)
+		f.Move(entries, -1)
 		return protocol.FileIndexEntry{}, false, true
 	case key.MatchString("Down"):
-		f.Move(1)
+		f.Move(entries, 1)
 		return protocol.FileIndexEntry{}, false, true
 	case key.MatchString("Enter"):
-		entry, ok := f.Selected()
+		entry, ok := f.Selected(entries)
 		return entry, ok, true
 	default:
 		return protocol.FileIndexEntry{}, false, false
@@ -181,6 +167,7 @@ func (f *fileMentionController) HandleKey(key ui.Key) (protocol.FileIndexEntry, 
 
 type fileMentionSurface struct {
 	Controller     *fileMentionController
+	Source         indexedFileSource
 	Composer       string
 	BottomInset    int
 	PrimaryPercent int
@@ -190,7 +177,7 @@ type fileMentionSurface struct {
 func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	rowPresentation := resolvePickerRowPresentation(ctx, theme)
-	entries := w.Controller.filtered()
+	entries := w.Controller.filtered(w.Source.Entries)
 	selection := 0
 	for index, entry := range entries {
 		if entry.Path == w.Controller.Selection {
@@ -205,8 +192,10 @@ func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 	rows := make([]ui.Widget, 0, max(1, len(entries)))
 	if len(entries) == 0 {
 		label := "No results"
-		if w.Controller.Loading {
+		if w.Source.Loading {
 			label = "Loading…"
+		} else if w.Source.Error != "" {
+			label = "Could not load files: " + w.Source.Error
 		}
 		rows = append(rows, ui.Text{Value: label, Style: ui.Style{Foreground: theme.MutedForeground}})
 	}
@@ -233,6 +222,12 @@ func (w fileMentionSurface) Build(ctx ui.BuildContext) ui.Widget {
 				w.OnSelect(event, entry.Path)
 			}
 		}})
+	}
+	if w.Source.Error != "" && len(entries) > 0 {
+		rows = append(rows, ui.Text{Value: "Refresh failed: " + w.Source.Error, Style: ui.Style{Foreground: theme.Warning}, MaxLines: 1})
+	}
+	if w.Source.Truncated {
+		rows = append(rows, ui.Text{Value: "Showing first 4,000 indexed paths", Style: ui.Style{Foreground: theme.Warning}, MaxLines: 1})
 	}
 	content := ui.Padding(ui.All(1), ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: append(rows,
 		ui.SizedBox{Height: 1},

@@ -232,9 +232,13 @@ normal exploration. It does not interpret project-specific ignore files. A
 canonical path may be the target of
 `listDirectory` or `readFile` even when that target was omitted from its
 parent's page; the policy is applied only to children returned by the requested
-listing. File-mention indexing remains a different bounded projection and
-applies hierarchical `.gitignore` rules only; it does not interpret
-project-specific Kit ignore files.
+listing. The shared project-path index used by composer mentions and flat file-picker
+navigation remains a different bounded projection and applies hierarchical
+`.gitignore` rules only; it does not interpret project-specific Kit ignore
+files. Its session result reports explicit `truncated` state. The 4,000-entry
+bound is proven by scanning at most one additional indexable entry, so a result
+with exactly 4,000 entries is not labeled truncated unless another entry was
+observed.
 
 ### File-read contract
 

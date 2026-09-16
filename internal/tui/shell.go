@@ -96,6 +96,7 @@ type shellSnapshot struct {
 	BashCollapsed                map[string]bool
 	BashHistory                  bashHistoryController
 	FileMention                  fileMentionController
+	IndexedFiles                 indexedFileSource
 	Instructions                 auth.OpenAICodexDeviceInstructions
 	BrowserInstructions          auth.AnthropicLoginInstructions
 	Remaining                    time.Duration
@@ -254,7 +255,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		controller := w.Snapshot.FileMention
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
 		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
-			Controller: &controller, Composer: w.Snapshot.Composer,
+			Controller: &controller, Source: w.Snapshot.IndexedFiles, Composer: w.Snapshot.Composer,
 			BottomInset: composerHeight + 4, PrimaryPercent: 100,
 			OnSelect: w.Callbacks.SelectFileMention,
 		}})
@@ -310,7 +311,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspaceFilePicker.Open {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
-			Controller: w.Snapshot.WorkspaceFilePicker, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
+			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
 			Callbacks: workspaceFilePickerCallbacks{
 				QueryChanged: w.Callbacks.WorkspaceFilePickerQuery,
 				Move:         w.Callbacks.MoveWorkspaceFilePicker,

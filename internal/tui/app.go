@@ -224,7 +224,7 @@ type appState struct {
 	applyTheme                       func(kittheme.Definition)
 	paste                            pasteCoalescer
 	fileMention                      fileMentionController
-	fileIndex                        map[string]cachedFileIndex
+	indexedFiles                     indexedFileSource
 	configurationPicker              configurationPickerController
 	compactPending                   bool
 	compactOperationID               string
@@ -303,10 +303,6 @@ type appState struct {
 	workspaceFilePickerScroll        ui.ScrollController
 	workspaceFilePickerContext       context.Context
 	workspaceFilePickerCancel        context.CancelFunc
-	workspaceFilePickerQueue         []workspaceFilePickerJob
-	workspaceFilePickerActive        int
-	workspaceFilePickerMaxActive     int
-	workspaceFilePickerMaxPending    int
 	filePickerRefreshHook            func()
 	filePickerLoadHook               func(string, string)
 	workspaceFilePickerRevealPending bool
@@ -1005,6 +1001,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashCollapsed:                s.bashCollapsed,
 		BashHistory:                  s.bashHistory,
 		FileMention:                  s.fileMention,
+		IndexedFiles:                 s.indexedFiles,
 		Instructions:                 s.instructions,
 		BrowserInstructions:          s.browserInstructions,
 		Remaining:                    s.remaining,
@@ -1175,23 +1172,20 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		WorkspaceFilePickerQuery: func(_ ui.EventContext, query string) {
 			s.SetState(func() {
 				s.workspaceFilePicker.Query = query
-				s.workspaceFilePicker.ensureSelection()
+				s.workspaceFilePicker.ensureSelection(s.indexedFiles)
 				s.requestWorkspaceFilePickerReveal()
 			})
 		},
 		MoveWorkspaceFilePicker: func(_ ui.EventContext, delta int) {
 			s.SetState(func() {
-				s.workspaceFilePicker.move(delta)
+				s.workspaceFilePicker.move(s.indexedFiles, delta)
 				s.requestWorkspaceFilePickerReveal()
 			})
 		},
 		ActivateWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) { s.activateWorkspaceFilePickerRow(row) },
 		SelectWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) {
 			if workspaceFilePickerRowSelectable(row) {
-				s.SetState(func() {
-					s.workspaceFilePicker.Selection = row.Key
-					s.workspaceFilePicker.SelectionKind = row.Kind
-				})
+				s.SetState(func() { s.workspaceFilePicker.Selection = row.Key })
 			}
 		},
 		RefreshWorkspaceFilePicker: func(ui.EventContext) { s.refreshWorkspaceFilePicker() },
@@ -1359,20 +1353,22 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
+			openedFileMention := false
 			s.SetState(func() {
 				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.hasActiveWork())
 				if intercepted {
 					return
 				}
-				opened := s.fileMention.Observe(s.composer, composer, false)
+				openedFileMention = s.fileMention.Observe(s.composer, composer, false)
+				s.fileMention.ensureSelection(s.indexedFiles.Entries)
 				s.composer = composer
-				if opened {
-					s.loadFileMentions(ctx.Runtime())
-				}
 				if followTranscript {
 					s.requestTranscriptScroll()
 				}
 			})
+			if openedFileMention {
+				s.loadFileMentions(ctx.Runtime())
+			}
 		},
 		OpenPalette: func(ui.EventContext) {
 			s.openPalette()
@@ -1648,7 +1644,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	if s.fileMention.Open {
 		var entry protocol.FileIndexEntry
 		var selectEntry, handled bool
-		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(key) })
+		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(s.indexedFiles.Entries, key) })
 		if handled {
 			if selectEntry {
 				s.selectFileMention(ctx, entry.Path)
@@ -5215,7 +5211,6 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	}
 	s.resetAttachmentContext()
 	s.fileMention.Close()
-	s.fileMention.generation++
 	s.operation++
 	s.terminalSettledRunID = ""
 	s.notifiedRunIDs = make(map[string]bool)
@@ -5261,6 +5256,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.workspace.Reset()
 	s.workspaceID = ""
 	s.closeWorkspaceFilePicker()
+	s.indexedFiles.reset()
 	s.workspacePickerOpen = false
 	s.workspacePickerQuery = ""
 	s.workspacePickerSelection = 0

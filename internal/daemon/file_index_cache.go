@@ -12,36 +12,54 @@ const sessionFileIndexRefreshInterval = 5 * time.Minute
 
 type cachedSessionFileIndex struct {
 	cwd       string
-	entries   []fileindex.Entry
+	result    fileindex.Result
 	indexedAt time.Time
 }
 
 type sessionFileIndexCache struct {
-	mu      sync.Mutex
-	entries map[string]cachedSessionFileIndex
-	now     func() time.Time
-	scan    func(context.Context, string, fileindex.Options) ([]fileindex.Entry, error)
+	mu          sync.Mutex
+	entries     map[string]cachedSessionFileIndex
+	generations map[string]uint64
+	pendingCWD  map[string]string
+	now         func() time.Time
+	scan        func(context.Context, string, fileindex.Options) (fileindex.Result, error)
 }
 
 func newSessionFileIndexCache() *sessionFileIndexCache {
-	return &sessionFileIndexCache{entries: make(map[string]cachedSessionFileIndex), now: time.Now, scan: fileindex.Scan}
+	return &sessionFileIndexCache{entries: make(map[string]cachedSessionFileIndex), generations: make(map[string]uint64), pendingCWD: make(map[string]string), now: time.Now, scan: fileindex.ScanResult}
 }
 
-func (cache *sessionFileIndexCache) load(ctx context.Context, sessionID, cwd string) ([]fileindex.Entry, error) {
+func (cache *sessionFileIndexCache) load(ctx context.Context, sessionID, cwd string, refresh bool) (fileindex.Result, error) {
 	now := cache.now()
 	cache.mu.Lock()
 	cached, ok := cache.entries[sessionID]
-	cache.mu.Unlock()
-	if ok && cached.cwd == cwd && now.Sub(cached.indexedAt) < sessionFileIndexRefreshInterval {
-		return append([]fileindex.Entry(nil), cached.entries...), nil
+	if !refresh && ok && cached.cwd == cwd && now.Sub(cached.indexedAt) < sessionFileIndexRefreshInterval {
+		if pending := cache.pendingCWD[sessionID]; pending != "" && pending != cwd {
+			cache.generations[sessionID]++
+			delete(cache.pendingCWD, sessionID)
+		}
+		cache.mu.Unlock()
+		return cloneFileIndexResult(cached.result), nil
 	}
-	entries, err := cache.scan(ctx, cwd, fileindex.Options{})
+	cache.generations[sessionID]++
+	generation := cache.generations[sessionID]
+	cache.pendingCWD[sessionID] = cwd
+	cache.mu.Unlock()
+	result, err := cache.scan(ctx, cwd, fileindex.Options{})
 	if err != nil {
-		return nil, err
+		return fileindex.Result{}, err
 	}
-	entries = append([]fileindex.Entry(nil), entries...)
+	result = cloneFileIndexResult(result)
 	cache.mu.Lock()
-	cache.entries[sessionID] = cachedSessionFileIndex{cwd: cwd, entries: entries, indexedAt: now}
+	if cache.generations[sessionID] == generation {
+		cache.entries[sessionID] = cachedSessionFileIndex{cwd: cwd, result: result, indexedAt: now}
+		delete(cache.pendingCWD, sessionID)
+	}
 	cache.mu.Unlock()
-	return append([]fileindex.Entry(nil), entries...), nil
+	return cloneFileIndexResult(result), nil
+}
+
+func cloneFileIndexResult(result fileindex.Result) fileindex.Result {
+	result.Entries = append([]fileindex.Entry(nil), result.Entries...)
+	return result
 }

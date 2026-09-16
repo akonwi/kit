@@ -138,7 +138,6 @@ func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) 
 	return output, nil
 }
 
-// GetSessionFileIndex returns project paths indexed on the session host.
 // GetWorkspace returns the current logical workspace for a session.
 func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.WorkspaceRef, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace"
@@ -187,8 +186,21 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 	return output, nil
 }
 
+// GetSessionFileIndex returns project paths indexed on the session host.
 func (c *Client) GetSessionFileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
+	return c.getSessionFileIndex(ctx, sessionID, false)
+}
+
+// RefreshSessionFileIndex forces the session host to rebuild its project-path index.
+func (c *Client) RefreshSessionFileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
+	return c.getSessionFileIndex(ctx, sessionID, true)
+}
+
+func (c *Client) getSessionFileIndex(ctx context.Context, sessionID string, refresh bool) (protocol.SessionFileIndex, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/files"
+	if refresh {
+		path += "?refresh=true"
+	}
 	var output protocol.SessionFileIndex
 	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
 		return protocol.SessionFileIndex{}, err

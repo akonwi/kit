@@ -43,6 +43,11 @@ type Session interface {
 	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
 }
 
+// FileIndexRefreshSession is the optional bound-session forced index-refresh facet.
+type FileIndexRefreshSession interface {
+	RefreshFileIndex(context.Context) (protocol.SessionFileIndex, error)
+}
+
 // WorkspaceFilesSession is the optional bounded workspace exploration surface.
 type WorkspaceFilesSession interface {
 	WorkspaceLimits() protocol.WorkspaceLimits

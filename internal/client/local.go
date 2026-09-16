@@ -163,6 +163,10 @@ func (c *localSession) FileIndex(ctx context.Context) (protocol.SessionFileIndex
 	return c.transport.GetSessionFileIndex(ctx, c.id)
 }
 
+func (c *localSession) RefreshFileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
+	return c.transport.RefreshSessionFileIndex(ctx, c.id)
+}
+
 func (c *localSession) WorkspaceLimits() protocol.WorkspaceLimits {
 	return protocol.DefaultWorkspaceLimits()
 }

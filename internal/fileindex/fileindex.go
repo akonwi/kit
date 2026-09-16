@@ -36,24 +36,42 @@ type Options struct {
 	MaxEntries int
 }
 
+// Result is one bounded project-path scan.
+type Result struct {
+	Entries   []Entry
+	Truncated bool
+}
+
 // Scan walks root depth-first in name order and returns directories followed by
 // files, each group sorted by path. Unreadable directories are skipped.
 func Scan(ctx context.Context, root string, opts Options) ([]Entry, error) {
+	result, err := ScanResult(ctx, root, opts)
+	return result.Entries, err
+}
+
+// ScanResult walks root like Scan and reports whether the entry bound omitted
+// anything. It examines at most one indexable entry beyond the returned bound.
+func ScanResult(ctx context.Context, root string, opts Options) (Result, error) {
 	maxEntries := opts.MaxEntries
 	if maxEntries <= 0 {
 		maxEntries = DefaultMaxEntries
 	}
-	scanner := &scanner{ctx: ctx, root: root, maxEntries: maxEntries}
+	scanner := &scanner{ctx: ctx, root: root, maxEntries: maxEntries + 1}
 	rules, err := scanner.readIgnoreRules(root, "")
 	if err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	if err := scanner.walk(root, "", rules); err != nil {
-		return nil, err
+		return Result{}, err
 	}
 	sort.Slice(scanner.dirs, func(i, j int) bool { return scanner.dirs[i].Path < scanner.dirs[j].Path })
 	sort.Slice(scanner.files, func(i, j int) bool { return scanner.files[i].Path < scanner.files[j].Path })
-	return append(scanner.dirs, scanner.files...), nil
+	entries := append(scanner.dirs, scanner.files...)
+	truncated := len(entries) > maxEntries
+	if truncated {
+		entries = entries[:maxEntries]
+	}
+	return Result{Entries: entries, Truncated: truncated}, nil
 }
 
 type scanner struct {

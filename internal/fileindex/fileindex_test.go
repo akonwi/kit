@@ -108,9 +108,25 @@ func TestScanBoundsEntriesInDepthFirstNameOrder(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	want := []string{"a/", "b/", "a/one.txt", "zed.txt"}
+	want := []string{"a/", "b/", "a/one.txt", "a/two.txt"}
 	if got := paths(entries); !reflect.DeepEqual(got, want) {
 		t.Fatalf("bounded scan paths = %q, want %q", got, want)
+	}
+}
+
+func TestScanResultReportsTruncationOnlyAfterOneExtraIndexableEntry(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	writeFile(t, root, "a.txt", "")
+	writeFile(t, root, "b.txt", "")
+
+	exact, err := ScanResult(context.Background(), root, Options{MaxEntries: 2})
+	if err != nil || exact.Truncated || len(exact.Entries) != 2 {
+		t.Fatalf("exact-bound scan = %+v, %v", exact, err)
+	}
+	truncated, err := ScanResult(context.Background(), root, Options{MaxEntries: 1})
+	if err != nil || !truncated.Truncated || len(truncated.Entries) != 1 || truncated.Entries[0].Path != "a.txt" {
+		t.Fatalf("lookahead scan = %+v, %v", truncated, err)
 	}
 }
 

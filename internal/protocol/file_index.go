@@ -26,6 +26,7 @@ type SessionFileIndex struct {
 	SessionID string           `json:"sessionId"`
 	CWD       string           `json:"cwd"`
 	Entries   []FileIndexEntry `json:"entries"`
+	Truncated bool             `json:"truncated"`
 }
 
 // Validate checks the file index's identity, bounds, and portable relative paths.

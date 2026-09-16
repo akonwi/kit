@@ -418,6 +418,29 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if !foundPrompt {
 		t.Fatalf("GetSessionFileIndex() did not contain project prompt: %+v", indexed.Entries)
 	}
+	if err := os.WriteFile(filepath.Join(workspace, "after-index.txt"), []byte("new"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	cached, err := client.GetSessionFileIndex(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, entry := range cached.Entries {
+		if entry.Path == "after-index.txt" {
+			t.Fatal("ordinary file-index read unexpectedly bypassed the daemon cache")
+		}
+	}
+	refreshed, err := client.RefreshSessionFileIndex(context.Background(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	foundRefreshed := false
+	for _, entry := range refreshed.Entries {
+		foundRefreshed = foundRefreshed || entry.Path == "after-index.txt"
+	}
+	if !foundRefreshed {
+		t.Fatalf("forced file-index refresh did not include new file: %+v", refreshed.Entries)
+	}
 	retried, err := client.CreateSession(context.Background(), createInput)
 	if err != nil || retried.ID != created.ID {
 		t.Fatalf("retry CreateSession() = %+v, %v; want %q", retried, err, created.ID)

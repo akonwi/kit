@@ -56,25 +56,23 @@ func TestFileMentionSelectionAndInsertion(t *testing.T) {
 	t.Parallel()
 	controller := fileMentionController{}
 	controller.Observe("say ", "say @", false)
-	generation := controller.BeginLoad("/repo")
 	entries := []protocol.FileIndexEntry{
 		{Path: "docs/", IsDir: true},
 		{Path: "internal/tui/app.go"},
 		{Path: "internal/tui/shell.go"},
 	}
-	if !controller.Loaded(generation, "/repo", entries) {
-		t.Fatal("loaded result was rejected")
-	}
+	controller.ensureSelection(entries)
 	controller.Observe("say @", "say @tui", false)
-	if got := controller.filtered(); len(got) != 2 {
+	controller.ensureSelection(entries)
+	if got := controller.filtered(entries); len(got) != 2 {
 		t.Fatalf("filtered entries = %+v, want two tui files", got)
 	}
-	first, ok := controller.Selected()
+	first, ok := controller.Selected(entries)
 	if !ok || first.Path != "internal/tui/app.go" {
 		t.Fatalf("selected = %+v, %v", first, ok)
 	}
-	controller.Move(1)
-	selected, ok := controller.Selected()
+	controller.Move(entries, 1)
+	selected, ok := controller.Selected(entries)
 	if !ok || selected.Path != "internal/tui/shell.go" {
 		t.Fatalf("selected after move = %+v, %v", selected, ok)
 	}
@@ -95,12 +93,13 @@ func TestFileMentionSelectionAndInsertion(t *testing.T) {
 
 func TestFileMentionKeyNavigation(t *testing.T) {
 	t.Parallel()
-	controller := fileMentionController{Open: true, Entries: []protocol.FileIndexEntry{{Path: "a.go"}, {Path: "b.go"}}, Selection: "a.go"}
-	_, _, handled := controller.HandleKey(ui.Key{Keycode: vaxis.KeyDown})
+	entries := []protocol.FileIndexEntry{{Path: "a.go"}, {Path: "b.go"}}
+	controller := fileMentionController{Open: true, Selection: "a.go"}
+	_, _, handled := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyDown})
 	if !handled || controller.Selection != "b.go" {
 		t.Fatalf("down handled = %v, selection = %q", handled, controller.Selection)
 	}
-	entry, selected, handled := controller.HandleKey(ui.Key{Keycode: vaxis.KeyEnter})
+	entry, selected, handled := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyEnter})
 	if !handled || !selected || entry.Path != "b.go" {
 		t.Fatalf("enter = %+v, selected %v, handled %v", entry, selected, handled)
 	}
@@ -110,7 +109,8 @@ func TestFileMentionSurfaceShowsPathsAndDirectoryDescription(t *testing.T) {
 	t.Parallel()
 	view := shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Mention files"}, Composer: "see @src",
-		FileMention: fileMentionController{Open: true, Anchor: len("see "), Query: "src", Selection: "src/", Entries: []protocol.FileIndexEntry{
+		FileMention: fileMentionController{Open: true, Anchor: len("see "), Query: "src", Selection: "src/"},
+		IndexedFiles: indexedFileSource{Entries: []protocol.FileIndexEntry{
 			{Path: "src/", IsDir: true}, {Path: "src/main.go"},
 		}},
 	}}
@@ -133,6 +133,32 @@ func TestFileMentionSurfaceShowsPathsAndDirectoryDescription(t *testing.T) {
 	}
 	if application.Cell(column, row).Style.Background == application.Cell(column, row+1).Style.Background {
 		t.Fatal("selected file mention row does not have a distinct background")
+	}
+}
+
+func TestFileMentionSurfaceShowsSharedIndexErrorAndTruncation(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name   string
+		source indexedFileSource
+		want   string
+	}{
+		{name: "error", source: indexedFileSource{Error: "index unavailable"}, want: "Could not load files: index unavailable"},
+		{name: "stale error", source: indexedFileSource{Entries: []protocol.FileIndexEntry{{Path: "main.go"}}, Error: "refresh failed"}, want: "Refresh failed: refresh failed"},
+		{name: "truncated", source: indexedFileSource{Entries: []protocol.FileIndexEntry{{Path: "main.go"}}, Truncated: true}, want: "Showing first 4,000 indexed paths"},
+	}
+	for _, test := range cases {
+		t.Run(test.name, func(t *testing.T) {
+			view := shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, Session: protocol.SessionInfo{Name: "Mention files"}, Composer: "@",
+				FileMention: fileMentionController{Open: true}, IndexedFiles: test.source,
+			}}
+			application := uitest.New(view)
+			application.Pump(80, 24)
+			if text := strings.Join(paintedRows(application, 80, 24), "\n"); !strings.Contains(text, test.want) {
+				t.Fatalf("mention state missing %q:\n%s", test.want, text)
+			}
+		})
 	}
 }
 
