@@ -56,6 +56,14 @@ type WorkspaceFilesSession interface {
 	ReadWorkspaceFile(context.Context, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
 }
 
+// AnnotationSession is the optional server-owned draft annotation surface.
+type AnnotationSession interface {
+	ListAnnotations(context.Context, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)
+	CreateAnnotation(context.Context, protocol.CreateAnnotationInput) (protocol.Annotation, error)
+	UpdateAnnotation(context.Context, protocol.UpdateAnnotationInput) (protocol.Annotation, error)
+	DeleteAnnotation(context.Context, protocol.DeleteAnnotationInput) error
+}
+
 // ErrTranscriptCursorUnavailable indicates that older history must be restarted from a fresh snapshot.
 var ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
 

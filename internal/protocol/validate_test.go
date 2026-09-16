@@ -214,6 +214,14 @@ func TestPromptInputValidate(t *testing.T) {
 			t.Fatalf("Validate() accepted attachment IDs %#v", ids)
 		}
 	}
+	if err := (PromptInput{AnnotationIDs: []uint64{1, 2}}).Validate(); err != nil {
+		t.Fatalf("Validate() annotation-only prompt error = %v", err)
+	}
+	for _, ids := range [][]uint64{{0}, {1, 1}, make([]uint64, MaxAnnotationsPerPrompt+1)} {
+		if err := (PromptInput{Text: "hello", AnnotationIDs: ids}).Validate(); err == nil {
+			t.Fatalf("Validate() accepted annotation IDs %#v", ids)
+		}
+	}
 	for _, text := range []string{"", "   ", "bad\x00prompt", strings.Repeat("<", (128<<10)+1)} {
 		if err := (PromptInput{Text: text}).Validate(); err == nil {
 			t.Fatalf("Validate() accepted prompt of %d bytes", len(text))

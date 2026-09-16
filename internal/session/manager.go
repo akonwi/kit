@@ -14,6 +14,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
@@ -110,6 +111,7 @@ type Manager struct {
 	bundleBuilder         RuntimeBundleBuilder
 	modelContextWindow    func(string) int
 	attachments           attachment.Store
+	annotations           *kitannotation.Service
 	mailbox               subagent.Repository
 	peerQueries           peer.Repository
 	peerLimits            peer.Limits
@@ -213,6 +215,7 @@ func (r *runtime) signalEventChangedLocked() {
 type PromptInput struct {
 	Text          string
 	AttachmentIDs []string
+	AnnotationIDs []uint64
 }
 
 // FollowUpQueue is the renderer-safe state of one session's deferred prompts.
@@ -253,6 +256,7 @@ type ManagerOption func(*managerOptions) error
 type managerOptions struct {
 	droidDirectory     string
 	attachments        attachment.Store
+	annotations        *kitannotation.Service
 	modelContextWindow func(string) int
 }
 
@@ -263,6 +267,17 @@ func WithModelContextWindow(resolve func(string) int) ManagerOption {
 			return fmt.Errorf("model context window resolver is required")
 		}
 		options.modelContextWindow = resolve
+		return nil
+	}
+}
+
+// WithAnnotationService supplies server-owned draft annotation resolution.
+func WithAnnotationService(service *kitannotation.Service) ManagerOption {
+	return func(options *managerOptions) error {
+		if service == nil {
+			return fmt.Errorf("annotation service is required")
+		}
+		options.annotations = service
 		return nil
 	}
 }
@@ -329,7 +344,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	manager := &Manager{
-		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments,
+		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments, annotations: options.annotations,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		bashContext: bashContext, cancelBash: cancelBash,
 		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
@@ -1115,7 +1130,23 @@ func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, promp
 			return PromptSubmission{}, fmt.Errorf("%w: follow-up queue capacity reached", ErrBusy)
 		}
 		loaded.mu.Unlock()
-		if _, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt); err != nil {
+		prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, prompt)
+		if err != nil {
+			return PromptSubmission{}, err
+		}
+		var annotationRecords []kitannotation.Record
+		if prepared != nil {
+			annotationRecords = prepared.Records
+			defer prepared.Abort()
+		}
+		annotationSubmissionID := ""
+		if prepared != nil {
+			annotationSubmissionID, err = identifier.New("annotation_submission_")
+			if err != nil {
+				return PromptSubmission{}, err
+			}
+		}
+		if _, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt, annotationRecords, annotationSubmissionID); err != nil {
 			return PromptSubmission{}, err
 		}
 		loaded.mu.Lock()
@@ -1172,12 +1203,45 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 		}
 		prompt := loaded.followUps[0]
 		loaded.mu.Unlock()
-		content, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt)
+		prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, prompt)
+		var annotationRecords []kitannotation.Record
+		if prepared != nil {
+			annotationRecords = prepared.Records
+		}
+		var content []droids.InputContent
+		annotationSubmissionID := ""
+		if err == nil && prepared != nil {
+			annotationSubmissionID, err = identifier.New("annotation_submission_")
+		}
+		if err == nil {
+			content, err = m.resolvePromptContent(ctx, sessionID, loaded.model, prompt, annotationRecords, annotationSubmissionID)
+		}
+		if err == nil && prepared != nil {
+			err = prepared.Reserve(ctx, annotationSubmissionID)
+		}
+		promptAccepted := false
 		if err == nil {
 			_, err = loaded.droid.Prompt(ctx, droids.Input{Content: content}, droids.PromptOptions{Steer: true})
+			promptAccepted = err == nil
+		}
+		if promptAccepted && prepared != nil {
+			acceptedMessageID, identityErr := loaded.droid.AnnotationSubmissionMessageID(context.Background(), annotationSubmissionID)
+			_ = prepared.Commit()
+			if identityErr != nil {
+				err = identityErr
+			} else {
+				m.AnnotationsSubmitted(sessionID, string(acceptedMessageID), prompt.AnnotationIDs)
+			}
+			prepared.Release()
+		} else if prepared != nil {
+			prepared.Abort()
 		}
 		if err != nil {
 			loaded.mu.Lock()
+			if promptAccepted {
+				loaded.followUps = loaded.followUps[1:]
+				promoted++
+			}
 			queue := projectFollowUpQueue(loaded.followUps)
 			loaded.mu.Unlock()
 			return FollowUpPromotion{Promoted: promoted, Queue: queue}, err
@@ -1190,8 +1254,8 @@ func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (Follo
 }
 
 func validatePromptInput(input PromptInput) error {
-	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
-		return fmt.Errorf("%w: prompt must include text or an attachment", ErrInvalidInput)
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 && len(input.AnnotationIDs) == 0 {
+		return fmt.Errorf("%w: prompt must include text, an attachment, or an annotation", ErrInvalidInput)
 	}
 	if input.Text != "" {
 		if err := validatePromptText(input.Text); err != nil {
@@ -1211,21 +1275,63 @@ func validatePromptInput(input PromptInput) error {
 		}
 		seen[id] = struct{}{}
 	}
+	if len(input.AnnotationIDs) > 64 {
+		return fmt.Errorf("%w: prompt has too many annotations", ErrInvalidInput)
+	}
+	seenAnnotations := make(map[uint64]struct{}, len(input.AnnotationIDs))
+	for _, id := range input.AnnotationIDs {
+		if id == 0 {
+			return fmt.Errorf("%w: invalid annotation id", ErrInvalidInput)
+		}
+		if _, duplicate := seenAnnotations[id]; duplicate {
+			return fmt.Errorf("%w: duplicate annotation id", ErrInvalidInput)
+		}
+		seenAnnotations[id] = struct{}{}
+	}
 	return nil
 }
 
 func clonePromptInputs(inputs []PromptInput) []PromptInput {
 	cloned := make([]PromptInput, len(inputs))
 	for index, input := range inputs {
-		cloned[index] = PromptInput{Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...)}
+		cloned[index] = PromptInput{Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
 	}
 	return cloned
 }
 
-func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, model droids.Model, input PromptInput) ([]droids.InputContent, error) {
-	content := make([]droids.InputContent, 0, len(input.AttachmentIDs)+1)
+func (m *Manager) prepareAnnotations(ctx context.Context, loaded *runtime, sessionID string, input PromptInput) (*kitannotation.PreparedSubmission, error) {
+	if len(input.AnnotationIDs) == 0 {
+		return nil, nil
+	}
+	if m.annotations == nil {
+		return nil, fmt.Errorf("%w: annotations are unavailable", ErrInvalidInput)
+	}
+	if err := m.annotations.RecoverSubmissions(ctx, sessionID, loaded.droid.HasAnnotationSubmission); err != nil {
+		return nil, err
+	}
+	return m.annotations.PrepareSubmission(ctx, sessionID, loaded.workspace.CWD(), input.AnnotationIDs)
+}
+
+func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, model droids.Model, input PromptInput, annotations []kitannotation.Record, annotationSubmissionID string) ([]droids.InputContent, error) {
+	content := make([]droids.InputContent, 0, len(input.AttachmentIDs)+2)
 	if strings.TrimSpace(input.Text) != "" {
 		content = append(content, droids.TextInput{Text: input.Text})
+	}
+	if len(annotations) > 0 {
+		projection, err := kitannotation.ModelProjection(annotations)
+		if err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalidInput, err)
+		}
+		snapshots := make([]droids.SubmittedAnnotation, 0, len(annotations))
+		for _, record := range annotations {
+			snapshots = append(snapshots, droids.SubmittedAnnotation{
+				ID: record.ID, Kind: "workspace_file",
+				WorkspaceID: record.Anchor.WorkspaceID, Path: record.Anchor.Path, FileRevision: record.Anchor.FileRevision,
+				StartLine: record.Anchor.StartLine, EndLine: record.Anchor.EndLine,
+				Preview: record.Preview.Text, Truncated: record.Preview.Truncated, Body: record.Body,
+			})
+		}
+		content = append(content, droids.AnnotationInput{SubmissionID: annotationSubmissionID, Text: projection, Annotations: snapshots})
 	}
 	if len(input.AttachmentIDs) == 0 {
 		return content, nil
@@ -1384,8 +1490,29 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		release()
 		return RunReservation{}, ErrBusy
 	}
-	content, err := m.resolvePromptContent(ctx, sessionID, loaded.model, input)
+	prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, input)
 	if err != nil {
+		release()
+		return RunReservation{}, err
+	}
+	var annotationRecords []kitannotation.Record
+	if prepared != nil {
+		annotationRecords = prepared.Records
+	}
+	annotationSubmissionID := ""
+	if prepared != nil {
+		annotationSubmissionID, err = identifier.New("annotation_submission_")
+		if err != nil {
+			prepared.Abort()
+			release()
+			return RunReservation{}, err
+		}
+	}
+	content, err := m.resolvePromptContent(ctx, sessionID, loaded.model, input, annotationRecords, annotationSubmissionID)
+	if err != nil {
+		if prepared != nil {
+			prepared.Abort()
+		}
 		release()
 		return RunReservation{}, err
 	}
@@ -1393,35 +1520,83 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		After: loaded.eventCursor, IncludeTransient: true, Buffer: 256,
 	})
 	if err != nil {
+		if prepared != nil {
+			prepared.Abort()
+		}
 		release()
 		return RunReservation{}, err
 	}
 	if err := m.touchSessionActivity(ctx, sessionID, time.Now().UTC()); err != nil {
 		subscription.Close()
+		if prepared != nil {
+			prepared.Abort()
+		}
 		release()
 		return RunReservation{}, err
 	}
 	pendingMailbox, err := m.informPendingSubagentMailbox(ctx, sessionID, loaded.droid)
 	if err != nil {
 		subscription.Close()
+		if prepared != nil {
+			prepared.Abort()
+		}
 		release()
 		return RunReservation{}, err
+	}
+	if prepared != nil {
+		if err := prepared.Reserve(ctx, annotationSubmissionID); err != nil {
+			subscription.Close()
+			prepared.Abort()
+			release()
+			return RunReservation{}, err
+		}
 	}
 	handle, err := loaded.droid.Prompt(ctx, droids.Input{Content: content}, droids.PromptOptions{})
 	if err != nil {
 		subscription.Close()
+		if prepared != nil {
+			prepared.Abort()
+		}
 		release()
 		if errors.Is(err, droids.ErrBusy) {
 			return RunReservation{}, ErrBusy
 		}
 		return RunReservation{}, err
 	}
+	acceptedAnnotationMessageID := ""
+	if prepared != nil {
+		messageID, identityErr := loaded.droid.AnnotationSubmissionMessageID(context.Background(), annotationSubmissionID)
+		_ = prepared.Commit()
+		defer prepared.Release()
+		if identityErr != nil {
+			_ = loaded.droid.Abort(context.Background())
+			subscription.Close()
+			release()
+			return RunReservation{}, identityErr
+		}
+		acceptedAnnotationMessageID = string(messageID)
+	}
 	turnID := string(handle.TurnID())
 	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
-	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, nil, []NewEvent{
+	livePromptText := input.Text
+	if strings.TrimSpace(livePromptText) == "" {
+		if len(input.AnnotationIDs) > 0 {
+			livePromptText = "Annotations"
+		} else {
+			livePromptText = "Attachment"
+		}
+	}
+	initialEvents := []NewEvent{
 		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
-		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(input.Text)},
-	})
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventUserMessage, Text: boundedLiveText(livePromptText)},
+	}
+	if len(input.AnnotationIDs) > 0 {
+		initialEvents = append(initialEvents, NewEvent{
+			SessionID: sessionID, Kind: EventAnnotationSubmitted,
+			AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...), AcceptedMessageID: acceptedAnnotationMessageID,
+		})
+	}
+	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, nil, initialEvents)
 	if err == nil {
 		m.mu.Lock()
 		delete(m.mailboxBlocked, sessionID)

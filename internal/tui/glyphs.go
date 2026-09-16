@@ -21,4 +21,6 @@ const (
 	glyphTaskChecked    = "☑"
 	glyphTableSeparator = "│"
 	glyphHeavyLine      = "━"
+	glyphDiamond        = "◆"
+	glyphComment        = "🗨"
 )

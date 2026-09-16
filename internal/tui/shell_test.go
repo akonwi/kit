@@ -92,9 +92,57 @@ func TestComposerAttachmentsRenderAboveInputSeparator(t *testing.T) {
 	application.Pump(80, 24)
 	rows := paintedRows(application, 80, 24)
 	_, attachmentRow := findTextCell(t, rows, "attachment image.png")
+	mediaColumn, _ := findTextCell(t, rows, "image/png")
+	removeColumn, _ := findTextCell(t, rows, glyphTimes)
+	if removeColumn-(mediaColumn+len("image/png")) != 2 {
+		t.Fatalf("attachment remove gap = %d, want 2", removeColumn-(mediaColumn+len("image/png")))
+	}
 	_, composerRow := findTextCell(t, rows, "Ask kit to do something")
 	if composerRow-attachmentRow != 2 {
 		t.Fatalf("attachment row = %d, composer row = %d; want one separator row between them", attachmentRow, composerRow)
+	}
+}
+
+func TestComposerAttachmentRemoveRemainsVisibleForLongNames(t *testing.T) {
+	t.Parallel()
+	application := uitest.New(composerAttachmentRow(ui.DefaultTheme(), stagedAttachment{
+		Filename: "a-very-long-attachment-name-that-must-truncate.png",
+		Info:     protocol.AttachmentInfo{Size: 2048, MediaType: "image/png"},
+	}, 0, func(ui.EventContext, int) {}))
+	application.Pump(30, 1)
+	rows := paintedRows(application, 30, 1)
+	column, _ := findTextCell(t, rows, glyphTimes)
+	if column >= 30 || !strings.Contains(rows[0], "…  "+glyphTimes) {
+		t.Fatalf("long attachment remove placement at %d:\n%s", column, application.Text())
+	}
+}
+
+func TestComposerAnnotationsRenderAboveInputSeparator(t *testing.T) {
+	t.Parallel()
+	view := shellView{Snapshot: shellSnapshot{
+		Phase:   phaseReady,
+		Session: protocol.SessionInfo{ID: "session-1", Name: "Annotations", Model: "test/model"},
+		ComposerAnnotations: []protocol.AnnotationSummary{{
+			ID: 7,
+			Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+				WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go",
+				FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 4, EndLine: 6,
+			}},
+			BodyPreview: "Change this", Preview: "source",
+		}},
+	}}
+	application := uitest.New(view)
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	_, annotationRow := findTextCell(t, rows, glyphComment+" main.go")
+	metaColumn, _ := findTextCell(t, rows, "L4–6")
+	removeColumn, _ := findTextCell(t, rows, glyphTimes)
+	if removeColumn-(metaColumn+len([]rune("L4–6"))) != 2 {
+		t.Fatalf("annotation remove gap = %d, want 2", removeColumn-(metaColumn+len([]rune("L4–6"))))
+	}
+	_, composerRow := findTextCell(t, rows, "Ask kit to do something")
+	if composerRow-annotationRow != 2 || !strings.Contains(rows[annotationRow], "L4–6") {
+		t.Fatalf("annotation row = %q, composer row = %d", rows[annotationRow], composerRow)
 	}
 }
 
@@ -1121,11 +1169,45 @@ func TestTranscriptUserEntryUsesTranscriptBackground(t *testing.T) {
 	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
 		ID:      "user_1",
 		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the file"}},
-	}, nil))
+	}, nil, false, nil))
 	app.Pump(40, 4)
 	column, row := findPaintedCellSequence(t, app, 40, 4, "Inspect the file")
 	if got := app.Cell(column, row).Background; got != theme.Background {
 		t.Fatalf("user message background = %#v, want transcript background %#v", got, theme.Background)
+	}
+}
+
+func TestTranscriptUserEntryPreservesSubmittedAnnotationEvidence(t *testing.T) {
+	t.Parallel()
+	annotation := protocol.SubmittedAnnotation{
+		OriginalAnnotationID: 4, Body: "Keep this frozen explanation literal.",
+		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go",
+			FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 8, EndLine: 9,
+		}},
+		Preview: protocol.AnnotationPreview{StartLine: 8, EndLine: 9, Text: "frozen source", Truncated: true},
+	}
+	message := protocol.TranscriptMessage{
+		ID: "user_1", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentAnnotations, Annotations: []protocol.SubmittedAnnotation{annotation}}},
+	}
+	toggles := 0
+	collapsed := uitest.New(transcriptUserEntry(ui.DefaultTheme(), message, nil, false, func(ui.EventContext) { toggles++ }))
+	collapsed.Pump(72, 10)
+	collapsedRows := paintedRows(collapsed, 72, 10)
+	column, row := findTextCell(t, collapsedRows, glyphComment)
+	if got, want := strings.TrimSpace(strings.Trim(strings.TrimSpace(collapsedRows[row]), glyphTableSeparator)), glyphComment+" 1 comment on main.go "+glyphTriangleRight; got != want {
+		t.Fatalf("collapsed annotation = %q, want %q", got, want)
+	}
+	collapsed.Click(column, row)
+	if toggles != 1 {
+		t.Fatalf("annotation toggles = %d, want 1", toggles)
+	}
+	expanded := uitest.New(transcriptUserEntry(ui.DefaultTheme(), message, nil, true, nil))
+	expanded.Pump(72, 10)
+	for _, want := range []string{"main.go  L8–9", "frozen source " + glyphEllipsis, "Keep this frozen explanation literal."} {
+		if !expanded.Contains(want) {
+			t.Fatalf("expanded annotation evidence missing %q:\n%s", want, expanded.Text())
+		}
 	}
 }
 

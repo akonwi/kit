@@ -1,30 +1,38 @@
 package droids
 
 import (
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"path"
 	"strings"
 	"time"
+	"unicode"
+	"unicode/utf8"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 const (
-	runtimeRecordKind       = "runtime"
-	runtimeRecordID         = "current"
-	messageRecordKind       = "message"
-	turnRecordKind          = "turn"
-	attemptRecordKind       = "attempt"
-	toolRecordKind          = "tool"
-	checkpointKind          = "checkpoint"
-	boundaryReceiptKind     = "boundary_receipt"
-	boundaryConsumptionKind = "boundary_consumption"
-	compactionIntentKind    = "compaction_intent"
-	compactionReceiptKind   = "compaction_receipt"
-	usageContributionKind   = "usage_contribution"
-	lineageRecordKind       = "lineage"
-	lineageRecordID         = "parent"
-	recordVersion           = 1
-	eventVersion            = 1
+	runtimeRecordKind               = "runtime"
+	runtimeRecordID                 = "current"
+	messageRecordKind               = "message"
+	turnRecordKind                  = "turn"
+	attemptRecordKind               = "attempt"
+	toolRecordKind                  = "tool"
+	checkpointKind                  = "checkpoint"
+	boundaryReceiptKind             = "boundary_receipt"
+	boundaryConsumptionKind         = "boundary_consumption"
+	compactionIntentKind            = "compaction_intent"
+	compactionReceiptKind           = "compaction_receipt"
+	usageContributionKind           = "usage_contribution"
+	lineageRecordKind               = "lineage"
+	annotationSubmissionReceiptKind = "annotation_submission_receipt"
+	lineageRecordID                 = "parent"
+	recordVersion                   = 1
+	eventVersion                    = 1
 )
 
 type cyclePhase string
@@ -89,12 +97,14 @@ type BoundaryMessageWire struct {
 }
 
 type wireInputContent struct {
-	Type         string `json:"type"`
-	Text         string `json:"text,omitempty"`
-	Filename     string `json:"filename,omitempty"`
-	MediaType    string `json:"media_type,omitempty"`
-	URL          string `json:"url,omitempty"`
-	AttachmentID string `json:"attachment_id,omitempty"`
+	Type         string                `json:"type"`
+	Text         string                `json:"text,omitempty"`
+	Filename     string                `json:"filename,omitempty"`
+	MediaType    string                `json:"media_type,omitempty"`
+	URL          string                `json:"url,omitempty"`
+	AttachmentID string                `json:"attachment_id,omitempty"`
+	Annotations  []SubmittedAnnotation `json:"annotations,omitempty"`
+	SubmissionID string                `json:"submission_id,omitempty"`
 }
 
 type durableDroidError struct {
@@ -426,6 +436,12 @@ func inputToMessage(input Input) (UserMessage, error) {
 				return UserMessage{}, fmt.Errorf("droids: prompt text is empty")
 			}
 			content = append(content, value)
+		case AnnotationInput:
+			if err := validateAnnotationInput(value); err != nil {
+				return UserMessage{}, err
+			}
+			value.Annotations = append([]SubmittedAnnotation(nil), value.Annotations...)
+			content = append(content, value)
 		case FileInput:
 			mediaType, err := validateMediaType(value.MediaType)
 			if err != nil {
@@ -454,6 +470,11 @@ func inputToWire(content []InputContent) ([]wireInputContent, error) {
 				return nil, fmt.Errorf("droids: input text is empty")
 			}
 			out = append(out, wireInputContent{Type: "text", Text: value.Text, AttachmentID: value.AttachmentID, Filename: value.Filename, MediaType: value.MediaType})
+		case AnnotationInput:
+			if err := validateAnnotationInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, wireInputContent{Type: "annotations", Text: value.Text, Annotations: append([]SubmittedAnnotation(nil), value.Annotations...), SubmissionID: value.SubmissionID})
 		case FileInput:
 			if _, err := NewFileInputURL(value.Filename, value.MediaType, value.URL); err != nil {
 				return nil, fmt.Errorf("droids: invalid file input: %w", err)
@@ -474,6 +495,12 @@ func inputFromWire(content []wireInputContent) ([]InputContent, error) {
 		switch block.Type {
 		case "text":
 			out = append(out, TextInput{Text: block.Text, AttachmentID: block.AttachmentID, Filename: block.Filename, MediaType: block.MediaType})
+		case "annotations":
+			value := AnnotationInput{SubmissionID: block.SubmissionID, Text: block.Text, Annotations: append([]SubmittedAnnotation(nil), block.Annotations...)}
+			if err := validateAnnotationInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, value)
 		case "file":
 			out = append(out, FileInput{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL, AttachmentID: block.AttachmentID})
 		default:
@@ -481,6 +508,69 @@ func inputFromWire(content []wireInputContent) ([]InputContent, error) {
 		}
 	}
 	return out, nil
+}
+
+func validateAnnotationInput(input AnnotationInput) error {
+	if !identifier.Valid(input.SubmissionID, "annotation_submission_") || !safeAnnotationText(input.Text, false) || len(input.Text) > 256<<10 || len(input.Annotations) == 0 || len(input.Annotations) > 64 {
+		return fmt.Errorf("droids: annotation input is invalid")
+	}
+	encodedBytes := 0
+	for _, annotation := range input.Annotations {
+		encoded, err := json.Marshal(annotation)
+		encodedBytes += len(encoded)
+		if err != nil || annotation.ID == 0 || annotation.Kind != "workspace_file" ||
+			!validAnnotationToken(annotation.WorkspaceID, "workspace_") || !validAnnotationToken(annotation.FileRevision, "file_") ||
+			!validSubmittedAnnotationPath(annotation.Path) ||
+			annotation.StartLine <= 0 || annotation.EndLine < annotation.StartLine || annotation.EndLine-annotation.StartLine+1 > 200 ||
+			!safeAnnotationText(annotation.Body, false) || len(annotation.Body) > 16<<10 || !safeAnnotationText(annotation.Preview, true) || len(annotation.Preview) > 16<<10 {
+			return fmt.Errorf("droids: submitted annotation is invalid")
+		}
+	}
+	if encodedBytes > 256<<10 {
+		return fmt.Errorf("droids: submitted annotations exceed aggregate bound")
+	}
+	return nil
+}
+
+func validSubmittedAnnotationPath(value string) bool {
+	if value == "" || len(value) > 4096 || !utf8.ValidString(value) || strings.HasPrefix(value, "/") || strings.HasSuffix(value, "/") || strings.Contains(value, "\\") || path.Clean(value) != value {
+		return false
+	}
+	parts := strings.Split(value, "/")
+	if len(parts) > 64 {
+		return false
+	}
+	for _, part := range parts {
+		if part == "" || part == "." || part == ".." {
+			return false
+		}
+		for _, character := range part {
+			if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+func validAnnotationToken(value, prefix string) bool {
+	if !strings.HasPrefix(value, prefix) || len(value) > 128 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, prefix))
+	return err == nil && len(raw) == sha256.Size
+}
+
+func safeAnnotationText(value string, allowEmpty bool) bool {
+	if !utf8.ValidString(value) || !allowEmpty && strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, character := range value {
+		if character != '\n' && character != '\t' && (unicode.IsControl(character) || unicode.Is(unicode.Cf, character)) {
+			return false
+		}
+	}
+	return true
 }
 
 func boundaryToWire(message BoundaryMessage) (BoundaryMessageWire, error) {

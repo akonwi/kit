@@ -3,6 +3,8 @@ package session
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -14,6 +16,7 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
 )
@@ -51,6 +54,10 @@ const (
 	EventPeerQueryChanged       EventKind = "peer_query.changed"
 	EventInteractionRequested   EventKind = "interaction.requested"
 	EventInteractionResolved    EventKind = "interaction.resolved"
+	EventAnnotationCreated      EventKind = "annotation.created"
+	EventAnnotationUpdated      EventKind = "annotation.updated"
+	EventAnnotationDeleted      EventKind = "annotation.deleted"
+	EventAnnotationSubmitted    EventKind = "annotation.submitted"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -89,6 +96,10 @@ type NewEvent struct {
 	Interaction            *InteractionRequest
 	InteractionID          string
 	InteractionResolution  string
+	AnnotationID           uint64
+	Annotation             *kitannotation.Record
+	AnnotationIDs          []uint64
+	AcceptedMessageID      string
 }
 
 // Event is one ordered live update retained by a loaded runtime.
@@ -147,6 +158,28 @@ func (event NewEvent) Validate() error {
 		if event.TurnID != "" || event.RunID != "" || !identifier.Valid(event.PeerRequestID, "peer_") {
 			return fmt.Errorf("peer query event requires request identity without turn identity")
 		}
+	} else if event.Kind == EventAnnotationCreated || event.Kind == EventAnnotationUpdated {
+		if event.TurnID != "" || event.RunID != "" || event.AnnotationID == 0 || event.Annotation == nil || event.Annotation.ID != event.AnnotationID || event.Annotation.SessionID != event.SessionID {
+			return fmt.Errorf("annotation change event is invalid")
+		}
+	} else if event.Kind == EventAnnotationDeleted {
+		if event.TurnID != "" || event.RunID != "" || event.AnnotationID == 0 || event.Annotation != nil {
+			return fmt.Errorf("annotation deletion event is invalid")
+		}
+	} else if event.Kind == EventAnnotationSubmitted {
+		if event.TurnID != "" || event.RunID != "" || event.AnnotationID != 0 || event.Annotation != nil || !identifier.Valid(event.AcceptedMessageID, "message_") || len(event.AnnotationIDs) == 0 || len(event.AnnotationIDs) > 64 {
+			return fmt.Errorf("annotation submission event is invalid")
+		}
+		seen := make(map[uint64]struct{}, len(event.AnnotationIDs))
+		for _, id := range event.AnnotationIDs {
+			if id == 0 {
+				return fmt.Errorf("annotation submission id is invalid")
+			}
+			if _, duplicate := seen[id]; duplicate {
+				return fmt.Errorf("annotation submission ids are duplicated")
+			}
+			seen[id] = struct{}{}
+		}
 	} else {
 		if event.TurnID == "" || event.RunID == "" {
 			return fmt.Errorf("turn and run ids are required")
@@ -154,14 +187,17 @@ func (event NewEvent) Validate() error {
 		if event.RunID != event.TurnID {
 			return fmt.Errorf("run identity must equal droid turn identity")
 		}
-		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" {
+		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
 			return fmt.Errorf("parent run event cannot carry external identity")
 		}
 	}
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution)
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	if event.Annotation != nil {
+		payloadBytes += len(event.Annotation.SessionID) + len(event.Annotation.Anchor.WorkspaceID) + len(event.Annotation.Anchor.Path) + len(event.Annotation.Anchor.FileRevision) + len(event.Annotation.Body) + len(event.Annotation.Preview.Text) + 64
+	}
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
 		if err != nil {
@@ -248,7 +284,11 @@ func (event NewEvent) Validate() error {
 		if !filepath.IsAbs(event.CWD) || !validWorkspacePath(event.CWD) {
 			return fmt.Errorf("session cwd event requires a safe absolute cwd")
 		}
-	case EventSubagentChanged, EventPeerQueryChanged:
+	case EventAnnotationCreated, EventAnnotationUpdated:
+		if err := validateAnnotationEventRecord(*event.Annotation); err != nil {
+			return err
+		}
+	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
 			return fmt.Errorf("interaction request event is invalid")
@@ -344,6 +384,10 @@ func (event NewEvent) Validate() error {
 	if event.Kind != EventInteractionResolved && (event.InteractionID != "" || event.InteractionResolution != "") {
 		return fmt.Errorf("event kind %q cannot carry interaction resolution data", event.Kind)
 	}
+	isAnnotation := event.Kind == EventAnnotationCreated || event.Kind == EventAnnotationUpdated || event.Kind == EventAnnotationDeleted || event.Kind == EventAnnotationSubmitted
+	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
+		return fmt.Errorf("event kind %q cannot carry annotation data", event.Kind)
+	}
 	isTool := event.Kind == EventToolPlanned || event.Kind == EventToolStarted || event.Kind == EventToolUpdated || event.Kind == EventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
@@ -374,6 +418,33 @@ func (event NewEvent) Validate() error {
 		return fmt.Errorf("event kind %q cannot carry a message id", event.Kind)
 	}
 	return nil
+}
+
+func validateAnnotationEventRecord(record kitannotation.Record) error {
+	if record.ID == 0 || record.SessionID == "" || !validAnnotationToken(record.Anchor.WorkspaceID, "workspace_") || !validAnnotationToken(record.Anchor.FileRevision, "file_") || record.Anchor.Path == "" || filepath.IsAbs(record.Anchor.Path) || filepath.ToSlash(filepath.Clean(record.Anchor.Path)) != record.Anchor.Path || record.Anchor.StartLine <= 0 || record.Anchor.EndLine < record.Anchor.StartLine || record.Anchor.EndLine-record.Anchor.StartLine+1 > 200 || record.Preview.StartLine != record.Anchor.StartLine || record.Preview.EndLine != record.Anchor.EndLine || !validAnnotationEventText(record.Body, false, 16<<10) || !validAnnotationEventText(record.Preview.Text, true, 16<<10) {
+		return fmt.Errorf("annotation event record is invalid")
+	}
+	return nil
+}
+
+func validAnnotationToken(value, prefix string) bool {
+	if !strings.HasPrefix(value, prefix) || len(value) > 128 {
+		return false
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, prefix))
+	return err == nil && len(raw) == sha256.Size
+}
+
+func validAnnotationEventText(value string, allowEmpty bool, limit int) bool {
+	if len(value) > limit || !utf8.ValidString(value) || !allowEmpty && strings.TrimSpace(value) == "" {
+		return false
+	}
+	for _, character := range value {
+		if character != '\n' && character != '\t' && (unicode.IsControl(character) || unicode.Is(unicode.Cf, character)) {
+			return false
+		}
+	}
+	return true
 }
 
 func validInteractionResolution(reason string) bool {

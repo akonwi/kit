@@ -230,6 +230,7 @@ type appState struct {
 	compactOperationID               string
 	sessionDetailsOpen               bool
 	sessionRename                    currentSessionRenameController
+	annotationPicker                 annotationPickerController
 	sessionExplorer                  sessionExplorerController
 	authReturnReady                  bool
 	authFilter                       string
@@ -281,6 +282,7 @@ type appState struct {
 	followUps                        protocol.FollowUpQueue
 	composerAttachmentIDs            []string
 	composerAttachments              []stagedAttachment
+	annotations                      []protocol.AnnotationSummary
 	attachmentUploadGeneration       uint64
 	pendingInteractions              []protocol.InteractionRequest
 	followUpMutationPending          bool
@@ -298,6 +300,7 @@ type appState struct {
 	activityFocus                    ui.FocusNode
 	subagentFocuses                  map[string]*ui.FocusNode
 	workspace                        workspaceController
+	workspaceMouse                   workspaceMouseGestureController
 	workspaceID                      string
 	workspaceFilePicker              workspaceFilePickerController
 	workspaceFilePickerScroll        ui.ScrollController
@@ -369,6 +372,7 @@ type appState struct {
 	bashStarting                     bool
 	bashAdmission                    *bashAdmission
 	bashCollapsed                    map[string]bool
+	transcriptAnnotationsExpanded    map[string]bool
 	bashHistory                      bashHistoryController
 
 	instructions        auth.OpenAICodexDeviceInstructions
@@ -408,6 +412,7 @@ func (s *appState) InitState() {
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.inlineActivityOpen = make(map[string]bool)
 	s.bashCollapsed = make(map[string]bool)
+	s.transcriptAnnotationsExpanded = make(map[string]bool)
 	s.toastCancels = make(map[uint64]context.CancelFunc)
 	s.location = options.Location
 	s.locationBase = options.Location
@@ -926,6 +931,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Status:                       s.status,
 		Composer:                     s.composer,
 		ComposerAttachments:          append([]stagedAttachment(nil), s.composerAttachments...),
+		ComposerAnnotations:          append([]protocol.AnnotationSummary(nil), s.annotations...),
 		ComposerCursorEndGeneration:  s.composerCursorEndGeneration,
 		ComposerCursorOffset:         s.composerCursorOffset,
 		ComposerCursorGeneration:     s.composerCursorGeneration,
@@ -937,6 +943,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ConfigurationPicker:          s.configurationPicker.Snapshot(),
 		SessionDetailsOpen:           s.sessionDetailsOpen,
 		SessionRename:                s.sessionRename.Snapshot(),
+		AnnotationPicker:             annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
 		SessionExplorer:              s.sessionExplorer.Snapshot(),
 		AuthReturnReady:              s.authReturnReady,
 		AuthFilter:                   s.authFilter,
@@ -999,6 +1006,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashRunning:                  s.activeBashID != "",
 		BashStarting:                 s.bashStarting,
 		BashCollapsed:                s.bashCollapsed,
+		AnnotationsExpanded:          s.transcriptAnnotationsExpanded,
 		BashHistory:                  s.bashHistory,
 		FileMention:                  s.fileMention,
 		IndexedFiles:                 s.indexedFiles,
@@ -1009,6 +1017,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
+		WorkspaceMouse: &s.workspaceMouse,
 		OpenAuth: func(ui.EventContext) {
 			if s.phase == phaseAuthGate {
 				s.enterAuthSelect(false)
@@ -1274,6 +1283,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ToggleBashOutput: func(_ ui.EventContext, executionID string) {
 			s.SetState(func() { s.bashCollapsed[executionID] = !s.bashCollapsed[executionID] })
 		},
+		ToggleTranscriptAnnotations: func(_ ui.EventContext, messageID string) {
+			s.SetState(func() { s.transcriptAnnotationsExpanded[messageID] = !s.transcriptAnnotationsExpanded[messageID] })
+		},
 		OpenBashHistory: func(_ ui.EventContext, delta int) bool {
 			return s.openBashHistory(delta)
 		},
@@ -1336,6 +1348,24 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RemoveAttachment: func(_ ui.EventContext, index int) {
 			s.removeComposerAttachment(index)
+		},
+		ActivateAnnotation: func(_ ui.EventContext, annotation protocol.AnnotationSummary) {
+			s.activateAnnotation(annotation)
+		},
+		RemoveAnnotation: func(_ ui.EventContext, annotationID uint64) {
+			s.removeAnnotation(annotationID)
+		},
+		CreateAnnotation: func(anchor protocol.WorkspaceFileAnnotationAnchor, body string, done func(error)) {
+			s.createInlineAnnotation(anchor, body, done)
+		},
+		LoadAnnotation: func(annotationID uint64, done func(string, error)) func() {
+			return s.loadInlineAnnotation(annotationID, done)
+		},
+		UpdateAnnotation: func(annotationID uint64, body string, done func(error)) {
+			s.updateInlineAnnotation(annotationID, body, done)
+		},
+		OpenAnnotationPicker: func(ui.EventContext) {
+			s.SetState(func() { s.annotationPicker.Begin() })
 		},
 		RestoreFollowUps: func(ctx ui.EventContext) {
 			s.restoreFollowUps(ctx)
@@ -1455,6 +1485,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 				return
 			}
+			if s.annotationPicker.Open {
+				s.SetState(func() { s.annotationPicker.Close() })
+				return
+			}
 			if s.sessionRename.Open {
 				if !s.sessionRename.Pending {
 					s.SetState(func() { s.sessionRename.Cancel() })
@@ -1535,6 +1569,33 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+			return ui.EventIgnored
+		}
+		return ui.EventHandled
+	}
+	if s.annotationPicker.Open {
+		if key.EventType == ui.EventRelease {
+			return ui.EventHandled
+		}
+		switch {
+		case key.MatchString("Up"), key.MatchString("k"):
+			s.SetState(func() { s.annotationPicker.Move(-1, len(s.annotations)) })
+		case key.MatchString("Down"), key.MatchString("j"):
+			s.SetState(func() { s.annotationPicker.Move(1, len(s.annotations)) })
+		case key.MatchString("Enter"):
+			if s.annotationPicker.Selection < len(s.annotations) {
+				s.activateAnnotation(s.annotations[s.annotationPicker.Selection])
+				s.SetState(func() { s.annotationPicker.Close() })
+			}
+		case key.MatchString("r"):
+			if s.annotationPicker.Selection < len(s.annotations) && s.annotations[s.annotationPicker.Selection].Stale {
+				s.reanchorAnnotation(s.annotations[s.annotationPicker.Selection])
+			}
+		case key.MatchString("Delete"), key.MatchString("Backspace"):
+			if s.annotationPicker.Selection < len(s.annotations) {
+				s.removeAnnotation(s.annotations[s.annotationPicker.Selection].ID)
+			}
+		case key.MatchString("Escape"), key.MatchString("Ctrl+c"):
 			return ui.EventIgnored
 		}
 		return ui.EventHandled
@@ -1867,6 +1928,9 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
 	s.followUps = snapshot.FollowUps
+	if !staleMetadata {
+		s.annotations = append([]protocol.AnnotationSummary(nil), snapshot.Annotations...)
+	}
 	if s.liveSequence == 0 || (snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor >= s.liveSequence) {
 		s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
 		s.agentFeedbackPending = len(s.pendingInteractions) > 0
@@ -1946,6 +2010,9 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.session.Name, s.session.CWD = name, cwd
 	}
 	s.followUps = snapshot.FollowUps
+	if !staleMetadata {
+		s.annotations = append([]protocol.AnnotationSummary(nil), snapshot.Annotations...)
+	}
 	s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
 	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
 	projected := projectTranscript(snapshot.Messages)
@@ -2314,6 +2381,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 		if event.StreamID != "" {
 			s.liveStreamID = event.StreamID
 		}
+		s.applyAnnotationEvent(event)
 		switch event.Kind {
 		case protocol.SessionEventRunStarted:
 			s.markTerminalRunStarted(event.RunID)
@@ -2773,7 +2841,7 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 
 func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (changedCWD string) {
 	for _, event := range events {
-		if (event.Kind != protocol.SessionEventSessionRenamed && event.Kind != protocol.SessionEventSessionCWDChanged) || event.SessionID != s.session.ID {
+		if !sessionMetadataEvent(event.Kind) || event.SessionID != s.session.ID {
 			continue
 		}
 		if (s.metadataStreamID != "" && event.StreamID != s.metadataStreamID) ||
@@ -2782,6 +2850,7 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		}
 		s.metadataStreamID = event.StreamID
 		s.metadataSequence = event.Sequence
+		s.applyAnnotationEvent(event)
 		switch event.Kind {
 		case protocol.SessionEventSessionRenamed:
 			s.session.Name = event.SessionName
@@ -2800,6 +2869,17 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		}
 	}
 	return changedCWD
+}
+
+func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
+	switch kind {
+	case protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged,
+		protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
+		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
+		return true
+	default:
+		return false
+	}
 }
 
 func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
@@ -2900,7 +2980,7 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				for updates := range stream.Updates() {
 					hasMetadata := false
 					for _, event := range updates {
-						hasMetadata = hasMetadata || event.Kind == protocol.SessionEventSessionRenamed || event.Kind == protocol.SessionEventSessionCWDChanged
+						hasMetadata = hasMetadata || sessionMetadataEvent(event.Kind)
 					}
 					if hasMetadata {
 						copy := append([]protocol.SessionEvent(nil), updates...)
@@ -3500,7 +3580,7 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open ||
+	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open || s.annotationPicker.Open ||
 		s.subagentDismissID != "" || s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
@@ -5226,6 +5306,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composer = s.sessionDrafts[snapshot.Session.ID]
 	s.composerAttachments = append([]stagedAttachment(nil), s.sessionDraftAttachments[snapshot.Session.ID]...)
 	s.composerAttachmentIDs = append([]string(nil), s.sessionDraftAttachmentIDs[snapshot.Session.ID]...)
+	s.annotations = append([]protocol.AnnotationSummary(nil), snapshot.Annotations...)
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.transcriptList = ui.SliverListController{}
@@ -5242,6 +5323,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.transcriptHistoryRestore = 0
 	s.configurationPicker = configurationPickerController{}
 	s.sessionRename.Reset()
+	s.annotationPicker = annotationPickerController{}
 	s.cwdPending = false
 	s.reloadPending = false
 	s.compactPending = false
@@ -5309,6 +5391,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.bashStarting = false
 	s.bashAdmission = nil
 	s.bashCollapsed = make(map[string]bool)
+	s.transcriptAnnotationsExpanded = make(map[string]bool)
 	s.bashHistory = bashHistoryController{}
 	s.status = ""
 	s.applySnapshot(snapshot)
@@ -5359,7 +5442,8 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		}
 	}
 	attachmentIDs := s.composerPromptAttachmentIDs()
-	if text == "" && len(attachmentIDs) == 0 {
+	annotationIDs := s.annotationIDs()
+	if text == "" && len(attachmentIDs) == 0 && len(annotationIDs) == 0 {
 		if s.runPending {
 			s.promoteFollowUps()
 		}
@@ -5370,11 +5454,15 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		return
 	}
 	if s.runPending {
+		if len(annotationIDs) > 0 {
+			s.SetState(func() { s.status = "Annotations wait for the active run to finish before sending" })
+			return
+		}
 		s.queueFollowUp(text)
 		return
 	}
 	bound := s.bound
-	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs}
+	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs, AnnotationIDs: annotationIDs}
 	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Run, error) {
 		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
 			result, err := structured.SubmitPromptInput(ctx, input)
@@ -5408,6 +5496,7 @@ func (s *appState) queueFollowUp(text string) {
 	bound, operation, submittedDraft := s.bound, s.operation, s.composer
 	submittedGeneration := s.composerDraftGeneration
 	submittedAttachments := s.composerPromptAttachmentIDs()
+	submittedAnnotations := s.annotationIDs()
 	submittedRows := append([]stagedAttachment(nil), s.composerAttachments...)
 	ctx, runtime := s.ctx, s.Context().Runtime()
 	s.SetState(func() { s.followUpMutationPending = true })
@@ -5415,7 +5504,7 @@ func (s *appState) queueFollowUp(text string) {
 		var result sessionclient.PromptSubmission
 		var err error
 		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
-			result, err = structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments})
+			result, err = structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
 		} else {
 			result, err = followUpSession.SubmitPrompt(ctx, text)
 		}
@@ -5788,6 +5877,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 				s.subagentDismissError = ""
 			})
 		}
+		return
+	}
+	if s.annotationPicker.Open {
+		s.SetState(func() { s.annotationPicker.Close() })
 		return
 	}
 	if s.sessionRename.Open {

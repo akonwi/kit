@@ -250,7 +250,7 @@ func forkHistoryRecord(record EncodedRecord, sourceID, destinationID Conversatio
 			return EncodedRecord{}, fmt.Errorf("droids: rewrite fork checkpoint %q: %w", record.ID, err)
 		}
 		forked.Payload = payload
-	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind:
+	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind, annotationSubmissionReceiptKind:
 		if !json.Valid(record.Payload) {
 			return EncodedRecord{}, fmt.Errorf("droids: %s record %q is not valid JSON", record.Kind, record.ID)
 		}

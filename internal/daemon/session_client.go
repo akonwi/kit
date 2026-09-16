@@ -186,6 +186,61 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 	return output, nil
 }
 
+// ListAnnotations returns one bounded page of live session annotation drafts.
+func (c *Client) ListAnnotations(ctx context.Context, sessionID string, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
+	values := url.Values{}
+	if input.Cursor != "" {
+		values.Set("cursor", input.Cursor)
+	}
+	if input.PageSize != 0 {
+		values.Set("pageSize", strconv.Itoa(input.PageSize))
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/annotations"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var output protocol.AnnotationPage
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.AnnotationPage{}, err
+	}
+	if err := output.Validate(); err != nil || output.SessionID != sessionID {
+		return protocol.AnnotationPage{}, fmt.Errorf("validate daemon annotation page: %w", err)
+	}
+	return output, nil
+}
+
+// CreateAnnotation creates one guarded live session annotation.
+func (c *Client) CreateAnnotation(ctx context.Context, sessionID string, input protocol.CreateAnnotationInput) (protocol.Annotation, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/annotations"
+	var output protocol.Annotation
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusCreated, &output); err != nil {
+		return protocol.Annotation{}, err
+	}
+	if err := output.Validate(); err != nil || output.SessionID != sessionID {
+		return protocol.Annotation{}, fmt.Errorf("validate daemon annotation: %w", err)
+	}
+	return output, nil
+}
+
+// UpdateAnnotation replaces the body of one live session annotation.
+func (c *Client) UpdateAnnotation(ctx context.Context, sessionID string, input protocol.UpdateAnnotationInput) (protocol.Annotation, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/annotations"
+	var output protocol.Annotation
+	if err := c.sessionJSON(ctx, http.MethodPatch, path, input, http.StatusOK, &output); err != nil {
+		return protocol.Annotation{}, err
+	}
+	if err := output.Validate(); err != nil || output.SessionID != sessionID || output.ID != input.AnnotationID {
+		return protocol.Annotation{}, fmt.Errorf("validate daemon annotation update: %w", err)
+	}
+	return output, nil
+}
+
+// DeleteAnnotation removes one live session annotation.
+func (c *Client) DeleteAnnotation(ctx context.Context, sessionID string, input protocol.DeleteAnnotationInput) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/annotations"
+	return c.sessionJSON(ctx, http.MethodDelete, path, input, http.StatusNoContent, nil)
+}
+
 // GetSessionFileIndex returns project paths indexed on the session host.
 func (c *Client) GetSessionFileIndex(ctx context.Context, sessionID string) (protocol.SessionFileIndex, error) {
 	return c.getSessionFileIndex(ctx, sessionID, false)

@@ -33,6 +33,7 @@ type messageComposer struct {
 	CursorEndGeneration uint64
 	CursorOffset        int
 	CursorGeneration    uint64
+	MaxHeight           int
 }
 
 func (messageComposer) CreateState() ui.State { return &messageComposerState{} }
@@ -70,13 +71,17 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 		cursorOffset = &offset
 		s.cursorGeneration = config.CursorGeneration
 	}
+	maxHeight := config.MaxHeight
+	if maxHeight <= 0 {
+		maxHeight = composerMaxHeight
+	}
 	input := ui.TextArea{
 		Value:        s.value,
 		CursorOffset: cursorOffset,
 		OnChanged:    s.changed,
 		Padding:      ui.Symmetric(1, 0),
 		MinHeight:    1,
-		MaxHeight:    composerMaxHeight,
+		MaxHeight:    maxHeight,
 		SoftWrap:     true,
 		AutoFocus:    true,
 	}

@@ -2,6 +2,9 @@ package daemon
 
 import (
 	"context"
+	"crypto/hmac"
+	"crypto/sha256"
+	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -10,7 +13,9 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
+	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/identifier"
@@ -21,6 +26,38 @@ import (
 	kitvcs "github.com/akonwi/kit/internal/vcs"
 	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
+
+type annotationWorkspaceReader struct{ service *kitworkspace.Service }
+
+func (r annotationWorkspaceReader) ReadFile(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkspaceFileAnchor) (kitannotation.FileEvidence, error) {
+	read, err := r.service.ReadLineRange(ctx, sessionID, cwd, kitworkspace.LineRangeInput{
+		WorkspaceID: anchor.WorkspaceID, Path: anchor.Path, ExpectedFileRevision: anchor.FileRevision,
+		StartLine: anchor.StartLine, EndLine: anchor.EndLine,
+	})
+	if err != nil {
+		var workspaceErr *kitworkspace.Error
+		if errors.As(err, &workspaceErr) {
+			kind := kitannotation.EvidenceUnavailable
+			switch workspaceErr.Code {
+			case kitworkspace.StaleWorkspace:
+				kind = kitannotation.EvidenceStaleWorkspace
+			case kitworkspace.StaleFile, kitworkspace.NotFound:
+				kind = kitannotation.EvidenceStaleFile
+			case kitworkspace.PermissionDenied, kitworkspace.OutsideWorkspace:
+				kind = kitannotation.EvidencePermission
+			case kitworkspace.LimitExceeded, kitworkspace.CapacityExceeded:
+				kind = kitannotation.EvidenceLimit
+			case kitworkspace.InvalidPath, kitworkspace.NotFile, kitworkspace.BinaryFile, kitworkspace.SymlinkTraversal:
+				kind = kitannotation.EvidenceInvalid
+			}
+			return kitannotation.FileEvidence{}, &kitannotation.EvidenceError{Kind: kind}
+		}
+		return kitannotation.FileEvidence{}, err
+	}
+	return kitannotation.FileEvidence{
+		Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: anchor.EndLine,
+	}, nil
+}
 
 const maxSessionRequestBytes = 1 << 20
 
@@ -42,6 +79,10 @@ type sessionService interface {
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	ListAnnotations(context.Context, string, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)
+	CreateAnnotation(context.Context, string, protocol.CreateAnnotationInput) (protocol.Annotation, error)
+	UpdateAnnotation(context.Context, string, protocol.UpdateAnnotationInput) (protocol.Annotation, error)
+	DeleteAnnotation(context.Context, string, protocol.DeleteAnnotationInput) error
 	Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	WaitEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
@@ -65,15 +106,17 @@ type sessionService interface {
 }
 
 type runtimeSessionService struct {
-	manager            *kitsession.Manager
-	availableProviders func(context.Context) []string
-	modelContextWindow func(string) int
-	probeVCS           func(context.Context, string) (*kitvcs.Status, error)
-	fileIndexes        *sessionFileIndexCache
-	workspaces         *kitworkspace.Service
-	subagents          *subagent.Supervisor
-	subagentTools      *subagent.ToolService
-	attachments        attachment.Store
+	manager             *kitsession.Manager
+	availableProviders  func(context.Context) []string
+	modelContextWindow  func(string) int
+	probeVCS            func(context.Context, string) (*kitvcs.Status, error)
+	fileIndexes         *sessionFileIndexCache
+	workspaces          *kitworkspace.Service
+	annotations         *kitannotation.Service
+	annotationCursorKey []byte
+	subagents           *subagent.Supervisor
+	subagentTools       *subagent.ToolService
+	attachments         attachment.Store
 }
 
 func (s runtimeSessionService) Create(
@@ -146,6 +189,9 @@ func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) err
 	if s.workspaces != nil {
 		s.workspaces.RemoveSession(sessionID)
 	}
+	if s.annotations != nil {
+		s.annotations.ForgetSession(sessionID)
+	}
 	if s.attachments != nil {
 		return s.attachments.RemoveSession(ctx, sessionID)
 	}
@@ -158,6 +204,9 @@ func (s runtimeSessionService) DisposeTemporary(ctx context.Context, sessionID s
 	}
 	if s.workspaces != nil {
 		s.workspaces.RemoveSession(sessionID)
+	}
+	if s.annotations != nil {
+		s.annotations.ForgetSession(sessionID)
 	}
 	if s.attachments != nil {
 		return s.attachments.RemoveSession(ctx, sessionID)
@@ -275,6 +324,190 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 	return result, nil
 }
 
+func (s runtimeSessionService) prepareAnnotationSession(ctx context.Context, record kitsession.SessionRecord) error {
+	if s.annotations == nil {
+		return nil
+	}
+	if !record.Persistent {
+		s.annotations.SetTemporary(record.ID)
+	}
+	return s.manager.ReconcileAnnotationSubmissions(ctx, record.ID)
+}
+
+func (s runtimeSessionService) ListAnnotations(ctx context.Context, sessionID string, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
+	if s.annotations == nil {
+		return protocol.AnnotationPage{}, fmt.Errorf("annotation service is unavailable")
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.AnnotationPage{}, err
+	}
+	if err := s.prepareAnnotationSession(ctx, record); err != nil {
+		return protocol.AnnotationPage{}, err
+	}
+	after, err := s.decodeAnnotationCursor(sessionID, input.Cursor)
+	if err != nil {
+		return protocol.AnnotationPage{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	pageSize := input.PageSize
+	if pageSize == 0 {
+		pageSize = protocol.DefaultAnnotationPageSize
+	}
+	records, stale, err := s.annotations.List(ctx, sessionID, record.CWD, after, pageSize+1)
+	if err != nil {
+		return protocol.AnnotationPage{}, err
+	}
+	page := protocol.AnnotationPage{SessionID: sessionID, Entries: make([]protocol.Annotation, 0, min(len(records), pageSize))}
+	for _, annotation := range records[:min(len(records), pageSize)] {
+		page.Entries = append(page.Entries, projectAnnotation(annotation, stale[annotation.ID]))
+	}
+	if len(records) > pageSize {
+		page.NextCursor = s.encodeAnnotationCursor(sessionID, records[pageSize-1].ID)
+	}
+	return page, nil
+}
+
+func (s runtimeSessionService) CreateAnnotation(ctx context.Context, sessionID string, input protocol.CreateAnnotationInput) (protocol.Annotation, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.Annotation{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	if s.annotations == nil {
+		return protocol.Annotation{}, fmt.Errorf("annotation service is unavailable")
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.Annotation{}, err
+	}
+	if err := s.prepareAnnotationSession(ctx, record); err != nil {
+		return protocol.Annotation{}, err
+	}
+	anchor := input.Anchor.WorkspaceFile
+	created, err := s.annotations.Create(ctx, sessionID, record.CWD, kitannotation.WorkspaceFileAnchor{
+		WorkspaceID: anchor.WorkspaceID, Path: anchor.Path, FileRevision: anchor.FileRevision,
+		StartLine: anchor.StartLine, EndLine: anchor.EndLine,
+	}, input.Body)
+	if err != nil {
+		return protocol.Annotation{}, err
+	}
+	return projectAnnotation(created, ""), nil
+}
+
+func (s runtimeSessionService) UpdateAnnotation(ctx context.Context, sessionID string, input protocol.UpdateAnnotationInput) (protocol.Annotation, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.Annotation{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	if s.annotations == nil {
+		return protocol.Annotation{}, fmt.Errorf("annotation service is unavailable")
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.Annotation{}, err
+	}
+	if err := s.prepareAnnotationSession(ctx, record); err != nil {
+		return protocol.Annotation{}, err
+	}
+	updated, err := s.annotations.Update(ctx, sessionID, record.CWD, input.AnnotationID, input.Body)
+	if err != nil {
+		return protocol.Annotation{}, err
+	}
+	return projectAnnotation(updated, ""), nil
+}
+
+func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID string, input protocol.DeleteAnnotationInput) error {
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	if s.annotations == nil {
+		return fmt.Errorf("annotation service is unavailable")
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return err
+	}
+	if err := s.prepareAnnotationSession(ctx, record); err != nil {
+		return err
+	}
+	if err := s.annotations.Delete(ctx, sessionID, input.AnnotationID); err != nil {
+		return err
+	}
+	return nil
+}
+
+func projectAnnotation(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.Annotation {
+	return protocol.Annotation{
+		ID: record.ID, SessionID: record.SessionID,
+		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			WorkspaceID: record.Anchor.WorkspaceID, Path: record.Anchor.Path, FileRevision: record.Anchor.FileRevision,
+			StartLine: record.Anchor.StartLine, EndLine: record.Anchor.EndLine,
+		}},
+		Body:    record.Body,
+		Preview: protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
+		Stale:   stale != "", StaleReason: stale,
+	}
+}
+
+func projectAnnotationSummary(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.AnnotationSummary {
+	annotation := projectAnnotation(record, stale)
+	return protocol.AnnotationSummary{
+		ID: annotation.ID, Anchor: annotation.Anchor,
+		BodyPreview: truncateAnnotationSummary(annotation.Body),
+		Preview:     truncateAnnotationSummary(annotation.Preview.Text),
+		Stale:       annotation.Stale, StaleReason: annotation.StaleReason,
+	}
+}
+
+func truncateAnnotationSummary(value string) string {
+	if len(value) <= protocol.MaxAnnotationSummaryTextBytes {
+		return value
+	}
+	value = value[:protocol.MaxAnnotationSummaryTextBytes]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value
+}
+
+type annotationCursor struct {
+	SessionID string `json:"sessionId"`
+	After     uint64 `json:"after"`
+	ExpiresAt int64  `json:"expiresAt"`
+}
+
+func (s runtimeSessionService) encodeAnnotationCursor(sessionID string, id uint64) string {
+	payload, _ := json.Marshal(annotationCursor{SessionID: sessionID, After: id, ExpiresAt: time.Now().Add(5 * time.Minute).Unix()})
+	signature := hmac.New(sha256.New, s.annotationCursorKey)
+	_, _ = signature.Write(payload)
+	return "annotation_" + base64.RawURLEncoding.EncodeToString(payload) + "." + base64.RawURLEncoding.EncodeToString(signature.Sum(nil))
+}
+
+func (s runtimeSessionService) decodeAnnotationCursor(sessionID, cursor string) (uint64, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	encoded, encodedSignature, found := strings.Cut(strings.TrimPrefix(cursor, "annotation_"), ".")
+	if !strings.HasPrefix(cursor, "annotation_") || !found || len(s.annotationCursorKey) == 0 {
+		return 0, fmt.Errorf("annotation cursor is invalid")
+	}
+	payload, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		return 0, fmt.Errorf("annotation cursor is invalid")
+	}
+	provided, err := base64.RawURLEncoding.DecodeString(encodedSignature)
+	if err != nil {
+		return 0, fmt.Errorf("annotation cursor is invalid")
+	}
+	signature := hmac.New(sha256.New, s.annotationCursorKey)
+	_, _ = signature.Write(payload)
+	if !hmac.Equal(provided, signature.Sum(nil)) {
+		return 0, fmt.Errorf("annotation cursor is invalid")
+	}
+	var value annotationCursor
+	if json.Unmarshal(payload, &value) != nil || value.SessionID != sessionID || value.After == 0 || value.ExpiresAt < time.Now().Unix() {
+		return 0, fmt.Errorf("annotation cursor is unavailable")
+	}
+	return value.After, nil
+}
+
 func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string, refresh bool) (protocol.SessionFileIndex, error) {
 	record, err := s.manager.Get(ctx, sessionID)
 	if err != nil {
@@ -338,8 +571,28 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	if snapshot.HasMoreMessages {
 		previousCursor = strconv.FormatUint(snapshot.PreviousMessageCursor, 10)
 	}
+	if err := s.prepareAnnotationSession(ctx, snapshot.Session); err != nil {
+		return protocol.SessionSnapshot{}, err
+	}
 	projectedWorkspace := workspaces.Ref(snapshot.Session.ID, snapshot.Session.CWD)
 	workspaceRef := &projectedWorkspace
+	annotations := []protocol.AnnotationSummary(nil)
+	if s.annotations != nil {
+		var after uint64
+		for {
+			records, stale, listErr := s.annotations.List(ctx, sessionID, snapshot.Session.CWD, after, protocol.MaxAnnotationPageSize)
+			if listErr != nil {
+				return protocol.SessionSnapshot{}, listErr
+			}
+			for _, record := range records {
+				annotations = append(annotations, projectAnnotationSummary(record, stale[record.ID]))
+				after = record.ID
+			}
+			if len(records) < protocol.MaxAnnotationPageSize {
+				break
+			}
+		}
+	}
 	result := protocol.SessionSnapshot{
 		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveRunID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
@@ -360,6 +613,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		SubagentConversations: make([]protocol.SubagentConversation, 0, len(snapshot.SubagentConversations)),
 		SubagentMailbox:       make([]protocol.SubagentMailboxItem, 0, len(snapshot.SubagentMailbox)),
 		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
+		Annotations:           annotations,
 	}
 	if snapshot.ProviderRetry != nil {
 		result.ProviderRetry = &protocol.ProviderRetry{
@@ -719,12 +973,24 @@ func projectSessionUsagePointer(usage *kitsession.SessionUsage) *protocol.Sessio
 func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol.TranscriptContent {
 	result := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
-		result = append(result, protocol.TranscriptContent{
+		projected := protocol.TranscriptContent{
 			Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
 			ToolCallID: block.ToolCallID, ToolName: block.ToolName,
 			Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
 			Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID,
-		})
+		}
+		for _, annotation := range block.Annotations {
+			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
+				OriginalAnnotationID: annotation.ID,
+				Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorKind(annotation.Kind), WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+					WorkspaceID: annotation.WorkspaceID, Path: annotation.Path, FileRevision: annotation.FileRevision,
+					StartLine: annotation.StartLine, EndLine: annotation.EndLine,
+				}},
+				Body:    annotation.Body,
+				Preview: protocol.AnnotationPreview{StartLine: annotation.StartLine, EndLine: annotation.EndLine, Text: annotation.Preview, Truncated: annotation.Truncated},
+			})
+		}
+		result = append(result, projected)
 	}
 	return result
 }
@@ -795,6 +1061,11 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
 			PeerRequestID: event.PeerRequestID,
 			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
+			AnnotationID: event.AnnotationID, AnnotationIDs: append([]uint64(nil), event.AnnotationIDs...), AcceptedMessageID: event.AcceptedMessageID,
+		}
+		if event.Annotation != nil {
+			annotation := projectAnnotation(*event.Annotation, "")
+			projected.Annotation = &annotation
 		}
 		if event.Kind == kitsession.EventSessionCWDChanged && s.workspaces != nil {
 			workspaceRef := s.workspaces.Ref(event.SessionID, event.CWD)
@@ -902,7 +1173,7 @@ func promptSectionKind(kind systemprompt.SectionKind) protocol.PromptSectionKind
 }
 
 func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
-	reservation, err := s.manager.StartPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
+	reservation, err := s.manager.StartPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
 		return protocol.RunReservation{}, err
 	}
@@ -912,7 +1183,7 @@ func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string
 }
 
 func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
-	result, err := s.manager.SubmitPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
+	result, err := s.manager.SubmitPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
@@ -927,7 +1198,7 @@ func (s runtimeSessionService) RestoreFollowUps(ctx context.Context, sessionID s
 	result, err := s.manager.RestoreFollowUps(ctx, sessionID)
 	messages := make([]protocol.PromptInput, 0, len(result.Messages))
 	for _, message := range result.Messages {
-		messages = append(messages, protocol.PromptInput{Text: message.Text, AttachmentIDs: append([]string(nil), message.AttachmentIDs...)})
+		messages = append(messages, protocol.PromptInput{Text: message.Text, AttachmentIDs: append([]string(nil), message.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), message.AnnotationIDs...)})
 	}
 	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
 }
@@ -959,7 +1230,7 @@ func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string)
 }
 
 func (s runtimeSessionService) RunPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
-	result, err := s.manager.RunPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs})
+	result, err := s.manager.RunPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
@@ -1176,6 +1447,85 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
+		input := protocol.ListAnnotationsInput{Cursor: request.URL.Query().Get("cursor")}
+		if raw := request.URL.Query().Get("pageSize"); raw != "" {
+			pageSize, err := strconv.Atoi(raw)
+			if err != nil {
+				writeSessionError(writer, fmt.Errorf("%w: annotation page size is invalid", errInvalidSessionRequest))
+				return
+			}
+			input.PageSize = pageSize
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.ListAnnotations(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid annotation page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.CreateAnnotationInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.CreateAnnotation(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid annotation: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusCreated, result)
+	})
+	mux.HandleFunc("PATCH /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.UpdateAnnotationInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		result, err := service.UpdateAnnotation(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("DELETE /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.DeleteAnnotationInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		if err := service.DeleteAnnotation(request.Context(), request.PathValue("sessionID"), input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"), request.URL.Query().Get("refresh") == "true")
@@ -1693,6 +2043,22 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 }
 
 func writeSessionError(writer http.ResponseWriter, err error) {
+	var evidenceErr *kitannotation.EvidenceError
+	if errors.As(err, &evidenceErr) {
+		status := http.StatusServiceUnavailable
+		switch evidenceErr.Kind {
+		case kitannotation.EvidenceStaleWorkspace, kitannotation.EvidenceStaleFile:
+			status = http.StatusConflict
+		case kitannotation.EvidencePermission:
+			status = http.StatusForbidden
+		case kitannotation.EvidenceInvalid:
+			status = http.StatusUnprocessableEntity
+		case kitannotation.EvidenceLimit:
+			status = http.StatusRequestEntityTooLarge
+		}
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": evidenceErr.Kind, "message": evidenceErr.Error()}})
+		return
+	}
 	var workspaceErr *kitworkspace.Error
 	if errors.As(err, &workspaceErr) {
 		if validationErr := workspaceErr.Validate(); validationErr != nil {
@@ -1717,13 +2083,13 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {
-	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound):
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound), errors.Is(err, kitannotation.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrTranscriptCursorUnavailable), errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed):
+	case errors.Is(err, kitsession.ErrTranscriptCursorUnavailable), errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed), errors.Is(err, kitannotation.ErrStale):
 		status = http.StatusConflict
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull):
+	case errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull), errors.Is(err, kitannotation.ErrCapacity):
 		status = http.StatusTooManyRequests
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):

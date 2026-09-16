@@ -21,6 +21,7 @@ type shellSnapshot struct {
 	Status                       string
 	Composer                     string
 	ComposerAttachments          []stagedAttachment
+	ComposerAnnotations          []protocol.AnnotationSummary
 	ComposerCursorEndGeneration  uint64
 	ComposerCursorOffset         int
 	ComposerCursorGeneration     uint64
@@ -32,6 +33,7 @@ type shellSnapshot struct {
 	ConfigurationPicker          configurationPickerSnapshot
 	SessionDetailsOpen           bool
 	SessionRename                sessionRenameSnapshot
+	AnnotationPicker             annotationPickerSnapshot
 	SessionExplorer              sessionExplorerSnapshot
 	AuthReturnReady              bool
 	AuthFilter                   string
@@ -94,6 +96,7 @@ type shellSnapshot struct {
 	BashRunning                  bool
 	BashStarting                 bool
 	BashCollapsed                map[string]bool
+	AnnotationsExpanded          map[string]bool
 	BashHistory                  bashHistoryController
 	FileMention                  fileMentionController
 	IndexedFiles                 indexedFileSource
@@ -108,6 +111,7 @@ type providerSelectedCallback func(ui.EventContext, string)
 type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
+	WorkspaceMouse              *workspaceMouseGestureController
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
 	MoveProviderSelection       selectionMovedCallback
@@ -150,6 +154,7 @@ type shellCallbacks struct {
 	ScrollActivity              func(ui.EventContext, int)
 	SelectActivityTool          func(ui.EventContext, activityToolKey)
 	ToggleBashOutput            func(ui.EventContext, string)
+	ToggleTranscriptAnnotations func(ui.EventContext, string)
 	OpenBashHistory             func(ui.EventContext, int) bool
 	BashHistoryChanged          ui.TextChangedCallback
 	SelectBashHistory           func(ui.EventContext, string)
@@ -157,6 +162,12 @@ type shellCallbacks struct {
 	ComposerChanged             ui.TextChangedCallback
 	ComposerPasted              ui.TextChangedCallback
 	RemoveAttachment            func(ui.EventContext, int)
+	ActivateAnnotation          func(ui.EventContext, protocol.AnnotationSummary)
+	RemoveAnnotation            func(ui.EventContext, uint64)
+	CreateAnnotation            func(protocol.WorkspaceFileAnnotationAnchor, string, func(error))
+	LoadAnnotation              func(uint64, func(string, error)) func()
+	UpdateAnnotation            func(uint64, string, func(error))
+	OpenAnnotationPicker        ui.VoidCallback
 	RestoreFollowUps            ui.VoidCallback
 	RespondInteraction          func(ui.EventContext, protocol.InteractionResponse, func(error))
 	CopySelection               func(string)
@@ -284,6 +295,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			ContextWindow: w.Snapshot.ContextWindow, Usage: w.Snapshot.SessionUsage,
 		}))
 	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.AnnotationPicker.Open {
+		overlays = append(overlays, modalDialogEntry(annotationPickerSurface{
+			Snapshot:  w.Snapshot.AnnotationPicker,
+			Callbacks: annotationPickerCallbacks{Activate: w.Callbacks.ActivateAnnotation, Remove: w.Callbacks.RemoveAnnotation},
+		}))
+	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionRename.Open {
 		overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
 			Snapshot: w.Snapshot.SessionRename,
@@ -364,6 +381,13 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		}})
 	}
 	root := ui.Widget(ui.Overlay{Child: content, Entries: overlays})
+	if w.Callbacks.WorkspaceMouse != nil {
+		root = mouseReleaseListener{
+			Child: root, Capture: true,
+			OnPress:   func(ui.EventContext) { w.Callbacks.WorkspaceMouse.Press() },
+			OnRelease: func(ui.EventContext) { w.Callbacks.WorkspaceMouse.Release() },
+		}
+	}
 	workspaceFocusTrapped := len(w.Snapshot.PendingInteractions) > 0
 	for _, overlay := range overlays {
 		workspaceFocusTrapped = workspaceFocusTrapped || overlay.Modal
@@ -513,14 +537,23 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 		secondaryPane := ui.Widget(retainedWorkspacePaneStack{Panes: retainedPanes})
 		pending := w.pendingSlot(theme)
 		pendingHeight := 1 + min(3, w.Snapshot.FollowUps.Count)
-		if len(w.Snapshot.ComposerAttachments) > 0 {
-			rows := make([]ui.Widget, 0, len(w.Snapshot.ComposerAttachments)+1)
+		if len(w.Snapshot.ComposerAnnotations) > 0 || len(w.Snapshot.ComposerAttachments) > 0 {
+			rows := make([]ui.Widget, 0, len(w.Snapshot.ComposerAnnotations)+len(w.Snapshot.ComposerAttachments)+1)
 			rows = append(rows, pending)
+			visibleAnnotations := min(3, len(w.Snapshot.ComposerAnnotations))
+			for _, annotation := range w.Snapshot.ComposerAnnotations[:visibleAnnotations] {
+				rows = append(rows, composerAnnotationRow(theme, annotation, w.Callbacks.ActivateAnnotation, w.Callbacks.RemoveAnnotation))
+			}
+			annotationRows := visibleAnnotations
+			if hidden := len(w.Snapshot.ComposerAnnotations) - visibleAnnotations; hidden > 0 {
+				rows = append(rows, composerAnnotationOverflowRow(theme, hidden, w.Callbacks.OpenAnnotationPicker))
+				annotationRows++
+			}
 			for index, attachment := range w.Snapshot.ComposerAttachments {
 				rows = append(rows, composerAttachmentRow(theme, attachment, index, w.Callbacks.RemoveAttachment))
 			}
 			pending = ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}
-			pendingHeight += len(w.Snapshot.ComposerAttachments)
+			pendingHeight += annotationRows + len(w.Snapshot.ComposerAttachments)
 		}
 		composer := w.composer(theme)
 		composerHeightLimit := composerMaxHeight
@@ -683,7 +716,16 @@ func (w shellView) transcriptRow(theme ui.Theme, presentation transcriptPresenta
 				}
 			})
 		}
-		return transcriptUserEntry(theme, item.Item.Message, w.Snapshot.Attachments)
+		message := item.Item.Message
+		key := message.ID
+		if key == "" {
+			key = message.TurnID
+		}
+		return transcriptUserEntry(theme, message, w.Snapshot.Attachments, w.Snapshot.AnnotationsExpanded[key], func(ctx ui.EventContext) {
+			if w.Callbacks.ToggleTranscriptAnnotations != nil {
+				w.Callbacks.ToggleTranscriptAnnotations(ctx, key)
+			}
+		})
 	case transcriptDisplayAssistantProse:
 		return transcriptAssistantEntry(theme, item.Item.Message)
 	case transcriptDisplayTurnWork:
@@ -730,14 +772,29 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
 }
 
-func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession) ui.Widget {
+func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession, annotationsExpanded bool, toggleAnnotations ui.VoidCallback) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
 	if text := message.TextContent(); text != "" {
 		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground, Background: theme.Background}})
 	}
+	annotations := make([]protocol.SubmittedAnnotation, 0)
 	for _, block := range message.Content {
-		if block.Kind == protocol.TranscriptContentImage && block.AttachmentID != "" && attachments != nil {
-			children = append(children, attachmentPreview{Attachment: block, Loader: attachments})
+		if block.Kind == protocol.TranscriptContentAnnotations {
+			annotations = append(annotations, block.Annotations...)
+		}
+	}
+	annotationsRendered := false
+	for _, block := range message.Content {
+		switch block.Kind {
+		case protocol.TranscriptContentImage:
+			if block.AttachmentID != "" && attachments != nil {
+				children = append(children, attachmentPreview{Attachment: block, Loader: attachments})
+			}
+		case protocol.TranscriptContentAnnotations:
+			if !annotationsRendered && len(annotations) > 0 {
+				children = append(children, submittedAnnotationGroup(theme, annotations, annotationsExpanded, toggleAnnotations))
+				annotationsRendered = true
+			}
 		}
 	}
 	return ui.DecoratedBox(
@@ -747,6 +804,55 @@ func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, att
 		},
 		ui.Padding(ui.Insets{Left: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
 	)
+}
+
+func submittedAnnotationGroup(theme ui.Theme, annotations []protocol.SubmittedAnnotation, expanded bool, toggle ui.VoidCallback) ui.Widget {
+	count := len(annotations)
+	label := fmt.Sprintf("%d comments", count)
+	if count == 1 {
+		label = "1 comment"
+		if anchor := annotations[0].Anchor.WorkspaceFile; anchor != nil {
+			label += " on " + anchor.Path
+		}
+	}
+	indicator := glyphTriangleRight
+	if expanded {
+		indicator = glyphTriangleDown
+	}
+	header := ui.Widget(ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMin, Children: []ui.Widget{
+		ui.Text{Value: glyphComment + " ", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
+		ui.Flexible(ui.Text{Value: label + " ", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+		ui.Text{Value: indicator, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
+	}})
+	if toggle != nil {
+		header = mouseActivator{Child: header, OnPressed: toggle}
+	}
+	children := []ui.Widget{ui.Padding(ui.Insets{Top: 1}, header)}
+	if expanded {
+		for _, annotation := range annotations {
+			children = append(children, submittedAnnotationRow(theme, annotation))
+		}
+	}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
+}
+
+func submittedAnnotationRow(theme ui.Theme, annotation protocol.SubmittedAnnotation) ui.Widget {
+	anchor := annotation.Anchor.WorkspaceFile
+	if anchor == nil {
+		return ui.SizedBox{}
+	}
+	preview := annotation.Preview.Text
+	if annotation.Preview.Truncated {
+		preview += " " + glyphEllipsis
+	}
+	return ui.Padding(ui.Insets{Top: 1}, ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Background: theme.Surface}, Border: ui.Border{Style: ui.Style{Foreground: theme.AccentText, Background: theme.Surface}, Left: true}},
+		ui.Padding(ui.Insets{Left: 1, Right: 1}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: []ui.Widget{
+			ui.Text{Value: fmt.Sprintf("%s  L%d–%d", anchor.Path, anchor.StartLine, anchor.EndLine), Style: ui.Style{Foreground: theme.AccentText}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+			ui.Text{Value: preview, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+			ui.Text{Value: annotation.Body, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true},
+		}}),
+	))
 }
 
 func transcriptAssistantEntry(theme ui.Theme, message protocol.TranscriptMessage) ui.Widget {
@@ -972,6 +1078,47 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 	return content
 }
 
+func composerAnnotationOverflowRow(theme ui.Theme, hidden int, open ui.VoidCallback) ui.Widget {
+	content := ui.Widget(ui.Text{
+		Value: fmt.Sprintf("%s %d more annotations", glyphEllipsis, hidden), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
+	})
+	if open != nil {
+		content = mouseActivator{Child: content, OnPressed: open}
+	}
+	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), content)}
+}
+
+func composerAnnotationRow(theme ui.Theme, annotation protocol.AnnotationSummary, activate func(ui.EventContext, protocol.AnnotationSummary), remove func(ui.EventContext, uint64)) ui.Widget {
+	anchor := annotation.Anchor.WorkspaceFile
+	label := ""
+	meta := ""
+	if anchor != nil {
+		label = anchor.Path
+		meta = fmt.Sprintf("L%d–%d", anchor.StartLine, anchor.EndLine)
+	}
+	style := ui.Style{Foreground: theme.MutedForeground}
+	if annotation.Stale {
+		meta += " " + glyphMiddleDot + " stale"
+		style.Foreground = theme.WarningText
+	}
+	markerWidget := ui.Widget(ui.Text{Value: glyphComment + " ", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1})
+	detailWidget := ui.Widget(ui.Text{Value: strings.TrimSpace(label + " " + meta), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1})
+	if activate != nil {
+		activateAnnotation := func(ctx ui.EventContext) { activate(ctx, annotation) }
+		markerWidget = mouseActivator{Child: markerWidget, OnPressed: activateAnnotation}
+		detailWidget = mouseActivator{Child: detailWidget, OnPressed: activateAnnotation}
+	}
+	removeControl := ui.Widget(ui.Text{Value: "  " + glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
+	if remove != nil {
+		removeControl = mouseActivator{Child: removeControl, OnPressed: func(ctx ui.EventContext) { remove(ctx, annotation.ID) }}
+	}
+	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
+		Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
+			markerWidget, ui.Flexible(detailWidget), removeControl,
+		},
+	})}
+}
+
 func composerAttachmentRow(theme ui.Theme, attachment stagedAttachment, index int, remove func(ui.EventContext, int)) ui.Widget {
 	label := attachment.Filename
 	meta := "uploading…"
@@ -985,15 +1132,14 @@ func composerAttachmentRow(theme ui.Theme, attachment stagedAttachment, index in
 			meta += " " + glyphMiddleDot + " " + attachment.Info.MediaType
 		}
 	}
-	removeControl := ui.Widget(ui.Text{Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
+	removeControl := ui.Widget(ui.Text{Value: "  " + glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
 	if remove != nil {
 		removeControl = mouseActivator{Child: removeControl, OnPressed: func(ctx ui.EventContext) { remove(ctx, index) }}
 	}
 	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
 		Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-			ui.Text{Value: "attachment", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
-			ui.Text{Value: " " + label + " ", Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-			ui.Expanded(ui.Text{Value: meta, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+			ui.Text{Value: "attachment ", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1},
+			ui.Flexible(ui.Text{Value: strings.TrimSpace(label + " " + meta), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 			removeControl,
 		},
 	})}

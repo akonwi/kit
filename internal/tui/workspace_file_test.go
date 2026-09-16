@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -97,16 +98,22 @@ func fileViewerRead(workspaceID, path, revision, content string) protocol.Worksp
 }
 
 type filePaneHarnessModel struct {
-	descriptor      workspacePaneDescriptor
-	workspace       string
-	active          bool
-	show            bool
-	files           *fileViewerSession
-	highlighter     highlight.Highlighter
-	focused         int
-	state           *filePaneHarnessState
-	dispatchMu      sync.Mutex
-	pendingDispatch []func()
+	descriptor       workspacePaneDescriptor
+	workspace        string
+	active           bool
+	show             bool
+	files            *fileViewerSession
+	highlighter      highlight.Highlighter
+	focused          int
+	annotated        []protocol.WorkspaceFileAnnotationAnchor
+	annotations      []protocol.AnnotationSummary
+	annotationBodies map[uint64]string
+	annotationLoader func(uint64, func(string, error)) func()
+	updatedBodies    map[uint64]string
+	removed          []uint64
+	state            *filePaneHarnessState
+	dispatchMu       sync.Mutex
+	pendingDispatch  []func()
 }
 
 type filePaneHarness struct{ model *filePaneHarnessModel }
@@ -127,7 +134,27 @@ func (s *filePaneHarnessState) Build(ui.BuildContext) ui.Widget {
 	return ui.SelectionArea{Child: workspaceFilePane{
 		Descriptor: model.descriptor, CurrentWorkspaceID: model.workspace, Files: model.files, Highlighter: model.highlighter, Dispatch: model.queueDispatch,
 		Presentation:   workspacePanePresentation{Active: model.active, Visible: model.active, Focused: model.active},
+		Annotations:    model.annotations,
 		OnFocusRequest: func(ui.EventContext) { model.focused++ },
+		OnCreateAnnotation: func(anchor protocol.WorkspaceFileAnnotationAnchor, _ string, done func(error)) {
+			model.annotated = append(model.annotated, anchor)
+			done(nil)
+		},
+		OnLoadAnnotation: func(annotationID uint64, done func(string, error)) func() {
+			if model.annotationLoader != nil {
+				return model.annotationLoader(annotationID, done)
+			}
+			done(model.annotationBodies[annotationID], nil)
+			return func() {}
+		},
+		OnUpdateAnnotation: func(annotationID uint64, body string, done func(error)) {
+			if model.updatedBodies == nil {
+				model.updatedBodies = make(map[uint64]string)
+			}
+			model.updatedBodies[annotationID] = body
+			done(nil)
+		},
+		OnRemoveAnnotation: func(_ ui.EventContext, annotationID uint64) { model.removed = append(model.removed, annotationID) },
 	}}
 }
 
@@ -298,6 +325,7 @@ func TestWorkspaceFileViewerPresentsAlignedSelectableHighlightedContent(t *testi
 	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "cmd/main.go"), workspace: "workspace_a", active: true, show: true, files: files}
 	app := uitest.New(filePaneHarness{model: model})
 	pumpUntil(t, app, model, 48, 10, "func main()")
+	app.Pump(48, 10)
 	rows := paintedRows(app, 48, 10)
 	visible := strings.Join(rows, "\n")
 	for _, want := range []string{"cmd/main.go", "Ln 1 · 5 lines · 43 B", "1 │ package main", "4 │     value := 42", "↑↓ lines · ←→ columns · r refresh"} {
@@ -309,6 +337,9 @@ func TestWorkspaceFileViewerPresentsAlignedSelectableHighlightedContent(t *testi
 	mainColumn, mainRow := findTextCell(t, rows, "main")
 	if app.Cell(packageColumn, packageRow).Style.Foreground == app.Cell(mainColumn, mainRow).Style.Foreground {
 		t.Fatal("keyword and identifier did not receive distinct syntax styles")
+	}
+	if got, want := app.Cell(46, packageRow).Style.Background, ui.DefaultTheme().SurfaceHovered; got != want {
+		t.Fatalf("active line trailing background = %#v, want %#v", got, want)
 	}
 	firstGutter, _ := findTextCell(t, rows, "1 │")
 	fourthGutter, _ := findTextCell(t, rows, "4 │")
@@ -359,6 +390,11 @@ func TestWorkspaceFileViewerUsesGuardedReadsRefreshAndRevealWithoutReorder(t *te
 	if len(inputs) != 2 || inputs[1].ExpectedFileRevision != "file_loaded" {
 		t.Fatalf("refresh guarded read = %+v", inputs)
 	}
+	app.Send(vaxis.Key{Keycode: 'c', Text: "c"})
+	app.Pump(40, 8)
+	if len(model.annotated) != 0 {
+		t.Fatalf("stale content created annotations: %+v", model.annotated)
+	}
 	app.Send(vaxis.Key{Keycode: 'r', Text: "r"})
 	pumpUntil(t, app, model, 40, 8, "two changed")
 	inputs = files.inputs()
@@ -390,6 +426,11 @@ func TestWorkspaceFileViewerRetainsCursorAndBoundedHorizontalPosition(t *testing
 	app := uitest.New(filePaneHarness{model: model})
 	pumpUntil(t, app, model, 26, 8, "ABCDEFGHI")
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Pump(26, 8)
+	beforeHorizontalScroll := strings.Join(paintedRows(app, 26, 8), "\n")
+	if !strings.Contains(beforeHorizontalScroll, "1 │ first") || !strings.Contains(beforeHorizontalScroll, "2 │ second line") {
+		t.Fatalf("in-viewport cursor movement scrolled the file:\n%s", beforeHorizontalScroll)
+	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyRight})
 	app.Send(vaxis.Key{Keycode: vaxis.KeyRight})
 	app.Pump(26, 8)
@@ -406,6 +447,236 @@ func TestWorkspaceFileViewerRetainsCursorAndBoundedHorizontalPosition(t *testing
 	app.Pump(34, 10)
 	if !app.Contains("Ln 2") {
 		t.Fatalf("tab switch/resize lost the retained cursor:\n%s", app.Text())
+	}
+}
+
+func TestWorkspaceFileSpansRenderInlineAnnotationAfterAnchor(t *testing.T) {
+	result := highlight.Plain(highlight.Request{Path: "main.go", Source: "one\ntwo\nthree", Revision: "file_current"}, nil)
+	annotations := []protocol.AnnotationSummary{{
+		ID: 1, BodyPreview: "Explain this", Preview: "two",
+		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			WorkspaceID: "workspace_a", Path: "main.go", FileRevision: "file_current", StartLine: 2, EndLine: 2,
+		}},
+	}}
+	spans := workspaceFileSpansWithSelection(result, ui.Theme{}, semanticFallback(ui.Theme{}), 2, 2, annotations, "workspace_a", "main.go", "file_current")
+	var text strings.Builder
+	for _, span := range spans {
+		text.WriteString(span.Text)
+	}
+	if !strings.Contains(text.String(), "2 "+glyphDiamond+" two\n    Explain this\n3 "+glyphTableSeparator+" three") {
+		t.Fatalf("annotated spans = %q", text.String())
+	}
+}
+
+func TestWorkspaceFileViewerGutterMouseCreatesAndExtendsCommentRange(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 12, "three")
+	rows := paintedRows(app, 60, 12)
+	gutterColumn, firstRow := findTextCell(t, rows, "1 │")
+	_, thirdRow := findTextCell(t, rows, "3 │")
+	app.Send(vaxis.Mouse{Col: gutterColumn, Row: firstRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	app.Send(vaxis.Mouse{Col: gutterColumn, Row: thirdRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+	app.Send(vaxis.Mouse{Col: gutterColumn, Row: thirdRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+	app.Pump(60, 12)
+	if !app.Contains("Write a comment") {
+		t.Fatalf("gutter drag did not open a range comment:\n%s", app.Text())
+	}
+	app.Send(vaxis.Key{Keycode: 'x', Text: "x"})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(60, 12)
+	if len(model.annotated) != 1 || model.annotated[0].StartLine != 1 || model.annotated[0].EndLine != 3 {
+		t.Fatalf("mouse annotation range = %+v", model.annotated)
+	}
+}
+
+func TestWorkspaceFileViewerClickEditsMultilineComment(t *testing.T) {
+	anchor := protocol.WorkspaceFileAnnotationAnchor{WorkspaceID: "workspace_a", Path: "main.go", FileRevision: "file_revision", StartLine: 2, EndLine: 2}
+	annotation := protocol.AnnotationSummary{ID: 7, BodyPreview: "  first\n\nthird\n", Preview: "two", Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}}
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\n")}}
+	model := &filePaneHarnessModel{
+		descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files,
+		annotations: []protocol.AnnotationSummary{annotation}, annotationBodies: map[uint64]string{7: "  first\n\nthird\n"},
+	}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 14, "third")
+	app.Pump(60, 14)
+	rows := paintedRows(app, 60, 14)
+	commentColumn, commentRow := findTextCell(t, rows, "first")
+	removeColumn, removeRow := findTextCell(t, rows, glyphTimes)
+	markerColumn, _ := findTextCell(t, rows, "2 "+glyphDiamond)
+	if removeColumn != markerColumn+2 {
+		t.Fatalf("remove column = %d, marker column = %d", removeColumn, markerColumn+2)
+	}
+	app.Click(removeColumn, removeRow)
+	app.Pump(60, 14)
+	if !reflect.DeepEqual(model.removed, []uint64{7}) {
+		t.Fatalf("mouse removed annotations = %v", model.removed)
+	}
+	_, blankRow := findTextCell(t, rows, "third")
+	if blankRow-commentRow != 2 {
+		t.Fatalf("saved blank comment line was not preserved: first row %d, third row %d", commentRow, blankRow)
+	}
+	app.Click(commentColumn, commentRow)
+	app.Pump(60, 14)
+	editedRows := paintedRows(app, 60, 14)
+	_, editorTop := findTextCell(t, editedRows, "first")
+	if editorTop != commentRow+1 || app.Cell(commentColumn, commentRow).Grapheme != "─" || strings.Count(strings.Join(editedRows, "\n"), "first") != 1 || !app.Contains("enter save") {
+		t.Fatalf("comment was not replaced in place by its editor:\n%s", app.Text())
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(60, 14)
+	if got := model.updatedBodies[7]; got != "  first\n\nthird\n" {
+		t.Fatalf("updated multiline body = %q", got)
+	}
+}
+
+func TestWorkspaceFileViewerKeyboardEditsCommentAtCursor(t *testing.T) {
+	anchor := protocol.WorkspaceFileAnnotationAnchor{WorkspaceID: "workspace_a", Path: "main.go", FileRevision: "file_revision", StartLine: 2, EndLine: 3}
+	annotation := protocol.AnnotationSummary{ID: 8, BodyPreview: "keyboard comment", Preview: "two\nthree", Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}}
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\n")}}
+	model := &filePaneHarnessModel{
+		descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files,
+		annotations: []protocol.AnnotationSummary{annotation}, annotationBodies: map[uint64]string{8: "keyboard comment"},
+	}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 14, "keyboard comment")
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Pump(60, 14)
+	if !app.Contains("e edit") || !app.Contains("d del") {
+		t.Fatalf("keyboard annotation hints missing:\n%s", app.Text())
+	}
+	app.Send(vaxis.Key{Keycode: 'd', Text: "d"})
+	app.Pump(60, 14)
+	if !reflect.DeepEqual(model.removed, []uint64{8}) {
+		t.Fatalf("keyboard removed annotations = %v", model.removed)
+	}
+	app.Send(vaxis.Key{Keycode: 'e', Text: "e"})
+	app.Pump(60, 14)
+	if !app.Contains("keyboard comment") || !app.Contains("enter save") {
+		t.Fatalf("keyboard edit did not replace annotation:\n%s", app.Text())
+	}
+}
+
+func TestWorkspaceFileViewerCanCancelAnnotationLoad(t *testing.T) {
+	anchor := protocol.WorkspaceFileAnnotationAnchor{WorkspaceID: "workspace_a", Path: "main.go", FileRevision: "file_revision", StartLine: 1, EndLine: 1}
+	annotation := protocol.AnnotationSummary{ID: 9, BodyPreview: "comment", Preview: "one", Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}}
+	var resolve func(string, error)
+	canceled := false
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\n")}}
+	model := &filePaneHarnessModel{
+		descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files,
+		annotations: []protocol.AnnotationSummary{annotation}, annotationLoader: func(_ uint64, done func(string, error)) func() {
+			resolve = done
+			return func() { canceled = true }
+		},
+	}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 12, "comment")
+	rows := paintedRows(app, 60, 12)
+	column, row := findTextCell(t, rows, "comment")
+	app.Click(column, row)
+	app.Pump(60, 12)
+	if !app.Contains("Loading") || resolve == nil {
+		t.Fatalf("annotation load did not start:\n%s", app.Text())
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
+	app.Pump(60, 12)
+	if !canceled {
+		t.Fatal("canceling editor did not cancel annotation load")
+	}
+	resolve("full comment", nil)
+	app.Pump(60, 12)
+	if app.Contains("full comment") || app.Contains("Loading") {
+		t.Fatalf("cancelled load reopened editor:\n%s", app.Text())
+	}
+}
+
+func TestWorkspaceFileViewerSelectsBoundedRangeForAnnotation(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 80, 10, "one")
+	app.Send(vaxis.Key{Keycode: 'v', Text: "v"})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Send(vaxis.Key{Keycode: 'c', Text: "c"})
+	app.Pump(80, 14)
+	if !app.Contains("Write a comment") || len(model.annotated) != 0 {
+		t.Fatalf("comment editor is not inline before save:\n%s", app.Text())
+	}
+	inlineRows := paintedRows(app, 80, 14)
+	codeColumn, selectedRow := findTextCell(t, inlineRows, "three")
+	editorColumn, editorRow := findTextCell(t, inlineRows, "Write a comment")
+	_, hintRow := findTextCell(t, inlineRows, "enter save")
+	_, followingRow := findTextCell(t, inlineRows, "4 │ four")
+	if editorColumn != codeColumn || editorRow != selectedRow+2 || hintRow != editorRow+2 || followingRow != selectedRow+5 || app.Cell(editorColumn, selectedRow+1).Grapheme != "─" || app.Cell(editorColumn, editorRow+1).Grapheme != "─" {
+		t.Fatalf("inline editor geometry: code=(%d,%d) input=(%d,%d) hint=%d following=%d", codeColumn, selectedRow, editorColumn, editorRow, hintRow, followingRow)
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter, Modifiers: vaxis.ModShift})
+	app.Pump(80, 14)
+	_, grownFollowingRow := findTextCell(t, paintedRows(app, 80, 14), "4 │ four")
+	if grownFollowingRow != followingRow+1 {
+		t.Fatalf("multiline editor did not grow: before=%d after=%d", followingRow, grownFollowingRow)
+	}
+	model.update(func() { model.active = false })
+	app.Pump(80, 14)
+	model.update(func() { model.active = true })
+	app.Pump(80, 14)
+	for _, character := range "note" {
+		app.Send(vaxis.Key{Keycode: character, Text: string(character)})
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	app.Pump(80, 10)
+	if len(model.annotated) != 1 {
+		t.Fatalf("annotations = %+v", model.annotated)
+	}
+	anchor := model.annotated[0]
+	if anchor.Path != "main.go" || anchor.FileRevision != "file_revision" || anchor.StartLine != 1 || anchor.EndLine != 3 {
+		t.Fatalf("anchor = %+v", anchor)
+	}
+	rows := strings.Join(paintedRows(app, 80, 10), "\n")
+	if !strings.Contains(rows, "v select") || !strings.Contains(rows, "c comment") {
+		t.Fatalf("selection hints missing:\n%s", rows)
+	}
+}
+
+func TestWorkspaceFileViewerScrollsOnlyWhenCursorLeavesViewport(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\nfive\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 48, 7, "one")
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Pump(48, 7)
+	rows := strings.Join(paintedRows(app, 48, 7), "\n")
+	if !strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "3 │ three") {
+		t.Fatalf("cursor movement inside viewport scrolled content:\n%s", rows)
+	}
+	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	app.Pump(48, 7)
+	app.Pump(48, 7)
+	rows = strings.Join(paintedRows(app, 48, 7), "\n")
+	if strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "2 │ two") || !strings.Contains(rows, "4 │ four") {
+		t.Fatalf("cursor leaving viewport did not scroll minimally:\n%s", rows)
+	}
+}
+
+func TestWorkspaceFileViewerRevealsInlineEditorBelowViewportBottom(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\nfive\nsix\nseven\neight\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 48, 7, "one")
+	for range 7 {
+		app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	}
+	app.Send(vaxis.Key{Keycode: 'c', Text: "c"})
+	for range 3 {
+		app.Pump(48, 7)
+	}
+	if !app.Contains("Write a comment") {
+		t.Fatalf("inline editor was not revealed below the last line:\n%s", app.Text())
 	}
 }
 

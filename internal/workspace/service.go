@@ -2,6 +2,7 @@
 package workspace
 
 import (
+	"bufio"
 	"context"
 	"crypto/hmac"
 	"crypto/rand"
@@ -518,6 +519,142 @@ func (s *Service) Read(ctx context.Context, sessionID, cwd string, input protoco
 		return protocol.WorkspaceFileRead{}, err
 	}
 	return protocol.WorkspaceFileRead{SessionID: sessionID, Workspace: current, Path: input.Path, Revision: revision, Size: before.Size(), ModifiedAt: before.ModTime().UTC().Format(time.RFC3339Nano), Encoding: "utf-8", Content: string(data), ReturnedBytes: len(data), ReturnedLines: lineCount(data), Truncated: reason != "", TruncationReason: reason}, nil
+}
+
+// LineRangeInput requests complete inclusive lines from a pinned workspace file.
+type LineRangeInput struct {
+	WorkspaceID          string
+	Path                 string
+	ExpectedFileRevision string
+	StartLine            int
+	EndLine              int
+}
+
+// LineRangeRead is an authoritative complete-line read.
+type LineRangeRead struct {
+	Content  string
+	Revision string
+}
+
+// ReadLineRange securely reads complete requested lines without relying on the
+// bounded prefix preview contract.
+func (s *Service) ReadLineRange(ctx context.Context, sessionID, cwd string, input LineRangeInput) (LineRangeRead, error) {
+	validation := protocol.ReadWorkspaceFileInput{WorkspaceID: input.WorkspaceID, Path: input.Path, ExpectedFileRevision: input.ExpectedFileRevision}
+	if err := validation.Validate(); err != nil || input.StartLine <= 0 || input.EndLine < input.StartLine || input.EndLine-input.StartLine+1 > 200 {
+		return LineRangeRead{}, classifyInput(fmt.Errorf("workspace line range is invalid"), input.Path, 0)
+	}
+	release, err := s.acquire(ctx, sessionID)
+	if err != nil {
+		return LineRangeRead{}, err
+	}
+	defer release()
+	ref, err := s.check(sessionID, cwd, input.WorkspaceID)
+	if err != nil {
+		return LineRangeRead{}, err
+	}
+	root, err := os.OpenRoot(cwd)
+	if err != nil {
+		return LineRangeRead{}, classify(err, NotFile)
+	}
+	defer root.Close()
+	nameChecks := 0
+	parentRoot, finalName, closeParent, err := openParentPath(root, input.Path, &nameChecks)
+	if err != nil {
+		return LineRangeRead{}, err
+	}
+	defer closeParent()
+	finalInfo, err := parentRoot.Lstat(finalName)
+	if err != nil {
+		return LineRangeRead{}, classify(err, NotFile)
+	}
+	openName, openRoot := finalName, parentRoot
+	if finalInfo.Mode()&os.ModeSymlink != 0 {
+		openName, err = resolveWorkspaceSymlink(root, input.Path)
+		if err != nil {
+			return LineRangeRead{}, err
+		}
+		openRoot = root
+	} else if !finalInfo.Mode().IsRegular() {
+		return LineRangeRead{}, &Error{Code: NotFile, Message: "workspace path is not a regular file"}
+	}
+	file, err := openRoot.OpenFile(openName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return LineRangeRead{}, classify(err, NotFile)
+	}
+	defer file.Close()
+	before, err := file.Stat()
+	if err != nil {
+		return LineRangeRead{}, classify(err, NotFile)
+	}
+	if !before.Mode().IsRegular() {
+		return LineRangeRead{}, &Error{Code: NotFile, Message: "workspace path is not a regular file"}
+	}
+	revision := fileRevision(ref.WorkspaceID, before)
+	if input.ExpectedFileRevision != "" && input.ExpectedFileRevision != revision {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file changed", Details: map[string]string{"currentFileRevision": revision}}
+	}
+	reader := bufio.NewReaderSize(file, 32<<10)
+	selected := make([]string, 0, input.EndLine-input.StartLine+1)
+	totalRead := 0
+	for lineNumber := 1; lineNumber <= input.EndLine; lineNumber++ {
+		if err := ctx.Err(); err != nil {
+			return LineRangeRead{}, err
+		}
+		line, readErr := reader.ReadString('\n')
+		totalRead += len(line)
+		if totalRead > 64<<20 || len(line) > 1<<20 {
+			return LineRangeRead{}, &Error{Code: LimitExceeded, Message: "workspace line range exceeds read limits"}
+		}
+		if strings.IndexByte(line, 0) >= 0 || !utf8.ValidString(line) {
+			return LineRangeRead{}, &Error{Code: BinaryFile, Message: "binary files cannot be read as lines"}
+		}
+		if lineNumber >= input.StartLine {
+			selected = append(selected, strings.TrimSuffix(line, "\n"))
+		}
+		if readErr == io.EOF {
+			if line == "" || lineNumber < input.EndLine {
+				return LineRangeRead{}, &Error{Code: NotFound, Message: "requested workspace lines are unavailable"}
+			}
+			break
+		}
+		if readErr != nil {
+			return LineRangeRead{}, classify(readErr, NotFile)
+		}
+	}
+	after, err := file.Stat()
+	if err != nil || fileRevision(ref.WorkspaceID, after) != revision {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file changed while it was read"}
+	}
+	currentParent, currentName, closeCurrent, err := openParentPath(root, input.Path, &nameChecks)
+	if err != nil {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
+	}
+	defer closeCurrent()
+	currentOpenName, currentOpenRoot := currentName, currentParent
+	currentLstat, err := currentParent.Lstat(currentName)
+	if err != nil {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
+	}
+	if currentLstat.Mode()&os.ModeSymlink != 0 {
+		currentOpenName, err = resolveWorkspaceSymlink(root, input.Path)
+		if err != nil {
+			return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
+		}
+		currentOpenRoot = root
+	}
+	currentFile, err := currentOpenRoot.OpenFile(currentOpenName, os.O_RDONLY|syscall.O_NONBLOCK, 0)
+	if err != nil {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
+	}
+	currentInfo, currentErr := currentFile.Stat()
+	_ = currentFile.Close()
+	if currentErr != nil || !os.SameFile(before, currentInfo) || fileRevision(ref.WorkspaceID, currentInfo) != revision {
+		return LineRangeRead{}, &Error{Code: StaleFile, Message: "workspace file path changed while it was read"}
+	}
+	if _, err := s.check(sessionID, cwd, input.WorkspaceID); err != nil {
+		return LineRangeRead{}, err
+	}
+	return LineRangeRead{Content: strings.Join(selected, "\n"), Revision: revision}, nil
 }
 
 func exactChild(root *os.Root, name string, checked *int) (fs.FileInfo, error) {

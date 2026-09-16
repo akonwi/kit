@@ -26,6 +26,30 @@ type TextInput struct {
 
 func (TextInput) isInputContent() {}
 
+// AnnotationInput is one canonical model-facing annotation bundle plus the
+// immutable structured snapshots retained with the user message.
+type AnnotationInput struct {
+	SubmissionID string
+	Text         string
+	Annotations  []SubmittedAnnotation
+}
+
+// SubmittedAnnotation is immutable evidence accepted with one user message.
+type SubmittedAnnotation struct {
+	ID           uint64 `json:"id"`
+	Kind         string `json:"kind"`
+	WorkspaceID  string `json:"workspace_id"`
+	Path         string `json:"path"`
+	FileRevision string `json:"file_revision"`
+	StartLine    int    `json:"start_line"`
+	EndLine      int    `json:"end_line"`
+	Preview      string `json:"preview"`
+	Truncated    bool   `json:"truncated,omitempty"`
+	Body         string `json:"body"`
+}
+
+func (AnnotationInput) isInputContent() {}
+
 // FileInput is caller-provided file or image content. Providers select their
 // representation from MediaType.
 type FileInput struct {

@@ -8,6 +8,7 @@ type mouseActivator struct {
 	OnPressed            ui.VoidCallback
 	OnHover              ui.VoidCallback
 	OnHoverExit          ui.VoidCallback
+	OnMotion             func(ui.EventContext, ui.Mouse)
 	OnPrimaryDownCapture ui.VoidCallback
 	DefaultMouseShape    bool
 }
@@ -17,8 +18,8 @@ func (w mouseActivator) WidgetChild() ui.Widget { return w.Child }
 func (w mouseActivator) CreateRenderObject(ui.BuildContext) ui.RenderObject {
 	return &renderMouseActivator{
 		OnPressed: w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit,
-		OnPrimaryDownCapture: w.OnPrimaryDownCapture,
-		DefaultMouseShape:    w.DefaultMouseShape,
+		OnPrimaryDownCapture: w.OnPrimaryDownCapture, OnMotion: w.OnMotion,
+		DefaultMouseShape: w.DefaultMouseShape,
 	}
 }
 
@@ -27,6 +28,7 @@ func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.Re
 	render.OnPressed = w.OnPressed
 	render.OnHover = w.OnHover
 	render.OnHoverExit = w.OnHoverExit
+	render.OnMotion = w.OnMotion
 	render.OnPrimaryDownCapture = w.OnPrimaryDownCapture
 	render.DefaultMouseShape = w.DefaultMouseShape
 }
@@ -36,6 +38,7 @@ type renderMouseActivator struct {
 	OnPressed            ui.VoidCallback
 	OnHover              ui.VoidCallback
 	OnHoverExit          ui.VoidCallback
+	OnMotion             func(ui.EventContext, ui.Mouse)
 	OnPrimaryDownCapture ui.VoidCallback
 	DefaultMouseShape    bool
 	hovered              bool
@@ -86,6 +89,9 @@ func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) 
 		return ui.EventIgnored
 	}
 	if mouse.EventType == ui.EventMotion {
+		if r.OnMotion != nil {
+			r.OnMotion(ctx, mouse)
+		}
 		if !r.hovered {
 			r.hovered = true
 			if r.OnHover != nil {

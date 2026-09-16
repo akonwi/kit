@@ -285,6 +285,32 @@ func TestReadFinalSymlinkStaysInsideWorkspace(t *testing.T) {
 	}
 }
 
+func TestReadLineRangeReadsBeyondPreviewLimits(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	service := NewService()
+	ref := service.Ref("session_test", root)
+	lines := make([]string, protocol.MaxWorkspacePreviewLines+2)
+	for index := range lines {
+		lines[index] = fmt.Sprintf("line %d", index+1)
+	}
+	if err := os.WriteFile(filepath.Join(root, "large.txt"), []byte(strings.Join(lines, "\n")), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	preview, err := service.Read(t.Context(), ref.SessionID, root, protocol.ReadWorkspaceFileInput{WorkspaceID: ref.WorkspaceID, Path: "large.txt"})
+	if err != nil || !preview.Truncated {
+		t.Fatalf("preview = %+v, %v", preview, err)
+	}
+	start := protocol.MaxWorkspacePreviewLines + 1
+	read, err := service.ReadLineRange(t.Context(), ref.SessionID, root, LineRangeInput{
+		WorkspaceID: ref.WorkspaceID, Path: "large.txt", ExpectedFileRevision: preview.Revision,
+		StartLine: start, EndLine: start + 1,
+	})
+	if err != nil || read.Content != strings.Join(lines[start-1:start+1], "\n") {
+		t.Fatalf("range = %+v, %v", read, err)
+	}
+}
+
 func TestReadFileReportsBinaryTruncationAndStaleness(t *testing.T) {
 	t.Parallel()
 	root := t.TempDir()

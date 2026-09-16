@@ -18,23 +18,25 @@ import (
 type TranscriptContentKind string
 
 const (
-	TranscriptContentText     TranscriptContentKind = "text"
-	TranscriptContentThinking TranscriptContentKind = "thinking"
-	TranscriptContentToolCall TranscriptContentKind = "toolCall"
-	TranscriptContentImage    TranscriptContentKind = "image"
-	TranscriptContentFile     TranscriptContentKind = "file"
+	TranscriptContentText        TranscriptContentKind = "text"
+	TranscriptContentThinking    TranscriptContentKind = "thinking"
+	TranscriptContentToolCall    TranscriptContentKind = "toolCall"
+	TranscriptContentImage       TranscriptContentKind = "image"
+	TranscriptContentFile        TranscriptContentKind = "file"
+	TranscriptContentAnnotations TranscriptContentKind = "annotations"
 )
 
 type TranscriptContent struct {
-	Kind               TranscriptContentKind `json:"kind"`
-	Text               string                `json:"text,omitempty"`
-	ToolCallID         string                `json:"toolCallId,omitempty"`
-	ToolName           string                `json:"toolName,omitempty"`
-	Arguments          string                `json:"arguments,omitempty"`
-	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
-	Filename           string                `json:"filename,omitempty"`
-	MediaType          string                `json:"mediaType,omitempty"`
-	AttachmentID       string                `json:"attachmentId,omitempty"`
+	Kind               TranscriptContentKind        `json:"kind"`
+	Text               string                       `json:"text,omitempty"`
+	ToolCallID         string                       `json:"toolCallId,omitempty"`
+	ToolName           string                       `json:"toolName,omitempty"`
+	Arguments          string                       `json:"arguments,omitempty"`
+	ArgumentsTruncated bool                         `json:"argumentsTruncated,omitempty"`
+	Filename           string                       `json:"filename,omitempty"`
+	MediaType          string                       `json:"mediaType,omitempty"`
+	AttachmentID       string                       `json:"attachmentId,omitempty"`
+	Annotations        []droids.SubmittedAnnotation `json:"annotations,omitempty"`
 }
 
 type TranscriptMessage struct {
@@ -649,6 +651,8 @@ func contentText[T any](content []T) string {
 		switch block := any(raw).(type) {
 		case droids.TextInput:
 			parts = append(parts, block.Text)
+		case droids.AnnotationInput:
+			parts = append(parts, fmt.Sprintf("[annotations: %d]", len(block.Annotations)))
 		case droids.TextContent:
 			parts = append(parts, block.Text)
 		case droids.FileInput:
@@ -671,6 +675,10 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 				result = append(result, TranscriptContent{Kind: TranscriptContentFile, Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID})
 			} else if block.Text != "" {
 				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: block.Text})
+			}
+		case droids.AnnotationInput:
+			if len(block.Annotations) > 0 {
+				result = append(result, TranscriptContent{Kind: TranscriptContentAnnotations, Annotations: append([]droids.SubmittedAnnotation(nil), block.Annotations...)})
 			}
 		case droids.TextContent:
 			if block.Text != "" {

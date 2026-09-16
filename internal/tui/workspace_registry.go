@@ -68,7 +68,13 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 			return workspaceFilePane{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
 				Files: view.WorkspaceFiles, Presentation: presentation,
-				OnFocusRequest: view.Callbacks.FocusWorkspaceContent,
+				Annotations:        view.Snapshot.ComposerAnnotations,
+				MouseGestures:      view.Callbacks.WorkspaceMouse,
+				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,
+				OnCreateAnnotation: view.Callbacks.CreateAnnotation,
+				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,
+				OnUpdateAnnotation: view.Callbacks.UpdateAnnotation,
+				OnRemoveAnnotation: view.Callbacks.RemoveAnnotation,
 			}
 		},
 	},

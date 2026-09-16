@@ -151,6 +151,7 @@ type RunReservation struct {
 type PromptInput struct {
 	Text          string   `json:"text"`
 	AttachmentIDs []string `json:"attachmentIds,omitempty"`
+	AnnotationIDs []uint64 `json:"annotationIds,omitempty"`
 }
 
 // FollowUpQueue is the renderer-safe projection of deferred session prompts.
@@ -278,11 +279,12 @@ type SessionVCSStatus struct {
 type TranscriptContentKind string
 
 const (
-	TranscriptContentText     TranscriptContentKind = "text"
-	TranscriptContentThinking TranscriptContentKind = "thinking"
-	TranscriptContentToolCall TranscriptContentKind = "toolCall"
-	TranscriptContentImage    TranscriptContentKind = "image"
-	TranscriptContentFile     TranscriptContentKind = "file"
+	TranscriptContentText        TranscriptContentKind = "text"
+	TranscriptContentThinking    TranscriptContentKind = "thinking"
+	TranscriptContentToolCall    TranscriptContentKind = "toolCall"
+	TranscriptContentImage       TranscriptContentKind = "image"
+	TranscriptContentFile        TranscriptContentKind = "file"
+	TranscriptContentAnnotations TranscriptContentKind = "annotations"
 )
 
 // TranscriptContent preserves the ordered presentation content of a message.
@@ -296,6 +298,7 @@ type TranscriptContent struct {
 	Filename           string                `json:"filename,omitempty"`
 	MediaType          string                `json:"mediaType,omitempty"`
 	AttachmentID       string                `json:"attachmentId,omitempty"`
+	Annotations        []SubmittedAnnotation `json:"annotations,omitempty"`
 }
 
 // TranscriptMessage is one ordered persisted message projected for clients.
@@ -462,6 +465,7 @@ type SessionSnapshot struct {
 	SubagentConversations []SubagentConversation `json:"subagentConversations,omitempty"`
 	SubagentMailbox       []SubagentMailboxItem  `json:"subagentMailbox,omitempty"`
 	PendingInteractions   []InteractionRequest   `json:"pendingInteractions,omitempty"`
+	Annotations           []AnnotationSummary    `json:"annotations,omitempty"`
 }
 
 // TranscriptPage is one complete-turn-bounded page preceding a cursor.

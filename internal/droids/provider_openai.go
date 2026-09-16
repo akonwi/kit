@@ -644,6 +644,8 @@ func openAIUserContent(content []InputContent) (responses.ResponseInputMessageCo
 		switch value := block.(type) {
 		case TextInput:
 			out = append(out, responses.ResponseInputContentParamOfInputText(value.Text))
+		case AnnotationInput:
+			out = append(out, responses.ResponseInputContentParamOfInputText(value.Text))
 		case FileInput:
 			fileContent := FileContent{Filename: value.Filename, MediaType: value.MediaType, URL: value.URL}
 			if isImageMediaType(value.MediaType) {
@@ -891,6 +893,8 @@ func textOfContent[T any](content []T) string {
 		case TextContent:
 			value = content.Text
 		case TextInput:
+			value = content.Text
+		case AnnotationInput:
 			value = content.Text
 		}
 		if value == "" {

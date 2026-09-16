@@ -401,8 +401,8 @@ func (input PromptInput) Validate() error {
 	if len(input.Text) > 128<<10 || !utf8.ValidString(input.Text) || strings.IndexByte(input.Text, 0) >= 0 {
 		return fmt.Errorf("prompt text must be valid UTF-8 without NUL and at most 128 KiB")
 	}
-	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
-		return fmt.Errorf("prompt must include text or an attachment")
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 && len(input.AnnotationIDs) == 0 {
+		return fmt.Errorf("prompt must include text, an attachment, or an annotation")
 	}
 	if len(input.AttachmentIDs) > 8 {
 		return fmt.Errorf("prompt has too many attachments")
@@ -416,6 +416,19 @@ func (input PromptInput) Validate() error {
 			return fmt.Errorf("prompt attachment ids must be unique")
 		}
 		seen[id] = struct{}{}
+	}
+	if len(input.AnnotationIDs) > MaxAnnotationsPerPrompt {
+		return fmt.Errorf("prompt has too many annotations")
+	}
+	seenAnnotations := make(map[uint64]struct{}, len(input.AnnotationIDs))
+	for _, id := range input.AnnotationIDs {
+		if id == 0 {
+			return fmt.Errorf("prompt annotation id is invalid")
+		}
+		if _, duplicate := seenAnnotations[id]; duplicate {
+			return fmt.Errorf("prompt annotation ids must be unique")
+		}
+		seenAnnotations[id] = struct{}{}
 	}
 	return nil
 }

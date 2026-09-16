@@ -39,19 +39,21 @@ type wireMessage struct {
 }
 
 type wireContent struct {
-	Type           string     `json:"type"`
-	Text           string     `json:"text,omitempty"`
-	Thinking       string     `json:"thinking,omitempty"`
-	Signature      string     `json:"signature,omitempty"`
-	Redacted       bool       `json:"redacted,omitempty"`
-	Filename       string     `json:"filename,omitempty"`
-	MediaType      string     `json:"media_type,omitempty"`
-	URL            string     `json:"url,omitempty"`
-	AttachmentID   string     `json:"attachment_id,omitempty"`
-	ID             ToolCallID `json:"id,omitempty"`
-	ProviderCallID string     `json:"provider_call_id,omitempty"`
-	Name           string     `json:"name,omitempty"`
-	Arguments      []byte     `json:"arguments,omitempty"`
+	Type           string                `json:"type"`
+	Text           string                `json:"text,omitempty"`
+	Thinking       string                `json:"thinking,omitempty"`
+	Signature      string                `json:"signature,omitempty"`
+	Redacted       bool                  `json:"redacted,omitempty"`
+	Filename       string                `json:"filename,omitempty"`
+	MediaType      string                `json:"media_type,omitempty"`
+	URL            string                `json:"url,omitempty"`
+	AttachmentID   string                `json:"attachment_id,omitempty"`
+	Annotations    []SubmittedAnnotation `json:"annotations,omitempty"`
+	SubmissionID   string                `json:"submission_id,omitempty"`
+	ID             ToolCallID            `json:"id,omitempty"`
+	ProviderCallID string                `json:"provider_call_id,omitempty"`
+	Name           string                `json:"name,omitempty"`
+	Arguments      []byte                `json:"arguments,omitempty"`
 }
 
 func encodeMessageEnvelope(envelope MessageEnvelope) ([]byte, error) {
@@ -187,6 +189,11 @@ func contentToWire[T any](content []T) ([]wireContent, error) {
 		switch value := any(block).(type) {
 		case TextInput:
 			out = append(out, wireContent{Type: "text", Text: value.Text, AttachmentID: value.AttachmentID, Filename: value.Filename, MediaType: value.MediaType})
+		case AnnotationInput:
+			if err := validateAnnotationInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, wireContent{Type: "annotations", Text: value.Text, Annotations: append([]SubmittedAnnotation(nil), value.Annotations...), SubmissionID: value.SubmissionID})
 		case FileInput:
 			if _, err := NewFileInputURL(value.Filename, value.MediaType, value.URL); err != nil {
 				return nil, fmt.Errorf("droids: invalid file input: %w", err)
@@ -226,6 +233,12 @@ func inputContentFromWire(content []wireContent) ([]InputContent, error) {
 		switch block.Type {
 		case "text":
 			out = append(out, TextInput{Text: block.Text, AttachmentID: block.AttachmentID, Filename: block.Filename, MediaType: block.MediaType})
+		case "annotations":
+			value := AnnotationInput{SubmissionID: block.SubmissionID, Text: block.Text, Annotations: append([]SubmittedAnnotation(nil), block.Annotations...)}
+			if err := validateAnnotationInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, value)
 		case "file":
 			out = append(out, FileInput{Filename: block.Filename, MediaType: block.MediaType, URL: block.URL, AttachmentID: block.AttachmentID})
 		default:

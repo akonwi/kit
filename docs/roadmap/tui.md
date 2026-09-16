@@ -126,12 +126,12 @@ resolving this decision.
   draft attachments, restoration, submission, and failure recovery.
 - [ ] TUI-SCRATCH-001 — Add a scratchpad workspace with guarded edits and
   autosave feedback. Depends on `CORE-SCRATCH-001`.
-- [ ] TUI-ANN-001 — Add retained File-pane line/range selection and inline
+- [x] TUI-ANN-001 — Add retained File-pane line/range selection and inline
   workspace-file annotations with bounded editing, anchor navigation, stale
   treatment, keyboard and gutter-mouse interaction, and server-authoritative
   synchronization. Depends on `CORE-ANN-001`. See
   [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
-- [ ] TUI-ANN-002 — Project each live annotation as a synchronized composer chip
+- [x] TUI-ANN-002 — Project each live annotation as a synchronized composer chip
   on every tab, preserve explicit ordering, submit annotation IDs with prompts,
   remove accepted drafts, and render immutable submitted snapshots. Depends on
   `CORE-ANN-002`. See

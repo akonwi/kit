@@ -16,6 +16,7 @@ import (
 	"strings"
 	"time"
 
+	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
@@ -218,15 +219,22 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
 	}
+	workspaceService := workspace.NewService()
+	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService})
+	if err != nil {
+		return fmt.Errorf("configure annotation service: %w", err)
+	}
 	sessionManager, err = kitsession.NewManager(
 		store, providers, bundleBuilder,
 		kitsession.WithDroidStoreDirectory(paths.Droids),
 		kitsession.WithAttachmentStore(attachmentStore),
+		kitsession.WithAnnotationService(annotationService),
 		kitsession.WithModelContextWindow(modelContextWindow),
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
 	}
+	annotationService.SetObserver(sessionManager)
 	peerTools.Service = sessionManager
 	sessionTools.Service = modelSessionService{
 		manager: sessionManager, providers: providers, availableProviders: providerAvailability,
@@ -300,7 +308,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:        store,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
-			workspaces: workspace.NewService(), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
+			workspaces: workspaceService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
 		providers:   providerAvailability,

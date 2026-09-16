@@ -10,6 +10,8 @@ import (
 	"sync"
 	"sync/atomic"
 	"time"
+
+	"github.com/akonwi/kit/internal/identifier"
 )
 
 const (
@@ -29,26 +31,27 @@ type sdkRuntime struct {
 	conversation  ConversationID
 	requestConfig atomic.Pointer[runtimeRequestConfiguration]
 
-	mu                   sync.Mutex
-	abortMu              sync.Mutex
-	revision             uint64
-	lastEvent            EventSequence
-	state                durableRuntime
-	forkedFrom           *ForkPoint
-	boundaryReceipts     map[string]struct{}
-	boundaryConsumptions map[string]TurnID
-	changed              chan struct{}
-	runCancel            context.CancelFunc
-	runGeneration        uint64
-	handle               *sdkExecution
-	closed               bool
-	shutdownStarted      bool
-	shutdownDone         chan struct{}
-	resumeCancel         context.CancelFunc
-	resumeFlight         *resumeFlight
-	contextFlight        *contextMaintenanceFlight
-	abortPending         bool
-	persistenceErr       error
+	mu                    sync.Mutex
+	abortMu               sync.Mutex
+	revision              uint64
+	lastEvent             EventSequence
+	state                 durableRuntime
+	forkedFrom            *ForkPoint
+	boundaryReceipts      map[string]struct{}
+	boundaryConsumptions  map[string]TurnID
+	annotationSubmissions map[string]MessageID
+	changed               chan struct{}
+	runCancel             context.CancelFunc
+	runGeneration         uint64
+	handle                *sdkExecution
+	closed                bool
+	shutdownStarted       bool
+	shutdownDone          chan struct{}
+	resumeCancel          context.CancelFunc
+	resumeFlight          *resumeFlight
+	contextFlight         *contextMaintenanceFlight
+	abortPending          bool
+	persistenceErr        error
 
 	subsMu sync.Mutex
 	subs   map[*sdkSubscription]struct{}
@@ -256,7 +259,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 		droid: d, config: config, store: config.Store, provider: provider, conversation: id,
 		revision: opened.Conversation.Revision, lastEvent: opened.Conversation.LastEvent,
 		state: state, forkedFrom: forkedFrom, boundaryReceipts: boundaryReceipts, boundaryConsumptions: boundaryConsumptions,
-		changed: make(chan struct{}), shutdownDone: make(chan struct{}),
+		annotationSubmissions: make(map[string]MessageID), changed: make(chan struct{}), shutdownDone: make(chan struct{}),
 		subs: make(map[*sdkSubscription]struct{}),
 	}
 	d.sdk = rt
@@ -417,9 +420,21 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 			rt.state = before
 			return nil, err
 		}
-		if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{event}); err != nil {
+		receiptMutation, err := annotationSubmissionReceiptMutation(message, messageID)
+		if err != nil {
 			rt.state = before
 			return nil, err
+		}
+		var mutations []EncodedMutation
+		if receiptMutation != nil {
+			mutations = append(mutations, *receiptMutation)
+		}
+		if err := rt.commitLocked(ctx, mutations, []EncodedDurableEvent{event}); err != nil {
+			rt.state = before
+			return nil, err
+		}
+		if receiptMutation != nil {
+			rt.annotationSubmissions[receiptMutation.RecordID] = messageID
 		}
 		return rt.ensureHandleLocked(), nil
 	}
@@ -556,6 +571,7 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	}
 	rt.state.PendingBoundaries = nil
 	admittedData := map[string]any{}
+	acceptedAnnotationSubmission := ""
 	if message != nil {
 		messageID, err := newMessageID()
 		if err != nil {
@@ -576,6 +592,15 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 			return nil, err
 		}
 		mutations = append(mutations, messageMutation)
+		receiptMutation, err := annotationSubmissionReceiptMutation(*message, messageID)
+		if err != nil {
+			rt.state = before
+			return nil, err
+		}
+		if receiptMutation != nil {
+			mutations = append(mutations, *receiptMutation)
+			acceptedAnnotationSubmission = receiptMutation.RecordID
+		}
 		admittedData["message_id"] = messageID
 	}
 	admitted, _ := lifecycleEvent("turn.admitted", turnID, attemptID, admittedData)
@@ -589,6 +614,9 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	}
 	for _, id := range consumedBoundaryIDs {
 		rt.boundaryConsumptions[id] = turnID
+	}
+	if acceptedAnnotationSubmission != "" {
+		rt.annotationSubmissions[acceptedAnnotationSubmission] = admittedData["message_id"].(MessageID)
 	}
 	handle := newSDKExecution(rt, turnID)
 	rt.handle = handle
@@ -1239,6 +1267,64 @@ func quiescentState(rt *sdkRuntime) QuiescentState {
 		}
 	}
 	return result
+}
+
+type annotationSubmissionReceipt struct {
+	SubmissionID string    `json:"submission_id"`
+	MessageID    MessageID `json:"message_id"`
+}
+
+// AnnotationSubmissionMessageID resolves the immutable acceptance receipt for
+// a durable annotation reservation identity.
+func (d *Droid) AnnotationSubmissionMessageID(ctx context.Context, submissionID string) (MessageID, error) {
+	if d == nil || d.sdk == nil || !identifier.Valid(submissionID, "annotation_submission_") {
+		return "", fmt.Errorf("droids: annotation submission identity is invalid")
+	}
+	d.sdk.mu.Lock()
+	messageID := d.sdk.annotationSubmissions[submissionID]
+	d.sdk.mu.Unlock()
+	if messageID != "" {
+		return messageID, nil
+	}
+	record, err := d.sdk.store.Record(ctx, annotationSubmissionReceiptKind, submissionID)
+	if errors.Is(err, ErrRecordNotFound) {
+		return "", nil
+	}
+	if err != nil {
+		return "", fmt.Errorf("droids: load annotation submission receipt: %w", err)
+	}
+	if record.Scope != RecordHistory || record.Version != recordVersion {
+		return "", fmt.Errorf("droids: annotation submission receipt is invalid")
+	}
+	var receipt annotationSubmissionReceipt
+	if err := json.Unmarshal(record.Payload, &receipt); err != nil || receipt.SubmissionID != submissionID || !identifier.Valid(string(receipt.MessageID), "message_") {
+		return "", fmt.Errorf("droids: annotation submission receipt is invalid")
+	}
+	return receipt.MessageID, nil
+}
+
+func annotationSubmissionReceiptMutation(message UserMessage, messageID MessageID) (*EncodedMutation, error) {
+	for _, content := range message.Content {
+		annotation, ok := content.(AnnotationInput)
+		if !ok {
+			continue
+		}
+		receipt := annotationSubmissionReceipt{SubmissionID: annotation.SubmissionID, MessageID: messageID}
+		payload, err := json.Marshal(receipt)
+		if err != nil {
+			return nil, err
+		}
+		mutation := EncodedMutation{Operation: MutationAssertAbsent, RecordKind: annotationSubmissionReceiptKind, RecordID: annotation.SubmissionID, Scope: RecordHistory, Version: recordVersion, Payload: payload}
+		return &mutation, nil
+	}
+	return nil, nil
+}
+
+// HasAnnotationSubmission reports whether an immutable or pending user message
+// carries the durable annotation reservation identity.
+func (d *Droid) HasAnnotationSubmission(ctx context.Context, submissionID string) (bool, error) {
+	messageID, err := d.AnnotationSubmissionMessageID(ctx, submissionID)
+	return messageID != "", err
 }
 
 // Snapshot returns a bounded current droid projection.

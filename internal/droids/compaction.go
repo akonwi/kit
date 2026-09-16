@@ -104,6 +104,11 @@ func estimateContentBytes[T any](content []T) int {
 		switch value := any(block).(type) {
 		case TextInput:
 			bytes += len(value.Text)
+		case AnnotationInput:
+			bytes += len(value.Text)
+			for _, annotation := range value.Annotations {
+				bytes += len(annotation.Kind) + len(annotation.WorkspaceID) + len(annotation.Path) + len(annotation.FileRevision) + len(annotation.Preview) + len(annotation.Body) + 64
+			}
 		case FileInput:
 			bytes += len(value.Filename) + len(value.MediaType) + len(value.URL)
 		case TextContent:
@@ -124,7 +129,7 @@ func cloneMessages(messages []Message) []Message {
 	for i, message := range messages {
 		switch msg := message.(type) {
 		case UserMessage:
-			msg.Content = append([]InputContent(nil), msg.Content...)
+			msg.Content = cloneInputContent(msg.Content)
 			out[i] = msg
 		case AssistantMessage:
 			msg.Content = cloneAssistantContent(msg.Content)
@@ -134,8 +139,19 @@ func cloneMessages(messages []Message) []Message {
 			msg.Details = append(json.RawMessage(nil), msg.Details...)
 			out[i] = msg
 		case ContextMessage:
-			msg.Content = append([]InputContent(nil), msg.Content...)
+			msg.Content = cloneInputContent(msg.Content)
 			out[i] = msg
+		}
+	}
+	return out
+}
+
+func cloneInputContent(content []InputContent) []InputContent {
+	out := append([]InputContent(nil), content...)
+	for index, block := range out {
+		if annotation, ok := block.(AnnotationInput); ok {
+			annotation.Annotations = append([]SubmittedAnnotation(nil), annotation.Annotations...)
+			out[index] = annotation
 		}
 	}
 	return out

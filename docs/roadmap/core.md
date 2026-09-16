@@ -186,12 +186,12 @@ IDs but must not redefine server, persistence, or protocol semantics.
   active-session exclusion.
 - [ ] CORE-SCRATCH-001 — Implement guarded scratchpad reads/edits, autosave,
   context injection, and fork/handoff copying.
-- [ ] CORE-ANN-001 — Provide bounded, session-owned draft annotations with
+- [x] CORE-ANN-001 — Provide bounded, session-owned draft annotations with
   server-allocated monotonic IDs, typed revision-pinned anchors, authoritative
   previews, mutation, deletion, stale guards, persistence, snapshots, and events,
   beginning with workspace-file line ranges. See
   [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
-- [ ] CORE-ANN-002 — Accept ordered annotation IDs with structured prompts,
+- [x] CORE-ANN-002 — Accept ordered annotation IDs with structured prompts,
   atomically validate and snapshot them into accepted messages, remove submitted
   drafts, and project immutable submitted annotations through transcript
   contracts. See

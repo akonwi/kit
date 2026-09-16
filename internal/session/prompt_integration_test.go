@@ -10,6 +10,7 @@ import (
 	"sync"
 	"testing"
 
+	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
@@ -19,6 +20,95 @@ import (
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/systemprompt"
 )
+
+type annotationFileReader struct{ content string }
+
+func (r annotationFileReader) ReadFile(context.Context, string, string, kitannotation.WorkspaceFileAnchor) (kitannotation.FileEvidence, error) {
+	return kitannotation.FileEvidence{Content: r.content}, nil
+}
+
+func TestManagerSubmitsAndConsumesOrderedAnnotations(t *testing.T) {
+	t.Parallel()
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	annotations, err := kitannotation.NewService(store, annotationFileReader{content: "first\nsecond\nthird"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAnnotationService(annotations))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := kitannotation.WorkspaceFileAnchor{
+		WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go",
+		FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3,
+	}
+	first, err := annotations.Create(t.Context(), record.ID, base, anchor, "First instruction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := annotations.Create(t.Context(), record.ID, base, anchor, "Second instruction")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPromptInput(t.Context(), record.ID, session.PromptInput{Text: "Apply these", AnnotationIDs: []uint64{second.ID, first.ID}}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := store.GetAnnotation(t.Context(), record.ID, first.ID); !errors.Is(err, kitannotation.ErrNotFound) {
+		t.Fatalf("submitted annotation remains: %v", err)
+	}
+	pending, err := store.PendingAnnotationSubmissions(t.Context(), record.ID)
+	if err != nil || len(pending) != 0 {
+		t.Fatalf("pending submissions = %v, %v", pending, err)
+	}
+	providers.mu.Lock()
+	request := providers.requests[len(providers.requests)-1]
+	providers.mu.Unlock()
+	user := request.Messages[len(request.Messages)-1].(droids.UserMessage)
+	if len(user.Content) != 2 {
+		t.Fatalf("user content = %#v", user.Content)
+	}
+	bundle, ok := user.Content[1].(droids.AnnotationInput)
+	if !ok || len(bundle.Annotations) != 2 || bundle.Annotations[0].ID != second.ID || bundle.Annotations[1].ID != first.ID || !strings.Contains(bundle.Text, "<kit_annotations version=\"1\">") {
+		t.Fatalf("annotation bundle = %#v", user.Content[1])
+	}
+	snapshot, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var submitted session.TranscriptMessage
+	for _, message := range snapshot.Messages {
+		if message.Role == "user" {
+			submitted = message
+		}
+	}
+	if len(submitted.Content) != 2 || submitted.Content[1].Kind != session.TranscriptContentAnnotations || len(submitted.Content[1].Annotations) != 2 {
+		t.Fatalf("transcript content = %#v", submitted.Content)
+	}
+	events, err := manager.Events(t.Context(), record.ID, snapshot.EventStreamID, 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var submission *session.Event
+	for index := range events.Events {
+		if events.Events[index].Kind == session.EventAnnotationSubmitted {
+			submission = &events.Events[index]
+		}
+	}
+	if submission == nil || !reflect.DeepEqual(submission.AnnotationIDs, []uint64{second.ID, first.ID}) || !strings.HasPrefix(submission.AcceptedMessageID, "message_") {
+		t.Fatalf("submission event = %+v", submission)
+	}
+}
 
 func TestManagerResolvesOrderedPromptAttachments(t *testing.T) {
 	t.Parallel()

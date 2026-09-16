@@ -195,7 +195,7 @@ func (snapshot SessionSnapshot) Validate() error {
 	} else if snapshot.PreviousMessageCursor != "" {
 		return fmt.Errorf("snapshot previous-message cursor requires older messages")
 	}
-	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions ||
+	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions || len(snapshot.Annotations) > MaxLiveAnnotationsPerSession ||
 		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {
 		return fmt.Errorf("snapshot has too many commands, warnings, or subagent records")
 	}
@@ -204,6 +204,13 @@ func (snapshot SessionSnapshot) Validate() error {
 	}
 	if err := snapshot.FollowUps.Validate(); err != nil {
 		return fmt.Errorf("snapshot follow-ups: %w", err)
+	}
+	var previousAnnotation uint64
+	for index, annotation := range snapshot.Annotations {
+		if err := annotation.Validate(); err != nil || annotation.ID <= previousAnnotation {
+			return fmt.Errorf("snapshot annotation %d is invalid", index)
+		}
+		previousAnnotation = annotation.ID
 	}
 	seenInteractions := make(map[string]struct{}, len(snapshot.PendingInteractions))
 	for index, interaction := range snapshot.PendingInteractions {
@@ -523,28 +530,38 @@ func (message TranscriptMessage) validate() error {
 func (block TranscriptContent) validate() error {
 	hasToolData := block.ToolCallID != "" || block.ToolName != "" || block.Arguments != "" || block.ArgumentsTruncated
 	hasFileData := block.Filename != "" || block.MediaType != ""
+	hasAnnotationData := len(block.Annotations) > 0
 	switch block.Kind {
 	case TranscriptContentText, TranscriptContentThinking:
 		if block.Text == "" {
 			return fmt.Errorf("%s content requires text", block.Kind)
 		}
-		if hasToolData || hasFileData {
+		if hasToolData || hasFileData || hasAnnotationData {
 			return fmt.Errorf("%s content carries unrelated metadata", block.Kind)
 		}
 	case TranscriptContentToolCall:
-		if block.Text != "" || block.ToolCallID == "" || block.ToolName == "" || hasFileData {
+		if block.Text != "" || block.ToolCallID == "" || block.ToolName == "" || hasFileData || hasAnnotationData {
 			return fmt.Errorf("tool call requires call id and name only")
 		}
 		if (block.Arguments == "") == !block.ArgumentsTruncated {
 			return fmt.Errorf("tool call requires either complete or explicitly truncated arguments")
 		}
 	case TranscriptContentImage:
-		if block.Text != "" || hasToolData || !validMediaType(block.MediaType, true) {
+		if block.Text != "" || hasToolData || hasAnnotationData || !validMediaType(block.MediaType, true) {
 			return fmt.Errorf("image content requires an image media type without text or tool metadata")
 		}
 	case TranscriptContentFile:
-		if block.Text != "" || hasToolData || strings.TrimSpace(block.Filename) == "" || !validMediaType(block.MediaType, false) {
+		if block.Text != "" || hasToolData || hasAnnotationData || strings.TrimSpace(block.Filename) == "" || !validMediaType(block.MediaType, false) {
 			return fmt.Errorf("file content requires filename and media type only")
+		}
+	case TranscriptContentAnnotations:
+		if block.Text != "" || hasToolData || hasFileData || len(block.Annotations) == 0 || len(block.Annotations) > MaxAnnotationsPerPrompt {
+			return fmt.Errorf("annotation content is invalid")
+		}
+		for _, annotation := range block.Annotations {
+			if err := annotation.Validate(); err != nil {
+				return err
+			}
 		}
 	default:
 		return fmt.Errorf("kind %q is invalid", block.Kind)
@@ -554,7 +571,9 @@ func (block TranscriptContent) validate() error {
 
 func contentAllowedForRole(role string, kind TranscriptContentKind) bool {
 	switch role {
-	case "user", "context":
+	case "user":
+		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile || kind == TranscriptContentAnnotations
+	case "context":
 		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile
 	case "assistant":
 		return kind == TranscriptContentText || kind == TranscriptContentThinking || kind == TranscriptContentToolCall

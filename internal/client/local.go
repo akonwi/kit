@@ -186,6 +186,22 @@ func (c *localSession) ReadWorkspaceFile(ctx context.Context, input protocol.Rea
 	return result, projectWorkspaceError(err)
 }
 
+func (c *localSession) ListAnnotations(ctx context.Context, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
+	return c.transport.ListAnnotations(ctx, c.id, input)
+}
+
+func (c *localSession) CreateAnnotation(ctx context.Context, input protocol.CreateAnnotationInput) (protocol.Annotation, error) {
+	return c.transport.CreateAnnotation(ctx, c.id, input)
+}
+
+func (c *localSession) UpdateAnnotation(ctx context.Context, input protocol.UpdateAnnotationInput) (protocol.Annotation, error) {
+	return c.transport.UpdateAnnotation(ctx, c.id, input)
+}
+
+func (c *localSession) DeleteAnnotation(ctx context.Context, input protocol.DeleteAnnotationInput) error {
+	return c.transport.DeleteAnnotation(ctx, c.id, input)
+}
+
 func projectWorkspaceError(err error) error {
 	var apiError *daemon.APIError
 	if !errors.As(err, &apiError) || apiError.Code == "" {
@@ -547,7 +563,7 @@ func (c *localSession) StartPromptInput(ctx context.Context, input protocol.Prom
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 {
+	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 && len(input.AnnotationIDs) == 0 {
 		return nil, fmt.Errorf("prompt is empty")
 	}
 	reservation, err := c.transport.StartPromptInput(ctx, c.id, input)
@@ -752,6 +768,16 @@ func (s *localEventStream) Err() error {
 	return s.err
 }
 
+func isAnnotationSessionEvent(kind protocol.SessionEventKind) bool {
+	switch kind {
+	case protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
+		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
+		return true
+	default:
+		return false
+	}
+}
+
 func (s *localEventStream) readSSE(
 	ctx context.Context,
 	body io.ReadCloser,
@@ -812,6 +838,9 @@ func (s *localEventStream) readSSE(
 				continue
 			}
 			if event.RunID != runID {
+				if isAnnotationSessionEvent(event.Kind) {
+					matching = append(matching, event)
+				}
 				continue
 			}
 			if !seenRunStart {
