@@ -4,14 +4,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"path/filepath"
 	"strconv"
 	"strings"
 	"sync"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
+	"github.com/akonwi/kit/internal/highlight"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
@@ -42,6 +40,8 @@ type workspaceFilePane struct {
 	CurrentWorkspaceID string
 	Files              sessionclient.WorkspaceFilesSession
 	Presentation       workspacePanePresentation
+	Highlighter        highlight.Highlighter
+	Dispatch           func(func())
 	OnFocusRequest     ui.VoidCallback
 }
 
@@ -53,23 +53,33 @@ type workspaceFileResult struct {
 	err        error
 }
 
+type workspaceHighlightResult struct {
+	generation uint64
+	result     highlight.Result
+}
+
 type workspaceFilePaneState struct {
 	ui.StateBase
-	loadState     workspaceFileLoadState
-	read          protocol.WorkspaceFileRead
-	lines         []string
-	hasContent    bool
-	generation    uint64
-	cancel        context.CancelFunc
-	disposed      bool
-	resultMu      sync.Mutex
-	pendingResult *workspaceFileResult
-	scroll        ui.ScrollPaneController
-	focus         ui.FocusNode
-	cursorLine    int
-	pendingReveal int
-	appliedOpen   uint64
-	cachedBody    ui.Widget
+	loadState           workspaceFileLoadState
+	read                protocol.WorkspaceFileRead
+	lines               []string
+	hasContent          bool
+	generation          uint64
+	cancel              context.CancelFunc
+	disposed            bool
+	resultMu            sync.Mutex
+	pendingResult       *workspaceFileResult
+	highlightGeneration uint64
+	highlightCancel     context.CancelFunc
+	pendingHighlight    *workspaceHighlightResult
+	highlighted         highlight.Result
+	highlightReady      bool
+	scroll              ui.ScrollPaneController
+	focus               ui.FocusNode
+	cursorLine          int
+	pendingReveal       int
+	appliedOpen         uint64
+	cachedBody          ui.Widget
 }
 
 func (s *workspaceFilePaneState) InitState() {
@@ -112,8 +122,12 @@ func (s *workspaceFilePaneState) DidUpdateWidget(old ui.Widget) {
 		}
 		s.focus.RequestFocus()
 	}
-	if !previous.Presentation.Active && w.Presentation.Active && (s.loadState == workspaceFileInitial || s.loadState == workspaceFileLoading || s.loadState == workspaceFileCanceled) {
-		s.startLoad(false)
+	if !previous.Presentation.Active && w.Presentation.Active {
+		if s.loadState == workspaceFileInitial || s.loadState == workspaceFileLoading || s.loadState == workspaceFileCanceled {
+			s.startLoad(false)
+		} else if s.hasContent && !s.highlightReady {
+			s.startHighlight()
+		}
 	}
 }
 
@@ -132,6 +146,49 @@ func (s *workspaceFilePaneState) stopLoad() {
 		s.cancel = nil
 		s.generation++
 	}
+	s.stopHighlight()
+}
+
+func (s *workspaceFilePaneState) stopHighlight() {
+	if s.highlightCancel != nil {
+		s.highlightCancel()
+		s.highlightCancel = nil
+		s.highlightGeneration++
+	}
+}
+
+func (s *workspaceFilePaneState) startHighlight() {
+	w := s.Widget().(workspaceFilePane)
+	if !w.Presentation.Active || !s.hasContent {
+		return
+	}
+	s.stopHighlight()
+	s.highlightGeneration++
+	generation := s.highlightGeneration
+	ctx, cancel := context.WithCancel(context.Background())
+	s.highlightCancel = cancel
+	request := highlight.Request{Path: w.Descriptor.Path, Source: s.read.Content, Revision: s.read.Revision}
+	dispatch := w.Dispatch
+	if dispatch == nil {
+		dispatch = s.Context().Runtime().Dispatch
+	}
+	highlighter := w.Highlighter
+	if highlighter == nil {
+		highlighter = highlight.Default
+	}
+	go func() {
+		result := highlight.Validate(highlighter.Highlight(ctx, request))
+		s.resultMu.Lock()
+		if s.pendingHighlight == nil || generation >= s.pendingHighlight.generation {
+			s.pendingHighlight = &workspaceHighlightResult{generation: generation, result: result}
+		}
+		s.resultMu.Unlock()
+		dispatch(func() {
+			if !s.disposed {
+				s.SetState(func() {})
+			}
+		})
+	}()
 }
 
 func (s *workspaceFilePaneState) startLoad(acceptCurrent bool) {
@@ -157,14 +214,18 @@ func (s *workspaceFilePaneState) startLoad(acceptCurrent bool) {
 		expected = ""
 	}
 	input := protocol.ReadWorkspaceFileInput{WorkspaceID: w.Descriptor.WorkspaceID, Path: w.Descriptor.Path, ExpectedFileRevision: expected}
-	runtime := s.Context().Runtime()
+	dispatch := w.Dispatch
+	if dispatch == nil {
+		dispatch = s.Context().Runtime().Dispatch
+	}
 	go func() {
 		read, err := w.Files.ReadWorkspaceFile(ctx, input)
 		s.queueResult(workspaceFileResult{generation: generation, read: read, err: err})
-		// Production Dispatch wakes and serializes the UI event loop. The result
-		// itself stays in the channel so synchronous test runtimes never mutate
-		// widget state from this goroutine.
-		runtime.Dispatch(func() {})
+		dispatch(func() {
+			if !s.disposed {
+				s.SetState(func() {})
+			}
+		})
 	}()
 }
 
@@ -180,16 +241,25 @@ func (s *workspaceFilePaneState) applyPendingResults() {
 	s.resultMu.Lock()
 	result := s.pendingResult
 	s.pendingResult = nil
+	highlightResult := s.pendingHighlight
+	s.pendingHighlight = nil
 	s.resultMu.Unlock()
-	if result == nil || s.disposed || result.generation != s.generation {
-		return
+	if result != nil && !s.disposed && result.generation == s.generation {
+		s.cancel = nil
+		s.completeLoad(result.read, result.err)
 	}
-	s.cancel = nil
-	s.completeLoad(result.read, result.err)
+	if highlightResult != nil && !s.disposed && highlightResult.generation == s.highlightGeneration {
+		s.highlightCancel = nil
+		s.highlighted = highlightResult.result
+		s.highlightReady = true
+		s.cachedBody = nil
+	}
 }
 
 func (s *workspaceFilePaneState) completeLoad(read protocol.WorkspaceFileRead, err error) {
 	s.cachedBody = nil
+	s.highlightReady = false
+	s.highlighted = highlight.Result{}
 	if err != nil {
 		s.loadState = classifyWorkspaceFileError(err)
 		return
@@ -214,6 +284,7 @@ func (s *workspaceFilePaneState) completeLoad(read protocol.WorkspaceFileRead, e
 	if s.pendingReveal == 0 {
 		s.pendingReveal = s.cursorLine
 	}
+	s.startHighlight()
 }
 
 func classifyWorkspaceFileError(err error) workspaceFileLoadState {
@@ -324,7 +395,11 @@ func (s *workspaceFilePaneState) body(theme ui.Theme, semantic SemanticTheme, w 
 		return s.cachedBody
 	}
 	if s.hasContent && (s.loadState == workspaceFileLoading || s.loadState == workspaceFileStaleFile || s.loadState == workspaceFileFrozen || s.loadState == workspaceFileTruncated || s.loadState == workspaceFileReady) {
-		spans := workspaceFileSpans(w.Descriptor.Path, s.lines, theme, semantic)
+		result := s.highlighted
+		if !s.highlightReady {
+			result = highlight.Plain(highlight.Request{Path: w.Descriptor.Path, Source: s.read.Content, Revision: s.read.Revision}, nil)
+		}
+		spans := workspaceFileSpans(result, theme, semantic)
 		pane := ui.Widget(ui.ScrollPane{Controller: &s.scroll, Child: ui.RichText{Spans: spans, SoftWrap: false}})
 		pane = ui.Scrollbar{
 			Child:      pane,
@@ -335,14 +410,14 @@ func (s *workspaceFilePaneState) body(theme ui.Theme, semantic SemanticTheme, w 
 		return pane
 	}
 	message, detail := s.emptyStateText()
-	children := []ui.Widget{ui.Text{Value: message, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1}}
+	children := []ui.Widget{ui.Text{Value: message, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Align: ui.TextAlignCenter}}
 	if detail != "" {
-		children = append(children, ui.Text{Value: detail, Style: ui.Style{Foreground: theme.DisabledForeground}, MaxLines: 1})
+		children = append(children, ui.Text{Value: detail, Style: ui.Style{Foreground: theme.DisabledForeground}, MaxLines: 1, Align: ui.TextAlignCenter})
 	}
 	if s.loadState == workspaceFileLoading && w.Presentation.Active {
-		children[0] = spinnerWithLabel(message, ui.Style{Foreground: theme.MutedForeground})
+		children[0] = centeredSpinnerWithLabel(message, ui.Style{Foreground: theme.MutedForeground})
 	}
-	return ui.Center(ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter, Children: children})
+	return ui.Flex{Axis: ui.Vertical, MainAxisAlignment: ui.MainAxisCenter, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }
 
 func (s *workspaceFilePaneState) emptyStateText() (string, string) {
@@ -427,97 +502,52 @@ func formatWorkspaceFileSize(size int64) string {
 	return fmt.Sprintf("%.1f MiB", float64(size)/(1024*1024))
 }
 
-func workspaceFileSpans(path string, lines []string, theme ui.Theme, semantic SemanticTheme) []ui.TextSpan {
+func workspaceFileSpans(result highlight.Result, theme ui.Theme, semantic SemanticTheme) []ui.TextSpan {
+	lines := strings.Split(result.Source, "\n")
+	if strings.HasSuffix(result.Source, "\n") {
+		lines = lines[:len(lines)-1]
+	}
 	width := len(strconv.Itoa(max(1, len(lines))))
-	spans := make([]ui.TextSpan, 0, len(lines)*4)
+	spans := make([]ui.TextSpan, 0, len(lines)*6)
+	offset := 0
+	captureIndex := 0
 	for index, line := range lines {
 		spans = append(spans, ui.TextSpan{Text: fmt.Sprintf("%*d │ ", width, index+1), Style: ui.Style{Foreground: theme.MutedForeground}})
-		spans = append(spans, syntaxSpans(path, sanitizeFileLine(line), semantic)...)
+		lineEnd := offset + len(line)
+		position := offset
+		for captureIndex < len(result.Spans) && result.Spans[captureIndex].End <= offset {
+			captureIndex++
+		}
+		for next := captureIndex; next < len(result.Spans); next++ {
+			capture := result.Spans[next]
+			if capture.Start >= lineEnd {
+				break
+			}
+			start := max(position, max(offset, capture.Start))
+			end := min(lineEnd, capture.End)
+			if start > position {
+				spans = append(spans, syntaxTextSpan(result.Source[position:start], highlight.Text, semantic))
+			}
+			if end > start {
+				spans = append(spans, syntaxTextSpan(result.Source[start:end], capture.Role, semantic))
+				position = end
+			}
+		}
+		if position < lineEnd {
+			spans = append(spans, syntaxTextSpan(result.Source[position:lineEnd], highlight.Text, semantic))
+		} else if line == "" {
+			spans = append(spans, syntaxTextSpan("", highlight.Text, semantic))
+		}
 		if index+1 < len(lines) {
 			spans = append(spans, ui.TextSpan{Text: "\n"})
 		}
+		offset = lineEnd + 1
 	}
 	return spans
 }
 
-func sanitizeFileLine(line string) string {
-	line = strings.TrimSuffix(line, "\r")
-	line = strings.ReplaceAll(line, "\t", "    ")
-	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) || unicode.Is(unicode.Cf, r) {
-			return '�'
-		}
-		return r
-	}, line)
-}
-
-var fileSyntaxKeywords = map[string]bool{
-	"break": true, "case": true, "class": true, "const": true, "continue": true, "default": true,
-	"defer": true, "else": true, "enum": true, "export": true, "false": true, "for": true, "from": true,
-	"func": true, "function": true, "go": true, "if": true, "import": true, "in": true, "interface": true,
-	"let": true, "map": true, "new": true, "nil": true, "null": true, "package": true, "range": true,
-	"return": true, "select": true, "struct": true, "switch": true, "throw": true, "true": true, "type": true,
-	"var": true, "while": true,
-}
-
-func syntaxSpans(path, line string, semantic SemanticTheme) []ui.TextSpan {
-	if line == "" {
-		return []ui.TextSpan{{Text: ""}}
-	}
-	commentStart := "//"
-	ext := strings.ToLower(filepath.Ext(path))
-	if ext == ".py" || ext == ".rb" || ext == ".sh" || ext == ".yaml" || ext == ".yml" || ext == ".toml" {
-		commentStart = "#"
-	}
-	if strings.HasPrefix(strings.TrimSpace(line), commentStart) {
-		return []ui.TextSpan{{Text: line, Style: ui.Style{Foreground: semantic.Syntax(kittheme.SyntaxComment)}}}
-	}
-	spans := make([]ui.TextSpan, 0, 8)
-	for index := 0; index < len(line); {
-		if strings.HasPrefix(line[index:], commentStart) {
-			spans = append(spans, ui.TextSpan{Text: line[index:], Style: ui.Style{Foreground: semantic.Syntax(kittheme.SyntaxComment)}})
-			break
-		}
-		start := index
-		r, runeSize := utf8.DecodeRuneInString(line[index:])
-		role := kittheme.SyntaxText
-		switch {
-		case line[index] == '\'' || line[index] == '"' || line[index] == '`':
-			quote := line[index]
-			index++
-			for index < len(line) {
-				if line[index] == '\\' && index+1 < len(line) {
-					index += 2
-					continue
-				}
-				index++
-				if line[index-1] == quote {
-					break
-				}
-			}
-			role = kittheme.SyntaxString
-		case r >= '0' && r <= '9':
-			for index < len(line) && ((line[index] >= '0' && line[index] <= '9') || strings.ContainsRune("._xXaAbBcCdDeEfF", rune(line[index]))) {
-				index++
-			}
-			role = kittheme.SyntaxNumber
-		case unicode.IsLetter(r) || r == '_':
-			for index < len(line) {
-				runeValue, size := utf8.DecodeRuneInString(line[index:])
-				if !unicode.IsLetter(runeValue) && !unicode.IsDigit(runeValue) && runeValue != '_' {
-					break
-				}
-				index += size
-			}
-			if fileSyntaxKeywords[line[start:index]] {
-				role = kittheme.SyntaxKeyword
-			}
-		default:
-			index += runeSize
-		}
-		spans = append(spans, ui.TextSpan{Text: line[start:index], Style: ui.Style{Foreground: semantic.Syntax(role)}})
-	}
-	return spans
+func syntaxTextSpan(text string, role highlight.Role, semantic SemanticTheme) ui.TextSpan {
+	return ui.TextSpan{Text: text, Style: ui.Style{Foreground: semantic.Syntax(string(role))}}
 }
 
 type workspacePanelLayout struct{ Header, Body, Footer ui.Widget }

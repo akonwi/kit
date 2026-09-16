@@ -3,6 +3,7 @@ module github.com/akonwi/kit
 go 1.26.0
 
 require (
+	github.com/akonwi/tree-sitter-ard v0.0.0-20260825025050-98a6e2e447c9
 	github.com/anthropics/anthropic-sdk-go v1.61.0
 	github.com/gofrs/flock v0.13.1
 	github.com/invopop/jsonschema v0.14.0
@@ -10,6 +11,18 @@ require (
 	github.com/openai/openai-go/v3 v3.50.0
 	github.com/santhosh-tekuri/jsonschema/v6 v6.0.2
 	github.com/spf13/cobra v1.10.2
+	github.com/tree-sitter-grammars/tree-sitter-toml v0.7.0
+	github.com/tree-sitter-grammars/tree-sitter-yaml v0.7.2
+	github.com/tree-sitter/go-tree-sitter v0.25.0
+	github.com/tree-sitter/tree-sitter-bash v0.25.1
+	github.com/tree-sitter/tree-sitter-css v0.25.0
+	github.com/tree-sitter/tree-sitter-go v0.25.0
+	github.com/tree-sitter/tree-sitter-html v0.23.2
+	github.com/tree-sitter/tree-sitter-javascript v0.25.0
+	github.com/tree-sitter/tree-sitter-json v0.24.8
+	github.com/tree-sitter/tree-sitter-python v0.25.0
+	github.com/tree-sitter/tree-sitter-rust v0.24.2
+	github.com/tree-sitter/tree-sitter-typescript v0.23.2
 	github.com/yuin/goldmark v1.8.4
 	go.rockorager.dev/vaxis v0.17.1
 	go.yaml.in/yaml/v4 v4.0.0-rc.2
@@ -28,6 +41,7 @@ require (
 	github.com/google/uuid v1.6.0 // indirect
 	github.com/inconshreveable/mousetrap v1.1.0 // indirect
 	github.com/mattn/go-isatty v0.0.24 // indirect
+	github.com/mattn/go-pointer v0.0.1 // indirect
 	github.com/ncruces/go-strftime v1.0.0 // indirect
 	github.com/pb33f/ordered-map/v2 v2.3.1 // indirect
 	github.com/remyoudompheng/bigfft v0.0.0-20230129092748-24d4a6f8daec // indirect

@@ -64,7 +64,8 @@ The first v2 release replaces the existing installation and production
 It must provide:
 
 - safe backup and idempotent migration before using production data;
-- one CGO-free executable with reliable local daemon, TUI, and headless modes;
+- one self-contained native executable per supported OS/architecture, with
+  reliable local daemon, TUI, and headless modes;
 - durable sessions, transcripts, configuration, concurrent isolation, semantic
   session forking with lineage, and recovery;
 - supported provider authentication, model/thinking selection, compaction,
@@ -103,11 +104,14 @@ ship in the initial release. It must be resolved before a release candidate.
 - [-] Windows is unsupported.
 - [-] The semantic web client is Post-R1.
 - [-] `CLAUDE.md` context discovery is not restored; Kit uses `AGENTS.md`.
+- [-] Native Tree-sitter highlighting permits CGO under ADR 0021; published
+  artifacts statically include the curated grammars.
 
 ## Initial-release distribution and verification
 
-- [~] ROAD-R1-001 — Publish CGO-free macOS and Linux artifacts through a native
-  release workflow.
+- [~] ROAD-R1-001 — Publish self-contained macOS and Linux arm64/amd64 artifacts
+  through a pinned native CGO toolchain matrix with an explicit Linux libc and
+  macOS deployment-target policy.
 - [ ] ROAD-R1-002 — Provide a supported install and upgrade path for existing
   npm-installed users.
 - [ ] ROAD-R1-003 — Provide update checks, bounded paginated release history,
