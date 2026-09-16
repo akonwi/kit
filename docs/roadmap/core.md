@@ -186,12 +186,19 @@ IDs but must not redefine server, persistence, or protocol semantics.
   active-session exclusion.
 - [ ] CORE-SCRATCH-001 — Implement guarded scratchpad reads/edits, autosave,
   context injection, and fork/handoff copying.
+- [ ] CORE-ANN-001 — Provide bounded, session-owned draft annotations with
+  server-allocated monotonic IDs, typed revision-pinned anchors, authoritative
+  previews, mutation, deletion, stale guards, persistence, snapshots, and events,
+  beginning with workspace-file line ranges. See
+  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+- [ ] CORE-ANN-002 — Accept ordered annotation IDs with structured prompts,
+  atomically validate and snapshot them into accepted messages, remove submitted
+  drafts, and project immutable submitted annotations through transcript
+  contracts. See
+  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] CORE-REVIEW-001 — Provide revision-pinned working-tree, commit, and branch
-  review data with staged, unstaged, representable untracked files, and explicit
-  skipped sections.
-- [ ] CORE-REVIEW-002 — Define structured review-feedback attachments with
-  immediate projection, removal/restoration, target identity, and stale-revision
-  guards.
+  review data with staged, unstaged, representable untracked files, explicit
+  skipped sections, and target-scoped annotation workflows.
 - [ ] CORE-CMD-001 — Add compact synthetic transcript identity for discovered
   prompt commands and Claude-compatible command discovery/namespacing.
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical

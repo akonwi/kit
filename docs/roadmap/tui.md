@@ -126,17 +126,20 @@ resolving this decision.
   draft attachments, restoration, submission, and failure recovery.
 - [ ] TUI-SCRATCH-001 — Add a scratchpad workspace with guarded edits and
   autosave feedback. Depends on `CORE-SCRATCH-001`.
-- [ ] TUI-REVIEW-001 — Extend File and Diff tabs with inline revision-pinned
-  file/line/range notes, plus modal review-target and changed-file navigation;
-  do not add a separate Review tab. Depends on `CORE-REVIEW-001`. See
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
-- [ ] TUI-REVIEW-002 — Project each saved inline review comment immediately as
-  the same structured attachment and as a chip above the composer on every tab;
-  keep inline comments and chips synchronized through edit, anchor navigation,
-  removal, stale state, restoration, ordered submission, and successful
-  consumption. Refresh remote data without resetting unchanged local state.
-  Depends on `CORE-REVIEW-002`. See
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
+- [ ] TUI-ANN-001 — Add retained File-pane line/range selection and inline
+  workspace-file annotations with bounded editing, anchor navigation, stale
+  treatment, keyboard and gutter-mouse interaction, and server-authoritative
+  synchronization. Depends on `CORE-ANN-001`. See
+  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+- [ ] TUI-ANN-002 — Project each live annotation as a synchronized composer chip
+  on every tab, preserve explicit ordering, submit annotation IDs with prompts,
+  remove accepted drafts, and render immutable submitted snapshots. Depends on
+  `CORE-ANN-002`. See
+  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+- [ ] TUI-REVIEW-001 — Extend File and Diff tabs with target-scoped annotations,
+  plus modal review-target and changed-file navigation; do not add a separate
+  Review tab. Depends on `CORE-REVIEW-001`, `CORE-ANN-001`, and `CORE-ANN-002`.
+  See [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands

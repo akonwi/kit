@@ -226,8 +226,8 @@ TUI client
 │   ├── run state and queue
 │   ├── full-width Agent and workspace tabs
 │   │   ├── activity
-│   │   ├── files with inline review comments
-│   │   ├── diffs with inline review comments
+│   │   ├── files with inline annotations
+│   │   ├── diffs with inline annotations
 │   │   ├── scratchpad
 │   │   ├── MCP / releases / diagrams
 │   │   └── explicitly opened subagent conversation tabs

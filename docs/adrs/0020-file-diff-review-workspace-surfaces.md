@@ -22,15 +22,16 @@ comments from their evidence and duplicate workflow state.
 ### Contract dependencies
 
 The server owns canonical workspace paths, workspace incarnations, bounded file
-and directory reads, revision-aware diffs, review targets, review records, and
-structured review attachments. Renderers consume these capabilities through
-session-client interfaces and never use display cwd or host filesystem access as
-I/O authority.
+and directory reads, revision-aware diffs, review targets, and draft annotations.
+Renderers consume these capabilities through session-client interfaces and never
+use display cwd or host filesystem access as I/O authority.
 
 Workspace file contracts are accepted in
 [ADR 0019](0019-expose-session-workspace-files.md) and implemented by
-`CORE-WORK-001`. Diff and review surfaces remain blocked on `CORE-DIFF-001`,
-`CORE-REVIEW-001`, and `CORE-REVIEW-002`.
+`CORE-WORK-001`. Draft annotation identity, lifetime, anchors, and message
+submission are defined by
+[ADR 0022](0022-model-draft-annotations-as-session-inputs.md). Diff and review
+target surfaces remain blocked on `CORE-DIFF-001` and `CORE-REVIEW-001`.
 
 ### Workspace file picker
 
@@ -88,33 +89,32 @@ truncated, loading, empty, and error presentation. Diff panes provide changed
 file and hunk navigation, semantic added/removed/context styling, line-number
 gutters, and unified or split layouts where width permits.
 
-### Review workflow without a Review tab
+### Annotations and review without a Review tab
 
-Review is session workflow state rather than a retained surface. Review comments
-render immediately after their anchored line or range in the applicable File or
-Diff pane. Saving a comment also projects it as the same structured review
-attachment chip above the fixed composer, visible from Agent and every workspace
-tab.
+Annotations are session-owned inputs for a message being drafted, as defined by
+ADR 0022. They render immediately after their anchored line or range in the
+applicable File or Diff pane and project as synchronized structured chips above
+the fixed composer, visible from Agent and every workspace tab.
 
-Each chip identifies its file and line or range plus a bounded preview.
-Activating it opens or selects the corresponding File or Diff tab and reveals
-the anchor. Editing or removing either projection updates the same review record
-through a shared controller. Closing a File or Diff tab does not discard its
-revision-pinned comments or attachments.
+Each chip identifies its resource and range plus a bounded server-derived
+preview. Activating it opens or selects the corresponding File or Diff tab and
+reveals the anchor. Editing or deleting either projection updates or deletes the
+same live annotation. Closing a File or Diff tab does not discard its draft
+annotations. Successful message acceptance stores immutable submitted snapshots
+in the message and removes the corresponding live annotations.
 
-Starting review, selecting its target, navigating changed or skipped files,
-reviewing drafts, and submitting use bounded standard picker or confirmation
-modals. Stale comments remain visible with warning treatment and block
-submission according to the review contract. Successful submission consumes
-the corresponding structured attachments. There is no Review pane descriptor
-or retained Review tab.
+Review is a target-scoped workflow over annotations rather than the owner of
+their identity or persistence. Starting review, selecting its target, navigating
+changed or skipped files, and submitting use bounded standard picker or
+confirmation modals. Stale annotations remain visible with warning treatment
+and block submission. There is no Review pane descriptor or retained Review tab.
 
 ### Ownership and lifecycle
 
-The TUI owns picker query and expansion, pane selection and scroll, local drawer
-state, pending reveal anchors, and other ephemeral presentation state. The
-server remains authoritative for content, revisions, diffs, targets, comments,
-and durable attachments.
+The TUI owns picker query and expansion, pane selection and scroll, selected
+line ranges, local drawer state, pending reveal anchors, and other ephemeral
+presentation state. The server remains authoritative for content, revisions,
+diffs, targets, live annotations, and immutable submitted-annotation snapshots.
 
 File and Diff definitions derive quiet changed, stale, draft-count, or error
 markers without reordering, selecting, or focusing their tabs. Hidden panes obey
@@ -137,9 +137,9 @@ Tests must establish:
   widths, including truncation and unavailable content;
 - cwd-incarnation changes preserving frozen old content while refusing further
   reads, with the same path opening distinctly in the new incarnation;
-- one-to-one inline review comments and structured attachment chips, including
-  add, edit, remove, anchor navigation, stale state, ordered submission, and
-  successful consumption;
+- one-to-one inline annotations and structured composer chips, including create,
+  edit, delete, anchor navigation, stale state, ordered submission, immutable
+  message snapshots, and removal of submitted drafts;
 - retention of pane-local selection, scroll, drawer, and draft state across tab
   switches and resizing, with disposal on close or session replacement; and
 - hidden-pane activity markers without background focus, input, or expensive
@@ -150,18 +150,19 @@ Tests must establish:
 The accepted shell can ship independently with Agent and subagent conversations
 while File, Diff, and review work proceeds behind explicit server contracts.
 Indexed file navigation remains a bounded modal, evidence remains in retained
-full-width panes, and review stays synchronized with both its evidence and the
-composer without adding a Review tab. Static directory/tree surfaces may still
+full-width panes, and annotations stay synchronized with both their evidence and
+the composer without adding a Review tab. Static directory/tree surfaces may still
 use the separate bounded directory contracts when their presentation requires
 that hierarchy.
 
-This work adds feature-specific identity, stale-state, indexed-source, and
-review coordination complexity. Those concerns remain outside the generic
+This work adds feature-specific identity, stale-state, indexed-source,
+annotation, and review coordination complexity. Those concerns remain outside the generic
 workspace controller and must not weaken its client-local lifecycle boundaries.
 
 ## Related
 
 - [ADR 0018: Retain native workspace panes in full-width tabs](0018-retained-native-workspace-shell.md)
 - [ADR 0019: Expose session workspace files through bounded contracts](0019-expose-session-workspace-files.md)
+- [ADR 0022: Model draft annotations as session inputs](0022-model-draft-annotations-as-session-inputs.md)
 - [Native TUI roadmap](../roadmap/tui.md)
 - [Core and protocol roadmap](../roadmap/core.md)
