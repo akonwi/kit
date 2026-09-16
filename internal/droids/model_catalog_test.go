@@ -47,6 +47,13 @@ func TestBuiltInProviderCatalogs(t *testing.T) {
 			t.Fatalf("Codex subscription model has API pricing %#v", candidate.Cost)
 		}
 	}
+	astra, ok := OpenAICodexModel("gpt-6-astra")
+	if !ok || astra.Name != "GPT-6 Astra" || astra.ContextWindow != 272_000 || astra.MaxOutputTokens != 128_000 {
+		t.Fatalf("Codex Astra model = %#v, %v", astra, ok)
+	}
+	if got, want := strings.Join(astra.ReasoningLevels, ","), "low,medium,high,xhigh,max"; got != want {
+		t.Fatalf("Codex Astra reasoning levels = %q, want %q", got, want)
+	}
 	codex[0].ReasoningLevels[0] = "mutated"
 	codexAgain, _ := OpenAICodexModel(codex[0].ID)
 	if codexAgain.ReasoningLevels[0] == "mutated" {

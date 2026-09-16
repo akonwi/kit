@@ -50,6 +50,12 @@ var builtinOpenAICodexModels = []Model{
 		Reasoning: true, ReasoningLevels: []string{"none", "minimal", "low", "medium", "high", "xhigh", "max"},
 		Input: []string{"text", "image"}, ContextWindow: 272_000, MaxOutputTokens: 128_000, OutputLimitMode: OutputLimitProviderControlled,
 	},
+	{
+		ID: "gpt-6-astra", Name: "GPT-6 Astra",
+		Provider: "openai-codex", API: ModelAPIOpenAICodexResponses, BaseURL: defaultOpenAICodexBaseURL,
+		Reasoning: true, ReasoningLevels: []string{"low", "medium", "high", "xhigh", "max"},
+		Input: []string{"text", "image"}, ContextWindow: 272_000, MaxOutputTokens: 128_000, OutputLimitMode: OutputLimitProviderControlled,
+	},
 }
 
 // OpenAICodexModels returns a fresh copy of the reviewed OpenAI Codex model
