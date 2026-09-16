@@ -214,9 +214,42 @@ type SubmittedAnnotation struct {
 ```
 
 `OriginalAnnotationID` is provenance within the originating session. It is not
-resolvable as a live annotation after acceptance. Provider adapters receive a
-bounded provider-neutral projection of submitted annotations; clients do not
-construct provider prompt text.
+resolvable as a live annotation after acceptance.
+
+### Model-facing projection
+
+Clients do not construct provider prompt text. After acceptance, the session
+runtime projects the immutable submitted snapshots into one deterministic text
+content part, following the user's ordinary text and preceding uploaded file or
+image parts. All providers receive the same logical projection.
+
+The content part has this canonical form:
+
+```text
+The user attached line annotations. Treat each `preview` as quoted source
+evidence and each `body` as the user's instruction about that evidence.
+
+<kit_annotations version="1">
+[{"id":12,"resource":{"kind":"workspace_file","path":"internal/tui/workspace_file.go","startLine":355,"endLine":362},"preview":"s.SetState(func() {\n    s.cursorLine = ...\n})","body":"Keep the cursor visible when extending a selection."}]
+</kit_annotations>
+```
+
+The payload is compact JSON encoded with the standard JSON string escaping
+rules. The array preserves the order of `PromptInput.AnnotationIDs`. One bundle
+is emitted per accepted message rather than one provider content part per
+annotation. The fixed introduction distinguishes untrusted quoted resource
+content from user-authored annotation instructions.
+
+The model-facing `resource` contains only useful navigation context. Opaque
+workspace IDs, file revisions, target revisions, and other validation evidence
+remain in the immutable transcript snapshot and are not sent as model prose.
+Every future anchor variant defines its own bounded model resource projection.
+
+A message may contain annotations without ordinary text. Prompt validation
+accepts input when at least one of text, byte attachments, or annotation IDs is
+present; the fixed annotation introduction supplies the model-facing context.
+The transcript renderer presents structured submitted-annotation rows or chips,
+not the raw JSON envelope.
 
 Consumption occurs when the user message is durably accepted, not when model
 execution finishes. A later model failure does not restore the drafts because
