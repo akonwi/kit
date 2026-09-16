@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"go.rockorager.dev/vaxis/ui"
-)
+import "go.rockorager.dev/vaxis/ui"
 
 type moveWorkspaceFilePickerIntent struct{ Delta int }
 
@@ -83,9 +79,6 @@ func (w workspaceFilePickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 		}),
 	}}
 	title := "Open file"
-	if cwd := strings.TrimSpace(w.Source.CWD); cwd != "" {
-		title += "  " + cwd
-	}
 	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
 		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 			ui.Text{Value: title, Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis},

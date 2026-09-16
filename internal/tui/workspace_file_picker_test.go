@@ -38,7 +38,7 @@ func TestWorkspaceFilePickerPresentationUsesIndexedFlatDialog(t *testing.T) {
 	rows := paintedRows(application, 80, 24)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
-		"Open file  /repo", "Search indexed project paths…", "docs/  directory", "main.go", "internal/tui/app.go",
+		"Open file", "Search indexed project paths…", "docs/  directory", "main.go", "internal/tui/app.go",
 		"↑↓ move · enter open · ctrl+r refresh · esc close",
 	} {
 		if !strings.Contains(text, expected) {
