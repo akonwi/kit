@@ -185,6 +185,21 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDiffUnifiedRangeStylesOnlyAnchoredSide(t *testing.T) {
+	oldLine, newLine := 12, 12
+	application := uitest.New(workspaceDiffLineWidget(
+		protocol.DiffLine{Kind: "context", OldLine: &oldLine, NewLine: &newLine, Content: "same", HasTerminatingLF: true},
+		nil, false, true, false, ui.DefaultTheme(), semanticFallback(ui.DefaultTheme()), nil, nil, nil,
+	))
+	application.Pump(40, 2)
+	if application.Cell(4, 0).Style.Foreground != ui.DefaultTheme().Primary {
+		t.Fatalf("old range line number foreground = %v, want primary", application.Cell(4, 0).Style.Foreground)
+	}
+	if application.Cell(10, 0).Style.Foreground != ui.DefaultTheme().MutedForeground {
+		t.Fatalf("new unselected line number foreground = %v, want muted", application.Cell(10, 0).Style.Foreground)
+	}
+}
+
 func TestWorkspaceDiffSplitHorizontalSlicePreservesStyledGraphemes(t *testing.T) {
 	first := ui.Style{Foreground: vaxis.IndexColor(1)}
 	second := ui.Style{Foreground: vaxis.IndexColor(2)}
@@ -403,14 +418,17 @@ func TestWorkspaceDiffPaneOpensPinnedAnnotationObservation(t *testing.T) {
 }
 
 func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
-	oldLine, newLine := 2, 2
-	file := textDiffFile("comment.go", 1, 1)
+	oldLine, oldNext, newLine, newNext, contextOld, contextNew := 2, 3, 2, 3, 4, 4
+	file := textDiffFile("comment.go", 2, 2)
 	observation := testDiffObservation(file)
 	backend := fakeWorkingTreeDiff{observation: observation, pages: map[string]protocol.FileDiffPage{"comment.go": {
 		Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"},
-		Hunks: []protocol.DiffHunk{{OldStart: 2, OldCount: 1, NewStart: 2, NewCount: 1, Lines: []protocol.DiffLine{
+		Hunks: []protocol.DiffHunk{{OldStart: 2, OldCount: 3, NewStart: 2, NewCount: 3, Lines: []protocol.DiffLine{
 			{Kind: "deletion", OldLine: &oldLine, Content: "old value", HasTerminatingLF: true},
+			{Kind: "deletion", OldLine: &oldNext, Content: "old next", HasTerminatingLF: true},
 			{Kind: "addition", NewLine: &newLine, Content: "new value", HasTerminatingLF: true},
+			{Kind: "addition", NewLine: &newNext, Content: "new next", HasTerminatingLF: true},
+			{Kind: "context", OldLine: &contextOld, NewLine: &contextNew, Content: "shared context", HasTerminatingLF: true},
 		}}},
 	}}}
 	dispatch := &queuedDiffDispatch{}
@@ -441,7 +459,12 @@ func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
 	if removed != 9 {
 		t.Fatalf("removed annotation = %d, want 9", removed)
 	}
-	application.Send(vaxis.Key{Keycode: 'c', Text: "c"})
+	rows := paintedRows(application, 120, 14)
+	gutterColumn, firstRow := findTextCell(t, rows, "+ old value")
+	_, secondRow := findTextCell(t, rows, "− old next")
+	application.Send(vaxis.Mouse{Col: gutterColumn, Row: firstRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Send(vaxis.Mouse{Col: gutterColumn, Row: secondRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+	application.Send(vaxis.Mouse{Col: gutterColumn, Row: secondRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
 	application.Pump(120, 14)
 	if !application.Contains("Write a comment") {
 		t.Fatalf("comment editor did not open:\n%s", application.Text())
@@ -457,8 +480,14 @@ func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
 	application.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
 	application.Pump(120, 14)
 	anchor := created.WorkingTreeDiff
-	if anchor == nil || anchor.TargetID != observation.Observation.Target.ID || anchor.TargetRevision != observation.Observation.Revision || anchor.FileRevision != file.FileRevision || anchor.Path != file.Path || anchor.Side != "old" || anchor.StartLine != 2 || anchor.EndLine != 2 {
+	if anchor == nil || anchor.TargetID != observation.Observation.Target.ID || anchor.TargetRevision != observation.Observation.Revision || anchor.FileRevision != file.FileRevision || anchor.Path != file.Path || anchor.Side != "old" || anchor.StartLine != 2 || anchor.EndLine != 3 {
 		t.Fatalf("created diff anchor = %+v", created)
+	}
+	application.Send(vaxis.Key{Keycode: 'v', Text: "v"})
+	application.Send(vaxis.Key{Keycode: vaxis.KeyDown}) // Skip opposite-side additions to contiguous old context.
+	application.Pump(120, 14)
+	if !application.Contains("c old L3–4") {
+		t.Fatalf("keyboard range did not skip opposite-side records:\n%s", application.Text())
 	}
 }
 

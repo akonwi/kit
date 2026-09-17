@@ -64,6 +64,7 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
 				Diff: view.WorkingTreeDiff, Presentation: presentation,
 				Annotations:        view.Snapshot.ComposerAnnotations,
+				MouseGestures:      view.Callbacks.WorkspaceMouse,
 				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,
 				OnCreateAnnotation: view.Callbacks.CreateAnnotation,
 				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,

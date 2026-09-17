@@ -82,6 +82,12 @@ func (removeWorkspaceDiffAnnotationIntent) IntentType() ui.IntentType {
 	return "kit.workspace-diff.remove-annotation"
 }
 
+type selectWorkspaceDiffRangeIntent struct{}
+
+func (selectWorkspaceDiffRangeIntent) IntentType() ui.IntentType {
+	return "kit.workspace-diff.select-range"
+}
+
 type workspaceDiffPane struct {
 	Descriptor         workspacePaneDescriptor
 	CurrentWorkspaceID string
@@ -90,6 +96,7 @@ type workspaceDiffPane struct {
 	Dispatch           func(func())
 	Presentation       workspacePanePresentation
 	Annotations        []protocol.AnnotationSummary
+	MouseGestures      *workspaceMouseGestureController
 	OnFocusRequest     ui.VoidCallback
 	OnCreateAnnotation func(protocol.AnnotationAnchor, string, func(error))
 	OnLoadAnnotation   func(uint64, func(string, error)) func()
@@ -120,54 +127,56 @@ type workspaceDiffHighlightResult struct {
 
 type workspaceDiffPaneState struct {
 	ui.StateBase
-	phase               workspaceDiffPhase
-	generation          uint64
-	cancel              context.CancelFunc
-	observation         protocol.DiffObservation
-	files               []protocol.DiffFileSummary
-	selectedFile        int
-	hunks               []protocol.DiffHunk
-	cursorRow           int
-	cursorSide          workspaceDiffSide
-	wrapLines           bool
-	splitColumn         int
-	splitTargetsCached  []workspaceDiffSplitTarget
-	splitTargetsWidth   int
-	splitTargetsWrap    bool
-	splitMaxColumn      int
-	splitTargetsValid   bool
-	lineRows            []int
-	hunkRows            []int
-	errorText           string
-	loadingFile         bool
-	loadingMore         bool
-	fileNextCursor      string
-	observationCursor   string
-	scroll              ui.ScrollPaneController
-	viewportWidth       int
-	cursorRevealPending bool
-	revealPendingLayout bool
-	focus               ui.FocusNode
-	appliedOpen         uint64
-	resultMu            sync.Mutex
-	pendingObservation  *workspaceDiffObservationResult
-	pendingFile         *workspaceDiffFileResult
-	highlightGeneration uint64
-	highlightCancel     context.CancelFunc
-	pendingHighlight    *workspaceDiffHighlightResult
-	oldHighlighted      highlight.Result
-	newHighlighted      highlight.Result
-	highlightReady      bool
-	commenting          bool
-	commentBody         string
-	commentPending      bool
-	commentLoading      bool
-	commentError        string
-	commentAnchor       protocol.WorkingTreeDiffAnnotationAnchor
-	commentAnnotationID uint64
-	commentLoadCancel   func()
-	commentOperation    uint64
-	disposed            bool
+	phase                    workspaceDiffPhase
+	generation               uint64
+	cancel                   context.CancelFunc
+	observation              protocol.DiffObservation
+	files                    []protocol.DiffFileSummary
+	selectedFile             int
+	hunks                    []protocol.DiffHunk
+	cursorRow                int
+	cursorSide               workspaceDiffSide
+	wrapLines                bool
+	splitColumn              int
+	splitTargetsCached       []workspaceDiffSplitTarget
+	splitTargetsWidth        int
+	splitTargetsWrap         bool
+	splitMaxColumn           int
+	splitTargetsValid        bool
+	lineRows                 []int
+	hunkRows                 []int
+	errorText                string
+	loadingFile              bool
+	loadingMore              bool
+	fileNextCursor           string
+	observationCursor        string
+	scroll                   ui.ScrollPaneController
+	viewportWidth            int
+	cursorRevealPending      bool
+	revealPendingLayout      bool
+	focus                    ui.FocusNode
+	appliedOpen              uint64
+	resultMu                 sync.Mutex
+	pendingObservation       *workspaceDiffObservationResult
+	pendingFile              *workspaceDiffFileResult
+	highlightGeneration      uint64
+	highlightCancel          context.CancelFunc
+	pendingHighlight         *workspaceDiffHighlightResult
+	oldHighlighted           highlight.Result
+	newHighlighted           highlight.Result
+	highlightReady           bool
+	commenting               bool
+	commentBody              string
+	commentPending           bool
+	commentLoading           bool
+	commentError             string
+	commentAnchor            protocol.WorkingTreeDiffAnnotationAnchor
+	commentAnnotationID      uint64
+	selectionAnchor          protocol.WorkingTreeDiffAnnotationAnchor
+	mouseSelectionGeneration uint64
+	commentLoadCancel        func()
+	commentOperation         uint64
+	disposed                 bool
 }
 
 func (s *workspaceDiffPaneState) InitState() {
@@ -266,6 +275,7 @@ func (s *workspaceDiffPaneState) startDescriptorLoad() {
 	s.selectedFile = 0
 	s.hunks = nil
 	s.cursorRow = 0
+	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	if descriptor.DiffSide == "old" {
 		s.cursorSide = workspaceDiffSideOld
 	} else {
@@ -291,6 +301,7 @@ func (s *workspaceDiffPaneState) startObservation() {
 	s.observation = protocol.DiffObservation{}
 	s.observationCursor = ""
 	s.cursorRow = 0
+	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	s.lineRows = nil
 	s.hunkRows = nil
 	if w.Diff == nil {
@@ -605,25 +616,69 @@ func (s *workspaceDiffPaneState) lineAtRow(wanted int) (protocol.DiffLine, bool)
 	return protocol.DiffLine{}, false
 }
 
-func (s *workspaceDiffPaneState) moveLine(delta int) {
-	if s.viewportWidth >= workspaceDiffSplitBreakpoint {
-		s.moveSplitLine(delta)
+func (s *workspaceDiffPaneState) moveRangeLine(delta int) {
+	if delta == 0 || !s.selectionActive() {
 		return
 	}
-	if len(s.lineRows) == 0 || delta == 0 {
-		return
-	}
-	selected := 0
-	for index, row := range s.lineRows {
-		if row <= s.cursorRow {
-			selected = index
+	side := s.selectionAnchor.Side
+	rows := make([]int, 0, len(s.lineRows))
+	row := 0
+	for _, hunk := range s.hunks {
+		row++
+		for _, line := range hunk.Lines {
+			coordinate := line.NewLine
+			if side == "old" {
+				coordinate = line.OldLine
+			}
+			if coordinate != nil {
+				rows = append(rows, row)
+			}
+			row++
 		}
 	}
-	selected = max(0, min(len(s.lineRows)-1, selected+delta))
-	s.setCursorRow(s.lineRows[selected])
-	s.revealCursor()
-	if delta > 0 && len(s.lineRows)-selected <= 10 {
+	selected := 0
+	for index, candidate := range rows {
+		if candidate == s.cursorRow {
+			selected = index
+			break
+		}
+	}
+	next := max(0, min(len(rows)-1, selected+delta))
+	cursorSide := workspaceDiffSideNew
+	if side == "old" {
+		cursorSide = workspaceDiffSideOld
+	}
+	if next != selected && s.setRangeCursor(rows[next], cursorSide) {
+		s.revealCursor()
+	}
+	if delta > 0 && len(rows)-next <= 10 {
 		s.loadMoreFileDiff()
+	}
+}
+
+func (s *workspaceDiffPaneState) moveLine(delta int) {
+	if s.selectionActive() {
+		s.moveRangeLine(delta)
+		return
+	}
+	if s.viewportWidth >= workspaceDiffSplitBreakpoint {
+		s.moveSplitLine(delta)
+	} else {
+		if len(s.lineRows) == 0 || delta == 0 {
+			return
+		}
+		selected := 0
+		for index, row := range s.lineRows {
+			if row <= s.cursorRow {
+				selected = index
+			}
+		}
+		selected = max(0, min(len(s.lineRows)-1, selected+delta))
+		s.setCursorRow(s.lineRows[selected])
+		s.revealCursor()
+		if delta > 0 && len(s.lineRows)-selected <= 10 {
+			s.loadMoreFileDiff()
+		}
 	}
 }
 
@@ -933,11 +988,13 @@ func (s *workspaceDiffPaneState) moveFile(delta int) {
 		next += len(s.files)
 	}
 	s.selectedFile = next
+	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	s.scroll = ui.ScrollPaneController{}
 	s.startFileLoad()
 }
 
 func (s *workspaceDiffPaneState) moveHunk(delta int) {
+	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	if len(s.hunkRows) == 0 || delta == 0 {
 		return
 	}
@@ -1003,6 +1060,98 @@ func (s *workspaceDiffPaneState) currentDiffAnchor() (protocol.WorkingTreeDiffAn
 	}, true
 }
 
+func (s *workspaceDiffPaneState) selectionActive() bool {
+	return s.selectionAnchor.TargetID != ""
+}
+
+func (s *workspaceDiffPaneState) selectedDiffAnchor() (protocol.WorkingTreeDiffAnnotationAnchor, bool) {
+	current, ok := s.currentDiffAnchor()
+	if !ok {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	if !s.selectionActive() {
+		return current, true
+	}
+	start := s.selectionAnchor
+	if start.TargetID != current.TargetID || start.TargetRevision != current.TargetRevision || start.Path != current.Path || start.FileRevision != current.FileRevision || start.Side != current.Side {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	start.StartLine = min(start.StartLine, current.StartLine)
+	start.EndLine = max(s.selectionAnchor.EndLine, current.EndLine)
+	if start.EndLine-start.StartLine+1 > protocol.MaxAnnotationRangeLines {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	covered := make(map[int]struct{}, start.EndLine-start.StartLine+1)
+	for _, hunk := range s.hunks {
+		for _, line := range hunk.Lines {
+			coordinate := line.NewLine
+			if start.Side == "old" {
+				coordinate = line.OldLine
+			}
+			if coordinate != nil && *coordinate >= start.StartLine && *coordinate <= start.EndLine {
+				covered[*coordinate] = struct{}{}
+			}
+		}
+	}
+	if len(covered) != start.EndLine-start.StartLine+1 {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	return start, true
+}
+
+func (s *workspaceDiffPaneState) setRangeCursor(row int, side workspaceDiffSide) bool {
+	previousRow, previousSide := s.cursorRow, s.cursorSide
+	s.cursorRow, s.cursorSide = row, side
+	if _, ok := s.selectedDiffAnchor(); !ok {
+		s.cursorRow, s.cursorSide = previousRow, previousSide
+		return false
+	}
+	return true
+}
+
+func (s *workspaceDiffPaneState) lineInSelection(side string, line int) bool {
+	if !s.selectionActive() {
+		return false
+	}
+	anchor, ok := s.selectedDiffAnchor()
+	return ok && anchor.Side == side && line >= anchor.StartLine && line <= anchor.EndLine
+}
+
+func (s *workspaceDiffPaneState) beginGutterRange(w workspaceDiffPane, row int, side workspaceDiffSide) {
+	if s.commenting || s.commentPending || w.OnCreateAnnotation == nil {
+		return
+	}
+	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+	s.cursorRow, s.cursorSide = row, side
+	anchor, ok := s.currentDiffAnchor()
+	if !ok {
+		return
+	}
+	s.selectionAnchor = anchor
+	s.mouseSelectionGeneration = w.MouseGestures.Generation()
+}
+
+func (s *workspaceDiffPaneState) extendGutterRange(w workspaceDiffPane, row int, side workspaceDiffSide) {
+	if !s.selectionActive() || w.MouseGestures.Generation() != s.mouseSelectionGeneration {
+		return
+	}
+	expectedSide := workspaceDiffSideNew
+	if s.selectionAnchor.Side == "old" {
+		expectedSide = workspaceDiffSideOld
+	}
+	if side == expectedSide {
+		s.setRangeCursor(row, side)
+	}
+}
+
+func (s *workspaceDiffPaneState) finishGutterRange(w workspaceDiffPane) {
+	if !s.selectionActive() || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
+		return
+	}
+	s.mouseSelectionGeneration = 0
+	s.beginComment(w)
+}
+
 func (s *workspaceDiffPaneState) annotationAtCursor(w workspaceDiffPane) (protocol.AnnotationSummary, bool) {
 	anchor, ok := s.currentDiffAnchor()
 	if !ok {
@@ -1021,7 +1170,7 @@ func (s *workspaceDiffPaneState) beginComment(w workspaceDiffPane) {
 	if s.commenting || w.OnCreateAnnotation == nil {
 		return
 	}
-	anchor, ok := s.currentDiffAnchor()
+	anchor, ok := s.selectedDiffAnchor()
 	if !ok {
 		return
 	}
@@ -1105,6 +1254,7 @@ func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string)
 				return
 			}
 			s.closeComment()
+			s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 		})
 	}
 	if s.commentAnnotationID != 0 {
@@ -1156,6 +1306,17 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 				return ui.EventHandled
 			}
 		} else if w.OnCreateAnnotation != nil {
+			bindings[selectWorkspaceDiffRangeIntent{}.IntentType()] = func(ui.EventContext, ui.Intent) ui.EventResult {
+				s.SetState(func() {
+					if s.selectionActive() {
+						s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+					} else if anchor, ok := s.currentDiffAnchor(); ok {
+						s.selectionAnchor = anchor
+					}
+				})
+				return ui.EventHandled
+			}
+			shortcuts["v"] = selectWorkspaceDiffRangeIntent{}
 			bindings[commentWorkspaceDiffIntent{}.IntentType()] = func(ui.EventContext, ui.Intent) ui.EventResult {
 				s.beginComment(w)
 				return ui.EventHandled
@@ -1253,6 +1414,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	content := ui.Widget(workspacePanelLayout{Header: header, Body: body, Footer: footer})
 	content = ui.Focus(&s.focus, content)
 	content = ui.FocusScope{AutoFocus: w.Presentation.Active, Child: content}
+	content = mouseReleaseListener{Child: content, OnRelease: func(ui.EventContext) { s.finishGutterRange(w) }}
 	content = mouseActivator{Child: content, DefaultMouseShape: true, OnScroll: func(_ ui.EventContext, mouse ui.Mouse) ui.EventResult {
 		if s.viewportWidth < workspaceDiffSplitBreakpoint || s.wrapLines {
 			return ui.EventIgnored
@@ -1534,17 +1696,38 @@ func (s *workspaceDiffPaneState) diffRows(theme ui.Theme, semantic SemanticTheme
 			row := visualRow
 			moveCursor := func(ui.EventContext) {
 				if s.cursorRow != row {
-					s.SetState(func() { s.setCursorRow(row) })
+					s.SetState(func() {
+						if !s.selectionActive() {
+							s.setCursorRow(row)
+							return
+						}
+						side := s.cursorSide
+						if line.Kind == "deletion" {
+							side = workspaceDiffSideOld
+						} else if line.Kind == "addition" {
+							side = workspaceDiffSideNew
+						}
+						s.setRangeCursor(row, side)
+					})
 				}
 			}
-			activate := func(event ui.EventContext) {
-				if s.cursorRow == row {
-					s.beginComment(w)
-					return
-				}
-				moveCursor(event)
+			lineSide := s.cursorSide
+			if line.Kind == "deletion" {
+				lineSide = workspaceDiffSideOld
+			} else if line.Kind == "addition" {
+				lineSide = workspaceDiffSideNew
 			}
-			rows = append(rows, workspaceDiffLineWidget(line, syntaxSpans, row == s.cursorRow, theme, semantic, moveCursor, activate))
+			gutterPress := func(ui.EventContext) {
+				s.SetState(func() { s.beginGutterRange(w, row, lineSide) })
+			}
+			gutterMotion := func(_ ui.EventContext, mouse ui.Mouse) {
+				if mouse.Button == ui.MouseLeftButton {
+					s.SetState(func() { s.extendGutterRange(w, row, lineSide) })
+				}
+			}
+			oldRangeSelected := line.OldLine != nil && s.lineInSelection("old", *line.OldLine)
+			newRangeSelected := line.NewLine != nil && s.lineInSelection("new", *line.NewLine)
+			rows = append(rows, workspaceDiffLineWidget(line, syntaxSpans, row == s.cursorRow, oldRangeSelected, newRangeSelected, theme, semantic, moveCursor, gutterPress, gutterMotion))
 			contentHeight++
 			visualRow++
 			annotationWidth := max(contentWidth, s.viewportWidth)
@@ -1693,35 +1876,51 @@ func (s *workspaceDiffPaneState) workspaceDiffSplitRow(oldLine, newLine *workspa
 	moveOld := func(ui.EventContext) {
 		if oldLine != nil && (s.cursorRow != oldLine.row || s.cursorSide != workspaceDiffSideOld) {
 			s.SetState(func() {
-				s.cursorRow = oldLine.row
-				s.cursorSide = workspaceDiffSideOld
+				if s.selectionActive() {
+					s.setRangeCursor(oldLine.row, workspaceDiffSideOld)
+				} else {
+					s.cursorRow = oldLine.row
+					s.cursorSide = workspaceDiffSideOld
+				}
 			})
 		}
 	}
-	activateOld := func(event ui.EventContext) {
-		if oldLine != nil && s.cursorRow == oldLine.row && s.cursorSide == workspaceDiffSideOld {
-			s.beginComment(w)
-			return
+	gutterPressOld := func(ui.EventContext) {
+		if oldLine != nil {
+			s.SetState(func() { s.beginGutterRange(w, oldLine.row, workspaceDiffSideOld) })
 		}
-		moveOld(event)
+	}
+	gutterMotionOld := func(_ ui.EventContext, mouse ui.Mouse) {
+		if oldLine != nil && mouse.Button == ui.MouseLeftButton {
+			s.SetState(func() { s.extendGutterRange(w, oldLine.row, workspaceDiffSideOld) })
+		}
 	}
 	moveNew := func(ui.EventContext) {
 		if newLine != nil && (s.cursorRow != newLine.row || s.cursorSide != workspaceDiffSideNew) {
 			s.SetState(func() {
-				s.cursorRow = newLine.row
-				s.cursorSide = workspaceDiffSideNew
+				if s.selectionActive() {
+					s.setRangeCursor(newLine.row, workspaceDiffSideNew)
+				} else {
+					s.cursorRow = newLine.row
+					s.cursorSide = workspaceDiffSideNew
+				}
 			})
 		}
 	}
-	activateNew := func(event ui.EventContext) {
-		if newLine != nil && s.cursorRow == newLine.row && s.cursorSide == workspaceDiffSideNew {
-			s.beginComment(w)
-			return
+	gutterPressNew := func(ui.EventContext) {
+		if newLine != nil {
+			s.SetState(func() { s.beginGutterRange(w, newLine.row, workspaceDiffSideNew) })
 		}
-		moveNew(event)
 	}
-	oldWidget := workspaceDiffSideWidget(oldLine, oldSelected, false, height, s.wrapLines, s.splitColumn, theme, semantic, moveOld, activateOld)
-	newWidget := workspaceDiffSideWidget(newLine, newSelected, true, height, s.wrapLines, s.splitColumn, theme, semantic, moveNew, activateNew)
+	gutterMotionNew := func(_ ui.EventContext, mouse ui.Mouse) {
+		if newLine != nil && mouse.Button == ui.MouseLeftButton {
+			s.SetState(func() { s.extendGutterRange(w, newLine.row, workspaceDiffSideNew) })
+		}
+	}
+	oldRangeSelected := oldLine != nil && oldLine.line.OldLine != nil && s.lineInSelection("old", *oldLine.line.OldLine)
+	newRangeSelected := newLine != nil && newLine.line.NewLine != nil && s.lineInSelection("new", *newLine.line.NewLine)
+	oldWidget := workspaceDiffSideWidget(oldLine, oldSelected, oldRangeSelected, false, height, s.wrapLines, s.splitColumn, theme, semantic, moveOld, gutterPressOld, gutterMotionOld)
+	newWidget := workspaceDiffSideWidget(newLine, newSelected, newRangeSelected, true, height, s.wrapLines, s.splitColumn, theme, semantic, moveNew, gutterPressNew, gutterMotionNew)
 	oldWidth, newWidth := workspaceDiffSplitWidths(s.viewportWidth)
 	row := ui.SizedBox{Width: oldWidth + newWidth + 1, Height: height, Child: ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Width: oldWidth, Height: height, Child: oldWidget},
@@ -1768,18 +1967,18 @@ func workspaceDiffSliceSpans(spans []ui.TextSpan, columns int) []ui.TextSpan {
 	return result
 }
 
-func workspaceDiffGutter(base ui.Widget, width int, selected bool, theme ui.Theme, activate ui.VoidCallback) ui.Widget {
+func workspaceDiffGutter(base ui.Widget, width int, selected bool, theme ui.Theme, onPressed ui.VoidCallback, onMotion func(ui.EventContext, ui.Mouse)) ui.Widget {
 	children := []ui.Widget{base}
 	if selected {
-		button := mouseActivator{Child: ui.SizedBox{Width: 3, Height: 1, Child: ui.Text{
+		button := ui.SizedBox{Width: 3, Height: 1, Child: ui.Text{
 			Value: " + ", Style: ui.Style{Foreground: theme.Background, Background: theme.Primary}, MaxLines: 1,
-		}}, OnPressed: activate}
+		}}
 		children = append(children, ui.Positioned{Left: width - 3, Top: 0, Child: button})
 	}
-	return ui.SizedBox{Width: width, Height: 1, Child: ui.Stack{Children: children}}
+	return mouseActivator{Child: ui.SizedBox{Width: width, Height: 1, Child: ui.Stack{Children: children}}, OnPressed: onPressed, OnMotion: onMotion}
 }
 
-func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSide bool, height int, wrap bool, columnOffset int, theme ui.Theme, semantic SemanticTheme, moveCursor, activate ui.VoidCallback) ui.Widget {
+func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSelected, actionSide bool, height int, wrap bool, columnOffset int, theme ui.Theme, semantic SemanticTheme, moveCursor, gutterPress ui.VoidCallback, gutterMotion func(ui.EventContext, ui.Mouse)) ui.Widget {
 	if item == nil {
 		return ui.SizedBox{Height: height, Child: ui.Text{Value: "", Style: ui.Style{Background: theme.Background}, MaxLines: 1}}
 	}
@@ -1802,6 +2001,10 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSi
 		gutterBackground = semantic.Token(kittheme.TokenDiffRemovedLineNumberBg)
 	}
 	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
+	if rangeSelected {
+		gutterStyle.Foreground = theme.Primary
+		gutterStyle.Attribute = ui.AttrBold
+	}
 	spans := append([]ui.TextSpan(nil), item.syntax...)
 	if len(spans) == 0 {
 		spans = []ui.TextSpan{{Text: highlight.Sanitize(line.Content), Style: ui.Style{Foreground: theme.Foreground, Background: contentBackground}}}
@@ -1813,7 +2016,7 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSi
 	if !wrap && columnOffset > 0 {
 		spans = workspaceDiffSliceSpans(spans, columnOffset)
 	}
-	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, activate)
+	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, gutterPress, gutterMotion)
 	row := ui.Widget(ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStart, Children: []ui.Widget{
 		gutter,
 		ui.Expanded(ui.RichText{Spans: spans, SoftWrap: wrap}),
@@ -1861,7 +2064,7 @@ func workspaceDiffSyntaxLines(result highlight.Result, semantic SemanticTheme) [
 	return rows
 }
 
-func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, selected bool, theme ui.Theme, semantic SemanticTheme, onHover, onPressed ui.VoidCallback) ui.Widget {
+func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, selected, oldRangeSelected, newRangeSelected bool, theme ui.Theme, semantic SemanticTheme, onHover, gutterPress ui.VoidCallback, gutterMotion func(ui.EventContext, ui.Mouse)) ui.Widget {
 	oldNumber, newNumber, marker := "", "", " "
 	if line.OldLine != nil {
 		oldNumber = fmt.Sprintf("%d", *line.OldLine)
@@ -1881,8 +2084,16 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 		gutterBackground = semantic.Token(kittheme.TokenDiffRemovedLineNumberBg)
 	}
 	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
+	oldNumberStyle, newNumberStyle := gutterStyle, gutterStyle
+	if oldRangeSelected {
+		oldNumberStyle.Foreground = theme.Primary
+		oldNumberStyle.Attribute = ui.AttrBold
+	}
+	if newRangeSelected {
+		newNumberStyle.Foreground = theme.Primary
+		newNumberStyle.Attribute = ui.AttrBold
+	}
 	contentStyle := ui.Style{Foreground: theme.Foreground, Background: contentBackground}
-	lineNumbers := fmt.Sprintf("%5s %5s ", oldNumber, newNumber)
 	if len(syntaxSpans) == 0 {
 		syntaxSpans = []ui.TextSpan{{Text: highlight.Sanitize(line.Content), Style: contentStyle}}
 	} else {
@@ -1891,7 +2102,13 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 			syntaxSpans[index].Style.Background = contentBackground
 		}
 	}
-	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: lineNumbers, Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 14, selected, theme, onPressed)
+	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{
+		{Text: fmt.Sprintf("%5s", oldNumber), Style: oldNumberStyle},
+		{Text: " ", Style: gutterStyle},
+		{Text: fmt.Sprintf("%5s", newNumber), Style: newNumberStyle},
+		{Text: " ", Style: gutterStyle},
+		{Text: marker + " ", Style: gutterStyle},
+	}, SoftWrap: false}, 14, selected, theme, gutterPress, gutterMotion)
 	row := ui.Widget(ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 		gutter,
 		ui.Expanded(ui.RichText{Spans: syntaxSpans, SoftWrap: false}),
@@ -1908,9 +2125,15 @@ func (s *workspaceDiffPaneState) footerText() string {
 		return "Frozen evidence " + glyphMiddleDot + " navigation only"
 	}
 	horizontalHint := "←→ columns"
-	parts := []string{"↑↓ lines", horizontalHint, "c comment", "[ ] files", "{ } hunks", "r refresh"}
+	selectionHint := "v range"
+	commentHint := "c note"
+	if anchor, ok := s.selectedDiffAnchor(); s.selectionActive() && ok {
+		selectionHint = "v clear"
+		commentHint = fmt.Sprintf("c %s L%d–%d", anchor.Side, anchor.StartLine, anchor.EndLine)
+	}
+	parts := []string{"↑↓ lines", horizontalHint, selectionHint, commentHint, "[ ] files", "{ } hunks", "r refresh"}
 	if _, ok := s.annotationAtCursor(w); ok {
-		parts = append(parts[:3], append([]string{"e edit", "d remove"}, parts[3:]...)...)
+		parts = append(parts[:4], append([]string{"e edit", "d remove"}, parts[4:]...)...)
 	}
 	if s.viewportWidth >= workspaceDiffSplitBreakpoint {
 		parts[1] = "←→ pan"
