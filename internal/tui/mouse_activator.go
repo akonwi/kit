@@ -9,6 +9,7 @@ type mouseActivator struct {
 	OnHover              ui.VoidCallback
 	OnHoverExit          ui.VoidCallback
 	OnMotion             func(ui.EventContext, ui.Mouse)
+	OnScroll             func(ui.EventContext, ui.Mouse) ui.EventResult
 	OnPrimaryDownCapture ui.VoidCallback
 	DefaultMouseShape    bool
 }
@@ -18,7 +19,7 @@ func (w mouseActivator) WidgetChild() ui.Widget { return w.Child }
 func (w mouseActivator) CreateRenderObject(ui.BuildContext) ui.RenderObject {
 	return &renderMouseActivator{
 		OnPressed: w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit,
-		OnPrimaryDownCapture: w.OnPrimaryDownCapture, OnMotion: w.OnMotion,
+		OnPrimaryDownCapture: w.OnPrimaryDownCapture, OnMotion: w.OnMotion, OnScroll: w.OnScroll,
 		DefaultMouseShape: w.DefaultMouseShape,
 	}
 }
@@ -29,6 +30,7 @@ func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.Re
 	render.OnHover = w.OnHover
 	render.OnHoverExit = w.OnHoverExit
 	render.OnMotion = w.OnMotion
+	render.OnScroll = w.OnScroll
 	render.OnPrimaryDownCapture = w.OnPrimaryDownCapture
 	render.DefaultMouseShape = w.DefaultMouseShape
 }
@@ -39,6 +41,7 @@ type renderMouseActivator struct {
 	OnHover              ui.VoidCallback
 	OnHoverExit          ui.VoidCallback
 	OnMotion             func(ui.EventContext, ui.Mouse)
+	OnScroll             func(ui.EventContext, ui.Mouse) ui.EventResult
 	OnPrimaryDownCapture ui.VoidCallback
 	DefaultMouseShape    bool
 	hovered              bool
@@ -71,6 +74,12 @@ func (*renderMouseActivator) HitTest(*ui.HitTestResult, ui.Point) bool { return 
 func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
 	mouse, ok := event.(ui.Mouse)
 	if ctx.Phase() == ui.CapturePhase {
+		if ok && mouse.EventType == ui.EventPress && r.OnScroll != nil {
+			switch mouse.Button {
+			case ui.MouseWheelUp, ui.MouseWheelDown, ui.MouseWheelLeft, ui.MouseWheelRight:
+				return r.OnScroll(ctx, mouse)
+			}
+		}
 		if ok && mouse.EventType == ui.EventPress && mouse.Button == ui.MouseLeftButton && r.OnPrimaryDownCapture != nil {
 			r.OnPrimaryDownCapture(ctx)
 		}
@@ -99,6 +108,12 @@ func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) 
 			}
 		}
 		return ui.EventIgnored
+	}
+	if mouse.EventType == ui.EventPress && r.OnScroll != nil {
+		switch mouse.Button {
+		case ui.MouseWheelUp, ui.MouseWheelDown, ui.MouseWheelLeft, ui.MouseWheelRight:
+			return r.OnScroll(ctx, mouse)
+		}
 	}
 	if mouse.EventType != ui.EventPress || mouse.Button != ui.MouseLeftButton || r.OnPressed == nil {
 		return ui.EventIgnored
