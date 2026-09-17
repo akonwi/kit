@@ -1536,7 +1536,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Dismiss: s.dismiss,
 	}
 	files, _ := s.bound.(sessionclient.WorkspaceFilesSession)
-	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files}
+	diffs, _ := s.bound.(sessionclient.WorkingTreeDiffSession)
+	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, WorkingTreeDiff: diffs}
 }
 
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
@@ -3638,6 +3639,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.reloadSession()
 	case paletteCommandDebug:
 		s.SetState(func() { s.sessionDetailsOpen = true })
+	case paletteCommandDiff:
+		s.openWorkingTreeDiff()
 	case paletteCommandFork:
 		s.forkCurrentSession(args)
 	case paletteCommandFiles:
@@ -3652,6 +3655,27 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.openThemePicker()
 	case paletteCommandThinking:
 		s.openConfigurationPicker(configurationPickerThinking)
+	}
+}
+
+func (s *appState) openWorkingTreeDiff() {
+	if _, ok := s.bound.(sessionclient.WorkingTreeDiffSession); !ok {
+		s.showToast(toastInput{Title: "Diff unavailable", Subtitle: "This session does not expose working-tree changes.", Variant: toastWarning})
+		return
+	}
+	if s.workspaceID == "" {
+		s.showToast(toastInput{Title: "Diff unavailable", Subtitle: "The session workspace is not ready.", Variant: toastWarning})
+		return
+	}
+	var err error
+	s.SetState(func() {
+		_, _, err = s.workspace.Open(workingTreeDiffWorkspacePane(s.workspaceID))
+		if err == nil {
+			s.syncWorkspaceSelection()
+		}
+	})
+	if err != nil {
+		s.showToast(toastInput{Title: "Could not open diff", Subtitle: err.Error(), Variant: toastWarning})
 	}
 }
 

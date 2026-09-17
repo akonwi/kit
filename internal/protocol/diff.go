@@ -17,10 +17,10 @@ const (
 	DefaultDiffHunkPageSize = 10
 	MaxDiffHunkPageSize     = 20
 	MaxDiffResponseBytes    = 512 << 10
-	MaxDiffCursorBytes      = 512
+	MaxDiffCursorBytes      = 1024
 	MaxDiffCandidates       = 4000
 	MaxDiffFileBytes        = 1 << 20
-	MaxDiffFileLines        = 5000
+	MaxDiffFileLines        = 100_000
 	MaxDiffLineBytes        = 64 << 10
 )
 

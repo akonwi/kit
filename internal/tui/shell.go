@@ -196,10 +196,11 @@ type shellCallbacks struct {
 }
 
 type shellView struct {
-	Snapshot       shellSnapshot
-	Callbacks      shellCallbacks
-	WorkspaceFiles sessionclient.WorkspaceFilesSession
-	presentation   transcriptPresentation
+	Snapshot        shellSnapshot
+	Callbacks       shellCallbacks
+	WorkspaceFiles  sessionclient.WorkspaceFilesSession
+	WorkingTreeDiff sessionclient.WorkingTreeDiffSession
+	presentation    transcriptPresentation
 }
 
 type quitIntent struct{}

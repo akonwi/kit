@@ -3,10 +3,12 @@ package workingdiff
 import (
 	"context"
 	"errors"
-	"github.com/akonwi/kit/internal/protocol"
+	"fmt"
 	"math/rand"
 	"strings"
 	"testing"
+
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 func TestDifferReconstructsAndPreservesLF(t *testing.T) {
@@ -44,6 +46,27 @@ func TestDifferReconstructsAndPreservesLF(t *testing.T) {
 		}
 	}
 }
+func TestSemanticHunksTrimsLargeUnchangedPrefixAndSuffix(t *testing.T) {
+	oldLines := make([]textLine, 20_000)
+	newLines := make([]textLine, len(oldLines))
+	for index := range oldLines {
+		oldLines[index] = textLine{text: fmt.Sprintf("line-%d", index), lf: true}
+		newLines[index] = oldLines[index]
+	}
+	newLines[10_000] = textLine{text: "changed", lf: true}
+	hunks, err := semanticHunks(t.Context(), oldLines, newLines)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(hunks) != 1 || len(hunks[0].Lines) != 8 {
+		t.Fatalf("hunks = %+v", hunks)
+	}
+	changed := hunks[0].Lines[3:5]
+	if changed[0].Kind != "deletion" || changed[0].OldLine == nil || *changed[0].OldLine != 10_001 || changed[1].Kind != "addition" || changed[1].NewLine == nil || *changed[1].NewLine != 10_001 {
+		t.Fatalf("changed lines = %+v", changed)
+	}
+}
+
 func TestDifferBoundsCancellationAndHunks(t *testing.T) {
 	a, b := make([]textLine, protocol.MaxDiffFileLines), make([]textLine, protocol.MaxDiffFileLines)
 	for i := range a {

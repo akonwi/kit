@@ -247,18 +247,13 @@ func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol
 		return result, nil
 	}
 	newLines, _ := splitLines(f.new)
-	edits, e := semanticDiff(ctx, oldLines, newLines)
+	hunks, e := semanticHunks(ctx, oldLines, newLines)
 	if errors.Is(e, errTooComplex) {
 		result.Computation = protocol.DiffComputation{State: "too_complex", Reason: "diff_work"}
 		return result, nil
 	}
 	if e != nil {
 		return protocol.FileDiffPage{}, e
-	}
-	hunks, e := hunksFromEdits(edits)
-	if errors.Is(e, errTooComplex) {
-		result.Computation = protocol.DiffComputation{State: "too_complex", Reason: "hunk_limit"}
-		return result, nil
 	}
 	flat := 0
 	usedLines := 0
@@ -320,7 +315,11 @@ func projectWorkspace(err error) error {
 	case workspace.InvalidPath:
 		return &Error{Code: InvalidPath, Message: "workspace path is invalid"}
 	case workspace.LimitExceeded:
-		return &Error{Code: LimitExceeded, Message: "workspace limit was exceeded", Details: map[string]string{"limit": "path_bytes"}}
+		limit := "path_bytes"
+		if candidate := e.Details["limit"]; candidate == "path_bytes" || candidate == "path_components" || candidate == "path_name_checks" {
+			limit = candidate
+		}
+		return &Error{Code: LimitExceeded, Message: "workspace limit was exceeded", Details: map[string]string{"limit": limit}}
 	default:
 		return &Error{Code: RepositoryUnavailable, Message: "workspace content is unavailable"}
 	}

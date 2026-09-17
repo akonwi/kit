@@ -97,8 +97,7 @@ text detection and CRLF-producing transformations are `unsupported_transform`.
 
 A regular path is called changed only after complete evidence on both sides;
 verified absence is exact evidence for additions and deletions. Text must be
-complete UTF-8 without NUL, at most 1 MiB, 5,000
-logical lines, and 64 KiB per line. Aggregate observation content is at most 32 MiB across 4,000
+complete UTF-8 without NUL, at most 1 MiB, 100,000 logical lines, and 64 KiB per line. Aggregate observation content is at most 32 MiB across 4,000
 candidates. Non-canonical or unsafe Git path bytes are counted as
 `unsupported_path` omissions and make the observation incomplete; they are
 never lossy-encoded. Git symlinks are classified with a no-follow workspace
@@ -129,7 +128,9 @@ Hunks carry explicit one-based old/new starts and counts. Zero is allowed only
 for an empty side. Lines are `context`, `deletion`, or `addition`, with nullable
 old/new line numbers, content excluding LF, and `hasTerminatingLF`. CR is
 preserved. Pagination may split a hunk only on line boundaries and marks both
-continuation directions.
+continuation directions. Input size limits bound observation and computation;
+they do not cap a successful response to one page. A successful computation is
+retained and all semantic hunk lines remain reachable through cursors.
 
 Changed-file pages default/max to 100/200 records. Hunk pages default/max to
 500/1,000 lines and 10/20 fragments. Every encoded response is at most 512 KiB.

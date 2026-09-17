@@ -48,6 +48,25 @@ type workspacePaneDefinition struct {
 }
 
 var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
+	workspacePaneDiff: {
+		Kind: workspacePaneDiff, Closable: true,
+		Identity: func(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {
+			if descriptor.WorkspaceID == "" || descriptor.ResourceID != "working_tree" {
+				return "", fmt.Errorf("working-tree diff identity is required")
+			}
+			return workspacePaneIdentity("diff:" + descriptor.WorkspaceID + ":working_tree"), nil
+		},
+		Label:     func(shellSnapshot, workspacePaneDescriptor) string { return "Diff" },
+		Available: func(shellSnapshot, workspacePaneDescriptor) bool { return true },
+		Activity:  func(shellSnapshot, workspacePaneDescriptor) workspacePaneActivity { return workspacePaneActivityNone },
+		Build: func(view shellView, _ ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
+			return workspaceDiffPane{
+				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
+				Diff: view.WorkingTreeDiff, Presentation: presentation,
+				OnFocusRequest: view.Callbacks.FocusWorkspaceContent,
+			}
+		},
+	},
 	workspacePaneFile: {
 		Kind: workspacePaneFile, Closable: true,
 		Identity: func(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {

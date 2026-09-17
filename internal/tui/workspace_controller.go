@@ -15,11 +15,13 @@ type workspacePaneKind string
 const (
 	workspacePaneSubagentConversation workspacePaneKind = "subagent-conversation"
 	workspacePaneFile                 workspacePaneKind = "file"
+	workspacePaneDiff                 workspacePaneKind = "diff"
 )
 
 var workspacePaneKinds = [...]workspacePaneKind{
 	workspacePaneSubagentConversation,
 	workspacePaneFile,
+	workspacePaneDiff,
 }
 
 // workspacePaneDescriptor is renderer-neutral client state. It identifies a
@@ -42,6 +44,10 @@ func subagentWorkspacePane(conversationID string) workspacePaneDescriptor {
 
 func fileWorkspacePane(workspaceID, path string) workspacePaneDescriptor {
 	return workspacePaneDescriptor{Kind: workspacePaneFile, WorkspaceID: workspaceID, Path: path}
+}
+
+func workingTreeDiffWorkspacePane(workspaceID string) workspacePaneDescriptor {
+	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "working_tree"}
 }
 
 type workspacePaneIdentity string
@@ -126,7 +132,7 @@ func (c *workspaceController) Open(descriptor workspacePaneDescriptor) (workspac
 	if err != nil {
 		return "", false, err
 	}
-	if descriptor.Kind == workspacePaneFile {
+	if descriptor.Kind == workspacePaneFile || descriptor.Kind == workspacePaneDiff {
 		c.openGeneration++
 		descriptor.OpenGeneration = c.openGeneration
 	}

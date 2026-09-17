@@ -211,6 +211,13 @@ func (s *Service) classify(c control, live workspace.DiffSnapshot, blobs map[str
 			reason = "special"
 			exact = false
 		} else if lv.Unavailable {
+			objectOID := lv.GitSHA1
+			if c.config["extensions.objectformat"] == "sha256" {
+				objectOID = lv.GitSHA256
+			}
+			if lv.Limit == "file_bytes" && hasOld && old.kind == "blob" && old.oid == objectOID && summary.Old.Kind == summary.New.Kind && summary.Old.Mode == summary.New.Mode {
+				continue
+			}
 			exact, complete = false, false
 			if lv.Limit == "read_unavailable" {
 				summary.ContentState, reason = "unavailable", "read_unavailable"
@@ -238,6 +245,9 @@ func (s *Service) classify(c control, live workspace.DiffSnapshot, blobs map[str
 			}
 		}
 		rf.new = append([]byte(nil), lv.Data...)
+		if exact && summary.Old.Kind == summary.New.Kind && summary.Old.Mode == summary.New.Mode && bytes.Equal(rf.old, rf.new) {
+			continue
+		}
 		fileBytes := int64(len(rf.old) + len(rf.new))
 		if admitted+fileBytes > 32<<20 && exact {
 			summary.ContentState = "too_large"

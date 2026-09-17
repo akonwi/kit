@@ -1,8 +1,10 @@
 package workingdiff
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -35,6 +37,88 @@ func fixture(t *testing.T) string {
 	git(t, d, "commit", "-qm", "base")
 	return d
 }
+func TestObserveBulkTrackedRepositoryWithoutRepeatingWorkspaceNameBudget(t *testing.T) {
+	d := t.TempDir()
+	git(t, d, "init", "-q")
+	git(t, d, "config", "user.name", "Test")
+	git(t, d, "config", "user.email", "test@example.com")
+	for index := range 300 {
+		name := filepath.Join(d, fmt.Sprintf("file-%03d.txt", index))
+		if err := os.WriteFile(name, []byte("base\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(d, "large.bin"), bytes.Repeat([]byte("a"), protocol.MaxDiffFileBytes+1), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, d, "add", ".")
+	git(t, d, "commit", "-qm", "base")
+	if err := os.WriteFile(filepath.Join(d, "file-299.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewService()
+	service, err := NewService(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ws.Ref("session_test", d)
+	page, err := service.Observe(t.Context(), "session_test", d, protocol.ObserveWorkingTreeInput{WorkspaceID: ref.WorkspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Files) != 1 || page.Files[0].Path != "file-299.txt" {
+		t.Fatalf("files = %+v", page.Files)
+	}
+}
+
+func TestReadFileDiffPaginatesCompleteSemanticHunks(t *testing.T) {
+	d := t.TempDir()
+	git(t, d, "init", "-q")
+	git(t, d, "config", "user.name", "Test")
+	git(t, d, "config", "user.email", "test@example.com")
+	oldContent := strings.Repeat("old\n", 30)
+	if err := os.WriteFile(filepath.Join(d, "a.txt"), []byte(oldContent), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, d, "add", "a.txt")
+	git(t, d, "commit", "-qm", "base")
+	if err := os.WriteFile(filepath.Join(d, "a.txt"), []byte(strings.Repeat("new\n", 30)), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ws := workspace.NewService()
+	service, err := NewService(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	ref := ws.Ref("session_test", d)
+	observation, err := service.Observe(t.Context(), "session_test", d, protocol.ObserveWorkingTreeInput{WorkspaceID: ref.WorkspaceID})
+	if err != nil || len(observation.Files) != 1 {
+		t.Fatalf("observation = %+v, %v", observation, err)
+	}
+	cursor, lines, pages := "", 0, 0
+	for {
+		page, readErr := service.ReadFile(t.Context(), "session_test", d, protocol.ReadFileDiffInput{
+			TargetID: observation.Observation.Target.ID, TargetRevision: observation.Observation.Revision,
+			Path: "a.txt", ExpectedFileRevision: observation.Files[0].FileRevision,
+			PageSize: 5, MaxHunks: 2, Cursor: cursor,
+		})
+		if readErr != nil {
+			t.Fatalf("page %d cursor bytes %d: %v", pages+1, len(cursor), readErr)
+		}
+		pages++
+		for _, hunk := range page.Hunks {
+			lines += len(hunk.Lines)
+		}
+		if page.NextCursor == "" {
+			break
+		}
+		cursor = page.NextCursor
+	}
+	if pages < 2 || lines != 60 {
+		t.Fatalf("pages = %d, lines = %d", pages, lines)
+	}
+}
+
 func TestObserveAndReadSemanticDiff(t *testing.T) {
 	d := fixture(t)
 	if e := os.WriteFile(filepath.Join(d, "a.txt"), []byte("one\nchanged\n"), 0600); e != nil {

@@ -22,6 +22,7 @@ const (
 	paletteCommandQuit      paletteCommandID = "quit"
 	paletteCommandReload    paletteCommandID = "reload"
 	paletteCommandDebug     paletteCommandID = "debug"
+	paletteCommandDiff      paletteCommandID = "diff"
 	paletteCommandFork      paletteCommandID = "fork"
 	paletteCommandFiles     paletteCommandID = "files"
 	paletteCommandSessions  paletteCommandID = "sessions"
@@ -374,6 +375,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
+		{ID: paletteCommandDiff, Name: "diff", Description: "Review working-tree changes", Aliases: []string{"changes", "working tree"}},
 		{ID: paletteCommandFork, Name: "fork", Description: "Fork the current session into a linked child session", Aliases: []string{"branch"}},
 		{ID: paletteCommandFiles, Name: "files", Description: "Open a workspace file", Aliases: []string{"file", "open", "browse"}},
 		{ID: paletteCommandSessions, Name: "sessions", Description: "Browse sessions", Aliases: []string{"list", "resume", "switch", "threads"}},
@@ -382,7 +384,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandTheme, Name: "theme", Description: "Choose UI colors", Aliases: []string{"appearance", "colors"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "files": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "tabs": true, "theme": true, "thinking": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "diff": true, "files": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "tabs": true, "theme": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {

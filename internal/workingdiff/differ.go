@@ -69,6 +69,53 @@ func splitLines(b []byte) ([]textLine, string) {
 	}
 	return out, ""
 }
+func semanticHunks(ctx context.Context, a, b []textLine) ([]protocol.DiffHunk, error) {
+	prefix := 0
+	for prefix < len(a) && prefix < len(b) && a[prefix] == b[prefix] {
+		prefix++
+	}
+	suffix := 0
+	for suffix < len(a)-prefix && suffix < len(b)-prefix && a[len(a)-1-suffix] == b[len(b)-1-suffix] {
+		suffix++
+	}
+	if prefix == len(a) && prefix == len(b) {
+		return []protocol.DiffHunk{}, nil
+	}
+	oldStart := max(0, prefix-3)
+	newStart := max(0, prefix-3)
+	oldEnd := min(len(a), len(a)-suffix+3)
+	newEnd := min(len(b), len(b)-suffix+3)
+	edits, err := semanticDiff(ctx, a[oldStart:oldEnd], b[newStart:newEnd])
+	if err != nil {
+		return nil, err
+	}
+	hunks, err := hunksFromEdits(edits)
+	if err != nil {
+		return nil, err
+	}
+	for hunkIndex := range hunks {
+		hunk := &hunks[hunkIndex]
+		if hunk.OldStart > 0 {
+			hunk.OldStart += oldStart
+		}
+		if hunk.NewStart > 0 {
+			hunk.NewStart += newStart
+		}
+		for lineIndex := range hunk.Lines {
+			line := &hunk.Lines[lineIndex]
+			if line.OldLine != nil {
+				value := *line.OldLine + oldStart
+				line.OldLine = &value
+			}
+			if line.NewLine != nil {
+				value := *line.NewLine + newStart
+				line.NewLine = &value
+			}
+		}
+	}
+	return hunks, nil
+}
+
 func semanticDiff(ctx context.Context, a, b []textLine) ([]edit, error) {
 	if len(a)+len(b) > maxEdits {
 		return nil, errTooComplex
