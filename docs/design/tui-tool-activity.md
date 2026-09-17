@@ -108,7 +108,7 @@ informative tail:
 
 ```text
   Write 132 lines
-    …/0012-native-macos-client.md
+    …/0013-native-macos-client.md
 ```
 
 ## Interaction and acceptance notes

@@ -28,8 +28,8 @@ core requirement IDs instead of repeating the server requirement.
 - [Semantic web](roadmap/web.md): browser presentation, synchronization,
   accessibility, and browser-specific security.
 
-A desktop roadmap will be added if that client is approved. It is not part of
-the initial release.
+- [Native macOS](roadmap/macos.md): desktop foundation and native client work.
+  This client is not part of the initial v2 release.
 
 ## Requirement states
 
@@ -51,7 +51,7 @@ retains the full completion record.
 
 When adding a requirement:
 
-1. Give it one owner and a stable `ROAD-*`, `CORE-*`, `TUI-*`, or `WEB-*` ID.
+1. Give it one owner and a stable `ROAD-*`, `CORE-*`, `TUI-*`, `WEB-*`, or `MAC-*` ID.
 2. State an observable outcome rather than an implementation task.
 3. Add explicit dependencies on requirements owned by another ledger.
 4. Identify how completion will be verified when that is not self-evident.

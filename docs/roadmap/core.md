@@ -70,6 +70,13 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
 
+- [ ] CORE-CATALOG-001 — Expose a server-wide session catalog snapshot and
+  change stream so clients can maintain live session lists without polling or
+  subscribing to every session. Publish additions, removals, and summary changes
+  including names, cwd, activity ordering, and run status. Define snapshot/cursor
+  handoff, ordered delivery, bounded replay, and resynchronization after gaps or
+  daemon restart; preserve catalog visibility rules for temporary sessions.
+
 ### Protocol and shared clients
 
 - [~] CORE-PROTO-001 — Negotiate protocol versions and capabilities with
