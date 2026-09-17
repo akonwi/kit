@@ -75,6 +75,7 @@ var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
 var _ sessionclient.WorkspaceFilesSession = (*localSession)(nil)
+var _ sessionclient.WorkingTreeDiffSession = (*localSession)(nil)
 var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
@@ -184,6 +185,26 @@ func (c *localSession) ListDirectory(ctx context.Context, input protocol.ListDir
 func (c *localSession) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
 	result, err := c.transport.ReadWorkspaceFile(ctx, c.id, input)
 	return result, projectWorkspaceError(err)
+}
+
+func (c *localSession) ObserveWorkingTree(ctx context.Context, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+	result, err := c.transport.ObserveWorkingTree(ctx, c.id, input)
+	return result, projectDiffError(err)
+}
+func (c *localSession) ReadFileDiff(ctx context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	result, err := c.transport.ReadFileDiff(ctx, c.id, input)
+	return result, projectDiffError(err)
+}
+func projectDiffError(err error) error {
+	var apiError *daemon.APIError
+	if !errors.As(err, &apiError) || apiError.Code == "" {
+		return err
+	}
+	projected := &protocol.DiffError{Code: protocol.DiffErrorCode(apiError.Code), Message: apiError.Message, Details: apiError.Details}
+	if projected.Validate() != nil {
+		return fmt.Errorf("daemon returned malformed diff error")
+	}
+	return projected
 }
 
 func (c *localSession) ListAnnotations(ctx context.Context, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {

@@ -101,7 +101,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   reads rooted in and unable to escape the session workspace, with canonical
   paths, revisions, truncation, and explicit missing, binary, permission, and
   stale-data errors, as defined by ADR 0019.
-- [ ] CORE-DIFF-001 — Expose bounded, revision-aware file and hunk diff data for
+- [x] CORE-DIFF-001 — Expose bounded, revision-aware file and hunk diff data for
   working-tree changes, including agent edits, without requiring clients to
   execute Git or parse presentation-oriented tool output.
 - [~] CORE-TOOL-001 — Route URL opening through validated client/platform ports

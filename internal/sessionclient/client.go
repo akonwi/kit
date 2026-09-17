@@ -56,6 +56,12 @@ type WorkspaceFilesSession interface {
 	ReadWorkspaceFile(context.Context, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
 }
 
+// WorkingTreeDiffSession is the optional server-authoritative working-tree diff surface.
+type WorkingTreeDiffSession interface {
+	ObserveWorkingTree(context.Context, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
+	ReadFileDiff(context.Context, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
+}
+
 // AnnotationSession is the optional server-owned draft annotation surface.
 type AnnotationSession interface {
 	ListAnnotations(context.Context, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)

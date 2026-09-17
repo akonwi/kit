@@ -31,6 +31,7 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	"github.com/akonwi/kit/internal/version"
+	"github.com/akonwi/kit/internal/workingdiff"
 	"github.com/akonwi/kit/internal/workspace"
 	"github.com/gofrs/flock"
 )
@@ -220,6 +221,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
 	}
 	workspaceService := workspace.NewService()
+	diffService, err := workingdiff.NewService(workspaceService)
+	if err != nil {
+		return fmt.Errorf("configure working-tree diff service: %w", err)
+	}
 	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService})
 	if err != nil {
 		return fmt.Errorf("configure annotation service: %w", err)
@@ -308,7 +313,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		store:        store,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
-			workspaces: workspaceService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
+			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
 		},
 		attachments: runtimeAttachmentService{manager: sessionManager, store: attachmentStore},
 		providers:   providerAvailability,

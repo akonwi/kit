@@ -12,5 +12,5 @@ const (
 	// LocalRegistryVersion versions the daemon discovery file.
 	LocalRegistryVersion = 1
 	// SessionProtocolVersion versions the server/session wire protocol.
-	SessionProtocolVersion = 32
+	SessionProtocolVersion = 33
 )

@@ -186,6 +186,32 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 	return output, nil
 }
 
+// ObserveWorkingTree returns a stable page from a retained working-tree observation.
+func (c *Client) ObserveWorkingTree(ctx context.Context, sessionID string, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/working-tree"
+	var output protocol.WorkingTreePage
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.WorkingTreePage{}, err
+	}
+	if err := output.Validate(); err != nil || output.Observation.SessionID != sessionID {
+		return protocol.WorkingTreePage{}, fmt.Errorf("validate daemon working-tree page: %w", err)
+	}
+	return output, nil
+}
+
+// ReadFileDiff returns guarded semantic hunk fragments.
+func (c *Client) ReadFileDiff(ctx context.Context, sessionID string, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/files/read"
+	var output protocol.FileDiffPage
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.FileDiffPage{}, err
+	}
+	if err := output.Validate(); err != nil || output.Observation.SessionID != sessionID || output.File.Path != input.Path {
+		return protocol.FileDiffPage{}, fmt.Errorf("validate daemon file diff page: %w", err)
+	}
+	return output, nil
+}
+
 // ListAnnotations returns one bounded page of live session annotation drafts.
 func (c *Client) ListAnnotations(ctx context.Context, sessionID string, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
 	values := url.Values{}
@@ -637,8 +663,9 @@ func decodeAPIError(statusCode int, body []byte) error {
 		}
 		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
 			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
-			if workspaceError.Validate() != nil {
-				return fmt.Errorf("daemon returned malformed workspace error")
+			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
+			if workspaceError.Validate() != nil && diffError.Validate() != nil {
+				return fmt.Errorf("daemon returned malformed typed error")
 			}
 			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, typed.Details
 			return apiError

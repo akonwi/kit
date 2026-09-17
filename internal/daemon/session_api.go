@@ -24,6 +24,7 @@ import (
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 	kitvcs "github.com/akonwi/kit/internal/vcs"
+	kitworkingdiff "github.com/akonwi/kit/internal/workingdiff"
 	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
 
@@ -79,6 +80,8 @@ type sessionService interface {
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
+	ReadFileDiff(context.Context, string, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
 	ListAnnotations(context.Context, string, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)
 	CreateAnnotation(context.Context, string, protocol.CreateAnnotationInput) (protocol.Annotation, error)
 	UpdateAnnotation(context.Context, string, protocol.UpdateAnnotationInput) (protocol.Annotation, error)
@@ -112,6 +115,7 @@ type runtimeSessionService struct {
 	probeVCS            func(context.Context, string) (*kitvcs.Status, error)
 	fileIndexes         *sessionFileIndexCache
 	workspaces          *kitworkspace.Service
+	diffs               *kitworkingdiff.Service
 	annotations         *kitannotation.Service
 	annotationCursorKey []byte
 	subagents           *subagent.Supervisor
@@ -189,6 +193,9 @@ func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) err
 	if s.workspaces != nil {
 		s.workspaces.RemoveSession(sessionID)
 	}
+	if s.diffs != nil {
+		s.diffs.RemoveSession(sessionID)
+	}
 	if s.annotations != nil {
 		s.annotations.ForgetSession(sessionID)
 	}
@@ -204,6 +211,9 @@ func (s runtimeSessionService) DisposeTemporary(ctx context.Context, sessionID s
 	}
 	if s.workspaces != nil {
 		s.workspaces.RemoveSession(sessionID)
+	}
+	if s.diffs != nil {
+		s.diffs.RemoveSession(sessionID)
 	}
 	if s.annotations != nil {
 		s.annotations.ForgetSession(sessionID)
@@ -320,6 +330,50 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 	}
 	if current.CWD != record.CWD {
 		return protocol.WorkspaceFileRead{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ObserveWorkingTree(ctx context.Context, sessionID string, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+	if s.diffs == nil {
+		return protocol.WorkingTreePage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.WorkingTreePage{}, err
+	}
+	result, err := s.diffs.Observe(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.WorkingTreePage{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.WorkingTreePage{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.WorkingTreePage{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ReadFileDiff(ctx context.Context, sessionID string, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	if s.diffs == nil {
+		return protocol.FileDiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.FileDiffPage{}, err
+	}
+	result, err := s.diffs.ReadFile(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.FileDiffPage{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.FileDiffPage{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.FileDiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
 	}
 	return result, nil
 }
@@ -1448,6 +1502,40 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/working-tree", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ObserveWorkingTreeInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ObserveWorkingTree(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid working-tree page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/files/read", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ReadFileDiffInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ReadFileDiff(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid file diff page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
 		input := protocol.ListAnnotationsInput{Cursor: request.URL.Query().Get("cursor")}
 		if raw := request.URL.Query().Get("pageSize"); raw != "" {
@@ -2057,6 +2145,23 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 			status = http.StatusRequestEntityTooLarge
 		}
 		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": evidenceErr.Kind, "message": evidenceErr.Error()}})
+		return
+	}
+	var diffErr *kitworkingdiff.Error
+	if errors.As(err, &diffErr) {
+		if diffErr.Validate() != nil {
+			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+		status := map[protocol.DiffErrorCode]int{
+			kitworkingdiff.InvalidPath: http.StatusBadRequest, kitworkingdiff.NotRepository: http.StatusNotFound,
+			kitworkingdiff.UnsupportedRepository: http.StatusUnprocessableEntity, kitworkingdiff.StaleWorkspace: http.StatusConflict,
+			kitworkingdiff.StaleTarget: http.StatusConflict, kitworkingdiff.StaleFile: http.StatusConflict, kitworkingdiff.StaleCursor: http.StatusConflict,
+			kitworkingdiff.NotFound: http.StatusNotFound, kitworkingdiff.PermissionDenied: http.StatusForbidden,
+			kitworkingdiff.LimitExceeded: http.StatusRequestEntityTooLarge, kitworkingdiff.CapacityExceeded: http.StatusTooManyRequests,
+			kitworkingdiff.RepositoryUnavailable: http.StatusServiceUnavailable, kitworkingdiff.Unavailable: http.StatusServiceUnavailable,
+		}[diffErr.Code]
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": diffErr.Code, "message": diffErr.Message, "details": diffErr.Details}})
 		return
 	}
 	var workspaceErr *kitworkspace.Error
