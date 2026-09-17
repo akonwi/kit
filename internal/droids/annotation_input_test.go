@@ -29,6 +29,24 @@ func TestAnnotationInputCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestDiffAnnotationInputValidation(t *testing.T) {
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	annotation := SubmittedAnnotation{
+		ID: 8, Kind: "working_tree_diff", TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token,
+		Path: "main.go", FileRevision: "diff_file_" + token, Side: "new",
+		StartLine: 4, EndLine: 4, Preview: "changed", Body: "Review this.",
+	}
+	input := AnnotationInput{SubmissionID: "annotation_submission_0123456789abcdef0123456789abcdef", Text: "projection", Annotations: []SubmittedAnnotation{annotation}}
+	if err := validateAnnotationInput(input); err != nil {
+		t.Fatalf("valid diff annotation: %v", err)
+	}
+	annotation.Side = "both"
+	input.Annotations[0] = annotation
+	if err := validateAnnotationInput(input); err == nil {
+		t.Fatal("invalid diff side was accepted")
+	}
+}
+
 func TestAnnotationInputValidation(t *testing.T) {
 	_, err := inputToMessage(Input{Content: []InputContent{AnnotationInput{SubmissionID: "annotation_submission_0123456789abcdef0123456789abcdef", Text: "projection"}}})
 	if err == nil {

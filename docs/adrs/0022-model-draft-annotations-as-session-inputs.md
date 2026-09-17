@@ -91,7 +91,7 @@ with at most 256 KiB of aggregate serialized annotation content.
 coordinate, and stale-data rules. Unknown kinds and fields belonging to another
 variant are rejected. The protocol does not expose an arbitrary JSON anchor.
 
-The first supported anchor is a workspace file range:
+Supported anchors include a workspace file range:
 
 ```go
 type WorkspaceFileAnnotationAnchor struct {
@@ -103,14 +103,33 @@ type WorkspaceFileAnnotationAnchor struct {
 }
 ```
 
+and a source-side range in a retained working-tree diff observation:
+
+```go
+type WorkingTreeDiffAnnotationAnchor struct {
+    TargetID       string
+    TargetRevision string
+    Path           string
+    FileRevision   string
+    Side           string // old or new
+    StartLine      int
+    EndLine        int
+}
+```
+
 Lines are one-based and inclusive. `StartLine` must not exceed `EndLine`, and a
 range contains at most 200 lines. Workspace identity, canonical path, and opaque
-file revision use the accepted workspace-file contract from ADR 0019.
+file revision use the accepted workspace-file contract from ADR 0019. Diff
+identity, source sides, and retained observation freshness use the bounded
+working-tree contract from ADR 0023. Every anchored source line must be present
+in the observation's semantic hunks so the Diff pane can reveal the complete
+range. The server derives diff previews from the retained old or new source,
+never from client-rendered hunks.
 
 Later contracts may add explicit anchor variants for revision-pinned review
-files, diff sides and ranges, transcript messages, tool output, terminal output,
-or other immutable evidence. Adding a variant requires its own bounds,
-authoritative validator, and stale semantics.
+files, transcript messages, tool output, terminal output, or other immutable
+evidence. Adding a variant requires its own bounds, authoritative validator, and
+stale semantics.
 
 ### Authoritative previews
 

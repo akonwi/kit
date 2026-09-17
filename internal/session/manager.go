@@ -1324,12 +1324,19 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 		}
 		snapshots := make([]droids.SubmittedAnnotation, 0, len(annotations))
 		for _, record := range annotations {
-			snapshots = append(snapshots, droids.SubmittedAnnotation{
-				ID: record.ID, Kind: "workspace_file",
-				WorkspaceID: record.Anchor.WorkspaceID, Path: record.Anchor.Path, FileRevision: record.Anchor.FileRevision,
-				StartLine: record.Anchor.StartLine, EndLine: record.Anchor.EndLine,
+			snapshot := droids.SubmittedAnnotation{
+				ID: record.ID, Kind: string(record.Anchor.Kind),
 				Preview: record.Preview.Text, Truncated: record.Preview.Truncated, Body: record.Body,
-			})
+			}
+			if anchor := record.Anchor.WorkspaceFile; anchor != nil {
+				snapshot.WorkspaceID, snapshot.Path, snapshot.FileRevision = anchor.WorkspaceID, anchor.Path, anchor.FileRevision
+				snapshot.StartLine, snapshot.EndLine = anchor.StartLine, anchor.EndLine
+			} else if anchor := record.Anchor.WorkingTreeDiff; anchor != nil {
+				snapshot.TargetID, snapshot.TargetRevision = anchor.TargetID, anchor.TargetRevision
+				snapshot.Path, snapshot.FileRevision, snapshot.Side = anchor.Path, anchor.FileRevision, anchor.Side
+				snapshot.StartLine, snapshot.EndLine = anchor.StartLine, anchor.EndLine
+			}
+			snapshots = append(snapshots, snapshot)
 		}
 		content = append(content, droids.AnnotationInput{SubmissionID: annotationSubmissionID, Text: projection, Annotations: snapshots})
 	}

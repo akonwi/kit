@@ -45,7 +45,7 @@ type workspaceFilePane struct {
 	Annotations        []protocol.AnnotationSummary
 	MouseGestures      *workspaceMouseGestureController
 	OnFocusRequest     ui.VoidCallback
-	OnCreateAnnotation func(protocol.WorkspaceFileAnnotationAnchor, string, func(error))
+	OnCreateAnnotation func(protocol.AnnotationAnchor, string, func(error))
 	OnLoadAnnotation   func(uint64, func(string, error)) func()
 	OnUpdateAnnotation func(uint64, string, func(error))
 	OnRemoveAnnotation func(ui.EventContext, uint64)
@@ -725,7 +725,8 @@ func (s *workspaceFilePaneState) submitComment(w workspaceFilePane, body string)
 	if s.commentAnnotationID != 0 {
 		w.OnUpdateAnnotation(s.commentAnnotationID, body, done)
 	} else {
-		w.OnCreateAnnotation(s.commentAnchor, body, done)
+		anchor := s.commentAnchor
+		w.OnCreateAnnotation(protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchor}, body, done)
 	}
 }
 
@@ -1122,10 +1123,10 @@ func workspaceAnnotationSummariesEqual(left, right []protocol.AnnotationSummary)
 		return false
 	}
 	for index := range left {
-		if left[index].ID != right[index].ID || left[index].BodyPreview != right[index].BodyPreview || left[index].Stale != right[index].Stale || left[index].Anchor.WorkspaceFile == nil != (right[index].Anchor.WorkspaceFile == nil) {
+		if left[index].ID != right[index].ID || left[index].BodyPreview != right[index].BodyPreview || left[index].Stale != right[index].Stale || left[index].Anchor.Kind != right[index].Anchor.Kind || left[index].Anchor.WorkspaceFile == nil != (right[index].Anchor.WorkspaceFile == nil) || left[index].Anchor.WorkingTreeDiff == nil != (right[index].Anchor.WorkingTreeDiff == nil) {
 			return false
 		}
-		if left[index].Anchor.WorkspaceFile != nil && *left[index].Anchor.WorkspaceFile != *right[index].Anchor.WorkspaceFile {
+		if left[index].Anchor.WorkspaceFile != nil && *left[index].Anchor.WorkspaceFile != *right[index].Anchor.WorkspaceFile || left[index].Anchor.WorkingTreeDiff != nil && *left[index].Anchor.WorkingTreeDiff != *right[index].Anchor.WorkingTreeDiff {
 			return false
 		}
 	}

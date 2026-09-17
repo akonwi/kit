@@ -155,9 +155,9 @@ bounded to 4,000,000 comparisons, 16 MiB structurally preallocated scratch,
 partial script. The contract does not promise Git-identical or globally minimal
 presentation.
 
-A future ADR 0022 diff annotation anchor pins target ID/revision, path/file
-revision, side, and one-based range. Commit, branch, review, rename, and copy
-targets remain future work.
+An ADR 0022 working-tree diff annotation anchor pins target ID/revision,
+path/file revision, side, and one-based range. Commit, branch, review, rename,
+and copy targets remain future work.
 
 ## Implementation verification
 

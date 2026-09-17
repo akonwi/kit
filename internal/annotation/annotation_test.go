@@ -80,8 +80,37 @@ type staticReader struct {
 	err     error
 }
 
+type staticDiffReader struct {
+	content string
+	err     error
+}
+
+func (r staticDiffReader) ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor) (FileEvidence, error) {
+	return FileEvidence{Content: r.content, ContentStartLine: 7, CompleteLineCount: 7}, r.err
+}
+
 func (r *staticReader) ReadFile(context.Context, string, string, WorkspaceFileAnchor) (FileEvidence, error) {
 	return FileEvidence{Content: r.content}, r.err
+}
+
+func TestCreateDerivesDiffPreview(t *testing.T) {
+	repository := &memoryRepository{records: make(map[uint64]Record)}
+	service, err := NewService(repository, &staticReader{content: "unused"}, staticDiffReader{content: "old evidence"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go",
+		FileRevision: "diff_file_" + token, Side: "old", StartLine: 7, EndLine: 7,
+	}}
+	record, err := service.Create(t.Context(), "session_test", "/repo", anchor, "Keep this")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if record.Preview.Text != "old evidence" || record.Anchor.WorkingTreeDiff == nil {
+		t.Fatalf("diff annotation = %+v", record)
+	}
 }
 
 func TestCreateDerivesAuthoritativePreview(t *testing.T) {
@@ -235,10 +264,10 @@ func TestModelProjectionIsCanonicalAndOrdered(t *testing.T) {
 	}
 }
 
-func testAnchor() WorkspaceFileAnchor {
-	return WorkspaceFileAnchor{
+func testAnchor() protocol.AnnotationAnchor {
+	return protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &WorkspaceFileAnchor{
 		WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4",
 		Path:        "file.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A",
 		StartLine: 2, EndLine: 3,
-	}
+	}}
 }

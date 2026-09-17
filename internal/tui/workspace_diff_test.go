@@ -148,7 +148,7 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	})
 	rows := pumpDiffUntil(t, application, dispatch, 80, 12, "next value")
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"internal/app.go", "1 of 1", "+2 −2", "◆ -2,2 +2,2", " + − old value", "− old next", "+ new value", "+ next value", "[ ] files", "{ } hunks", "r refresh"} {
+	for _, expected := range []string{"internal/app.go", "1 of 1", "+2 −2", "◆ -2,2 +2,2", "+ old value", "− old next", "+ new value", "+ next value", "[ ] files", "{ } hunks", "r refresh"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("diff missing %q:\n%s", expected, text)
 		}
@@ -158,16 +158,20 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	if application.Cell(selectedColumn, selectedRow).Style.Background != application.Cell(otherColumn, otherRow).Style.Background {
 		t.Fatal("active-line cursor replaced the removed-line diff background")
 	}
-	buttonColumn, buttonRow := findTextCell(t, rows, "+ − old value")
+	buttonColumn, buttonRow := findTextCell(t, rows, "+ old value")
 	if application.Cell(buttonColumn, buttonRow).Style.Background != ui.DefaultTheme().Primary {
 		t.Fatalf("active-line gutter button background = %v, want primary", application.Cell(buttonColumn, buttonRow).Style.Background)
 	}
 	oldNextColumn, oldNextRow := findTextCell(t, rows, "old next")
+	markerColumn, markerRow := findTextCell(t, rows, "− old next")
+	if application.Cell(markerColumn, markerRow).UnderlineStyle != ui.UnderlineOff {
+		t.Fatal("inactive gutter action rendered an underline artifact")
+	}
 	application.Send(ui.Mouse{Col: oldNextColumn, Row: oldNextRow, EventType: ui.EventMotion})
 	application.Pump(80, 12)
 	hoveredRows := paintedRows(application, 80, 12)
-	hoverButtonColumn, hoverButtonRow := findTextCell(t, hoveredRows, "+ − old next")
-	if strings.Contains(hoveredRows[selectedRow], "+ − old value") {
+	hoverButtonColumn, hoverButtonRow := findTextCell(t, hoveredRows, "+ old next")
+	if strings.Contains(hoveredRows[selectedRow], "+ old value") {
 		t.Fatalf("mouse movement left the prior gutter cursor visible:\n%s", strings.Join(hoveredRows, "\n"))
 	}
 	if application.Cell(hoverButtonColumn, hoverButtonRow).Style.Background != ui.DefaultTheme().Primary {
@@ -176,7 +180,7 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	application.Send(ui.Mouse{Col: 0, Row: 0, EventType: ui.EventMotion})
 	application.Pump(80, 12)
 	movedOutRows := paintedRows(application, 80, 12)
-	if !strings.Contains(movedOutRows[oldNextRow], "+ − old next") {
+	if !strings.Contains(movedOutRows[oldNextRow], "+ old next") {
 		t.Fatalf("mouse cursor snapped back after leaving diff viewport:\n%s", strings.Join(movedOutRows, "\n"))
 	}
 }
@@ -349,14 +353,112 @@ func TestWorkspaceDiffPaneUsesSideBySideLayoutAtWideBreakpoint(t *testing.T) {
 	if separator < 68 || separator > 70 {
 		t.Fatalf("split separator column = %d, want centered 50/50\n%s", separator, text)
 	}
-	if !strings.Contains(rows[oldRow], "+ − removed side") {
+	if !strings.Contains(rows[oldRow], "+ removed side") {
 		t.Fatalf("old-side cursor button is not visible:\n%s", text)
 	}
 	application.Send(ui.Mouse{Col: newColumn, Row: newRow, EventType: ui.EventMotion})
 	application.Pump(140, 12)
 	hovered := paintedRows(application, 140, 12)
-	if strings.Contains(hovered[oldRow], "+ − removed side") || !strings.Contains(hovered[newRow], "+ + added side") {
+	if strings.Contains(hovered[oldRow], "+ removed side") || !strings.Contains(hovered[newRow], "+ added side") {
 		t.Fatalf("cursor button did not move from old to new side:\n%s", strings.Join(hovered, "\n"))
+	}
+}
+
+func TestWorkspaceDiffPaneOpensPinnedAnnotationObservation(t *testing.T) {
+	firstLine, oldLine := 1, 2
+	file := textDiffFile("pinned.go", 0, 2)
+	observation := testDiffObservation(file)
+	backend := fakeWorkingTreeDiff{pages: map[string]protocol.FileDiffPage{
+		"pinned.go": {
+			Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, NextCursor: "next",
+			Hunks: []protocol.DiffHunk{{OldStart: 1, OldCount: 1, NewStart: 1, NewCount: 0, Lines: []protocol.DiffLine{{Kind: "deletion", OldLine: &firstLine, Content: "first page", HasTerminatingLF: true}}}},
+		},
+		"pinned.go\x00next": {
+			Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"},
+			Hunks: []protocol.DiffHunk{{OldStart: 2, OldCount: 1, NewStart: 2, NewCount: 0, Lines: []protocol.DiffLine{{Kind: "deletion", OldLine: &oldLine, Content: "pinned evidence", HasTerminatingLF: true}}}},
+		},
+	}}
+	descriptor := workingTreeDiffWorkspacePane(testDiffWorkspace)
+	descriptor.Path = file.Path
+	descriptor.DiffTargetID = observation.Observation.Target.ID
+	descriptor.ExpectedRevision = observation.Observation.Revision
+	descriptor.ExpectedFileRevision = file.FileRevision
+	descriptor.DiffSide = "old"
+	descriptor.RevealStartLine = 1
+	descriptor.RevealEndLine = 2
+	anchor := protocol.WorkingTreeDiffAnnotationAnchor{
+		TargetID: observation.Observation.Target.ID, TargetRevision: observation.Observation.Revision, Path: file.Path,
+		FileRevision: file.FileRevision, Side: "old", StartLine: 1, EndLine: 2,
+	}
+	dispatch := &queuedDiffDispatch{}
+	application := uitest.New(workspaceDiffPane{
+		Descriptor: descriptor, Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		Annotations:  []protocol.AnnotationSummary{{ID: 4, Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &anchor}, BodyPreview: "range note", Preview: "first page\npinned evidence"}},
+	})
+	rows := pumpDiffUntil(t, application, dispatch, 80, 10, "range note")
+	if !strings.Contains(strings.Join(rows, "\n"), "+ first page") || !strings.Contains(strings.Join(rows, "\n"), "pinned evidence") {
+		t.Fatalf("complete pinned range was not loaded and revealed:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
+	oldLine, newLine := 2, 2
+	file := textDiffFile("comment.go", 1, 1)
+	observation := testDiffObservation(file)
+	backend := fakeWorkingTreeDiff{observation: observation, pages: map[string]protocol.FileDiffPage{"comment.go": {
+		Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"},
+		Hunks: []protocol.DiffHunk{{OldStart: 2, OldCount: 1, NewStart: 2, NewCount: 1, Lines: []protocol.DiffLine{
+			{Kind: "deletion", OldLine: &oldLine, Content: "old value", HasTerminatingLF: true},
+			{Kind: "addition", NewLine: &newLine, Content: "new value", HasTerminatingLF: true},
+		}}},
+	}}}
+	dispatch := &queuedDiffDispatch{}
+	var created protocol.AnnotationAnchor
+	var removed uint64
+	existingAnchor := protocol.WorkingTreeDiffAnnotationAnchor{
+		TargetID: observation.Observation.Target.ID, TargetRevision: observation.Observation.Revision,
+		Path: file.Path, FileRevision: file.FileRevision, Side: "old", StartLine: 2, EndLine: 2,
+	}
+	application := uitest.New(workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation:       workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		Annotations:        []protocol.AnnotationSummary{{ID: 9, Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &existingAnchor}, BodyPreview: "existing note", Preview: "old value"}},
+		OnRemoveAnnotation: func(_ ui.EventContext, id uint64) { removed = id },
+		OnCreateAnnotation: func(anchor protocol.AnnotationAnchor, body string, done func(error)) {
+			created = anchor
+			if body != "walk" {
+				t.Errorf("annotation body = %q", body)
+			}
+			done(nil)
+		},
+	})
+	pumpDiffUntil(t, application, dispatch, 120, 14, "old value")
+	if !application.Contains("existing note") {
+		t.Fatalf("saved diff annotation was not rendered inline:\n%s", application.Text())
+	}
+	application.Send(vaxis.Key{Keycode: 'd', Text: "d"})
+	if removed != 9 {
+		t.Fatalf("removed annotation = %d, want 9", removed)
+	}
+	application.Send(vaxis.Key{Keycode: 'c', Text: "c"})
+	application.Pump(120, 14)
+	if !application.Contains("Write a comment") {
+		t.Fatalf("comment editor did not open:\n%s", application.Text())
+	}
+	editorColumn, editorRow := findTextCell(t, paintedRows(application, 120, 14), "Write a comment")
+	oldWidth, _ := workspaceDiffSplitWidths(120)
+	if editorColumn >= oldWidth || application.Cell(oldWidth, editorRow).Grapheme != glyphTableSeparator {
+		t.Fatalf("old-side comment editor crossed split boundary: column=%d divider=%q", editorColumn, application.Cell(oldWidth, editorRow).Grapheme)
+	}
+	for _, character := range "walk" {
+		application.Send(vaxis.Key{Keycode: character, Text: string(character)})
+	}
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	application.Pump(120, 14)
+	anchor := created.WorkingTreeDiff
+	if anchor == nil || anchor.TargetID != observation.Observation.Target.ID || anchor.TargetRevision != observation.Observation.Revision || anchor.FileRevision != file.FileRevision || anchor.Path != file.Path || anchor.Side != "old" || anchor.StartLine != 2 || anchor.EndLine != 2 {
+		t.Fatalf("created diff anchor = %+v", created)
 	}
 }
 

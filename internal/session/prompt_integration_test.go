@@ -15,6 +15,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
@@ -49,10 +50,10 @@ func TestManagerSubmitsAndConsumesOrderedAnnotations(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	anchor := kitannotation.WorkspaceFileAnchor{
+	anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &kitannotation.WorkspaceFileAnchor{
 		WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go",
 		FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3,
-	}
+	}}
 	first, err := annotations.Create(t.Context(), record.ID, base, anchor, "First instruction")
 	if err != nil {
 		t.Fatal(err)

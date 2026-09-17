@@ -3,8 +3,6 @@ package session
 import (
 	"bytes"
 	"context"
-	"crypto/sha256"
-	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"math"
@@ -19,6 +17,7 @@ import (
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 // EventKind identifies one renderer-neutral live session update.
@@ -196,7 +195,8 @@ func (event NewEvent) Validate() error {
 	}
 	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
 	if event.Annotation != nil {
-		payloadBytes += len(event.Annotation.SessionID) + len(event.Annotation.Anchor.WorkspaceID) + len(event.Annotation.Anchor.Path) + len(event.Annotation.Anchor.FileRevision) + len(event.Annotation.Body) + len(event.Annotation.Preview.Text) + 64
+		anchorBytes, _ := json.Marshal(event.Annotation.Anchor)
+		payloadBytes += len(event.Annotation.SessionID) + len(anchorBytes) + len(event.Annotation.Body) + len(event.Annotation.Preview.Text) + 64
 	}
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
@@ -421,18 +421,11 @@ func (event NewEvent) Validate() error {
 }
 
 func validateAnnotationEventRecord(record kitannotation.Record) error {
-	if record.ID == 0 || record.SessionID == "" || !validAnnotationToken(record.Anchor.WorkspaceID, "workspace_") || !validAnnotationToken(record.Anchor.FileRevision, "file_") || record.Anchor.Path == "" || filepath.IsAbs(record.Anchor.Path) || filepath.ToSlash(filepath.Clean(record.Anchor.Path)) != record.Anchor.Path || record.Anchor.StartLine <= 0 || record.Anchor.EndLine < record.Anchor.StartLine || record.Anchor.EndLine-record.Anchor.StartLine+1 > 200 || record.Preview.StartLine != record.Anchor.StartLine || record.Preview.EndLine != record.Anchor.EndLine || !validAnnotationEventText(record.Body, false, 16<<10) || !validAnnotationEventText(record.Preview.Text, true, 16<<10) {
+	preview := protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated}
+	if record.ID == 0 || record.SessionID == "" || record.Anchor.Validate() != nil || preview.Validate(record.Anchor) != nil || !validAnnotationEventText(record.Body, false, 16<<10) {
 		return fmt.Errorf("annotation event record is invalid")
 	}
 	return nil
-}
-
-func validAnnotationToken(value, prefix string) bool {
-	if !strings.HasPrefix(value, prefix) || len(value) > 128 {
-		return false
-	}
-	raw, err := base64.RawURLEncoding.DecodeString(strings.TrimPrefix(value, prefix))
-	return err == nil && len(raw) == sha256.Size
 }
 
 func validAnnotationEventText(value string, allowEmpty bool, limit int) bool {

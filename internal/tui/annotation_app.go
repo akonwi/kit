@@ -72,10 +72,6 @@ func (s *appState) annotationIDs() []uint64 {
 }
 
 func (s *appState) activateAnnotation(annotation protocol.AnnotationSummary) {
-	anchor := annotation.Anchor.WorkspaceFile
-	if anchor == nil {
-		return
-	}
 	if annotation.Stale {
 		for index := range s.annotations {
 			if s.annotations[index].ID == annotation.ID {
@@ -88,10 +84,24 @@ func (s *appState) activateAnnotation(annotation protocol.AnnotationSummary) {
 		}
 		return
 	}
-	descriptor := fileWorkspacePane(anchor.WorkspaceID, anchor.Path)
-	descriptor.ExpectedRevision = anchor.FileRevision
-	descriptor.RevealStartLine = anchor.StartLine
-	descriptor.RevealEndLine = anchor.EndLine
+	descriptor := workspacePaneDescriptor{}
+	if anchor := annotation.Anchor.WorkspaceFile; anchor != nil {
+		descriptor = fileWorkspacePane(anchor.WorkspaceID, anchor.Path)
+		descriptor.ExpectedRevision = anchor.FileRevision
+		descriptor.RevealStartLine = anchor.StartLine
+		descriptor.RevealEndLine = anchor.EndLine
+	} else if anchor := annotation.Anchor.WorkingTreeDiff; anchor != nil {
+		descriptor = workingTreeDiffWorkspacePane(s.workspaceID)
+		descriptor.Path = anchor.Path
+		descriptor.DiffTargetID = anchor.TargetID
+		descriptor.ExpectedRevision = anchor.TargetRevision
+		descriptor.ExpectedFileRevision = anchor.FileRevision
+		descriptor.DiffSide = anchor.Side
+		descriptor.RevealStartLine = anchor.StartLine
+		descriptor.RevealEndLine = anchor.EndLine
+	} else {
+		return
+	}
 	if _, _, err := s.workspace.Open(descriptor); err != nil {
 		s.showToast(toastInput{Title: "Could not open annotation", Subtitle: err.Error(), Variant: toastWarning})
 		return
@@ -176,7 +186,7 @@ func (s *appState) updateInlineAnnotation(annotationID uint64, body string, done
 	}()
 }
 
-func (s *appState) createInlineAnnotation(anchor protocol.WorkspaceFileAnnotationAnchor, body string, done func(error)) {
+func (s *appState) createInlineAnnotation(anchor protocol.AnnotationAnchor, body string, done func(error)) {
 	annotations, ok := s.bound.(sessionclient.AnnotationSession)
 	if !ok {
 		if done != nil {
@@ -184,11 +194,7 @@ func (s *appState) createInlineAnnotation(anchor protocol.WorkspaceFileAnnotatio
 		}
 		return
 	}
-	anchorCopy := anchor
-	input := protocol.CreateAnnotationInput{
-		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &anchorCopy},
-		Body:   body,
-	}
+	input := protocol.CreateAnnotationInput{Anchor: anchor, Body: body}
 	ctx, runtime := s.ctx, s.Context().Runtime()
 	appOperation, bound, sessionID := s.operation, s.bound, s.session.ID
 	go func() {
@@ -213,17 +219,23 @@ func (s *appState) createInlineAnnotation(anchor protocol.WorkspaceFileAnnotatio
 }
 
 func (s *appState) reanchorAnnotation(annotation protocol.AnnotationSummary) {
-	anchor := annotation.Anchor.WorkspaceFile
-	if anchor == nil {
+	descriptor := workspacePaneDescriptor{}
+	if anchor := annotation.Anchor.WorkspaceFile; anchor != nil {
+		workspaceID := s.workspaceID
+		if workspaceID == "" {
+			workspaceID = anchor.WorkspaceID
+		}
+		descriptor = fileWorkspacePane(workspaceID, anchor.Path)
+		descriptor.RevealStartLine = anchor.StartLine
+		descriptor.RevealEndLine = anchor.EndLine
+	} else if anchor := annotation.Anchor.WorkingTreeDiff; anchor != nil {
+		descriptor = workingTreeDiffWorkspacePane(s.workspaceID)
+		descriptor.Path = anchor.Path
+		descriptor.RevealStartLine = anchor.StartLine
+		descriptor.RevealEndLine = anchor.EndLine
+	} else {
 		return
 	}
-	workspaceID := s.workspaceID
-	if workspaceID == "" {
-		workspaceID = anchor.WorkspaceID
-	}
-	descriptor := fileWorkspacePane(workspaceID, anchor.Path)
-	descriptor.RevealStartLine = anchor.StartLine
-	descriptor.RevealEndLine = anchor.EndLine
 	if _, _, err := s.workspace.Open(descriptor); err != nil {
 		s.showToast(toastInput{Title: "Could not re-anchor annotation", Subtitle: err.Error(), Variant: toastWarning})
 		return

@@ -66,6 +66,22 @@ type panWorkspaceDiffIntent struct{ columns int }
 
 func (panWorkspaceDiffIntent) IntentType() ui.IntentType { return "kit.workspace-diff.pan" }
 
+type commentWorkspaceDiffIntent struct{}
+
+func (commentWorkspaceDiffIntent) IntentType() ui.IntentType { return "kit.workspace-diff.comment" }
+
+type editWorkspaceDiffAnnotationIntent struct{}
+
+func (editWorkspaceDiffAnnotationIntent) IntentType() ui.IntentType {
+	return "kit.workspace-diff.edit-annotation"
+}
+
+type removeWorkspaceDiffAnnotationIntent struct{}
+
+func (removeWorkspaceDiffAnnotationIntent) IntentType() ui.IntentType {
+	return "kit.workspace-diff.remove-annotation"
+}
+
 type workspaceDiffPane struct {
 	Descriptor         workspacePaneDescriptor
 	CurrentWorkspaceID string
@@ -73,7 +89,12 @@ type workspaceDiffPane struct {
 	Highlighter        highlight.Highlighter
 	Dispatch           func(func())
 	Presentation       workspacePanePresentation
+	Annotations        []protocol.AnnotationSummary
 	OnFocusRequest     ui.VoidCallback
+	OnCreateAnnotation func(protocol.AnnotationAnchor, string, func(error))
+	OnLoadAnnotation   func(uint64, func(string, error)) func()
+	OnUpdateAnnotation func(uint64, string, func(error))
+	OnRemoveAnnotation func(ui.EventContext, uint64)
 }
 
 func (workspaceDiffPane) CreateState() ui.State { return &workspaceDiffPaneState{} }
@@ -137,6 +158,15 @@ type workspaceDiffPaneState struct {
 	oldHighlighted      highlight.Result
 	newHighlighted      highlight.Result
 	highlightReady      bool
+	commenting          bool
+	commentBody         string
+	commentPending      bool
+	commentLoading      bool
+	commentError        string
+	commentAnchor       protocol.WorkingTreeDiffAnnotationAnchor
+	commentAnnotationID uint64
+	commentLoadCancel   func()
+	commentOperation    uint64
 	disposed            bool
 }
 
@@ -145,7 +175,7 @@ func (s *workspaceDiffPaneState) InitState() {
 	s.appliedOpen = w.Descriptor.OpenGeneration
 	s.cursorSide = workspaceDiffSideNew
 	if w.Presentation.Active && !s.isFrozen(w) {
-		s.startObservation()
+		s.startDescriptorLoad()
 	}
 }
 
@@ -163,14 +193,14 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 	if w.Descriptor.OpenGeneration != s.appliedOpen {
 		s.appliedOpen = w.Descriptor.OpenGeneration
 		if w.Presentation.Active {
-			s.startObservation()
+			s.startDescriptorLoad()
 		}
 		return
 	}
 	if !previous.Presentation.Active && w.Presentation.Active {
 		switch {
 		case s.phase == workspaceDiffInitial || s.phase == workspaceDiffLoading:
-			s.startObservation()
+			s.startDescriptorLoad()
 		case s.loadingFile:
 			s.loadingFile = false
 			s.startFileLoad()
@@ -185,6 +215,9 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 
 func (s *workspaceDiffPaneState) Dispose() {
 	s.disposed = true
+	if s.commentLoadCancel != nil {
+		s.commentLoadCancel()
+	}
 	s.stopWork()
 }
 
@@ -207,6 +240,38 @@ func (s *workspaceDiffPaneState) stopHighlight() {
 		s.highlightCancel = nil
 		s.highlightGeneration++
 	}
+}
+
+func (s *workspaceDiffPaneState) startDescriptorLoad() {
+	w := s.Widget().(workspaceDiffPane)
+	if !w.Presentation.Active || s.isFrozen(w) {
+		return
+	}
+	if w.Diff == nil {
+		s.phase = workspaceDiffError
+		s.errorText = "Working-tree diffs are unavailable"
+		return
+	}
+	descriptor := w.Descriptor
+	if descriptor.DiffTargetID == "" || descriptor.ExpectedRevision == "" || descriptor.Path == "" || descriptor.ExpectedFileRevision == "" {
+		s.startObservation()
+		return
+	}
+	s.stopWork()
+	s.generation++
+	s.phase = workspaceDiffReady
+	s.errorText = ""
+	s.observation = protocol.DiffObservation{Target: protocol.DiffTarget{ID: descriptor.DiffTargetID, WorkspaceID: descriptor.WorkspaceID, Kind: "working_tree"}, Revision: descriptor.ExpectedRevision}
+	s.files = []protocol.DiffFileSummary{{Path: descriptor.Path, FileRevision: descriptor.ExpectedFileRevision, ContentState: "text"}}
+	s.selectedFile = 0
+	s.hunks = nil
+	s.cursorRow = 0
+	if descriptor.DiffSide == "old" {
+		s.cursorSide = workspaceDiffSideOld
+	} else {
+		s.cursorSide = workspaceDiffSideNew
+	}
+	s.requestFilePage("", false)
 }
 
 func (s *workspaceDiffPaneState) startObservation() {
@@ -291,6 +356,14 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.WorkingTreePa
 	}
 	s.phase = workspaceDiffReady
 	s.selectedFile = min(s.selectedFile, len(s.files)-1)
+	if wanted := s.Widget().(workspaceDiffPane).Descriptor.Path; wanted != "" {
+		for index, file := range s.files {
+			if file.Path == wanted {
+				s.selectedFile = index
+				break
+			}
+		}
+	}
 	s.startFileLoad()
 }
 
@@ -369,11 +442,54 @@ func (s *workspaceDiffPaneState) completeFileLoad(page protocol.FileDiffPage, ap
 	if appendPage {
 		s.appendHunks(page.Hunks)
 	} else {
+		s.observation = page.Observation
+		if s.selectedFile >= 0 && s.selectedFile < len(s.files) {
+			s.files[s.selectedFile] = page.File
+		}
 		s.hunks = append([]protocol.DiffHunk(nil), page.Hunks...)
 	}
 	s.invalidateSplitTargets()
 	s.fileNextCursor = page.NextCursor
 	s.rebuildHunkRows()
+	descriptor := s.Widget().(workspaceDiffPane).Descriptor
+	foundRevealStart, foundRevealEnd := false, descriptor.RevealEndLine <= 0 || descriptor.RevealEndLine == descriptor.RevealStartLine
+	if reveal := descriptor.RevealStartLine; reveal > 0 {
+		row := 0
+		found := false
+		for _, hunk := range s.hunks {
+			row++
+			for _, line := range hunk.Lines {
+				matches := descriptor.DiffSide == "old" && line.OldLine != nil && *line.OldLine == reveal || descriptor.DiffSide == "new" && line.NewLine != nil && *line.NewLine == reveal
+				if descriptor.DiffSide == "" {
+					matches = line.OldLine != nil && *line.OldLine == reveal || line.NewLine != nil && *line.NewLine == reveal
+				}
+				if matches {
+					s.setCursorRow(row)
+					found = true
+					break
+				}
+				row++
+			}
+			if found {
+				break
+			}
+		}
+		foundRevealStart = found
+		if end := descriptor.RevealEndLine; end > 0 {
+			for _, hunk := range s.hunks {
+				for _, line := range hunk.Lines {
+					foundRevealEnd = foundRevealEnd || descriptor.DiffSide == "old" && line.OldLine != nil && *line.OldLine == end || descriptor.DiffSide == "new" && line.NewLine != nil && *line.NewLine == end
+					if descriptor.DiffSide == "" {
+						foundRevealEnd = foundRevealEnd || line.OldLine != nil && *line.OldLine == end || line.NewLine != nil && *line.NewLine == end
+					}
+				}
+			}
+		}
+	}
+	if descriptor.DiffTargetID != "" && descriptor.RevealStartLine > 0 && (!foundRevealStart || !foundRevealEnd) && s.fileNextCursor != "" {
+		s.requestFilePage(s.fileNextCursor, true)
+		return
+	}
 	if s.cursorRow == 0 && len(s.hunkRows) > 0 {
 		s.setCursorRow(s.hunkRows[0])
 	}
@@ -535,7 +651,7 @@ func workspaceDiffSideGutterWidth(line protocol.DiffLine, newSide bool) int {
 	} else if line.Kind == "deletion" {
 		marker = "−"
 	}
-	return uucode.StringWidth(fmt.Sprintf("%5s    %s ", number, marker))
+	return uucode.StringWidth(fmt.Sprintf("%5s %s ", number, marker))
 }
 
 func workspaceDiffWrappedLineHeight(line protocol.DiffLine, newSide bool, sideWidth int) int {
@@ -713,16 +829,60 @@ func (s *workspaceDiffPaneState) loadMoreFileDiff() {
 	}
 }
 
-func (s *workspaceDiffPaneState) cursorVisualRow() int {
-	if s.viewportWidth < workspaceDiffSplitBreakpoint {
-		return s.cursorRow
-	}
-	for _, target := range s.splitTargets() {
-		if s.cursorSide == workspaceDiffSideOld && target.oldRow == s.cursorRow || s.cursorSide == workspaceDiffSideNew && target.newRow == s.cursorRow {
-			return target.visualRow
+func (s *workspaceDiffPaneState) annotationHeightAfter(side string, line int) int {
+	w := s.Widget().(workspaceDiffPane)
+	height := 0
+	for _, annotation := range w.Annotations {
+		anchor := annotation.Anchor.WorkingTreeDiff
+		if !annotation.Stale && s.annotationMatches(anchor, side, line) && anchor.EndLine == line && !(s.commenting && annotation.ID == s.commentAnnotationID) {
+			height += len(workspaceAnnotationBodyLines(annotation.BodyPreview))
 		}
 	}
-	return 0
+	if s.commenting && s.commentAnchor.Side == side && s.commentAnchor.EndLine == line {
+		height += s.diffCommentEditorHeight()
+	}
+	return height
+}
+
+func (s *workspaceDiffPaneState) cursorVisualRow() int {
+	if s.viewportWidth < workspaceDiffSplitBreakpoint {
+		logicalRow, physicalRow := 0, 0
+		for _, hunk := range s.hunks {
+			logicalRow++
+			physicalRow++
+			for _, line := range hunk.Lines {
+				if logicalRow == s.cursorRow {
+					return physicalRow
+				}
+				logicalRow++
+				physicalRow++
+				if line.OldLine != nil {
+					physicalRow += s.annotationHeightAfter("old", *line.OldLine)
+				}
+				if line.NewLine != nil {
+					physicalRow += s.annotationHeightAfter("new", *line.NewLine)
+				}
+			}
+		}
+		return physicalRow
+	}
+	extra := 0
+	for _, target := range s.splitTargets() {
+		if s.cursorSide == workspaceDiffSideOld && target.oldRow == s.cursorRow || s.cursorSide == workspaceDiffSideNew && target.newRow == s.cursorRow {
+			return target.visualRow + extra
+		}
+		if target.oldRow >= 0 {
+			if line, ok := s.lineAtRow(target.oldRow); ok && line.OldLine != nil {
+				extra += s.annotationHeightAfter("old", *line.OldLine)
+			}
+		}
+		if target.newRow >= 0 {
+			if line, ok := s.lineAtRow(target.newRow); ok && line.NewLine != nil {
+				extra += s.annotationHeightAfter("new", *line.NewLine)
+			}
+		}
+	}
+	return extra
 }
 
 func (s *workspaceDiffPaneState) revealCursor() {
@@ -818,6 +978,147 @@ func (s *workspaceDiffPaneState) applyPendingResults() {
 	}
 }
 
+func (s *workspaceDiffPaneState) currentDiffAnchor() (protocol.WorkingTreeDiffAnnotationAnchor, bool) {
+	if s.selectedFile < 0 || s.selectedFile >= len(s.files) || s.cursorRow <= 0 {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	line, ok := s.lineAtRow(s.cursorRow)
+	if !ok {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	lineNumber := line.NewLine
+	side := "new"
+	if s.cursorSide == workspaceDiffSideOld {
+		lineNumber = line.OldLine
+		side = "old"
+	}
+	if lineNumber == nil {
+		return protocol.WorkingTreeDiffAnnotationAnchor{}, false
+	}
+	file := s.files[s.selectedFile]
+	return protocol.WorkingTreeDiffAnnotationAnchor{
+		TargetID: s.observation.Target.ID, TargetRevision: s.observation.Revision,
+		Path: file.Path, FileRevision: file.FileRevision, Side: side,
+		StartLine: *lineNumber, EndLine: *lineNumber,
+	}, true
+}
+
+func (s *workspaceDiffPaneState) annotationAtCursor(w workspaceDiffPane) (protocol.AnnotationSummary, bool) {
+	anchor, ok := s.currentDiffAnchor()
+	if !ok {
+		return protocol.AnnotationSummary{}, false
+	}
+	for _, annotation := range w.Annotations {
+		candidate := annotation.Anchor.WorkingTreeDiff
+		if candidate != nil && !annotation.Stale && candidate.TargetID == anchor.TargetID && candidate.TargetRevision == anchor.TargetRevision && candidate.Path == anchor.Path && candidate.FileRevision == anchor.FileRevision && candidate.Side == anchor.Side && anchor.StartLine >= candidate.StartLine && anchor.StartLine <= candidate.EndLine {
+			return annotation, true
+		}
+	}
+	return protocol.AnnotationSummary{}, false
+}
+
+func (s *workspaceDiffPaneState) beginComment(w workspaceDiffPane) {
+	if s.commenting || w.OnCreateAnnotation == nil {
+		return
+	}
+	anchor, ok := s.currentDiffAnchor()
+	if !ok {
+		return
+	}
+	s.SetState(func() {
+		s.commentOperation++
+		s.commenting = true
+		s.commentBody = ""
+		s.commentPending = false
+		s.commentLoading = false
+		s.commentError = ""
+		s.commentAnchor = anchor
+		s.commentAnnotationID = 0
+	})
+}
+
+func (s *workspaceDiffPaneState) beginEditComment(w workspaceDiffPane, annotation protocol.AnnotationSummary) {
+	anchor := annotation.Anchor.WorkingTreeDiff
+	if s.commenting || annotation.Stale || anchor == nil || w.OnLoadAnnotation == nil {
+		return
+	}
+	var operation uint64
+	s.SetState(func() {
+		s.commentOperation++
+		operation = s.commentOperation
+		s.commenting = true
+		s.commentBody = annotation.BodyPreview
+		s.commentPending = false
+		s.commentLoading = true
+		s.commentError = ""
+		s.commentAnchor = *anchor
+		s.commentAnnotationID = annotation.ID
+	})
+	s.commentLoadCancel = w.OnLoadAnnotation(annotation.ID, func(body string, err error) {
+		if s.disposed || operation != s.commentOperation {
+			return
+		}
+		s.SetState(func() {
+			s.commentLoadCancel = nil
+			s.commentLoading = false
+			if err != nil {
+				s.commentError = err.Error()
+				return
+			}
+			s.commentBody = body
+		})
+	})
+}
+
+func (s *workspaceDiffPaneState) closeComment() {
+	s.commentOperation++
+	if s.commentLoadCancel != nil {
+		s.commentLoadCancel()
+		s.commentLoadCancel = nil
+	}
+	s.commenting = false
+	s.commentBody = ""
+	s.commentPending = false
+	s.commentLoading = false
+	s.commentError = ""
+	s.commentAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+	s.commentAnnotationID = 0
+}
+
+func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string) {
+	if !s.commenting || s.commentPending || s.commentLoading || strings.TrimSpace(body) == "" {
+		return
+	}
+	s.SetState(func() {
+		s.commentPending = true
+		s.commentBody = body
+		s.commentError = ""
+	})
+	done := func(err error) {
+		if s.disposed {
+			return
+		}
+		s.SetState(func() {
+			if err != nil {
+				s.commentPending = false
+				s.commentError = err.Error()
+				return
+			}
+			s.closeComment()
+		})
+	}
+	if s.commentAnnotationID != 0 {
+		if w.OnUpdateAnnotation == nil {
+			done(errors.New("annotation updates are unavailable"))
+			return
+		}
+		w.OnUpdateAnnotation(s.commentAnnotationID, body, done)
+		return
+	}
+	anchor := s.commentAnchor
+	w.OnCreateAnnotation(protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &anchor}, body, done)
+}
+
 func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	s.applyPendingResults()
 	w := s.Widget().(workspaceDiffPane)
@@ -847,73 +1148,105 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	bindings := map[ui.IntentType]ui.ActionFunc{}
 	shortcuts := ui.ShortcutMap{}
 	if w.Presentation.Active {
-		bindings[moveWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
-			movement := intent.(moveWorkspaceDiffIntent)
-			s.SetState(func() {
-				if movement.lines != 0 {
-					s.moveLine(movement.lines)
+		if s.commenting {
+			bindings[ui.IntentType("vaxis.dismiss")] = func(ui.EventContext, ui.Intent) ui.EventResult {
+				if !s.commentPending {
+					s.SetState(func() { s.closeComment() })
 				}
-				if movement.columns != 0 {
-					if s.viewportWidth >= workspaceDiffSplitBreakpoint {
-						s.panSplit(movement.columns)
-					} else {
-						s.scroll.ScrollBy(movement.columns, 0)
+				return ui.EventHandled
+			}
+		} else if w.OnCreateAnnotation != nil {
+			bindings[commentWorkspaceDiffIntent{}.IntentType()] = func(ui.EventContext, ui.Intent) ui.EventResult {
+				s.beginComment(w)
+				return ui.EventHandled
+			}
+			shortcuts["c"] = commentWorkspaceDiffIntent{}
+			if annotation, ok := s.annotationAtCursor(w); ok {
+				if w.OnLoadAnnotation != nil {
+					bindings[editWorkspaceDiffAnnotationIntent{}.IntentType()] = func(ui.EventContext, ui.Intent) ui.EventResult {
+						s.beginEditComment(w, annotation)
+						return ui.EventHandled
 					}
+					shortcuts["e"] = editWorkspaceDiffAnnotationIntent{}
 				}
-			})
-			return ui.EventHandled
-		}
-		bindings[moveWorkspaceDiffHunkIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
-			s.SetState(func() { s.moveHunk(intent.(moveWorkspaceDiffHunkIntent).delta) })
-			return ui.EventHandled
-		}
-		shortcuts["Up"] = moveWorkspaceDiffIntent{lines: -1}
-		shortcuts["k"] = moveWorkspaceDiffIntent{lines: -1}
-		shortcuts["Down"] = moveWorkspaceDiffIntent{lines: 1}
-		shortcuts["j"] = moveWorkspaceDiffIntent{lines: 1}
-		shortcuts["Left"] = moveWorkspaceDiffIntent{columns: -4}
-		shortcuts["h"] = moveWorkspaceDiffIntent{columns: -4}
-		shortcuts["Right"] = moveWorkspaceDiffIntent{columns: 4}
-		shortcuts["l"] = moveWorkspaceDiffIntent{columns: 4}
-		shortcuts["{"] = moveWorkspaceDiffHunkIntent{delta: -1}
-		shortcuts["}"] = moveWorkspaceDiffHunkIntent{delta: 1}
-		bindings[toggleWorkspaceDiffWrapIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
-			s.SetState(func() {
-				s.wrapLines = !s.wrapLines
-				if s.wrapLines {
-					s.splitColumn = 0
+				if w.OnRemoveAnnotation != nil {
+					bindings[removeWorkspaceDiffAnnotationIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+						w.OnRemoveAnnotation(ctx, annotation.ID)
+						return ui.EventHandled
+					}
+					shortcuts["d"] = removeWorkspaceDiffAnnotationIntent{}
 				}
-				s.invalidateSplitTargets()
-				s.cursorRevealPending = true
-				s.revealPendingLayout = true
-			})
-			return ui.EventHandled
+			}
 		}
-		bindings[panWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
-			s.SetState(func() { s.panSplit(intent.(panWorkspaceDiffIntent).columns) })
-			return ui.EventHandled
-		}
-		shortcuts["w"] = toggleWorkspaceDiffWrapIntent{}
-		shortcuts["H"] = panWorkspaceDiffIntent{columns: -4}
-		shortcuts["L"] = panWorkspaceDiffIntent{columns: 4}
-		if !s.isFrozen(w) {
-			bindings[moveWorkspaceDiffFileIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
-				s.SetState(func() { s.moveFile(intent.(moveWorkspaceDiffFileIntent).delta) })
+		if !s.commenting {
+			bindings[moveWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
+				movement := intent.(moveWorkspaceDiffIntent)
+				s.SetState(func() {
+					if movement.lines != 0 {
+						s.moveLine(movement.lines)
+					}
+					if movement.columns != 0 {
+						if s.viewportWidth >= workspaceDiffSplitBreakpoint {
+							s.panSplit(movement.columns)
+						} else {
+							s.scroll.ScrollBy(movement.columns, 0)
+						}
+					}
+				})
 				return ui.EventHandled
 			}
-			bindings[refreshWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
-				s.SetState(func() { s.startObservation() })
+			bindings[moveWorkspaceDiffHunkIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
+				s.SetState(func() { s.moveHunk(intent.(moveWorkspaceDiffHunkIntent).delta) })
 				return ui.EventHandled
 			}
-			shortcuts["["] = moveWorkspaceDiffFileIntent{delta: -1}
-			shortcuts["]"] = moveWorkspaceDiffFileIntent{delta: 1}
-			shortcuts["r"] = refreshWorkspaceDiffIntent{}
-			if s.fileNextCursor != "" && !s.loadingMore {
-				bindings[loadMoreWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
-					s.SetState(func() { s.loadMoreFileDiff() })
+			shortcuts["Up"] = moveWorkspaceDiffIntent{lines: -1}
+			shortcuts["k"] = moveWorkspaceDiffIntent{lines: -1}
+			shortcuts["Down"] = moveWorkspaceDiffIntent{lines: 1}
+			shortcuts["j"] = moveWorkspaceDiffIntent{lines: 1}
+			shortcuts["Left"] = moveWorkspaceDiffIntent{columns: -4}
+			shortcuts["h"] = moveWorkspaceDiffIntent{columns: -4}
+			shortcuts["Right"] = moveWorkspaceDiffIntent{columns: 4}
+			shortcuts["l"] = moveWorkspaceDiffIntent{columns: 4}
+			shortcuts["{"] = moveWorkspaceDiffHunkIntent{delta: -1}
+			shortcuts["}"] = moveWorkspaceDiffHunkIntent{delta: 1}
+			bindings[toggleWorkspaceDiffWrapIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
+				s.SetState(func() {
+					s.wrapLines = !s.wrapLines
+					if s.wrapLines {
+						s.splitColumn = 0
+					}
+					s.invalidateSplitTargets()
+					s.cursorRevealPending = true
+					s.revealPendingLayout = true
+				})
+				return ui.EventHandled
+			}
+			bindings[panWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
+				s.SetState(func() { s.panSplit(intent.(panWorkspaceDiffIntent).columns) })
+				return ui.EventHandled
+			}
+			shortcuts["w"] = toggleWorkspaceDiffWrapIntent{}
+			shortcuts["H"] = panWorkspaceDiffIntent{columns: -4}
+			shortcuts["L"] = panWorkspaceDiffIntent{columns: 4}
+			if !s.isFrozen(w) {
+				bindings[moveWorkspaceDiffFileIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
+					s.SetState(func() { s.moveFile(intent.(moveWorkspaceDiffFileIntent).delta) })
 					return ui.EventHandled
 				}
-				shortcuts["m"] = loadMoreWorkspaceDiffIntent{}
+				bindings[refreshWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
+					s.SetState(func() { s.startObservation() })
+					return ui.EventHandled
+				}
+				shortcuts["["] = moveWorkspaceDiffFileIntent{delta: -1}
+				shortcuts["]"] = moveWorkspaceDiffFileIntent{delta: 1}
+				shortcuts["r"] = refreshWorkspaceDiffIntent{}
+				if s.fileNextCursor != "" && !s.loadingMore {
+					bindings[loadMoreWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
+						s.SetState(func() { s.loadMoreFileDiff() })
+						return ui.EventHandled
+					}
+					shortcuts["m"] = loadMoreWorkspaceDiffIntent{}
+				}
 			}
 		}
 	}
@@ -1043,13 +1376,130 @@ func workspaceDiffUnifiedLineWidth(line protocol.DiffLine) int {
 	} else if line.Kind == "deletion" {
 		marker = "−"
 	}
-	gutter := fmt.Sprintf("%5s %5s    %s ", oldNumber, newNumber, marker)
+	gutter := fmt.Sprintf("%5s %5s %s ", oldNumber, newNumber, marker)
 	return uucode.StringWidth(gutter) + uucode.StringWidth(highlight.Sanitize(line.Content))
 }
 
-func (s *workspaceDiffPaneState) diffRows(theme ui.Theme, semantic SemanticTheme) ([]ui.Widget, int, int) {
+func (s *workspaceDiffPaneState) annotationMatches(anchor *protocol.WorkingTreeDiffAnnotationAnchor, side string, line int) bool {
+	if anchor == nil || s.selectedFile < 0 || s.selectedFile >= len(s.files) {
+		return false
+	}
+	file := s.files[s.selectedFile]
+	return anchor.TargetID == s.observation.Target.ID && anchor.TargetRevision == s.observation.Revision &&
+		anchor.Path == file.Path && anchor.FileRevision == file.FileRevision && anchor.Side == side && line >= anchor.StartLine && line <= anchor.EndLine
+}
+
+func workspaceDiffWidgetHeight(row ui.Widget) int {
+	if box, ok := row.(ui.SizedBox); ok {
+		return max(1, box.Height)
+	}
+	return 1
+}
+
+func workspaceDiffWidgetsHeight(rows []ui.Widget) int {
+	height := 0
+	for _, row := range rows {
+		height += workspaceDiffWidgetHeight(row)
+	}
+	return height
+}
+
+func workspaceDiffSplitSupplementRows(rows []ui.Widget, oldSide bool, viewportWidth int, theme ui.Theme) []ui.Widget {
+	oldWidth, newWidth := workspaceDiffSplitWidths(viewportWidth)
+	wrapped := make([]ui.Widget, 0, len(rows))
+	for _, row := range rows {
+		height := workspaceDiffWidgetHeight(row)
+		oldChild := ui.Widget(ui.SizedBox{Width: oldWidth, Height: height})
+		newChild := ui.Widget(ui.SizedBox{Width: newWidth, Height: height})
+		if oldSide {
+			oldChild = ui.SizedBox{Width: oldWidth, Height: height, Child: row}
+		} else {
+			newChild = ui.SizedBox{Width: newWidth, Height: height, Child: row}
+		}
+		wrapped = append(wrapped, ui.SizedBox{Width: oldWidth + newWidth + 1, Height: height, Child: ui.Flex{
+			Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStretch,
+			Children: []ui.Widget{
+				oldChild,
+				ui.Text{Value: strings.TrimSuffix(strings.Repeat(glyphTableSeparator+"\n", height), "\n"), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: height},
+				newChild,
+			},
+		}})
+	}
+	return wrapped
+}
+
+func (s *workspaceDiffPaneState) diffAnnotationRows(theme ui.Theme, w workspaceDiffPane, side string, line, width int) []ui.Widget {
 	rows := make([]ui.Widget, 0)
-	visualRow, contentWidth := 0, 1
+	for _, annotation := range w.Annotations {
+		anchor := annotation.Anchor.WorkingTreeDiff
+		if annotation.Stale || !s.annotationMatches(anchor, side, line) || anchor.EndLine != line || annotation.ID == s.commentAnnotationID && s.commenting {
+			continue
+		}
+		bodyLines := workspaceAnnotationBodyLines(annotation.BodyPreview)
+		for index, bodyLine := range bodyLines {
+			row := ui.Widget(ui.SizedBox{Width: width, Height: 1, Child: ui.Text{
+				Value: "   " + glyphDiamond + " " + bodyLine,
+				Style: ui.Style{Foreground: theme.AccentText, Background: theme.Surface}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis,
+			}})
+			if index == 0 && w.OnLoadAnnotation != nil {
+				captured := annotation
+				row = mouseActivator{Child: row, OnPressed: func(ui.EventContext) { s.beginEditComment(w, captured) }}
+			}
+			rows = append(rows, row)
+		}
+	}
+	if s.commenting && s.commentAnchor.Side == side && s.commentAnchor.EndLine == line {
+		rows = append(rows, s.diffCommentEditor(theme, w, width))
+	}
+	return rows
+}
+
+func (s *workspaceDiffPaneState) diffCommentEditorHeight() int {
+	height := 5
+	if s.commentPending || s.commentLoading {
+		height++
+	}
+	if s.commentError != "" {
+		height++
+	}
+	return height
+}
+
+func (s *workspaceDiffPaneState) diffCommentEditor(theme ui.Theme, w workspaceDiffPane, width int) ui.Widget {
+	height := s.diffCommentEditorHeight()
+	children := []ui.Widget{ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Surface}}}
+	if s.commentError != "" {
+		children = append(children, ui.Text{Value: "Could not save: " + s.commentError, Style: ui.Style{Foreground: theme.DangerText}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
+	}
+	if s.commentPending || s.commentLoading {
+		status := "Saving…"
+		if s.commentLoading {
+			status = "Loading…"
+		}
+		children = append(children, ui.Text{Value: s.commentBody, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 2, SoftWrap: true}, spinnerWithLabel(status, ui.Style{Foreground: theme.MutedForeground}))
+	} else {
+		children = append(children, messageComposer{
+			Value: s.commentBody, Placeholder: "Write a comment…", MaxHeight: 2,
+			OnChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.commentBody, s.commentError = value, "" })
+			},
+			OnSubmitted: func(_ ui.EventContext, value string) { s.submitComment(w, value) },
+		})
+	}
+	children = append(children,
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Surface}},
+		ui.Text{Value: "enter save · shift+enter newline · esc cancel", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1},
+	)
+	return ui.SizedBox{Width: width, Height: height, Child: ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Background: theme.Surface}},
+		ui.Padding(ui.Insets{Left: 3, Right: 1}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
+	)}
+}
+
+func (s *workspaceDiffPaneState) diffRows(theme ui.Theme, semantic SemanticTheme) ([]ui.Widget, int, int) {
+	w := s.Widget().(workspaceDiffPane)
+	rows := make([]ui.Widget, 0)
+	visualRow, contentWidth, contentHeight := 0, 1, 0
 	var oldSyntax, newSyntax [][]ui.TextSpan
 	if s.highlightReady {
 		oldSyntax = workspaceDiffSyntaxLines(s.oldHighlighted, semantic)
@@ -1061,6 +1511,7 @@ func (s *workspaceDiffPaneState) diffRows(theme ui.Theme, semantic SemanticTheme
 		contentWidth = max(contentWidth, uucode.StringWidth(header))
 		rows = append(rows, ui.SizedBox{Height: 1, Child: ui.Text{Value: header, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis}})
 		visualRow++
+		contentHeight++
 		for _, line := range hunk.Lines {
 			contentWidth = max(contentWidth, workspaceDiffUnifiedLineWidth(line))
 			var syntaxSpans []ui.TextSpan
@@ -1086,11 +1537,42 @@ func (s *workspaceDiffPaneState) diffRows(theme ui.Theme, semantic SemanticTheme
 					s.SetState(func() { s.setCursorRow(row) })
 				}
 			}
-			rows = append(rows, workspaceDiffLineWidget(line, syntaxSpans, row == s.cursorRow, theme, semantic, moveCursor, moveCursor))
+			activate := func(event ui.EventContext) {
+				if s.cursorRow == row {
+					s.beginComment(w)
+					return
+				}
+				moveCursor(event)
+			}
+			rows = append(rows, workspaceDiffLineWidget(line, syntaxSpans, row == s.cursorRow, theme, semantic, moveCursor, activate))
+			contentHeight++
 			visualRow++
+			annotationWidth := max(contentWidth, s.viewportWidth)
+			if line.OldLine != nil {
+				notes := s.diffAnnotationRows(theme, w, "old", *line.OldLine, annotationWidth)
+				rows = append(rows, notes...)
+				for _, note := range notes {
+					if box, ok := note.(ui.SizedBox); ok {
+						contentHeight += max(1, box.Height)
+					} else {
+						contentHeight++
+					}
+				}
+			}
+			if line.NewLine != nil {
+				notes := s.diffAnnotationRows(theme, w, "new", *line.NewLine, annotationWidth)
+				rows = append(rows, notes...)
+				for _, note := range notes {
+					if box, ok := note.(ui.SizedBox); ok {
+						contentHeight += max(1, box.Height)
+					} else {
+						contentHeight++
+					}
+				}
+			}
 		}
 	}
-	return rows, contentWidth, visualRow
+	return rows, contentWidth, contentHeight
 }
 
 type workspaceDiffRenderedLine struct {
@@ -1102,6 +1584,7 @@ type workspaceDiffRenderedLine struct {
 func (s *workspaceDiffPaneState) splitDiffRows(theme ui.Theme, semantic SemanticTheme) ([]ui.Widget, int, int) {
 	rows := make([]ui.Widget, 0)
 	visualRow, contentWidth, contentHeight := 0, max(1, s.viewportWidth), 0
+	oldWidth, newWidth := workspaceDiffSplitWidths(s.viewportWidth)
 	targets, targetIndex := s.splitTargets(), 0
 	var oldSyntax, newSyntax [][]ui.TextSpan
 	if s.highlightReady {
@@ -1147,6 +1630,16 @@ func (s *workspaceDiffPaneState) splitDiffRows(theme ui.Theme, semantic Semantic
 					rowHeight, theme, semantic)
 				rows = append(rows, rowWidget)
 				contentHeight += rowHeight
+				if item.line.OldLine != nil {
+					notes := s.diffAnnotationRows(theme, s.Widget().(workspaceDiffPane), "old", *item.line.OldLine, oldWidth)
+					rows = append(rows, workspaceDiffSplitSupplementRows(notes, true, s.viewportWidth, theme)...)
+					contentHeight += workspaceDiffWidgetsHeight(notes)
+				}
+				if item.line.NewLine != nil {
+					notes := s.diffAnnotationRows(theme, s.Widget().(workspaceDiffPane), "new", *item.line.NewLine, newWidth)
+					rows = append(rows, workspaceDiffSplitSupplementRows(notes, false, s.viewportWidth, theme)...)
+					contentHeight += workspaceDiffWidgetsHeight(notes)
+				}
 				index++
 				continue
 			}
@@ -1178,6 +1671,16 @@ func (s *workspaceDiffPaneState) splitDiffRows(theme ui.Theme, semantic Semantic
 					rowHeight, theme, semantic)
 				rows = append(rows, rowWidget)
 				contentHeight += rowHeight
+				if oldLine != nil && oldLine.line.OldLine != nil {
+					notes := s.diffAnnotationRows(theme, s.Widget().(workspaceDiffPane), "old", *oldLine.line.OldLine, oldWidth)
+					rows = append(rows, workspaceDiffSplitSupplementRows(notes, true, s.viewportWidth, theme)...)
+					contentHeight += workspaceDiffWidgetsHeight(notes)
+				}
+				if newLine != nil && newLine.line.NewLine != nil {
+					notes := s.diffAnnotationRows(theme, s.Widget().(workspaceDiffPane), "new", *newLine.line.NewLine, newWidth)
+					rows = append(rows, workspaceDiffSplitSupplementRows(notes, false, s.viewportWidth, theme)...)
+					contentHeight += workspaceDiffWidgetsHeight(notes)
+				}
 			}
 			index = end
 		}
@@ -1186,22 +1689,39 @@ func (s *workspaceDiffPaneState) splitDiffRows(theme ui.Theme, semantic Semantic
 }
 
 func (s *workspaceDiffPaneState) workspaceDiffSplitRow(oldLine, newLine *workspaceDiffRenderedLine, oldSelected, newSelected bool, height int, theme ui.Theme, semantic SemanticTheme) ui.Widget {
-	oldWidget := workspaceDiffSideWidget(oldLine, oldSelected, false, height, s.wrapLines, s.splitColumn, theme, semantic, func(ui.EventContext) {
+	w := s.Widget().(workspaceDiffPane)
+	moveOld := func(ui.EventContext) {
 		if oldLine != nil && (s.cursorRow != oldLine.row || s.cursorSide != workspaceDiffSideOld) {
 			s.SetState(func() {
 				s.cursorRow = oldLine.row
 				s.cursorSide = workspaceDiffSideOld
 			})
 		}
-	})
-	newWidget := workspaceDiffSideWidget(newLine, newSelected, true, height, s.wrapLines, s.splitColumn, theme, semantic, func(ui.EventContext) {
+	}
+	activateOld := func(event ui.EventContext) {
+		if oldLine != nil && s.cursorRow == oldLine.row && s.cursorSide == workspaceDiffSideOld {
+			s.beginComment(w)
+			return
+		}
+		moveOld(event)
+	}
+	moveNew := func(ui.EventContext) {
 		if newLine != nil && (s.cursorRow != newLine.row || s.cursorSide != workspaceDiffSideNew) {
 			s.SetState(func() {
 				s.cursorRow = newLine.row
 				s.cursorSide = workspaceDiffSideNew
 			})
 		}
-	})
+	}
+	activateNew := func(event ui.EventContext) {
+		if newLine != nil && s.cursorRow == newLine.row && s.cursorSide == workspaceDiffSideNew {
+			s.beginComment(w)
+			return
+		}
+		moveNew(event)
+	}
+	oldWidget := workspaceDiffSideWidget(oldLine, oldSelected, false, height, s.wrapLines, s.splitColumn, theme, semantic, moveOld, activateOld)
+	newWidget := workspaceDiffSideWidget(newLine, newSelected, true, height, s.wrapLines, s.splitColumn, theme, semantic, moveNew, activateNew)
 	oldWidth, newWidth := workspaceDiffSplitWidths(s.viewportWidth)
 	row := ui.SizedBox{Width: oldWidth + newWidth + 1, Height: height, Child: ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Width: oldWidth, Height: height, Child: oldWidget},
@@ -1248,7 +1768,18 @@ func workspaceDiffSliceSpans(spans []ui.TextSpan, columns int) []ui.TextSpan {
 	return result
 }
 
-func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSide bool, height int, wrap bool, columnOffset int, theme ui.Theme, semantic SemanticTheme, moveCursor ui.VoidCallback) ui.Widget {
+func workspaceDiffGutter(base ui.Widget, width int, selected bool, theme ui.Theme, activate ui.VoidCallback) ui.Widget {
+	children := []ui.Widget{base}
+	if selected {
+		button := mouseActivator{Child: ui.SizedBox{Width: 3, Height: 1, Child: ui.Text{
+			Value: " + ", Style: ui.Style{Foreground: theme.Background, Background: theme.Primary}, MaxLines: 1,
+		}}, OnPressed: activate}
+		children = append(children, ui.Positioned{Left: width - 3, Top: 0, Child: button})
+	}
+	return ui.SizedBox{Width: width, Height: 1, Child: ui.Stack{Children: children}}
+}
+
+func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSide bool, height int, wrap bool, columnOffset int, theme ui.Theme, semantic SemanticTheme, moveCursor, activate ui.VoidCallback) ui.Widget {
 	if item == nil {
 		return ui.SizedBox{Height: height, Child: ui.Text{Value: "", Style: ui.Style{Background: theme.Background}, MaxLines: 1}}
 	}
@@ -1271,12 +1802,6 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSi
 		gutterBackground = semantic.Token(kittheme.TokenDiffRemovedLineNumberBg)
 	}
 	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
-	indicator, indicatorStyle := "   ", gutterStyle
-	if selected {
-		indicator = " + "
-		indicatorStyle.Foreground = theme.Background
-		indicatorStyle.Background = theme.Primary
-	}
 	spans := append([]ui.TextSpan(nil), item.syntax...)
 	if len(spans) == 0 {
 		spans = []ui.TextSpan{{Text: highlight.Sanitize(line.Content), Style: ui.Style{Foreground: theme.Foreground, Background: contentBackground}}}
@@ -1288,8 +1813,9 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, actionSi
 	if !wrap && columnOffset > 0 {
 		spans = workspaceDiffSliceSpans(spans, columnOffset)
 	}
+	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, activate)
 	row := ui.Widget(ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStart, Children: []ui.Widget{
-		ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: indicator, Style: indicatorStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false},
+		gutter,
 		ui.Expanded(ui.RichText{Spans: spans, SoftWrap: wrap}),
 	}})
 	return mouseActivator{Child: row, OnHover: moveCursor, OnPressed: moveCursor}
@@ -1356,15 +1882,7 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 	}
 	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
 	contentStyle := ui.Style{Foreground: theme.Foreground, Background: contentBackground}
-	indicator := "   "
-	indicatorStyle := gutterStyle
-	if selected {
-		indicator = " + "
-		indicatorStyle.Foreground = theme.Background
-		indicatorStyle.Background = theme.Primary
-	}
 	lineNumbers := fmt.Sprintf("%5s %5s ", oldNumber, newNumber)
-	diffMarker := marker + " "
 	if len(syntaxSpans) == 0 {
 		syntaxSpans = []ui.TextSpan{{Text: highlight.Sanitize(line.Content), Style: contentStyle}}
 	} else {
@@ -1373,20 +1891,27 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 			syntaxSpans[index].Style.Background = contentBackground
 		}
 	}
+	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: lineNumbers, Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 14, selected, theme, onPressed)
 	row := ui.Widget(ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-		ui.RichText{Spans: []ui.TextSpan{{Text: lineNumbers, Style: gutterStyle}, {Text: indicator, Style: indicatorStyle}, {Text: diffMarker, Style: gutterStyle}}, SoftWrap: false},
+		gutter,
 		ui.Expanded(ui.RichText{Spans: syntaxSpans, SoftWrap: false}),
 	}}})
-	return mouseActivator{Child: row, OnHover: onHover, OnPressed: onPressed}
+	return mouseActivator{Child: row, OnHover: onHover, OnPressed: onHover}
 }
 
 func (s *workspaceDiffPaneState) footerText() string {
 	w := s.Widget().(workspaceDiffPane)
+	if s.commenting {
+		return "Inline comment " + glyphMiddleDot + " enter save " + glyphMiddleDot + " shift+enter newline " + glyphMiddleDot + " esc cancel"
+	}
 	if s.isFrozen(w) {
 		return "Frozen evidence " + glyphMiddleDot + " navigation only"
 	}
 	horizontalHint := "←→ columns"
-	parts := []string{"↑↓ lines", horizontalHint, "[ ] files", "{ } hunks", "r refresh"}
+	parts := []string{"↑↓ lines", horizontalHint, "c comment", "[ ] files", "{ } hunks", "r refresh"}
+	if _, ok := s.annotationAtCursor(w); ok {
+		parts = append(parts[:3], append([]string{"e edit", "d remove"}, parts[3:]...)...)
+	}
 	if s.viewportWidth >= workspaceDiffSplitBreakpoint {
 		parts[1] = "←→ pan"
 		wrapHint := "w wrap"

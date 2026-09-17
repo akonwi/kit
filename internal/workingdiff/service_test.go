@@ -154,6 +154,20 @@ func TestObserveAndReadSemanticDiff(t *testing.T) {
 	if diff.Hunks[0].Lines[1].OldLine == nil || diff.Hunks[0].Lines[1].NewLine != nil {
 		t.Fatal("deletion coordinates")
 	}
+	oldEvidence, err := s.ReadLineRange(t.Context(), "session_test", d, LineRangeInput{
+		TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt",
+		FileRevision: page.Files[0].FileRevision, Side: "old", StartLine: 2, EndLine: 2,
+	})
+	if err != nil || oldEvidence.Content != "two" {
+		t.Fatalf("old evidence = %+v, %v", oldEvidence, err)
+	}
+	newEvidence, err := s.ReadLineRange(t.Context(), "session_test", d, LineRangeInput{
+		TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt",
+		FileRevision: page.Files[0].FileRevision, Side: "new", StartLine: 2, EndLine: 2,
+	})
+	if err != nil || newEvidence.Content != "changed" {
+		t.Fatalf("new evidence = %+v, %v", newEvidence, err)
+	}
 }
 func TestStaleFileAndHostileHelpersNotExecuted(t *testing.T) {
 	d := fixture(t)

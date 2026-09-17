@@ -51,6 +51,8 @@ func (w annotationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 		label := "Annotation"
 		if anchor != nil {
 			label = fmt.Sprintf("%s  L%d–%d", anchor.Path, anchor.StartLine, anchor.EndLine)
+		} else if diffAnchor := annotation.Anchor.WorkingTreeDiff; diffAnchor != nil {
+			label = fmt.Sprintf("%s  %s L%d–%d", diffAnchor.Path, diffAnchor.Side, diffAnchor.StartLine, diffAnchor.EndLine)
 		}
 		style := ui.Style{Foreground: theme.Foreground}
 		if index == w.Snapshot.Selection {

@@ -1,13 +1,37 @@
 package storage
 
 import (
+	"encoding/base64"
 	"errors"
 	"path/filepath"
 	"testing"
 
 	kitannotation "github.com/akonwi/kit/internal/annotation"
+	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
 )
+
+func TestDiffAnnotationAnchorRoundTrips(t *testing.T) {
+	store, sessionID := annotationTestStore(t)
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	record := annotationTestRecord(sessionID, "review this change")
+	record.Anchor = protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &protocol.WorkingTreeDiffAnnotationAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go",
+		FileRevision: "diff_file_" + token, Side: "old", StartLine: 2, EndLine: 3,
+	}}
+	record.Preview = kitannotation.Preview{StartLine: 2, EndLine: 3, Text: "old evidence"}
+	created, err := store.CreateAnnotation(t.Context(), record, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := store.GetAnnotation(t.Context(), sessionID, created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if loaded.Anchor.WorkingTreeDiff == nil || *loaded.Anchor.WorkingTreeDiff != *record.Anchor.WorkingTreeDiff {
+		t.Fatalf("loaded diff anchor = %+v", loaded.Anchor)
+	}
+}
 
 func TestAnnotationIDsIncreaseAndAreNeverReused(t *testing.T) {
 	store, sessionID := annotationTestStore(t)
@@ -107,11 +131,11 @@ func annotationTestStore(t *testing.T) (*Store, string) {
 func annotationTestRecord(sessionID, body string) kitannotation.Record {
 	return kitannotation.Record{
 		SessionID: sessionID,
-		Anchor: kitannotation.WorkspaceFileAnchor{
+		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &kitannotation.WorkspaceFileAnchor{
 			WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4",
 			Path:        "file.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A",
 			StartLine: 1, EndLine: 1,
-		},
+		}},
 		Body:    body,
 		Preview: kitannotation.Preview{StartLine: 1, EndLine: 1, Text: "package main"},
 	}

@@ -63,7 +63,12 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 			return workspaceDiffPane{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
 				Diff: view.WorkingTreeDiff, Presentation: presentation,
-				OnFocusRequest: view.Callbacks.FocusWorkspaceContent,
+				Annotations:        view.Snapshot.ComposerAnnotations,
+				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,
+				OnCreateAnnotation: view.Callbacks.CreateAnnotation,
+				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,
+				OnUpdateAnnotation: view.Callbacks.UpdateAnnotation,
+				OnRemoveAnnotation: view.Callbacks.RemoveAnnotation,
 			}
 		},
 	},

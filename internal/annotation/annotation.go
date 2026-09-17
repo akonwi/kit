@@ -22,10 +22,10 @@ var (
 )
 
 // WorkspaceFileAnchor pins a line range to one workspace file observation.
-type WorkspaceFileAnchor struct {
-	WorkspaceID, Path, FileRevision string
-	StartLine, EndLine              int
-}
+type WorkspaceFileAnchor = protocol.WorkspaceFileAnnotationAnchor
+
+// WorkingTreeDiffAnchor pins a source-side range to one diff observation.
+type WorkingTreeDiffAnchor = protocol.WorkingTreeDiffAnnotationAnchor
 
 // Preview is frozen server-derived evidence.
 type Preview struct {
@@ -38,7 +38,7 @@ type Preview struct {
 type Record struct {
 	ID        uint64
 	SessionID string
-	Anchor    WorkspaceFileAnchor
+	Anchor    protocol.AnnotationAnchor
 	Body      string
 	Preview   Preview
 }
@@ -57,6 +57,7 @@ type EvidenceErrorKind string
 
 const (
 	EvidenceStaleWorkspace EvidenceErrorKind = "stale_workspace"
+	EvidenceStaleTarget    EvidenceErrorKind = "stale_target"
 	EvidenceStaleFile      EvidenceErrorKind = "stale_file"
 	EvidenceUnavailable    EvidenceErrorKind = "unavailable"
 	EvidencePermission     EvidenceErrorKind = "permission_denied"
@@ -72,6 +73,11 @@ func (e *EvidenceError) Error() string { return "annotation evidence is " + stri
 // FileReader validates workspace identity and file revision while reading evidence.
 type FileReader interface {
 	ReadFile(context.Context, string, string, WorkspaceFileAnchor) (FileEvidence, error)
+}
+
+// DiffReader validates retained diff identity and reads one source-side range.
+type DiffReader interface {
+	ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor) (FileEvidence, error)
 }
 
 // Repository persists live annotations and their per-session monotonic sequence.
@@ -99,6 +105,7 @@ type Service struct {
 	repository Repository
 	memory     *MemoryRepository
 	files      FileReader
+	diffs      DiffReader
 	locksMu    sync.Mutex
 	locks      map[string]*sync.Mutex
 	temporary  map[string]struct{}
@@ -107,11 +114,15 @@ type Service struct {
 }
 
 // NewService constructs an annotation service.
-func NewService(repository Repository, files FileReader) (*Service, error) {
-	if repository == nil || files == nil {
-		return nil, fmt.Errorf("annotation repository and file reader are required")
+func NewService(repository Repository, files FileReader, diffReaders ...DiffReader) (*Service, error) {
+	if repository == nil || files == nil || len(diffReaders) > 1 {
+		return nil, fmt.Errorf("annotation repository and evidence readers are invalid")
 	}
-	return &Service{repository: repository, memory: NewMemoryRepository(), files: files, locks: make(map[string]*sync.Mutex), temporary: make(map[string]struct{})}, nil
+	var diffs DiffReader
+	if len(diffReaders) == 1 {
+		diffs = diffReaders[0]
+	}
+	return &Service{repository: repository, memory: NewMemoryRepository(), files: files, diffs: diffs, locks: make(map[string]*sync.Mutex), temporary: make(map[string]struct{})}, nil
 }
 
 // SetObserver installs the authoritative mutation event sink.
@@ -167,18 +178,18 @@ func (s *Service) sessionLock(sessionID string) *sync.Mutex {
 }
 
 // Create derives a preview and atomically allocates the next session ID.
-func (s *Service) Create(ctx context.Context, sessionID, cwd string, anchor WorkspaceFileAnchor, body string) (Record, error) {
+func (s *Service) Create(ctx context.Context, sessionID, cwd string, anchor protocol.AnnotationAnchor, body string) (Record, error) {
 	if err := validateDraft(sessionID, anchor, body); err != nil {
 		return Record{}, err
 	}
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
-	evidence, err := s.files.ReadFile(ctx, sessionID, cwd, anchor)
+	evidence, err := s.readEvidence(ctx, sessionID, cwd, anchor)
 	if err != nil {
 		return Record{}, err
 	}
-	preview, err := derivePreview(evidence, anchor)
+	preview, err := derivePreview(evidence, anchorRange(anchor))
 	if err != nil {
 		return Record{}, err
 	}
@@ -204,7 +215,10 @@ func (s *Service) Update(ctx context.Context, sessionID, cwd string, id uint64, 
 	if err != nil {
 		return Record{}, err
 	}
-	if _, err := s.files.ReadFile(ctx, sessionID, cwd, record.Anchor); err != nil {
+	if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor); err != nil {
+		if ctx.Err() != nil {
+			return Record{}, ctx.Err()
+		}
 		return Record{}, fmt.Errorf("%w: annotation %d: %w", ErrStale, id, err)
 	}
 	updated, err := repository.UpdateAnnotationBody(ctx, sessionID, id, body)
@@ -247,7 +261,10 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 	}
 	stale := make(map[uint64]protocol.AnnotationStaleReason)
 	for _, record := range records {
-		if _, readErr := s.files.ReadFile(ctx, sessionID, cwd, record.Anchor); readErr != nil {
+		if _, readErr := s.readEvidence(ctx, sessionID, cwd, record.Anchor); readErr != nil {
+			if ctx.Err() != nil {
+				return nil, nil, ctx.Err()
+			}
 			stale[record.ID] = staleReason(readErr)
 		}
 	}
@@ -290,8 +307,11 @@ func (s *Service) PrepareSubmission(ctx context.Context, sessionID, cwd string, 
 			lock.Unlock()
 			return nil, err
 		}
-		if _, err := s.files.ReadFile(ctx, sessionID, cwd, record.Anchor); err != nil {
+		if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor); err != nil {
 			lock.Unlock()
+			if ctx.Err() != nil {
+				return nil, ctx.Err()
+			}
 			return nil, fmt.Errorf("%w: annotation %d: %w", ErrStale, id, err)
 		}
 		result = append(result, record)
@@ -349,12 +369,8 @@ func (p *PreparedSubmission) Abort() {
 	}
 }
 
-func validateDraft(sessionID string, anchor WorkspaceFileAnchor, body string) error {
-	projected := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
-		WorkspaceID: anchor.WorkspaceID, Path: anchor.Path, FileRevision: anchor.FileRevision,
-		StartLine: anchor.StartLine, EndLine: anchor.EndLine,
-	}}
-	if sessionID == "" || projected.Validate() != nil || !validBody(body) {
+func validateDraft(sessionID string, anchor protocol.AnnotationAnchor, body string) error {
+	if sessionID == "" || anchor.Validate() != nil || !validBody(body) {
 		return fmt.Errorf("annotation draft is invalid")
 	}
 	return nil
@@ -372,7 +388,33 @@ func validBody(body string) bool {
 	return true
 }
 
-func derivePreview(evidence FileEvidence, anchor WorkspaceFileAnchor) (Preview, error) {
+type lineRange struct{ start, end int }
+
+func anchorRange(anchor protocol.AnnotationAnchor) lineRange {
+	if anchor.WorkspaceFile != nil {
+		return lineRange{start: anchor.WorkspaceFile.StartLine, end: anchor.WorkspaceFile.EndLine}
+	}
+	if anchor.WorkingTreeDiff != nil {
+		return lineRange{start: anchor.WorkingTreeDiff.StartLine, end: anchor.WorkingTreeDiff.EndLine}
+	}
+	return lineRange{}
+}
+
+func (s *Service) readEvidence(ctx context.Context, sessionID, cwd string, anchor protocol.AnnotationAnchor) (FileEvidence, error) {
+	switch anchor.Kind {
+	case protocol.AnnotationAnchorWorkspaceFile:
+		return s.files.ReadFile(ctx, sessionID, cwd, *anchor.WorkspaceFile)
+	case protocol.AnnotationAnchorWorkingTreeDiff:
+		if s.diffs == nil {
+			return FileEvidence{}, &EvidenceError{Kind: EvidenceUnavailable}
+		}
+		return s.diffs.ReadDiff(ctx, sessionID, cwd, *anchor.WorkingTreeDiff)
+	default:
+		return FileEvidence{}, &EvidenceError{Kind: EvidenceInvalid}
+	}
+}
+
+func derivePreview(evidence FileEvidence, anchor lineRange) (Preview, error) {
 	lines := strings.Split(evidence.Content, "\n")
 	if strings.HasSuffix(evidence.Content, "\n") {
 		lines = lines[:len(lines)-1]
@@ -385,9 +427,9 @@ func derivePreview(evidence FileEvidence, anchor WorkspaceFileAnchor) (Preview, 
 	if completeLines == 0 && !evidence.Truncated {
 		completeLines = contentStart + len(lines) - 1
 	}
-	startIndex := anchor.StartLine - contentStart
-	endIndex := anchor.EndLine - contentStart + 1
-	if startIndex < 0 || endIndex > len(lines) || anchor.EndLine > completeLines {
+	startIndex := anchor.start - contentStart
+	endIndex := anchor.end - contentStart + 1
+	if startIndex < 0 || endIndex > len(lines) || anchor.end > completeLines {
 		return Preview{}, fmt.Errorf("%w: selected lines are unavailable", ErrStale)
 	}
 	text := sanitizeEvidence(strings.Join(lines[startIndex:endIndex], "\n"))
@@ -399,7 +441,7 @@ func derivePreview(evidence FileEvidence, anchor WorkspaceFileAnchor) (Preview, 
 		}
 		truncated = true
 	}
-	return Preview{StartLine: anchor.StartLine, EndLine: anchor.EndLine, Text: text, Truncated: truncated}, nil
+	return Preview{StartLine: anchor.start, EndLine: anchor.end, Text: text, Truncated: truncated}, nil
 }
 
 // RecoverSubmissions finalizes accepted reservations and restores reservations
@@ -438,6 +480,7 @@ func ModelProjection(records []Record) (string, error) {
 	type resource struct {
 		Kind      string `json:"kind"`
 		Path      string `json:"path"`
+		Side      string `json:"side,omitempty"`
 		StartLine int    `json:"startLine"`
 		EndLine   int    `json:"endLine"`
 	}
@@ -449,11 +492,13 @@ func ModelProjection(records []Record) (string, error) {
 	}
 	payload := make([]item, 0, len(records))
 	for _, record := range records {
-		payload = append(payload, item{
-			ID:       record.ID,
-			Resource: resource{Kind: "workspace_file", Path: record.Anchor.Path, StartLine: record.Anchor.StartLine, EndLine: record.Anchor.EndLine},
-			Preview:  record.Preview.Text, Body: record.Body,
-		})
+		projected := resource{}
+		if anchor := record.Anchor.WorkspaceFile; anchor != nil {
+			projected = resource{Kind: string(protocol.AnnotationAnchorWorkspaceFile), Path: anchor.Path, StartLine: anchor.StartLine, EndLine: anchor.EndLine}
+		} else if anchor := record.Anchor.WorkingTreeDiff; anchor != nil {
+			projected = resource{Kind: string(protocol.AnnotationAnchorWorkingTreeDiff), Path: anchor.Path, Side: anchor.Side, StartLine: anchor.StartLine, EndLine: anchor.EndLine}
+		}
+		payload = append(payload, item{ID: record.ID, Resource: projected, Preview: record.Preview.Text, Body: record.Body})
 	}
 	encoded, err := json.Marshal(payload)
 	if err != nil {
@@ -486,6 +531,8 @@ func staleReason(err error) protocol.AnnotationStaleReason {
 		switch evidenceErr.Kind {
 		case EvidenceStaleWorkspace:
 			return protocol.AnnotationStaleWorkspace
+		case EvidenceStaleTarget:
+			return protocol.AnnotationStaleTarget
 		case EvidenceStaleFile:
 			return protocol.AnnotationStaleFile
 		}

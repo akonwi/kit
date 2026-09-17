@@ -518,8 +518,7 @@ func validateAnnotationInput(input AnnotationInput) error {
 	for _, annotation := range input.Annotations {
 		encoded, err := json.Marshal(annotation)
 		encodedBytes += len(encoded)
-		if err != nil || annotation.ID == 0 || annotation.Kind != "workspace_file" ||
-			!validAnnotationToken(annotation.WorkspaceID, "workspace_") || !validAnnotationToken(annotation.FileRevision, "file_") ||
+		if err != nil || annotation.ID == 0 || !validSubmittedAnnotationIdentity(annotation) ||
 			!validSubmittedAnnotationPath(annotation.Path) ||
 			annotation.StartLine <= 0 || annotation.EndLine < annotation.StartLine || annotation.EndLine-annotation.StartLine+1 > 200 ||
 			!safeAnnotationText(annotation.Body, false) || len(annotation.Body) > 16<<10 || !safeAnnotationText(annotation.Preview, true) || len(annotation.Preview) > 16<<10 {
@@ -530,6 +529,17 @@ func validateAnnotationInput(input AnnotationInput) error {
 		return fmt.Errorf("droids: submitted annotations exceed aggregate bound")
 	}
 	return nil
+}
+
+func validSubmittedAnnotationIdentity(annotation SubmittedAnnotation) bool {
+	switch annotation.Kind {
+	case "workspace_file":
+		return validAnnotationToken(annotation.WorkspaceID, "workspace_") && annotation.TargetID == "" && annotation.TargetRevision == "" && annotation.Side == "" && validAnnotationToken(annotation.FileRevision, "file_")
+	case "working_tree_diff":
+		return annotation.WorkspaceID == "" && validAnnotationToken(annotation.TargetID, "difftarget_") && validAnnotationToken(annotation.TargetRevision, "diffrev_") && validAnnotationToken(annotation.FileRevision, "diff_file_") && (annotation.Side == "old" || annotation.Side == "new")
+	default:
+		return false
+	}
 }
 
 func validSubmittedAnnotationPath(value string) bool {

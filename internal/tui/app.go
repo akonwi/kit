@@ -1355,7 +1355,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		RemoveAnnotation: func(_ ui.EventContext, annotationID uint64) {
 			s.removeAnnotation(annotationID)
 		},
-		CreateAnnotation: func(anchor protocol.WorkspaceFileAnnotationAnchor, body string, done func(error)) {
+		CreateAnnotation: func(anchor protocol.AnnotationAnchor, body string, done func(error)) {
 			s.createInlineAnnotation(anchor, body, done)
 		},
 		LoadAnnotation: func(annotationID uint64, done func(string, error)) func() {

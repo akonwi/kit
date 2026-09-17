@@ -27,6 +27,23 @@ func (s diffRouteService) ReadFileDiff(context.Context, string, protocol.ReadFil
 func routeObservation() protocol.DiffObservation {
 	return protocol.DiffObservation{SessionID: "session_test", Target: protocol.DiffTarget{ID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", WorkspaceID: "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Kind: "working_tree", RepositoryPath: ""}, Revision: "diffrev_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Head: protocol.DiffHead{State: "unborn"}, IndexSummary: "clean", Complete: true, Omissions: []protocol.DiffOmission{}}
 }
+func TestFileDiffClientResponseRequiresRequestedIdentity(t *testing.T) {
+	observation := routeObservation()
+	file := protocol.DiffFileSummary{
+		Path: "main.go", FileRevision: "diff_file_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Change: "modified",
+		Old: protocol.DiffSide{Kind: "regular", Mode: 0100644}, New: protocol.DiffSide{Kind: "regular", Mode: 0100644}, ContentState: "text",
+	}
+	page := protocol.FileDiffPage{Observation: observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{}}
+	input := protocol.ReadFileDiffInput{TargetID: observation.Target.ID, TargetRevision: observation.Revision, Path: file.Path, ExpectedFileRevision: file.FileRevision}
+	if err := validateFileDiffResponse(observation.SessionID, input, page); err != nil {
+		t.Fatalf("matching response: %v", err)
+	}
+	page.Observation.Revision = "diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	if err := validateFileDiffResponse(observation.SessionID, input, page); err == nil {
+		t.Fatal("mismatched target revision was accepted")
+	}
+}
+
 func TestDiffRoutesValidateAndProjectTypedErrors(t *testing.T) {
 	mux := http.NewServeMux()
 	registerSessionRoutes(mux, diffRouteService{err: &protocol.DiffError{Code: protocol.DiffErrorUnsupportedRepository, Message: "repository is unsupported", Details: map[string]string{"reason": "sparse_index"}}})

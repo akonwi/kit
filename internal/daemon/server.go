@@ -225,7 +225,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure working-tree diff service: %w", err)
 	}
-	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService})
+	annotationService, err := kitannotation.NewService(store, annotationWorkspaceReader{service: workspaceService}, annotationDiffReader{service: diffService})
 	if err != nil {
 		return fmt.Errorf("configure annotation service: %w", err)
 	}

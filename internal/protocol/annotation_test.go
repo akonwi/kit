@@ -1,6 +1,9 @@
 package protocol
 
-import "testing"
+import (
+	"encoding/base64"
+	"testing"
+)
 
 func validTestAnnotation() Annotation {
 	return Annotation{
@@ -29,6 +32,25 @@ func TestAnnotationValidation(t *testing.T) {
 		if err := candidate.Validate(); err == nil {
 			t.Errorf("case %d unexpectedly valid", index)
 		}
+	}
+}
+
+func TestWorkingTreeDiffAnnotationValidation(t *testing.T) {
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	anchor := AnnotationAnchor{Kind: AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnnotationAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token,
+		Path: "internal/tui/app.go", FileRevision: "diff_file_" + token,
+		Side: "old", StartLine: 4, EndLine: 6,
+	}}
+	if err := anchor.Validate(); err != nil {
+		t.Fatalf("valid diff anchor: %v", err)
+	}
+	if err := (AnnotationPreview{StartLine: 4, EndLine: 6, Text: "old evidence"}).Validate(anchor); err != nil {
+		t.Fatalf("valid diff preview: %v", err)
+	}
+	anchor.WorkspaceFile = validTestAnnotation().Anchor.WorkspaceFile
+	if err := anchor.Validate(); err == nil {
+		t.Fatal("mixed annotation variants were valid")
 	}
 }
 

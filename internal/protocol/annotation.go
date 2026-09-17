@@ -28,7 +28,10 @@ const (
 // AnnotationAnchorKind identifies one explicitly validated evidence anchor.
 type AnnotationAnchorKind string
 
-const AnnotationAnchorWorkspaceFile AnnotationAnchorKind = "workspace_file"
+const (
+	AnnotationAnchorWorkspaceFile   AnnotationAnchorKind = "workspace_file"
+	AnnotationAnchorWorkingTreeDiff AnnotationAnchorKind = "working_tree_diff"
+)
 
 // WorkspaceFileAnnotationAnchor pins a one-based inclusive line range to an
 // observed session workspace file revision.
@@ -40,25 +43,68 @@ type WorkspaceFileAnnotationAnchor struct {
 	EndLine      int    `json:"endLine"`
 }
 
+// WorkingTreeDiffAnnotationAnchor pins a source-side line range to one retained
+// working-tree diff observation and changed-file revision.
+type WorkingTreeDiffAnnotationAnchor struct {
+	TargetID       string `json:"targetId"`
+	TargetRevision string `json:"targetRevision"`
+	Path           string `json:"path"`
+	FileRevision   string `json:"fileRevision"`
+	Side           string `json:"side"`
+	StartLine      int    `json:"startLine"`
+	EndLine        int    `json:"endLine"`
+}
+
 // AnnotationAnchor is a tagged union of supported evidence anchors.
 type AnnotationAnchor struct {
-	Kind          AnnotationAnchorKind           `json:"kind"`
-	WorkspaceFile *WorkspaceFileAnnotationAnchor `json:"workspaceFile,omitempty"`
+	Kind            AnnotationAnchorKind             `json:"kind"`
+	WorkspaceFile   *WorkspaceFileAnnotationAnchor   `json:"workspaceFile,omitempty"`
+	WorkingTreeDiff *WorkingTreeDiffAnnotationAnchor `json:"workingTreeDiff,omitempty"`
 }
 
 // Validate checks the anchor tag, exact variant, identity, and range bounds.
 func (a AnnotationAnchor) Validate() error {
-	if a.Kind != AnnotationAnchorWorkspaceFile || a.WorkspaceFile == nil {
+	switch a.Kind {
+	case AnnotationAnchorWorkspaceFile:
+		if a.WorkspaceFile == nil || a.WorkingTreeDiff != nil {
+			return fmt.Errorf("annotation anchor variant is invalid")
+		}
+		anchor := a.WorkspaceFile
+		if !validWorkspaceToken(anchor.WorkspaceID, "workspace_") || !validWorkspaceToken(anchor.FileRevision, "file_") || ValidateWorkspacePath(anchor.Path, false) != nil {
+			return fmt.Errorf("workspace file annotation identity is invalid")
+		}
+		if !validAnnotationRange(anchor.StartLine, anchor.EndLine) {
+			return fmt.Errorf("workspace file annotation range is invalid")
+		}
+	case AnnotationAnchorWorkingTreeDiff:
+		if a.WorkspaceFile != nil || a.WorkingTreeDiff == nil {
+			return fmt.Errorf("annotation anchor variant is invalid")
+		}
+		anchor := a.WorkingTreeDiff
+		if !validDiffToken(anchor.TargetID, "difftarget_") || !validDiffToken(anchor.TargetRevision, "diffrev_") || !validDiffToken(anchor.FileRevision, "diff_file_") || ValidateWorkspacePath(anchor.Path, false) != nil || anchor.Side != "old" && anchor.Side != "new" {
+			return fmt.Errorf("working-tree diff annotation identity is invalid")
+		}
+		if !validAnnotationRange(anchor.StartLine, anchor.EndLine) {
+			return fmt.Errorf("working-tree diff annotation range is invalid")
+		}
+	default:
 		return fmt.Errorf("annotation anchor kind is invalid")
 	}
-	anchor := a.WorkspaceFile
-	if !validWorkspaceToken(anchor.WorkspaceID, "workspace_") || !validWorkspaceToken(anchor.FileRevision, "file_") || ValidateWorkspacePath(anchor.Path, false) != nil {
-		return fmt.Errorf("workspace file annotation identity is invalid")
-	}
-	if anchor.StartLine <= 0 || anchor.EndLine < anchor.StartLine || anchor.EndLine-anchor.StartLine+1 > MaxAnnotationRangeLines {
-		return fmt.Errorf("workspace file annotation range is invalid")
-	}
 	return nil
+}
+
+func validAnnotationRange(start, end int) bool {
+	return start > 0 && end >= start && end-start+1 <= MaxAnnotationRangeLines
+}
+
+func annotationAnchorRange(anchor AnnotationAnchor) (int, int) {
+	if anchor.WorkspaceFile != nil {
+		return anchor.WorkspaceFile.StartLine, anchor.WorkspaceFile.EndLine
+	}
+	if anchor.WorkingTreeDiff != nil {
+		return anchor.WorkingTreeDiff.StartLine, anchor.WorkingTreeDiff.EndLine
+	}
+	return 0, 0
 }
 
 // AnnotationPreview is frozen server-derived evidence for one annotation.
@@ -74,8 +120,8 @@ func (p AnnotationPreview) Validate(anchor AnnotationAnchor) error {
 	if err := anchor.Validate(); err != nil {
 		return err
 	}
-	workspace := anchor.WorkspaceFile
-	if p.StartLine != workspace.StartLine || p.EndLine != workspace.EndLine || len(p.Text) > MaxAnnotationPreviewBytes || !validAnnotationText(p.Text, true) {
+	start, end := annotationAnchorRange(anchor)
+	if p.StartLine != start || p.EndLine != end || len(p.Text) > MaxAnnotationPreviewBytes || !validAnnotationText(p.Text, true) {
 		return fmt.Errorf("annotation preview is invalid")
 	}
 	return nil
@@ -86,6 +132,7 @@ type AnnotationStaleReason string
 
 const (
 	AnnotationStaleWorkspace   AnnotationStaleReason = "workspace_changed"
+	AnnotationStaleTarget      AnnotationStaleReason = "target_changed"
 	AnnotationStaleFile        AnnotationStaleReason = "file_changed"
 	AnnotationStaleUnavailable AnnotationStaleReason = "resource_unavailable"
 )
@@ -109,7 +156,7 @@ func (a Annotation) Validate() error {
 	if a.Stale != (a.StaleReason != "") {
 		return fmt.Errorf("annotation stale state is invalid")
 	}
-	if a.StaleReason != "" && a.StaleReason != AnnotationStaleWorkspace && a.StaleReason != AnnotationStaleFile && a.StaleReason != AnnotationStaleUnavailable {
+	if a.StaleReason != "" && a.StaleReason != AnnotationStaleWorkspace && a.StaleReason != AnnotationStaleTarget && a.StaleReason != AnnotationStaleFile && a.StaleReason != AnnotationStaleUnavailable {
 		return fmt.Errorf("annotation stale reason is invalid")
 	}
 	return nil
@@ -210,7 +257,7 @@ func (s AnnotationSummary) Validate() error {
 	if s.ID == 0 || s.Anchor.Validate() != nil || !validAnnotationText(s.BodyPreview, false) || len(s.BodyPreview) > MaxAnnotationSummaryTextBytes || len(s.Preview) > MaxAnnotationSummaryTextBytes || !validAnnotationText(s.Preview, true) {
 		return fmt.Errorf("annotation summary is invalid")
 	}
-	if s.Stale != (s.StaleReason != "") || s.StaleReason != "" && s.StaleReason != AnnotationStaleWorkspace && s.StaleReason != AnnotationStaleFile && s.StaleReason != AnnotationStaleUnavailable {
+	if s.Stale != (s.StaleReason != "") || s.StaleReason != "" && s.StaleReason != AnnotationStaleWorkspace && s.StaleReason != AnnotationStaleTarget && s.StaleReason != AnnotationStaleFile && s.StaleReason != AnnotationStaleUnavailable {
 		return fmt.Errorf("annotation summary stale state is invalid")
 	}
 	return nil

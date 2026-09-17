@@ -206,10 +206,20 @@ func (c *Client) ReadFileDiff(ctx context.Context, sessionID string, input proto
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
 		return protocol.FileDiffPage{}, err
 	}
-	if err := output.Validate(); err != nil || output.Observation.SessionID != sessionID || output.File.Path != input.Path {
-		return protocol.FileDiffPage{}, fmt.Errorf("validate daemon file diff page: %w", err)
+	if err := validateFileDiffResponse(sessionID, input, output); err != nil {
+		return protocol.FileDiffPage{}, err
 	}
 	return output, nil
+}
+
+func validateFileDiffResponse(sessionID string, input protocol.ReadFileDiffInput, output protocol.FileDiffPage) error {
+	if err := output.Validate(); err != nil {
+		return fmt.Errorf("validate daemon file diff page: %w", err)
+	}
+	if output.Observation.SessionID != sessionID || output.Observation.Target.ID != input.TargetID || output.Observation.Revision != input.TargetRevision || output.File.Path != input.Path || input.ExpectedFileRevision != "" && output.File.FileRevision != input.ExpectedFileRevision {
+		return fmt.Errorf("daemon file diff identity does not match request")
+	}
+	return nil
 }
 
 // ListAnnotations returns one bounded page of live session annotation drafts.

@@ -164,7 +164,7 @@ type shellCallbacks struct {
 	RemoveAttachment            func(ui.EventContext, int)
 	ActivateAnnotation          func(ui.EventContext, protocol.AnnotationSummary)
 	RemoveAnnotation            func(ui.EventContext, uint64)
-	CreateAnnotation            func(protocol.WorkspaceFileAnnotationAnchor, string, func(error))
+	CreateAnnotation            func(protocol.AnnotationAnchor, string, func(error))
 	LoadAnnotation              func(uint64, func(string, error)) func()
 	UpdateAnnotation            func(uint64, string, func(error))
 	OpenAnnotationPicker        ui.VoidCallback
@@ -812,8 +812,8 @@ func submittedAnnotationGroup(theme ui.Theme, annotations []protocol.SubmittedAn
 	label := fmt.Sprintf("%d comments", count)
 	if count == 1 {
 		label = "1 comment"
-		if anchor := annotations[0].Anchor.WorkspaceFile; anchor != nil {
-			label += " on " + anchor.Path
+		if path, _, _, _, ok := annotationAnchorLabel(annotations[0].Anchor); ok {
+			label += " on " + path
 		}
 	}
 	indicator := glyphTriangleRight
@@ -837,19 +837,33 @@ func submittedAnnotationGroup(theme ui.Theme, annotations []protocol.SubmittedAn
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
 }
 
+func annotationAnchorLabel(anchor protocol.AnnotationAnchor) (path, side string, start, end int, ok bool) {
+	if value := anchor.WorkspaceFile; value != nil {
+		return value.Path, "", value.StartLine, value.EndLine, true
+	}
+	if value := anchor.WorkingTreeDiff; value != nil {
+		return value.Path, value.Side, value.StartLine, value.EndLine, true
+	}
+	return "", "", 0, 0, false
+}
+
 func submittedAnnotationRow(theme ui.Theme, annotation protocol.SubmittedAnnotation) ui.Widget {
-	anchor := annotation.Anchor.WorkspaceFile
-	if anchor == nil {
+	path, side, start, end, ok := annotationAnchorLabel(annotation.Anchor)
+	if !ok {
 		return ui.SizedBox{}
 	}
 	preview := annotation.Preview.Text
 	if annotation.Preview.Truncated {
 		preview += " " + glyphEllipsis
 	}
+	location := fmt.Sprintf("%s  L%d–%d", path, start, end)
+	if side != "" {
+		location = fmt.Sprintf("%s  %s L%d–%d", path, side, start, end)
+	}
 	return ui.Padding(ui.Insets{Top: 1}, ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Background: theme.Surface}, Border: ui.Border{Style: ui.Style{Foreground: theme.AccentText, Background: theme.Surface}, Left: true}},
 		ui.Padding(ui.Insets{Left: 1, Right: 1}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: []ui.Widget{
-			ui.Text{Value: fmt.Sprintf("%s  L%d–%d", anchor.Path, anchor.StartLine, anchor.EndLine), Style: ui.Style{Foreground: theme.AccentText}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+			ui.Text{Value: location, Style: ui.Style{Foreground: theme.AccentText}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 			ui.Text{Value: preview, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
 			ui.Text{Value: annotation.Body, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true},
 		}}),
@@ -1090,12 +1104,10 @@ func composerAnnotationOverflowRow(theme ui.Theme, hidden int, open ui.VoidCallb
 }
 
 func composerAnnotationRow(theme ui.Theme, annotation protocol.AnnotationSummary, activate func(ui.EventContext, protocol.AnnotationSummary), remove func(ui.EventContext, uint64)) ui.Widget {
-	anchor := annotation.Anchor.WorkspaceFile
-	label := ""
-	meta := ""
-	if anchor != nil {
-		label = anchor.Path
-		meta = fmt.Sprintf("L%d–%d", anchor.StartLine, anchor.EndLine)
+	label, side, start, end, _ := annotationAnchorLabel(annotation.Anchor)
+	meta := fmt.Sprintf("L%d–%d", start, end)
+	if side != "" {
+		meta = fmt.Sprintf("%s L%d–%d", side, start, end)
 	}
 	style := ui.Style{Foreground: theme.MutedForeground}
 	if annotation.Stale {

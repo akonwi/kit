@@ -28,14 +28,17 @@ var workspacePaneKinds = [...]workspacePaneKind{
 // retained resource without storing widgets, callbacks, focus nodes, or runtime
 // lifecycle.
 type workspacePaneDescriptor struct {
-	Kind             workspacePaneKind
-	ResourceID       string
-	WorkspaceID      string
-	Path             string
-	ExpectedRevision string
-	RevealStartLine  int
-	RevealEndLine    int
-	OpenGeneration   uint64
+	Kind                 workspacePaneKind
+	ResourceID           string
+	WorkspaceID          string
+	Path                 string
+	ExpectedRevision     string
+	ExpectedFileRevision string
+	DiffTargetID         string
+	DiffSide             string
+	RevealStartLine      int
+	RevealEndLine        int
+	OpenGeneration       uint64
 }
 
 func subagentWorkspacePane(conversationID string) workspacePaneDescriptor {

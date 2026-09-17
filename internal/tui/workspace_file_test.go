@@ -136,8 +136,8 @@ func (s *filePaneHarnessState) Build(ui.BuildContext) ui.Widget {
 		Presentation:   workspacePanePresentation{Active: model.active, Visible: model.active, Focused: model.active},
 		Annotations:    model.annotations,
 		OnFocusRequest: func(ui.EventContext) { model.focused++ },
-		OnCreateAnnotation: func(anchor protocol.WorkspaceFileAnnotationAnchor, _ string, done func(error)) {
-			model.annotated = append(model.annotated, anchor)
+		OnCreateAnnotation: func(anchor protocol.AnnotationAnchor, _ string, done func(error)) {
+			model.annotated = append(model.annotated, *anchor.WorkspaceFile)
 			done(nil)
 		},
 		OnLoadAnnotation: func(annotationID uint64, done func(string, error)) func() {

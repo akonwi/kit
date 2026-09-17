@@ -29,6 +29,7 @@ import (
 )
 
 type annotationWorkspaceReader struct{ service *kitworkspace.Service }
+type annotationDiffReader struct{ service *kitworkingdiff.Service }
 
 func (r annotationWorkspaceReader) ReadFile(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkspaceFileAnchor) (kitannotation.FileEvidence, error) {
 	read, err := r.service.ReadLineRange(ctx, sessionID, cwd, kitworkspace.LineRangeInput{
@@ -58,6 +59,36 @@ func (r annotationWorkspaceReader) ReadFile(ctx context.Context, sessionID, cwd 
 	return kitannotation.FileEvidence{
 		Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: anchor.EndLine,
 	}, nil
+}
+
+func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkingTreeDiffAnchor) (kitannotation.FileEvidence, error) {
+	read, err := r.service.ReadLineRange(ctx, sessionID, cwd, kitworkingdiff.LineRangeInput{
+		TargetID: anchor.TargetID, TargetRevision: anchor.TargetRevision, Path: anchor.Path, FileRevision: anchor.FileRevision,
+		Side: anchor.Side, StartLine: anchor.StartLine, EndLine: anchor.EndLine,
+	})
+	if err != nil {
+		var diffErr *kitworkingdiff.Error
+		if errors.As(err, &diffErr) {
+			kind := kitannotation.EvidenceUnavailable
+			switch diffErr.Code {
+			case kitworkingdiff.StaleWorkspace:
+				kind = kitannotation.EvidenceStaleWorkspace
+			case kitworkingdiff.StaleTarget, kitworkingdiff.StaleCursor:
+				kind = kitannotation.EvidenceStaleTarget
+			case kitworkingdiff.StaleFile, kitworkingdiff.NotFound:
+				kind = kitannotation.EvidenceStaleFile
+			case kitworkingdiff.PermissionDenied:
+				kind = kitannotation.EvidencePermission
+			case kitworkingdiff.LimitExceeded, kitworkingdiff.CapacityExceeded:
+				kind = kitannotation.EvidenceLimit
+			case kitworkingdiff.InvalidPath:
+				kind = kitannotation.EvidenceInvalid
+			}
+			return kitannotation.FileEvidence{}, &kitannotation.EvidenceError{Kind: kind}
+		}
+		return kitannotation.FileEvidence{}, err
+	}
+	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine}, nil
 }
 
 const maxSessionRequestBytes = 1 << 20
@@ -435,11 +466,7 @@ func (s runtimeSessionService) CreateAnnotation(ctx context.Context, sessionID s
 	if err := s.prepareAnnotationSession(ctx, record); err != nil {
 		return protocol.Annotation{}, err
 	}
-	anchor := input.Anchor.WorkspaceFile
-	created, err := s.annotations.Create(ctx, sessionID, record.CWD, kitannotation.WorkspaceFileAnchor{
-		WorkspaceID: anchor.WorkspaceID, Path: anchor.Path, FileRevision: anchor.FileRevision,
-		StartLine: anchor.StartLine, EndLine: anchor.EndLine,
-	}, input.Body)
+	created, err := s.annotations.Create(ctx, sessionID, record.CWD, input.Anchor, input.Body)
 	if err != nil {
 		return protocol.Annotation{}, err
 	}
@@ -490,10 +517,7 @@ func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID s
 func projectAnnotation(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.Annotation {
 	return protocol.Annotation{
 		ID: record.ID, SessionID: record.SessionID,
-		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
-			WorkspaceID: record.Anchor.WorkspaceID, Path: record.Anchor.Path, FileRevision: record.Anchor.FileRevision,
-			StartLine: record.Anchor.StartLine, EndLine: record.Anchor.EndLine,
-		}},
+		Anchor:  record.Anchor,
 		Body:    record.Body,
 		Preview: protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
 		Stale:   stale != "", StaleReason: stale,
@@ -1034,13 +1058,20 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 			Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID,
 		}
 		for _, annotation := range block.Annotations {
-			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
-				OriginalAnnotationID: annotation.ID,
-				Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorKind(annotation.Kind), WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorKind(annotation.Kind)}
+			if anchor.Kind == protocol.AnnotationAnchorWorkspaceFile {
+				anchor.WorkspaceFile = &protocol.WorkspaceFileAnnotationAnchor{
 					WorkspaceID: annotation.WorkspaceID, Path: annotation.Path, FileRevision: annotation.FileRevision,
 					StartLine: annotation.StartLine, EndLine: annotation.EndLine,
-				}},
-				Body:    annotation.Body,
+				}
+			} else if anchor.Kind == protocol.AnnotationAnchorWorkingTreeDiff {
+				anchor.WorkingTreeDiff = &protocol.WorkingTreeDiffAnnotationAnchor{
+					TargetID: annotation.TargetID, TargetRevision: annotation.TargetRevision, Path: annotation.Path,
+					FileRevision: annotation.FileRevision, Side: annotation.Side, StartLine: annotation.StartLine, EndLine: annotation.EndLine,
+				}
+			}
+			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
+				OriginalAnnotationID: annotation.ID, Anchor: anchor, Body: annotation.Body,
 				Preview: protocol.AnnotationPreview{StartLine: annotation.StartLine, EndLine: annotation.EndLine, Text: annotation.Preview, Truncated: annotation.Truncated},
 			})
 		}
@@ -2135,7 +2166,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	if errors.As(err, &evidenceErr) {
 		status := http.StatusServiceUnavailable
 		switch evidenceErr.Kind {
-		case kitannotation.EvidenceStaleWorkspace, kitannotation.EvidenceStaleFile:
+		case kitannotation.EvidenceStaleWorkspace, kitannotation.EvidenceStaleTarget, kitannotation.EvidenceStaleFile:
 			status = http.StatusConflict
 		case kitannotation.EvidencePermission:
 			status = http.StatusForbidden

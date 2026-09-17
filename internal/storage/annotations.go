@@ -9,6 +9,7 @@ import (
 	"time"
 
 	kitannotation "github.com/akonwi/kit/internal/annotation"
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 // CreateAnnotation allocates and inserts one session annotation atomically.
@@ -41,14 +42,18 @@ func (s *Store) CreateAnnotation(ctx context.Context, record kitannotation.Recor
 	if record.Preview.Truncated {
 		truncated = 1
 	}
+	kind, workspaceID, targetID, targetRevision, path, fileRevision, side, startLine, endLine, err := annotationAnchorColumns(record.Anchor)
+	if err != nil {
+		return kitannotation.Record{}, err
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO annotations(
-			session_id, annotation_id, workspace_id, path, file_revision,
+			session_id, annotation_id, anchor_kind, workspace_id, target_id, target_revision, path, file_revision, side,
 			start_line, end_line, body, preview_start_line, preview_end_line,
 			preview_text, preview_truncated, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-	`, record.SessionID, id, record.Anchor.WorkspaceID, record.Anchor.Path, record.Anchor.FileRevision,
-		record.Anchor.StartLine, record.Anchor.EndLine, record.Body, record.Preview.StartLine, record.Preview.EndLine,
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+	`, record.SessionID, id, kind, workspaceID, targetID, targetRevision, path, fileRevision, side,
+		startLine, endLine, record.Body, record.Preview.StartLine, record.Preview.EndLine,
 		record.Preview.Text, truncated, now, now)
 	if err != nil {
 		return kitannotation.Record{}, fmt.Errorf("insert annotation: %w", err)
@@ -209,7 +214,7 @@ func (s *Store) DeleteAnnotation(ctx context.Context, sessionID string, id uint6
 }
 
 const annotationSelect = `
-	SELECT session_id, annotation_id, workspace_id, path, file_revision,
+	SELECT session_id, annotation_id, anchor_kind, workspace_id, target_id, target_revision, path, file_revision, side,
 	       start_line, end_line, body, preview_start_line, preview_end_line,
 	       preview_text, preview_truncated
 	FROM annotations`
@@ -220,9 +225,13 @@ func scanAnnotation(scanner annotationScanner) (kitannotation.Record, error) {
 	var record kitannotation.Record
 	var id int64
 	var truncated int
+	var kind string
+	var workspaceID, targetID, targetRevision, side sql.NullString
+	var path, fileRevision string
+	var startLine, endLine int
 	err := scanner.Scan(
-		&record.SessionID, &id, &record.Anchor.WorkspaceID, &record.Anchor.Path, &record.Anchor.FileRevision,
-		&record.Anchor.StartLine, &record.Anchor.EndLine, &record.Body, &record.Preview.StartLine, &record.Preview.EndLine,
+		&record.SessionID, &id, &kind, &workspaceID, &targetID, &targetRevision, &path, &fileRevision, &side,
+		&startLine, &endLine, &record.Body, &record.Preview.StartLine, &record.Preview.EndLine,
 		&record.Preview.Text, &truncated,
 	)
 	if err != nil {
@@ -233,5 +242,44 @@ func scanAnnotation(scanner annotationScanner) (kitannotation.Record, error) {
 	}
 	record.ID = uint64(id)
 	record.Preview.Truncated = truncated == 1
+	switch protocol.AnnotationAnchorKind(kind) {
+	case protocol.AnnotationAnchorWorkspaceFile:
+		if !workspaceID.Valid || targetID.Valid || targetRevision.Valid || side.Valid {
+			return kitannotation.Record{}, fmt.Errorf("stored workspace annotation anchor is invalid")
+		}
+		record.Anchor = protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			WorkspaceID: workspaceID.String, Path: path, FileRevision: fileRevision, StartLine: startLine, EndLine: endLine,
+		}}
+	case protocol.AnnotationAnchorWorkingTreeDiff:
+		if workspaceID.Valid || !targetID.Valid || !targetRevision.Valid || !side.Valid {
+			return kitannotation.Record{}, fmt.Errorf("stored diff annotation anchor is invalid")
+		}
+		record.Anchor = protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &protocol.WorkingTreeDiffAnnotationAnchor{
+			TargetID: targetID.String, TargetRevision: targetRevision.String, Path: path, FileRevision: fileRevision,
+			Side: side.String, StartLine: startLine, EndLine: endLine,
+		}}
+	default:
+		return kitannotation.Record{}, fmt.Errorf("stored annotation anchor kind is invalid")
+	}
+	if record.Anchor.Validate() != nil {
+		return kitannotation.Record{}, fmt.Errorf("stored annotation anchor is invalid")
+	}
 	return record, nil
+}
+
+func annotationAnchorColumns(anchor protocol.AnnotationAnchor) (kind string, workspaceID, targetID, targetRevision any, path, fileRevision string, side any, startLine, endLine int, err error) {
+	if validationErr := anchor.Validate(); validationErr != nil {
+		err = fmt.Errorf("annotation anchor is invalid")
+		return
+	}
+	kind = string(anchor.Kind)
+	if value := anchor.WorkspaceFile; value != nil {
+		workspaceID, path, fileRevision = value.WorkspaceID, value.Path, value.FileRevision
+		startLine, endLine = value.StartLine, value.EndLine
+		return
+	}
+	value := anchor.WorkingTreeDiff
+	targetID, targetRevision, path, fileRevision, side = value.TargetID, value.TargetRevision, value.Path, value.FileRevision, value.Side
+	startLine, endLine = value.StartLine, value.EndLine
+	return
 }
