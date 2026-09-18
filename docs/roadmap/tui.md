@@ -47,7 +47,7 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   unreadable-file handling. Depends on `CORE-WORK-001`. See
   [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
   [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
-- [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
+- [x] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
   including agent edits, with changed-file and hunk navigation, semantic
   added/removed/context styling, line-number gutters, unified and split layouts
   where width permits, bounded automatic refresh while the pane is active and
