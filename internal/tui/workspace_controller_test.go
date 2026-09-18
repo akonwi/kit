@@ -75,6 +75,32 @@ func TestWorkspaceControllerPreservesAppendOrderAndSelectsExistingPane(t *testin
 	}
 }
 
+func TestWorkspaceTabRoundTripRestoresPinnedTranscriptEnd(t *testing.T) {
+	t.Parallel()
+	state := &appState{transcriptVisible: true}
+	if _, _, err := state.workspace.Open(workingTreeDiffWorkspacePane("workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")); err != nil {
+		t.Fatal(err)
+	}
+	state.syncWorkspaceSelection()
+	if state.transcriptVisible || !state.transcriptPinnedOnHide {
+		t.Fatalf("hidden transcript state = visible:%t pinned:%t", state.transcriptVisible, state.transcriptPinnedOnHide)
+	}
+	state.workspace.SelectAgent()
+	state.syncWorkspaceSelection()
+	if !state.transcriptVisible || !state.needsScroll || !state.scrollPendingLayout {
+		t.Fatalf("restored transcript state = visible:%t needsScroll:%t pendingLayout:%t", state.transcriptVisible, state.needsScroll, state.scrollPendingLayout)
+	}
+}
+
+func TestWorkspaceTabRoundTripPreservesUnpinnedTranscriptPosition(t *testing.T) {
+	t.Parallel()
+	state := &appState{transcriptVisible: false, transcriptPinnedOnHide: false}
+	state.syncTranscriptVisibility(true)
+	if state.needsScroll || state.scrollPendingLayout {
+		t.Fatalf("unpinned transcript requested end scroll: needs:%t pending:%t", state.needsScroll, state.scrollPendingLayout)
+	}
+}
+
 func TestWorkspaceSelectionGatesSubagentRefreshToVisiblePane(t *testing.T) {
 	t.Parallel()
 	state := &appState{}

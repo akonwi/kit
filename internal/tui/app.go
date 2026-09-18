@@ -370,6 +370,8 @@ type appState struct {
 	activityCursor                   activityToolKey
 	needsScroll                      bool
 	scrollPendingLayout              bool
+	transcriptVisible                bool
+	transcriptPinnedOnHide           bool
 	activeRun                        sessionclient.Run
 	activeRunID                      string
 	runPending                       bool
@@ -420,6 +422,7 @@ func (s *appState) InitState() {
 	s.available = cloneProviders(options.AvailableProviders)
 	s.terminalCWD = options.CWD
 	s.terminalStatus = options.terminalStatus
+	s.transcriptVisible = true
 	s.liveAssistant = -1
 	s.liveTools = make(map[string]int)
 	s.liveContent = make(map[int]liveContentBlock)
@@ -1096,6 +1099,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.clearSubagentActivityForConversationChange("")
 				s.workspace.SelectAgent()
+				s.syncWorkspaceSelection()
 				s.activitySelected = false
 				s.subagentPaneID = ""
 			})
@@ -4370,7 +4374,21 @@ func (s *appState) workspaceSelectedIndex() int {
 	return 0
 }
 
+func (s *appState) syncTranscriptVisibility(visible bool) {
+	if visible == s.transcriptVisible {
+		return
+	}
+	if !visible {
+		s.transcriptPinnedOnHide = scrollControllerPinnedToEnd(&s.scroll)
+	} else if s.transcriptPinnedOnHide {
+		s.requestTranscriptScroll()
+	}
+	s.transcriptVisible = visible
+}
+
 func (s *appState) syncWorkspaceSelection() {
+	_, paneSelected := s.workspace.SelectedPane()
+	s.syncTranscriptVisibility(!paneSelected)
 	if !s.workspace.StripVisible() {
 		s.workspacePickerOpen = false
 		s.workspacePickerQuery = ""
@@ -5459,6 +5477,8 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activitySourceID = ""
 	s.activityConversationID = ""
 	s.activitySelected = false
+	s.transcriptVisible = true
+	s.transcriptPinnedOnHide = false
 	s.subagentsOpen = false
 	s.subagentFilter = ""
 	s.subagentRequestGeneration++
