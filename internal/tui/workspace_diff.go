@@ -522,7 +522,14 @@ func (s *workspaceDiffPaneState) requestObservationPage(cursor string) {
 	if s.pendingTarget.Reference != "" {
 		target = s.pendingTarget
 	}
-	input := protocol.ObserveDiffInput{WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, Cursor: cursor}
+	expectedRevision := ""
+	if cursor != "" {
+		expectedRevision = s.stagedObservation.Revision
+	}
+	input := protocol.ObserveDiffInput{
+		WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference,
+		ExpectedTargetID: target.TargetID, ExpectedTargetRevision: expectedRevision, Cursor: cursor,
+	}
 	go func() {
 		page, err := w.Diff.ObserveDiff(ctx, input)
 		if ctx.Err() != nil {

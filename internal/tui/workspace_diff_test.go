@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"strings"
 	"sync"
 	"testing"
@@ -979,6 +980,9 @@ func TestWorkspaceDiffTargetSwitchPublishesFirstCoherentPage(t *testing.T) {
 		}
 		if input.Cursor == "" {
 			return first, nil
+		}
+		if input.ExpectedTargetRevision != first.Observation.Revision {
+			return protocol.DiffPage{}, fmt.Errorf("continuation revision = %q, want %q", input.ExpectedTargetRevision, first.Observation.Revision)
 		}
 		close(nextStarted)
 		<-releaseNext
