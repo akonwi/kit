@@ -25,8 +25,12 @@ struct TranscriptEvent {
     var compactionID: String?
     var contextTokens: Int?
     var contextWindow: Int?
+    var annotation: WireAnnotation?
+    var annotationId: UInt64?
+    var annotationIds: [UInt64]?
 
     init(_ event: WireSessionEvent) {
+        annotation = event.annotation; annotationId = event.annotationId; annotationIds = event.annotationIds
         kind = event.kind.rawValue; turnId = event.turnId; runId = event.runId
         messageId = event.messageId; contentIndex = event.contentIndex
         delta = event.delta; text = event.text; thinking = event.thinking

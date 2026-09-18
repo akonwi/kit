@@ -29,6 +29,7 @@ final class FilePreviewCache {
         for path in entries.keys { entries[path]?.stale = true }
         revision += 1
     }
+    func invalidate(_ path: String) { entries[path]?.stale = true; revision += 1 }
     func clear() { entries = [:]; recent = []; activity = nil; revision += 1 }
     func remove(_ path: String) { entries.removeValue(forKey: path); recent.removeAll { $0 == path } }
 

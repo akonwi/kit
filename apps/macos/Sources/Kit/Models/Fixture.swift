@@ -44,6 +44,7 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var providerRetryCount: Int? = nil
     var terminalError: String? = nil
     var configurationRevision: UInt64? = nil
+    var annotations: [FileAnnotation]? = nil
     var pendingInteractions: [WireInteractionRequest]? = nil
 }
 
@@ -53,6 +54,7 @@ struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {
     var text: String
     var tools: [ToolActivity]
     var attachments: [TranscriptAttachment]? = nil
+    var annotations: [FileAnnotation]? = nil
     var bash: BashExecution? = nil
 }
 

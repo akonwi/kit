@@ -83,6 +83,14 @@ final class SessionStore {
     }
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
+    @ObservationIgnored private var annotationStates: [String: AnnotationState] = [:]
+    var annotationState: AnnotationState {
+        if let value = annotationStates[selectedID] { return value }
+        let value = AnnotationState()
+        value.observe(selected?.annotations ?? [])
+        annotationStates[selectedID] = value
+        return value
+    }
     var catalogClient: any SessionClient { replica.client }
     func sessionDeleted(_ identity: SessionIdentity) { replica.sessionDeleted(identity) }
     private let replica: SessionReplica
@@ -273,6 +281,7 @@ final class SessionStore {
                 if self.selectedID == session.id { self.ui.workspace.filePreviews.observe(session) }
             }
             for row in session.messages { if let bash = row.bash { self?.shells[session.id]?.record(bash) } }
+            self?.annotationStates[session.id]?.observe(session.annotations ?? [])
             self?.operationsBySession[session.id]?.reconcile(session)
             self?.reconcileInteractions(session)
         }
@@ -376,16 +385,23 @@ final class SessionStore {
         let review = notes.isEmpty ? "" : "\n\nReview notes:\n" + notes.sorted(by: { $0.key < $1.key }).map { "- \($0.key): \($0.value)" }.joined(separator: "\n")
         let attachmentIDs = ComposerAttachments.uniqueIDs(ui.serverAttachmentIDs + ui.uploads.readyIDs)
         guard attachmentIDs.count <= 8 else { operations.reject("A message can contain up to eight attachments."); return }
+        let annotations = annotationState.records
+        guard !annotationState.pending, !annotationState.uncertain, annotationState.editor == nil else {
+            operations.reject("Finish the annotation change before sending."); return
+        }
+        guard annotations.count <= 64 else { operations.reject("A message can contain up to 64 annotations."); return }
+        guard !annotations.contains(where: \.stale) else { operations.reject("Source changed. Replace or delete stale annotations before sending."); return }
+        let annotationIDs = annotations.map(\.id)
         let text = ui.draft + review
-        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachmentIDs.isEmpty else { return }
+        guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !attachmentIDs.isEmpty || !annotationIDs.isEmpty else { return }
         let id = selectedID
         if let command = PromptCommand.invocation(ui.draft) {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
                 operations.reject("Unknown prompt command: /" + command.name); return
             }
             guard !running else { operations.reject("Wait for the current turn before running a prompt command."); return }
-            guard attachmentIDs.isEmpty, notes.isEmpty else {
-                operations.reject("Prompt commands do not accept attachments or review notes."); return
+            guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty else {
+                operations.reject("Prompt commands do not accept attachments or annotations."); return
             }
             guard let commandClient = catalogClient as? any PromptCommandClient else {
                 operations.reject("Prompt commands are unavailable for this connection."); return
@@ -403,7 +419,7 @@ final class SessionStore {
             return
         }
         operations.submit(client: client, session: id,
-            input: WirePromptInput(text: text, attachmentIds: attachmentIDs, annotationIds: nil),
+            input: WirePromptInput(text: text, attachmentIds: attachmentIDs, annotationIds: annotationIDs),
             draft: .init(text: ui.draft, notes: notes, attachmentIDs: attachmentIDs),
             uncertain: { [weak self] in
                 guard let self, self.selectedID == id else { return }

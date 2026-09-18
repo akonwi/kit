@@ -21,6 +21,8 @@ enum SessionProjection {
         }
         session.historyCursor = try TranscriptHistoryPage.cursor(snapshot.previousMessageCursor,
             hasMore: snapshot.hasMoreMessages, firstSequence: snapshot.messages?.first?.sequence)
+        session.annotations = try (snapshot.annotations ?? []).map(FileAnnotation.init)
+        guard session.annotations!.count <= 128, Set(session.annotations!.map(\.id)).count == session.annotations!.count else { throw ClientError.invalidPayload }
         session.usage = SessionUsage(snapshot.usage)
         session.promptCommands = try PromptCommand.project(snapshot.promptCommands ?? [])
         session.contextTokens = snapshot.contextTokens
@@ -84,19 +86,20 @@ enum SessionProjection {
                 var visible: [WireTranscriptContent] = []
                 var segment = 0
                 var thinking = ""
-                func flushText() {
+                func flushText() throws {
                     let text = visibleText(visible)
                     let media = attachments(visible)
+                    let annotations = try visible.flatMap { $0.annotations ?? [] }.map(FileAnnotation.init)
                     visible.removeAll()
-                    guard !text.isEmpty || !media.isEmpty else { return }
+                    guard !text.isEmpty || !media.isEmpty || !annotations.isEmpty else { return }
                     flush()
                     messages.append(TranscriptMessage(id: segment == 0 ? message.id : "\(message.id)-text-\(segment)",
-                        role: message.role, text: text, tools: [], attachments: media))
+                        role: message.role, text: text, tools: [], attachments: media, annotations: annotations))
                     segment += 1
                 }
                 for block in message.content ?? [] {
                     if block.kind.rawValue == "toolCall", let id = block.toolCallId, let name = block.toolName {
-                        flushText()
+                        try flushText()
                         let result = results[id]
                         pending.append(ToolActivity(id: id, name: name, summary: name,
                             output: visibleText(result?.content ?? []), arguments: block.arguments, failed: result?.isError ?? false,
@@ -108,7 +111,7 @@ enum SessionProjection {
                         visible.append(block)
                     }
                 }
-                flushText()
+                try flushText()
             }
         }
         flush()

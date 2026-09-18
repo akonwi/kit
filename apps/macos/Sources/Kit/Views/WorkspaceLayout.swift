@@ -46,7 +46,7 @@ struct WorkspaceLayout: View {
     @ViewBuilder private func paneBody(_ pane: WorkspacePane) -> some View {
         switch pane {
         case .conversation: SessionView(state: state)
-        case .review: ReviewPane(workspace: state.ui.workspace)
+        case .review: ReviewPane(state: state)
         case .scratchpad: ScratchpadPane(workspace: state.ui.workspace)
         case .agent(let name): AgentPane(state: state, name: name)
         case .file(let path): FilePane(state: state, path: path)
@@ -61,25 +61,14 @@ private struct WorkspaceTabStrip: View {
     let runningAgents: Set<String>
     var body: some View {
         if workspace.panes.count > 1, workspace.groups.indices.contains(group) {
-            HStack(spacing: 0) {
-                ScrollView(.horizontal) {
-                    HStack(spacing: 0) {
-                        ForEach(workspace.groups[group]) { pane in
-                            WorkspaceTab(workspace: workspace, pane: pane, group: group,
-                                running: { if case .agent(let name) = pane { return runningAgents.contains(name) }; return false }())
-                        }
-                    }
-                }.scrollIndicators(.hidden)
-                Menu {
+            ScrollView(.horizontal) {
+                HStack(spacing: 0) {
                     ForEach(workspace.groups[group]) { pane in
-                        Button(pane.title) { workspace.select(pane) }
+                        WorkspaceTab(workspace: workspace, pane: pane, group: group,
+                            running: { if case .agent(let name) = pane { return runningAgents.contains(name) }; return false }())
                     }
-                    Divider()
-                    WorkspaceTabActions(workspace: workspace, pane: workspace.selections[group])
-                } label: { Image(systemName: "ellipsis").frame(width: 30, height: 38) }
-                    .menuStyle(.borderlessButton).menuIndicator(.hidden).fixedSize()
-                    .accessibilityLabel("Workspace tab actions")
-            }
+                }
+            }.scrollIndicators(.hidden)
             .frame(height: 39)
             .background(theme.surface)
             .overlay(alignment: .bottom) { Rule() }
@@ -203,12 +192,29 @@ struct FilePane: View {
         state.serverID + "|" + state.selectedID + "|" + (state.selected?.cwd ?? "") + "|" + String(active) + "|" + String(revision) + "|" + String(workspace.filePreviews.revision)
     }
 
+    private var selectedLines: ClosedRange<Int>? {
+        guard let preview, let ranges = position.cursorPositions, ranges.count == 1 else { return nil }
+        return AnnotationSelection.lines(in: preview.content, selection: ranges[0].range)
+    }
+    private func beginAnnotation() {
+        guard let preview, let lines = selectedLines else { return }
+        state.annotationState.begin(anchor: .init(kind: .value0, workspaceFile: .init(
+            workspaceId: preview.workspace.workspaceId, path: preview.path, fileRevision: preview.revision,
+            startLine: lines.lowerBound, endLine: lines.upperBound), workingTreeDiff: nil))
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: 0) {
             HStack {
                 Text(path).font(.kit(size: 11, design: .monospaced)).foregroundStyle(theme.muted).lineLimit(1).truncationMode(.middle)
                 Spacer()
                 if loading { KitSpinner() }
+                if state.catalogClient is any AnnotationClient {
+                    Button(state.annotationState.replacement == nil && state.annotationState.selectionDraft == nil ? "Annotate selection" : "Use selected range") { beginAnnotation() }
+                        .font(.kit(size: 11)).buttonStyle(.plain)
+                        .help("Annotate up to 200 selected lines")
+                        .disabled(selectedLines == nil || state.annotationState.pending || state.annotationState.editor != nil)
+                }
                 Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
             }.padding(.horizontal, 20).padding(.vertical, 10)
@@ -218,8 +224,42 @@ struct FilePane: View {
                     .font(.kit(size: 12)).foregroundStyle(theme.muted).padding(12)
                 Rule()
             }
+            ForEach(state.annotationState.records.filter { $0.path == path && $0.stale && !$0.isDiff }) { note in
+                Button {
+                    state.annotationState.inspected = note
+                } label: {
+                    HStack {
+                        Label("File changed", systemImage: "exclamationmark.triangle")
+                        Text(note.body).lineLimit(1)
+                        Spacer()
+                        Text("View captured source")
+                    }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
+                }.buttonStyle(.plain)
+            }
+            if let anchor = state.annotationState.editor?.anchor.workspaceFile,
+               anchor.path == path, let preview, anchor.fileRevision != preview.revision {
+                HStack {
+                    Text("File changed. Your unsaved comment is preserved.")
+                    Spacer()
+                    Button("Select new range") { state.annotationState.reselectEditor() }
+                    Button("Cancel") { state.annotationState.cancelEditor() }
+                }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
+            }
+            if state.annotationState.replacement?.path == path || state.annotationState.selectionDraft?.path == path {
+                HStack {
+                    Text("Select a new source range for your comment.")
+                    Spacer()
+                    Button("Cancel") { state.annotationState.cancelEditor() }
+                }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
+            }
             if let preview {
-                ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                if let client = state.catalogClient as? any AnnotationClient {
+                    AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
+                        client: client, session: state.selectedID)
+                        .id(preview.workspace.workspaceId + preview.revision).clipped()
+                } else {
+                    ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
+                }
             } else if let file = workspace.fixture.files.first(where: { $0.path == path }) {
                 ReadOnlyFileEditor(path: path, source: file.content)
             } else {
@@ -234,6 +274,13 @@ struct FilePane: View {
             do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
             await workspace.filePreviews.load(path, session: state.selectedID, cwd: cwd,
                 client: client, force: revision > 0)
+            if let annotationClient = state.catalogClient as? any AnnotationClient {
+                let annotations = state.annotationState
+                try? await annotations.refresh(client: annotationClient, session: state.selectedID)
+                if let id = annotations.revealed, let stale = annotations.records.first(where: { $0.id == id && $0.stale }) {
+                    annotations.inspected = stale; annotations.revealed = nil
+                }
+            }
         }
     }
 }

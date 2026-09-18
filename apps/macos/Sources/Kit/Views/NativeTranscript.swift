@@ -503,6 +503,7 @@ private struct NativeMessageRow: View {
                                             .font(.kit(size: 12, weight: .semibold))
                                     }
                                     if !message.text.isEmpty { MarkdownView(source: message.text) }
+                                    TranscriptAnnotations(annotations: message.annotations ?? [])
                                     TranscriptAttachments(attachments: message.attachments ?? [])
                                 }
                                 .padding(.horizontal, message.role == "user" ? 20 : 0)

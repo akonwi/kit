@@ -9,7 +9,7 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
-final class HTTPClient: WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -183,6 +183,122 @@ final class HTTPClient: WorkspaceFileClient, SubagentDismissalClient, SubagentMe
             }
             return try JSONDecoder().decode(Output.self, from: data)
         } onCancel: { bytes.task.cancel() }
+    }
+
+    private func diffRequest<Input: Encodable, Output: Decodable>(_ id: String, suffix: String, input: Input) async throws -> Output {
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) else { throw ClientError.invalidPayload }
+        var request = try request("v1/sessions/" + id + "/diff/" + suffix)
+        request.httpMethod = "POST"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(input)
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        return try await withTaskCancellationHandler {
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 512 * 1024 else { throw ClientError.oversized }
+                data.append(byte)
+            }
+            guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+            guard response.statusCode == 200 else {
+                if let value = try? JSONDecoder().decode(DiffErrorEnvelope.self, from: data) {
+                    throw DiffReadError(code: value.error.code.rawValue)
+                }
+                throw ClientError.http(response.statusCode)
+            }
+            return try JSONDecoder().decode(Output.self, from: data)
+        } onCancel: { bytes.task.cancel() }
+    }
+
+    func diffTargets(_ id: String) async throws -> WireDiffTargetCatalog {
+        let workspace: WireWorkspaceRef = try await get("v1/sessions/" + id + "/workspace")
+        guard workspace.sessionId == id, workspace.state.rawValue == "ready" else { throw WorkspaceFileError.unavailable }
+        let result: WireDiffTargetCatalog = try await diffRequest(id, suffix: "targets",
+            input: WireListDiffTargetsInput(workspaceId: workspace.workspaceId))
+        guard result.sessionId == id, result.workspaceId == workspace.workspaceId,
+              let targets = result.targets, targets.count <= 42,
+              Set(targets.map(\.targetId)).count == targets.count,
+              targets.allSatisfy({ $0.targetId.hasPrefix("difftarget_") && $0.reference.hasPrefix("difftargetref_") && $0.reference.utf8.count <= 2048 && ["working_tree", "branch", "commit"].contains($0.kind) }) else { throw ClientError.invalidPayload }
+        return result
+    }
+
+    func observeDiff(_ id: String, input: WireObserveDiffInput) async throws -> WireWorkingTreePage {
+        let page: WireWorkingTreePage = try await diffRequest(id, suffix: "observations", input: input)
+        try DiffValidation.observation(page.observation, session: id, target: input.expectedTargetId, revision: input.expectedTargetRevision)
+        guard page.observation.target.workspaceId == input.workspaceId, let files = page.files, files.count <= 200,
+              Set(files.map(\.path)).count == files.count else { throw ClientError.invalidPayload }
+        try files.forEach(DiffValidation.file)
+        try DiffValidation.cursor(page.nextCursor)
+        return page
+    }
+
+    func readDiff(_ id: String, input: WireReadFileDiffInput) async throws -> WireFileDiffPage {
+        let page: WireFileDiffPage = try await diffRequest(id, suffix: "files/read", input: input)
+        try DiffValidation.observation(page.observation, session: id, target: input.targetId, revision: input.targetRevision)
+        guard page.file.path == input.path, input.expectedFileRevision == nil || page.file.fileRevision == input.expectedFileRevision else { throw ClientError.invalidPayload }
+        try DiffValidation.file(page.file)
+        try DiffValidation.hunks(page)
+        try DiffValidation.cursor(page.nextCursor)
+        return page
+    }
+
+    private func annotationPath(_ id: String) throws -> String {
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
+            throw MutationNotSent(reason: "The session identity is invalid.")
+        }
+        return "v1/sessions/" + id + "/annotations"
+    }
+
+    func annotations(_ id: String) async throws -> [FileAnnotation] {
+        let path = try annotationPath(id)
+        var result: [FileAnnotation] = []
+        var cursor: String?
+        var seen = Set<String>()
+        repeat {
+            var query = [URLQueryItem(name: "pageSize", value: "100")]
+            if let cursor { query.append(.init(name: "cursor", value: cursor)) }
+            let page: WireAnnotationPage = try await get(path, query: query)
+            guard page.sessionId == id, let entries = page.entries, entries.count <= 100 else { throw ClientError.invalidPayload }
+            for entry in entries {
+                let value = try FileAnnotation(entry, session: id)
+                guard value.id > (result.last?.id ?? 0), result.count < 128 else { throw ClientError.invalidPayload }
+                result.append(value)
+            }
+            cursor = page.nextCursor.flatMap { $0.isEmpty ? nil : $0 }
+            if let cursor {
+                guard !entries.isEmpty, cursor.utf8.count <= 256, seen.insert(cursor).inserted, seen.count <= 2 else { throw ClientError.invalidPayload }
+            }
+        } while cursor != nil
+        return result
+    }
+
+    func createAnnotation(_ id: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation {
+        guard FileAnnotation.validBody(input.body) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
+        let record: WireAnnotation = try await post(annotationPath(id), input: input, status: [201])
+        return try FileAnnotation(record, session: id)
+    }
+
+    func updateAnnotation(_ id: String, input: WireUpdateAnnotationInput) async throws -> FileAnnotation {
+        guard input.annotationId > 0, FileAnnotation.validBody(input.body) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
+        var request = try request(annotationPath(id))
+        request.httpMethod = "PATCH"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(input)
+        let record: WireAnnotation = try await send(request, status: [200])
+        guard record.id == input.annotationId else { throw ClientError.invalidPayload }
+        return try FileAnnotation(record, session: id)
+    }
+
+    func deleteAnnotation(_ id: String, id annotationID: UInt64) async throws {
+        guard annotationID > 0 else { throw ClientError.invalidPayload }
+        var request = try request(annotationPath(id))
+        request.httpMethod = "DELETE"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(WireDeleteAnnotationInput(annotationId: annotationID))
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+        guard response.statusCode == 204 else { throw ClientError.http(response.statusCode) }
     }
 
     func deleteSession(_ id: String) async throws {
@@ -583,7 +699,7 @@ final class HTTPClient: WorkspaceFileClient, SubagentDismissalClient, SubagentMe
                     try projection.apply(event)
                     cursor = event.sequence
                     refresh = refresh || (event.sequence > (snapshot.eventCursor ?? 0)
-                        && ["run.finished", "compaction.completed"].contains(event.kind.rawValue))
+                        && ["run.finished", "compaction.completed", "annotation.submitted"].contains(event.kind.rawValue))
                 }
                 cursor = updated
                 await receive(projection.session)

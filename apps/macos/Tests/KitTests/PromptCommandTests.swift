@@ -45,7 +45,7 @@ private actor CommandClient: PromptCommandClient {
     }
 
     @Test func discoveryRejectsAmbiguousNamesAndCompletionRespectsCaretAndPaste() throws {
-        let wire = WirePromptCommand(name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")
+        let wire = WirePromptCommand(argumentHint: nil, name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")
         #expect(try PromptCommand.project([wire]).map(\.name) == ["review"])
         #expect(throws: ClientError.self) { try PromptCommand.project([wire, wire]) }
         let state = ComposerCommandState()

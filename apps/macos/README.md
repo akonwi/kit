@@ -29,12 +29,15 @@ arrow keys navigate and Return opens. New session accepts a working directory,
 optional name, model, and thinking level.
 
 Within a session, Agent, files, and subagents occupy retained workspace tabs.
-Use a tab's context menu or the group menu to split, move, join, or close panes.
+Use a tab's context menu to split, move, join, or close panes.
 The shared composer always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+K opens commands; Cmd+, opens settings.
 
 File views read from the session server and support highlighted, selectable
-content. Review and scratchpad server integration remain backlog work. Subagent
+content. The Diff toolbar opens working-tree, branch, and commit comparisons with
+old/new line numbers and inline comments. Use Unified/Split and Wrap in the header
+to adjust the presentation. Drag a gutter range to annotate it.
+Scratchpad server integration remains backlog work. Subagent
 conversations are read-only by product decision.
 
 ## Development and validation

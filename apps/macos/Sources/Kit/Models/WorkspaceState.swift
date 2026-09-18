@@ -28,7 +28,7 @@ enum WorkspacePane: Hashable, Identifiable {
     var title: String {
         switch self {
         case .conversation: "Agent"
-        case .review: "Code Review"
+        case .review: "Diff"
         case .scratchpad: "Scratchpad"
         case .agent(let name): name
         case .file(let path): URL(fileURLWithPath: path).lastPathComponent
@@ -42,6 +42,7 @@ final class WorkspaceState {
     let fixture: WorkspaceFixture
     var fileIndex = FileIndexCache()
     let filePreviews = FilePreviewCache()
+    let diff = DiffState()
     var panes: [WorkspacePane] = [.conversation]
     var groups: [[WorkspacePane]] = [[.conversation]]
     var selections: [WorkspacePane] = [.conversation]
@@ -71,6 +72,7 @@ final class WorkspaceState {
     func invalidateDirectory() {
         fileIndex = FileIndexCache()
         filePreviews.clear()
+        diff.invalidate()
         for pane in panes { if case .file = pane { close(pane) } }
         selectedFile = ""
         editingLine = nil

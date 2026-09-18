@@ -141,3 +141,28 @@ Apply the active appearance to native window chrome as well as content. Toolbar
 backgrounds use the theme's surface color; native controls retain system drawing
 and appropriate light/dark contrast. Themes must not leave dark content beneath
 light controls with unreadable icons.
+
+## File annotations
+
+Hover a source line to reveal a gutter + control. Click it to annotate that line,
+or drag up or down across the gutter to select up to 200 lines, with a live range
+highlight; releasing opens the input. Source-text selection and Annotate selection
+remain available as a keyboard-accessible alternative.
+The focused input belongs beneath the selected range with composer styling.
+Highlight the anchored source range in the gutter; omit line labels inside the
+comment itself. Enter saves, Cmd+Enter inserts a newline, and Escape
+cancels. Saved comments use proportional text with Edit/Delete on hover; source
+and its unchanged line numbers remain monospace. Do not repeat filenames inline.
+
+A shared strip above the parent-session composer shows filename:range and a short
+comment preview on every workspace tab. Activating a chip reveals the anchored
+note in its retained file tab and briefly highlights it. Closing a tab leaves
+its server-owned notes intact. A bounded overflow list handles many notes.
+Annotations are composition inputs, including when the text draft is empty.
+Accepted messages show expandable immutable annotation groups containing the
+filename/range, comment, and captured source.
+
+Stale notes remain visible with File changed and cannot be sent. Activation shows
+the frozen evidence and Select new range/Delete actions. Replacing an anchor
+preserves the comment and creates a new server ID before deleting the old note.
+Never silently relocate a note to newer code or add a permanent annotation pane.

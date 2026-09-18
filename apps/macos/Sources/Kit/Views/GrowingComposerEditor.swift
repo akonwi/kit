@@ -17,6 +17,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var focusEnabled = true
     var accessibilityLabel = "Message composer"
     var exitShell: (() -> Void)? = nil
+    var cancel: (() -> Void)? = nil
+    var isolatedUndo = false
     var commands: ComposerCommandState? = nil
     var promptCommands: [PromptCommand] = []
     var mentions: ComposerMentionState? = nil
@@ -32,6 +34,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         view.registerForDraggedTypes([.fileURL, .png, .tiff])
         view.isRichText = false
         view.allowsUndo = true
+        if isolatedUndo { view.localUndoManager = UndoManager() }
         view.isAutomaticQuoteSubstitutionEnabled = false
         view.isAutomaticDashSubstitutionEnabled = false
         view.drawsBackground = false
@@ -54,6 +57,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         }
         view.submit = submit
         view.exitShell = exitShell
+        view.cancel = cancel
         view.shellEnabled = shellEnabled
         view.commands = commands
         if commands?.catalog != promptCommands {
@@ -90,10 +94,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         context.coordinator.renderMentions(view)
         if focusEnabled && context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
-            DispatchQueue.main.async { [weak view] in
-                guard let view else { return }
-                view.window?.makeFirstResponder(view)
-            }
+            view.requestFocusWhenAttached()
         }
     }
 
@@ -204,6 +205,25 @@ struct GrowingComposerEditor: NSViewRepresentable {
 }
 
 final class ComposerTextView: NSTextView {
+    // Embedded annotation inputs must not inherit CodeEdit's source undo manager.
+    var localUndoManager: UndoManager?
+    override var undoManager: UndoManager? { localUndoManager ?? super.undoManager }
+    private var pendingFocus = false
+    func requestFocusWhenAttached() {
+        pendingFocus = true
+        DispatchQueue.main.async { [weak self] in self?.applyPendingFocus() }
+    }
+    override func viewDidMoveToWindow() {
+        super.viewDidMoveToWindow()
+        if window != nil, pendingFocus {
+            DispatchQueue.main.async { [weak self] in self?.applyPendingFocus() }
+        }
+    }
+    private func applyPendingFocus() {
+        guard pendingFocus, let window else { return }
+        if window.makeFirstResponder(self) { pendingFocus = false }
+    }
+
     weak var pickerAnchor: ComposerPickerAnchor?
     var placeholderColor = NSColor.placeholderTextColor
     var placeholder = "Ask Kit..."
@@ -303,7 +323,10 @@ final class ComposerTextView: NSTextView {
         return super.performKeyEquivalent(with: event)
     }
 
+    var cancel: (() -> Void)?
+
     override func keyDown(with event: NSEvent) {
+        if !hasMarkedText(), event.keyCode == 53, let cancel { cancel(); return }
         if isEditable, !hasMarkedText(), !shellPrefix.isEmpty, event.keyCode == 53,
            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {
             exitShell?(); return

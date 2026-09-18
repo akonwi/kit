@@ -59,13 +59,21 @@ in this branch. Items marked **Server-ready** do not require new server function
 
 ## File, review, and scratchpad workspace
 
-- [ ] MAC-DIFF-001 — Populate the review pane with server-backed changed files
-  and revision-aware diffs while preserving highlighting, line numbers, and
-  navigation. Expose loading, empty, stale, and failure states. Depends on
-  `CORE-DIFF-001` and `CORE-REVIEW-001`.
-- [ ] MAC-REVIEW-001 — Keep review notes pinned to file revisions and submit
-  them as structured attachments; preserve local edits across refresh and
-  failed submission. Depends on `MAC-DIFF-001` and `CORE-REVIEW-002`.
+- [x] MAC-ANNOTATION-001 — Native workspace-file annotations under ADR 0022:
+  inline inputs/notes, gutter range highlighting, shared composer chips with
+  overflow, retained-tab reveal, frozen transcript groups, and stale replacement.
+  The maintained CodeEdit layout adaptation preserves source text and line numbers.
+  Synthetic editor/transport checks and temporary-session CRUD/SSE validation cover
+  this flow. The user manually verified annotation-only prompt acceptance on September 18,
+  2026; the automated equivalent remains opt-in (`KIT_ANNOTATION_SEND_LIVE_TEST`).
+- [x] MAC-DIFF-001 — Native Diff pane with server-issued working-tree, branch,
+  and commit targets; paged changed files and semantic hunks; old/new gutters,
+  retained source selection/highlighting, and loading/empty/partial/nontext/stale
+  failure states. Continuations pin target and file revisions.
+- [x] MAC-REVIEW-001 — Diff gutter ranges create side- and revision-pinned
+  annotations through the shared input/chip/submission flow. Chip reveal uses
+  annotation-authorized reconstruction; refresh and failed writes preserve drafts
+  and require explicit reselection before replacing stale evidence.
 - [ ] MAC-SCRATCH-001 — Load scratchpad content from the session's server and
   persist guarded edits with autosave, conflict, and retry feedback. Depends on
   `CORE-SCRATCH-001`.

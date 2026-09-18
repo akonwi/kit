@@ -27,7 +27,7 @@ struct PaletteCommand: Identifiable {
             .init(id: "Fork session", name: "fork", description: "Fork the current session into a linked child session", icon: "arrow.triangle.branch", aliases: ["branch"]),
             .init(id: "Switch session", name: "sessions", description: "Browse sessions", icon: "rectangle.stack", aliases: ["list", "resume", "switch", "threads"]),
             .init(id: "Dispose temporary session", name: "dispose", description: "Dispose temporary session", icon: "trash", aliases: ["delete", "remove"]),
-            .init(id: "Open Code Review", name: "review", description: "Open code review", icon: "chevron.left.forwardslash.chevron.right", demoOnly: true),
+            .init(id: "Open Code Review", name: "diffs", description: "Browse diffs", icon: "chevron.left.forwardslash.chevron.right", demoOnly: false),
             .init(id: "Open Scratchpad", name: "scratchpad", description: "Open scratchpad", icon: "note.text", demoOnly: true),
             .init(id: "Find workspace file", name: "files", description: "Find workspace file", icon: "doc.text.magnifyingglass"),
             .init(id: "Switch appearance", name: "appearance", description: "Switch to \(dark ? "light" : "dark") appearance", icon: "circle.lefthalf.filled", aliases: ["theme", "colors"])

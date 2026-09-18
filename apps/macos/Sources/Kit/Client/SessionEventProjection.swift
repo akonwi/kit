@@ -66,6 +66,20 @@ struct SessionEventProjection {
             + (event.content ?? []).reduce(0) { $0 + ($1.text?.utf8.count ?? 0) }
         guard liveBytes <= 32 * 1024 * 1024 else { throw ClientError.oversized }
         switch event.kind {
+        case "annotation.created", "annotation.updated":
+            guard let value = event.annotation else { throw ClientError.invalidPayload }
+            let annotation = try FileAnnotation(value, session: session.id)
+            var records = session.annotations ?? []
+            records.removeAll { $0.id == annotation.id }
+            records.append(annotation)
+            guard records.count <= 128 else { throw ClientError.invalidPayload }
+            session.annotations = records.sorted { $0.id < $1.id }
+        case "annotation.deleted":
+            guard let id = event.annotationId, id > 0 else { throw ClientError.invalidPayload }
+            session.annotations?.removeAll { $0.id == id }
+        case "annotation.submitted":
+            guard let ids = event.annotationIds, ids.count <= 64, Set(ids).count == ids.count else { throw ClientError.invalidPayload }
+            session.annotations?.removeAll { ids.contains($0.id) }
         case "run.started":
             session.activeCompactionID = nil
             if activeRunID != event.runId { pendingInteractions.removeAll(); session.pendingInteractions = [] }
@@ -86,9 +100,10 @@ struct SessionEventProjection {
             pendingInteractions.remove(id)
             session.pendingInteractions?.removeAll { $0.id == id }
         case "message.user":
-            guard let value = event.text else { throw ClientError.invalidPayload }
+            let annotations = try (event.content ?? []).flatMap { $0.annotations ?? [] }.map(FileAnnotation.init)
+            let value = event.text ?? SessionProjection.visibleText(event.content ?? [])
             if userTurns.insert(event.turnId).inserted {
-                session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: []))
+                session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: [], attachments: SessionProjection.attachments(event.content ?? []), annotations: annotations))
             }
             session.observedTurns = Array(Set((session.observedTurns ?? []) + [event.turnId]))
             lastTurn = event.turnId

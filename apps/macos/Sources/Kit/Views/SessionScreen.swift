@@ -80,7 +80,7 @@ struct SessionScreen: View {
                 } label: { Image(systemName: "plus") }
                 .help("New tab").accessibilityLabel("New tab")
                 Button { state.ui.workspace.open(.review) } label: { Image(systemName: "chevron.left.forwardslash.chevron.right") }
-                    .help("Code Review").accessibilityLabel("Code Review").disabled(!state.isDemo)
+                    .help("Diff").accessibilityLabel("Diff").disabled(!(state.catalogClient is any DiffClient))
                 Button { state.ui.workspace.open(.scratchpad) } label: { Image(systemName: "note.text") }
                     .help("Scratchpad").accessibilityLabel("Scratchpad").disabled(!state.isDemo)
                 Button { state.ui.subagentsPresented.toggle() } label: { Image(systemName: "person.2") }

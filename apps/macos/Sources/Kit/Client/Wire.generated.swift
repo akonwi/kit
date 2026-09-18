@@ -52,6 +52,7 @@ enum WireTranscriptContentKind: String, Codable, Sendable {
 
 enum WireAnnotationAnchorKind: String, Codable, Sendable {
     case value0 = "workspace_file"
+    case value1 = "working_tree_diff"
 }
 
 struct WireWorkspaceFileAnnotationAnchor: Codable, Sendable {
@@ -62,9 +63,32 @@ struct WireWorkspaceFileAnnotationAnchor: Codable, Sendable {
     let `endLine`: Int
 }
 
+struct WireWorkingTreeDiffAnnotationAnchor: Codable, Sendable, Equatable {
+    let `targetId`: String
+    let `targetRevision`: String
+    let `path`: String
+    let `fileRevision`: String
+    let `side`: String
+    let `startLine`: Int
+    let `endLine`: Int
+}
+
 struct WireAnnotationAnchor: Codable, Sendable {
     let `kind`: WireAnnotationAnchorKind
     let `workspaceFile`: WireWorkspaceFileAnnotationAnchor?
+    let `workingTreeDiff`: WireWorkingTreeDiffAnnotationAnchor?
+}
+
+struct WireDiffEndpoint: Codable, Sendable, Equatable {
+    let `kind`: String
+    let `oid`: String?
+}
+
+struct WirePinnedDiffTarget: Codable, Sendable, Equatable {
+    let `workspaceId`: String
+    let `kind`: String
+    let `base`: WireDiffEndpoint
+    let `head`: WireDiffEndpoint
 }
 
 struct WireAnnotationPreview: Codable, Sendable {
@@ -77,6 +101,7 @@ struct WireAnnotationPreview: Codable, Sendable {
 struct WireSubmittedAnnotation: Codable, Sendable {
     let `originalAnnotationId`: UInt64
     let `anchor`: WireAnnotationAnchor
+    let `diffTarget`: WirePinnedDiffTarget?
     let `body`: String
     let `preview`: WireAnnotationPreview
 }
@@ -175,6 +200,7 @@ struct WireSessionUsage: Codable, Sendable {
 }
 
 struct WirePromptCommand: Codable, Sendable {
+    let `argumentHint`: String?
     let `name`: String
     let `description`: String
     let `source`: String
@@ -288,17 +314,21 @@ struct WireInteractionRequest: Codable, Sendable {
 
 enum WireAnnotationStaleReason: String, Codable, Sendable {
     case value0 = "workspace_changed"
-    case value1 = "file_changed"
-    case value2 = "resource_unavailable"
+    case value1 = "target_changed"
+    case value2 = "file_changed"
+    case value3 = "resource_unavailable"
+    case value4 = "validation_deferred"
 }
 
 struct WireAnnotationSummary: Codable, Sendable {
     let `id`: UInt64
     let `anchor`: WireAnnotationAnchor
+    let `diffTarget`: WirePinnedDiffTarget?
     let `bodyPreview`: String
     let `preview`: String
     let `stale`: Bool?
     let `staleReason`: WireAnnotationStaleReason?
+    let `validationDeferred`: Bool?
 }
 
 struct WireSessionSnapshot: Codable, Sendable {
@@ -383,10 +413,12 @@ struct WireAnnotation: Codable, Sendable {
     let `id`: UInt64
     let `sessionId`: String
     let `anchor`: WireAnnotationAnchor
+    let `diffTarget`: WirePinnedDiffTarget?
     let `body`: String
     let `preview`: WireAnnotationPreview
     let `stale`: Bool?
     let `staleReason`: WireAnnotationStaleReason?
+    let `validationDeferred`: Bool?
 }
 
 struct WireSessionEvent: Codable, Sendable {
@@ -754,4 +786,190 @@ struct WireInteractionResponse: Codable, Sendable {
     let `answers`: [String: WireInteractionAnswer]?
 }
 
-let kitWireVersion = 32
+struct WireCreateAnnotationInput: Codable, Sendable {
+    let `anchor`: WireAnnotationAnchor
+    let `body`: String
+}
+
+struct WireUpdateAnnotationInput: Codable, Sendable {
+    let `annotationId`: UInt64
+    let `body`: String
+}
+
+struct WireDeleteAnnotationInput: Codable, Sendable {
+    let `annotationId`: UInt64
+}
+
+struct WireAnnotationPage: Codable, Sendable {
+    let `sessionId`: String
+    let `entries`: [WireAnnotation]?
+    let `nextCursor`: String?
+}
+
+struct WireListDiffTargetsInput: Codable, Sendable {
+    let `workspaceId`: String
+}
+
+struct WireDiffTargetMetadata: Codable, Sendable {
+    let `label`: String
+    let `refName`: String?
+    let `baseRefName`: String?
+    let `subject`: String?
+    let `abbreviatedOid`: String?
+    let `committedAt`: Int64?
+}
+
+struct WireDiffTargetEntry: Codable, Sendable {
+    let `reference`: String
+    let `targetId`: String
+    let `kind`: String
+    let `base`: WireDiffEndpoint
+    let `head`: WireDiffEndpoint
+    let `metadata`: WireDiffTargetMetadata
+    let `annotationCount`: Int?
+}
+
+struct WireDiffTargetDiagnostic: Codable, Sendable {
+    let `reason`: String
+    let `count`: Int
+}
+
+struct WireDiffTargetCatalog: Codable, Sendable {
+    let `sessionId`: String
+    let `workspaceId`: String
+    let `targets`: [WireDiffTargetEntry]?
+    let `diagnostics`: [WireDiffTargetDiagnostic]?
+}
+
+struct WireObserveDiffInput: Codable, Sendable {
+    let `workspaceId`: String
+    let `targetReference`: String
+    let `expectedTargetId`: String
+    let `expectedTargetRevision`: String?
+    let `pageSize`: Int?
+    let `cursor`: String?
+}
+
+struct WireDiffTarget: Codable, Sendable {
+    let `id`: String
+    let `workspaceId`: String
+    let `kind`: String
+    let `repositoryPath`: String
+    let `base`: WireDiffEndpoint?
+    let `head`: WireDiffEndpoint?
+}
+
+struct WireDiffHead: Codable, Sendable {
+    let `state`: String
+    let `oid`: String?
+}
+
+struct WireDiffTruncation: Codable, Sendable {
+    let `reason`: String
+    let `count`: Int
+}
+
+struct WireDiffOmission: Codable, Sendable {
+    let `reason`: String
+    let `count`: Int
+}
+
+struct WireDiffObservation: Codable, Sendable {
+    let `sessionId`: String
+    let `target`: WireDiffTarget
+    let `revision`: String
+    let `head`: WireDiffHead
+    let `indexSummary`: String
+    let `complete`: Bool
+    let `truncation`: WireDiffTruncation?
+    let `omissions`: [WireDiffOmission]?
+}
+
+struct WireDiffSide: Codable, Sendable {
+    let `kind`: String
+    let `mode`: UInt32
+}
+
+struct WireDiffFileSummary: Codable, Sendable {
+    let `path`: String
+    let `fileRevision`: String?
+    let `change`: String
+    let `old`: WireDiffSide
+    let `new`: WireDiffSide
+    let `contentState`: String
+    let `reason`: String?
+    let `additions`: Int?
+    let `deletions`: Int?
+}
+
+struct WireWorkingTreePage: Codable, Sendable {
+    let `observation`: WireDiffObservation
+    let `files`: [WireDiffFileSummary]?
+    let `nextCursor`: String?
+}
+
+struct WireReadFileDiffInput: Codable, Sendable {
+    let `targetId`: String
+    let `targetRevision`: String
+    let `path`: String
+    let `expectedFileRevision`: String?
+    let `annotationId`: UInt64?
+    let `pageSize`: Int?
+    let `maxHunks`: Int?
+    let `cursor`: String?
+}
+
+struct WireDiffComputation: Codable, Sendable {
+    let `state`: String
+    let `reason`: String?
+}
+
+struct WireDiffLine: Codable, Sendable {
+    let `kind`: String
+    let `oldLine`: Int?
+    let `newLine`: Int?
+    let `content`: String
+    let `hasTerminatingLF`: Bool
+}
+
+struct WireDiffHunk: Codable, Sendable {
+    let `oldStart`: Int
+    let `oldCount`: Int
+    let `newStart`: Int
+    let `newCount`: Int
+    let `continuedBefore`: Bool
+    let `continuedAfter`: Bool
+    let `lines`: [WireDiffLine]?
+}
+
+struct WireFileDiffPage: Codable, Sendable {
+    let `observation`: WireDiffObservation
+    let `file`: WireDiffFileSummary
+    let `computation`: WireDiffComputation
+    let `hunks`: [WireDiffHunk]?
+    let `nextCursor`: String?
+}
+
+enum WireDiffErrorCode: String, Codable, Sendable {
+    case value0 = "invalid_path"
+    case value1 = "not_repository"
+    case value2 = "unsupported_repository"
+    case value3 = "stale_workspace"
+    case value4 = "stale_target"
+    case value5 = "stale_file"
+    case value6 = "stale_cursor"
+    case value7 = "not_found"
+    case value8 = "permission_denied"
+    case value9 = "limit_exceeded"
+    case value10 = "capacity_exceeded"
+    case value11 = "repository_unavailable"
+    case value12 = "unavailable"
+}
+
+struct WireDiffError: Codable, Sendable {
+    let `code`: WireDiffErrorCode
+    let `message`: String
+    let `details`: [String: String]?
+}
+
+let kitWireVersion = 34

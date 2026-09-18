@@ -135,3 +135,82 @@ cancellation. Standalone peer-query tracking is tracked by `MAC-PEER-002` in the
 
 `peer_query`, `peer_result`, and `subagent_result` context records are intentionally
 hidden from the transcript until a dedicated presentation is chosen.
+
+## File annotations
+
+Protocol 34 annotation operations use the existing session annotation capability.
+`FileAnnotation` projects bounded summaries, full records, and immutable accepted
+snapshots. `AnnotationState` owns unsaved comment text and mutation recovery per
+session. Ordered events update drafts; submitted events refresh the snapshot to
+retrieve frozen message evidence because `message.user` carries only a summary.
+Failures preserve comment text and perform read-only reconciliation, with no
+implicit mutation retries. Stale replacements create first and delete the old ID
+only after a definite creation acknowledgement.
+
+The read-only `AnnotatedFileEditor` hosts native note/input views in vertical
+layout gaps after their source ranges. A vendored CodeEditTextView 0.12.1
+adaptation adds per-line block heights, a post-layout callback, and subview hit
+testing for interactive blocks; source storage, UTF-16 offsets, syntax fragments,
+and logical line numbers stay intact.
+CodeEditSourceEditor 0.15.2 uses a local dependency manifest so the same adapted
+text view serves the entire app. Its minimap hit testing respects hidden views,
+preventing the disabled minimap from intercepting inline controls. Both retain their
+upstream licenses and pinned revisions in `Vendor/*/KIT-ADAPTATION.md`.
+
+The coordinator owns hosted views, a gutter overlay, and scroll observation.
+The overlay tracks row hover across the viewport, handles clicks and bidirectional
+range drags only in the gutter, and scrolls at viewport edges during a drag. It
+excludes inline layout gaps and the trailing empty line from source anchors.
+Its teardown removes tracking, timers, observers, and callbacks. View widths and note
+heights follow the native viewport; source selection crosses note gaps without
+including comment text. Chip reveal uses the retained file tab, scrolls to the
+note, and briefly highlights it. No block is attached to a different revision.
+Stale evidence is available through an inline warning or chip in a bounded sheet;
+replacement retains the body until a new range is saved successfully.
+
+`AnnotationDesignPreview` is the isolated design specimen; rendered
+`InlineAnnotationEditorTests` cover the production adapter in both appearances.
+Live temporary-session checks cover CRUD, stale previews, and cross-client SSE.
+The user manually verified annotation-only prompt acceptance on September 18, 2026.
+Automated agent-run acceptance verification is separately opt-in through
+`KIT_ANNOTATION_SEND_LIVE_TEST`; it requires explicit authorization to start a run.
+
+Diff annotation projections retain the source side, target ID, target revision,
+file revision, and optional pinned committed endpoints in live and submitted
+evidence. Their chips reveal the guarded diff using annotation-authorized reconstruction,
+falling back to captured evidence if that revision is unavailable. Deferred evidence validation is displayed separately
+from stale state; the server remains responsible for validation at submission.
+The retained Diff pane reads the target catalog and accepts only server-issued
+working-tree, branch, and commit references. Changed files and semantic hunks
+load in bounded pages; continuations carry the exact target/file revisions.
+Files appear as individually titled sections in one continuous vertical scroll
+surface, with addition/deletion counts and a Files menu that jumps to a section.
+Visible sections load on demand through serialized reads and retain independent
+line pagination. Each native editor sizes to its source and inline-note height;
+vertical wheel events pass to the containing diff scroll view.
+The header offers Unified/Split layout and line wrapping controls, retained by the
+workspace across target changes. Split mode pairs replacement runs and leaves
+unmatched rows blank without assigning them source coordinates. Both native
+editors share row heights so wrapped source and inline notes stay aligned.
+Comments remain pinned to their original source side; switching presentation
+preserves an unsaved draft.
+The pane shows explicit loading, empty, partial, nontext, complex, stale, and
+failure states. Visible diff panes poll every 30 seconds, deferring while a comment is being edited or saved. Unchanged revisions retain expanded pages and editor position; hidden panes do not poll. Workspace invalidation discards in-flight
+results, and operation generations prevent older reads from replacing new state.
+
+The native editor shares annotation inputs and notes with file tabs. A semantic
+old/new gutter projects source-side coordinates independently of displayed rows,
+hunk headers, continuation fragments, and inline note gaps. Deletions anchor the
+old side, additions the new side, and context accepts either number column.
+The hover comment button sits at the code-facing edge of the gutter and uses a
+pointing-hand cursor.
+Ranges cannot span omitted context or exceed 200 source lines. Ordinary native
+selection, syntax highlighting, scrolling, and source-copy behavior are retained.
+Refreshing preserves unsaved comments at their original revisions and requires
+explicit reselection. Saved notes use the shared composer submission contract.
+
+`DiffTests` cover source-side projection, pinned pagination, cancelled/stale reads,
+and annotation-authorized reveal. `InlineAnnotationEditorTests` exercise the rendered native
+rail and inline editor in both appearances. `KIT_DIFF_LIVE_TEST=1` opts into a
+disposable Git repository/session test for all three target kinds, paging, stale
+reads, and annotation CRUD; this check never starts an agent run.

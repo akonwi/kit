@@ -29,6 +29,7 @@ struct ComposerView: View {
             if !state.isDemo && showOperationDetails {
                 ComposerOperationsView(state: state)
             }
+            AnnotationStrip(state: state)
             RestoredAttachmentStrip(state: state)
             if !state.ui.attachments.isEmpty || !state.ui.workspace.notes.isEmpty {
                 ScrollView(.horizontal) {
@@ -159,7 +160,7 @@ struct ComposerView: View {
         if !state.ui.uploads.ready || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
         if !state.isDemo && (state.connectionState != .connected || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
         return state.ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
-            state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
+            state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
     }
 
     private var showOperationDetails: Bool {

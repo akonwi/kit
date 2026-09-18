@@ -1,5 +1,5 @@
 {
-  "originHash" : "f2eb3e0c5e6d3a9f04463b2570f38bc95d696cd25f8b219157ee2d30113947b7",
+  "originHash" : "227abc8e752925d3a6028362dcb2642569a12df439dd6d27406d39e071caf2cb",
   "pins" : [
     {
       "identity" : "codeeditlanguages",
@@ -11,30 +11,12 @@
       }
     },
     {
-      "identity" : "codeeditsourceeditor",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/CodeEditApp/CodeEditSourceEditor.git",
-      "state" : {
-        "revision" : "424453d2232c9912933a3b5a1f3d3df669404ed0",
-        "version" : "0.15.2"
-      }
-    },
-    {
       "identity" : "codeeditsymbols",
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/CodeEditApp/CodeEditSymbols.git",
       "state" : {
         "revision" : "ae69712b08571c4469c2ed5cd38ad9f19439793e",
         "version" : "0.2.3"
-      }
-    },
-    {
-      "identity" : "codeedittextview",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/CodeEditApp/CodeEditTextView.git",
-      "state" : {
-        "revision" : "d7ac3f11f22ec2e820187acce8f3a3fb7aa8ddec",
-        "version" : "0.12.1"
       }
     },
     {
@@ -71,15 +53,6 @@
       "state" : {
         "revision" : "3c6f9523da3a1ec2fd829673e472d95b8097a3b8",
         "version" : "0.8.0"
-      }
-    },
-    {
-      "identity" : "swiftlintplugin",
-      "kind" : "remoteSourceControl",
-      "location" : "https://github.com/lukepistrol/SwiftLintPlugin",
-      "state" : {
-        "revision" : "b384a67cf45d9989aed5aab23e226cbc7bc2cd54",
-        "version" : "0.65.0"
       }
     },
     {

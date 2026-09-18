@@ -279,3 +279,26 @@ private actor MutationStub: SessionMutationClient {
         #expect(SessionFooter.secondsRemaining("1970-01-01T00:00:05Z", now: now.addingTimeInterval(10)) == 0)
     }
 }
+
+extension SessionOperationsTests {
+    @Test func annotationOnlyPromptSendsOrderedIDsAndRejectsStaleDrafts() async throws {
+        let client = MutationStub()
+        let state = try await store(client)
+        defer { state.detach() }
+        let anchor = WireAnnotationAnchor(kind: .value0, workspaceFile: .init(workspaceId: "workspace_test",
+            path: "main.swift", fileRevision: "file_test", startLine: 1, endLine: 1), workingTreeDiff: nil)
+        let first = try FileAnnotation(id: 1, anchor: anchor, body: "First", source: "source", stale: false, complete: true)
+        let second = try FileAnnotation(id: 2, anchor: anchor, body: "Second", source: "source", stale: false, complete: true)
+        state.annotationState.observe([first, second])
+        state.send()
+        try await wait { await client.calls.count == 1 }
+        #expect(await client.calls.first?.text == "")
+        #expect(await client.calls.first?.annotationIds == [1, 2])
+        await client.acknowledge()
+        try await wait { state.operations.submission == .acknowledged("Sent") }
+        state.annotationState.observe([try FileAnnotation(id: 3, anchor: anchor, body: "Stale", source: "source", stale: true, complete: true)])
+        state.send()
+        #expect(await client.calls.count == 1)
+        #expect(state.annotationState.records.map(\.id) == [3])
+    }
+}

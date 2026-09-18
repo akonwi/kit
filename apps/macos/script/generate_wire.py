@@ -33,12 +33,13 @@ def emit(name):
    if t.startswith('*'):return swift(t[1:])
    if t.startswith('[]'):return '['+swift(t[2:])+']'
    if t.startswith('map[string]'):return '[String: '+swift(t[11:])+']'
-   primitive={'string':'String','int':'Int','int64':'Int64','uint64':'UInt64','bool':'Bool','float64':'Double','json.RawMessage':'WireJSON','time.Time':'String'}
+   primitive={'string':'String','int':'Int','int64':'Int64','uint64':'UInt64','uint32':'UInt32','bool':'Bool','float64':'Double','json.RawMessage':'WireJSON','time.Time':'String'}
    if t in primitive:return primitive[t]
    emit(t);return 'Wire'+t
   fields.append('    let `'+key+'`: '+swift(typ)+('?' if optional else ''))
- output.append('struct Wire'+name+': Codable, Sendable {\n'+'\n'.join(fields)+'\n}\n')
-for name in ['SessionInfo','SessionSnapshot','SessionEventBatch','SessionVCSStatus','TranscriptPage','SubagentTranscript','SubagentOperationInput','SubagentOperationResult','SubagentLiveEventPage','PromptInput','PromptCommandInput','BashExecutionInput','PromptSubmission','RestoreFollowUpsResult','PromoteFollowUpsResult','CreateSessionInput','RenameSessionInput','ChangeCWDInput','ChangeWorkspaceCWDResult','ReloadSessionResult','CompactSessionInput','CompactSessionResult','ForkSessionInput','ModelCatalog','ConfigureSessionInput','ConfigureSessionResult','SessionFileIndex','ReadWorkspaceFileInput','WorkspaceFileRead','AttachmentInfo','AttachmentResolutionInput','AttachmentResolution','InteractionResponse']: emit(name)
+ conformances = 'Codable, Sendable' + (', Equatable' if name in {'WorkingTreeDiffAnnotationAnchor', 'PinnedDiffTarget', 'DiffEndpoint'} else '')
+ output.append('struct Wire'+name+': '+conformances+' {\n'+'\n'.join(fields)+'\n}\n')
+for name in ['SessionInfo','SessionSnapshot','SessionEventBatch','SessionVCSStatus','TranscriptPage','SubagentTranscript','SubagentOperationInput','SubagentOperationResult','SubagentLiveEventPage','PromptInput','PromptCommandInput','BashExecutionInput','PromptSubmission','RestoreFollowUpsResult','PromoteFollowUpsResult','CreateSessionInput','RenameSessionInput','ChangeCWDInput','ChangeWorkspaceCWDResult','ReloadSessionResult','CompactSessionInput','CompactSessionResult','ForkSessionInput','ModelCatalog','ConfigureSessionInput','ConfigureSessionResult','SessionFileIndex','ReadWorkspaceFileInput','WorkspaceFileRead','AttachmentInfo','AttachmentResolutionInput','AttachmentResolution','InteractionResponse','CreateAnnotationInput','UpdateAnnotationInput','DeleteAnnotationInput','AnnotationPage','ListDiffTargetsInput','DiffTargetCatalog','ObserveDiffInput','WorkingTreePage','ReadFileDiffInput','FileDiffPage','DiffError']: emit(name)
 version=re.search(r'SessionProtocolVersion = (\d+)',(root/'internal/version/version.go').read_text()).group(1)
 output.append('let kitWireVersion = '+version+'\n')
 path=root/'apps/macos/Sources/Kit/Client/Wire.generated.swift'
