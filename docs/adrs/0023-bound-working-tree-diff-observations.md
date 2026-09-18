@@ -30,7 +30,13 @@ or conflicted.
 
 A target ID is stable for the session/workspace/repository/policy identity. An
 opaque target revision identifies one retained observation. Updating a revision
-refreshes an existing Diff pane; it does not change target identity.
+refreshes an existing Diff pane; it does not change target identity. An active,
+visible Diff pane may poll for a fresh observation on a bounded client-owned
+schedule. Clients compare deterministic revisions, keep at most one poll in
+flight, stop polling when hidden, and defer applying a changed revision while a
+review range or annotation editor is active. Once a changed revision is pending,
+polling pauses so retained evidence for that interaction is not displaced. Server-pushed invalidation may
+later replace the timer without changing observation authority.
 
 R1 requires the repository worktree root to equal the session workspace root.
 It accepts an in-tree `.git` directory or a validated same-owner linked-worktree

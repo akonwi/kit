@@ -56,6 +56,66 @@ func textDiffFile(path string, additions, deletions int) protocol.DiffFileSummar
 	}
 }
 
+type pollingWorkingTreeDiff struct {
+	mu          sync.RWMutex
+	observation protocol.WorkingTreePage
+	pages       map[string]protocol.FileDiffPage
+	calls       int
+}
+
+func (f *pollingWorkingTreeDiff) ObserveWorkingTree(_ context.Context, _ protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.calls++
+	return f.observation, nil
+}
+
+func (f *pollingWorkingTreeDiff) ReadFileDiff(_ context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.pages[input.TargetRevision], nil
+}
+
+func (f *pollingWorkingTreeDiff) set(page protocol.WorkingTreePage, file protocol.FileDiffPage) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.observation = page
+	f.pages[page.Observation.Revision] = file
+}
+
+func (f *pollingWorkingTreeDiff) observeCalls() int {
+	f.mu.RLock()
+	defer f.mu.RUnlock()
+	return f.calls
+}
+
+type diffPanePresentationHarness struct{ model *diffPanePresentationModel }
+
+type diffPanePresentationModel struct {
+	state  *diffPanePresentationState
+	pane   workspaceDiffPane
+	active bool
+}
+
+type diffPanePresentationState struct{ ui.StateBase }
+
+func (w diffPanePresentationHarness) CreateState() ui.State {
+	state := &diffPanePresentationState{}
+	w.model.state = state
+	return state
+}
+
+func (s *diffPanePresentationState) Build(ui.BuildContext) ui.Widget {
+	model := s.Widget().(diffPanePresentationHarness).model
+	pane := model.pane
+	pane.Presentation = workspacePanePresentation{Active: model.active, Visible: model.active, Focused: model.active}
+	return pane
+}
+
+func (m *diffPanePresentationModel) setActive(active bool) {
+	m.state.SetState(func() { m.active = active })
+}
+
 type queuedDiffDispatch struct {
 	mu        sync.Mutex
 	callbacks []func()
@@ -305,6 +365,86 @@ func TestWorkspaceDiffPaneTogglesSplitLineWrapping(t *testing.T) {
 	if !strings.Contains(strings.Join(reopenedRows, "\n"), "w clip") {
 		t.Fatalf("reopened diff did not restore wrap preference:\n%s", strings.Join(reopenedRows, "\n"))
 	}
+}
+
+func TestWorkspaceDiffPollingRequiresVisibleLivePane(t *testing.T) {
+	state := &workspaceDiffPaneState{}
+	live := workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: fakeWorkingTreeDiff{},
+		Presentation: workspacePanePresentation{Active: true, Visible: true},
+	}
+	if !state.pollEligible(live) {
+		t.Fatal("active visible live diff is not polling eligible")
+	}
+	hidden := live
+	hidden.Presentation.Visible = false
+	if state.pollEligible(hidden) {
+		t.Fatal("hidden diff is polling eligible")
+	}
+	pinned := live
+	pinned.Descriptor.DiffTargetID = testDiffTarget
+	if state.pollEligible(pinned) {
+		t.Fatal("revision-pinned diff is polling eligible")
+	}
+}
+
+func TestWorkspaceDiffPanePollsAndDefersRefreshWhileCommenting(t *testing.T) {
+	line := 1
+	fileA := textDiffFile("live.go", 1, 0)
+	observationA := testDiffObservation(fileA)
+	pageA := protocol.FileDiffPage{
+		Observation: observationA.Observation, File: fileA, Computation: protocol.DiffComputation{State: "complete"},
+		Hunks: []protocol.DiffHunk{{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 1, Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "first revision", HasTerminatingLF: true}}}},
+	}
+	fileB := fileA
+	fileB.FileRevision = "diff_file_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	observationB := testDiffObservation(fileB)
+	observationB.Observation.Revision = "diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	pageB := protocol.FileDiffPage{
+		Observation: observationB.Observation, File: fileB, Computation: protocol.DiffComputation{State: "complete"},
+		Hunks: []protocol.DiffHunk{{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 1, Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "second revision", HasTerminatingLF: true}}}},
+	}
+	backend := &pollingWorkingTreeDiff{observation: observationA, pages: map[string]protocol.FileDiffPage{observationA.Observation.Revision: pageA}}
+	dispatch := &queuedDiffDispatch{}
+	var saveDone func(error)
+	model := &diffPanePresentationModel{active: true, pane: workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		RefreshInterval:    5 * time.Millisecond,
+		OnCreateAnnotation: func(_ protocol.AnnotationAnchor, _ string, done func(error)) { saveDone = done },
+	}}
+	application := uitest.New(diffPanePresentationHarness{model: model})
+	pumpDiffUntil(t, application, dispatch, 160, 14, "first revision")
+	application.Send(vaxis.Key{Text: "c", Keycode: 'c'})
+	application.Pump(160, 14)
+	backend.set(observationB, pageB)
+	rows := pumpDiffUntil(t, application, dispatch, 160, 14, "Changes available")
+	if !strings.Contains(strings.Join(rows, "\n"), "first revision") || strings.Contains(strings.Join(rows, "\n"), "second revision") {
+		t.Fatalf("poll replaced diff while comment editor was active:\n%s", strings.Join(rows, "\n"))
+	}
+	calls := backend.observeCalls()
+	for range 20 {
+		time.Sleep(time.Millisecond)
+		dispatch.flush()
+		application.Pump(160, 14)
+	}
+	if got := backend.observeCalls(); got != calls {
+		t.Fatalf("polls while changed revision was deferred = %d, want %d", got, calls)
+	}
+	application.Send(vaxis.Key{Text: "x", Keycode: 'x'})
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	application.Pump(160, 14)
+	if saveDone == nil {
+		t.Fatal("annotation save did not start")
+	}
+	model.setActive(false)
+	application.Pump(160, 14)
+	saveDone(nil)
+	application.Pump(160, 14)
+	if !strings.Contains(application.Text(), "first revision") {
+		t.Fatalf("inactive pane consumed deferred refresh:\n%s", application.Text())
+	}
+	model.setActive(true)
+	pumpDiffUntil(t, application, dispatch, 160, 14, "second revision")
 }
 
 func TestWorkspaceDiffSplitNavigationVisitsLogicalLinesOnce(t *testing.T) {

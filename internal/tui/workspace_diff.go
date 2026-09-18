@@ -26,7 +26,10 @@ const (
 	workspaceDiffSideNew
 )
 
-const workspaceDiffSplitBreakpoint = 120
+const (
+	workspaceDiffSplitBreakpoint = 120
+	workspaceDiffRefreshInterval = 30 * time.Second
+)
 
 const (
 	workspaceDiffInitial workspaceDiffPhase = iota
@@ -104,6 +107,7 @@ type workspaceDiffPane struct {
 	OnLoadAnnotation   func(uint64, func(string, error)) func()
 	OnUpdateAnnotation func(uint64, string, func(error))
 	OnRemoveAnnotation func(ui.EventContext, uint64)
+	RefreshInterval    time.Duration
 }
 
 func (workspaceDiffPane) CreateState() ui.State { return &workspaceDiffPaneState{} }
@@ -125,6 +129,12 @@ type workspaceDiffHighlightResult struct {
 	generation uint64
 	old        highlight.Result
 	new        highlight.Result
+}
+
+type workspaceDiffPollResult struct {
+	generation uint64
+	page       protocol.WorkingTreePage
+	err        error
 }
 
 type workspaceDiffPaneState struct {
@@ -162,6 +172,7 @@ type workspaceDiffPaneState struct {
 	appliedOpen              uint64
 	resultMu                 sync.Mutex
 	pendingObservation       *workspaceDiffObservationResult
+	pendingPoll              *workspaceDiffPollResult
 	pendingFile              *workspaceDiffFileResult
 	highlightGeneration      uint64
 	highlightCancel          context.CancelFunc
@@ -180,6 +191,14 @@ type workspaceDiffPaneState struct {
 	mouseSelectionGeneration uint64
 	commentLoadCancel        func()
 	commentOperation         uint64
+	pollCancel               context.CancelFunc
+	pollRequestCancel        context.CancelFunc
+	pollGeneration           uint64
+	polling                  bool
+	changesAvailable         bool
+	refreshPath              string
+	refreshSide              workspaceDiffSide
+	refreshLine              int
 	disposed                 bool
 }
 
@@ -191,6 +210,7 @@ func (s *workspaceDiffPaneState) InitState() {
 	if w.Presentation.Active && !s.isFrozen(w) {
 		s.startDescriptorLoad()
 	}
+	s.syncPolling(w)
 }
 
 func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
@@ -205,6 +225,7 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 		s.cursorRevealPending = true
 		s.revealPendingLayout = true
 	}
+	s.syncPolling(w)
 	if s.isFrozen(w) {
 		s.stopWork()
 		return
@@ -218,6 +239,10 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 		if w.Presentation.Active {
 			s.startDescriptorLoad()
 		}
+		return
+	}
+	if (!previous.Presentation.Active && w.Presentation.Active || !previous.Presentation.Visible && w.Presentation.Visible) && s.changesAvailable {
+		s.applyAvailableRefresh()
 		return
 	}
 	if !previous.Presentation.Active && w.Presentation.Active {
@@ -238,10 +263,98 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 
 func (s *workspaceDiffPaneState) Dispose() {
 	s.disposed = true
+	s.stopPolling()
 	if s.commentLoadCancel != nil {
 		s.commentLoadCancel()
 	}
 	s.stopWork()
+}
+
+func (s *workspaceDiffPaneState) pollInterval(w workspaceDiffPane) time.Duration {
+	if w.RefreshInterval > 0 {
+		return w.RefreshInterval
+	}
+	return workspaceDiffRefreshInterval
+}
+
+func (s *workspaceDiffPaneState) pollEligible(w workspaceDiffPane) bool {
+	return w.Diff != nil && w.Presentation.Active && w.Presentation.Visible && !s.isFrozen(w) && w.Descriptor.DiffTargetID == ""
+}
+
+func (s *workspaceDiffPaneState) syncPolling(w workspaceDiffPane) {
+	if !s.pollEligible(w) {
+		s.stopPolling()
+		return
+	}
+	if s.pollCancel != nil {
+		return
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	s.pollCancel = cancel
+	dispatch := w.Dispatch
+	if dispatch == nil {
+		dispatch = s.Context().Runtime().Dispatch
+	}
+	interval := s.pollInterval(w)
+	go func() {
+		ticker := time.NewTicker(interval)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				return
+			case <-ticker.C:
+				dispatch(func() {
+					if !s.disposed {
+						s.SetState(func() { s.pollObservation() })
+					}
+				})
+			}
+		}
+	}()
+}
+
+func (s *workspaceDiffPaneState) stopPolling() {
+	if s.pollCancel != nil {
+		s.pollCancel()
+		s.pollCancel = nil
+	}
+	if s.pollRequestCancel != nil {
+		s.pollRequestCancel()
+		s.pollRequestCancel = nil
+	}
+	s.pollGeneration++
+	s.polling = false
+}
+
+func (s *workspaceDiffPaneState) pollObservation() {
+	w := s.Widget().(workspaceDiffPane)
+	if !s.pollEligible(w) || s.polling || s.changesAvailable || s.observation.Revision == "" || s.phase == workspaceDiffLoading {
+		return
+	}
+	s.polling = true
+	s.pollGeneration++
+	generation := s.pollGeneration
+	ctx, cancel := context.WithCancel(context.Background())
+	s.pollRequestCancel = cancel
+	dispatch := w.Dispatch
+	if dispatch == nil {
+		dispatch = s.Context().Runtime().Dispatch
+	}
+	go func() {
+		page, err := w.Diff.ObserveWorkingTree(ctx, protocol.ObserveWorkingTreeInput{WorkspaceID: w.Descriptor.WorkspaceID})
+		if ctx.Err() != nil {
+			return
+		}
+		s.resultMu.Lock()
+		s.pendingPoll = &workspaceDiffPollResult{generation: generation, page: page, err: err}
+		s.resultMu.Unlock()
+		dispatch(func() {
+			if !s.disposed {
+				s.SetState(func() {})
+			}
+		})
+	}()
 }
 
 func (s *workspaceDiffPaneState) isFrozen(w workspaceDiffPane) bool {
@@ -302,6 +415,12 @@ func (s *workspaceDiffPaneState) startObservation() {
 	w := s.Widget().(workspaceDiffPane)
 	if !w.Presentation.Active || s.isFrozen(w) {
 		return
+	}
+	if s.pollRequestCancel != nil {
+		s.pollRequestCancel()
+		s.pollRequestCancel = nil
+		s.pollGeneration++
+		s.polling = false
 	}
 	s.stopWork()
 	s.phase = workspaceDiffLoading
@@ -377,19 +496,71 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.WorkingTreePa
 	}
 	if len(s.files) == 0 {
 		s.phase = workspaceDiffEmpty
+		s.refreshPath = ""
+		s.refreshLine = 0
 		return
 	}
 	s.phase = workspaceDiffReady
 	s.selectedFile = min(s.selectedFile, len(s.files)-1)
-	if wanted := s.Widget().(workspaceDiffPane).Descriptor.Path; wanted != "" {
+	wanted := s.refreshPath
+	restoringPath := wanted != ""
+	if wanted == "" {
+		wanted = s.Widget().(workspaceDiffPane).Descriptor.Path
+	}
+	matchedPath := false
+	if wanted != "" {
 		for index, file := range s.files {
 			if file.Path == wanted {
 				s.selectedFile = index
+				matchedPath = true
 				break
 			}
 		}
 	}
+	if restoringPath && !matchedPath {
+		s.refreshLine = 0
+	}
+	s.refreshPath = ""
 	s.startFileLoad()
+}
+
+func (s *workspaceDiffPaneState) completePoll(page protocol.WorkingTreePage, err error) {
+	s.polling = false
+	s.pollRequestCancel = nil
+	if !s.pollEligible(s.Widget().(workspaceDiffPane)) || err != nil || page.Observation.Revision == "" || page.Observation.Revision == s.observation.Revision {
+		return
+	}
+	s.changesAvailable = true
+	s.applyAvailableRefresh()
+}
+
+func (s *workspaceDiffPaneState) refreshBlocked() bool {
+	return s.commenting || s.commentPending || s.commentLoading || s.selectionActive()
+}
+
+func (s *workspaceDiffPaneState) applyAvailableRefresh() {
+	if !s.changesAvailable || s.refreshBlocked() {
+		return
+	}
+	w := s.Widget().(workspaceDiffPane)
+	if !w.Presentation.Active || !w.Presentation.Visible || s.isFrozen(w) {
+		return
+	}
+	if s.selectedFile >= 0 && s.selectedFile < len(s.files) {
+		s.refreshPath = s.files[s.selectedFile].Path
+	}
+	if line, ok := s.lineAtRow(s.cursorRow); ok {
+		coordinate := line.NewLine
+		if s.cursorSide == workspaceDiffSideOld {
+			coordinate = line.OldLine
+		}
+		if coordinate != nil {
+			s.refreshSide = s.cursorSide
+			s.refreshLine = *coordinate
+		}
+	}
+	s.changesAvailable = false
+	s.startObservation()
 }
 
 func workspaceDiffErrorText(err error) string {
@@ -477,6 +648,16 @@ func (s *workspaceDiffPaneState) completeFileLoad(page protocol.FileDiffPage, ap
 	s.fileNextCursor = page.NextCursor
 	s.rebuildHunkRows()
 	descriptor := s.Widget().(workspaceDiffPane).Descriptor
+	refreshReveal := s.refreshLine > 0
+	if refreshReveal {
+		descriptor.DiffSide = "new"
+		if s.refreshSide == workspaceDiffSideOld {
+			descriptor.DiffSide = "old"
+		}
+		descriptor.RevealStartLine = s.refreshLine
+		descriptor.RevealEndLine = s.refreshLine
+		s.cursorSide = s.refreshSide
+	}
 	foundRevealStart, foundRevealEnd := false, descriptor.RevealEndLine <= 0 || descriptor.RevealEndLine == descriptor.RevealStartLine
 	if reveal := descriptor.RevealStartLine; reveal > 0 {
 		row := 0
@@ -511,12 +692,15 @@ func (s *workspaceDiffPaneState) completeFileLoad(page protocol.FileDiffPage, ap
 			}
 		}
 	}
-	if descriptor.DiffTargetID != "" && descriptor.RevealStartLine > 0 && (!foundRevealStart || !foundRevealEnd) && s.fileNextCursor != "" {
+	if (descriptor.DiffTargetID != "" || refreshReveal) && descriptor.RevealStartLine > 0 && (!foundRevealStart || !foundRevealEnd) && s.fileNextCursor != "" {
 		s.requestFilePage(s.fileNextCursor, true)
 		return
 	}
 	if s.cursorRow == 0 && len(s.hunkRows) > 0 {
 		s.setCursorRow(s.hunkRows[0])
+	}
+	if refreshReveal {
+		s.refreshLine = 0
 	}
 	s.startHighlight()
 }
@@ -1005,18 +1189,30 @@ func (s *workspaceDiffPaneState) moveFile(delta int) {
 	if len(s.files) == 0 || delta == 0 {
 		return
 	}
+	if s.selectionActive() {
+		s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+		if s.changesAvailable {
+			s.applyAvailableRefresh()
+			return
+		}
+	}
 	next := (s.selectedFile + delta) % len(s.files)
 	if next < 0 {
 		next += len(s.files)
 	}
 	s.selectedFile = next
-	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	s.scroll = ui.ScrollPaneController{}
 	s.startFileLoad()
 }
 
 func (s *workspaceDiffPaneState) moveHunk(delta int) {
-	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+	if s.selectionActive() {
+		s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+		if s.changesAvailable {
+			s.applyAvailableRefresh()
+			return
+		}
+	}
 	if len(s.hunkRows) == 0 || delta == 0 {
 		return
 	}
@@ -1037,14 +1233,19 @@ func (s *workspaceDiffPaneState) moveHunk(delta int) {
 func (s *workspaceDiffPaneState) applyPendingResults() {
 	s.resultMu.Lock()
 	observation := s.pendingObservation
+	poll := s.pendingPoll
 	file := s.pendingFile
 	highlightResult := s.pendingHighlight
 	s.pendingObservation = nil
+	s.pendingPoll = nil
 	s.pendingFile = nil
 	s.pendingHighlight = nil
 	s.resultMu.Unlock()
 	if observation != nil && observation.generation == s.generation {
 		s.completeObservation(observation.page, observation.err)
+	}
+	if poll != nil && poll.generation == s.pollGeneration {
+		s.completePoll(poll.page, poll.err)
 	}
 	if file != nil && file.generation == s.generation {
 		s.completeFileLoad(file.page, file.append, file.err)
@@ -1254,6 +1455,7 @@ func (s *workspaceDiffPaneState) closeComment() {
 	s.commentError = ""
 	s.commentAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	s.commentAnnotationID = 0
+	s.applyAvailableRefresh()
 }
 
 func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string) {
@@ -1277,6 +1479,7 @@ func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string)
 			}
 			s.closeComment()
 			s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+			s.applyAvailableRefresh()
 		})
 	}
 	if s.commentAnnotationID != 0 {
@@ -1332,6 +1535,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 				s.SetState(func() {
 					if s.selectionActive() {
 						s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+						s.applyAvailableRefresh()
 					} else if anchor, ok := s.currentDiffAnchor(); ok {
 						s.selectionAnchor = anchor
 					}
@@ -1421,7 +1625,10 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 					return ui.EventHandled
 				}
 				bindings[refreshWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
-					s.SetState(func() { s.startObservation() })
+					s.SetState(func() {
+						s.changesAvailable = false
+						s.startObservation()
+					})
 					return ui.EventHandled
 				}
 				shortcuts["["] = moveWorkspaceDiffFileIntent{delta: -1}
@@ -1650,6 +1857,9 @@ func (s *workspaceDiffPaneState) diffCommentEditorHeight() int {
 	if s.commentError != "" {
 		height++
 	}
+	if s.changesAvailable {
+		height++
+	}
 	return height
 }
 
@@ -1658,6 +1868,9 @@ func (s *workspaceDiffPaneState) diffCommentEditor(theme ui.Theme, w workspaceDi
 	children := []ui.Widget{ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Surface}}}
 	if s.commentError != "" {
 		children = append(children, ui.Text{Value: "Could not save: " + s.commentError, Style: ui.Style{Foreground: theme.DangerText}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
+	}
+	if s.changesAvailable {
+		children = append(children, ui.Text{Value: "Changes available · refreshes after editing", Style: ui.Style{Foreground: theme.Warning}, MaxLines: 1})
 	}
 	if s.commentPending || s.commentLoading {
 		status := "Saving…"
@@ -2158,6 +2371,9 @@ func (s *workspaceDiffPaneState) footerText() string {
 		commentHint = fmt.Sprintf("c %s L%d–%d", anchor.Side, anchor.StartLine, anchor.EndLine)
 	}
 	parts := []string{"↑↓ lines", horizontalHint, selectionHint, commentHint, "[ ] files", "{ } hunks", "r refresh"}
+	if s.changesAvailable {
+		parts = append([]string{"Changes available"}, parts...)
+	}
 	if _, ok := s.annotationAtCursor(w); ok {
 		parts = append(parts[:4], append([]string{"e edit", "d remove"}, parts[4:]...)...)
 	}

@@ -50,8 +50,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
   including agent edits, with changed-file and hunk navigation, semantic
   added/removed/context styling, line-number gutters, unified and split layouts
-  where width permits,
-  and explicit loading, empty, stale, truncated, and error states. Depends on
+  where width permits, bounded automatic refresh while the pane is active and
+  visible, and explicit loading, empty, stale, truncated, and error states. Depends on
   `CORE-DIFF-001`. See
   [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
 
