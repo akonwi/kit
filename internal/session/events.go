@@ -197,6 +197,9 @@ func (event NewEvent) Validate() error {
 	if event.Annotation != nil {
 		anchorBytes, _ := json.Marshal(event.Annotation.Anchor)
 		payloadBytes += len(event.Annotation.SessionID) + len(anchorBytes) + len(event.Annotation.Body) + len(event.Annotation.Preview.Text) + 64
+		if target := event.Annotation.DiffTarget; target != nil {
+			payloadBytes += len(target.WorkspaceID) + len(target.Kind) + len(target.Base.Kind) + len(target.Base.OID) + len(target.Head.Kind) + len(target.Head.OID)
+		}
 	}
 	if event.Interaction != nil {
 		raw, err := json.Marshal(event.Interaction)
@@ -422,7 +425,7 @@ func (event NewEvent) Validate() error {
 
 func validateAnnotationEventRecord(record kitannotation.Record) error {
 	preview := protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated}
-	if record.ID == 0 || record.SessionID == "" || record.Anchor.Validate() != nil || preview.Validate(record.Anchor) != nil || !validAnnotationEventText(record.Body, false, 16<<10) {
+	if record.ID == 0 || record.SessionID == "" || record.Anchor.Validate() != nil || preview.Validate(record.Anchor) != nil || !validAnnotationEventText(record.Body, false, 16<<10) || record.DiffTarget != nil && (record.Anchor.WorkingTreeDiff == nil || record.DiffTarget.Validate() != nil) {
 		return fmt.Errorf("annotation event record is invalid")
 	}
 	return nil

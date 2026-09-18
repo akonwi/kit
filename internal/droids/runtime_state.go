@@ -534,12 +534,31 @@ func validateAnnotationInput(input AnnotationInput) error {
 func validSubmittedAnnotationIdentity(annotation SubmittedAnnotation) bool {
 	switch annotation.Kind {
 	case "workspace_file":
-		return validAnnotationToken(annotation.WorkspaceID, "workspace_") && annotation.TargetID == "" && annotation.TargetRevision == "" && annotation.Side == "" && validAnnotationToken(annotation.FileRevision, "file_")
+		return validAnnotationToken(annotation.WorkspaceID, "workspace_") && annotation.TargetID == "" && annotation.TargetRevision == "" && annotation.TargetWorkspaceID == "" && annotation.TargetKind == "" && annotation.TargetBaseKind == "" && annotation.TargetBaseOID == "" && annotation.TargetHeadKind == "" && annotation.TargetHeadOID == "" && annotation.Side == "" && validAnnotationToken(annotation.FileRevision, "file_")
 	case "working_tree_diff":
-		return annotation.WorkspaceID == "" && validAnnotationToken(annotation.TargetID, "difftarget_") && validAnnotationToken(annotation.TargetRevision, "diffrev_") && validAnnotationToken(annotation.FileRevision, "diff_file_") && (annotation.Side == "old" || annotation.Side == "new")
+		if annotation.WorkspaceID != "" || !validAnnotationToken(annotation.TargetID, "difftarget_") || !validAnnotationToken(annotation.TargetRevision, "diffrev_") || !validAnnotationToken(annotation.FileRevision, "diff_file_") || annotation.Side != "old" && annotation.Side != "new" {
+			return false
+		}
+		if annotation.TargetKind == "" {
+			return annotation.TargetWorkspaceID == "" && annotation.TargetBaseKind == "" && annotation.TargetBaseOID == "" && annotation.TargetHeadKind == "" && annotation.TargetHeadOID == ""
+		}
+		baseValid := annotation.TargetBaseKind == "empty_tree" && annotation.TargetBaseOID == "" || annotation.TargetBaseKind == "commit" && validAnnotationOID(annotation.TargetBaseOID)
+		return validAnnotationToken(annotation.TargetWorkspaceID, "workspace_") && (annotation.TargetKind == "commit" || annotation.TargetKind == "branch") && baseValid && annotation.TargetHeadKind == "commit" && validAnnotationOID(annotation.TargetHeadOID) && (annotation.TargetKind != "branch" || annotation.TargetBaseKind == "commit")
 	default:
 		return false
 	}
+}
+
+func validAnnotationOID(value string) bool {
+	if len(value) != 40 && len(value) != 64 {
+		return false
+	}
+	for _, character := range value {
+		if !strings.ContainsRune("0123456789abcdef", character) {
+			return false
+		}
+	}
+	return true
 }
 
 func validSubmittedAnnotationPath(value string) bool {

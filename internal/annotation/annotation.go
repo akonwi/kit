@@ -36,11 +36,12 @@ type Preview struct {
 
 // Record is one live session-owned annotation draft.
 type Record struct {
-	ID        uint64
-	SessionID string
-	Anchor    protocol.AnnotationAnchor
-	Body      string
-	Preview   Preview
+	ID         uint64
+	SessionID  string
+	Anchor     protocol.AnnotationAnchor
+	DiffTarget *protocol.PinnedDiffTarget
+	Body       string
+	Preview    Preview
 }
 
 // FileEvidence is the guarded file projection required to derive a preview.
@@ -49,6 +50,7 @@ type FileEvidence struct {
 	ContentStartLine  int
 	CompleteLineCount int
 	Truncated         bool
+	DiffTarget        *protocol.PinnedDiffTarget
 }
 
 // EvidenceErrorKind classifies authoritative reader failures without coupling
@@ -96,7 +98,7 @@ type FileReader interface {
 
 // DiffReader validates retained diff identity and reads one source-side range.
 type DiffReader interface {
-	ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor) (FileEvidence, error)
+	ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor, *protocol.PinnedDiffTarget, bool) (FileEvidence, error)
 }
 
 // Repository persists live annotations and their per-session monotonic sequence.
@@ -204,7 +206,7 @@ func (s *Service) Create(ctx context.Context, sessionID, cwd string, anchor prot
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
-	evidence, err := s.readEvidence(ctx, sessionID, cwd, anchor)
+	evidence, err := s.readEvidence(ctx, sessionID, cwd, anchor, nil, true)
 	if err != nil {
 		return Record{}, err
 	}
@@ -212,7 +214,7 @@ func (s *Service) Create(ctx context.Context, sessionID, cwd string, anchor prot
 	if err != nil {
 		return Record{}, err
 	}
-	created, err := s.repositoryFor(sessionID).CreateAnnotation(ctx, Record{SessionID: sessionID, Anchor: anchor, Body: body, Preview: preview}, protocol.MaxLiveAnnotationsPerSession)
+	created, err := s.repositoryFor(sessionID).CreateAnnotation(ctx, Record{SessionID: sessionID, Anchor: anchor, DiffTarget: evidence.DiffTarget, Body: body, Preview: preview}, protocol.MaxLiveAnnotationsPerSession)
 	if err == nil {
 		if observer := s.currentObserver(); observer != nil {
 			observer.AnnotationCreated(created)
@@ -234,7 +236,7 @@ func (s *Service) Update(ctx context.Context, sessionID, cwd string, id uint64, 
 	if err != nil {
 		return Record{}, err
 	}
-	if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor); err != nil {
+	if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor, record.DiffTarget, false); err != nil {
 		if ctx.Err() != nil {
 			return Record{}, ctx.Err()
 		}
@@ -280,7 +282,7 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 	}
 	stale := make(map[uint64]protocol.AnnotationStaleReason)
 	for _, record := range records {
-		if _, readErr := s.readEvidence(ctx, sessionID, cwd, record.Anchor); readErr != nil {
+		if _, readErr := s.readEvidence(ctx, sessionID, cwd, record.Anchor, record.DiffTarget, false); readErr != nil {
 			if ctx.Err() != nil {
 				return nil, nil, ctx.Err()
 			}
@@ -326,7 +328,7 @@ func (s *Service) PrepareSubmission(ctx context.Context, sessionID, cwd string, 
 			lock.Unlock()
 			return nil, err
 		}
-		if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor); err != nil {
+		if _, err := s.readEvidence(ctx, sessionID, cwd, record.Anchor, record.DiffTarget, false); err != nil {
 			lock.Unlock()
 			if ctx.Err() != nil {
 				return nil, ctx.Err()
@@ -419,7 +421,7 @@ func anchorRange(anchor protocol.AnnotationAnchor) lineRange {
 	return lineRange{}
 }
 
-func (s *Service) readEvidence(ctx context.Context, sessionID, cwd string, anchor protocol.AnnotationAnchor) (FileEvidence, error) {
+func (s *Service) readEvidence(ctx context.Context, sessionID, cwd string, anchor protocol.AnnotationAnchor, target *protocol.PinnedDiffTarget, deriveTarget bool) (FileEvidence, error) {
 	switch anchor.Kind {
 	case protocol.AnnotationAnchorWorkspaceFile:
 		return s.files.ReadFile(ctx, sessionID, cwd, *anchor.WorkspaceFile)
@@ -427,7 +429,7 @@ func (s *Service) readEvidence(ctx context.Context, sessionID, cwd string, ancho
 		if s.diffs == nil {
 			return FileEvidence{}, &EvidenceError{Kind: EvidenceUnavailable}
 		}
-		return s.diffs.ReadDiff(ctx, sessionID, cwd, *anchor.WorkingTreeDiff)
+		return s.diffs.ReadDiff(ctx, sessionID, cwd, *anchor.WorkingTreeDiff, target, deriveTarget)
 	default:
 		return FileEvidence{}, &EvidenceError{Kind: EvidenceInvalid}
 	}

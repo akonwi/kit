@@ -44,7 +44,8 @@ type WorkspaceFileAnnotationAnchor struct {
 }
 
 // WorkingTreeDiffAnnotationAnchor pins a source-side line range to one retained
-// working-tree diff observation and changed-file revision.
+// diff observation and changed-file revision. Its compatibility discriminator
+// remains working_tree_diff for every target kind.
 type WorkingTreeDiffAnnotationAnchor struct {
 	TargetID       string `json:"targetId"`
 	TargetRevision string `json:"targetRevision"`
@@ -175,6 +176,7 @@ type Annotation struct {
 	ID          uint64                `json:"id"`
 	SessionID   string                `json:"sessionId"`
 	Anchor      AnnotationAnchor      `json:"anchor"`
+	DiffTarget  *PinnedDiffTarget     `json:"diffTarget,omitempty"`
 	Body        string                `json:"body"`
 	Preview     AnnotationPreview     `json:"preview"`
 	Stale       bool                  `json:"stale,omitempty"`
@@ -183,7 +185,7 @@ type Annotation struct {
 
 // Validate checks one renderer-safe annotation projection.
 func (a Annotation) Validate() error {
-	if a.ID == 0 || !identifier.Valid(a.SessionID, "session_") || a.Anchor.Validate() != nil || a.Preview.Validate(a.Anchor) != nil || !validAnnotationText(a.Body, false) || len(a.Body) > MaxAnnotationBodyBytes {
+	if a.ID == 0 || !identifier.Valid(a.SessionID, "session_") || a.Anchor.Validate() != nil || a.Preview.Validate(a.Anchor) != nil || !validAnnotationText(a.Body, false) || len(a.Body) > MaxAnnotationBodyBytes || a.DiffTarget != nil && (a.Anchor.WorkingTreeDiff == nil || a.DiffTarget.Validate() != nil) {
 		return fmt.Errorf("annotation is invalid")
 	}
 	if a.Stale != (a.StaleReason != "") {
@@ -279,6 +281,7 @@ func (p AnnotationPage) Validate() error {
 type AnnotationSummary struct {
 	ID          uint64                `json:"id"`
 	Anchor      AnnotationAnchor      `json:"anchor"`
+	DiffTarget  *PinnedDiffTarget     `json:"diffTarget,omitempty"`
 	BodyPreview string                `json:"bodyPreview"`
 	Preview     string                `json:"preview"`
 	Stale       bool                  `json:"stale,omitempty"`
@@ -287,7 +290,7 @@ type AnnotationSummary struct {
 
 // Validate checks a bounded annotation summary.
 func (s AnnotationSummary) Validate() error {
-	if s.ID == 0 || s.Anchor.Validate() != nil || !validAnnotationText(s.BodyPreview, false) || len(s.BodyPreview) > MaxAnnotationSummaryTextBytes || len(s.Preview) > MaxAnnotationSummaryTextBytes || !validAnnotationText(s.Preview, true) {
+	if s.ID == 0 || s.Anchor.Validate() != nil || !validAnnotationText(s.BodyPreview, false) || len(s.BodyPreview) > MaxAnnotationSummaryTextBytes || len(s.Preview) > MaxAnnotationSummaryTextBytes || !validAnnotationText(s.Preview, true) || s.DiffTarget != nil && (s.Anchor.WorkingTreeDiff == nil || s.DiffTarget.Validate() != nil) {
 		return fmt.Errorf("annotation summary is invalid")
 	}
 	if s.Stale != (s.StaleReason != "") || s.StaleReason != "" && s.StaleReason != AnnotationStaleWorkspace && s.StaleReason != AnnotationStaleTarget && s.StaleReason != AnnotationStaleFile && s.StaleReason != AnnotationStaleUnavailable {
@@ -300,13 +303,14 @@ func (s AnnotationSummary) Validate() error {
 type SubmittedAnnotation struct {
 	OriginalAnnotationID uint64            `json:"originalAnnotationId"`
 	Anchor               AnnotationAnchor  `json:"anchor"`
+	DiffTarget           *PinnedDiffTarget `json:"diffTarget,omitempty"`
 	Body                 string            `json:"body"`
 	Preview              AnnotationPreview `json:"preview"`
 }
 
 // Validate checks an immutable submitted annotation snapshot.
 func (a SubmittedAnnotation) Validate() error {
-	if a.OriginalAnnotationID == 0 || a.Anchor.Validate() != nil || a.Preview.Validate(a.Anchor) != nil || !validAnnotationText(a.Body, false) || len(a.Body) > MaxAnnotationBodyBytes {
+	if a.OriginalAnnotationID == 0 || a.Anchor.Validate() != nil || a.Preview.Validate(a.Anchor) != nil || !validAnnotationText(a.Body, false) || len(a.Body) > MaxAnnotationBodyBytes || a.DiffTarget != nil && (a.Anchor.WorkingTreeDiff == nil || a.DiffTarget.Validate() != nil) {
 		return fmt.Errorf("submitted annotation is invalid")
 	}
 	encoded, err := json.Marshal(a)

@@ -61,9 +61,9 @@ func (r annotationWorkspaceReader) ReadFile(ctx context.Context, sessionID, cwd 
 	}, nil
 }
 
-func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkingTreeDiffAnchor) (kitannotation.FileEvidence, error) {
+func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkingTreeDiffAnchor, target *protocol.PinnedDiffTarget, deriveTarget bool) (kitannotation.FileEvidence, error) {
 	read, err := r.service.ReadLineRange(ctx, sessionID, cwd, kitworkingdiff.LineRangeInput{
-		TargetID: anchor.TargetID, TargetRevision: anchor.TargetRevision, Path: anchor.Path, FileRevision: anchor.FileRevision,
+		TargetID: anchor.TargetID, TargetRevision: anchor.TargetRevision, Target: target, DeriveTarget: deriveTarget, Path: anchor.Path, FileRevision: anchor.FileRevision,
 		Side: anchor.Side, StartLine: anchor.StartLine, EndLine: anchor.EndLine,
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd strin
 		}
 		return kitannotation.FileEvidence{}, err
 	}
-	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine}, nil
+	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine, DiffTarget: read.Target}, nil
 }
 
 const maxSessionRequestBytes = 1 << 20
@@ -563,17 +563,18 @@ func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID s
 func projectAnnotation(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.Annotation {
 	return protocol.Annotation{
 		ID: record.ID, SessionID: record.SessionID,
-		Anchor:  record.Anchor,
-		Body:    record.Body,
-		Preview: protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
-		Stale:   stale != "", StaleReason: stale,
+		Anchor:     record.Anchor,
+		DiffTarget: record.DiffTarget,
+		Body:       record.Body,
+		Preview:    protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
+		Stale:      stale != "", StaleReason: stale,
 	}
 }
 
 func projectAnnotationSummary(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.AnnotationSummary {
 	annotation := projectAnnotation(record, stale)
 	return protocol.AnnotationSummary{
-		ID: annotation.ID, Anchor: annotation.Anchor,
+		ID: annotation.ID, Anchor: annotation.Anchor, DiffTarget: annotation.DiffTarget,
 		BodyPreview: truncateAnnotationSummary(annotation.Body),
 		Preview:     truncateAnnotationSummary(annotation.Preview.Text),
 		Stale:       annotation.Stale, StaleReason: annotation.StaleReason,
@@ -1116,8 +1117,16 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 					FileRevision: annotation.FileRevision, Side: annotation.Side, StartLine: annotation.StartLine, EndLine: annotation.EndLine,
 				}
 			}
+			var diffTarget *protocol.PinnedDiffTarget
+			if annotation.TargetKind != "" {
+				diffTarget = &protocol.PinnedDiffTarget{
+					WorkspaceID: annotation.TargetWorkspaceID, Kind: annotation.TargetKind,
+					Base: protocol.DiffEndpoint{Kind: annotation.TargetBaseKind, OID: annotation.TargetBaseOID},
+					Head: protocol.DiffEndpoint{Kind: annotation.TargetHeadKind, OID: annotation.TargetHeadOID},
+				}
+			}
 			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
-				OriginalAnnotationID: annotation.ID, Anchor: anchor, Body: annotation.Body,
+				OriginalAnnotationID: annotation.ID, Anchor: anchor, DiffTarget: diffTarget, Body: annotation.Body,
 				Preview: protocol.AnnotationPreview{StartLine: annotation.StartLine, EndLine: annotation.EndLine, Text: annotation.Preview, Truncated: annotation.Truncated},
 			})
 		}

@@ -81,12 +81,17 @@ type staticReader struct {
 }
 
 type staticDiffReader struct {
-	content string
-	err     error
+	content  string
+	err      error
+	target   *protocol.PinnedDiffTarget
+	required *protocol.PinnedDiffTarget
 }
 
-func (r staticDiffReader) ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor) (FileEvidence, error) {
-	return FileEvidence{Content: r.content, ContentStartLine: 7, CompleteLineCount: 7}, r.err
+func (r staticDiffReader) ReadDiff(_ context.Context, _ string, _ string, _ WorkingTreeDiffAnchor, target *protocol.PinnedDiffTarget, _ bool) (FileEvidence, error) {
+	if r.required != nil && (target == nil || *target != *r.required) {
+		return FileEvidence{}, &EvidenceError{Kind: EvidenceStaleTarget}
+	}
+	return FileEvidence{Content: r.content, ContentStartLine: 7, CompleteLineCount: 7, DiffTarget: r.target}, r.err
 }
 
 func (r *staticReader) ReadFile(context.Context, string, string, WorkspaceFileAnchor) (FileEvidence, error) {
@@ -111,6 +116,38 @@ func TestCreateDerivesDiffPreview(t *testing.T) {
 	if record.Preview.Text != "old evidence" || record.Anchor.WorkingTreeDiff == nil {
 		t.Fatalf("diff annotation = %+v", record)
 	}
+}
+
+func TestCommittedDiffTargetPersistsThroughListingAndSubmission(t *testing.T) {
+	repository := NewMemoryRepository()
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	target := protocol.PinnedDiffTarget{
+		WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit,
+		Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}
+	reader := staticDiffReader{content: "old evidence", target: &target}
+	service, err := NewService(repository, &staticReader{content: "unused"}, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go",
+		FileRevision: "diff_file_" + token, Side: "old", StartLine: 7, EndLine: 7,
+	}}
+	created, err := service.Create(t.Context(), "session_test", "/repo", anchor, "Keep this")
+	if err != nil || created.DiffTarget == nil || *created.DiffTarget != target {
+		t.Fatalf("created = %+v, %v", created, err)
+	}
+	service.diffs = staticDiffReader{content: "old evidence", required: &target, target: &target}
+	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || len(records) != 1 || len(stale) != 0 || records[0].DiffTarget == nil {
+		t.Fatalf("records = %+v, stale = %+v, %v", records, stale, err)
+	}
+	prepared, err := service.PrepareSubmission(t.Context(), "session_test", "/repo", []uint64{created.ID})
+	if err != nil || len(prepared.Records) != 1 || prepared.Records[0].DiffTarget == nil {
+		t.Fatalf("prepared = %+v, %v", prepared, err)
+	}
+	prepared.Abort()
 }
 
 func TestCreateDerivesAuthoritativePreview(t *testing.T) {

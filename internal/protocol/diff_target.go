@@ -187,3 +187,21 @@ func (c DiffTargetCatalog) Validate() error {
 	}
 	return nil
 }
+
+// PinnedDiffTarget is server-derived reconstruction authority for one
+// immutable committed target. It is persisted with annotations, not accepted
+// as part of the annotation wire anchor.
+type PinnedDiffTarget struct {
+	WorkspaceID string       `json:"workspaceId"`
+	Kind        string       `json:"kind"`
+	Base        DiffEndpoint `json:"base"`
+	Head        DiffEndpoint `json:"head"`
+}
+
+// Validate checks a committed pinned target definition.
+func (t PinnedDiffTarget) Validate() error {
+	if !validWorkspaceToken(t.WorkspaceID, "workspace_") || t.Kind != DiffTargetCommit && t.Kind != DiffTargetBranch || t.Base.validate() != nil || t.Head.validate() != nil || t.Head.Kind != "commit" || t.Kind == DiffTargetBranch && t.Base.Kind != "commit" {
+		return fmt.Errorf("pinned diff target is invalid")
+	}
+	return nil
+}
