@@ -235,7 +235,6 @@ type workspaceDiffPaneState struct {
 	activeTarget             protocol.DiffTargetEntry
 	pendingTarget            protocol.DiffTargetEntry
 	stagedObservation        protocol.DiffObservation
-	stagedFiles              []protocol.DiffFileSummary
 	catalog                  []protocol.DiffTargetEntry
 	catalogLoading           bool
 	catalogError             string
@@ -379,7 +378,7 @@ func (s *workspaceDiffPaneState) stopPolling() {
 
 func (s *workspaceDiffPaneState) pollObservation() {
 	w := s.Widget().(workspaceDiffPane)
-	if !s.pollEligible(w) || s.polling || s.changesAvailable || s.observation.Revision == "" || s.phase == workspaceDiffLoading {
+	if !s.pollEligible(w) || s.polling || s.changesAvailable || s.observation.Revision == "" || s.phase == workspaceDiffLoading || s.observationCursor != "" {
 		return
 	}
 	s.polling = true
@@ -496,7 +495,6 @@ func (s *workspaceDiffPaneState) startObservation() {
 	}
 	s.errorText = ""
 	s.stagedObservation = protocol.DiffObservation{}
-	s.stagedFiles = nil
 	s.observationCursor = ""
 	if w.Diff == nil {
 		s.phase = workspaceDiffError
@@ -552,55 +550,57 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.DiffPage, err
 			s.phase = workspaceDiffError
 			s.errorText = message
 		} else {
+			s.loadingFile = false
 			s.warning(message)
 			s.syncPolling(s.Widget().(workspaceDiffPane))
 		}
 		return
 	}
-	if s.stagedObservation.Revision == "" {
+	firstPage := s.stagedObservation.Revision == ""
+	if firstPage {
 		s.stagedObservation = page.Observation
+		if s.refreshPath == "" && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
+			s.refreshPath = s.files[s.selectedFile].Path
+		}
+		if s.refreshPath == "" {
+			s.refreshPath = s.Widget().(workspaceDiffPane).Descriptor.Path
+		}
+		if s.pendingTarget.Reference != "" {
+			s.activeTarget = s.pendingTarget
+			s.pendingTarget = protocol.DiffTargetEntry{}
+			s.pinnedEvidence = false
+		}
+		s.observation = page.Observation
+		s.files = append([]protocol.DiffFileSummary(nil), page.Files...)
+		s.hunks = nil
+		s.selectedFile = 0
+		s.cursorRow = 0
+		s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+		s.scroll = ui.ScrollPaneController{}
+		s.invalidateSplitTargets()
+		s.highlightReady = false
+		s.phase = workspaceDiffReady
+		s.loadingFile = len(s.files) > 0
+	} else {
+		s.files = append(s.files, page.Files...)
 	}
-	s.stagedFiles = append(s.stagedFiles, page.Files...)
 	s.observationCursor = page.NextCursor
 	if page.NextCursor != "" {
 		s.requestObservationPage(page.NextCursor)
 		return
 	}
-	wanted := s.refreshPath
-	if wanted == "" && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
-		wanted = s.files[s.selectedFile].Path
-	}
-	if wanted == "" {
-		wanted = s.Widget().(workspaceDiffPane).Descriptor.Path
-	}
-	if s.pendingTarget.Reference != "" {
-		s.activeTarget = s.pendingTarget
-		s.pendingTarget = protocol.DiffTargetEntry{}
-		s.pinnedEvidence = false
-	}
-	s.observation = s.stagedObservation
-	s.files = append([]protocol.DiffFileSummary(nil), s.stagedFiles...)
 	s.stagedObservation = protocol.DiffObservation{}
-	s.stagedFiles = nil
-	s.hunks = nil
-	s.cursorRow = 0
-	s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
-	s.scroll = ui.ScrollPaneController{}
-	s.invalidateSplitTargets()
-	s.highlightReady = false
 	s.syncPolling(s.Widget().(workspaceDiffPane))
 	if len(s.files) == 0 {
 		s.phase = workspaceDiffEmpty
-		s.selectedFile = 0
+		s.loadingFile = false
 		s.refreshPath = ""
 		s.refreshLine = 0
 		return
 	}
-	s.phase = workspaceDiffReady
-	s.selectedFile = 0
 	matchedPath := false
 	for index, file := range s.files {
-		if file.Path == wanted {
+		if file.Path == s.refreshPath {
 			s.selectedFile = index
 			matchedPath = true
 			break
@@ -610,6 +610,7 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.DiffPage, err
 		s.refreshLine = 0
 	}
 	s.refreshPath = ""
+	s.loadingFile = false
 	s.startFileLoad()
 }
 

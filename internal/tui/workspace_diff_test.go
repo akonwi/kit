@@ -937,6 +937,54 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDiffTargetSwitchPublishesFirstCoherentPage(t *testing.T) {
+	commitTarget := protocol.DiffTargetEntry{Reference: "paged-target", TargetID: "difftarget_paged", Kind: protocol.DiffTargetCommit, Metadata: protocol.DiffTargetMetadata{Label: "ccccccc  Paged"}}
+	oldFile, firstFile, secondFile := textDiffFile("old.go", 1, 0), textDiffFile("first.go", 1, 0), textDiffFile("second.go", 1, 0)
+	working := testDiffObservation(oldFile)
+	first := testDiffObservation(firstFile)
+	first.Observation.Target.ID, first.Observation.Target.Kind, first.Observation.Revision, first.NextCursor = commitTarget.TargetID, protocol.DiffTargetCommit, "diffrev_paged", "next"
+	second := protocol.WorkingTreePage{Observation: first.Observation, Files: []protocol.DiffFileSummary{secondFile}}
+	line := 1
+	releaseNext, nextStarted := make(chan struct{}), make(chan struct{})
+	backend := fakeWorkingTreeDiff{observation: working, observeFn: func(_ context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+		if input.TargetReference != commitTarget.Reference {
+			return working, nil
+		}
+		if input.Cursor == "" {
+			return first, nil
+		}
+		close(nextStarted)
+		<-releaseNext
+		return second, nil
+	}, pages: map[string]protocol.FileDiffPage{
+		"old.go":                               {Observation: working.Observation, File: oldFile, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "old presentation", HasTerminatingLF: true}}}}},
+		commitTarget.TargetID + "\x00first.go": {Observation: first.Observation, File: firstFile, Computation: protocol.DiffComputation{State: "complete"}},
+	}}
+	dispatch := &queuedDiffDispatch{}
+	state := &workspaceDiffPaneState{}
+	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch, testState: state,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+	pumpDiffUntil(t, application, dispatch, 100, 14, "old presentation")
+	state.SetState(func() { state.switchTarget(commitTarget) })
+	for {
+		dispatch.flush()
+		application.Pump(100, 14)
+		select {
+		case <-nextStarted:
+			goto firstPageReady
+		default:
+			time.Sleep(time.Millisecond)
+		}
+	}
+firstPageReady:
+	text := application.Text()
+	if !strings.Contains(text, "Diff › ccccccc  Paged") || !strings.Contains(text, "Loading file diff") || strings.Contains(text, "old presentation") {
+		t.Fatalf("first coherent page was not published atomically:\n%s", text)
+	}
+	close(releaseNext)
+	pumpDiffUntil(t, application, dispatch, 100, 14, "first.go")
+}
+
 func TestWorkspaceDiffTargetSwitchIgnoresOutOfOrderCompletion(t *testing.T) {
 	workingTarget := testDiffCatalog().Targets[0]
 	targetA := protocol.DiffTargetEntry{Reference: "target-a", TargetID: "difftarget_a", Kind: protocol.DiffTargetCommit, Metadata: protocol.DiffTargetMetadata{Label: "aaaaaaa  Older"}}
