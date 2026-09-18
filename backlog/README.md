@@ -1,11 +1,17 @@
-# Kit v2 roadmap
+# Kit v2 backlog
 
 ## Purpose
 
 Kit v2 is a production replacement for the current Kit release, not an attempt
-to reproduce every historical feature before shipping. This roadmap defines the
+to reproduce every historical feature before shipping. This backlog defines the
 first releasable v2 scope, records deliberate deferrals, and tracks later client
 and platform work.
+
+`backlog/` is the sole source of outstanding work. Documents under `docs/`
+describe accepted architecture, behavior, design, and research; they must link
+to backlog requirements rather than maintain separate work lists. Focused plans
+may live beside these ledgers when they add implementation context, but the
+ledger requirement remains the canonical status and must not be duplicated.
 
 The fixed comparison baseline is Git commit
 [`5c6e112`](https://github.com/akonwi/kit/tree/5c6e112). Relevant changes added
@@ -15,21 +21,27 @@ They do not become release requirements implicitly.
 
 Historical documentation in `app/docs/features/` is a behavioral reference,
 not an architectural constraint. The v2 architecture is defined by
-[`adrs/0001-native-go-architecture.md`](adrs/0001-native-go-architecture.md).
+[`docs/adrs/0001-native-go-architecture.md`](../docs/adrs/0001-native-go-architecture.md).
 
-## Roadmap organization
+## Backlog organization
 
 Each requirement has one canonical owner. Cross-cutting client work depends on
 core requirement IDs instead of repeating the server requirement.
 
-- [Core and protocol](roadmap/core.md): daemon, runtime, persistence, migration,
+- [Core and protocol](core.md): daemon, runtime, persistence, migration,
   protocol, tools, integrations, headless operation, and shared client contracts.
-- [Native TUI](roadmap/tui.md): terminal presentation and interaction.
-- [Semantic web](roadmap/web.md): browser presentation, synchronization,
+- [Native TUI](tui.md): terminal presentation and interaction.
+- [Semantic web](web.md): browser presentation, synchronization,
   accessibility, and browser-specific security.
-
-- [Native macOS](roadmap/macos.md): desktop foundation and native client work.
+- [Native macOS](macos.md): desktop foundation and native client work.
   This client is not part of the initial v2 release.
+
+Focused implementation and design notes:
+
+- [Hidden workspace pane suspension](hidden-workspace-pane-suspension.md)
+- [Workspace pane stack limitations](workspace-pane-stack.md)
+- [Workspace tab ceiling recovery](workspace-tab-ceiling-recovery.md)
+- [Ataraxy review integration](ataraxy-review-integration.md)
 
 ## Requirement states
 
@@ -83,13 +95,13 @@ It must provide:
 
 The release does not require the semantic web client, a desktop client, remote
 serving or attach, external plugins, code-review workspaces, scratchpad, pager,
-or complete historical feature parity. Those features remain visible in their
-Post-R1 roadmaps rather than silently expanding the release gate.
+or complete historical feature parity. Those features remain visible in the
+Post-R1 backlog rather than silently expanding the release gate.
 
 ## R1 decision
 
 R1 has one unresolved scope decision:
-[`TUI-KEY-001`](roadmap/tui.md#r1-decision), which determines whether
+[`TUI-KEY-001`](tui.md#r1-decision), which determines whether
 user-configurable keybindings and current keybinding configuration compatibility
 ship in the initial release. It must be resolved before a release candidate.
 
@@ -118,17 +130,17 @@ ship in the initial release. It must be resolved before a release candidate.
   and native release packaging without delaying startup.
 - [ ] ROAD-R1-004 — Verify installed artifacts, upgrades, and local-daemon
   lifecycle on macOS and Linux after `CORE-TEST-004` and `TUI-TEST-001` pass.
-- [~] ROAD-R1-005 — Reconcile user documentation, CLI help, ADRs, and roadmap
+- [~] ROAD-R1-005 — Reconcile user documentation, CLI help, ADRs, and backlog
   links with the shipped R1 surface.
 
 R1 is releasable only when every R1 requirement in this index and the core/TUI
-roadmaps is complete, `TUI-KEY-001` is resolved, Post-R1 work is not on the
+backlogs is complete, `TUI-KEY-001` is resolved, Post-R1 work is not on the
 critical path, and production `main` has received a final rolling-delta audit.
 
 ## Rolling production delta
 
 Add every relevant unresolved or intentionally superseded behavior merged after
-`5c6e112`. Remove a row after its decision is represented by a stable roadmap
+`5c6e112`. Remove a row after its decision is represented by a stable backlog
 requirement or accepted decision and has been verified.
 
 Last audited against production `main` at `c9abdf2` (Kit v0.35.1). Version-only
@@ -136,7 +148,5 @@ commits are omitted.
 
 | Change | R1 decision | Tracking |
 | --- | --- | --- |
-| Add validated `show_image` and explicit transcript image previews (`a2c7434`) | Required | `CORE-ATT-002`, `TUI-ATT-002` |
-| Open transcript images in retained workspace panes (`e6c181f`) | Superseded | Always-visible transcript previews with system-app opening; `TUI-ATT-002` |
 | Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Post-R1 | `CORE-REVIEW-001`, `TUI-REVIEW-001` |
 | Upgrade the TypeScript Pi runtime to 0.85 (`1971d71`) | Superseded | Native droids decision; ADRs 0001 and 0006 |

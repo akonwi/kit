@@ -1,5 +1,7 @@
 # Ataraxy review integration
 
+Tracked by `CORE-REVIEW-003` in the [core backlog](core.md).
+
 ## Summary
 
 If Kit revisits Ataraxy integration, treat the two tools as complementary rather

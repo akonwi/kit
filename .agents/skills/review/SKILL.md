@@ -21,7 +21,7 @@ Activate this skill when the user says any variation of:
 
 - Check `git status`, `git diff` (staged and unstaged), and recent commits
 - Understand the scope: what files changed, what the change intends to do
-- Check for any related context in `backlog/backlog.md` or `docs/`
+- Check for any related context in `backlog/README.md` or `docs/`
 
 ### 2. Activate Relevant Skills
 

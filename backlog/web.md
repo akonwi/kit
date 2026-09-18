@@ -1,8 +1,8 @@
-# Semantic web roadmap
+# Semantic web backlog
 
 The semantic browser client is an approved Post-R1 client. None of this file is
 part of the initial production replacement gate. Core behavior remains owned by
-the [core roadmap](core.md); this file owns browser transport, presentation,
+the [core backlog](core.md); this file owns browser transport, presentation,
 interaction, security, and accessibility.
 
 ## Post-R1 foundation and security
@@ -34,8 +34,10 @@ interaction, security, and accessibility.
 - [ ] WEB-ATT-001 — Upload, validate, preview, restore, submit, and clean up
   attachments with authenticated reads and responsive presentation. Depends on
   `CORE-ATT-001` and `CORE-REMOTE-003`.
-- [ ] WEB-WORK-001 — Add activity, image, subagent roster/transcript, and other
-  approved retained workspace panes.
+- [ ] WEB-WORK-001 — Add activity, image, subagent roster/transcript, release,
+  Mermaid, and other approved retained workspace panes.
+- [ ] WEB-SESSION-001 — Add a bounded session explorer backed by the shared
+  server catalog. Depends on `CORE-CATALOG-001`.
 - [ ] WEB-REVIEW-001 — Add browser code-review workflows after the shared review
   contract exists. Depends on `CORE-REVIEW-001`.
 - [ ] WEB-THEME-001 — Persist browser-local theme selection and per-session

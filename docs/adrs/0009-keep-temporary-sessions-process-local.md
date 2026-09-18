@@ -64,10 +64,11 @@ very durable metadata artifact that temporary mode avoids. It would still need
 a lease or heartbeat to distinguish an idle client from a failed owner, so the
 registry row does not solve owner-loss cleanup by itself.
 
-### Deferred owner leases
+### Owner leases outside this decision
 
-If abnormal owner-loss cleanup becomes necessary, Kit should add logical owner
-leases rather than connection counting. A lease design must define:
+Kit does not currently commit to abnormal owner-loss cleanup. If that capability
+is added to the backlog, it should use logical owner leases rather than
+connection counting. A lease design must define:
 
 - an opaque lease identity created atomically with the temporary session;
 - explicit release on orderly client exit;
@@ -130,4 +131,4 @@ The implementation must demonstrate:
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [0008: Establish the initial native CLI surface](./0008-establish-initial-native-cli-surface.md)
-- [`../roadmap.md`](../roadmap.md)
+- [`../../backlog/README.md`](../../backlog/README.md)

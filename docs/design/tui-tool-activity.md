@@ -48,7 +48,7 @@ column, human-readable action title, and surfaced argument-summary chip:
 
 ```text
   Run command       cat · echo · grep → head
-✕ Search            TUI-WORK in docs/roadmap
+✕ Search            TUI-WORK in backlog
 ```
 
 The example communicates hierarchy rather than literal chip styling. The

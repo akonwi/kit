@@ -4,7 +4,7 @@
 
 Active direction. Accepted rules move into `.agents/skills/design/SKILL.md` as
 they are decided; unresolved topics remain explicit explorations here.
-Implementation progress is tracked in `docs/roadmap/tui.md`.
+Implementation progress is tracked in `backlog/tui.md`.
 
 ## Research baseline
 

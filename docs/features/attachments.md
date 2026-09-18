@@ -55,7 +55,8 @@ asynchronously, and rendered cells are cached by attachment identity and target
 size.
 
 This deliberately avoids a Vaxis fork, a duplicate `ui.Run`, and the unrelated
-`vxfw` widget framework. Native Kitty and Sixel placement remains backlog work
+`vxfw` widget framework. Native Kitty and Sixel placement is tracked by
+`TUI-IMAGE-001` in the [native TUI backlog](../../backlog/tui.md).
 pending an upstream retained-image paint API in `vaxis/ui`. Unicode half-block
 rendering is the supported baseline until then.
 
@@ -134,9 +135,8 @@ launch failures are shown to the user.
 8. Prove identity, cleanup, failure, reconnect, and restart behavior in protocol,
    core integration, and deterministic TUI presentation tests.
 
-## Deferred work
+## Outstanding work
 
-- Upstream retained image paint operations for `vaxis/ui`.
-- Native Kitty/Sixel rendering and clipping after that API is available.
-- Binary clipboard image ingestion if Vaxis gains a bounded typed clipboard
-  payload contract.
+Native Kitty/Sixel rendering and binary clipboard ingestion are tracked by
+`TUI-IMAGE-001` and `TUI-ATT-003` in the
+[native TUI backlog](../../backlog/tui.md).

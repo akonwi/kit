@@ -46,9 +46,9 @@ status, while a successful response with unavailable status clears the Git
 suffix.
 
 Production's TypeScript client also uses filesystem watchers for lower-latency
-external worktree, index, and ref changes. That event-driven refresh remains a
-roadmap follow-up unless polling latency is accepted as an intentional
-difference.
+external worktree, index, and ref changes. Matching that refresh behavior is
+tracked by `CORE-VCS-001` in the [core backlog](../../backlog/core.md) unless
+polling latency is accepted as an intentional difference.
 
 GitHub pull-request metadata through `gh` is a separate feature and is not part
 of local VCS status.

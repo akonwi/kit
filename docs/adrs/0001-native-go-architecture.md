@@ -31,7 +31,7 @@ The rewrite has these hard constraints:
   protocol;
 - the system is always single-user, including remote deployments;
 - the rewrite is releasable only after the initial production-replacement scope
-  in the roadmap is complete.
+  in the backlog is complete.
 
 ## Decision
 
@@ -307,8 +307,9 @@ Plugin resilience initially means isolation and graceful degradation:
 - bounded diagnostics and exit information are retained;
 - restart/reload is explicit.
 
-Automatic restart policy is deferred. The process boundary is a reliability and
-API boundary, not a security sandbox. Plugins run as the same OS user and must
+Automatic restart policy is outside this decision and is not a committed
+capability. The process boundary is a reliability and API boundary, not a
+security sandbox. Plugins run as the same OS user and must
 be treated as trusted code.
 
 ### Single-user remote access
@@ -323,7 +324,7 @@ Non-loopback deployments require TLS from a trusted tunnel or reverse proxy
 unless the user makes an explicit insecure development choice. Host and Origin
 validation remain active.
 
-### Delivery and roadmap
+### Delivery and backlog
 
 Development proceeds through end-to-end slices that prove risky boundaries
 without making every target client or integration an initial-release dependency.
@@ -331,7 +332,7 @@ The first production release is a local, terminal-first replacement with safe
 migration; later milestones add the semantic web client, remote attach, and
 external plugins.
 
-The release gate is the R1 scope in the roadmap, not complete behavioral parity
+The release gate is the R1 scope in the backlog, not complete behavioral parity
 with a historical baseline. Relevant changes made on production `main` during
 the rewrite are triaged explicitly as R1, Post-R1, or superseded work.
 
@@ -392,10 +393,14 @@ to hold shared types.
 - Browser development still needs Bun even though users do not.
 - Existing session data needs an explicit semantic migration into droids- and
   Kit-owned records.
-- Internalizing droids increases Kit's source and test surface and requires an
-  explicit future decision about extraction or upstream synchronization.
+- Internalizing droids increases Kit's source and test surface; the ownership
+  decision is tracked by `CORE-DROIDS-001` in the
+  [core backlog](../../backlog/core.md).
 
-## Deferred
+## Scope boundaries
+
+The architecture does not commit Kit to the following capabilities unless they
+are added to the backlog:
 
 - daemon-wide multiplexed external plugins;
 - automatic plugin restart policies;
@@ -403,12 +408,13 @@ to hold shared types.
 - a Kit-managed TLS certificate authority or public cloud control plane;
 - exact resumption of interrupted provider streams or side-effecting tools;
 - multiplexing several session bindings over one live event connection;
-- native session tabs beyond the initial roadmap scope;
-- idle session and daemon eviction policy.
+- native session tabs beyond the initial backlog scope;
+- idle session and daemon eviction policy, tracked by `CORE-LIFE-007` in the
+  [core backlog](../../backlog/core.md).
 
 ## Related
 
-- [`../roadmap.md`](../roadmap.md)
+- [`../../backlog/README.md`](../../backlog/README.md)
 - [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
 - [0003: Provider credential storage](./0003-provider-credential-storage.md)
 - Historical implementation and ADRs at Git commit `5c6e112`

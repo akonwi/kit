@@ -1,5 +1,7 @@
 # Workspace tab ceiling recovery
 
+Tracked by `TUI-WORK-004` in the [native TUI backlog](tui.md).
+
 Opening a new workspace pane at the 32-secondary-tab ceiling is currently
 rejected with an actionable warning. The user can open the existing pane picker
 through the `tabs` command, close a tab, and retry the original action.

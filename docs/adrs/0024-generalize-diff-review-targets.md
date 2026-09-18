@@ -193,5 +193,5 @@ rather than rebinding evidence.
 - [ADR 0020: Add file, diff, and review workspace surfaces](0020-file-diff-review-workspace-surfaces.md)
 - [ADR 0022: Model draft annotations as session inputs](0022-model-draft-annotations-as-session-inputs.md)
 - [ADR 0023: Bound working-tree diff observations](0023-bound-working-tree-diff-observations.md)
-- [Core roadmap](../roadmap/core.md)
-- [Native TUI roadmap](../roadmap/tui.md)
+- [Core backlog](../../backlog/core.md)
+- [Native TUI backlog](../../backlog/tui.md)

@@ -164,5 +164,5 @@ workspace controller and must not weaken its client-local lifecycle boundaries.
 - [ADR 0018: Retain native workspace panes in full-width tabs](0018-retained-native-workspace-shell.md)
 - [ADR 0019: Expose session workspace files through bounded contracts](0019-expose-session-workspace-files.md)
 - [ADR 0022: Model draft annotations as session inputs](0022-model-draft-annotations-as-session-inputs.md)
-- [Native TUI roadmap](../roadmap/tui.md)
-- [Core and protocol roadmap](../roadmap/core.md)
+- [Native TUI backlog](../../backlog/tui.md)
+- [Core and protocol backlog](../../backlog/core.md)

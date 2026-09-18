@@ -311,7 +311,7 @@ The implementation must demonstrate:
 - Prompt composition, source limits, diagnostics, and reload coordination add a
   server-side subsystem.
 - Users must reload a session before edited guidance affects a loaded runtime.
-- Removing `CLAUDE.md` compatibility is an explicit roadmap decision.
+- Removing `CLAUDE.md` compatibility is an explicit backlog decision.
 - A built-in customization skill requires a minimal skill registry and
   activation tool before general user/project skill support is complete.
 - A turn may use a newer prompt or tool snapshot on a later provider cycle than
@@ -322,7 +322,7 @@ The implementation must demonstrate:
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0004: Model a droid as an autonomous agent runtime](./0004-droids-agent-runtime-boundary.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
-- [`../roadmap.md`](../roadmap.md)
+- [`../../backlog/README.md`](../../backlog/README.md)
 - [`../features/context-guidance.md`](../features/context-guidance.md)
 - [`../features/skills.md`](../features/skills.md)
 - [`../features/prompt-commands.md`](../features/prompt-commands.md)

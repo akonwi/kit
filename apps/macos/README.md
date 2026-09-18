@@ -13,7 +13,7 @@ apps/macos/script/build_and_run.sh --verify
 The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
 resource generation. The development bundle is ad-hoc signed; distribution,
-notarization, and bundled-daemon work remain on the roadmap.
+notarization, and bundled-daemon work remain on the backlog.
 
 Start a compatible Kit v2 daemon separately. The app discovers it through
 `~/.kit-v2/run` and checks identity and protocol compatibility. It never starts
@@ -34,7 +34,7 @@ The shared composer always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+K opens commands; Cmd+, opens settings.
 
 File views read from the session server and support highlighted, selectable
-content. Review and scratchpad server integration remain roadmap work. Subagent
+content. Review and scratchpad server integration remain backlog work. Subagent
 conversations are read-only by product decision.
 
 ## Development and validation
@@ -73,4 +73,4 @@ inputs used by `ThemeTests`, not app resources.
 - [Source editing and highlighting decision](../../docs/adrs/0013-native-source-editing-and-highlighting.md)
 - [Native design language](../../docs/design/macos-design-language.md)
 - [Client implementation reference](../../docs/design/macos-client.md)
-- [Outstanding work](../../docs/roadmap/macos.md)
+- [Outstanding work](../../backlog/macos.md)

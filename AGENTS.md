@@ -6,7 +6,7 @@ Kit is a standalone, single-user, terminal-first coding agent distributed as one
 Go executable for macOS and Linux. Windows is intentionally unsupported. The
 current rewrite architecture is canonical in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and release scope is tracked in [`docs/roadmap.md`](docs/roadmap.md).
+and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
 During rewrite development, Kit must use `~/.kit-v2` by default. Never read or
 mutate current `~/.kit` state without an explicit migration operation.
@@ -46,12 +46,12 @@ uses Solid and Mica at build time and is embedded in the Go executable.
   merely to hold shared types.
 - Once an interface is accepted, implement through it rather than bypassing it
   for expediency.
-- Record architectural decisions under `docs/adrs/` and deferred work in the
-  roadmap or `backlog/`.
+- Record architectural decisions under `docs/adrs/`. Record all outstanding and
+  deferred work in `backlog/`; do not maintain work lists under `docs/`.
 - Write ADRs as descriptions of the proposed or accepted target state and its
   rationale. Do not narrate previous implementations or historical state in an
-  ADR; put necessary historical comparisons in migration documents, the
-  roadmap, or commit history instead.
+  ADR; put necessary historical comparisons in migration documents, the backlog,
+  or commit history instead.
 
 ## Go conventions
 
@@ -96,4 +96,4 @@ browser suites defined by the web workspace. Bun is a development/build-time
 dependency only and must not become a user runtime requirement.
 
 Before releasing the rewrite, satisfy the R1 verification gates in
-`docs/roadmap.md` and `docs/roadmap/core.md`.
+`backlog/README.md` and `backlog/core.md`.

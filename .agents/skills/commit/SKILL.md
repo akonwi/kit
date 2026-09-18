@@ -25,7 +25,7 @@ Provide a clear summary of the changes in the working tree.
 
 ### 3. Update Backlog if Needed
 
-If the changes complete or substantially address an item from `backlog/backlog.md`, update that backlog file before committing.
+If the changes complete or substantially address an item from `backlog/README.md`, update that backlog file before committing.
 
 ### 4. Run Validation Checks
 

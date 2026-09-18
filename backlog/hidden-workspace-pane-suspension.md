@@ -1,5 +1,7 @@
 # Suspend hidden workspace pane reconciliation and animation
 
+Tracked by `TUI-PERF-001` in the [native TUI backlog](tui.md).
+
 Retained hidden workspace panes are excluded from layout updates, paint, hit
 testing, focus, keyboard handling, and pane-specific polling. Their mounted
 widget subtrees may still perform lightweight rebuild work or animation ticks.

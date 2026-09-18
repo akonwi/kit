@@ -1,5 +1,7 @@
 # Workspace pane stack limitations
 
+Tracked by `TUI-WORK-003` in the [native TUI backlog](tui.md).
+
 The workspace secondary surface keeps a single `returnPane` slot, so the
 pane "stack" is one level deep. Known consequences, accepted for now:
 

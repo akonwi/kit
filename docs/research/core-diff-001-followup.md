@@ -90,7 +90,7 @@ kernel snapshot.
    matrix.
 4. Owned bounded semantic differ and hunk pagination.
 5. Protocol/session-client projections, diff annotation anchor, and adversarial
-   integration matrix. Roadmap completion remains unchanged until all gates pass.
+   integration matrix. Backlog completion remains unchanged until all gates pass.
 
 ## Scope and evidence
 
@@ -559,5 +559,5 @@ make gitlinks unresolved rather than index-backed; fix assume-unchanged probing
 to use `-v`; disable rename/config variability in ITA detection; separate
 omissions, computation, and pagination on the wire; isolate probe Git config;
 define executable-mode semantics; and strengthen prototype accounting,
-cancellation, and checked arithmetic. The proposed ADR remains Proposed pending
-the cross-platform verification matrix.
+cancellation, and checked arithmetic. The cross-platform verification matrix was completed before ADR 0023 was
+accepted and `CORE-DIFF-001` was marked complete.

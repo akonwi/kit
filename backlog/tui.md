@@ -1,7 +1,7 @@
-# Native TUI roadmap
+# Native TUI backlog
 
 This ledger owns terminal presentation and interaction. Server behavior belongs
-in the [core roadmap](core.md); dependencies below refer to its stable IDs.
+in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ## R1 required
 
@@ -18,7 +18,7 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   overflow and modal pane picker,
   the modal subagent roster/status picker with explicitly opened conversation
   tabs, and the extensible pane registry used by supported surfaces. See
-  [ADR 0018](../adrs/0018-retained-native-workspace-shell.md).
+  [ADR 0018](../docs/adrs/0018-retained-native-workspace-shell.md).
 - [~] TUI-SHELL-002 — Complete layered focus and deterministic overlay
   precedence for the built-in keymap.
 
@@ -30,8 +30,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   terminal-width transitions. Accept Agent-originated file and search-match
   opens with relevant line anchors. Deduplicate mutable file panes by workspace
   incarnation and canonical relative path regardless of origin. See
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md) and the
-  [tool activity working design](../design/tui-tool-activity.md).
+  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md) and the
+  [tool activity working design](../docs/design/tui-tool-activity.md).
 - [x] TUI-DIR-001 — Provide a modal flat file picker backed by the same bounded,
   session/cwd-scoped project-path index as composer `@` mentions, with fuzzy
   path filtering; keyboard and primary-mouse navigation; visible loading,
@@ -39,21 +39,21 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
   a retained File tab through the current workspace reference. Reserve the
   workspace directory APIs for future static directory/tree displays. Depends
   on `CORE-WORK-001`. See
-  [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
+  [ADR 0019](../docs/adrs/0019-expose-session-workspace-files.md) and
+  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
 - [x] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
   line numbers, vertical and horizontal navigation, truncation/staleness
   feedback, refresh that preserves position when possible, and safe binary or
   unreadable-file handling. Depends on `CORE-WORK-001`. See
-  [ADR 0019](../adrs/0019-expose-session-workspace-files.md) and
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
+  [ADR 0019](../docs/adrs/0019-expose-session-workspace-files.md) and
+  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
 - [x] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
   including agent edits, with changed-file and hunk navigation, semantic
   added/removed/context styling, line-number gutters, unified and split layouts
   where width permits, bounded automatic refresh while the pane is active and
   visible, and explicit loading, empty, stale, truncated, and error states. Depends on
   `CORE-DIFF-001`. See
-  [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
+  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
 
 ### Transcript and activity
 
@@ -87,6 +87,8 @@ in the [core roadmap](core.md); dependencies below refer to its stable IDs.
 
 ### User interaction and integrations
 
+- [ ] TUI-AUTH-001 — Present provider login, API-key replacement, logout, and
+  actionable failures without exposing credentials. Depends on `CORE-AUTH-001`.
 - [ ] TUI-MCP-001 — Present MCP connection, authentication, failure, and debug
   state without exposing credentials. Depends on `CORE-MCP-004` and
   `CORE-MCP-005`.
@@ -120,6 +122,8 @@ resolving this decision.
   fallback, or adopt an explicitly reviewed native equivalent.
 - [ ] TUI-IMAGE-001 — Add retained `vaxis/ui` image paint operations upstream
   and use them for native Kitty/Sixel transcript rendering with clipping.
+- [ ] TUI-ATT-003 — Add bounded binary clipboard image ingestion when vaxis
+  exposes a typed clipboard payload contract.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
@@ -130,19 +134,28 @@ resolving this decision.
   workspace-file annotations with bounded editing, anchor navigation, stale
   treatment, keyboard and gutter-mouse interaction, and server-authoritative
   synchronization. Depends on `CORE-ANN-001`. See
-  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [x] TUI-ANN-002 — Project each live annotation as a synchronized composer chip
   on every tab, preserve explicit ordering, submit annotation IDs with prompts,
   remove accepted drafts, and render immutable submitted snapshots. Depends on
   `CORE-ANN-002`. See
-  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] TUI-REVIEW-001 — Extend File and Diff tabs with target-scoped annotations,
   plus modal review-target and changed-file navigation; do not add a separate
   Review tab. Depends on `CORE-REVIEW-001`, `CORE-ANN-001`, and `CORE-ANN-002`.
-  See [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md) and
-  [ADR 0024](../adrs/0024-generalize-diff-review-targets.md).
+  See [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md) and
+  [ADR 0024](../docs/adrs/0024-generalize-diff-review-targets.md).
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
+- [ ] TUI-WORK-003 — Replace the one-level workspace return pane with a real
+  retained stack when multi-pane retention becomes a product requirement. See
+  the [known limitations](workspace-pane-stack.md).
+- [ ] TUI-WORK-004 — Design direct recovery when opening a pane at the workspace
+  tab ceiling without silent eviction or stale pending requests. See the
+  [focused design note](workspace-tab-ceiling-recovery.md).
+- [ ] TUI-PERF-001 — Suspend hidden workspace pane reconciliation and animation
+  when measurements show material cost, while preserving retained state. See
+  the [focused optimization note](hidden-workspace-pane-suspension.md).
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
   when their owning Post-R1 capabilities are implemented.
 - [ ] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe

@@ -1,6 +1,6 @@
-# Core and protocol roadmap
+# Core and protocol backlog
 
-This ledger owns client-neutral behavior. A client roadmap may depend on these
+This ledger owns client-neutral behavior. A client backlog may depend on these
 IDs but must not redefine server, persistence, or protocol semantics.
 
 ## R1 required
@@ -61,7 +61,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   reconnect and restart, including rich ordered content and tool identity.
 - [~] CORE-RUN-003 — Propagate abort and cooperative cancellation through
   providers, tools, MCP, and subagents with deterministic terminal state.
-- [~] CORE-RUN-004 — Expose bounded provider retry countdowns and recovery state
+- [x] CORE-RUN-004 — Expose bounded provider retry countdowns and recovery state
   to clients.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
   checkpoints and expose pending, completed, and failed lifecycle state.
@@ -69,6 +69,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
   overwriting explicit user names.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
+- [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
+  across model changes and is projected consistently after restart.
 
 - [ ] CORE-CATALOG-001 — Expose a server-wide session catalog snapshot and
   change stream so clients can maintain live session lists without polling or
@@ -109,8 +111,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
-- [x] CORE-ATT-002 — Validated, attachment-backed `show_image` results with
-  explicit transcript-image presentation details. Depends on `CORE-ATT-001`.
 - [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
   `WEB-INT-001`.
 - [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
@@ -145,8 +145,9 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [~] CORE-TEST-003 — Extend migration tests to imported data, repetition,
   partial failure, and recovery, and prove current user data is untouched before
   explicit migration.
-- [ ] CORE-TEST-004 — Complete authenticated R1 smoke coverage for coding tools,
-  attachments/images, MCP, interactions, signals, and migration.
+- [ ] CORE-TEST-004 — Complete authenticated R1 smoke coverage for model and
+  thinking selection, coding tools, attachments/images, MCP, interactions,
+  signals, and migration.
 
 ## Post-R1
 
@@ -189,6 +190,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 - [-] CORE-HANDOFF-001 — Superseded by the renamed R1 `/fork` workflow tracked
   by `CORE-FORK-001`.
+- [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an
+  independent fork, or extract selected changes after the rewrite stabilizes.
+- [ ] CORE-LIFE-007 — Add bounded idle session and daemon eviction policies.
+- [ ] CORE-INT-003 — Recover pending user interactions across server restarts.
 - [ ] CORE-THREAD-001 — Expand bounded `#thread` references with escaping and
   active-session exclusion.
 - [ ] CORE-SCRATCH-001 — Implement guarded scratchpad reads/edits, autosave,
@@ -197,16 +202,23 @@ IDs but must not redefine server, persistence, or protocol semantics.
   server-allocated monotonic IDs, typed revision-pinned anchors, authoritative
   previews, mutation, deletion, stale guards, persistence, snapshots, and events,
   beginning with workspace-file line ranges. See
-  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [x] CORE-ANN-002 — Accept ordered annotation IDs with structured prompts,
   atomically validate and snapshot them into accepted messages, remove submitted
   drafts, and project immutable submitted annotations through transcript
   contracts. See
-  [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
+  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] CORE-REVIEW-001 — Provide revision-pinned working-tree, commit, and branch
   review data with staged, unstaged, representable untracked files, explicit
   skipped sections, and target-scoped annotation workflows. See
-  [ADR 0024](../adrs/0024-generalize-diff-review-targets.md).
+  [ADR 0024](../docs/adrs/0024-generalize-diff-review-targets.md).
+- [ ] CORE-REVIEW-002 — Let agents add revision-validated diff annotations that
+  use the session-owned review annotation lifecycle and can be dismissed or
+  hidden by clients. Depends on `CORE-REVIEW-001`.
+- [ ] CORE-REVIEW-003 — Evaluate optional Ataraxy review triage and semantic
+  navigation without replacing Kit's exact patch data or making an external
+  binary a required dependency. See the
+  [focused integration note](ataraxy-review-integration.md).
 - [ ] CORE-CMD-001 — Add compact synthetic transcript identity for discovered
   prompt commands and Claude-compatible command discovery/namespacing.
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical

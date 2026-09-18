@@ -1,6 +1,12 @@
-# RPC and web modes
+# Legacy RPC and web modes
 
-Kit's stdio and WebSocket transports share the same `RpcSessionHost`, command
+> Historical reference for the production TypeScript/OpenTUI implementation.
+> This is not the native v2 contract: RPC, remote serving, and `kit attach` are
+> tracked by `CORE-RPC-001` and `CORE-REMOTE-001` through `CORE-REMOTE-004` in
+> the [core backlog](../../backlog/core.md). OpenTUI and `web-tui` are not part
+> of the native architecture.
+
+The legacy Kit implementation's stdio and WebSocket transports share the same `RpcSessionHost`, command
 dispatch, and semantic event model.
 
 The reusable per-user `KitServer` daemon now exposes authenticated loopback

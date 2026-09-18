@@ -671,5 +671,5 @@ An implementation of this decision must demonstrate:
 
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0002: Internalize the droids agent core during the rewrite](./0002-internalize-agent-core.md)
-- [Kit v2 roadmap](../roadmap.md)
+- [Kit v2 backlog](../../backlog/README.md)
 - `internal/droids/README.md`

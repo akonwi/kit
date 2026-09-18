@@ -101,12 +101,12 @@ Trade-offs:
 - direct in-memory refresh can be lost on process restart unless Kit supplies a
   credential store.
 
-## Follow-up
+## Scope boundaries
 
-- implement native TUI and browser login/logout presentation over Kit's
-  `~/.kit-v2` credential store and headless auth commands;
-- decide after the rewrite stabilizes whether to extract droids again, maintain
-  it independently, or upstream selected changes.
+Credential presentation and the long-term ownership of droids are outside this
+architecture decision. Outstanding work is tracked by `TUI-AUTH-001`,
+`WEB-AUTH-001`, and `CORE-DROIDS-001` in the
+[backlog](../../backlog/README.md).
 
 ## Related
 

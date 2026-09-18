@@ -67,7 +67,7 @@ tab order, the selected tab within each group, and detached windows.
 Closing a session removes it from restoration intent. Explicitly reopening it joins
 the source window's session group; it does not resurrect a closed group. Quitting
 keeps the open layout for the next launch. Draft persistence across close/relaunch is
-tracked separately in the [roadmap](../roadmap/macos.md).
+tracked separately in the [backlog](../../backlog/macos.md).
 
 ## Composer
 

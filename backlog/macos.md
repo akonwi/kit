@@ -1,14 +1,14 @@
-# Native macOS roadmap
+# Native macOS backlog
 
 This ledger owns native desktop presentation, interaction, and client lifecycle.
-Server behavior belongs in the [core roadmap](core.md); dependencies below refer
+Server behavior belongs in the [core backlog](core.md); dependencies below refer
 to its stable IDs. All macOS work is **Post-R1** relative to the initial Kit v2
 release. Section order groups feature areas, not release commitments.
 
-Requirement states and completion rules follow the [main roadmap](../roadmap.md#requirement-states).
+Requirement states and completion rules follow the [main backlog](README.md#requirement-states).
 `MAC-*` IDs are stable and never reused. This document lists only outstanding
 work; Git history retains completed work and verification details. Dependencies on completed macOS items are omitted. Testing accompanies
-feature work rather than appearing as separate roadmap items.
+feature work rather than appearing as separate backlog items.
 
 Protocol coverage was reviewed against `kit-v2` at `0b40a72b`, which is included
 in this branch. Items marked **Server-ready** do not require new server functionality.
@@ -36,7 +36,7 @@ in this branch. Items marked **Server-ready** do not require new server function
 - [~] MAC-BASH-001 — Discover excluded shell executions that finish in another
   client between polling intervals. Requires server shell lifecycle events or an
   execution list/cursor endpoint; the current protocol exposes only the active
-  ID and lookup by ID. See [direct shell notes](../design/macos-client.md#direct-shell-execution).
+  ID and lookup by ID. See [direct shell notes](../docs/design/macos-client.md#direct-shell-execution).
 
 ## Subagents and cross-session tools
 

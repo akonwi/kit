@@ -229,9 +229,10 @@ This initial command tree does not expose:
 - shell completion generation or installation; or
 - noninteractive `kit sessions list`, `rename`, and `delete` commands.
 
-These are deferred rather than rejected and may be added as explicit commands
-when their application services are ready. Browser-hosted `web-tui` remains
-removed by the native architecture decision.
+These are deferred rather than rejected. Their outstanding command work is
+tracked by `CORE-RPC-001`, `CORE-REMOTE-001`, `CORE-REMOTE-004`, and
+`CORE-CLI-001` in the [core backlog](../../backlog/core.md). Browser-hosted
+`web-tui` remains removed by the native architecture decision.
 
 ## Required properties
 
@@ -290,4 +291,4 @@ This ADR supersedes the initial local-client command spellings shown in ADR
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0006: Make droids authoritative for session conversation data](./0006-droids-as-session-data-authority.md)
 - [0009: Keep temporary sessions process-local and defer owner leases](./0009-keep-temporary-sessions-process-local.md)
-- [`../roadmap.md`](../roadmap.md)
+- [`../../backlog/README.md`](../../backlog/README.md)

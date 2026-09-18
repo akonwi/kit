@@ -6,7 +6,7 @@ remote sessions, concurrent subagents, and language-neutral process plugins.
 The `kit-v2` branch is a ground-up Go rewrite for macOS and Linux. Windows is
 not a supported target. Its architecture is recorded in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
-and release scope is tracked in [`docs/roadmap.md`](docs/roadmap.md).
+and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
 ## Architecture
 

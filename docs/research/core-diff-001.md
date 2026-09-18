@@ -393,4 +393,4 @@ bottom line—directionally sound but not implementation-ready until the named
 gates are designed and tested—is adopted here.
 
 This report informs `CORE-DIFF-001`; it does not change ADR 0019, ADR 0020,
-ADR 0021, or roadmap status.
+ADR 0021, or backlog status.

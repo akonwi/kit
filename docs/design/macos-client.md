@@ -3,7 +3,7 @@
 This document records integration constraints and lifecycle decisions for the
 native client. Presentation belongs in [the design language](macos-design-language.md),
 architecture in [ADR 0013](../adrs/0013-native-macos-client.md), and unfinished
-capabilities in [the macOS roadmap](../roadmap/macos.md).
+capabilities in [the macOS backlog](../../backlog/macos.md).
 
 ## State and transport
 
@@ -130,7 +130,8 @@ Created-session and peer-session tool cards present structured summaries and
 canonical navigation targets, not raw JSON or internal request IDs. Links retain
 the originating server identity and focus already-open sessions. Recorded initial
 run IDs do not establish current run status, and peer wait timeouts do not imply
-cancellation. Standalone peer-query tracking remains roadmap work.
+cancellation. Standalone peer-query tracking is tracked by `MAC-PEER-002` in the
+[native macOS backlog](../../backlog/macos.md).
 
 `peer_query`, `peer_result`, and `subagent_result` context records are intentionally
 hidden from the transcript until a dedicated presentation is chosen.

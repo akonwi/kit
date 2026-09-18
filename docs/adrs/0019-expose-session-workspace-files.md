@@ -430,20 +430,19 @@ trees. R1 file previews are prefix-bounded rather than arbitrary-range readers,
 and symlinked directories are intentionally less convenient than ordinary
 directories.
 
-## Deferred
+## Scope boundaries
 
-- server-pushed filesystem invalidation or watch events;
-- recursive tree snapshots and server-side fuzzy search;
-- arbitrary revision-pinned byte or line ranges;
-- content-addressed durable file snapshots;
-- mutation, save, rename, delete, and upload operations;
-- Git status, working-tree diff, historical diff, and review contracts; and
-- client-specific syntax highlighting and pane behavior.
+This contract does not define filesystem watch events, recursive tree snapshots,
+server-side fuzzy search, arbitrary revision-pinned ranges, durable file
+snapshots, or workspace mutation operations. It also does not own Git status,
+diff/review contracts, syntax highlighting, or client pane behavior. Those
+capabilities require their own accepted contract and backlog requirement; this
+ADR does not commit Kit to implementing them.
 
 ## Related
 
 - [0001: Native Go application architecture](0001-native-go-architecture.md)
 - [0013: Bound initial transcript snapshots](0013-bound-initial-transcript-snapshots.md)
 - [`../features/session-cwd.md`](../features/session-cwd.md)
-- [`../roadmap/core.md`](../roadmap/core.md) (`CORE-WORK-001`)
-- [`../roadmap/tui.md`](../roadmap/tui.md) (`TUI-DIR-001`, `TUI-FILE-001`)
+- [`../../backlog/core.md`](../../backlog/core.md) (`CORE-WORK-001`)
+- [`../../backlog/tui.md`](../../backlog/tui.md) (`TUI-DIR-001`, `TUI-FILE-001`)
