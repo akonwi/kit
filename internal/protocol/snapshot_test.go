@@ -3,6 +3,7 @@ package protocol
 import (
 	"encoding/json"
 	"math"
+	"strings"
 	"testing"
 	"time"
 )
@@ -290,5 +291,22 @@ func TestSessionSnapshotAcceptsCompactionContextWithoutBoundaryID(t *testing.T) 
 	})
 	if err := snapshot.Validate(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestPromptCommandArgumentHintValidation(t *testing.T) {
+	for _, hint := range []string{"", "<scope> [focus]", "対象"} {
+		snapshot := validTranscriptSnapshot()
+		snapshot.PromptCommands = []PromptCommand{{Name: "review", Description: "Review", Source: "project", Location: "/repo/review.md", ArgumentHint: hint}}
+		if err := snapshot.Validate(); err != nil {
+			t.Fatalf("hint %q: %v", hint, err)
+		}
+	}
+	for _, hint := range []string{"scope\nfocus", "\x1b[31m", "a\u200bb", strings.Repeat("a", 1025)} {
+		snapshot := validTranscriptSnapshot()
+		snapshot.PromptCommands = []PromptCommand{{Name: "review", Description: "Review", Source: "project", Location: "/repo/review.md", ArgumentHint: hint}}
+		if err := snapshot.Validate(); err == nil {
+			t.Fatalf("accepted unsafe hint %q", hint)
+		}
 	}
 }

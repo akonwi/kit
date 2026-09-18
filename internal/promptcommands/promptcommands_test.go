@@ -16,7 +16,7 @@ func TestFilesystemLoaderDiscoversGlobalThenProjectNonRecursively(t *testing.T) 
 	base := t.TempDir()
 	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
 	cwd := filepath.Join(base, "project")
-	globalReview := writeTemplate(t, paths.Prompts, "review.md", "---\ndescription: Global review\n---\nReview $1 with $@.")
+	globalReview := writeTemplate(t, paths.Prompts, "review.md", "---\ndescription: Global review\nargument-hint: '  <scope> [focus]  '\n---\nReview $1 with $@.")
 	writeTemplate(t, filepath.Join(cwd, projectPromptsPath), "review.md", "Project review")
 	projectSummary := writeTemplate(t, filepath.Join(cwd, projectPromptsPath), "summary.md", "\nSummarize $ARGUMENTS")
 	writeTemplate(t, filepath.Join(cwd, projectPromptsPath, "nested"), "ignored.md", "Ignored")
@@ -34,7 +34,7 @@ func TestFilesystemLoaderDiscoversGlobalThenProjectNonRecursively(t *testing.T) 
 		t.Fatalf("commands = %#v, want %#v", got, want)
 	}
 	review, _ := registry.Lookup("review")
-	if review.Source != SourceUser || review.Location != globalReview || review.Description != "Global review" {
+	if review.Source != SourceUser || review.Location != globalReview || review.Description != "Global review" || review.ArgumentHint != "<scope> [focus]" {
 		t.Fatalf("review command = %#v", review)
 	}
 	summary, _ := registry.Lookup("summary")
@@ -84,6 +84,8 @@ func TestRegistryRejectsRendererUnsafeMetadata(t *testing.T) {
 		func(command *Command) { command.Name = "re\u200bview" },
 		func(command *Command) { command.Description = "Review\x1b[31m" },
 		func(command *Command) { command.Location = "/repo/\x1b.md" },
+		func(command *Command) { command.ArgumentHint = "scope\x1b[31m" },
+		func(command *Command) { command.ArgumentHint = strings.Repeat("x", 1025) },
 	} {
 		command := base
 		mutate(&command)

@@ -188,7 +188,7 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	t.Parallel()
 	contributions := promptPaletteCommands([]protocol.PromptCommand{{
-		Name: "review", Description: "Review recent changes", Source: "project", Location: "/repo/.agents/prompts/review.md",
+		Name: "review", Description: "Review recent changes", ArgumentHint: "<scope>", Source: "project", Location: "/repo/.agents/prompts/review.md",
 	}})
 	var palette paletteController
 	palette.SetContributions(contributions, false)
@@ -216,7 +216,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	application := uitest.New(paletteHarness{State: state})
 	application.Pump(80, 24)
 	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	if !strings.Contains(text, "review") || !strings.Contains(text, "Review recent changes") {
+	if !strings.Contains(text, "review <scope>") || !strings.Contains(text, "Review recent changes") {
 		t.Fatalf("prompt command palette =\n%s", text)
 	}
 	rows := paintedRows(application, 80, 24)

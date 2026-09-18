@@ -67,10 +67,11 @@ type PendingBoundary struct {
 }
 
 type PromptCommand struct {
-	Name        string
-	Description string
-	Source      string
-	Location    string
+	ArgumentHint string
+	Name         string
+	Description  string
+	Source       string
+	Location     string
 }
 
 type SessionUsage struct {
@@ -397,7 +398,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 	if loaded.bundle.PromptCommands != nil {
 		for _, command := range loaded.bundle.PromptCommands.Commands() {
 			result.PromptCommands = append(result.PromptCommands, PromptCommand{
-				Name: command.Name, Description: command.Description,
+				Name: command.Name, Description: command.Description, ArgumentHint: command.ArgumentHint,
 				Source: string(command.Source), Location: command.Location,
 			})
 		}

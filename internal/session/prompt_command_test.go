@@ -26,7 +26,7 @@ func TestPromptCommandUsesRuntimeSnapshotAndSubmitsExpandedMessage(t *testing.T)
 		}
 	}
 	globalPath := filepath.Join(paths.Prompts, "review.md")
-	if err := os.WriteFile(globalPath, []byte("---\ndescription: Review globally\n---\nReview $1 carefully. Context: $@"), 0o600); err != nil {
+	if err := os.WriteFile(globalPath, []byte("---\ndescription: Review globally\nargument-hint: <scope>\n---\nReview $1 carefully. Context: $@"), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	projectDirectory := filepath.Join(cwd, ".agents", "prompts")
@@ -69,7 +69,7 @@ func TestPromptCommandUsesRuntimeSnapshotAndSubmitsExpandedMessage(t *testing.T)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.PromptCommands) != 1 || snapshot.PromptCommands[0].Name != "review" || snapshot.PromptCommands[0].Source != "user" {
+	if len(snapshot.PromptCommands) != 1 || snapshot.PromptCommands[0].Name != "review" || snapshot.PromptCommands[0].Source != "user" || snapshot.PromptCommands[0].ArgumentHint != "<scope>" {
 		t.Fatalf("prompt command catalog = %#v", snapshot.PromptCommands)
 	}
 	reservation, err := manager.StartPromptCommand(t.Context(), record.ID, "review", `"auth module" thoroughly`)

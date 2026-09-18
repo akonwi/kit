@@ -375,7 +375,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	projectPromptPath := filepath.Join(projectPromptDirectory, "summarize.md")
-	if err := os.WriteFile(projectPromptPath, []byte("---\ndescription: Summarize a topic\n---\nSummarize $1 with $@."), 0o600); err != nil {
+	if err := os.WriteFile(projectPromptPath, []byte("---\ndescription: Summarize a topic\nargument-hint: <topic>\n---\nSummarize $1 with $@."), 0o600); err != nil {
 		t.Fatal(err)
 	}
 	projectPromptLocation, err := filepath.EvalSymlinks(projectPromptPath)
@@ -528,7 +528,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("snapshot cumulative usage = %+v", snapshot.Usage)
 	}
 	if len(snapshot.PromptCommands) != 1 || snapshot.PromptCommands[0] != (protocol.PromptCommand{
-		Name: "summarize", Description: "Summarize a topic", Source: "project", Location: projectPromptLocation,
+		Name: "summarize", Description: "Summarize a topic", ArgumentHint: "<topic>", Source: "project", Location: projectPromptLocation,
 	}) {
 		t.Fatalf("snapshot prompt commands = %#v", snapshot.PromptCommands)
 	}

@@ -814,7 +814,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	}
 	for _, command := range snapshot.PromptCommands {
 		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
-			Name: command.Name, Description: command.Description,
+			Name: command.Name, Description: command.Description, ArgumentHint: command.ArgumentHint,
 			Source: command.Source, Location: command.Location,
 		})
 	}

@@ -21,13 +21,14 @@ import (
 )
 
 const (
-	projectPromptsPath  = ".agents/prompts"
-	maxCommands         = 128
-	maxDirectoryEntries = 1024
-	maxTemplateBytes    = 128 << 10
-	maxDescriptionBytes = 1024
-	maxLocationBytes    = 4 << 10
-	fallbackDescription = 60
+	projectPromptsPath   = ".agents/prompts"
+	maxCommands          = 128
+	maxDirectoryEntries  = 1024
+	maxTemplateBytes     = 128 << 10
+	maxDescriptionBytes  = 1024
+	maxArgumentHintBytes = 1024
+	maxLocationBytes     = 4 << 10
+	fallbackDescription  = 60
 )
 
 // Source identifies the owner of a prompt command.
@@ -40,11 +41,12 @@ const (
 
 // Command is one immutable prompt template exposed as a palette command.
 type Command struct {
-	Name        string
-	Description string
-	Content     string
-	Location    string
-	Source      Source
+	ArgumentHint string
+	Name         string
+	Description  string
+	Content      string
+	Location     string
+	Source       Source
 }
 
 // Registry is one session's immutable prompt-command snapshot.
@@ -239,13 +241,14 @@ func loadCommand(root *os.Root, relative string, source Source) (Command, bool) 
 	}
 	command, err := normalize(Command{
 		Name: strings.TrimSuffix(filepath.Base(path), ".md"), Description: description,
-		Content: strings.TrimSpace(body), Location: path, Source: source,
+		Content: strings.TrimSpace(body), Location: path, Source: source, ArgumentHint: metadata.ArgumentHint,
 	})
 	return command, err == nil
 }
 
 type templateFrontmatter struct {
-	Description string `yaml:"description"`
+	ArgumentHint string `yaml:"argument-hint"`
+	Description  string `yaml:"description"`
 }
 
 func parseTemplate(content string) (templateFrontmatter, string, error) {
@@ -304,12 +307,16 @@ func deriveDescription(body string) string {
 func normalize(command Command) (Command, error) {
 	command.Name = strings.TrimSpace(command.Name)
 	command.Description = strings.TrimSpace(command.Description)
+	command.ArgumentHint = strings.TrimSpace(command.ArgumentHint)
 	command.Content = strings.TrimSpace(command.Content)
 	if command.Name == "" || len(command.Name) > 128 || !validName(command.Name) {
 		return Command{}, errors.New("prompt command name must be 1-128 visible non-whitespace characters")
 	}
 	if command.Description == "" || len(command.Description) > maxDescriptionBytes || !validRendererText(command.Description) {
 		return Command{}, fmt.Errorf("prompt command %q has an invalid description", command.Name)
+	}
+	if len(command.ArgumentHint) > maxArgumentHintBytes || !validRendererText(command.ArgumentHint) {
+		return Command{}, fmt.Errorf("prompt command %q has an invalid argument hint", command.Name)
 	}
 	if command.Content == "" || len(command.Content) > maxTemplateBytes || !validText(command.Content) {
 		return Command{}, fmt.Errorf("prompt command %q has invalid content", command.Name)

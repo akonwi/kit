@@ -233,6 +233,7 @@ func (snapshot SessionSnapshot) Validate() error {
 	seenCommands := make(map[string]struct{}, len(snapshot.PromptCommands))
 	for index, command := range snapshot.PromptCommands {
 		if !validPromptCommandName(command.Name) || !validRendererText(command.Description, 1024) ||
+			(command.ArgumentHint != "" && !validRendererText(command.ArgumentHint, 1024)) ||
 			(command.Source != "user" && command.Source != "project") || !filepath.IsAbs(command.Location) || !validRendererText(command.Location, 4096) {
 			return fmt.Errorf("snapshot prompt command %d is invalid", index)
 		}

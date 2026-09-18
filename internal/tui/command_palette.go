@@ -35,10 +35,11 @@ const (
 type paletteCommandID string
 
 type paletteCommand struct {
-	ID          paletteCommandID
-	Name        string
-	Description string
-	Aliases     []string
+	ArgumentHint string
+	ID           paletteCommandID
+	Name         string
+	Description  string
+	Aliases      []string
 }
 
 type paletteSnapshot struct {
@@ -172,8 +173,8 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 		description = glyphCircleSlash + " " + w.DisabledReason + " · " + description
 	}
 	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Width: w.NameWidth, Child: ui.Text{
-			Value: w.Command.Name, Style: ui.Style{Foreground: primary, Background: background},
+		ui.SizedBox{Width: w.NameWidth, Child: ui.RichText{
+			Spans:    paletteCommandNameSpans(w.Command, ui.Style{Foreground: primary, Background: background}, ui.Style{Foreground: secondary, Background: background}),
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}},
 		ui.SizedBox{Width: 1},
@@ -450,7 +451,7 @@ func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
 	for _, command := range commands {
 		result = append(result, paletteCommand{
 			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name,
-			Description: command.Description, Aliases: []string{command.Source, command.Location},
+			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{command.Source, command.Location},
 		})
 	}
 	return result
@@ -488,7 +489,7 @@ func paletteNameWidth(commands []paletteCommand) int {
 	width := 0
 	for _, command := range commands {
 		commandWidth := 0
-		for _, character := range vaxis.Characters(command.Name) {
+		for _, character := range vaxis.Characters(paletteCommandLabel(command)) {
 			commandWidth += character.Width
 		}
 		width = max(width, commandWidth)
@@ -503,4 +504,19 @@ func paletteCommandWindow(commands []paletteCommand, selection, maximum int) ([]
 	offset := selection - maximum/2
 	offset = max(0, min(offset, len(commands)-maximum))
 	return commands[offset : offset+maximum], offset
+}
+
+func paletteCommandLabel(command paletteCommand) string {
+	if command.ArgumentHint == "" {
+		return command.Name
+	}
+	return command.Name + " " + command.ArgumentHint
+}
+
+func paletteCommandNameSpans(command paletteCommand, primary, secondary ui.Style) []ui.TextSpan {
+	spans := []ui.TextSpan{{Text: command.Name, Style: primary}}
+	if command.ArgumentHint != "" {
+		spans = append(spans, ui.TextSpan{Text: " " + command.ArgumentHint, Style: secondary})
+	}
+	return spans
 }

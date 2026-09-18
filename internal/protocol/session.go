@@ -187,10 +187,11 @@ type PromptCommandInput struct {
 
 // PromptCommand is renderer-safe metadata for one discovered prompt template.
 type PromptCommand struct {
-	Name        string `json:"name"`
-	Description string `json:"description"`
-	Source      string `json:"source"`
-	Location    string `json:"location"`
+	ArgumentHint string `json:"argumentHint,omitempty"`
+	Name         string `json:"name"`
+	Description  string `json:"description"`
+	Source       string `json:"source"`
+	Location     string `json:"location"`
 }
 
 // BashExecutionInput requests one runtime-idempotent direct composer shell
