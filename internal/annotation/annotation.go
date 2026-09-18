@@ -296,6 +296,7 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 	readCtx, cancel := context.WithTimeout(ctx, s.listEvidenceTimeout)
 	defer cancel()
 	stale := make(map[uint64]protocol.AnnotationStaleReason)
+	validated := make(map[uint64]bool)
 	groups := make(map[string][]Record)
 	order := make([]string, 0)
 	for _, record := range records {
@@ -308,7 +309,9 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 			groups[key] = append(groups[key], record)
 			continue
 		}
-		s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale)
+		if readCtx.Err() == nil && s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale) {
+			validated[record.ID] = true
+		}
 	}
 	diffTargetWork := 0
 	for _, key := range order {
@@ -323,10 +326,17 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 		// Keeping a target's records adjacent guarantees at most one guarded
 		// reconstruction before the retained observation serves the rest.
 		for _, record := range group {
-			s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale)
 			if readCtx.Err() != nil {
 				break
 			}
+			if s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale) {
+				validated[record.ID] = true
+			}
+		}
+	}
+	for _, record := range records {
+		if record.DiffTarget != nil && !validated[record.ID] {
+			stale[record.ID] = protocol.AnnotationValidationDeferred
 		}
 	}
 	if ctx.Err() != nil {
@@ -335,12 +345,13 @@ func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64,
 	return records, stale, nil
 }
 
-func (s *Service) validateListedRecord(readCtx, callerCtx context.Context, sessionID, cwd string, record Record, stale map[uint64]protocol.AnnotationStaleReason) {
+func (s *Service) validateListedRecord(readCtx, callerCtx context.Context, sessionID, cwd string, record Record, stale map[uint64]protocol.AnnotationStaleReason) bool {
 	if _, err := s.readEvidence(readCtx, sessionID, cwd, record.Anchor, record.DiffTarget, false); err != nil {
 		if callerCtx.Err() == nil && readCtx.Err() == nil {
 			stale[record.ID] = staleReason(err)
 		}
 	}
+	return readCtx.Err() == nil
 }
 
 // AuthorizeDiffRead binds every client-supplied identity to the record and

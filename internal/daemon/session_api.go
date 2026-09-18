@@ -573,13 +573,17 @@ func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID s
 }
 
 func projectAnnotation(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.Annotation {
+	deferred := stale == protocol.AnnotationValidationDeferred
+	if deferred {
+		stale = ""
+	}
 	return protocol.Annotation{
 		ID: record.ID, SessionID: record.SessionID,
 		Anchor:     record.Anchor,
 		DiffTarget: record.DiffTarget,
 		Body:       record.Body,
 		Preview:    protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
-		Stale:      stale != "", StaleReason: stale,
+		Stale:      stale != "", StaleReason: stale, ValidationDeferred: deferred,
 	}
 }
 
@@ -589,7 +593,7 @@ func projectAnnotationSummary(record kitannotation.Record, stale protocol.Annota
 		ID: annotation.ID, Anchor: annotation.Anchor, DiffTarget: annotation.DiffTarget,
 		BodyPreview: truncateAnnotationSummary(annotation.Body),
 		Preview:     truncateAnnotationSummary(annotation.Preview.Text),
-		Stale:       annotation.Stale, StaleReason: annotation.StaleReason,
+		Stale:       annotation.Stale, StaleReason: annotation.StaleReason, ValidationDeferred: annotation.ValidationDeferred,
 	}
 }
 

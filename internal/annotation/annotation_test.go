@@ -232,8 +232,13 @@ func TestListBoundsCommittedTargetReconstructionWork(t *testing.T) {
 	service, _ := NewService(repository, &staticReader{}, reader)
 	service.listDiffTargetBudget = 3
 	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
-	if err != nil || len(records) != 10 || len(reader.calls) != 3 || len(stale) != 0 {
-		t.Fatalf("records=%d calls=%d stale=%d err=%v", len(records), len(reader.calls), len(stale), err)
+	if err != nil || len(records) != 10 || len(reader.calls) != 3 || len(stale) != 7 {
+		t.Fatalf("records=%d calls=%d deferred=%d err=%v", len(records), len(reader.calls), len(stale), err)
+	}
+	for id := uint64(4); id <= 10; id++ {
+		if stale[id] != protocol.AnnotationValidationDeferred {
+			t.Fatalf("record %d validation state = %q, want deferred", id, stale[id])
+		}
 	}
 }
 
@@ -273,8 +278,13 @@ func TestListAppliesOneAggregateEvidenceDeadline(t *testing.T) {
 	service.listEvidenceTimeout = 20 * time.Millisecond
 	started := time.Now()
 	_, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
-	if err != nil || time.Since(started) > time.Second || len(reader.calls) != 1 || len(stale) != 0 {
-		t.Fatalf("calls=%d stale=%d elapsed=%v err=%v", len(reader.calls), len(stale), time.Since(started), err)
+	if err != nil || time.Since(started) > time.Second || len(reader.calls) != 1 || len(stale) != 3 {
+		t.Fatalf("calls=%d deferred=%d elapsed=%v err=%v", len(reader.calls), len(stale), time.Since(started), err)
+	}
+	for id := uint64(1); id <= 3; id++ {
+		if stale[id] != protocol.AnnotationValidationDeferred {
+			t.Fatalf("record %d validation state = %q, want deferred", id, stale[id])
+		}
 	}
 }
 

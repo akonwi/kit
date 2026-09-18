@@ -1117,6 +1117,9 @@ func composerAnnotationRow(theme ui.Theme, annotation protocol.AnnotationSummary
 	if annotation.Stale {
 		meta += " " + glyphMiddleDot + " stale"
 		style.Foreground = theme.WarningText
+	} else if annotation.ValidationDeferred {
+		meta += " " + glyphMiddleDot + " validation pending"
+		style.Foreground = theme.WarningText
 	}
 	markerWidget := ui.Widget(ui.Text{Value: glyphComment + " ", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1})
 	detailWidget := ui.Widget(ui.Text{Value: strings.TrimSpace(label + " " + meta), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1})

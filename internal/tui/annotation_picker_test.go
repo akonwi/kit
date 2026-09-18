@@ -8,6 +8,21 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestAnnotationPickerShowsDeferredValidation(t *testing.T) {
+	annotation := protocol.AnnotationSummary{
+		ID: 2, BodyPreview: "Check this later", Preview: "source", ValidationDeferred: true,
+		Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &protocol.WorkspaceFileAnnotationAnchor{
+			WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go",
+			FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 3, EndLine: 3,
+		}},
+	}
+	application := uitest.New(annotationPickerSurface{Snapshot: annotationPickerSnapshot{Open: true, Annotations: []protocol.AnnotationSummary{annotation}}})
+	application.Pump(72, 16)
+	if !application.Contains("Evidence validation pending") {
+		t.Fatalf("deferred validation was not presented:\n%s", application.Text())
+	}
+}
+
 func TestAnnotationPickerShowsFrozenStaleEvidence(t *testing.T) {
 	annotation := protocol.AnnotationSummary{
 		ID: 1, BodyPreview: "Still apply this change", Preview: "old source", Stale: true, StaleReason: protocol.AnnotationStaleFile,

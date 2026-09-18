@@ -20,7 +20,7 @@ func (s *appState) applyAnnotationEvent(event protocol.SessionEvent) {
 		summary := protocol.AnnotationSummary{
 			ID: event.Annotation.ID, Anchor: event.Annotation.Anchor, DiffTarget: event.Annotation.DiffTarget,
 			BodyPreview: annotationSummaryText(event.Annotation.Body), Preview: annotationSummaryText(event.Annotation.Preview.Text),
-			Stale: event.Annotation.Stale, StaleReason: event.Annotation.StaleReason,
+			Stale: event.Annotation.Stale, StaleReason: event.Annotation.StaleReason, ValidationDeferred: event.Annotation.ValidationDeferred,
 		}
 		for index := range s.annotations {
 			if s.annotations[index].ID == summary.ID {
