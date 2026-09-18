@@ -724,7 +724,7 @@ func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
 		OnRemoveAnnotation: func(_ ui.EventContext, id uint64) { removed = id },
 		OnCreateAnnotation: func(anchor protocol.AnnotationAnchor, body string, done func(error)) {
 			created = anchor
-			if body != "walk" {
+			if body != "Gwalk" {
 				t.Errorf("annotation body = %q", body)
 			}
 			done(nil)
@@ -752,6 +752,11 @@ func TestWorkspaceDiffPaneCreatesRevisionPinnedAnnotation(t *testing.T) {
 	oldWidth, _ := workspaceDiffSplitWidths(120)
 	if editorColumn >= oldWidth || application.Cell(oldWidth, editorRow).Grapheme != glyphTableSeparator {
 		t.Fatalf("old-side comment editor crossed split boundary: column=%d divider=%q", editorColumn, application.Cell(oldWidth, editorRow).Grapheme)
+	}
+	application.Send(vaxis.Key{Keycode: 'g', Text: "G", Modifiers: vaxis.ModShift})
+	application.Pump(120, 14)
+	if application.Contains("Select diff target") {
+		t.Fatalf("typing G in the annotation editor opened the target picker:\n%s", application.Text())
 	}
 	for _, character := range "walk" {
 		application.Send(vaxis.Key{Keycode: character, Text: string(character)})

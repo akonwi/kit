@@ -1969,8 +1969,10 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() { s.openTargetPicker() })
 			return ui.EventHandled
 		}
-		shortcuts["g"] = toggleWorkspaceDiffTargetIntent{}
-		shortcuts["Shift+g"] = openWorkspaceDiffTargetPickerIntent{}
+		if !s.commenting {
+			shortcuts["g"] = toggleWorkspaceDiffTargetIntent{}
+			shortcuts["Shift+g"] = openWorkspaceDiffTargetPickerIntent{}
+		}
 		if s.commenting {
 			bindings[ui.IntentType("vaxis.dismiss")] = func(ui.EventContext, ui.Intent) ui.EventResult {
 				if !s.commentPending {
