@@ -318,6 +318,22 @@ func TestWorkspaceFileViewerHighlightCompletionSchedulesRebuild(t *testing.T) {
 	t.Fatal("completed highlight did not repaint semantic styling")
 }
 
+func TestWorkspacePanelLayoutSeparatesPaneFromPendingArea(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultTheme()
+	application := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: workspacePanelLayout{
+		Header: ui.SizedBox{Height: 0}, Body: ui.Text{Value: "body"}, Footer: workspacePanelFooter(theme, "hints"),
+	}})
+	application.Pump(24, 6)
+	rows := paintedRows(application, 24, 6)
+	if got, want := rows[5], strings.Repeat("─", 24); got != want {
+		t.Fatalf("panel bottom separator = %q, want %q", got, want)
+	}
+	if got := application.Cell(0, 5).Style.Foreground; got != theme.Border {
+		t.Fatalf("panel bottom separator foreground = %v, want border %v", got, theme.Border)
+	}
+}
+
 func TestWorkspaceFileViewerPresentsAlignedSelectableHighlightedContent(t *testing.T) {
 	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{
 		fileViewerRead("workspace_a", "cmd/main.go", "file_one", "package main\n\nfunc main() {\n\tvalue := 42\n}\n"),
@@ -371,7 +387,7 @@ func TestWorkspaceFileViewerUsesGuardedReadsRefreshAndRevealWithoutReorder(t *te
 	descriptor.OpenGeneration = 1
 	model := &filePaneHarnessModel{descriptor: descriptor, workspace: "workspace_a", active: true, show: true, files: files}
 	app := uitest.New(filePaneHarness{model: model})
-	pumpUntil(t, app, model, 40, 8, "four")
+	pumpUntil(t, app, model, 40, 9, "four")
 	inputs := files.inputs()
 	if len(inputs) != 1 || inputs[0].ExpectedFileRevision != "file_hint" {
 		t.Fatalf("initial guarded read = %+v", inputs)
@@ -380,23 +396,23 @@ func TestWorkspaceFileViewerUsesGuardedReadsRefreshAndRevealWithoutReorder(t *te
 		model.descriptor.OpenGeneration++
 		model.descriptor.RevealStartLine = 40
 	})
-	app.Pump(40, 8)
+	app.Pump(40, 9)
 	if !app.Contains("Ln 4") || app.Contains("Ln 40") {
 		t.Fatalf("out-of-range repeated reveal was not clamped:\n%s", app.Text())
 	}
 	app.Send(vaxis.Key{Keycode: 'r', Text: "r"})
-	pumpUntil(t, app, model, 40, 8, "File changed")
+	pumpUntil(t, app, model, 40, 9, "File changed")
 	inputs = files.inputs()
 	if len(inputs) != 2 || inputs[1].ExpectedFileRevision != "file_loaded" {
 		t.Fatalf("refresh guarded read = %+v", inputs)
 	}
 	app.Send(vaxis.Key{Keycode: 'c', Text: "c"})
-	app.Pump(40, 8)
+	app.Pump(40, 9)
 	if len(model.annotated) != 0 {
 		t.Fatalf("stale content created annotations: %+v", model.annotated)
 	}
 	app.Send(vaxis.Key{Keycode: 'r', Text: "r"})
-	pumpUntil(t, app, model, 40, 8, "two changed")
+	pumpUntil(t, app, model, 40, 9, "two changed")
 	inputs = files.inputs()
 	if len(inputs) != 3 || inputs[2].ExpectedFileRevision != "" {
 		t.Fatalf("stale acceptance read = %+v", inputs)
@@ -646,18 +662,18 @@ func TestWorkspaceFileViewerScrollsOnlyWhenCursorLeavesViewport(t *testing.T) {
 	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\nfour\nfive\n")}}
 	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
 	app := uitest.New(filePaneHarness{model: model})
-	pumpUntil(t, app, model, 48, 7, "one")
+	pumpUntil(t, app, model, 48, 8, "one")
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-	app.Pump(48, 7)
-	rows := strings.Join(paintedRows(app, 48, 7), "\n")
+	app.Pump(48, 8)
+	rows := strings.Join(paintedRows(app, 48, 8), "\n")
 	if !strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "3 │ three") {
 		t.Fatalf("cursor movement inside viewport scrolled content:\n%s", rows)
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-	app.Pump(48, 7)
-	app.Pump(48, 7)
-	rows = strings.Join(paintedRows(app, 48, 7), "\n")
+	app.Pump(48, 8)
+	app.Pump(48, 8)
+	rows = strings.Join(paintedRows(app, 48, 8), "\n")
 	if strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "2 │ two") || !strings.Contains(rows, "4 │ four") {
 		t.Fatalf("cursor leaving viewport did not scroll minimally:\n%s", rows)
 	}

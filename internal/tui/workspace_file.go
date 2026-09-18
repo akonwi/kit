@@ -1175,11 +1175,13 @@ func syntaxTextSpan(text string, role highlight.Role, semantic SemanticTheme) ui
 
 type workspacePanelLayout struct{ Header, Body, Footer ui.Widget }
 
-func (w workspacePanelLayout) Build(ui.BuildContext) ui.Widget {
+func (w workspacePanelLayout) Build(ctx ui.BuildContext) ui.Widget {
+	theme := ui.MustDepend[ui.Theme](ctx)
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		w.Header,
 		ui.Expanded(w.Body),
 		w.Footer,
+		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 	}}
 }
 
