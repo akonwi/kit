@@ -270,3 +270,47 @@ func TestForkRetryDuringActiveRun(t *testing.T) {
 		})
 	}
 }
+
+func TestCreatedSessionFirstPromptIncludesParentID(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	registry, err := skills.NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{Core: systemprompt.DefaultCore, Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	providers := &authorityProviders{}
+	manager, err := session.NewManager(store, providers, builder, session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	parent, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Agent-created sessions start fresh; they are not semantic forks.
+	child, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Name: "Independent task", Model: "test/echo", ParentSessionID: parent.ID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := manager.RunPrompt(t.Context(), child.ID, "begin"); err != nil {
+		t.Fatal(err)
+	}
+	providers.mu.Lock()
+	defer providers.mu.Unlock()
+	if len(providers.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(providers.requests))
+	}
+	want := "This session's parent session ID is " + parent.ID + ". This session has independent state."
+	if prompt := providers.requests[0].SystemPrompt; !strings.Contains(prompt, want) {
+		t.Fatalf("child prompt missing %q: %s", want, prompt)
+	}
+}

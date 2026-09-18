@@ -48,7 +48,7 @@ func TestModelSessionServiceUsesConfiguredDefaultAndStartsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if manager.created.Model != "test/default" || manager.prompt != "begin" || created.ID != "session_new" || created.RunID != "run_new" {
+	if manager.created.ParentSessionID != "session_owner" || manager.created.Model != "test/default" || manager.prompt != "begin" || created.ID != "session_new" || created.RunID != "run_new" {
 		t.Fatalf("input = %+v, prompt = %q, result = %+v", manager.created, manager.prompt, created)
 	}
 }
