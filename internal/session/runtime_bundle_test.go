@@ -181,3 +181,60 @@ type typedNilRuntimeBundleBuilder struct{}
 func (*typedNilRuntimeBundleBuilder) Build(context.Context, session.SessionRecord, codingtools.CWDProvider) (session.RuntimeBundle, error) {
 	panic("unexpected call")
 }
+
+func TestSessionCreationToolIsRegisteredOnlyForPersistentRootSessions(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		persistent bool
+		parent     string
+		want       bool
+	}{
+		{name: "root", persistent: true, want: true},
+		{name: "child", persistent: true, parent: "session_parent"},
+		{name: "temporary root"},
+		{name: "temporary child", parent: "session_parent"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry, err := skills.NewRegistry()
+			if err != nil {
+				t.Fatal(err)
+			}
+			factory := &recordingSessionToolFactory{}
+			builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{Core: "core", Registry: registry, SessionToolFactory: factory})
+			if err != nil {
+				t.Fatal(err)
+			}
+			record := session.SessionRecord{ID: "session_owner", CWD: t.TempDir(), Persistent: tc.persistent, ParentSessionID: tc.parent}
+			bundle, err := builder.Build(t.Context(), record, nil)
+			if err != nil {
+				t.Fatal(err)
+			}
+			wantTools := 8
+			if tc.want {
+				wantTools++
+			}
+			if len(bundle.Tools) != wantTools {
+				t.Fatalf("tool count = %d, want %d", len(bundle.Tools), wantTools)
+			}
+			wantOwner := ""
+			if tc.want {
+				wantOwner = record.ID
+			}
+			if factory.owner != wantOwner {
+				t.Fatalf("factory owner = %q, want %q", factory.owner, wantOwner)
+			}
+		})
+	}
+}
+
+type recordingSessionToolFactory struct{ owner string }
+
+func (f *recordingSessionToolFactory) Tool(owner string) (droids.AnyTool, error) {
+	f.owner = owner
+	return droids.NewTool(droids.Tool[struct{}]{
+		Name: "create_session", Description: "create a session", Parameters: map[string]any{"type": "object"},
+		Execute: func(context.Context, droids.ToolContext, struct{}, droids.ToolUpdate) (droids.ToolResult, error) {
+			return droids.ToolText("ok"), nil
+		},
+	})
+}
