@@ -372,13 +372,6 @@ type appState struct {
 	scrollPendingLayout              bool
 	transcriptVisible                bool
 	transcriptPinnedOnHide           bool
-	transcriptPaneAnchorID           string
-	transcriptPaneAnchorInset        int
-	transcriptPaneAnchorExpected     int
-	transcriptPaneFallbackOffset     int
-	transcriptPaneInputGeneration    uint64
-	transcriptPaneAnchorInput        uint64
-	transcriptPaneRestore            int
 	activeRun                        sessionclient.Run
 	activeRunID                      string
 	runPending                       bool
@@ -503,16 +496,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.restoreTranscriptHistoryAnchor() {
 		keepTicking = true
 	}
-	paneRestoreActive := s.transcriptPaneRestore != 0
-	if s.restoreTranscriptPaneAnchor() {
-		keepTicking = true
-	}
-	if paneRestoreActive {
-		// Wait for the restored offset to complete a layout before checking
-		// proximity to the history boundary. The remount's default top range
-		// would otherwise trigger an unintended older-page load.
-		keepTicking = true
-	} else if s.maybeLoadTranscriptHistory() {
+	if s.maybeLoadTranscriptHistory() {
 		keepTicking = true
 	}
 	if s.subagentNeedsScroll {
@@ -558,7 +542,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.transcriptPaneRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
+	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
@@ -1587,15 +1571,10 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 	if ctx.Phase() != ui.CapturePhase {
 		return ui.EventIgnored
 	}
-	if mouse, ok := event.(ui.Mouse); ok {
+	if mouse, ok := event.(ui.Mouse); ok && s.transcriptVisible && s.transcriptHistoryRestore != 0 {
 		switch mouse.Button {
 		case ui.MouseWheelUp, ui.MouseWheelDown, ui.MouseLeftButton:
-			if s.transcriptHistoryRestore != 0 {
-				s.transcriptHistoryInputGeneration++
-			}
-			if s.transcriptPaneRestore != 0 {
-				s.transcriptPaneInputGeneration++
-			}
+			s.transcriptHistoryInputGeneration++
 		}
 	}
 	if result, consumed := s.paste.Observe(ctx, event, s.handleKey); consumed {
@@ -4401,111 +4380,20 @@ func (s *appState) workspaceSelectedIndex() int {
 	return 0
 }
 
-func (s *appState) captureTranscriptPaneAnchor() {
-	metrics := s.scroll.Metrics()
-	s.transcriptPinnedOnHide = scrollControllerPinnedToEnd(&s.scroll)
-	s.transcriptPaneAnchorID = ""
-	s.transcriptPaneAnchorInset = 0
-	s.transcriptPaneAnchorExpected = metrics.ScrollOffset
-	s.transcriptPaneFallbackOffset = metrics.ScrollOffset
-	s.transcriptPaneAnchorInput = s.transcriptPaneInputGeneration
-	s.transcriptPaneRestore = 0
-	if s.transcriptPinnedOnHide {
-		return
-	}
-	if s.transcriptHistoryRestore != 0 && s.transcriptHistoryAnchorID != "" {
-		s.needsScroll = false
-		s.scrollPendingLayout = false
-		s.transcriptPaneAnchorID = s.transcriptHistoryAnchorID
-		s.transcriptPaneAnchorInset = s.transcriptHistoryAnchorInset
-		s.transcriptHistoryRestore = 0
-		s.transcriptHistoryAnchorID = ""
-		return
-	}
-	first, _, visible := s.transcriptList.VisibleRange()
-	if !visible {
-		return
-	}
-	presentation := s.mainTranscriptPresentation()
-	if first < 0 || first >= len(presentation.Items) {
-		return
-	}
-	offset, measured := s.transcriptList.OffsetForIndex(first)
-	if !measured {
-		return
-	}
-	s.needsScroll = false
-	s.scrollPendingLayout = false
-	s.transcriptPaneAnchorID = presentation.Items[first].ID
-	s.transcriptPaneAnchorInset = max(0, metrics.ScrollOffset-1-offset)
-}
-
-func (s *appState) restoreTranscriptPaneAnchor() bool {
-	if s.transcriptPaneRestore == 0 || !s.transcriptVisible {
-		return false
-	}
-	if s.transcriptHistoryRestore != 0 {
-		return true
-	}
-	presentation := s.mainTranscriptPresentation()
-	index := -1
-	for candidate := range presentation.Items {
-		if presentation.Items[candidate].ID == s.transcriptPaneAnchorID {
-			index = candidate
-			break
-		}
-	}
-	if !s.transcriptList.Attached() || !s.scroll.Attached() {
-		return true
-	}
-	if s.transcriptPaneInputGeneration != s.transcriptPaneAnchorInput {
-		s.transcriptPaneRestore = 0
-		s.transcriptPaneAnchorID = ""
-		return false
-	}
-	if index < 0 {
-		s.scroll.ScrollToOffset(s.transcriptPaneFallbackOffset)
-		s.transcriptPaneRestore = 0
-		s.transcriptPaneAnchorID = ""
-		return false
-	}
-	if s.transcriptPaneRestore == 1 {
-		s.transcriptList.ScrollToIndex(index, ui.ScrollAlignStart)
-		s.transcriptPaneRestore = 2
-		return true
-	}
-	if s.transcriptPaneRestore == 2 {
-		s.transcriptPaneAnchorExpected = s.scroll.Metrics().ScrollOffset
-		s.transcriptPaneRestore = 3
-		return true
-	}
-	if s.transcriptPaneInputGeneration != s.transcriptPaneAnchorInput || s.scroll.Metrics().ScrollOffset != s.transcriptPaneAnchorExpected {
-		s.transcriptPaneRestore = 0
-		s.transcriptPaneAnchorID = ""
-		return false
-	}
-	offset, measured := s.transcriptList.OffsetForIndex(index)
-	if !measured {
-		return true
-	}
-	s.scroll.ScrollToOffset(max(0, 1+offset+s.transcriptPaneAnchorInset))
-	s.transcriptPaneRestore = 0
-	s.transcriptPaneAnchorID = ""
-	return false
-}
-
 func (s *appState) syncTranscriptVisibility(visible bool) {
 	if visible == s.transcriptVisible {
 		return
 	}
 	if !visible {
-		s.captureTranscriptPaneAnchor()
+		// The left click selecting a workspace tab is captured before this
+		// transition. Keep an in-flight history anchor authoritative rather
+		// than treating that tab click as transcript scroll input.
+		if s.transcriptHistoryRestore != 0 {
+			s.transcriptHistoryAnchorInput = s.transcriptHistoryInputGeneration
+		}
+		s.transcriptPinnedOnHide = scrollControllerPinnedToEnd(&s.scroll)
 	} else if s.transcriptPinnedOnHide {
 		s.requestTranscriptScroll()
-	} else if s.transcriptPaneAnchorID != "" {
-		s.needsScroll = false
-		s.scrollPendingLayout = false
-		s.transcriptPaneRestore = 1
 	}
 	s.transcriptVisible = visible
 }
@@ -5603,13 +5491,6 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activitySelected = false
 	s.transcriptVisible = true
 	s.transcriptPinnedOnHide = false
-	s.transcriptPaneAnchorID = ""
-	s.transcriptPaneAnchorInset = 0
-	s.transcriptPaneAnchorExpected = 0
-	s.transcriptPaneFallbackOffset = 0
-	s.transcriptPaneInputGeneration = 0
-	s.transcriptPaneAnchorInput = 0
-	s.transcriptPaneRestore = 0
 	s.subagentsOpen = false
 	s.subagentFilter = ""
 	s.subagentRequestGeneration++

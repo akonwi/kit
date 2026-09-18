@@ -141,12 +141,6 @@ func (r *renderConversationWorkspaceHost) layout(ctx ui.LayoutContext, constrain
 	} else {
 		hide(workspaceTabsChild)
 	}
-	if activeChild == workspaceTranscriptChild {
-		hide(workspaceActivityChild)
-	} else {
-		hide(workspaceTranscriptChild)
-	}
-
 	if !constraints.HasBoundedHeight() {
 		return r.layoutUnbounded(ctx, constraints, layouts, dry, layoutChild, width, tabHeight, activeChild)
 	}
@@ -178,6 +172,15 @@ func (r *renderConversationWorkspaceHost) layoutUnbounded(
 		ui.Constraints{MinWidth: width, MaxWidth: width, MaxHeight: ui.Unbounded},
 		ui.Offset{Y: yOffset},
 	)
+	inactiveChild := workspaceTranscriptChild
+	if activeChild == workspaceTranscriptChild {
+		inactiveChild = workspaceActivityChild
+	}
+	// An unbounded active surface may be arbitrarily tall. Do not give that
+	// intrinsic height to an offstage lazy transcript, since doing so can
+	// materialize its entire history. Terminal workspace layouts are bounded;
+	// the zero-size fallback is only for genuinely unbounded parents.
+	layoutChild(inactiveChild, ui.Tight(ui.Size{}), ui.Offset{})
 	pendingY := yOffset + mainSize.Height
 	pendingHeight := max(0, r.PendingHeight)
 	layoutChild(workspacePendingChild, ui.Tight(ui.Size{Width: width, Height: pendingHeight}), ui.Offset{Y: pendingY})
@@ -232,7 +235,16 @@ func (r *renderConversationWorkspaceHost) layoutConversationColumn(
 		ui.Offset{},
 	)
 	mainHeight := max(0, height-pendingHeight-separatorHeight-composerSize.Height)
-	layoutChild(mainChild, ui.Tight(ui.Size{Width: width, Height: mainHeight}), ui.Offset{Y: yOffset})
+	mainConstraints := ui.Tight(ui.Size{Width: width, Height: mainHeight})
+	layoutChild(mainChild, mainConstraints, ui.Offset{Y: yOffset})
+	inactiveChild := workspaceTranscriptChild
+	if mainChild == workspaceTranscriptChild {
+		inactiveChild = workspaceActivityChild
+	}
+	// Keep the inactive surface laid out at the same viewport geometry while
+	// excluding it from paint, hit testing, and traversal. This avoids
+	// collapsing lazy transcript measurements when another pane is selected.
+	layoutChild(inactiveChild, mainConstraints, ui.Offset{Y: yOffset})
 	layoutChild(
 		workspacePendingChild,
 		ui.Tight(ui.Size{Width: width, Height: pendingHeight}),
@@ -257,6 +269,19 @@ func (r *renderConversationWorkspaceHost) visibleChildren() []int {
 		order = append(order, workspaceTabsChild)
 	}
 	return append(order, activeChild, workspacePendingChild, workspaceComposerSeparatorChild, workspaceComposerChild)
+}
+
+func (r *renderConversationWorkspaceHost) HitTestChild(child ui.RenderObject) bool {
+	children := r.Children()
+	if len(children) != workspaceChildCount {
+		return false
+	}
+	for _, index := range r.visibleChildren() {
+		if children[index] == child {
+			return true
+		}
+	}
+	return false
 }
 
 func (r *renderConversationWorkspaceHost) VisitChildren(visit func(ui.RenderObject)) {

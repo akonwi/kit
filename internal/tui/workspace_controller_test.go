@@ -92,6 +92,23 @@ func TestWorkspaceTabRoundTripRestoresPinnedTranscriptEnd(t *testing.T) {
 	}
 }
 
+func TestWorkspaceTabSelectionDoesNotCancelHistoryAnchorRestore(t *testing.T) {
+	t.Parallel()
+	state := &appState{
+		transcriptVisible:                true,
+		transcriptHistoryRestore:         2,
+		transcriptHistoryInputGeneration: 7,
+		transcriptHistoryAnchorInput:     6,
+	}
+	if _, _, err := state.workspace.Open(workingTreeDiffWorkspacePane("workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")); err != nil {
+		t.Fatal(err)
+	}
+	state.syncWorkspaceSelection()
+	if state.transcriptHistoryAnchorInput != state.transcriptHistoryInputGeneration {
+		t.Fatalf("history anchor input = %d, want tab-click generation %d", state.transcriptHistoryAnchorInput, state.transcriptHistoryInputGeneration)
+	}
+}
+
 func TestWorkspaceTabRoundTripPreservesUnpinnedTranscriptPosition(t *testing.T) {
 	t.Parallel()
 	state := &appState{transcriptVisible: false, transcriptPinnedOnHide: false}
