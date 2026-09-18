@@ -912,7 +912,19 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	commitFile := workingFile
 	commitFile.Observation = commit.Observation
 	commitFile.Hunks = []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "committed evidence", HasTerminatingLF: true}}}}
-	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, observationsByTarget: map[string]protocol.WorkingTreePage{"commit-head": commit}, pages: map[string]protocol.FileDiffPage{
+	releaseCommit, commitStarted := make(chan struct{}), make(chan struct{})
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, observeFn: func(ctx context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+		if input.TargetReference != commitTarget.Reference {
+			return working, nil
+		}
+		close(commitStarted)
+		select {
+		case <-releaseCommit:
+			return commit, nil
+		case <-ctx.Done():
+			return protocol.DiffPage{}, ctx.Err()
+		}
+	}, pages: map[string]protocol.FileDiffPage{
 		testDiffTarget + "\x00shared.go": workingFile, commitTarget.TargetID + "\x00shared.go": commitFile,
 	}}
 	dispatch := &queuedDiffDispatch{}
@@ -921,6 +933,11 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message }})
 	pumpDiffUntil(t, application, dispatch, 100, 14, "working evidence")
 	application.Send(vaxis.Key{Text: "g", Keycode: 'g'})
+	select {
+	case <-commitStarted:
+	case <-time.After(time.Second):
+		t.Fatal("committed target observation did not start")
+	}
 	application.Pump(100, 14)
 	if notice != "Working-tree changes are not included in this committed target" {
 		t.Fatalf("notice = %q", notice)
@@ -928,6 +945,7 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	if text := application.Text(); !strings.Contains(text, "Diff › Working tree") || !strings.Contains(text, "working evidence") {
 		t.Fatalf("switch discarded the old coherent presentation before completion:\n%s", text)
 	}
+	close(releaseCommit)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{"Diff › a1b2c3d  Fix parser bounds", "shared.go", "committed evidence"} {

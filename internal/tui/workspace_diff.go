@@ -392,7 +392,7 @@ func (s *workspaceDiffPaneState) pollObservation() {
 	}
 	target := s.activeTarget
 	go func() {
-		page, err := w.Diff.ObserveDiff(ctx, protocol.ObserveDiffInput{WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference})
+		page, err := w.Diff.ObserveDiff(ctx, protocol.ObserveDiffInput{WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
 		if ctx.Err() != nil {
 			return
 		}
@@ -522,7 +522,7 @@ func (s *workspaceDiffPaneState) requestObservationPage(cursor string) {
 	if s.pendingTarget.Reference != "" {
 		target = s.pendingTarget
 	}
-	input := protocol.ObserveDiffInput{WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference, Cursor: cursor}
+	input := protocol.ObserveDiffInput{WorkspaceID: w.Descriptor.WorkspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, Cursor: cursor}
 	go func() {
 		page, err := w.Diff.ObserveDiff(ctx, input)
 		if ctx.Err() != nil {
