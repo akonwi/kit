@@ -234,6 +234,61 @@ func pumpDiffUntil(t *testing.T, application *uitest.App, dispatch *queuedDiffDi
 	return nil
 }
 
+func TestWorkspaceDiffFailedRefreshWarnsOutsideBuildAndKeepsStaleView(t *testing.T) {
+	file := textDiffFile("changed.go", 1, 0)
+	observation := testDiffObservation(file)
+	line := 1
+	var callsMu sync.Mutex
+	calls := 0
+	backend := fakeWorkingTreeDiff{
+		observeFn: func(context.Context, protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+			callsMu.Lock()
+			defer callsMu.Unlock()
+			calls++
+			if calls > 1 {
+				return protocol.DiffPage{}, errors.New("refresh failed")
+			}
+			return observation, nil
+		},
+		pages: map[string]protocol.FileDiffPage{"changed.go": {
+			Observation: observation.Observation,
+			File:        file,
+			Computation: protocol.DiffComputation{State: "complete"},
+			Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{
+				Kind: "addition", NewLine: &line, Content: "stale evidence", HasTerminatingLF: true,
+			}}}},
+		}},
+	}
+	dispatch := &queuedDiffDispatch{}
+	warnings := 0
+	model := &diffPanePresentationModel{active: true, pane: workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace),
+		Diff:       backend,
+		Dispatch:   dispatch.dispatch,
+	}}
+	model.pane.OnWarning = func(string) {
+		model.state.SetState(func() { warnings++ })
+	}
+	application := uitest.New(diffPanePresentationHarness{model: model})
+	pumpDiffUntil(t, application, dispatch, 80, 12, "stale evidence")
+
+	application.Send(vaxis.Key{Text: "r", Keycode: 'r'})
+	for range 100 {
+		dispatch.flush()
+		application.Pump(80, 12)
+		if warnings == 1 {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if warnings != 1 {
+		t.Fatalf("warnings = %d, want 1", warnings)
+	}
+	if text := application.Text(); !strings.Contains(text, "stale evidence") {
+		t.Fatalf("failed refresh did not preserve stale diff:\n%s", text)
+	}
+}
+
 func TestWorkspaceDiffSyntaxLinesPreserveSemanticRoles(t *testing.T) {
 	keyword := vaxis.IndexColor(123)
 	result := highlight.Result{Source: "const value\n", Spans: []highlight.Span{{Start: 0, End: 5, Role: highlight.Keyword}}}

@@ -399,11 +399,7 @@ func (s *workspaceDiffPaneState) pollObservation() {
 		s.resultMu.Lock()
 		s.pendingPoll = &workspaceDiffPollResult{generation: generation, page: page, err: err}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -540,11 +536,7 @@ func (s *workspaceDiffPaneState) requestObservationPage(cursor string) {
 			s.pendingObservation = &workspaceDiffObservationResult{generation: generation, page: page, err: err}
 		}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -704,11 +696,7 @@ func (s *workspaceDiffPaneState) loadTargetCatalog(selectInitial bool) {
 		s.resultMu.Lock()
 		s.pendingCatalog = &workspaceDiffCatalogResult{generation: generation, catalog: catalog, err: err}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 	_ = selectInitial // completion always initializes a target when needed.
 }
@@ -914,11 +902,7 @@ func (s *workspaceDiffPaneState) requestFilePage(cursor string, appendPage bool)
 			s.pendingFile = &workspaceDiffFileResult{generation: generation, page: page, append: appendPage, err: err}
 		}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -1036,11 +1020,7 @@ func (s *workspaceDiffPaneState) startHighlight() {
 			s.pendingHighlight = &workspaceDiffHighlightResult{generation: generation, old: oldResult, new: newResult}
 		}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -1526,6 +1506,14 @@ func (s *workspaceDiffPaneState) moveHunk(delta int) {
 	}
 }
 
+func (s *workspaceDiffPaneState) dispatchPendingResults(dispatch func(func())) {
+	dispatch(func() {
+		if !s.disposed {
+			s.SetState(s.applyPendingResults)
+		}
+	})
+}
+
 func (s *workspaceDiffPaneState) applyPendingResults() {
 	s.resultMu.Lock()
 	observation := s.pendingObservation
@@ -1919,7 +1907,6 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 }
 
 func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
-	s.applyPendingResults()
 	w := s.Widget().(workspaceDiffPane)
 	theme := ui.MustDepend[ui.Theme](ctx)
 	semantic, ok := ui.Depend[SemanticTheme](ctx)

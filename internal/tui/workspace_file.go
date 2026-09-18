@@ -229,11 +229,7 @@ func (s *workspaceFilePaneState) startHighlight() {
 			s.pendingHighlight = &workspaceHighlightResult{generation: generation, result: result}
 		}
 		s.resultMu.Unlock()
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -267,11 +263,7 @@ func (s *workspaceFilePaneState) startLoad(acceptCurrent bool) {
 	go func() {
 		read, err := w.Files.ReadWorkspaceFile(ctx, input)
 		s.queueResult(workspaceFileResult{generation: generation, read: read, err: err})
-		dispatch(func() {
-			if !s.disposed {
-				s.SetState(func() {})
-			}
-		})
+		s.dispatchPendingResults(dispatch)
 	}()
 }
 
@@ -281,6 +273,14 @@ func (s *workspaceFilePaneState) queueResult(result workspaceFileResult) {
 	if s.pendingResult == nil || result.generation >= s.pendingResult.generation {
 		s.pendingResult = &result
 	}
+}
+
+func (s *workspaceFilePaneState) dispatchPendingResults(dispatch func(func())) {
+	dispatch(func() {
+		if !s.disposed {
+			s.SetState(s.applyPendingResults)
+		}
+	})
 }
 
 func (s *workspaceFilePaneState) applyPendingResults() {
@@ -406,7 +406,6 @@ type refreshWorkspaceFileIntent struct{}
 func (refreshWorkspaceFileIntent) IntentType() ui.IntentType { return "kit.workspace-file.refresh" }
 
 func (s *workspaceFilePaneState) Build(ctx ui.BuildContext) ui.Widget {
-	s.applyPendingResults()
 	w := s.Widget().(workspaceFilePane)
 	theme := ui.MustDepend[ui.Theme](ctx)
 	semantic, ok := ui.Depend[SemanticTheme](ctx)
