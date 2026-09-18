@@ -84,6 +84,15 @@ func TestGeneralizedDiffClientResponsesRequireRequestedIdentity(t *testing.T) {
 	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err == nil {
 		t.Fatal("observation workspace mismatch was accepted")
 	}
+	page.Observation.Target.WorkspaceID = observation.Target.WorkspaceID
+	observeInput.ExpectedTargetRevision = "diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err == nil {
+		t.Fatal("observation revision mismatch was accepted")
+	}
+	observeInput.ExpectedTargetRevision = page.Observation.Revision
+	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err != nil {
+		t.Fatalf("matching continuation response: %v", err)
+	}
 }
 
 func TestGeneralizedDiffRoutesRejectServiceIdentityMismatch(t *testing.T) {
@@ -112,6 +121,17 @@ func TestGeneralizedDiffRoutesRejectServiceIdentityMismatch(t *testing.T) {
 	mux.ServeHTTP(response, request)
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("observation response=%d %s", response.Code, response.Body.String())
+	}
+
+	page.Observation.Target.ID = entry.TargetID
+	mux = http.NewServeMux()
+	registerSessionRoutes(mux, diffRouteService{observe: page})
+	body = `{"workspaceId":"` + observation.Target.WorkspaceID + `","targetReference":"` + entry.Reference + `","expectedTargetId":"` + entry.TargetID + `","expectedTargetRevision":"diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB","cursor":"continuation"}`
+	request = httptest.NewRequest(http.MethodPost, "/v1/sessions/session_test/diff/observations", strings.NewReader(body))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("revision response=%d %s", response.Code, response.Body.String())
 	}
 }
 

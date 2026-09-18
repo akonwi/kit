@@ -66,11 +66,12 @@ type ListDiffTargetsInput struct {
 
 // ObserveDiffInput selects a server-issued target reference.
 type ObserveDiffInput struct {
-	WorkspaceID      string `json:"workspaceId"`
-	TargetReference  string `json:"targetReference"`
-	ExpectedTargetID string `json:"expectedTargetId"`
-	PageSize         int    `json:"pageSize,omitempty"`
-	Cursor           string `json:"cursor,omitempty"`
+	WorkspaceID            string `json:"workspaceId"`
+	TargetReference        string `json:"targetReference"`
+	ExpectedTargetID       string `json:"expectedTargetId"`
+	ExpectedTargetRevision string `json:"expectedTargetRevision,omitempty"`
+	PageSize               int    `json:"pageSize,omitempty"`
+	Cursor                 string `json:"cursor,omitempty"`
 }
 
 // DiffPage is the generalized observation page. WorkingTreePage remains an
@@ -102,7 +103,7 @@ func (in ListDiffTargetsInput) Validate() error {
 }
 
 func (in ObserveDiffInput) Validate() error {
-	if !validWorkspaceToken(in.WorkspaceID, "workspace_") || !validTargetReference(in.TargetReference) || !validDiffToken(in.ExpectedTargetID, "difftarget_") || in.PageSize < 0 || in.PageSize > MaxDiffFilePageSize || len(in.Cursor) > MaxDiffCursorBytes {
+	if !validWorkspaceToken(in.WorkspaceID, "workspace_") || !validTargetReference(in.TargetReference) || !validDiffToken(in.ExpectedTargetID, "difftarget_") || in.Cursor == "" && in.ExpectedTargetRevision != "" || in.Cursor != "" && !validDiffToken(in.ExpectedTargetRevision, "diffrev_") || in.PageSize < 0 || in.PageSize > MaxDiffFilePageSize || len(in.Cursor) > MaxDiffCursorBytes {
 		return fmt.Errorf("diff observation request is invalid")
 	}
 	return nil

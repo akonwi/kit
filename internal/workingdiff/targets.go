@@ -179,43 +179,42 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 	}
 	catalog.Diagnostics = append(catalog.Diagnostics, diagnostics...)
 	baseName := chooseBaseBranch(branches, current)
-	branchTargets := make([]branchInfo, 0, len(branches))
+	currentOID := ""
+	baseChoices := make([]branchInfo, 0, len(branches))
 	for _, branch := range branches {
-		if branch.name != baseName {
-			branchTargets = append(branchTargets, branch)
+		if branch.name == current {
+			currentOID = branch.oid
+			continue
 		}
+		baseChoices = append(baseChoices, branch)
 	}
-	sort.SliceStable(branchTargets, func(i, j int) bool {
-		if branchTargets[i].name == current {
+	sort.SliceStable(baseChoices, func(i, j int) bool {
+		if baseChoices[i].name == baseName {
 			return true
 		}
-		if branchTargets[j].name == current {
+		if baseChoices[j].name == baseName {
 			return false
 		}
-		return branchTargets[i].name < branchTargets[j].name
+		return baseChoices[i].name < baseChoices[j].name
 	})
-	if len(branchTargets) > 20 {
-		catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "branch_limit", len(branchTargets)-20)
-		branchTargets = branchTargets[:20]
+	if len(baseChoices) > 20 {
+		catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "branch_limit", len(baseChoices)-20)
+		baseChoices = baseChoices[:20]
 	}
-	baseOID := ""
-	for _, branch := range branches {
-		if branch.name == baseName {
-			baseOID = branch.oid
+	if currentOID != "" && currentOID == headOID {
+		for _, baseChoice := range baseChoices {
+			if baseChoice.oid == currentOID {
+				continue
+			}
+			mergeBase, err := s.resolveMergeBase(ctx, repo, baseChoice.oid, currentOID)
+			if err != nil {
+				catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "missing_object", 1)
+				continue
+			}
+			base := protocol.DiffEndpoint{Kind: "commit", OID: mergeBase}
+			head := protocol.DiffEndpoint{Kind: "commit", OID: currentOID}
+			add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: current + " vs " + baseChoice.name, RefName: current, BaseRefName: baseChoice.name, Abbreviated: abbreviate(currentOID)})
 		}
-	}
-	for _, branch := range branchTargets {
-		if baseOID == "" || branch.oid == baseOID {
-			continue
-		}
-		mergeBase, err := s.resolveMergeBase(ctx, repo, baseOID, branch.oid)
-		if err != nil {
-			catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "missing_object", 1)
-			continue
-		}
-		base := protocol.DiffEndpoint{Kind: "commit", OID: mergeBase}
-		head := protocol.DiffEndpoint{Kind: "commit", OID: branch.oid}
-		add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: branch.name + " vs " + baseName, RefName: branch.name, BaseRefName: baseName, Abbreviated: abbreviate(branch.oid)})
 	}
 	commits, err := s.recentCommits(ctx, repo, headOID)
 	if err != nil {
@@ -582,7 +581,7 @@ func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in pro
 
 func (s *Service) listTargetCursor(session string, in protocol.ObserveDiffInput) (protocol.DiffPage, error) {
 	c, err := s.decodeCursor(in.Cursor)
-	if err != nil || c.Operation != "list" || c.Session != session || c.Workspace != in.WorkspaceID || c.PageSize != pageSize(in.PageSize) {
+	if err != nil || c.Operation != "list" || c.Session != session || c.Workspace != in.WorkspaceID || c.Revision != in.ExpectedTargetRevision || c.PageSize != pageSize(in.PageSize) {
 		return protocol.DiffPage{}, staleCursor()
 	}
 	o, ok := s.get(c.Revision, session)
@@ -590,7 +589,7 @@ func (s *Service) listTargetCursor(session string, in protocol.ObserveDiffInput)
 		return protocol.DiffPage{}, staleCursor()
 	}
 	ref, err := s.decodeTargetReference(in.TargetReference)
-	if err != nil || ref.Session != session || ref.Workspace != in.WorkspaceID || ref.Authority != authorityToken(o.repo) || targetID(session, in.WorkspaceID, o.repo, ref.Kind, ref.Base, ref.Head) != o.Target.ID || in.ExpectedTargetID != o.Target.ID {
+	if err != nil || ref.Session != session || ref.Workspace != in.WorkspaceID || ref.Authority != authorityToken(o.repo) || targetID(session, in.WorkspaceID, o.repo, ref.Kind, ref.Base, ref.Head) != o.Target.ID || in.ExpectedTargetID != o.Target.ID || in.ExpectedTargetRevision != o.Revision {
 		return protocol.DiffPage{}, staleCursor()
 	}
 	return s.listPage(o, c.Offset, c.PageSize, in.Cursor), nil

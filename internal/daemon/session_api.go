@@ -1634,7 +1634,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("invalid diff observation page: %w", err))
 			return
 		}
-		if result.Observation.SessionID != sessionID || result.Observation.Target.WorkspaceID != input.WorkspaceID || result.Observation.Target.ID != input.ExpectedTargetID {
+		if result.Observation.SessionID != sessionID || result.Observation.Target.WorkspaceID != input.WorkspaceID || result.Observation.Target.ID != input.ExpectedTargetID || input.ExpectedTargetRevision != "" && result.Observation.Revision != input.ExpectedTargetRevision {
 			writeSessionError(writer, fmt.Errorf("diff observation identity does not match request"))
 			return
 		}

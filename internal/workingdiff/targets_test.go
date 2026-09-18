@@ -142,6 +142,12 @@ func TestCommitUsesFirstParentAndIgnoresWorktree(t *testing.T) {
 func TestBranchPinsMergeBaseAndSurvivesMovingRef(t *testing.T) {
 	dir, service, workspaceID := targetFixture(t)
 	git(t, dir, "branch", "main")
+	git(t, dir, "checkout", "-qb", "release")
+	if err := os.WriteFile(filepath.Join(dir, "release.txt"), []byte("release\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "release.txt")
+	git(t, dir, "commit", "-qm", "release base")
 	git(t, dir, "checkout", "-qb", "feature")
 	if err := os.WriteFile(filepath.Join(dir, "feature.txt"), []byte("one\n"), 0o600); err != nil {
 		t.Fatal(err)
@@ -152,9 +158,14 @@ func TestBranchPinsMergeBaseAndSurvivesMovingRef(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	branch := findTarget(t, catalog, protocol.DiffTargetBranch, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.RefName == "feature" })
-	if branch.Metadata.BaseRefName != "main" {
-		t.Fatalf("base = %q", branch.Metadata.BaseRefName)
+	branch := findTarget(t, catalog, protocol.DiffTargetBranch, func(entry protocol.DiffTargetEntry) bool {
+		return entry.Metadata.RefName == "feature" && entry.Metadata.BaseRefName == "main"
+	})
+	releaseBranch := findTarget(t, catalog, protocol.DiffTargetBranch, func(entry protocol.DiffTargetEntry) bool {
+		return entry.Metadata.RefName == "feature" && entry.Metadata.BaseRefName == "release"
+	})
+	if branch.Head != releaseBranch.Head || branch.Head.OID == "" || branch.Base == releaseBranch.Base {
+		t.Fatalf("branch choices = main:%+v release:%+v", branch, releaseBranch)
 	}
 	canceled, cancel := context.WithCancel(t.Context())
 	cancel()
@@ -391,11 +402,19 @@ func TestObserveTargetExpectedIdentityAndCursorGuard(t *testing.T) {
 	if err != nil || first.NextCursor == "" {
 		t.Fatalf("first page = %+v, %v", first, err)
 	}
-	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: wrongID, PageSize: 1, Cursor: first.NextCursor})
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: wrongID, ExpectedTargetRevision: first.Observation.Revision, PageSize: 1, Cursor: first.NextCursor})
 	if !errors.As(err, &diffErr) || diffErr.Code != StaleCursor {
 		t.Fatalf("cursor identity error = %v", err)
 	}
-	second, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, PageSize: 1, Cursor: first.NextCursor})
+	wrongRevision := "diffrev_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if wrongRevision == first.Observation.Revision {
+		wrongRevision = "diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	}
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, ExpectedTargetRevision: wrongRevision, PageSize: 1, Cursor: first.NextCursor})
+	if !errors.As(err, &diffErr) || diffErr.Code != StaleCursor {
+		t.Fatalf("cursor revision error = %v", err)
+	}
+	second, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, ExpectedTargetRevision: first.Observation.Revision, PageSize: 1, Cursor: first.NextCursor})
 	if err != nil || len(second.Files) != 1 || second.Files[0].Path == first.Files[0].Path {
 		t.Fatalf("second page = %+v, %v", second, err)
 	}

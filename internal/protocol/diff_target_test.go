@@ -42,6 +42,12 @@ func TestObserveDiffInputRequiresOpaqueReference(t *testing.T) {
 	if err := (ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: testTargetReference(), ExpectedTargetID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}).Validate(); err != nil {
 		t.Fatal(err)
 	}
+	if err := (ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: testTargetReference(), ExpectedTargetID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Cursor: "cursor"}).Validate(); err == nil {
+		t.Fatal("continuation without expected revision was accepted")
+	}
+	if err := (ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: testTargetReference(), ExpectedTargetID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", ExpectedTargetRevision: "diffrev_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}).Validate(); err == nil {
+		t.Fatal("initial request with expected revision was accepted")
+	}
 	for _, reference := range []string{"main", "HEAD~1", "difftargetref_bad.bad"} {
 		if err := (ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: reference, ExpectedTargetID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"}).Validate(); err == nil {
 			t.Fatalf("reference %q was accepted", reference)
