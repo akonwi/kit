@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"strings"
-	"time"
 	"unicode"
 	"unicode/utf8"
 )
@@ -22,17 +21,6 @@ type resolvedContextTarget struct {
 	provider  Provider
 	model     Model
 	maxTokens int
-}
-
-type unsuitableCompactionCandidate struct {
-	cause error
-}
-
-func (err *unsuitableCompactionCandidate) Error() string { return err.cause.Error() }
-func (err *unsuitableCompactionCandidate) Unwrap() error { return err.cause }
-
-func unsuitableCandidate(err error) error {
-	return &unsuitableCompactionCandidate{cause: err}
 }
 
 type contextMaintenanceFlight struct {
@@ -109,7 +97,7 @@ func (d *Droid) AssessContext(ctx context.Context, target ContextTarget) (Contex
 	rt.signalChangedLocked()
 	rt.mu.Unlock()
 
-	assessment, operationErr := rt.assessCapturedContext(operationContext, resolved, contextWire)
+	assessment, operationErr := rt.assessCapturedContext(operationContext, resolved, contextWire, rt.currentRequestConfiguration())
 
 	rt.mu.Lock()
 	if operationErr == nil {
@@ -279,12 +267,12 @@ func (d *Droid) resolveContextTarget(target ContextTarget) (resolvedContextTarge
 	}, nil
 }
 
-func (rt *sdkRuntime) assessCapturedContext(ctx context.Context, target resolvedContextTarget, contextWire []wireMessageEnvelope) (ContextAssessment, error) {
+func (rt *sdkRuntime) assessCapturedContext(ctx context.Context, target resolvedContextTarget, contextWire []wireMessageEnvelope, configuration *runtimeRequestConfiguration) (ContextAssessment, error) {
 	messages, err := messagesFromWireContext(contextWire)
 	if err != nil {
 		return ContextAssessment{}, err
 	}
-	usage, err := rt.measureContextFor(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages)
+	usage, err := rt.measureContextWithConfiguration(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages, configuration)
 	if err != nil {
 		return ContextAssessment{}, err
 	}
@@ -308,7 +296,8 @@ func (rt *sdkRuntime) compactCapturedContext(
 	intentExists bool,
 	force bool,
 ) (CompactContextResult, error) {
-	assessment, err := rt.assessCapturedContext(ctx, target, contextWire)
+	currentConfiguration := rt.currentRequestConfiguration()
+	assessment, err := rt.assessCapturedContext(ctx, target, contextWire, currentConfiguration)
 	if err != nil {
 		return CompactContextResult{}, err
 	}
@@ -317,7 +306,7 @@ func (rt *sdkRuntime) compactCapturedContext(
 		CheckpointID: sourceCheckpoint, Before: assessment.Usage, After: assessment.Usage,
 	}
 	if !assessment.RequiresCompaction && !force {
-		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists); err != nil {
+		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists, currentConfiguration); err != nil {
 			return CompactContextResult{}, err
 		}
 		return result, nil
@@ -328,7 +317,7 @@ func (rt *sdkRuntime) compactCapturedContext(
 		return CompactContextResult{}, err
 	}
 	if len(messages) == 0 {
-		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists); err != nil {
+		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, nil, nil, "", intentExists, currentConfiguration); err != nil {
 			return CompactContextResult{}, err
 		}
 		return result, nil
@@ -339,7 +328,6 @@ func (rt *sdkRuntime) compactCapturedContext(
 		}
 		return CompactContextResult{}, errors.Join(ErrUnsafeContinuation, err)
 	}
-	currentConfiguration := rt.currentRequestConfiguration()
 	currentBefore, err := rt.measureContextWithConfiguration(
 		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, messages, currentConfiguration,
 	)
@@ -379,213 +367,21 @@ func (rt *sdkRuntime) compactCapturedContext(
 	}
 	rt.mu.Unlock()
 
-	var lastCandidateErr error
-	for _, prefixEnd := range quiescentCompactionPrefixEnds(messages) {
-		if err := contextError(ctx); err != nil {
-			return CompactContextResult{}, err
-		}
-		replacement, summaryWire, after, candidateErr := rt.compactCandidate(
-			ctx, target, contextWire, messages, prefixEnd, assessment.Usage, currentBefore, currentConfiguration,
-		)
-		if candidateErr != nil {
-			var unsuitable *unsuitableCompactionCandidate
-			if errors.As(candidateErr, &unsuitable) {
-				lastCandidateErr = candidateErr
-				continue
-			}
-			return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, candidateErr)
-		}
-		checkpointID, err := newCheckpointID()
-		if err != nil {
-			return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, err)
-		}
-		result.Compacted = true
-		result.CheckpointID = checkpointID
-		result.After = after
-		retainedFrom := ""
-		if prefixEnd < len(contextWire) {
-			retainedFrom = string(contextWire[prefixEnd].ID)
-		}
-		if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, replacement, &summaryWire, retainedFrom, true); err != nil {
-			return CompactContextResult{}, err
-		}
-		return result, nil
-	}
-	if lastCandidateErr == nil {
-		lastCandidateErr = fmt.Errorf("droids: context cannot be compacted without splitting canonical messages")
-	}
-	return CompactContextResult{}, rt.recordExplicitCompactionFailure(
-		operationID, errors.Join(ErrContextNotAdaptable, lastCandidateErr),
-	)
-}
-
-func (rt *sdkRuntime) compactCandidate(
-	ctx context.Context,
-	target resolvedContextTarget,
-	contextWire []wireMessageEnvelope,
-	messages []Message,
-	prefixEnd int,
-	before ContextUsage,
-	currentBefore ContextUsage,
-	currentConfiguration *runtimeRequestConfiguration,
-) ([]wireMessageEnvelope, wireMessageEnvelope, ContextUsage, error) {
-	if prefixEnd <= 0 || prefixEnd > len(messages) {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: invalid compaction prefix")
-	}
-	prefix, suffix := messages[:prefixEnd], messages[prefixEnd:]
-	if err := validateMessageSequence(prefix); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(err)
-	}
-	if err := validateMessageSequence(suffix); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(err)
-	}
-	placeholder := ContextMessage{
-		Kind: "summary", Source: "compaction",
-		Content: []InputContent{TextInput{Text: "[context summary]\nplaceholder"}},
-	}
-	candidateShape := append([]Message{placeholder}, suffix...)
-	if err := validateMessageSequence(candidateShape); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(err)
-	}
-	if err := validateContextReplay(ctx, target.provider, target.model, candidateShape); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, err
-		}
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: retained context is not replayable by target model: %w", err))
-	}
-	if err := validateContextReplay(ctx, rt.provider, rt.droid.model, candidateShape); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, err
-		}
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: retained context is not replayable by current model: %w", err))
-	}
-
-	// Context adaptation must not depend on the model being left behind. In
-	// particular, switching providers is a recovery path when the current
-	// provider is unavailable or rate limited. Prefer the target model unless
-	// an explicit compaction model was configured. Fall back to the current
-	// model only when the target cannot replay the unmodified prefix.
-	provider := target.provider
-	model := target.model
-	if !rt.config.Compaction.Model.IsZero() {
-		resolvedModel := cloneModel(rt.config.Compaction.Model)
-		if resolvedModel.boundProvider() == nil || resolvedModel.boundProvider().ID() != resolvedModel.Provider {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: compaction Model must be resolved")
-		}
-		provider, model = resolvedModel.boundProvider(), resolvedModel
-	}
-	if err := validateContextReplay(ctx, provider, model, prefix); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, err
-		}
-		if rt.config.Compaction.Model.IsZero() && (model.Provider != rt.droid.model.Provider || model.ID != rt.droid.model.ID) {
-			provider, model = rt.provider, rt.droid.model
-			err = validateContextReplay(ctx, provider, model, prefix)
-		}
-		if err != nil {
-			if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-				return nil, wireMessageEnvelope{}, ContextUsage{}, err
-			}
-			return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compaction prefix is not replayable: %w", err))
-		}
-	}
-	prompt := rt.config.Compaction.Prompt
-	if prompt == "" {
-		prompt = defaultCompactionPrompt
-	}
-	requestMaxTokens, err := resolveRequestMaxTokens(model, 0, "")
+	compacted, err := rt.compactContext(ctx, target, contextWire, assessment.Usage, currentBefore, currentConfiguration, "")
 	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
+		return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, err)
 	}
-	if model.OutputLimitMode == OutputLimitProviderControlled {
-		requestMaxTokens = 0
-	}
-	stream, err := provider.Stream(ctx, model, Request{
-		SystemPrompt: prompt, Messages: prefix, MaxTokens: requestMaxTokens,
-	})
+	checkpointID, err := newCheckpointID()
 	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
+		return CompactContextResult{}, rt.recordExplicitCompactionFailure(operationID, err)
 	}
-	if assistantStreamIsNil(stream) {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: compaction provider returned a nil stream")
+	result.Compacted = true
+	result.CheckpointID = checkpointID
+	result.After = compacted.after
+	if err := rt.commitCompactionResult(ctx, contextWire, sourceCheckpoint, result, compacted.context, &compacted.summary, compacted.retainedFrom(), true, currentConfiguration); err != nil {
+		return CompactContextResult{}, err
 	}
-	defer stream.Close()
-	if err := consumeAssistantStream(ctx, stream, func(StreamEvent) {}); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	summaryResponse, resultErr := stream.Result()
-	if err := rt.accountCompactionResponse(ctx, model, &summaryResponse, ""); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	if resultErr != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, resultErr
-	}
-	if summaryResponse.StopReason != StopReasonStop && summaryResponse.StopReason != StopReasonLength {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: compaction model stopped with %s: %s", summaryResponse.StopReason, errText(summaryResponse))
-	}
-	if summaryResponse.Text() == "" {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: compaction model returned an empty summary")
-	}
-	messageID, err := newMessageID()
-	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	turnID := compactionSummaryTurnID(contextWire[:prefixEnd])
-	if turnID == "" {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compaction prefix has no message provenance"))
-	}
-	summaryEnvelope := MessageEnvelope{
-		ID: messageID, ConversationID: rt.conversation, TurnID: turnID,
-		CreatedAt: time.Now().UTC(),
-		Message: ContextMessage{
-			Kind: "summary", Source: "compaction",
-			Content: []InputContent{TextInput{Text: "[context summary]\n" + summaryResponse.Text()}},
-		},
-	}
-	summaryWire, err := messageEnvelopeToWire(summaryEnvelope)
-	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	replacementWire := append([]wireMessageEnvelope{summaryWire}, contextWire[prefixEnd:]...)
-	replacementMessages, err := messagesFromWireContext(replacementWire)
-	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	if err := validateMessageSequence(replacementMessages); err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, fmt.Errorf("droids: invalid compacted context: %w", err)
-	}
-	after, err := rt.measureContextFor(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, replacementMessages)
-	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	if after.EstimatedInput >= before.EstimatedInput {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compaction did not reduce target context"))
-	}
-	if sdkShouldCompact(after) {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context remains above the target budget"))
-	}
-	if err := validateContextReplay(ctx, target.provider, target.model, replacementMessages); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, err
-		}
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not replayable by target model: %w", err))
-	}
-	if err := validateContextReplay(ctx, rt.provider, rt.droid.model, replacementMessages); err != nil {
-		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
-			return nil, wireMessageEnvelope{}, ContextUsage{}, err
-		}
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not replayable by current model: %w", err))
-	}
-	currentAfter, err := rt.measureContextWithConfiguration(
-		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, replacementMessages, currentConfiguration,
-	)
-	if err != nil {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, err
-	}
-	if !contextCanRun(currentAfter) || currentAfter.EstimatedInput > currentBefore.EstimatedInput {
-		return nil, wireMessageEnvelope{}, ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not safe for the current model"))
-	}
-	return replacementWire, summaryWire, after, nil
+	return result, nil
 }
 
 func (rt *sdkRuntime) commitCompactionResult(
@@ -597,6 +393,7 @@ func (rt *sdkRuntime) commitCompactionResult(
 	summaryWire *wireMessageEnvelope,
 	retainedFrom string,
 	intentExists bool,
+	configuration *runtimeRequestConfiguration,
 ) error {
 	receipt, err := newDurableCompactionReceipt(result)
 	if err != nil {
@@ -619,7 +416,7 @@ func (rt *sdkRuntime) commitCompactionResult(
 	}
 	if rt.contextFlight == nil || rt.contextFlight.operationID != result.OperationID ||
 		!sameContext(rt.state.Context, sourceContext) || rt.state.CheckpointID != sourceCheckpoint ||
-		!settledContextStatus(rt.state) {
+		!settledContextStatus(rt.state) || rt.currentRequestConfiguration() != configuration {
 		return ErrConflict
 	}
 	beforeState, err := cloneDurableRuntime(rt.state)
@@ -864,24 +661,6 @@ func compactionSummaryTurnID(contextWire []wireMessageEnvelope) TurnID {
 		}
 	}
 	return ""
-}
-
-func quiescentCompactionPrefixEnds(messages []Message) []int {
-	if len(messages) == 0 {
-		return nil
-	}
-	start := len(messages) / 2
-	if start < 1 {
-		start = 1
-	}
-	var candidates []int
-	for prefixEnd := start; prefixEnd <= len(messages); prefixEnd++ {
-		if validateMessageSequence(messages[:prefixEnd]) != nil || validateMessageSequence(messages[prefixEnd:]) != nil {
-			continue
-		}
-		candidates = append(candidates, prefixEnd)
-	}
-	return candidates
 }
 
 func validateContextReplay(ctx context.Context, provider Provider, model Model, messages []Message) error {

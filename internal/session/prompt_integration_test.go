@@ -520,8 +520,9 @@ func TestNormalAndCompactionRequestsKeepSeparateSystemPrompts(t *testing.T) {
 		t.Fatal(err)
 	}
 	for index := range 4 {
-		if _, err := manager.RunPrompt(t.Context(), record.ID, strings.Repeat(string(rune('a'+index)), 450)); err != nil {
-			t.Fatal(err)
+		result, err := manager.RunPrompt(t.Context(), record.ID, strings.Repeat(string(rune('a'+index)), 8_000))
+		if err != nil || result.Status != session.RunStatusCompleted {
+			t.Fatalf("prompt %d = %+v, %v", index, result, err)
 		}
 	}
 	providers.mu.Lock()
@@ -693,7 +694,8 @@ func (p *sessionCompactionProviders) Stream(_ context.Context, _ droids.Model, r
 func (*sessionCompactionProviders) model() droids.Model {
 	return droids.Model{
 		ID: "compact", Provider: "test", API: droids.ModelAPIOpenAIResponses,
-		ContextWindow: 2_000, MaxInputTokens: 1_800, MaxOutputTokens: 64,
+		// Leave room for Kit's normal system prompt as well as retained context.
+		ContextWindow: 20_000, MaxInputTokens: 18_000, MaxOutputTokens: 64,
 	}
 }
 

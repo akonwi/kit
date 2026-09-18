@@ -5,10 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"time"
 )
-
-const defaultCompactionPrompt = `Summarize the supplied conversation for another model that must continue the work. Preserve goals, decisions, constraints, file paths, code changes, errors, unresolved tasks, and any facts required to continue. Do not add commentary.`
 
 func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force bool) error {
 	rt.mu.Lock()
@@ -19,6 +16,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	envelopes, err := runtimeMessageEnvelopes(rt.state)
 	contextWire := append([]wireMessageEnvelope(nil), rt.state.Context...)
 	attemptID := rt.state.AttemptID
+	sourceCheckpoint := rt.state.CheckpointID
 	rt.mu.Unlock()
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
@@ -27,7 +25,8 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	for _, envelope := range envelopes {
 		messages = append(messages, envelope.Message)
 	}
-	usage, err := rt.measureContext(ctx, rt.provider, rt.droid.model, messages)
+	configuration := rt.currentRequestConfiguration()
+	usage, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration)
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
 	}
@@ -40,12 +39,13 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	if !recovering && !force && !sdkShouldCompact(usage) {
 		return nil
 	}
-	prefixEnd := compactionPrefixEnd(messages)
-	if prefixEnd == 0 {
-		if force {
-			return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: context cannot be compacted without splitting the active tail"))
-		}
-		return nil
+
+	prefixEnds, err := compactionPrefixEnds(messages, unconsumedCompactionTail(messages))
+	if err != nil {
+		return rt.recordCompactionFailure(turnID, err)
+	}
+	if len(prefixEnds) == 0 {
+		return rt.recordCompactionFailure(turnID, ErrContextNotAdaptable)
 	}
 
 	rt.mu.Lock()
@@ -61,7 +61,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		}
 		rt.state.Compaction = &durableCompaction{ID: compactionID, TurnID: turnID, Forced: force}
 		started, _ := lifecycleEvent("compaction.started", turnID, attemptID, map[string]any{
-			"compaction_id": compactionID, "estimated_input": usage.EstimatedInput, "prefix_messages": prefixEnd,
+			"compaction_id": compactionID, "estimated_input": usage.EstimatedInput, "prefix_messages": prefixEnds[0],
 		})
 		if err := rt.commitLocked(ctx, nil, []EncodedDurableEvent{started}); err != nil {
 			rt.state.Compaction = nil
@@ -74,58 +74,11 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	}
 	rt.mu.Unlock()
 
-	provider := rt.provider
-	model := rt.droid.model
-	if !rt.config.Compaction.Model.IsZero() {
-		resolvedModel := cloneModel(rt.config.Compaction.Model)
-		if resolvedModel.boundProvider() == nil || resolvedModel.boundProvider().ID() != resolvedModel.Provider {
-			return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction Model must be resolved"))
-		}
-		provider, model = resolvedModel.boundProvider(), resolvedModel
+	target := resolvedContextTarget{
+		public:   ContextTarget{Model: rt.droid.model, Reasoning: configuration.reasoning},
+		provider: rt.provider, model: rt.droid.model, maxTokens: configuration.maxTokens,
 	}
-	if err := provider.ValidateReplay(ctx, model, messages[:prefixEnd]); err != nil {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction prefix is not replayable: %w", err))
-	}
-	prompt := rt.config.Compaction.Prompt
-	if prompt == "" {
-		prompt = defaultCompactionPrompt
-	}
-	requestMaxTokens, err := resolveRequestMaxTokens(model, 0, "")
-	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	if model.OutputLimitMode == OutputLimitProviderControlled {
-		requestMaxTokens = 0
-	}
-	stream, err := provider.Stream(ctx, model, Request{
-		SessionID: string(rt.conversation), SystemPrompt: prompt,
-		Messages:  messages[:prefixEnd],
-		MaxTokens: requestMaxTokens,
-	})
-	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	if assistantStreamIsNil(stream) {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction provider returned a nil stream"))
-	}
-	defer stream.Close()
-	if err := consumeAssistantStream(ctx, stream, func(StreamEvent) {}); err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	summaryResponse, resultErr := stream.Result()
-	if err := rt.accountCompactionResponse(ctx, model, &summaryResponse, turnID); err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	if resultErr != nil {
-		return rt.recordCompactionFailure(turnID, resultErr)
-	}
-	if summaryResponse.StopReason != StopReasonStop && summaryResponse.StopReason != StopReasonLength {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction model stopped with %s: %s", summaryResponse.StopReason, errText(summaryResponse)))
-	}
-	if summaryResponse.Text() == "" {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction model returned an empty summary"))
-	}
-	messageID, err := newMessageID()
+	compacted, err := rt.compactContext(ctx, target, contextWire, usage, usage, configuration, turnID)
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
 	}
@@ -133,60 +86,25 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
 	}
-	summaryEnvelope := MessageEnvelope{
-		ID: messageID, ConversationID: rt.conversation, TurnID: turnID,
-		CreatedAt: time.Now().UTC(),
-		Message: ContextMessage{
-			Kind: "summary", Source: "compaction",
-			Content: []InputContent{TextInput{Text: "[context summary]\n" + summaryResponse.Text()}},
-		},
-	}
-	summaryWire, err := messageEnvelopeToWire(summaryEnvelope)
-	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-
-	replacementWire := append([]wireMessageEnvelope{summaryWire}, contextWire[prefixEnd:]...)
-	replacementMessages, err := runtimeMessageEnvelopes(durableRuntime{Context: replacementWire})
-	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	plainReplacement := make([]Message, 0, len(replacementMessages))
-	for _, envelope := range replacementMessages {
-		plainReplacement = append(plainReplacement, envelope.Message)
-	}
-	if err := validateMessageSequence(plainReplacement); err != nil {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: invalid compacted context: %w", err))
-	}
-	after, err := rt.measureContext(ctx, rt.provider, rt.droid.model, plainReplacement)
-	if err != nil {
-		return rt.recordCompactionFailure(turnID, err)
-	}
-	if after.EstimatedInput >= usage.EstimatedInput {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compaction did not reduce context"))
-	}
-	if sdkShouldCompact(after) {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compacted context remains above the target budget"))
-	}
-	if err := rt.provider.ValidateReplay(ctx, rt.droid.model, plainReplacement); err != nil {
-		return rt.recordCompactionFailure(turnID, fmt.Errorf("droids: compacted context is not replayable: %w", err))
-	}
 
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
-	if rt.state.TurnID != turnID || !sameContext(rt.state.Context, contextWire) {
+	if rt.state.TurnID != turnID || rt.state.CheckpointID != sourceCheckpoint || !sameContext(rt.state.Context, contextWire) {
 		return fmt.Errorf("droids: active context changed during compaction")
+	}
+	if rt.currentRequestConfiguration() != configuration {
+		return rt.recordCompactionFailureLocked(turnID, fmt.Errorf("droids: request configuration changed during compaction: %w", ErrConflict))
 	}
 	before, err := cloneDurableRuntime(rt.state)
 	if err != nil {
 		return err
 	}
-	rt.state.Context = replacementWire
+	rt.state.Context = compacted.context
 	rt.state.CheckpointID = checkpointID
 	checkpointPayload, err := json.Marshal(map[string]any{
 		"checkpoint_id": checkpointID, "source_checkpoint_id": before.CheckpointID,
-		"turn_id": turnID, "summary_message": summaryWire,
-		"retained_from": envelopes[prefixEnd].ID, "before": usage, "after": after,
+		"turn_id": turnID, "summary_message": compacted.summary,
+		"retained_from": compacted.retainedFrom(), "before": usage, "after": compacted.after,
 	})
 	if err != nil {
 		rt.state = before
@@ -204,10 +122,10 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	compactionID := rt.state.Compaction.ID
 	rt.state.Compaction = nil
 	completed, _ := lifecycleEvent("compaction.completed", turnID, rt.state.AttemptID, map[string]any{
-		"compaction_id": compactionID, "checkpoint_id": checkpointID, "before": usage.EstimatedInput, "after": after.EstimatedInput,
+		"compaction_id": compactionID, "checkpoint_id": checkpointID, "before": usage.EstimatedInput, "after": compacted.after.EstimatedInput,
 	})
 	contextUpdated, _ := lifecycleEvent("context.updated", turnID, rt.state.AttemptID, map[string]any{
-		"compaction_id": compactionID, "checkpoint_id": checkpointID, "estimated_input": after.EstimatedInput, "context_window": after.ContextWindow,
+		"compaction_id": compactionID, "checkpoint_id": checkpointID, "estimated_input": compacted.after.EstimatedInput, "context_window": compacted.after.ContextWindow,
 	})
 	if err := rt.commitLocked(ctx, []EncodedMutation{checkpoint}, []EncodedDurableEvent{completed, contextUpdated}); err != nil {
 		rt.state = before
@@ -297,31 +215,6 @@ func sdkShouldCompact(usage ContextUsage) bool {
 		return usage.EstimatedInput >= trigger
 	}
 	return false
-}
-
-func compactionPrefixEnd(messages []Message) int {
-	if len(messages) < 6 {
-		return 0
-	}
-	target := len(messages) / 2
-	for target < len(messages)-2 {
-		if _, isResult := messages[target].(ToolResultMessage); isResult {
-			target++
-			continue
-		}
-		break
-	}
-	if target <= 0 || target >= len(messages)-1 {
-		return 0
-	}
-	prefix := messages[:target]
-	if validateMessageSequence(prefix) != nil {
-		return 0
-	}
-	if validateMessageSequence(messages[target:]) != nil {
-		return 0
-	}
-	return target
 }
 
 func (rt *sdkRuntime) recordCompactionFailure(turnID TurnID, failure error) error {

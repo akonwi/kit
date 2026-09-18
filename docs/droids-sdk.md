@@ -807,21 +807,37 @@ No user input or completed tool call is repeated.
 ## Built-in automatic compaction
 
 Compaction is always available and is triggered automatically from measured
-context pressure or a provider-confirmed overflow.
+context pressure or a provider-confirmed overflow. Automatic compaction,
+overflow recovery, explicit settled-context compaction, and target-model
+adaptation use one compactor. See [ADR 0024](./adrs/0024-unify-context-compaction.md)
+for the complete contract.
 
 ```go
 type CompactionConfig struct {
     Prompt string
-    Model  string
+    Model  Model // optional resolved, provider-bound summary model
 }
 ```
 
 These are the only initial compaction settings:
 
 - `Prompt`: optional replacement for the built-in summarization prompt.
-- `Model`: optional provider/model selector used for summary generation.
+- `Model`: optional resolved model used for summary generation.
 
-Empty values use the built-in prompt and active conversation model.
+Zero values use the built-in prompt and active conversation model (or the
+requested target during adaptation). The built-in prompt requests plain text
+under these headings:
+
+```text
+## Goal
+## Constraints & Preferences
+## Progress
+## Key Decisions
+## Next Steps
+## Critical Context
+```
+
+The headings are prompt content, not a new public structured-output schema.
 
 The built-in process:
 
@@ -830,8 +846,9 @@ measure active context
   below threshold → continue normally
   threshold crossed or provider overflow
     choose oldest compactable prefix
-    retain a complete recent suffix
-    summarize prefix
+    target an approximately 20,000-token estimated suffix
+    choose safe complete boundaries
+    summarize prefix or fold complete source chunks incrementally
     construct summary + retained suffix
     validate provider replay shape and target size
     persist checkpoint
@@ -839,22 +856,54 @@ measure active context
 ```
 
 Droids never splits an assistant tool-call message from its complete result
-batch. Diagnostic history remains unchanged. Only active provider context is
-replaced. Observed summary-model usage is added to cumulative session usage;
-automatic compaction inside a turn also contributes to that turn's usage.
+batch. A cutoff may occur inside a user turn, but the assistant/tool-result
+group remains together. Diagnostic history remains unchanged. Only active
+provider context is replaced. The 20,000-token suffix is a heuristic, not a
+minimum; target fit or replay may retain less, and `Force` may compact a
+non-empty context below that target. In-turn compaction protects newly admitted
+input and the latest tool exchange not yet consumed by a model response. If that
+protected tail cannot fit, compaction fails rather than discarding its evidence.
+
+Summary generation is a fresh textual request with one user input, not
+provider-native replay. Its projection retains user/assistant text, tool names
+and arguments, tool error/success status, and boundary/attachment descriptions;
+it omits thinking, opaque metadata, and tool output only from summary input. A
+prior checkpoint summary is a separate update input.
+
+If the prepared prefix cannot fit the summary model's actual metadata input or
+context limits, droids folds bounded sequential requests: each sends the
+previous summary plus the next serialized complete source-message chunk. An
+assistant/tool-result group is one indivisible chunk. Only the final summary is
+installed. If one complete source message cannot fit with the previous summary
+and prompt, compaction fails without a checkpoint and without truncating source
+text. Every observed summary response contributes usage, even if a later chunk
+or final commit fails; automatic compaction inside a turn also contributes to
+that turn's usage. There is no arbitrary 100,000-token cap. Candidate selection
+reserves summary headroom, carries generated memory forward when shortening the
+suffix, and bounds paid candidate attempts rather than repeatedly summarizing
+the same prefix.
 
 Compaction emits started, completed, and failed events. A failed or insufficient
 compaction preserves the prior checkpoint and returns a typed compaction or
-context-overflow outcome.
+context-overflow outcome. Summary validation requires `StopReasonStop`; any
+non-stop result (including `StopReasonLength`), empty output, and tool calls are
+rejected. Checkpoint installation guards the captured request configuration as
+well as the source context; concurrent reconfiguration returns a conflict
+without installing a replacement validated against obsolete budgets.
+
+No new settings, public schema, wire/protocol value, storage version, or
+post-turn schedule is added. File-tracking metadata and summary retry promises
+are outside this contract.
 
 ### Quiescent target-model adaptation
 
 A host preparing to change model configuration may ask droids to assess or adapt
-settled active context without taking ownership of compaction mechanics:
+settled active context without taking ownership of compaction mechanics. These
+operations use the same compactor and safe boundaries:
 
 ```go
 type ContextTarget struct {
-    Model     string // exact provider/model ID
+    Model     Model // resolved, provider-bound target model
     Reasoning string
 }
 
@@ -892,8 +941,9 @@ func (d *Droid) CompactContext(
 ) (CompactContextResult, error)
 ```
 
-Targets use exact namespaced IDs. `none` reasoning is canonicalized to `off`;
-other unsupported levels fail validation against the target model.
+Targets use resolved models; durable metadata uses exact namespaced IDs.
+`none` reasoning is canonicalized to `off`; other unsupported levels fail
+validation against the target model.
 
 Both operations require a settled conversation. They reject active, paused, or
 recoverable work with `ErrBusy`. While assessment or adaptation is running,
@@ -907,17 +957,15 @@ context snapshot.
 pressure. Target replay incompatibility requests adaptation rather than making
 assessment itself fail. Cancellation remains an operation error.
 
-`CompactContext` normally summarizes progressively larger complete prefixes
-only when adaptation or the automatic threshold requires it. With `Force`, it
-attempts compaction for any non-empty settled context regardless of current
-pressure; this is the mode hosts use for explicit user-initiated compaction. An
-empty context remains a durable no-op. The replacement both fits and is
-replayable. It may summarize the entire active context when provider-specific
-metadata prevents retaining a suffix. The
-replacement must reduce context, remain runnable by the currently configured
-model, and be replayable and below the built-in threshold for the target. The
-operation does not change the droid's configured model. Exhausting valid
-candidates returns `ErrContextNotAdaptable` and preserves the prior checkpoint.
+`CompactContext` uses the same compactor. It normally compacts only when
+adaptation or the automatic threshold requires it; `Force` attempts it for any
+non-empty settled context, including one shorter than the suffix target. An
+empty context remains a durable no-op. The replacement must reduce context,
+remain runnable by the configured model, and pass current and target replay and
+budget validation. Target fit or replay may retain a shorter suffix, but source
+messages are never split or truncated. The operation does not change the droid's
+configured model. Exhausting valid candidates, including an oversized single
+message, returns `ErrContextNotAdaptable` and preserves the prior checkpoint.
 
 `OperationID` is a bounded, renderer-safe idempotency identity. Starting work
 stores an immutable operation intent that binds the ID to its exact target and
