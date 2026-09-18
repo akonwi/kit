@@ -162,6 +162,10 @@ func (s *Service) listCursor(session string, in protocol.ObserveWorkingTreeInput
 	return s.listPage(o, c.Offset, c.PageSize, in.Cursor), nil
 }
 func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	return s.readFile(ctx, session, cwd, in, nil)
+}
+
+func (s *Service) readFile(ctx context.Context, session, cwd string, in protocol.ReadFileDiffInput, resolved *observation) (protocol.FileDiffPage, error) {
 	if e := in.Validate(); e != nil {
 		return protocol.FileDiffPage{}, &Error{Code: InvalidPath, Message: "file diff request is invalid"}
 	}
@@ -188,9 +192,15 @@ func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol
 		offset = c.Offset
 		cursorFileRevision = c.FileRevision
 	}
-	o, ok := s.get(in.TargetRevision, session)
-	if !ok {
-		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff observation is unavailable"}
+	o := resolved
+	if o == nil {
+		var ok bool
+		o, ok = s.get(in.TargetRevision, session)
+		if !ok {
+			return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff observation is unavailable"}
+		}
+	} else if o.Revision != in.TargetRevision || o.SessionID != session {
+		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff observation identity does not match"}
 	}
 	if o.Target.ID != in.TargetID || o.Target.WorkspaceID != s.workspaces.Ref(session, cwd).WorkspaceID {
 		return protocol.FileDiffPage{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed"}

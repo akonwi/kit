@@ -18,7 +18,7 @@ func (s *appState) applyAnnotationEvent(event protocol.SessionEvent) {
 			return
 		}
 		summary := protocol.AnnotationSummary{
-			ID: event.Annotation.ID, Anchor: event.Annotation.Anchor,
+			ID: event.Annotation.ID, Anchor: event.Annotation.Anchor, DiffTarget: event.Annotation.DiffTarget,
 			BodyPreview: annotationSummaryText(event.Annotation.Body), Preview: annotationSummaryText(event.Annotation.Preview.Text),
 			Stale: event.Annotation.Stale, StaleReason: event.Annotation.StaleReason,
 		}
@@ -114,6 +114,7 @@ func (s *appState) activateAnnotation(annotation protocol.AnnotationSummary) {
 		descriptor.ExpectedRevision = anchor.TargetRevision
 		descriptor.ExpectedFileRevision = anchor.FileRevision
 		descriptor.DiffSide = anchor.Side
+		descriptor.AnnotationID = annotation.ID
 		descriptor.RevealStartLine = anchor.StartLine
 		descriptor.RevealEndLine = anchor.EndLine
 	} else {

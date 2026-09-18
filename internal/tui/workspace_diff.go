@@ -889,9 +889,13 @@ func (s *workspaceDiffPaneState) requestFilePage(cursor string, appendPage bool)
 	if dispatch == nil {
 		dispatch = s.Context().Runtime().Dispatch
 	}
+	annotationID := uint64(0)
+	if s.pinnedEvidence {
+		annotationID = w.Descriptor.AnnotationID
+	}
 	input := protocol.ReadFileDiffInput{
 		TargetID: s.observation.Target.ID, TargetRevision: s.observation.Revision,
-		Path: file.Path, ExpectedFileRevision: file.FileRevision, Cursor: cursor,
+		Path: file.Path, ExpectedFileRevision: file.FileRevision, AnnotationID: annotationID, Cursor: cursor,
 	}
 	go func() {
 		page, err := w.Diff.ReadFileDiff(ctx, input)

@@ -84,6 +84,7 @@ type ReadFileDiffInput struct {
 	TargetRevision       string `json:"targetRevision"`
 	Path                 string `json:"path"`
 	ExpectedFileRevision string `json:"expectedFileRevision,omitempty"`
+	AnnotationID         uint64 `json:"annotationId,omitempty"`
 	PageSize             int    `json:"pageSize,omitempty"`
 	MaxHunks             int    `json:"maxHunks,omitempty"`
 	Cursor               string `json:"cursor,omitempty"`

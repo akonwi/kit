@@ -36,6 +36,7 @@ type workspacePaneDescriptor struct {
 	ExpectedFileRevision string
 	DiffTargetID         string
 	DiffSide             string
+	AnnotationID         uint64
 	RevealStartLine      int
 	RevealEndLine        int
 	OpenGeneration       uint64

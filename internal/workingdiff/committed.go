@@ -15,39 +15,47 @@ import (
 )
 
 func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceID string, ref targetReference, requestedPageSize int) (protocol.DiffPage, error) {
-	release, err := s.acquire(ctx, session)
+	held, err := s.observeCommittedObservation(ctx, session, cwd, workspaceID, ref)
 	if err != nil {
 		return protocol.DiffPage{}, err
+	}
+	return s.listPage(held, 0, pageSize(requestedPageSize), ""), nil
+}
+
+func (s *Service) observeCommittedObservation(ctx context.Context, session, cwd, workspaceID string, ref targetReference) (*observation, error) {
+	release, err := s.acquire(ctx, session)
+	if err != nil {
+		return nil, err
 	}
 	defer release()
 	ctx, cancel := boundedContext(ctx)
 	defer cancel()
 	workspace := s.workspaces.Ref(session, cwd)
 	if workspace.WorkspaceID != workspaceID {
-		return protocol.DiffPage{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": workspace.WorkspaceID}}
+		return nil, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": workspace.WorkspaceID}}
 	}
 	repo, err := s.discoverRepository(ctx, cwd)
 	if err != nil {
-		return protocol.DiffPage{}, err
+		return nil, err
 	}
 	if authorityToken(repo) != ref.Authority {
-		return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
+		return nil, &Error{Code: StaleTarget, Message: "repository authority changed"}
 	}
 	pinned, err := s.verifyPinnedTarget(ctx, repo, ref)
 	if err != nil {
-		return protocol.DiffPage{}, err
+		return nil, err
 	}
 	baseTree := map[string]treeEntry{}
 	omitted := 0
 	if ref.Base.Kind == "commit" {
 		baseTree, omitted, err = s.readCommitTree(ctx, repo, pinned[ref.Base.OID].tree)
 		if err != nil {
-			return protocol.DiffPage{}, err
+			return nil, err
 		}
 	}
 	headTree, headOmitted, err := s.readCommitTree(ctx, repo, pinned[ref.Head.OID].tree)
 	if err != nil {
-		return protocol.DiffPage{}, err
+		return nil, err
 	}
 	omitted += headOmitted
 	selectedPaths := boundedCommittedPaths(baseTree, headTree)
@@ -67,11 +75,11 @@ func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceI
 	}
 	blobs, err := s.readBlobs(ctx, repo, blobEntries)
 	if err != nil {
-		return protocol.DiffPage{}, err
+		return nil, err
 	}
 	files, size, complete, truncation, omissions, err := classifyCommitted(baseTree, headTree, blobs, omitted)
 	if err != nil {
-		return protocol.DiffPage{}, err
+		return nil, err
 	}
 	target := protocol.DiffTarget{ID: targetID(session, workspaceID, repo, ref.Kind, ref.Base, ref.Head), WorkspaceID: workspaceID, Kind: ref.Kind, Base: ref.Base, Head: ref.Head}
 	manifest, _ := json.Marshal(struct {
@@ -85,10 +93,10 @@ func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceI
 	wireObservation := protocol.DiffObservation{SessionID: session, Target: target, Revision: token("diffrev_", string(manifest)), Head: protocol.DiffHead{State: "commit", OID: ref.Head.OID}, IndexSummary: "clean", Complete: complete, Truncation: truncation, Omissions: omissions}
 	held := &observation{DiffObservation: wireObservation, repo: repo, cwd: cwd, files: files, committed: true, touched: s.now(), expires: s.now().Add(observationTTL), size: size + int64(len(manifest)) + 4096}
 	if held.size > 64<<20 {
-		return protocol.DiffPage{}, &Error{Code: CapacityExceeded, Message: "diff observation exceeds cache capacity", Details: map[string]string{"scope": "session"}}
+		return nil, &Error{Code: CapacityExceeded, Message: "diff observation exceeds cache capacity", Details: map[string]string{"scope": "session"}}
 	}
 	s.store(held)
-	return s.listPage(held, 0, pageSize(requestedPageSize), ""), nil
+	return held, nil
 }
 
 func retainedSummaries(files []retainedFile) []protocol.DiffFileSummary {

@@ -3,10 +3,12 @@ package annotation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 )
@@ -184,6 +186,95 @@ func TestCreateRejectsUnavailableRange(t *testing.T) {
 	_, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Change this")
 	if !errors.Is(err, ErrStale) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+type controlledDiffReader struct {
+	mu      sync.Mutex
+	calls   []string
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *controlledDiffReader) ReadDiff(ctx context.Context, _ string, _ string, anchor WorkingTreeDiffAnchor, _ *protocol.PinnedDiffTarget, _ bool) (FileEvidence, error) {
+	r.mu.Lock()
+	r.calls = append(r.calls, anchor.TargetRevision)
+	r.mu.Unlock()
+	if r.started != nil {
+		select {
+		case r.started <- struct{}{}:
+		default:
+		}
+	}
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return FileEvidence{}, ctx.Err()
+		}
+	}
+	return FileEvidence{Content: "evidence", ContentStartLine: 1, CompleteLineCount: 1}, nil
+}
+
+func listedDiffRecord(id uint64, revision string) Record {
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	return Record{ID: id, SessionID: "session_test", Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: revision, Path: "main.go", FileRevision: "diff_file_" + token, Side: "old", StartLine: 1, EndLine: 1,
+	}}, DiffTarget: &protocol.PinnedDiffTarget{WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit, Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: strings.Repeat("a", 40)}}, Body: "note"}
+}
+
+func TestListBoundsCommittedTargetReconstructionWork(t *testing.T) {
+	repository := &memoryRepository{next: 10, records: make(map[uint64]Record)}
+	for id := uint64(1); id <= 10; id++ {
+		repository.records[id] = listedDiffRecord(id, fmt.Sprintf("revision-%d", id))
+	}
+	reader := &controlledDiffReader{}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	service.listDiffTargetBudget = 3
+	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || len(records) != 10 || len(reader.calls) != 3 || len(stale) != 0 {
+		t.Fatalf("records=%d calls=%d stale=%d err=%v", len(records), len(reader.calls), len(stale), err)
+	}
+}
+
+func TestListEvidenceDoesNotHoldMutationLock(t *testing.T) {
+	repository := &memoryRepository{next: 1, records: map[uint64]Record{1: listedDiffRecord(1, "revision")}}
+	reader := &controlledDiffReader{started: make(chan struct{}, 1), release: make(chan struct{})}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	listed := make(chan []Record, 1)
+	go func() {
+		records, _, _ := service.List(context.Background(), "session_test", "/repo", 0, 10)
+		listed <- records
+	}()
+	<-reader.started
+	deleted := make(chan error, 1)
+	go func() { deleted <- service.Delete(context.Background(), "session_test", 1) }()
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("delete blocked behind list evidence reconstruction")
+	}
+	close(reader.release)
+	if records := <-listed; len(records) != 1 || records[0].ID != 1 {
+		t.Fatalf("list snapshot = %+v", records)
+	}
+}
+
+func TestListAppliesOneAggregateEvidenceDeadline(t *testing.T) {
+	repository := &memoryRepository{next: 3, records: make(map[uint64]Record)}
+	for id := uint64(1); id <= 3; id++ {
+		repository.records[id] = listedDiffRecord(id, fmt.Sprintf("revision-%d", id))
+	}
+	reader := &controlledDiffReader{release: make(chan struct{})}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	service.listEvidenceTimeout = 20 * time.Millisecond
+	started := time.Now()
+	_, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || time.Since(started) > time.Second || len(reader.calls) != 1 || len(stale) != 0 {
+		t.Fatalf("calls=%d stale=%d elapsed=%v err=%v", len(reader.calls), len(stale), time.Since(started), err)
 	}
 }
 

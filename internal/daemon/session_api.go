@@ -441,7 +441,19 @@ func (s runtimeSessionService) ReadFileDiff(ctx context.Context, sessionID strin
 	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}
-	result, err := s.diffs.ReadFile(ctx, sessionID, record.CWD, input)
+	var result protocol.FileDiffPage
+	if input.AnnotationID != 0 {
+		if s.annotations == nil {
+			return protocol.FileDiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "annotation evidence is unavailable"}
+		}
+		target, authorizeErr := s.annotations.AuthorizeDiffRead(ctx, sessionID, record.CWD, input.AnnotationID, input)
+		if authorizeErr != nil {
+			return protocol.FileDiffPage{}, authorizeErr
+		}
+		result, err = s.diffs.ReadFileForAnnotation(ctx, sessionID, record.CWD, input, target)
+	} else {
+		result, err = s.diffs.ReadFile(ctx, sessionID, record.CWD, input)
+	}
 	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}

@@ -32,6 +32,7 @@ type fakeWorkingTreeDiff struct {
 	observation          protocol.WorkingTreePage
 	observationsByTarget map[string]protocol.WorkingTreePage
 	observeFn            func(context.Context, protocol.ObserveDiffInput) (protocol.DiffPage, error)
+	readFn               func(context.Context, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
 	observationPages     map[string]protocol.WorkingTreePage
 	pages                map[string]protocol.FileDiffPage
 }
@@ -69,7 +70,10 @@ func (f fakeWorkingTreeDiff) ObserveDiff(ctx context.Context, input protocol.Obs
 	return f.observation, nil
 }
 
-func (f fakeWorkingTreeDiff) ReadFileDiff(_ context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+func (f fakeWorkingTreeDiff) ReadFileDiff(ctx context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	if f.readFn != nil {
+		return f.readFn(ctx, input)
+	}
 	if page, ok := f.pages[input.TargetID+"\x00"+input.Path+"\x00"+input.Cursor]; ok {
 		return page, nil
 	}
@@ -1075,7 +1079,15 @@ func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.
 	commitPage := workingPage
 	commitPage.Observation = commitObservation
 	commitPage.Hunks = []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "exact pinned evidence", HasTerminatingLF: true}}}}
-	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, pages: map[string]protocol.FileDiffPage{testDiffTarget + "\x00pinned.go": workingPage, commitTarget.TargetID + "\x00pinned.go": commitPage}}
+	pages := map[string]protocol.FileDiffPage{testDiffTarget + "\x00pinned.go": workingPage, commitTarget.TargetID + "\x00pinned.go": commitPage}
+	var readMu sync.Mutex
+	var lastRead protocol.ReadFileDiffInput
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, pages: pages, readFn: func(_ context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+		readMu.Lock()
+		lastRead = input
+		readMu.Unlock()
+		return pages[input.TargetID+"\x00"+input.Path], nil
+	}}
 	dispatch := &queuedDiffDispatch{}
 	pane := workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch}
 	model := &diffPanePresentationModel{pane: pane, active: true}
@@ -1087,11 +1099,18 @@ func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.
 	descriptor.DiffTargetID = commitTarget.TargetID
 	descriptor.ExpectedRevision = commitObservation.Revision
 	descriptor.ExpectedFileRevision = file.FileRevision
+	descriptor.AnnotationID = 42
 	pane.Descriptor = descriptor
 	model.setPane(pane)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "exact pinned evidence")
 	if text := strings.Join(rows, "\n"); !strings.Contains(text, "Diff › b1b2b3b  Pinned review") {
 		t.Fatalf("annotation target crumb was not restored:\n%s", text)
+	}
+	readMu.Lock()
+	activationRead := lastRead
+	readMu.Unlock()
+	if activationRead.AnnotationID != 42 {
+		t.Fatalf("activation annotation id = %d", activationRead.AnnotationID)
 	}
 	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
 	application.Pump(100, 25)

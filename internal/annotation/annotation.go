@@ -101,6 +101,11 @@ type DiffReader interface {
 	ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor, *protocol.PinnedDiffTarget, bool) (FileEvidence, error)
 }
 
+const (
+	defaultListEvidenceTimeout  = 8 * time.Second
+	defaultListDiffTargetBudget = 8
+)
+
 // Repository persists live annotations and their per-session monotonic sequence.
 type Repository interface {
 	CreateAnnotation(context.Context, Record, int) (Record, error)
@@ -123,15 +128,17 @@ type Observer interface {
 
 // Service validates evidence and serializes mutations for each session.
 type Service struct {
-	repository Repository
-	memory     *MemoryRepository
-	files      FileReader
-	diffs      DiffReader
-	locksMu    sync.Mutex
-	locks      map[string]*sync.Mutex
-	temporary  map[string]struct{}
-	observerMu sync.RWMutex
-	observer   Observer
+	repository           Repository
+	memory               *MemoryRepository
+	files                FileReader
+	diffs                DiffReader
+	locksMu              sync.Mutex
+	locks                map[string]*sync.Mutex
+	temporary            map[string]struct{}
+	observerMu           sync.RWMutex
+	observer             Observer
+	listEvidenceTimeout  time.Duration
+	listDiffTargetBudget int
 }
 
 // NewService constructs an annotation service.
@@ -143,7 +150,11 @@ func NewService(repository Repository, files FileReader, diffReaders ...DiffRead
 	if len(diffReaders) == 1 {
 		diffs = diffReaders[0]
 	}
-	return &Service{repository: repository, memory: NewMemoryRepository(), files: files, diffs: diffs, locks: make(map[string]*sync.Mutex), temporary: make(map[string]struct{})}, nil
+	return &Service{
+		repository: repository, memory: NewMemoryRepository(), files: files, diffs: diffs,
+		locks: make(map[string]*sync.Mutex), temporary: make(map[string]struct{}),
+		listEvidenceTimeout: defaultListEvidenceTimeout, listDiffTargetBudget: defaultListDiffTargetBudget,
+	}, nil
 }
 
 // SetObserver installs the authoritative mutation event sink.
@@ -268,28 +279,92 @@ func (s *Service) Delete(ctx context.Context, sessionID string, id uint64) error
 	return err
 }
 
-// List returns live annotations and their current stale projections.
+// List returns a mutation-ordered snapshot of live annotations and their
+// current stale projections. Evidence reads run outside the mutation lock.
 func (s *Service) List(ctx context.Context, sessionID, cwd string, after uint64, limit int) ([]Record, map[uint64]protocol.AnnotationStaleReason, error) {
 	if limit <= 0 || limit > protocol.MaxAnnotationPageSize+1 {
 		return nil, nil, fmt.Errorf("annotation page size is invalid")
 	}
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
-	defer lock.Unlock()
 	records, err := s.repositoryFor(sessionID).ListAnnotations(ctx, sessionID, after, limit)
+	lock.Unlock()
 	if err != nil {
 		return nil, nil, err
 	}
+
+	readCtx, cancel := context.WithTimeout(ctx, s.listEvidenceTimeout)
+	defer cancel()
 	stale := make(map[uint64]protocol.AnnotationStaleReason)
+	groups := make(map[string][]Record)
+	order := make([]string, 0)
 	for _, record := range records {
-		if _, readErr := s.readEvidence(ctx, sessionID, cwd, record.Anchor, record.DiffTarget, false); readErr != nil {
-			if ctx.Err() != nil {
-				return nil, nil, ctx.Err()
+		if anchor := record.Anchor.WorkingTreeDiff; anchor != nil {
+			pinned, _ := json.Marshal(record.DiffTarget)
+			key := anchor.TargetID + "\x00" + anchor.TargetRevision + "\x00" + string(pinned)
+			if _, exists := groups[key]; !exists {
+				order = append(order, key)
 			}
-			stale[record.ID] = staleReason(readErr)
+			groups[key] = append(groups[key], record)
+			continue
+		}
+		s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale)
+	}
+	diffTargetWork := 0
+	for _, key := range order {
+		group := groups[key]
+		expensive := group[0].DiffTarget != nil
+		if readCtx.Err() != nil || expensive && diffTargetWork >= s.listDiffTargetBudget {
+			continue
+		}
+		if expensive {
+			diffTargetWork++
+		}
+		// Keeping a target's records adjacent guarantees at most one guarded
+		// reconstruction before the retained observation serves the rest.
+		for _, record := range group {
+			s.validateListedRecord(readCtx, ctx, sessionID, cwd, record, stale)
+			if readCtx.Err() != nil {
+				break
+			}
 		}
 	}
+	if ctx.Err() != nil {
+		return nil, nil, ctx.Err()
+	}
 	return records, stale, nil
+}
+
+func (s *Service) validateListedRecord(readCtx, callerCtx context.Context, sessionID, cwd string, record Record, stale map[uint64]protocol.AnnotationStaleReason) {
+	if _, err := s.readEvidence(readCtx, sessionID, cwd, record.Anchor, record.DiffTarget, false); err != nil {
+		if callerCtx.Err() == nil && readCtx.Err() == nil {
+			stale[record.ID] = staleReason(err)
+		}
+	}
+}
+
+// AuthorizeDiffRead binds every client-supplied identity to the record and
+// returns only the server-persisted committed target reconstruction authority.
+func (s *Service) AuthorizeDiffRead(ctx context.Context, sessionID, _ string, annotationID uint64, input protocol.ReadFileDiffInput) (*protocol.PinnedDiffTarget, error) {
+	if annotationID == 0 {
+		return nil, fmt.Errorf("annotation id is invalid")
+	}
+	lock := s.sessionLock(sessionID)
+	lock.Lock()
+	record, err := s.repositoryFor(sessionID).GetAnnotation(ctx, sessionID, annotationID)
+	lock.Unlock()
+	if err != nil {
+		return nil, err
+	}
+	anchor := record.Anchor.WorkingTreeDiff
+	if anchor == nil || anchor.TargetID != input.TargetID || anchor.TargetRevision != input.TargetRevision || anchor.Path != input.Path || anchor.FileRevision != input.ExpectedFileRevision {
+		return nil, fmt.Errorf("annotation diff read does not match persisted evidence")
+	}
+	if record.DiffTarget == nil {
+		return nil, nil
+	}
+	target := *record.DiffTarget
+	return &target, nil
 }
 
 // PreparedSubmission holds the per-session mutation lock while a caller admits
