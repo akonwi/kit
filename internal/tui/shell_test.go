@@ -1898,3 +1898,46 @@ func paintedRows(app *uitest.App, width, height int) []string {
 	}
 	return rows
 }
+
+func TestLiveToolIdentitySurvivesMultipleAssistantMessages(t *testing.T) {
+	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
+	sequence := int64(0)
+	apply := func(event protocol.SessionEvent) {
+		sequence++
+		event.Sequence = sequence
+		event.TurnID = "turn_1"
+		state.applyRunEvents([]protocol.SessionEvent{event})
+	}
+	apply(protocol.SessionEvent{Kind: protocol.SessionEventRunStarted})
+	for _, step := range []struct{ message, call, path string }{
+		{"message_1", "call_1", "first.go"},
+		{"message_2", "call_2", "second.go"},
+	} {
+		apply(protocol.SessionEvent{Kind: protocol.SessionEventAssistantStarted, MessageID: step.message})
+		apply(protocol.SessionEvent{Kind: protocol.SessionEventToolPlanned, MessageID: step.message, ToolCallID: step.call, ToolName: "read", Arguments: `{"path":"` + step.path + `"}`})
+		apply(protocol.SessionEvent{Kind: protocol.SessionEventAssistantCompleted, MessageID: step.message})
+		for _, kind := range []protocol.SessionEventKind{protocol.SessionEventToolStarted, protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted} {
+			apply(protocol.SessionEvent{Kind: kind, ToolCallID: step.call, ToolName: "read"})
+			owners := map[string]string{}
+			for _, message := range state.liveMessages {
+				for _, call := range message.ToolCalls {
+					if previous, exists := owners[call.ID]; exists {
+						t.Fatalf("%s: call %s duplicated on %s and %s", kind, call.ID, previous, message.ID)
+					}
+					owners[call.ID] = message.ID
+				}
+			}
+			if owners[step.call] != step.message {
+				t.Fatalf("%s: owners = %v", kind, owners)
+			}
+		}
+	}
+	app := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Running: true, Messages: state.liveMessages, Scroll: &ui.ScrollController{},
+	}})
+	app.Pump(80, 20)
+	rows := paintedRows(app, 80, 20)
+	if findPaintedRow(rows, "2 tool calls") < 0 {
+		t.Fatalf("expected two tool calls:\n%s", strings.Join(rows, "\n"))
+	}
+}

@@ -2670,6 +2670,14 @@ func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
 				return
 			}
 		}
+	}
+	// Resolve existing call identity across the whole turn before choosing an
+	// assistant owner. Execution events do not carry the planning message ID.
+	for index := len(s.liveMessages) - 1; index >= 0; index-- {
+		message := &s.liveMessages[index]
+		if message.Role != "assistant" || message.TurnID != event.TurnID {
+			continue
+		}
 		if event.MessageID == "" || message.ID == event.MessageID {
 			message.ToolCalls = append(message.ToolCalls, transcriptToolCall{
 				ID: event.ToolCallID, Name: event.ToolName,
