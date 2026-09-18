@@ -229,7 +229,7 @@ func validateObserveDiffResponse(sessionID string, input protocol.ObserveDiffInp
 	if err := output.Validate(); err != nil {
 		return fmt.Errorf("validate daemon diff observation page: %w", err)
 	}
-	if output.Observation.SessionID != sessionID || output.Observation.Target.WorkspaceID != input.WorkspaceID {
+	if output.Observation.SessionID != sessionID || output.Observation.Target.WorkspaceID != input.WorkspaceID || output.Observation.Target.ID != input.ExpectedTargetID {
 		return fmt.Errorf("daemon diff observation identity does not match request")
 	}
 	return nil

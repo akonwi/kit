@@ -1,7 +1,13 @@
 package workingdiff
 
 import (
+	"bytes"
+	"context"
+	"crypto/sha1"
+	"encoding/base64"
+	"encoding/hex"
 	"errors"
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -63,7 +69,7 @@ func TestTargetCatalogAndRootCommitObservation(t *testing.T) {
 	if root.Base.Kind != "empty_tree" || root.Head.Kind != "commit" || len(root.Head.OID) != 40 {
 		t.Fatalf("root endpoints = %+v -> %+v", root.Base, root.Head)
 	}
-	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: root.Reference})
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: root.Reference, ExpectedTargetID: root.TargetID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -88,7 +94,7 @@ func TestCommitModificationReadsBothObjectSides(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "modify existing" })
-	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference})
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -117,7 +123,7 @@ func TestCommitUsesFirstParentAndIgnoresWorktree(t *testing.T) {
 		t.Fatal(err)
 	}
 	merge := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "merge side" })
-	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: merge.Reference})
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: merge.Reference, ExpectedTargetID: merge.TargetID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -150,7 +156,13 @@ func TestBranchPinsMergeBaseAndSurvivesMovingRef(t *testing.T) {
 	if branch.Metadata.BaseRefName != "main" {
 		t.Fatalf("base = %q", branch.Metadata.BaseRefName)
 	}
-	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: branch.Reference})
+	canceled, cancel := context.WithCancel(t.Context())
+	cancel()
+	_, err = service.ObserveTarget(canceled, "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: branch.Reference, ExpectedTargetID: branch.TargetID})
+	if !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled branch observation error = %v", err)
+	}
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: branch.Reference, ExpectedTargetID: branch.TargetID})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -190,7 +202,7 @@ func TestUnbornWorkingTreeTargetRoundTrip(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: catalog.Targets[0].Reference})
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: catalog.Targets[0].Reference, ExpectedTargetID: catalog.Targets[0].TargetID})
 	if err != nil || page.Observation.Head.State != "unborn" || len(page.Files) != 1 || page.Files[0].Change != "added" {
 		t.Fatalf("unborn observation = %+v, %v", page, err)
 	}
@@ -247,7 +259,7 @@ func TestCommittedTreeStorageIsValidatedBeforeRead(t *testing.T) {
 	if err := os.Symlink(outside, objectPath); err != nil {
 		t.Fatal(err)
 	}
-	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference})
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
 	var diffErr *Error
 	if !errors.As(err, &diffErr) || diffErr.Code != UnsupportedRepository {
 		t.Fatalf("error = %v", err)
@@ -261,14 +273,24 @@ func TestTargetReferencesRejectTamperingCrossSessionAndExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := findTarget(t, catalog, protocol.DiffTargetCommit, nil)
+	encoded, signature, ok := strings.Cut(strings.TrimPrefix(target.Reference, "difftargetref_"), ".")
+	if !ok {
+		t.Fatal("target reference has no signature")
+	}
+	body, err := base64.RawURLEncoding.DecodeString(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body[0] ^= 1
+	tampered := "difftargetref_" + base64.RawURLEncoding.EncodeToString(body) + "." + signature
 	for name, test := range map[string]struct {
 		session, reference string
 	}{
 		"cross session": {"other_session", target.Reference},
-		"tampered":      {"session_test", target.Reference[:len(target.Reference)-1] + map[bool]string{true: "B", false: "A"}[target.Reference[len(target.Reference)-1:] == "A"]},
+		"tampered":      {"session_test", tampered},
 	} {
 		t.Run(name, func(t *testing.T) {
-			_, err := service.ObserveTarget(t.Context(), test.session, dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: test.reference})
+			_, err := service.ObserveTarget(t.Context(), test.session, dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: test.reference, ExpectedTargetID: target.TargetID})
 			var diffErr *Error
 			if !errors.As(err, &diffErr) || diffErr.Code != StaleTarget && diffErr.Code != StaleWorkspace {
 				t.Fatalf("error = %v", err)
@@ -276,7 +298,7 @@ func TestTargetReferencesRejectTamperingCrossSessionAndExpiry(t *testing.T) {
 		})
 	}
 	service.now = func() time.Time { return time.Now().Add(targetReferenceTTL + time.Minute) }
-	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference})
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
 	var diffErr *Error
 	if !errors.As(err, &diffErr) || diffErr.Code != StaleTarget {
 		t.Fatalf("expired error = %v", err)
@@ -300,10 +322,215 @@ func TestCommittedCatalogAndObservationDoNotExecuteHelpers(t *testing.T) {
 		t.Fatal(err)
 	}
 	target := findTarget(t, catalog, protocol.DiffTargetCommit, nil)
-	if _, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference}); err != nil {
+	if _, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID}); err != nil {
 		t.Fatal(err)
 	}
 	if _, err := os.Stat(marker); !errors.Is(err, os.ErrNotExist) {
 		t.Fatalf("hostile helper executed: %v", err)
+	}
+}
+
+func TestCommittedObservationBoundsCandidatesAndBlobAcquisition(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-q")
+	git(t, dir, "config", "user.name", "Test")
+	git(t, dir, "config", "user.email", "test@example.com")
+	for index := 0; index < protocol.MaxDiffCandidates+2; index++ {
+		name := filepath.Join(dir, fmt.Sprintf("file-%04d.txt", index))
+		if err := os.WriteFile(name, []byte("same\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "large root")
+	ws := workspace.NewService()
+	service, err := NewService(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := ws.Ref("session_test", dir).WorkspaceID
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, nil)
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if page.Observation.Complete || page.Observation.Truncation == nil || page.Observation.Truncation.Reason != "candidate_limit" || page.Observation.Truncation.Count < 1 {
+		t.Fatalf("observation bounds = %+v", page.Observation)
+	}
+}
+
+func TestObserveTargetExpectedIdentityAndCursorGuard(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, "b.txt"), []byte("added\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "two files")
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "two files" })
+	wrongID := "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	if wrongID == target.TargetID {
+		wrongID = "difftarget_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	}
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: wrongID, PageSize: 1})
+	var diffErr *Error
+	if !errors.As(err, &diffErr) || diffErr.Code != StaleTarget {
+		t.Fatalf("identity error = %v", err)
+	}
+	first, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, PageSize: 1})
+	if err != nil || first.NextCursor == "" {
+		t.Fatalf("first page = %+v, %v", first, err)
+	}
+	_, err = service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: wrongID, PageSize: 1, Cursor: first.NextCursor})
+	if !errors.As(err, &diffErr) || diffErr.Code != StaleCursor {
+		t.Fatalf("cursor identity error = %v", err)
+	}
+	second, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID, PageSize: 1, Cursor: first.NextCursor})
+	if err != nil || len(second.Files) != 1 || second.Files[0].Path == first.Files[0].Path {
+		t.Fatalf("second page = %+v, %v", second, err)
+	}
+}
+
+func TestObjectContentIdentityVerification(t *testing.T) {
+	content := []byte("payload")
+	header := fmt.Sprintf("blob %d%c", len(content), 0)
+	digest := sha1.Sum(append([]byte(header), content...))
+	oid := hex.EncodeToString(digest[:])
+	if !matchesObjectOID("blob", content, oid) || matchesObjectOID("blob", []byte("changed"), oid) {
+		t.Fatal("object content identity verification is not exact")
+	}
+}
+
+func TestCommittedTreeTruncationDoesNotFabricateShiftedPrefixDeletion(t *testing.T) {
+	dir := t.TempDir()
+	git(t, dir, "init", "-q")
+	git(t, dir, "config", "user.name", "Test")
+	git(t, dir, "config", "user.email", "test@example.com")
+	for index := 0; index < protocol.MaxDiffCandidates+1; index++ {
+		name := filepath.Join(dir, fmt.Sprintf("file-%04d.txt", index))
+		if err := os.WriteFile(name, []byte("same\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "large base")
+	if err := os.WriteFile(filepath.Join(dir, "0000-added.txt"), []byte("added\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("file-%04d.txt", protocol.MaxDiffCandidates)), []byte("late change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "shift prefix")
+	ws := workspace.NewService()
+	service, err := NewService(ws)
+	if err != nil {
+		t.Fatal(err)
+	}
+	workspaceID := ws.Ref("session_test", dir).WorkspaceID
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "shift prefix" })
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Files) != 2 || page.Files[0].Path != "0000-added.txt" || page.Files[0].Change != "added" || page.Files[1].Path != fmt.Sprintf("file-%04d.txt", protocol.MaxDiffCandidates) || page.Files[1].Change != "modified" || !page.Observation.Complete || page.Observation.Truncation != nil {
+		t.Fatalf("shifted observation = %+v", page)
+	}
+}
+
+func TestCommittedBlobBudgetIgnoresUnchangedFiles(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	chunk := bytes.Repeat([]byte("x"), protocol.MaxDiffFileBytes)
+	for index := 0; index < 33; index++ {
+		if err := os.WriteFile(filepath.Join(dir, fmt.Sprintf("bulk-%02d.bin", index)), append(append([]byte(nil), chunk...), byte(index)), 0o600); err != nil {
+			t.Fatal(err)
+		}
+	}
+	git(t, dir, "add", ".")
+	git(t, dir, "commit", "-qm", "bulk")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("small change\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "a.txt")
+	git(t, dir, "commit", "-qm", "small after bulk")
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "small after bulk" })
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil || len(page.Files) != 1 || page.Files[0].Path != "a.txt" || page.Files[0].ContentState != "text" {
+		t.Fatalf("observation = %+v, %v", page, err)
+	}
+}
+
+func TestCommittedReadFailsWhenBlobObjectDisappears(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "a.txt")
+	git(t, dir, "commit", "-qm", "changed blob")
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	target := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool { return entry.Metadata.Subject == "changed blob" })
+	page, err := service.ObserveTarget(t.Context(), "session_test", dir, protocol.ObserveDiffInput{WorkspaceID: workspaceID, TargetReference: target.Reference, ExpectedTargetID: target.TargetID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	blobOID := gitOutput(t, dir, "rev-parse", "HEAD:a.txt")
+	if err := os.Remove(filepath.Join(dir, ".git", "objects", blobOID[:2], blobOID[2:])); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ReadFile(t.Context(), "session_test", dir, protocol.ReadFileDiffInput{TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt", ExpectedFileRevision: page.Files[0].FileRevision})
+	var diffErr *Error
+	if !errors.As(err, &diffErr) || diffErr.Code != RepositoryUnavailable {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestCatalogValidatesAncestorObjectStorage(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	parentOID := gitOutput(t, dir, "rev-parse", "HEAD")
+	if err := os.WriteFile(filepath.Join(dir, "a.txt"), []byte("changed\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	git(t, dir, "add", "a.txt")
+	git(t, dir, "commit", "-qm", "child")
+	objectPath := filepath.Join(dir, ".git", "objects", parentOID[:2], parentOID[2:])
+	outside := filepath.Join(t.TempDir(), "commit-object")
+	data, err := os.ReadFile(objectPath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(outside, data, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Remove(objectPath); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(outside, objectPath); err != nil {
+		t.Fatal(err)
+	}
+	_, err = service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	var diffErr *Error
+	if !errors.As(err, &diffErr) || diffErr.Code != UnsupportedRepository {
+		t.Fatalf("error = %v", err)
 	}
 }

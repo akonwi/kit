@@ -9,7 +9,6 @@ import (
 	"encoding/json"
 	"fmt"
 	"sort"
-	"strings"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -21,6 +20,8 @@ func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceI
 		return protocol.DiffPage{}, err
 	}
 	defer release()
+	ctx, cancel := boundedContext(ctx)
+	defer cancel()
 	workspace := s.workspaces.Ref(session, cwd)
 	if workspace.WorkspaceID != workspaceID {
 		return protocol.DiffPage{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": workspace.WorkspaceID}}
@@ -32,28 +33,37 @@ func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceI
 	if authorityToken(repo) != ref.Authority {
 		return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
 	}
-	if err := s.verifyPinnedTarget(ctx, repo, ref); err != nil {
+	pinned, err := s.verifyPinnedTarget(ctx, repo, ref)
+	if err != nil {
 		return protocol.DiffPage{}, err
 	}
 	baseTree := map[string]treeEntry{}
 	omitted := 0
 	if ref.Base.Kind == "commit" {
-		baseTree, omitted, err = s.readCommitTree(ctx, repo, ref.Base.OID)
+		baseTree, omitted, err = s.readCommitTree(ctx, repo, pinned[ref.Base.OID].tree)
 		if err != nil {
 			return protocol.DiffPage{}, err
 		}
 	}
-	headTree, headOmitted, err := s.readCommitTree(ctx, repo, ref.Head.OID)
+	headTree, headOmitted, err := s.readCommitTree(ctx, repo, pinned[ref.Head.OID].tree)
 	if err != nil {
 		return protocol.DiffPage{}, err
 	}
 	omitted += headOmitted
-	blobEntries := make(map[string]treeEntry, len(baseTree)+len(headTree))
-	for path, entry := range baseTree {
-		blobEntries["old:"+path] = entry
-	}
-	for path, entry := range headTree {
-		blobEntries["new:"+path] = entry
+	selectedPaths := boundedCommittedPaths(baseTree, headTree)
+	blobEntries := make(map[string]treeEntry, len(selectedPaths)*2)
+	for _, path := range selectedPaths {
+		oldEntry, oldOK := baseTree[path]
+		newEntry, newOK := headTree[path]
+		if oldOK && newOK && oldEntry == newEntry {
+			continue
+		}
+		if oldOK {
+			blobEntries["old:"+path] = oldEntry
+		}
+		if newOK {
+			blobEntries["new:"+path] = newEntry
+		}
 	}
 	blobs, err := s.readBlobs(ctx, repo, blobEntries)
 	if err != nil {
@@ -89,71 +99,60 @@ func retainedSummaries(files []retainedFile) []protocol.DiffFileSummary {
 	return result
 }
 
-func (s *Service) verifyPinnedTarget(ctx context.Context, repo *repository, ref targetReference) error {
+func (s *Service) verifyPinnedTarget(ctx context.Context, repo *repository, ref targetReference) (map[string]commitInfo, error) {
 	oids := []string{ref.Head.OID}
 	if ref.Base.Kind == "commit" {
 		oids = append(oids, ref.Base.OID)
 	}
 	storageBefore, err := validateObjectStorage(repo, oids)
 	if err != nil {
-		return err
+		return nil, err
 	}
-	var input bytes.Buffer
+	commits := make(map[string]commitInfo, len(oids))
 	for _, oid := range oids {
-		input.WriteString(oid)
-		input.WriteByte('\n')
-	}
-	out, err := s.runner.run(ctx, repo, input.Bytes(), 4096, "cat-file", "--batch-check=%(objectname) %(objecttype)")
-	if err != nil {
-		return commandFailure(ctx)
-	}
-	lines := strings.Split(strings.TrimSpace(string(out)), "\n")
-	if len(lines) != len(oids) {
-		return &Error{Code: RepositoryUnavailable, Message: "pinned diff objects are unavailable"}
-	}
-	for i, line := range lines {
-		if line != oids[i]+" commit" {
-			return &Error{Code: RepositoryUnavailable, Message: "pinned diff object is unavailable"}
+		raw, err := s.runner.run(ctx, repo, nil, 64<<10, "cat-file", "commit", oid)
+		if err != nil {
+			return nil, commandFailure(ctx)
 		}
+		if !matchesObjectOID("commit", raw, oid) {
+			return nil, &Error{Code: RepositoryUnavailable, Message: "pinned commit content does not match its object id"}
+		}
+		info, ok := parseCommit(oid, raw)
+		if !ok {
+			return nil, &Error{Code: RepositoryUnavailable, Message: "pinned commit is malformed"}
+		}
+		commits[oid] = info
 	}
 	if ref.Kind == protocol.DiffTargetCommit {
-		raw, err := s.runner.run(ctx, repo, nil, 64<<10, "cat-file", "commit", ref.Head.OID)
-		if err != nil {
-			return commandFailure(ctx)
-		}
-		info, ok := parseCommit(ref.Head.OID, raw)
-		if !ok || info.parent == "" && ref.Base.Kind != "empty_tree" || info.parent != "" && (ref.Base.Kind != "commit" || ref.Base.OID != info.parent) {
-			return &Error{Code: StaleTarget, Message: "commit endpoints do not match"}
+		info := commits[ref.Head.OID]
+		if info.parent == "" && ref.Base.Kind != "empty_tree" || info.parent != "" && (ref.Base.Kind != "commit" || ref.Base.OID != info.parent) {
+			return nil, &Error{Code: StaleTarget, Message: "commit endpoints do not match"}
 		}
 	}
 	if ref.Kind == protocol.DiffTargetBranch {
 		base, err := s.mergeBase(ctx, repo, ref.Base.OID, ref.Head.OID)
-		if err != nil || base != ref.Base.OID {
-			return &Error{Code: StaleTarget, Message: "branch endpoints do not match"}
+		if err != nil {
+			return nil, err
+		}
+		if base != ref.Base.OID {
+			return nil, &Error{Code: StaleTarget, Message: "branch endpoints do not match"}
 		}
 	}
 	storageAfter, err := validateObjectStorage(repo, oids)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if storageBefore != storageAfter {
-		return &Error{Code: RepositoryUnavailable, Message: "pinned diff objects changed while they were read"}
+		return nil, &Error{Code: RepositoryUnavailable, Message: "pinned diff objects changed while they were read"}
 	}
-	return nil
+	return commits, nil
 }
 
-func (s *Service) readCommitTree(ctx context.Context, repo *repository, oid string) (map[string]treeEntry, int, error) {
-	raw, err := s.runner.run(ctx, repo, nil, 64<<10, "cat-file", "commit", oid)
-	if err != nil {
-		return nil, 0, commandFailure(ctx)
-	}
-	commit, ok := parseCommit(oid, raw)
-	if !ok || !validOID(commit.tree) {
-		return nil, 0, repoUnavailable()
-	}
+func (s *Service) readCommitTree(ctx context.Context, repo *repository, rootTreeOID string) (map[string]treeEntry, int, error) {
 	result := map[string]treeEntry{}
 	omitted := 0
 	objects := 0
+	remainingTreeBytes := 32 << 20
 	var walk func(string, string) error
 	walk = func(treeOID, prefix string) error {
 		objects++
@@ -164,9 +163,13 @@ func (s *Service) readCommitTree(ctx context.Context, repo *repository, oid stri
 		if err != nil {
 			return err
 		}
-		raw, err := s.runner.run(ctx, repo, nil, 16<<20, "cat-file", "tree", treeOID)
+		raw, err := s.runner.run(ctx, repo, nil, min(16<<20, remainingTreeBytes+1), "cat-file", "tree", treeOID)
 		if err != nil {
 			return commandFailure(ctx)
+		}
+		remainingTreeBytes -= len(raw)
+		if remainingTreeBytes < 0 || !matchesObjectOID("tree", raw, treeOID) {
+			return repoUnavailable()
 		}
 		storageAfter, err := validateObjectStorage(repo, []string{treeOID})
 		if err != nil {
@@ -214,21 +217,26 @@ func (s *Service) readCommitTree(ctx context.Context, repo *repository, oid stri
 				kind = "commit"
 			}
 			result[path] = treeEntry{mode: mode, kind: kind, oid: childOID}
+			if len(result) > protocol.MaxDiffCandidates*4 {
+				return &Error{Code: LimitExceeded, Message: "committed tree exceeds candidate traversal limit", Details: map[string]string{"limit": "candidate_limit"}}
+			}
 		}
 		return nil
 	}
-	if err := walk(commit.tree, ""); err != nil {
+	if err := walk(rootTreeOID, ""); err != nil {
 		return nil, 0, err
 	}
 	return result, omitted, nil
 }
 
-func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]blobEvidence, omitted int) ([]retainedFile, int64, bool, *protocol.DiffTruncation, []protocol.DiffOmission, error) {
-	paths := make([]string, 0, len(oldTree)+len(newTree))
+func boundedCommittedPaths(oldTree, newTree map[string]treeEntry) []string {
+	paths := make([]string, 0)
 	seen := map[string]bool{}
-	for path := range oldTree {
+	for path, oldEntry := range oldTree {
 		seen[path] = true
-		paths = append(paths, path)
+		if newEntry, ok := newTree[path]; !ok || newEntry != oldEntry {
+			paths = append(paths, path)
+		}
 	}
 	for path := range newTree {
 		if !seen[path] {
@@ -236,15 +244,33 @@ func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]b
 		}
 	}
 	sort.Strings(paths)
+	if len(paths) > protocol.MaxDiffCandidates {
+		return paths[:protocol.MaxDiffCandidates]
+	}
+	return paths
+}
+
+func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]blobEvidence, omitted int) ([]retainedFile, int64, bool, *protocol.DiffTruncation, []protocol.DiffOmission, error) {
+	allPathCount := 0
+	for path, oldEntry := range oldTree {
+		if newEntry, ok := newTree[path]; !ok || newEntry != oldEntry {
+			allPathCount++
+		}
+	}
+	for path := range newTree {
+		if _, exists := oldTree[path]; !exists {
+			allPathCount++
+		}
+	}
+	paths := boundedCommittedPaths(oldTree, newTree)
 	complete := omitted == 0
 	omissions := []protocol.DiffOmission{}
 	if omitted > 0 {
 		omissions = append(omissions, protocol.DiffOmission{Reason: "unsupported_path", Count: omitted})
 	}
 	var truncation *protocol.DiffTruncation
-	if len(paths) > protocol.MaxDiffCandidates {
-		count := len(paths) - protocol.MaxDiffCandidates
-		paths = paths[:protocol.MaxDiffCandidates]
+	if allPathCount > protocol.MaxDiffCandidates {
+		count := allPathCount - protocol.MaxDiffCandidates
 		complete = false
 		truncation = &protocol.DiffTruncation{Reason: "candidate_limit", Count: count}
 		omissions = append(omissions, protocol.DiffOmission{Reason: "unexamined_candidate", Count: count})
@@ -258,7 +284,7 @@ func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]b
 			continue
 		}
 		summary := protocol.DiffFileSummary{Path: path, Old: sideForTree(oldEntry, oldOK), New: sideForTree(newEntry, newOK), ContentState: "text"}
-		file := retainedFile{summary: summary}
+		file := retainedFile{summary: summary, oldTree: oldEntry, newTree: newEntry, hasOld: oldOK, hasNew: newOK}
 		exact := true
 		for _, item := range []struct {
 			entry treeEntry
@@ -340,4 +366,52 @@ func classifyCommitted(oldTree, newTree map[string]treeEntry, blobs map[string]b
 		files = append(files, file)
 	}
 	return files, retained, complete, truncation, omissions, nil
+}
+
+func (s *Service) revalidateCommittedFile(ctx context.Context, repo *repository, ref targetReference, commits map[string]commitInfo, file retainedFile) error {
+	oldTree := map[string]treeEntry{}
+	var err error
+	if ref.Base.Kind == "commit" {
+		oldTree, _, err = s.readCommitTree(ctx, repo, commits[ref.Base.OID].tree)
+		if err != nil {
+			return err
+		}
+	}
+	newTree, _, err := s.readCommitTree(ctx, repo, commits[ref.Head.OID].tree)
+	if err != nil {
+		return err
+	}
+	oldEntry, oldOK := oldTree[file.summary.Path]
+	newEntry, newOK := newTree[file.summary.Path]
+	if oldOK != file.hasOld || newOK != file.hasNew || oldEntry != file.oldTree || newEntry != file.newTree {
+		return &Error{Code: StaleTarget, Message: "committed file evidence changed"}
+	}
+	entries := map[string]treeEntry{}
+	if oldOK {
+		entries["old"] = oldEntry
+	}
+	if newOK {
+		entries["new"] = newEntry
+	}
+	blobs, err := s.readBlobs(ctx, repo, entries)
+	if err != nil {
+		return err
+	}
+	for _, side := range []struct {
+		entry treeEntry
+		ok    bool
+		want  []byte
+	}{{oldEntry, oldOK, file.old}, {newEntry, newOK, file.new}} {
+		if !side.ok || side.entry.kind != "blob" {
+			continue
+		}
+		blob, exists := blobs[side.entry.oid]
+		if !exists {
+			return &Error{Code: RepositoryUnavailable, Message: "committed blob evidence is unavailable"}
+		}
+		if file.summary.ContentState == "text" && (blob.oversized || !bytes.Equal(blob.data, side.want)) {
+			return &Error{Code: RepositoryUnavailable, Message: "committed blob evidence changed"}
+		}
+	}
+	return nil
 }

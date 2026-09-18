@@ -32,6 +32,7 @@ type targetReference struct {
 
 type commitInfo struct {
 	oid, tree, parent, subject string
+	parents                    []string
 	committedAt                int64
 }
 
@@ -128,6 +129,8 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 		return protocol.DiffTargetCatalog{}, err
 	}
 	defer release()
+	ctx, cancel := boundedContext(ctx)
+	defer cancel()
 	ref := s.workspaces.Ref(session, cwd)
 	if ref.WorkspaceID != in.WorkspaceID {
 		return protocol.DiffTargetCatalog{}, &Error{Code: StaleWorkspace, Message: "the session workspace changed", Details: map[string]string{"currentWorkspaceId": ref.WorkspaceID}}
@@ -170,6 +173,10 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 	if err != nil {
 		return protocol.DiffTargetCatalog{}, err
 	}
+	catalogStorage, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
 	catalog.Diagnostics = append(catalog.Diagnostics, diagnostics...)
 	baseName := chooseBaseBranch(branches, current)
 	branchTargets := make([]branchInfo, 0, len(branches))
@@ -201,7 +208,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 		if baseOID == "" || branch.oid == baseOID {
 			continue
 		}
-		mergeBase, err := s.mergeBase(ctx, repo, baseOID, branch.oid)
+		mergeBase, err := s.resolveMergeBase(ctx, repo, baseOID, branch.oid)
 		if err != nil {
 			catalog.Diagnostics = appendDiagnostic(catalog.Diagnostics, "missing_object", 1)
 			continue
@@ -224,6 +231,13 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 	}
 	if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, branches, current); err != nil {
 		return protocol.DiffTargetCatalog{}, err
+	}
+	catalogStorageAfter, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	if catalogStorage != catalogStorageAfter {
+		return protocol.DiffTargetCatalog{}, &Error{Code: StaleTarget, Message: "object storage changed while targets were listed"}
 	}
 	return catalog, nil
 }
@@ -268,7 +282,7 @@ func appendDiagnostic(in []protocol.DiffTargetDiagnostic, reason string, count i
 }
 
 func (s *Service) resolveHead(ctx context.Context, repo *repository) (string, bool, error) {
-	out, err := s.runner.run(ctx, repo, nil, 256, "rev-parse", "--verify", "HEAD^{commit}")
+	out, err := s.runner.run(ctx, repo, nil, 256, "rev-parse", "--verify", "HEAD")
 	if err != nil {
 		if ctx.Err() != nil {
 			return "", false, ctx.Err()
@@ -287,17 +301,17 @@ func (s *Service) resolveHead(ctx context.Context, repo *repository) (string, bo
 }
 
 func (s *Service) listBranches(ctx context.Context, repo *repository) ([]branchInfo, string, []protocol.DiffTargetDiagnostic, error) {
-	out, err := s.runner.run(ctx, repo, nil, 1<<20, "for-each-ref", "--format=%(refname)%00%(objectname)%00%(objecttype)%00", "refs/heads/")
+	out, err := s.runner.run(ctx, repo, nil, 1<<20, "for-each-ref", "--format=%(refname)%00%(objectname)%00", "refs/heads/")
 	if err != nil {
 		return nil, "", nil, commandFailure(ctx)
 	}
 	parts := bytes.Split(out, []byte{0})
 	branches := make([]branchInfo, 0)
 	diagnostics := []protocol.DiffTargetDiagnostic{}
-	for i := 0; i+2 < len(parts); i += 3 {
-		refname, oid, kind := strings.TrimSpace(string(parts[i])), strings.TrimSpace(string(parts[i+1])), strings.TrimSpace(string(parts[i+2]))
+	for i := 0; i+1 < len(parts); i += 2 {
+		refname, oid := strings.TrimSpace(string(parts[i])), strings.TrimSpace(string(parts[i+1]))
 		name := strings.TrimPrefix(refname, "refs/heads/")
-		if refname == name || protocol.ValidateWorkspacePath(name, false) != nil || !safeDisplayText(name) || !validOID(oid) || kind != "commit" {
+		if refname == name || protocol.ValidateWorkspacePath(name, false) != nil || !safeDisplayText(name) || !validOID(oid) {
 			diagnostics = appendDiagnostic(diagnostics, "invalid_ref", 1)
 			continue
 		}
@@ -333,7 +347,33 @@ func chooseBaseBranch(branches []branchInfo, current string) string {
 	return ""
 }
 
-func (s *Service) mergeBase(ctx context.Context, repo *repository, a, b string) (string, error) {
+func (s *Service) loadCommitExact(ctx context.Context, repo *repository, oid string) (commitInfo, error) {
+	storageBefore, err := validateObjectStorage(repo, []string{oid})
+	if err != nil {
+		return commitInfo{}, err
+	}
+	raw, err := s.runner.run(ctx, repo, nil, 64<<10, "cat-file", "commit", oid)
+	if err != nil {
+		return commitInfo{}, commandFailure(ctx)
+	}
+	if !matchesObjectOID("commit", raw, oid) {
+		return commitInfo{}, repoUnavailable()
+	}
+	info, ok := parseCommit(oid, raw)
+	if !ok {
+		return commitInfo{}, repoUnavailable()
+	}
+	storageAfter, err := validateObjectStorage(repo, []string{oid})
+	if err != nil {
+		return commitInfo{}, err
+	}
+	if storageBefore != storageAfter {
+		return commitInfo{}, repoUnavailable()
+	}
+	return info, nil
+}
+
+func (s *Service) resolveMergeBase(ctx context.Context, repo *repository, a, b string) (string, error) {
 	out, err := s.runner.run(ctx, repo, nil, 256, "merge-base", a, b)
 	if err != nil {
 		return "", commandFailure(ctx)
@@ -342,29 +382,63 @@ func (s *Service) mergeBase(ctx context.Context, repo *repository, a, b string) 
 	if !validOID(oid) {
 		return "", repoUnavailable()
 	}
+	if _, err := s.loadCommitExact(ctx, repo, oid); err != nil {
+		return "", err
+	}
+	return oid, nil
+}
+
+func (s *Service) mergeBase(ctx context.Context, repo *repository, a, b string) (string, error) {
+	storageBefore, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return "", err
+	}
+	oid, err := s.resolveMergeBase(ctx, repo, a, b)
+	if err != nil {
+		return "", err
+	}
+	storageAfter, err := validateObjectStoreAuthority(repo)
+	if err != nil {
+		return "", err
+	}
+	if storageBefore != storageAfter {
+		return "", repoUnavailable()
+	}
 	return oid, nil
 }
 
 func (s *Service) recentCommits(ctx context.Context, repo *repository, head string) ([]commitInfo, error) {
-	out, err := s.runner.run(ctx, repo, nil, 4096, "rev-list", "--max-count=20", "--date-order", head)
+	first, err := s.loadCommitExact(ctx, repo, head)
 	if err != nil {
-		return nil, commandFailure(ctx)
+		return nil, err
 	}
-	lines := strings.Fields(string(out))
-	result := make([]commitInfo, 0, len(lines))
-	for _, oid := range lines {
-		if !validOID(oid) {
-			return nil, repoUnavailable()
+	frontier := []commitInfo{first}
+	seen := map[string]bool{}
+	result := make([]commitInfo, 0, 20)
+	for len(frontier) > 0 && len(result) < 20 {
+		sort.Slice(frontier, func(i, j int) bool {
+			if frontier[i].committedAt != frontier[j].committedAt {
+				return frontier[i].committedAt > frontier[j].committedAt
+			}
+			return frontier[i].oid < frontier[j].oid
+		})
+		current := frontier[0]
+		frontier = frontier[1:]
+		if seen[current.oid] {
+			continue
 		}
-		raw, err := s.runner.run(ctx, repo, nil, 64<<10, "cat-file", "commit", oid)
-		if err != nil {
-			return nil, commandFailure(ctx)
+		seen[current.oid] = true
+		result = append(result, current)
+		for _, parent := range current.parents {
+			if seen[parent] {
+				continue
+			}
+			info, err := s.loadCommitExact(ctx, repo, parent)
+			if err != nil {
+				return nil, err
+			}
+			frontier = append(frontier, info)
 		}
-		info, ok := parseCommit(oid, raw)
-		if !ok {
-			return nil, repoUnavailable()
-		}
-		result = append(result, info)
 	}
 	return result, nil
 }
@@ -379,8 +453,12 @@ func parseCommit(oid string, raw []byte) (commitInfo, bool) {
 		if strings.HasPrefix(line, "tree ") {
 			info.tree = strings.TrimPrefix(line, "tree ")
 		}
-		if strings.HasPrefix(line, "parent ") && info.parent == "" {
-			info.parent = strings.TrimPrefix(line, "parent ")
+		if strings.HasPrefix(line, "parent ") {
+			parent := strings.TrimPrefix(line, "parent ")
+			info.parents = append(info.parents, parent)
+			if info.parent == "" {
+				info.parent = parent
+			}
 		}
 		if strings.HasPrefix(line, "committer ") {
 			fields := strings.Fields(line)
@@ -389,8 +467,13 @@ func parseCommit(oid string, raw []byte) (commitInfo, bool) {
 			}
 		}
 	}
-	if !validOID(info.tree) || info.parent != "" && !validOID(info.parent) {
+	if !validOID(info.tree) {
 		return commitInfo{}, false
+	}
+	for _, parent := range info.parents {
+		if !validOID(parent) {
+			return commitInfo{}, false
+		}
 	}
 	info.subject = strings.TrimSpace(strings.SplitN(string(message), "\n", 2)[0])
 	info.subject = strings.ToValidUTF8(info.subject, "�")
@@ -436,6 +519,8 @@ func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in pro
 	if err := in.Validate(); err != nil {
 		return protocol.DiffPage{}, &Error{Code: InvalidPath, Message: "diff observation request is invalid"}
 	}
+	ctx, cancel := boundedContext(ctx)
+	defer cancel()
 	ref, err := s.decodeTargetReference(in.TargetReference)
 	if err != nil {
 		return protocol.DiffPage{}, err
@@ -444,6 +529,11 @@ func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in pro
 		return protocol.DiffPage{}, &Error{Code: StaleWorkspace, Message: "diff target reference belongs to another workspace"}
 	}
 	if in.Cursor != "" {
+		release, err := s.acquire(ctx, session)
+		if err != nil {
+			return protocol.DiffPage{}, err
+		}
+		defer release()
 		return s.listTargetCursor(session, in)
 	}
 	repo, err := s.discoverRepository(ctx, cwd)
@@ -452,6 +542,10 @@ func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in pro
 	}
 	if authorityToken(repo) != ref.Authority {
 		return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
+	}
+	resolvedTargetID := targetID(session, in.WorkspaceID, repo, ref.Kind, ref.Base, ref.Head)
+	if in.ExpectedTargetID != resolvedTargetID {
+		return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "diff target identity does not match reference"}
 	}
 	if ref.Kind == protocol.DiffTargetWorkingTree {
 		page, err := s.Observe(ctx, session, cwd, protocol.ObserveWorkingTreeInput{WorkspaceID: in.WorkspaceID, PageSize: in.PageSize})
@@ -471,9 +565,19 @@ func (s *Service) ObserveTarget(ctx context.Context, session, cwd string, in pro
 			page.Observation = held.DiffObservation
 		}
 		s.mu.Unlock()
+		if page.Observation.Target.ID != in.ExpectedTargetID {
+			return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "working-tree result identity does not match request"}
+		}
 		return page, nil
 	}
-	return s.observeCommitted(ctx, session, cwd, in.WorkspaceID, ref, in.PageSize)
+	page, err := s.observeCommitted(ctx, session, cwd, in.WorkspaceID, ref, in.PageSize)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	if page.Observation.Target.ID != in.ExpectedTargetID {
+		return protocol.DiffPage{}, &Error{Code: StaleTarget, Message: "committed result identity does not match request"}
+	}
+	return page, nil
 }
 
 func (s *Service) listTargetCursor(session string, in protocol.ObserveDiffInput) (protocol.DiffPage, error) {
@@ -486,7 +590,7 @@ func (s *Service) listTargetCursor(session string, in protocol.ObserveDiffInput)
 		return protocol.DiffPage{}, staleCursor()
 	}
 	ref, err := s.decodeTargetReference(in.TargetReference)
-	if err != nil || ref.Session != session || ref.Workspace != in.WorkspaceID || ref.Authority != authorityToken(o.repo) || targetID(session, in.WorkspaceID, o.repo, ref.Kind, ref.Base, ref.Head) != o.Target.ID {
+	if err != nil || ref.Session != session || ref.Workspace != in.WorkspaceID || ref.Authority != authorityToken(o.repo) || targetID(session, in.WorkspaceID, o.repo, ref.Kind, ref.Base, ref.Head) != o.Target.ID || in.ExpectedTargetID != o.Target.ID {
 		return protocol.DiffPage{}, staleCursor()
 	}
 	return s.listPage(o, c.Offset, c.PageSize, in.Cursor), nil

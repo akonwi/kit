@@ -200,6 +200,11 @@ func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol
 		return protocol.FileDiffPage{}, &Error{Code: NotFound, Message: "changed file is not in the observation"}
 	}
 	f := o.files[i]
+	if o.committed {
+		var cancel context.CancelFunc
+		ctx, cancel = boundedContext(ctx)
+		defer cancel()
+	}
 	if cursorFileRevision != "" && cursorFileRevision != f.summary.FileRevision {
 		return protocol.FileDiffPage{}, staleCursor()
 	}
@@ -215,7 +220,11 @@ func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol
 	}
 	if o.committed {
 		ref := targetReference{Kind: o.Target.Kind, Base: o.Target.Base, Head: o.Target.Head}
-		if e := s.verifyPinnedTarget(ctx, rediscovered, ref); e != nil {
+		pinned, e := s.verifyPinnedTarget(ctx, rediscovered, ref)
+		if e != nil {
+			return protocol.FileDiffPage{}, e
+		}
+		if e := s.revalidateCommittedFile(ctx, rediscovered, ref, pinned, f); e != nil {
 			return protocol.FileDiffPage{}, e
 		}
 	} else {

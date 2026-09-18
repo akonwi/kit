@@ -66,10 +66,11 @@ type ListDiffTargetsInput struct {
 
 // ObserveDiffInput selects a server-issued target reference.
 type ObserveDiffInput struct {
-	WorkspaceID     string `json:"workspaceId"`
-	TargetReference string `json:"targetReference"`
-	PageSize        int    `json:"pageSize,omitempty"`
-	Cursor          string `json:"cursor,omitempty"`
+	WorkspaceID      string `json:"workspaceId"`
+	TargetReference  string `json:"targetReference"`
+	ExpectedTargetID string `json:"expectedTargetId"`
+	PageSize         int    `json:"pageSize,omitempty"`
+	Cursor           string `json:"cursor,omitempty"`
 }
 
 // DiffPage is the generalized observation page. WorkingTreePage remains an
@@ -101,7 +102,7 @@ func (in ListDiffTargetsInput) Validate() error {
 }
 
 func (in ObserveDiffInput) Validate() error {
-	if !validWorkspaceToken(in.WorkspaceID, "workspace_") || !validTargetReference(in.TargetReference) || in.PageSize < 0 || in.PageSize > MaxDiffFilePageSize || len(in.Cursor) > MaxDiffCursorBytes {
+	if !validWorkspaceToken(in.WorkspaceID, "workspace_") || !validTargetReference(in.TargetReference) || !validDiffToken(in.ExpectedTargetID, "difftarget_") || in.PageSize < 0 || in.PageSize > MaxDiffFilePageSize || len(in.Cursor) > MaxDiffCursorBytes {
 		return fmt.Errorf("diff observation request is invalid")
 	}
 	return nil
@@ -167,11 +168,13 @@ func (c DiffTargetCatalog) Validate() error {
 		return fmt.Errorf("diff target catalog is invalid")
 	}
 	ids := map[string]bool{}
+	references := map[string]bool{}
 	for i, target := range c.Targets {
-		if target.Validate() != nil || ids[target.TargetID] || i == 0 && target.Kind != DiffTargetWorkingTree {
+		if target.Validate() != nil || ids[target.TargetID] || references[target.Reference] || i == 0 && target.Kind != DiffTargetWorkingTree {
 			return fmt.Errorf("diff target catalog entries are invalid")
 		}
 		ids[target.TargetID] = true
+		references[target.Reference] = true
 	}
 	for _, diagnostic := range c.Diagnostics {
 		if !map[string]bool{"invalid_ref": true, "missing_object": true, "unsupported_ref": true, "branch_limit": true, "commit_limit": true}[diagnostic.Reason] || diagnostic.Count < 1 {

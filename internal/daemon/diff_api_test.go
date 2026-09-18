@@ -50,7 +50,7 @@ func TestGeneralizedDiffRoutes(t *testing.T) {
 	registerSessionRoutes(mux, diffRouteService{catalog: catalog, observe: page})
 	for path, body := range map[string]string{
 		"/v1/sessions/session_test/diff/targets":      `{"workspaceId":"` + observation.Target.WorkspaceID + `"}`,
-		"/v1/sessions/session_test/diff/observations": `{"workspaceId":"` + observation.Target.WorkspaceID + `","targetReference":"` + entry.Reference + `"}`,
+		"/v1/sessions/session_test/diff/observations": `{"workspaceId":"` + observation.Target.WorkspaceID + `","targetReference":"` + entry.Reference + `","expectedTargetId":"` + entry.TargetID + `"}`,
 	} {
 		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
 		response := httptest.NewRecorder()
@@ -76,13 +76,42 @@ func TestGeneralizedDiffClientResponsesRequireRequestedIdentity(t *testing.T) {
 		t.Fatal("catalog session mismatch was accepted")
 	}
 	page := protocol.DiffPage{Observation: observation, Files: []protocol.DiffFileSummary{}}
-	observeInput := protocol.ObserveDiffInput{WorkspaceID: observation.Target.WorkspaceID, TargetReference: entry.Reference}
+	observeInput := protocol.ObserveDiffInput{WorkspaceID: observation.Target.WorkspaceID, TargetReference: entry.Reference, ExpectedTargetID: entry.TargetID}
 	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err != nil {
 		t.Fatal(err)
 	}
 	page.Observation.Target.WorkspaceID = "workspace_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
 	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err == nil {
 		t.Fatal("observation workspace mismatch was accepted")
+	}
+}
+
+func TestGeneralizedDiffRoutesRejectServiceIdentityMismatch(t *testing.T) {
+	observation := routeObservation()
+	oid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	endpoint := protocol.DiffEndpoint{Kind: "commit", OID: oid}
+	entry := protocol.DiffTargetEntry{Reference: routeTargetReference(), TargetID: observation.Target.ID, Kind: protocol.DiffTargetWorkingTree, Base: endpoint, Head: endpoint, Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}}
+	catalog := protocol.DiffTargetCatalog{SessionID: "other_session", WorkspaceID: observation.Target.WorkspaceID, Targets: []protocol.DiffTargetEntry{entry}, Diagnostics: []protocol.DiffTargetDiagnostic{}}
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, diffRouteService{catalog: catalog})
+	body := `{"workspaceId":"` + observation.Target.WorkspaceID + `"}`
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_test/diff/targets", strings.NewReader(body))
+	response := httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("catalog response=%d %s", response.Code, response.Body.String())
+	}
+
+	observation.Target.ID = "difftarget_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	page := protocol.DiffPage{Observation: observation, Files: []protocol.DiffFileSummary{}}
+	mux = http.NewServeMux()
+	registerSessionRoutes(mux, diffRouteService{observe: page})
+	body = `{"workspaceId":"` + observation.Target.WorkspaceID + `","targetReference":"` + entry.Reference + `","expectedTargetId":"` + entry.TargetID + `"}`
+	request = httptest.NewRequest(http.MethodPost, "/v1/sessions/session_test/diff/observations", strings.NewReader(body))
+	response = httptest.NewRecorder()
+	mux.ServeHTTP(response, request)
+	if response.Code != http.StatusInternalServerError {
+		t.Fatalf("observation response=%d %s", response.Code, response.Body.String())
 	}
 }
 

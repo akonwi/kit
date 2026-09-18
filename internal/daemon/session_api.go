@@ -1585,13 +1585,22 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		result, err := service.ListDiffTargets(request.Context(), request.PathValue("sessionID"), input)
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		sessionID := request.PathValue("sessionID")
+		result, err := service.ListDiffTargets(request.Context(), sessionID, input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid diff target catalog: %w", err))
+			return
+		}
+		if result.SessionID != sessionID || result.WorkspaceID != input.WorkspaceID {
+			writeSessionError(writer, fmt.Errorf("diff target catalog identity does not match request"))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -1602,13 +1611,22 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		result, err := service.ObserveDiff(request.Context(), request.PathValue("sessionID"), input)
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		sessionID := request.PathValue("sessionID")
+		result, err := service.ObserveDiff(request.Context(), sessionID, input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid diff observation page: %w", err))
+			return
+		}
+		if result.Observation.SessionID != sessionID || result.Observation.Target.WorkspaceID != input.WorkspaceID || result.Observation.Target.ID != input.ExpectedTargetID {
+			writeSessionError(writer, fmt.Errorf("diff observation identity does not match request"))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)

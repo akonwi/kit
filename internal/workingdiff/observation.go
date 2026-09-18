@@ -47,6 +47,7 @@ func (s *Service) readBlobs(ctx context.Context, r *repository, tree map[string]
 	}
 	result := map[string]blobEvidence{}
 	eligible := make([]string, 0, len(ordered))
+	eligibleBytes := 0
 	lines := strings.Split(strings.TrimSpace(string(checked)), "\n")
 	if len(ordered) == 0 {
 		lines = nil
@@ -61,8 +62,9 @@ func (s *Service) readBlobs(ctx context.Context, r *repository, tree map[string]
 		}
 		var n int
 		if _, e := fmt.Sscanf(f[2], "%d", &n); e == nil && n >= 0 {
-			if n <= protocol.MaxDiffFileBytes {
+			if n <= protocol.MaxDiffFileBytes && eligibleBytes+n <= 32<<20 {
 				eligible = append(eligible, ordered[i])
+				eligibleBytes += n
 			} else {
 				result[ordered[i]] = blobEvidence{oversized: true}
 			}
@@ -91,7 +93,11 @@ func (s *Service) readBlobs(ctx context.Context, r *repository, tree map[string]
 		if _, e := fmt.Sscanf(header[2], "%d", &n); e != nil || n < 0 || n > protocol.MaxDiffFileBytes || len(out) < n+1 || out[n] != '\n' {
 			return nil, repoUnavailable()
 		}
-		result[want] = blobEvidence{data: append([]byte(nil), out[:n]...)}
+		content := out[:n]
+		if !matchesObjectOID("blob", content, want) {
+			return nil, repoUnavailable()
+		}
+		result[want] = blobEvidence{data: append([]byte(nil), content...)}
 		out = out[n+1:]
 	}
 	storageAfter, storageErr := validateObjectStorage(r, ordered)
