@@ -245,6 +245,27 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	}
 }
 
+func TestWorkspaceDiffChangedLinesPrioritizeReadableDiffForeground(t *testing.T) {
+	lineNumber := 1
+	syntaxColor := vaxis.IndexColor(123)
+	theme := ui.DefaultTheme()
+	syntax := []ui.TextSpan{{Text: "comment", Style: ui.Style{Foreground: syntaxColor}}}
+	unified := uitest.New(workspaceDiffLineWidget(
+		protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: "comment", HasTerminatingLF: true},
+		syntax, false, false, false, theme, semanticFallback(theme), nil, nil, nil,
+	))
+	unified.Pump(40, 2)
+	if got := unified.Cell(14, 0).Style.Foreground; got != theme.Foreground {
+		t.Fatalf("unified changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
+	}
+	item := &workspaceDiffRenderedLine{line: protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: "comment", HasTerminatingLF: true}, syntax: syntax}
+	split := uitest.New(workspaceDiffSideWidget(item, false, false, true, 1, false, 0, theme, semanticFallback(theme), nil, nil, nil))
+	split.Pump(40, 2)
+	if got := split.Cell(8, 0).Style.Foreground; got != theme.Foreground {
+		t.Fatalf("split changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
+	}
+}
+
 func TestWorkspaceDiffUnifiedRangeStylesOnlyAnchoredSide(t *testing.T) {
 	oldLine, newLine := 12, 12
 	application := uitest.New(workspaceDiffLineWidget(

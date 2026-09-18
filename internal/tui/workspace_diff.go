@@ -2250,6 +2250,9 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSel
 	} else {
 		for index := range spans {
 			spans[index].Style.Background = contentBackground
+			if line.Kind == "addition" || line.Kind == "deletion" {
+				spans[index].Style.Foreground = theme.Foreground
+			}
 		}
 	}
 	if !wrap && columnOffset > 0 {
@@ -2339,6 +2342,9 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 		syntaxSpans = append([]ui.TextSpan(nil), syntaxSpans...)
 		for index := range syntaxSpans {
 			syntaxSpans[index].Style.Background = contentBackground
+			if line.Kind == "addition" || line.Kind == "deletion" {
+				syntaxSpans[index].Style.Foreground = theme.Foreground
+			}
 		}
 	}
 	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{
