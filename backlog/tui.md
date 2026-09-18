@@ -73,7 +73,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   deletion, automatic names, and recovery errors through bounded native flows.
 - [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the
   linked child returned by the server, optionally submit the message as its
-  first new prompt, and expose lineage and recoverable failures. Depends on
+  first new prompt, and expose recoverable failures. Depends on
   `CORE-FORK-001`.
 - [~] TUI-CMD-001 — Complete palette filtering, completion, arguments, nested
   pickers, keyboard/mouse behavior, and required command sources.

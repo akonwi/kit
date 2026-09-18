@@ -154,7 +154,9 @@ func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	surface := sessionExplorerSurface{
 		Snapshot: snapshot, Action: "open",
-		Callbacks: sessionExplorerCallbacks{Select: func(_ ui.EventContext, sessionID string) {
+		Callbacks: sessionExplorerCallbacks{QueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.controller.SetQuery(value) }) }, Toggle: func(_ ui.EventContext, sessionID string) {
+			s.SetState(func() { s.controller.ToggleExpanded(sessionID) })
+		}, Select: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.controller.Select(sessionID) })
 		}},
 	}
@@ -355,7 +357,12 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 		return ui.EventHandled
 	}
 	var handled bool
-	s.SetState(func() { handled = s.controller.HandleKey(key) })
+	s.SetState(func() {
+		handled = s.controller.HandleKey(key)
+		if !handled {
+			handled = s.controller.HandleEditorKey(key)
+		}
+	})
 	if handled {
 		return ui.EventHandled
 	}

@@ -1479,6 +1479,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ApplyConfiguration: func(ui.EventContext) {
 			s.applyConfigurationSelection()
 		},
+		SessionQueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.sessionExplorer.SetQuery(value) }) },
+		ToggleSessionTree: func(_ ui.EventContext, sessionID string) {
+			s.SetState(func() { s.sessionExplorer.ToggleExpanded(sessionID) })
+		},
 		SelectSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
 		},
@@ -1734,7 +1738,12 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		var handled bool
-		s.SetState(func() { handled = s.sessionExplorer.HandleKey(key) })
+		s.SetState(func() {
+			handled = s.sessionExplorer.HandleKey(key)
+			if !handled {
+				handled = s.sessionExplorer.HandleEditorKey(key)
+			}
+		})
 		if handled {
 			return ui.EventHandled
 		}

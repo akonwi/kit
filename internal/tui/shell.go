@@ -190,6 +190,8 @@ type shellCallbacks struct {
 	SelectConfiguration         func(ui.EventContext, string)
 	ApplyConfiguration          ui.VoidCallback
 	SelectSession               func(ui.EventContext, string)
+	SessionQueryChanged         ui.TextChangedCallback
+	ToggleSessionTree           func(ui.EventContext, string)
 	SessionRenameChanged        ui.TextChangedCallback
 	SubmitCurrentSessionRename  ui.TextChangedCallback
 	RenameSessionChanged        ui.TextChangedCallback
@@ -318,7 +320,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionExplorer.Open {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
 			Snapshot:  w.Snapshot.SessionExplorer,
-			Callbacks: sessionExplorerCallbacks{Select: w.Callbacks.SelectSession},
+			Callbacks: sessionExplorerCallbacks{QueryChanged: w.Callbacks.SessionQueryChanged, Select: w.Callbacks.SelectSession, Toggle: w.Callbacks.ToggleSessionTree},
 		}))
 		if w.Snapshot.SessionExplorer.RenameOpen {
 			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{

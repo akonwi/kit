@@ -3,7 +3,6 @@ package tui
 import (
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"strings"
 	"time"
@@ -23,10 +22,19 @@ const (
 )
 
 type sessionExplorerItem struct {
-	ID        string
-	CWD       string
-	Name      string
-	UpdatedAt string
+	ID                string
+	CWD               string
+	Name              string
+	UpdatedAt         string
+	ParentSessionID   string
+	ParentSessionName string
+	TreeParentID      string
+	Depth             int
+	ChildCount        int
+	Tree              bool
+	Expanded          bool
+	MissingParent     bool
+	InvalidParent     bool
 }
 
 func projectSessionExplorerItems(sessions []protocol.SessionInfo) []sessionExplorerItem {
@@ -34,6 +42,7 @@ func projectSessionExplorerItems(sessions []protocol.SessionInfo) []sessionExplo
 	for index, session := range sessions {
 		items[index] = sessionExplorerItem{
 			ID: session.ID, CWD: session.CWD, Name: session.Name, UpdatedAt: session.UpdatedAt,
+			ParentSessionID: session.ParentSessionID, ParentSessionName: session.ParentSessionName,
 		}
 	}
 	return items
@@ -55,6 +64,8 @@ type sessionExplorerController struct {
 	DeleteSessionID     string
 	DeletePending       bool
 	DeleteError         string
+	Query               string
+	expanded            map[string]bool
 	Sessions            []sessionExplorerItem
 	Selection           string
 	CurrentSessionID    string
@@ -83,6 +94,8 @@ type sessionExplorerSnapshot struct {
 	DeleteSessionID  string
 	DeletePending    bool
 	DeleteError      string
+	Query            string
+	TotalSessions    int
 	Sessions         []sessionExplorerItem
 	Selection        string
 	CurrentSessionID string
@@ -95,6 +108,7 @@ func (c *sessionExplorerController) Begin(currentSessionID string) uint64 {
 	c.generation++
 	c.Open = true
 	c.Loading = true
+	c.Query = ""
 	c.Error = ""
 	c.Sessions = nil
 	c.Selection = currentSessionID
@@ -120,6 +134,11 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 	}
 	c.Error = ""
 	c.Sessions = orderedSessions(sessions)
+	if c.expanded == nil {
+		c.expanded = make(map[string]bool)
+	}
+	c.expandAncestors(c.CurrentSessionID)
+	c.expandAncestors(c.Selection)
 	if sessionIndex(c.Sessions, c.Selection) < 0 {
 		if sessionIndex(c.Sessions, c.CurrentSessionID) >= 0 {
 			c.Selection = c.CurrentSessionID
@@ -129,6 +148,7 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 			c.Selection = ""
 		}
 	}
+	c.reconcileVisibleSelection()
 	c.requestReveal()
 	return true
 }
@@ -142,21 +162,21 @@ func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 		RenamePending: c.RenamePending, RenameError: c.RenameError,
 		DeleteOpen: c.DeleteOpen, DeleteSessionID: c.DeleteSessionID,
 		DeletePending: c.DeletePending, DeleteError: c.DeleteError,
-		Sessions: append([]sessionExplorerItem(nil), c.Sessions...), Selection: c.Selection,
+		Query: c.Query, TotalSessions: len(c.Sessions), Sessions: c.visibleSessions(), Selection: c.Selection,
 		CurrentSessionID: c.CurrentSessionID, Scroll: &c.scroll, List: &c.list, Layout: &c.layout,
 	}
 }
 
 func (c *sessionExplorerController) Close() {
 	c.generation++
-	*c = sessionExplorerController{generation: c.generation}
+	*c = sessionExplorerController{generation: c.generation, expanded: c.expanded}
 }
 
 func (c *sessionExplorerController) Select(sessionID string) {
 	if c.Switching || c.RenameOpen || c.DeleteOpen {
 		return
 	}
-	if sessionIndex(c.Sessions, sessionID) >= 0 && c.Selection != sessionID {
+	if sessionIndex(c.visibleSessions(), sessionID) >= 0 && c.Selection != sessionID {
 		c.Selection = sessionID
 		c.SwitchError = ""
 		c.DeleteError = ""
@@ -170,6 +190,14 @@ func (c *sessionExplorerController) ApplyExternalRename(sessionID, name string) 
 		return false
 	}
 	c.Sessions[index].Name = name
+	for i := range c.Sessions {
+		if c.Sessions[i].ParentSessionID == sessionID {
+			c.Sessions[i].ParentSessionName = name
+		}
+	}
+	c.Sessions = orderedSessions(c.Sessions)
+	c.reconcileVisibleSelection()
+	c.requestReveal()
 	return true
 }
 
@@ -228,7 +256,13 @@ func (c *sessionExplorerController) ResolveRename(generation uint64, session pro
 	}
 	c.Sessions[index] = sessionExplorerItem{
 		ID: session.ID, CWD: session.CWD, Name: session.Name, UpdatedAt: session.UpdatedAt,
+		ParentSessionID: session.ParentSessionID, ParentSessionName: session.ParentSessionName,
 	}
+	c.ApplyExternalRename(session.ID, session.Name)
+	c.Sessions = orderedSessions(c.Sessions)
+	c.expandAncestors(c.Selection)
+	c.reconcileVisibleSelection()
+	c.requestReveal()
 	c.RenameOpen = false
 	c.RenameSessionID = ""
 	c.RenameText = ""
@@ -287,12 +321,15 @@ func (c *sessionExplorerController) ResolveDelete(generation uint64, err error) 
 		c.DeleteError = "deleted session is no longer listed"
 		return true
 	}
-	c.Sessions = append(c.Sessions[:index], c.Sessions[index+1:]...)
-	if len(c.Sessions) == 0 {
+	visibleIndex := sessionIndex(c.visibleSessions(), c.DeleteSessionID)
+	c.Sessions = orderedSessions(append(c.Sessions[:index], c.Sessions[index+1:]...))
+	delete(c.expanded, c.DeleteSessionID)
+	visible := c.visibleSessions()
+	if len(visible) == 0 {
 		c.Selection = ""
 	} else {
-		index = min(index, len(c.Sessions)-1)
-		c.Selection = c.Sessions[index].ID
+		index = max(0, min(visibleIndex, len(visible)-1))
+		c.Selection = visible[index].ID
 		c.requestReveal()
 	}
 	c.DeleteOpen = false
@@ -352,15 +389,16 @@ func (c *sessionExplorerController) ResolveSwitch(generation uint64, err error) 
 }
 
 func (c *sessionExplorerController) Move(delta int) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || len(c.Sessions) == 0 || delta == 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || len(c.visibleSessions()) == 0 || delta == 0 {
 		return
 	}
-	index := sessionIndex(c.Sessions, c.Selection)
+	visible := c.visibleSessions()
+	index := sessionIndex(visible, c.Selection)
 	if index < 0 {
 		index = 0
 	}
-	index = max(0, min(len(c.Sessions)-1, index+delta))
-	if next := c.Sessions[index].ID; next != c.Selection {
+	index = max(0, min(len(visible)-1, index+delta))
+	if next := visible[index].ID; next != c.Selection {
 		c.Selection = next
 		c.SwitchError = ""
 		c.DeleteError = ""
@@ -409,7 +447,7 @@ func (c *sessionExplorerController) TickFrame() bool {
 		return true
 	}
 	first, last, rangeAvailable := c.list.VisibleRange()
-	index := sessionIndex(c.Sessions, c.Selection)
+	index := sessionIndex(c.visibleSessions(), c.Selection)
 	if index < 0 {
 		c.needsReveal = false
 		return false
@@ -430,39 +468,32 @@ func (c *sessionExplorerController) HandleKey(key ui.Key) bool {
 		return false
 	}
 	if key.EventType == vaxis.EventPaste {
-		return true
+		return false
 	}
 	if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
 		return false
 	}
 	switch {
-	case key.MatchString("Up"), key.MatchString("k"):
+	case key.MatchString("Up"):
 		c.Move(-1)
-	case key.MatchString("Down"), key.MatchString("j"):
+	case key.MatchString("Down"):
 		c.Move(1)
 	case key.MatchString("Page_Up"):
 		c.Move(-sessionExplorerMaxVisible)
 	case key.MatchString("Page_Down"):
 		c.Move(sessionExplorerMaxVisible)
-	case key.MatchString("r"):
+	case key.MatchString("Right"):
+		c.NavigateTree(true)
+	case key.MatchString("Left"):
+		c.NavigateTree(false)
+	case key.MatchString("Ctrl+r"):
 		c.BeginRename()
 	case key.MatchString("Ctrl+d"):
 		c.BeginDelete()
+	default:
+		return false
 	}
 	return true
-}
-
-func orderedSessions(sessions []sessionExplorerItem) []sessionExplorerItem {
-	ordered := append([]sessionExplorerItem(nil), sessions...)
-	sort.SliceStable(ordered, func(left, right int) bool {
-		leftTime := sessionTimestamp(ordered[left].UpdatedAt)
-		rightTime := sessionTimestamp(ordered[right].UpdatedAt)
-		if leftTime.Equal(rightTime) {
-			return ordered[left].ID < ordered[right].ID
-		}
-		return leftTime.After(rightTime)
-	})
-	return ordered
 }
 
 func sessionTimestamp(raw string) time.Time {
@@ -480,8 +511,11 @@ func sessionIndex(sessions []sessionExplorerItem, sessionID string) int {
 }
 
 type sessionExplorerHints struct {
-	Style  ui.Style
-	Action string
+	Filtering bool
+	Empty     bool
+	Tree      bool
+	Style     ui.Style
+	Action    string
 }
 
 func (sessionExplorerHints) CreateState() ui.State { return &sessionExplorerHintsState{} }
@@ -494,6 +528,15 @@ type sessionExplorerHintsState struct {
 func (s *sessionExplorerHintsState) Build(ui.BuildContext) ui.Widget {
 	widget := s.Widget().(sessionExplorerHints)
 	value := sessionExplorerActionHintText(s.width, widget.Action)
+	if widget.Tree {
+		value = sessionExplorerTreeHintText(s.width, widget.Action)
+	}
+	if widget.Filtering {
+		value = sessionFilterHintText(s.width, widget.Action)
+		if widget.Empty {
+			value = "ctrl+u clear · esc close"
+		}
+	}
 	return widthProbe{
 		WidthChanged: func(width int) {
 			if width != s.width {
@@ -514,17 +557,19 @@ func sessionExplorerActionHintText(width int, action string) string {
 		action = "switch"
 	}
 	switch {
-	case width >= 76:
-		return "↑↓ move · page up/down · enter " + action + " · r rename · ctrl+d delete · esc close"
-	case width >= 51:
-		return "enter " + action + " · r rename · ctrl+d delete · esc close"
+	case width >= 81:
+		return "↑↓ move · page up/down · enter " + action + " · ctrl+r rename · ctrl+d delete · esc close"
+	case width >= 56:
+		return "enter " + action + " · ctrl+r rename · ctrl+d delete · esc close"
 	default:
 		return "enter " + action + " · ctrl+d delete · esc close"
 	}
 }
 
 type sessionExplorerCallbacks struct {
-	Select func(ui.EventContext, string)
+	QueryChanged ui.TextChangedCallback
+	Select       func(ui.EventContext, string)
+	Toggle       func(ui.EventContext, string)
 }
 
 type sessionExplorerSurface struct {
@@ -559,8 +604,10 @@ func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 	case w.Snapshot.SwitchError != "":
 		meta = "Switch failed"
 		metaStyle = ui.Style{Foreground: theme.DangerText}
-	case len(w.Snapshot.Sessions) > 1:
-		meta = sessionCountLabel(len(w.Snapshot.Sessions))
+	case strings.TrimSpace(w.Snapshot.Query) != "":
+		meta = strconv.Itoa(len(w.Snapshot.Sessions)) + " of " + sessionCountLabel(w.Snapshot.TotalSessions)
+	case max(w.Snapshot.TotalSessions, len(w.Snapshot.Sessions)) > 1:
+		meta = sessionCountLabel(max(w.Snapshot.TotalSessions, len(w.Snapshot.Sessions)))
 	}
 	headerChildren := []ui.Widget{
 		ui.Expanded(ui.Text{Value: "Session Explorer", Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
@@ -578,7 +625,7 @@ func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 	}
 	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
-	var footer ui.Widget = sessionExplorerHints{Style: mutedStyle, Action: w.Action}
+	var footer ui.Widget = sessionExplorerHints{Empty: len(w.Snapshot.Sessions) == 0, Filtering: strings.TrimSpace(w.Snapshot.Query) != "", Style: mutedStyle, Action: w.Action, Tree: len(w.Snapshot.Sessions) > 0 && w.Snapshot.Sessions[0].Tree}
 	switch {
 	case w.Snapshot.Switching:
 		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
@@ -600,7 +647,7 @@ func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 			ui.SizedBox{Width: 2},
 			ui.Text{Value: "enter retry · esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		}}
-	case w.Snapshot.Loading || w.Snapshot.Error != "" || len(w.Snapshot.Sessions) == 0:
+	case w.Snapshot.Loading || w.Snapshot.Error != "" || (len(w.Snapshot.Sessions) == 0 && strings.TrimSpace(w.Snapshot.Query) == ""):
 		footer = ui.Text{Value: "esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	}
 	scroll := w.Snapshot.Scroll
@@ -617,7 +664,7 @@ func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 	}
 	body := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, header),
-		ui.SizedBox{Height: 1},
+		w.queryField(theme),
 		ui.Expanded(sessionExplorerBodyClip{Layout: layout, Child: ui.Padding(
 			ui.Insets{Right: 2, Left: 2}, w.body(theme, scroll, list, layout),
 		)}),
@@ -633,7 +680,11 @@ func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController
 		return sessionExplorerStateBody(ui.Text{Value: "Could not load sessions.", Style: ui.Style{Foreground: theme.DangerText}})
 	}
 	if len(w.Snapshot.Sessions) == 0 {
-		return sessionExplorerStateBody(ui.Text{Value: "No sessions", Style: ui.Style{Foreground: theme.MutedForeground}})
+		message := "No sessions"
+		if strings.TrimSpace(w.Snapshot.Query) != "" {
+			message = "No matching sessions"
+		}
+		return sessionExplorerStateBody(ui.Text{Value: message, Style: ui.Style{Foreground: theme.MutedForeground}})
 	}
 	return ui.Scrollbar{Child: ui.CustomScrollView{
 		Controller: scroll,
@@ -646,6 +697,11 @@ func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController
 					Selected:     session.ID == w.Snapshot.Selection,
 					Interactive:  !w.Snapshot.RenameOpen && !w.Snapshot.DeleteOpen && !w.Snapshot.Switching,
 					SessionCount: len(w.Snapshot.Sessions), Layout: layout,
+					OnToggle: func(event ui.EventContext) {
+						if w.Callbacks.Toggle != nil {
+							w.Callbacks.Toggle(event, session.ID)
+						}
+					},
 					OnPressed: func(event ui.EventContext) {
 						if w.Callbacks.Select != nil {
 							w.Callbacks.Select(event, session.ID)
@@ -809,6 +865,7 @@ type sessionExplorerRow struct {
 	SessionCount int
 	Layout       *pickerDialogLayoutState
 	OnPressed    ui.VoidCallback
+	OnToggle     ui.VoidCallback
 }
 
 func (w sessionExplorerRow) WidgetKey() ui.KeyValue {
@@ -850,7 +907,11 @@ func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
 		shortID = shortSessionID(row.Session.ID)
 	}
 	content := sessionExplorerRowLayout{SessionCount: row.SessionCount, Layout: row.Layout, Children: []ui.Widget{
-		ui.Text{Value: marker + sessionExplorerItemLabel(row.Session), Style: primaryStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
+		ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+			ui.Text{Value: marker, Style: primaryStyle},
+			sessionTreeDisclosure(row, primaryStyle),
+			ui.Expanded(ui.RichText{Spans: sessionExplorerLabelSpans(row.Session, primaryStyle, secondaryStyle), Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+		}},
 		ui.Text{Value: formatSessionUpdated(row.Session.UpdatedAt, time.Now()), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		ui.Text{Value: sessionDisplayCWD(row.Session.CWD, sessionCWDCompactWidth), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		ui.Text{Value: sessionDisplayCWD(row.Session.CWD, sessionCWDExpandedWidth), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
@@ -914,7 +975,7 @@ type renderSessionExplorerRowLayout struct {
 }
 
 func (r *renderSessionExplorerRowLayout) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
-	r.layoutChildren(ctx, constraints, false)
+	r.SetSize(r.layoutChildren(ctx, constraints, false))
 }
 
 func (r *renderSessionExplorerRowLayout) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {

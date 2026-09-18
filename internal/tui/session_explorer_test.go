@@ -199,13 +199,14 @@ func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t 
 	if !controller.HandleKey(ui.Key{Keycode: vaxis.KeyPgDown}) || controller.Selection != controller.Sessions[sessionExplorerMaxVisible].ID {
 		t.Fatalf("PageDown selection = %q", controller.Selection)
 	}
-	if !controller.HandleKey(ui.Key{Text: "j", Keycode: 'j'}) || controller.Selection != controller.Sessions[sessionExplorerMaxVisible+1].ID {
-		t.Fatalf("j selection = %q", controller.Selection)
+	if !controller.HandleKey(ui.Key{Keycode: vaxis.KeyDown}) || controller.Selection != controller.Sessions[sessionExplorerMaxVisible+1].ID {
+		t.Fatalf("Down selection = %q", controller.Selection)
 	}
-	if !controller.HandleKey(ui.Key{Text: "x", Keycode: 'x'}) {
+	if !controller.HandleEditorKey(ui.Key{Text: "x", Keycode: 'x'}) {
 		t.Fatal("modal text input was not consumed")
 	}
-	if !controller.HandleKey(ui.Key{Text: "r", Keycode: 'r'}) || !controller.RenameOpen {
+	controller.SetQuery("")
+	if !controller.HandleKey(ui.Key{Keycode: 'r', Modifiers: vaxis.ModCtrl}) || !controller.RenameOpen {
 		t.Fatal("rename key did not open the rename dialog")
 	}
 	controller.CancelRename()
@@ -301,7 +302,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	for _, expected := range []string{
 		"Session Explorer", "2 sessions", "✓ Current session", "Other workspace",
 		"/workspace/Developer/agent/kit-v2", "01234567", "fedcba98",
-		"↑↓ move · page up/down", "enter switch · r rename · ctrl+d delete · esc close",
+		"↑↓ move · page up/down", "enter switch · ctrl+r rename · ctrl+d delete · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("session explorer missing %q:\n%s", expected, text)
@@ -312,7 +313,7 @@ func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testin
 	if right-left+1 != 119 || top != 4 || bottom-top+1 != pickerModalMinHeight {
 		t.Fatalf("dialog geometry left=%d right=%d top=%d bottom=%d", left, right, top, bottom)
 	}
-	assertPickerFooter(t, rows, "enter switch · r rename · ctrl+d delete · esc close")
+	assertPickerFooter(t, rows, "enter switch · ctrl+r rename · ctrl+d delete · esc close")
 	currentColumn, currentRow := findTextCell(t, rows, "✓ Current session")
 	currentColumn += len([]rune("✓ "))
 	otherColumn, otherRow := findTextCell(t, rows, "Other workspace")
@@ -393,8 +394,8 @@ func TestSessionExplorerHintsPreserveKeyActionsAtResponsiveWidths(t *testing.T) 
 		want  string
 	}{
 		{width: 38, want: "enter switch · ctrl+d delete · esc close"},
-		{width: 51, want: "enter switch · r rename · ctrl+d delete · esc close"},
-		{width: 76, want: "↑↓ move · page up/down · enter switch · r rename · ctrl+d delete · esc close"},
+		{width: 56, want: "enter switch · ctrl+r rename · ctrl+d delete · esc close"},
+		{width: 81, want: "↑↓ move · page up/down · enter switch · ctrl+r rename · ctrl+d delete · esc close"},
 	} {
 		if got := sessionExplorerHintText(test.width); got != test.want {
 			t.Fatalf("sessionExplorerHintText(%d) = %q, want %q", test.width, got, test.want)
@@ -575,7 +576,7 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	application.Pump(80, 7)
 	rows := paintedRows(application, 80, 7)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Session Explorer", "✓ Session 11", "enter switch · r rename · ctrl+d delete · esc close"} {
+	for _, expected := range []string{"Session Explorer", "✓ Session 11", "enter switch · ctrl+r rename · ctrl+d delete · esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short explorer missing %q (reveal=%t layout=%t attached=%t metrics=%+v):\n%s", expected, state.controller.needsReveal, state.controller.revealPendingLayout, state.controller.scroll.Attached(), state.controller.scroll.Metrics(), text)
 		}

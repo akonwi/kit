@@ -124,7 +124,7 @@ func TestStandaloneSessionPickerIsCenteredAndWidthBounded(t *testing.T) {
 func TestStandaloneSessionPickerUsesOpenActionHints(t *testing.T) {
 	t.Parallel()
 	got := sessionExplorerActionHintText(100, "open")
-	want := "↑↓ move · page up/down · enter open · r rename · ctrl+d delete · esc close"
+	want := "↑↓ move · page up/down · enter open · ctrl+r rename · ctrl+d delete · esc close"
 	if got != want {
 		t.Fatalf("standalone hints = %q, want %q", got, want)
 	}
