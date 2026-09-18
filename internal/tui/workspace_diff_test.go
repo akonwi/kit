@@ -9,6 +9,7 @@ import (
 
 	"github.com/akonwi/kit/internal/highlight"
 	"github.com/akonwi/kit/internal/protocol"
+	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
@@ -245,30 +246,37 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	}
 }
 
-func TestWorkspaceDiffChangedLinesPrioritizeReadableDiffForeground(t *testing.T) {
+func TestWorkspaceDiffChangedLinesPreserveSyntaxForeground(t *testing.T) {
 	lineNumber := 1
 	syntaxColor := vaxis.IndexColor(123)
 	theme := ui.DefaultTheme()
+	semantic := semanticFallback(theme)
 	syntax := []ui.TextSpan{{Text: "comment", Style: ui.Style{Foreground: syntaxColor}}}
 	unified := uitest.New(workspaceDiffLineWidget(
 		protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: "comment", HasTerminatingLF: true},
-		syntax, false, false, false, theme, semanticFallback(theme), nil, nil, nil,
+		syntax, false, false, false, theme, semantic, nil, nil, nil,
 	))
 	unified.Pump(40, 2)
-	if got := unified.Cell(14, 0).Style.Foreground; got != theme.Foreground {
-		t.Fatalf("unified changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
+	if got := unified.Cell(14, 0).Style.Foreground; got != syntaxColor {
+		t.Fatalf("unified changed-line foreground = %v, want syntax foreground %v", got, syntaxColor)
 	}
 	if got := unified.Cell(10, 0).Style.Foreground; got != theme.Foreground {
 		t.Fatalf("unified changed-line number foreground = %v, want readable foreground %v", got, theme.Foreground)
 	}
+	if got := unified.Cell(39, 0).Style.Background; got != semantic.Token(kittheme.TokenDiffAddedContentBackground) {
+		t.Fatalf("unified trailing background = %v, want full-width diff background", got)
+	}
 	item := &workspaceDiffRenderedLine{line: protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: "comment", HasTerminatingLF: true}, syntax: syntax}
-	split := uitest.New(workspaceDiffSideWidget(item, false, false, true, 1, false, 0, theme, semanticFallback(theme), nil, nil, nil))
+	split := uitest.New(workspaceDiffSideWidget(item, false, false, true, 1, false, 0, theme, semantic, nil, nil, nil))
 	split.Pump(40, 2)
-	if got := split.Cell(8, 0).Style.Foreground; got != theme.Foreground {
-		t.Fatalf("split changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
+	if got := split.Cell(8, 0).Style.Foreground; got != syntaxColor {
+		t.Fatalf("split changed-line foreground = %v, want syntax foreground %v", got, syntaxColor)
 	}
 	if got := split.Cell(4, 0).Style.Foreground; got != theme.Foreground {
 		t.Fatalf("split changed-line number foreground = %v, want readable foreground %v", got, theme.Foreground)
+	}
+	if got := split.Cell(39, 0).Style.Background; got != semantic.Token(kittheme.TokenDiffAddedContentBackground) {
+		t.Fatalf("split trailing background = %v, want full-width diff background", got)
 	}
 }
 

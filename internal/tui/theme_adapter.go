@@ -99,6 +99,17 @@ func projectTheme(base ui.Theme, definition kittheme.Definition) (ui.Theme, Sema
 	return result, semantic
 }
 
+func tintUIColor(base, accent ui.Color, opacity float64) ui.Color {
+	baseRGB, accentRGB := base.Params(), accent.Params()
+	if len(baseRGB) != 3 || len(accentRGB) != 3 {
+		return base
+	}
+	mix := func(from, to uint8) uint8 {
+		return uint8(float64(from)*(1-opacity) + float64(to)*opacity + 0.5)
+	}
+	return ui.RGB(mix(baseRGB[0], accentRGB[0]), mix(baseRGB[1], accentRGB[1]), mix(baseRGB[2], accentRGB[2]))
+}
+
 func semanticFallback(base ui.Theme) SemanticTheme {
 	tokens := make(map[string]ui.Color, len(kittheme.TokenRoles()))
 	set := func(color ui.Color, roles ...string) {
@@ -133,10 +144,14 @@ func semanticFallback(base ui.Theme) SemanticTheme {
 	set(base.Selection, kittheme.TokenPickerFocusedBackground, kittheme.TokenDiffCursorBackground)
 	set(base.Background, kittheme.TokenPickerFocusedText)
 	set(base.Primary, kittheme.TokenToggleOn)
-	set(base.Success, kittheme.TokenDiffAddedBackground, kittheme.TokenDiffAddedContentBackground,
-		kittheme.TokenDiffAddedLineNumberBg, kittheme.TokenDiffCursorAddedBackground)
-	set(base.Danger, kittheme.TokenDiffRemovedBackground, kittheme.TokenDiffRemovedContentBg,
-		kittheme.TokenDiffRemovedLineNumberBg, kittheme.TokenDiffCursorRemovedBg)
+	set(tintUIColor(base.Background, base.Success, 0.20), kittheme.TokenDiffAddedBackground)
+	set(tintUIColor(base.Background, base.Danger, 0.20), kittheme.TokenDiffRemovedBackground)
+	set(tintUIColor(base.Background, base.Success, 0.20), kittheme.TokenDiffAddedContentBackground)
+	set(tintUIColor(base.Background, base.Danger, 0.20), kittheme.TokenDiffRemovedContentBg)
+	set(tintUIColor(base.Background, base.Success, 0.08), kittheme.TokenDiffAddedLineNumberBg)
+	set(tintUIColor(base.Background, base.Danger, 0.08), kittheme.TokenDiffRemovedLineNumberBg)
+	set(tintUIColor(base.Background, base.Success, 0.24), kittheme.TokenDiffCursorAddedBackground)
+	set(tintUIColor(base.Background, base.Danger, 0.24), kittheme.TokenDiffCursorRemovedBg)
 
 	syntax := make(map[string]ui.Color, len(kittheme.SyntaxRoles()))
 	setSyntax := func(color ui.Color, roles ...string) {

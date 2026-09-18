@@ -42,6 +42,23 @@ func TestThemeAdapterControlAppliesPreview(t *testing.T) {
 	}
 }
 
+func TestSemanticFallbackUsesTintedDiffBackgrounds(t *testing.T) {
+	base := ui.DefaultTheme()
+	base.Background = ui.RGB(10, 20, 30)
+	base.Success = ui.RGB(110, 220, 130)
+	base.Danger = ui.RGB(210, 70, 50)
+	semantic := semanticFallback(base)
+	if got := semantic.Token(kittheme.TokenDiffAddedContentBackground); got != ui.RGB(30, 60, 50) {
+		t.Fatalf("added content background = %v, want saturated green %v", got, ui.RGB(30, 60, 50))
+	}
+	if got := semantic.Token(kittheme.TokenDiffRemovedContentBg); got != ui.RGB(50, 30, 34) {
+		t.Fatalf("removed content background = %v, want saturated red %v", got, ui.RGB(50, 30, 34))
+	}
+	if got := semantic.Token(kittheme.TokenDiffAddedLineNumberBg); got != ui.RGB(18, 36, 38) {
+		t.Fatalf("added gutter background = %v, want quieter green %v", got, ui.RGB(18, 36, 38))
+	}
+}
+
 func TestSemanticFallbackContainsEveryCompatibleRole(t *testing.T) {
 	t.Parallel()
 

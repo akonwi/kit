@@ -2254,18 +2254,19 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSel
 	} else {
 		for index := range spans {
 			spans[index].Style.Background = contentBackground
-			if line.Kind == "addition" || line.Kind == "deletion" {
-				spans[index].Style.Foreground = theme.Foreground
-			}
 		}
 	}
 	if !wrap && columnOffset > 0 {
 		spans = workspaceDiffSliceSpans(spans, columnOffset)
 	}
 	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, gutterPress, gutterMotion)
+	content := ui.SizedBox{Height: height, Child: ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Background: contentBackground}},
+		ui.RichText{Spans: spans, SoftWrap: wrap},
+	)}
 	row := ui.Widget(ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, CrossAxisAlignment: ui.CrossAxisStart, Children: []ui.Widget{
 		gutter,
-		ui.Expanded(ui.RichText{Spans: spans, SoftWrap: wrap}),
+		ui.Expanded(content),
 	}})
 	return mouseActivator{Child: row, OnHover: moveCursor, OnPressed: moveCursor}
 }
@@ -2350,9 +2351,6 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 		syntaxSpans = append([]ui.TextSpan(nil), syntaxSpans...)
 		for index := range syntaxSpans {
 			syntaxSpans[index].Style.Background = contentBackground
-			if line.Kind == "addition" || line.Kind == "deletion" {
-				syntaxSpans[index].Style.Foreground = theme.Foreground
-			}
 		}
 	}
 	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{
@@ -2362,9 +2360,13 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 		{Text: " ", Style: gutterStyle},
 		{Text: marker + " ", Style: gutterStyle},
 	}, SoftWrap: false}, 14, selected, theme, gutterPress, gutterMotion)
+	content := ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Background: contentBackground}},
+		ui.RichText{Spans: syntaxSpans, SoftWrap: false},
+	)
 	row := ui.Widget(ui.SizedBox{Height: 1, Child: ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 		gutter,
-		ui.Expanded(ui.RichText{Spans: syntaxSpans, SoftWrap: false}),
+		ui.Expanded(content),
 	}}})
 	return mouseActivator{Child: row, OnHover: onHover, OnPressed: onHover}
 }
