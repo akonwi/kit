@@ -969,8 +969,8 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	if notice != "Working-tree changes are not included in this committed target" {
 		t.Fatalf("notice = %q", notice)
 	}
-	if text := application.Text(); !strings.Contains(text, "Diff › a1b2c3d  Fix parser bounds") || !strings.Contains(text, "Switching target…") || !strings.Contains(text, "working evidence") {
-		t.Fatalf("switch did not provide immediate feedback while preserving the old coherent presentation:\n%s", text)
+	if text := application.Text(); !strings.Contains(text, "Diff › a1b2c3d  Fix parser bounds") || !strings.Contains(text, "Switching target…") || !strings.Contains(text, "Loading diff…") || strings.Contains(text, "working evidence") {
+		t.Fatalf("switch did not enter its loading state immediately:\n%s", text)
 	}
 	close(releaseCommit)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")

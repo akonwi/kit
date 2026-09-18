@@ -558,6 +558,11 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.DiffPage, err
 			s.errorText = message
 		} else {
 			s.loadingFile = false
+			if len(s.files) == 0 {
+				s.phase = workspaceDiffEmpty
+			} else {
+				s.phase = workspaceDiffReady
+			}
 			s.warning(message)
 			s.syncPolling(s.Widget().(workspaceDiffPane))
 		}
@@ -777,6 +782,8 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 	}
 	s.refreshLine = 0
 	s.pendingTarget = target
+	s.phase = workspaceDiffLoading
+	s.loadingFile = false
 	s.stopPolling()
 	s.startObservation()
 }
@@ -1923,7 +1930,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	if s.pendingTarget.Reference != "" {
 		right = "Switching target…"
 	}
-	if len(s.files) > 0 && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
+	if s.pendingTarget.Reference == "" && len(s.files) > 0 && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
 		file := s.files[s.selectedFile]
 		fileStatus := fmt.Sprintf("%s  %s  %d of %d", file.Path, glyphMiddleDot, s.selectedFile+1, len(s.files))
 		if right != "" {
