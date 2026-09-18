@@ -2130,7 +2130,7 @@ func (s *workspaceDiffPaneState) body(theme ui.Theme, semantic SemanticTheme) ui
 	var child ui.Widget
 	switch {
 	case s.phase == workspaceDiffLoading:
-		child = ui.Center(spinnerWithLabel("Loading diff…", ui.Style{Foreground: theme.MutedForeground}))
+		child = centeredWorkspaceDiffLoading(s.viewportWidth, "Loading diff…", ui.Style{Foreground: theme.MutedForeground})
 	case s.phase == workspaceDiffEmpty:
 		empty := "No changes for " + s.targetLabel()
 		child = ui.Center(ui.Text{Value: empty, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
@@ -2140,13 +2140,7 @@ func (s *workspaceDiffPaneState) body(theme ui.Theme, semantic SemanticTheme) ui
 			ui.Text{Value: s.errorText, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis},
 		}})
 	case s.loadingFile:
-		const loadingLabel = "Loading file diff…"
-		loadingWidth := len([]rune(spinnerFrames[0] + " " + loadingLabel))
-		loading := ui.Stack{Children: []ui.Widget{
-			ui.Text{Value: strings.Repeat(" ", max(1, s.viewportWidth)), MaxLines: 1},
-			ui.Positioned{Left: max(0, (s.viewportWidth-loadingWidth)/2), Child: spinner{Style: ui.Style{Foreground: theme.MutedForeground}, Label: loadingLabel}},
-		}}
-		child = ui.Flex{Axis: ui.Vertical, MainAxisAlignment: ui.MainAxisCenter, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{loading}}
+		child = centeredWorkspaceDiffLoading(s.viewportWidth, "Loading file diff…", ui.Style{Foreground: theme.MutedForeground})
 	case s.errorText != "":
 		child = ui.Center(ui.Text{Value: s.errorText, Style: ui.Style{Foreground: theme.DangerText}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
 	case len(s.hunks) == 0:
@@ -2188,6 +2182,15 @@ func (s *workspaceDiffPaneState) body(theme ui.Theme, semantic SemanticTheme) ui
 			s.MarkNeedsBuild()
 		}
 	}, Child: content}
+}
+
+func centeredWorkspaceDiffLoading(viewportWidth int, label string, style ui.Style) ui.Widget {
+	loadingWidth := len([]rune(spinnerFrames[0] + " " + label))
+	loading := ui.Stack{Children: []ui.Widget{
+		ui.Text{Value: strings.Repeat(" ", max(1, viewportWidth)), MaxLines: 1},
+		ui.Positioned{Left: max(0, (viewportWidth-loadingWidth)/2), Child: spinner{Style: style, Label: label}},
+	}}
+	return ui.Flex{Axis: ui.Vertical, MainAxisAlignment: ui.MainAxisCenter, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{loading}}
 }
 
 func workspaceDiffContentStateText(file protocol.DiffFileSummary) string {

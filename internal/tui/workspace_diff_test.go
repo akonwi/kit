@@ -872,6 +872,19 @@ func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing
 	}
 }
 
+func TestWorkspaceDiffLoadingMessageIsCentered(t *testing.T) {
+	application := uitest.New(centeredWorkspaceDiffLoading(90, "Loading diff…", ui.Style{}))
+	application.Pump(90, 25)
+	rows := paintedRows(application, 90, 25)
+	column, row := findTextCell(t, rows, "Loading diff…")
+	if want := (90-len([]rune("⠋ Loading diff…")))/2 + 2; column != want {
+		t.Fatalf("loading label column = %d, want %d:\n%s", column, want, strings.Join(rows, "\n"))
+	}
+	if row != 12 {
+		t.Fatalf("loading label row = %d, want 12", row)
+	}
+}
+
 func TestWorkspaceDiffTargetPickerShowsLoadingErrorAndEmptyStates(t *testing.T) {
 	t.Run("loading", func(t *testing.T) {
 		wait := make(chan struct{})
