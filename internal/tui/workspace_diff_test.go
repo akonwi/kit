@@ -956,8 +956,10 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	}}
 	dispatch := &queuedDiffDispatch{}
 	notice := ""
-	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
-		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message }})
+	pane := workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message }}
+	theme := ui.DefaultTheme()
+	application := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: pane})
 	pumpDiffUntil(t, application, dispatch, 100, 14, "working evidence")
 	application.Send(vaxis.Key{Text: "g", Keycode: 'g'})
 	select {
@@ -984,6 +986,24 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	position, path, revision := strings.Index(header, "1 of 1"), strings.Index(header, "shared.go"), strings.Index(header, "a1b2c3d  Fix parser bounds")
 	if position < 0 || path <= position || revision <= path || !strings.HasSuffix(strings.TrimSpace(header), "a1b2c3d  Fix parser bounds") {
 		t.Fatalf("diff header hierarchy is incorrect: %q", header)
+	}
+	revisionColumn, headerRow := findRenderedDiffText(t, application, 100, 14, "a1b2c3d  Fix parser bounds")
+	pathColumn, _ := findRenderedDiffText(t, application, 100, 14, "shared.go")
+	baseBackground := application.Cell(revisionColumn, headerRow).Style.Background
+	application.Send(vaxis.Mouse{Col: revisionColumn, Row: headerRow, EventType: vaxis.EventMotion})
+	application.Pump(100, 14)
+	if application.Cell(revisionColumn, headerRow).Style.Background == baseBackground {
+		t.Fatal("revision control did not show its hover surface")
+	}
+	application.Send(vaxis.Mouse{Col: pathColumn, Row: headerRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Pump(100, 14)
+	if strings.Contains(application.Text(), "Select diff target") {
+		t.Fatal("clicking the file portion of the header opened the target picker")
+	}
+	application.Send(vaxis.Mouse{Col: revisionColumn, Row: headerRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Pump(100, 14)
+	if !strings.Contains(application.Text(), "Select diff target") {
+		t.Fatal("clicking the revision control did not open the target picker")
 	}
 }
 

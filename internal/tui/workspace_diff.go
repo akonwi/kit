@@ -1940,15 +1940,22 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	if s.isFrozen(w) {
 		right = "Frozen  " + glyphMiddleDot + "  " + right
 	}
-	header := ui.Widget(workspacePanelHeader(theme, left, right))
+	revision := ui.Widget(ui.Text{Value: right, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
 	if w.Presentation.Active {
-		header = mouseActivator{Child: header, DefaultMouseShape: true, OnPressed: func(event ui.EventContext) {
+		revision = headerControl{Label: right, OnPressed: func(event ui.EventContext) {
 			if w.OnFocusRequest != nil {
 				w.OnFocusRequest(event)
 			}
 			s.SetState(func() { s.openTargetPicker() })
 		}}
 	}
+	header := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+			ui.Expanded(ui.Text{Value: left, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis}),
+			revision,
+		}}),
+		ui.Divider{Style: ui.Style{Foreground: theme.Border}},
+	}}
 	body := s.body(theme, semantic)
 	footer := workspacePanelFooter(theme, s.footerText())
 	bindings := map[ui.IntentType]ui.ActionFunc{}
