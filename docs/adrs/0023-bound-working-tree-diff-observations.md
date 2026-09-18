@@ -17,7 +17,7 @@ The implementation research and executable probes are recorded in
 [`../research/core-diff-001.md`](../research/core-diff-001.md) and
 [`../research/core-diff-001-followup.md`](../research/core-diff-001-followup.md).
 
-## Proposed decision
+## Decision
 
 ### Target semantics
 
@@ -188,6 +188,3 @@ some valid repositories or files unavailable in R1, but avoids invented
 content, authority expansion, and process execution. Retained observations and
 revalidation add memory and I/O cost, bounded by explicit admission and cache
 limits.
-
-This proposal does not implement the service and does not mark `CORE-DIFF-001`
-complete.
