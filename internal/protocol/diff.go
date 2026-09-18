@@ -25,10 +25,12 @@ const (
 )
 
 type DiffTarget struct {
-	ID             string `json:"id"`
-	WorkspaceID    string `json:"workspaceId"`
-	Kind           string `json:"kind"`
-	RepositoryPath string `json:"repositoryPath"`
+	ID             string       `json:"id"`
+	WorkspaceID    string       `json:"workspaceId"`
+	Kind           string       `json:"kind"`
+	RepositoryPath string       `json:"repositoryPath"`
+	Base           DiffEndpoint `json:"base,omitempty"`
+	Head           DiffEndpoint `json:"head,omitempty"`
 }
 type DiffHead struct {
 	State string `json:"state"`
@@ -82,6 +84,7 @@ type ReadFileDiffInput struct {
 	TargetRevision       string `json:"targetRevision"`
 	Path                 string `json:"path"`
 	ExpectedFileRevision string `json:"expectedFileRevision,omitempty"`
+	AnnotationID         uint64 `json:"annotationId,omitempty"`
 	PageSize             int    `json:"pageSize,omitempty"`
 	MaxHunks             int    `json:"maxHunks,omitempty"`
 	Cursor               string `json:"cursor,omitempty"`
@@ -146,8 +149,22 @@ func (in ReadFileDiffInput) Validate() error {
 	return nil
 }
 func (o DiffObservation) Validate() error {
-	if o.SessionID == "" || !validDiffToken(o.Target.ID, "difftarget_") || !validWorkspaceToken(o.Target.WorkspaceID, "workspace_") || o.Target.Kind != "working_tree" || o.Target.RepositoryPath != "" || !validDiffToken(o.Revision, "diffrev_") || (o.Head.State != "commit" && o.Head.State != "unborn") || (o.Head.State == "commit" && !validHexOID(o.Head.OID)) || (o.Head.State == "unborn" && o.Head.OID != "") || (o.IndexSummary != "clean" && o.IndexSummary != "diverged" && o.IndexSummary != "conflicted") || o.Omissions == nil {
+	if o.SessionID == "" || !validDiffToken(o.Target.ID, "difftarget_") || !validWorkspaceToken(o.Target.WorkspaceID, "workspace_") || o.Target.RepositoryPath != "" || !validDiffToken(o.Revision, "diffrev_") || (o.Head.State != "commit" && o.Head.State != "unborn") || (o.Head.State == "commit" && !validHexOID(o.Head.OID)) || (o.Head.State == "unborn" && o.Head.OID != "") || (o.IndexSummary != "clean" && o.IndexSummary != "diverged" && o.IndexSummary != "conflicted") || o.Omissions == nil {
 		return fmt.Errorf("diff observation is invalid")
+	}
+	switch o.Target.Kind {
+	case DiffTargetWorkingTree:
+		// Endpoints were added after the working-tree API and remain optional on
+		// adapter responses. When present, both identify the pinned HEAD.
+		if o.Target.Base.Kind != "" && (o.Target.Base.validate() != nil || o.Target.Head != o.Target.Base) {
+			return fmt.Errorf("working-tree target is invalid")
+		}
+	case DiffTargetCommit, DiffTargetBranch:
+		if o.Target.Base.validate() != nil || o.Target.Head.validate() != nil || o.Target.Head.Kind != "commit" || o.Head.State != "commit" || o.Head.OID != o.Target.Head.OID || o.IndexSummary != "clean" {
+			return fmt.Errorf("committed diff target is invalid")
+		}
+	default:
+		return fmt.Errorf("diff target kind is invalid")
 	}
 	if o.Complete && (o.Truncation != nil || len(o.Omissions) != 0) {
 		return fmt.Errorf("diff completeness is invalid")

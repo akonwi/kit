@@ -3,10 +3,12 @@ package annotation
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
 	"strings"
 	"sync"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 )
@@ -81,12 +83,17 @@ type staticReader struct {
 }
 
 type staticDiffReader struct {
-	content string
-	err     error
+	content  string
+	err      error
+	target   *protocol.PinnedDiffTarget
+	required *protocol.PinnedDiffTarget
 }
 
-func (r staticDiffReader) ReadDiff(context.Context, string, string, WorkingTreeDiffAnchor) (FileEvidence, error) {
-	return FileEvidence{Content: r.content, ContentStartLine: 7, CompleteLineCount: 7}, r.err
+func (r staticDiffReader) ReadDiff(_ context.Context, _ string, _ string, _ WorkingTreeDiffAnchor, target *protocol.PinnedDiffTarget, _ bool) (FileEvidence, error) {
+	if r.required != nil && (target == nil || *target != *r.required) {
+		return FileEvidence{}, &EvidenceError{Kind: EvidenceStaleTarget}
+	}
+	return FileEvidence{Content: r.content, ContentStartLine: 7, CompleteLineCount: 7, DiffTarget: r.target}, r.err
 }
 
 func (r *staticReader) ReadFile(context.Context, string, string, WorkspaceFileAnchor) (FileEvidence, error) {
@@ -111,6 +118,38 @@ func TestCreateDerivesDiffPreview(t *testing.T) {
 	if record.Preview.Text != "old evidence" || record.Anchor.WorkingTreeDiff == nil {
 		t.Fatalf("diff annotation = %+v", record)
 	}
+}
+
+func TestCommittedDiffTargetPersistsThroughListingAndSubmission(t *testing.T) {
+	repository := NewMemoryRepository()
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	target := protocol.PinnedDiffTarget{
+		WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit,
+		Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}
+	reader := staticDiffReader{content: "old evidence", target: &target}
+	service, err := NewService(repository, &staticReader{content: "unused"}, reader)
+	if err != nil {
+		t.Fatal(err)
+	}
+	anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go",
+		FileRevision: "diff_file_" + token, Side: "old", StartLine: 7, EndLine: 7,
+	}}
+	created, err := service.Create(t.Context(), "session_test", "/repo", anchor, "Keep this")
+	if err != nil || created.DiffTarget == nil || *created.DiffTarget != target {
+		t.Fatalf("created = %+v, %v", created, err)
+	}
+	service.diffs = staticDiffReader{content: "old evidence", required: &target, target: &target}
+	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || len(records) != 1 || len(stale) != 0 || records[0].DiffTarget == nil {
+		t.Fatalf("records = %+v, stale = %+v, %v", records, stale, err)
+	}
+	prepared, err := service.PrepareSubmission(t.Context(), "session_test", "/repo", []uint64{created.ID})
+	if err != nil || len(prepared.Records) != 1 || prepared.Records[0].DiffTarget == nil {
+		t.Fatalf("prepared = %+v, %v", prepared, err)
+	}
+	prepared.Abort()
 }
 
 func TestCreateDerivesAuthoritativePreview(t *testing.T) {
@@ -147,6 +186,105 @@ func TestCreateRejectsUnavailableRange(t *testing.T) {
 	_, err := service.Create(t.Context(), "session_test", "/repo", testAnchor(), "Change this")
 	if !errors.Is(err, ErrStale) {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+type controlledDiffReader struct {
+	mu      sync.Mutex
+	calls   []string
+	started chan struct{}
+	release chan struct{}
+}
+
+func (r *controlledDiffReader) ReadDiff(ctx context.Context, _ string, _ string, anchor WorkingTreeDiffAnchor, _ *protocol.PinnedDiffTarget, _ bool) (FileEvidence, error) {
+	r.mu.Lock()
+	r.calls = append(r.calls, anchor.TargetRevision)
+	r.mu.Unlock()
+	if r.started != nil {
+		select {
+		case r.started <- struct{}{}:
+		default:
+		}
+	}
+	if r.release != nil {
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return FileEvidence{}, ctx.Err()
+		}
+	}
+	return FileEvidence{Content: "evidence", ContentStartLine: 1, CompleteLineCount: 1}, nil
+}
+
+func listedDiffRecord(id uint64, revision string) Record {
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	return Record{ID: id, SessionID: "session_test", Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &WorkingTreeDiffAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: revision, Path: "main.go", FileRevision: "diff_file_" + token, Side: "old", StartLine: 1, EndLine: 1,
+	}}, DiffTarget: &protocol.PinnedDiffTarget{WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit, Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: strings.Repeat("a", 40)}}, Body: "note"}
+}
+
+func TestListBoundsCommittedTargetReconstructionWork(t *testing.T) {
+	repository := &memoryRepository{next: 10, records: make(map[uint64]Record)}
+	for id := uint64(1); id <= 10; id++ {
+		repository.records[id] = listedDiffRecord(id, fmt.Sprintf("revision-%d", id))
+	}
+	reader := &controlledDiffReader{}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	service.listDiffTargetBudget = 3
+	records, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || len(records) != 10 || len(reader.calls) != 3 || len(stale) != 7 {
+		t.Fatalf("records=%d calls=%d deferred=%d err=%v", len(records), len(reader.calls), len(stale), err)
+	}
+	for id := uint64(4); id <= 10; id++ {
+		if stale[id] != protocol.AnnotationValidationDeferred {
+			t.Fatalf("record %d validation state = %q, want deferred", id, stale[id])
+		}
+	}
+}
+
+func TestListEvidenceDoesNotHoldMutationLock(t *testing.T) {
+	repository := &memoryRepository{next: 1, records: map[uint64]Record{1: listedDiffRecord(1, "revision")}}
+	reader := &controlledDiffReader{started: make(chan struct{}, 1), release: make(chan struct{})}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	listed := make(chan []Record, 1)
+	go func() {
+		records, _, _ := service.List(context.Background(), "session_test", "/repo", 0, 10)
+		listed <- records
+	}()
+	<-reader.started
+	deleted := make(chan error, 1)
+	go func() { deleted <- service.Delete(context.Background(), "session_test", 1) }()
+	select {
+	case err := <-deleted:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("delete blocked behind list evidence reconstruction")
+	}
+	close(reader.release)
+	if records := <-listed; len(records) != 1 || records[0].ID != 1 {
+		t.Fatalf("list snapshot = %+v", records)
+	}
+}
+
+func TestListAppliesOneAggregateEvidenceDeadline(t *testing.T) {
+	repository := &memoryRepository{next: 3, records: make(map[uint64]Record)}
+	for id := uint64(1); id <= 3; id++ {
+		repository.records[id] = listedDiffRecord(id, fmt.Sprintf("revision-%d", id))
+	}
+	reader := &controlledDiffReader{release: make(chan struct{})}
+	service, _ := NewService(repository, &staticReader{}, reader)
+	service.listEvidenceTimeout = 20 * time.Millisecond
+	started := time.Now()
+	_, stale, err := service.List(t.Context(), "session_test", "/repo", 0, 10)
+	if err != nil || time.Since(started) > time.Second || len(reader.calls) != 1 || len(stale) != 3 {
+		t.Fatalf("calls=%d deferred=%d elapsed=%v err=%v", len(reader.calls), len(stale), time.Since(started), err)
+	}
+	for id := uint64(1); id <= 3; id++ {
+		if stale[id] != protocol.AnnotationValidationDeferred {
+			t.Fatalf("record %d validation state = %q, want deferred", id, stale[id])
+		}
 	}
 }
 

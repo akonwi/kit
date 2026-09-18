@@ -162,8 +162,10 @@ partial script. The contract does not promise Git-identical or globally minimal
 presentation.
 
 An ADR 0022 working-tree diff annotation anchor pins target ID/revision,
-path/file revision, side, and one-based range. Commit, branch, review, rename,
-and copy targets remain future work.
+path/file revision, side, and one-based range. Commit and branch targets are
+outside this R1 contract and are defined by
+[ADR 0024](0024-generalize-diff-review-targets.md); review coordination and
+rename/copy pairing remain separate work.
 
 ## Implementation verification
 

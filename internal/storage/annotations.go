@@ -46,15 +46,20 @@ func (s *Store) CreateAnnotation(ctx context.Context, record kitannotation.Recor
 	if err != nil {
 		return kitannotation.Record{}, err
 	}
+	targetWorkspaceID, targetKind, targetBaseKind, targetBaseOID, targetHeadKind, targetHeadOID, err := annotationTargetColumns(record.DiffTarget)
+	if err != nil {
+		return kitannotation.Record{}, err
+	}
 	_, err = tx.ExecContext(ctx, `
 		INSERT INTO annotations(
 			session_id, annotation_id, anchor_kind, workspace_id, target_id, target_revision, path, file_revision, side,
 			start_line, end_line, body, preview_start_line, preview_end_line,
-			preview_text, preview_truncated, created_at, updated_at
-		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			preview_text, preview_truncated, target_workspace_id, target_kind, target_base_kind,
+			target_base_oid, target_head_kind, target_head_oid, created_at, updated_at
+		) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 	`, record.SessionID, id, kind, workspaceID, targetID, targetRevision, path, fileRevision, side,
 		startLine, endLine, record.Body, record.Preview.StartLine, record.Preview.EndLine,
-		record.Preview.Text, truncated, now, now)
+		record.Preview.Text, truncated, targetWorkspaceID, targetKind, targetBaseKind, targetBaseOID, targetHeadKind, targetHeadOID, now, now)
 	if err != nil {
 		return kitannotation.Record{}, fmt.Errorf("insert annotation: %w", err)
 	}
@@ -216,7 +221,8 @@ func (s *Store) DeleteAnnotation(ctx context.Context, sessionID string, id uint6
 const annotationSelect = `
 	SELECT session_id, annotation_id, anchor_kind, workspace_id, target_id, target_revision, path, file_revision, side,
 	       start_line, end_line, body, preview_start_line, preview_end_line,
-	       preview_text, preview_truncated
+	       preview_text, preview_truncated, target_workspace_id, target_kind, target_base_kind,
+	       target_base_oid, target_head_kind, target_head_oid
 	FROM annotations`
 
 type annotationScanner interface{ Scan(...any) error }
@@ -227,12 +233,14 @@ func scanAnnotation(scanner annotationScanner) (kitannotation.Record, error) {
 	var truncated int
 	var kind string
 	var workspaceID, targetID, targetRevision, side sql.NullString
+	var targetWorkspaceID, targetKind, targetBaseKind, targetBaseOID, targetHeadKind, targetHeadOID sql.NullString
 	var path, fileRevision string
 	var startLine, endLine int
 	err := scanner.Scan(
 		&record.SessionID, &id, &kind, &workspaceID, &targetID, &targetRevision, &path, &fileRevision, &side,
 		&startLine, &endLine, &record.Body, &record.Preview.StartLine, &record.Preview.EndLine,
-		&record.Preview.Text, &truncated,
+		&record.Preview.Text, &truncated, &targetWorkspaceID, &targetKind, &targetBaseKind,
+		&targetBaseOID, &targetHeadKind, &targetHeadOID,
 	)
 	if err != nil {
 		return kitannotation.Record{}, err
@@ -261,6 +269,19 @@ func scanAnnotation(scanner annotationScanner) (kitannotation.Record, error) {
 	default:
 		return kitannotation.Record{}, fmt.Errorf("stored annotation anchor kind is invalid")
 	}
+	if targetWorkspaceID.Valid || targetKind.Valid || targetBaseKind.Valid || targetBaseOID.Valid || targetHeadKind.Valid || targetHeadOID.Valid {
+		if !targetWorkspaceID.Valid || !targetKind.Valid || !targetBaseKind.Valid || !targetHeadKind.Valid || !targetHeadOID.Valid {
+			return kitannotation.Record{}, fmt.Errorf("stored diff target definition is incomplete")
+		}
+		record.DiffTarget = &protocol.PinnedDiffTarget{
+			WorkspaceID: targetWorkspaceID.String, Kind: targetKind.String,
+			Base: protocol.DiffEndpoint{Kind: targetBaseKind.String, OID: targetBaseOID.String},
+			Head: protocol.DiffEndpoint{Kind: targetHeadKind.String, OID: targetHeadOID.String},
+		}
+		if record.Anchor.WorkingTreeDiff == nil || record.DiffTarget.Validate() != nil {
+			return kitannotation.Record{}, fmt.Errorf("stored diff target definition is invalid")
+		}
+	}
 	if record.Anchor.Validate() != nil {
 		return kitannotation.Record{}, fmt.Errorf("stored annotation anchor is invalid")
 	}
@@ -281,5 +302,19 @@ func annotationAnchorColumns(anchor protocol.AnnotationAnchor) (kind string, wor
 	value := anchor.WorkingTreeDiff
 	targetID, targetRevision, path, fileRevision, side = value.TargetID, value.TargetRevision, value.Path, value.FileRevision, value.Side
 	startLine, endLine = value.StartLine, value.EndLine
+	return
+}
+
+func annotationTargetColumns(target *protocol.PinnedDiffTarget) (workspaceID, kind, baseKind, baseOID, headKind, headOID any, err error) {
+	if target == nil {
+		return nil, nil, nil, nil, nil, nil, nil
+	}
+	if validationErr := target.Validate(); validationErr != nil {
+		return nil, nil, nil, nil, nil, nil, fmt.Errorf("annotation diff target is invalid")
+	}
+	workspaceID, kind, baseKind, headKind, headOID = target.WorkspaceID, target.Kind, target.Base.Kind, target.Head.Kind, target.Head.OID
+	if target.Base.OID != "" {
+		baseOID = target.Base.OID
+	}
 	return
 }

@@ -29,10 +29,38 @@ func TestAnnotationInputCanonicalRoundTrip(t *testing.T) {
 	}
 }
 
+func TestCommittedDiffAnnotationInputRoundTrip(t *testing.T) {
+	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
+	annotation := SubmittedAnnotation{
+		ID: 8, Kind: "working_tree_diff", TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token,
+		TargetWorkspaceID: "workspace_" + token, TargetKind: "branch", TargetBaseKind: "commit", TargetBaseOID: "bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb",
+		TargetHeadKind: "commit", TargetHeadOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
+		Path: "main.go", FileRevision: "diff_file_" + token, Side: "new", StartLine: 4, EndLine: 4, Preview: "changed", Body: "Review this.",
+	}
+	envelope := MessageEnvelope{
+		ID: "message_diff_annotation", ConversationID: "conversation_annotation", TurnID: "turn_annotation", CreatedAt: time.Unix(1, 0).UTC(),
+		Message: UserMessage{Content: []InputContent{AnnotationInput{SubmissionID: "annotation_submission_0123456789abcdef0123456789abcdef", Text: "projection", Annotations: []SubmittedAnnotation{annotation}}}},
+	}
+	encoded, err := encodeMessageEnvelope(envelope)
+	if err != nil {
+		t.Fatal(err)
+	}
+	decoded, err := decodeMessageEnvelope(encoded)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := decoded.Message.(UserMessage).Content[0].(AnnotationInput).Annotations[0]
+	if got != annotation {
+		t.Fatalf("annotation = %+v", got)
+	}
+}
+
 func TestDiffAnnotationInputValidation(t *testing.T) {
 	token := "AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA"
 	annotation := SubmittedAnnotation{
 		ID: 8, Kind: "working_tree_diff", TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token,
+		TargetWorkspaceID: "workspace_" + token, TargetKind: "commit", TargetBaseKind: "empty_tree",
+		TargetHeadKind: "commit", TargetHeadOID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa",
 		Path: "main.go", FileRevision: "diff_file_" + token, Side: "new",
 		StartLine: 4, EndLine: 4, Preview: "changed", Body: "Review this.",
 	}
@@ -44,6 +72,12 @@ func TestDiffAnnotationInputValidation(t *testing.T) {
 	input.Annotations[0] = annotation
 	if err := validateAnnotationInput(input); err == nil {
 		t.Fatal("invalid diff side was accepted")
+	}
+	annotation.Side = "new"
+	annotation.TargetHeadOID = "tampered"
+	input.Annotations[0] = annotation
+	if err := validateAnnotationInput(input); err == nil {
+		t.Fatal("invalid pinned target was accepted")
 	}
 }
 

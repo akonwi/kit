@@ -36,19 +36,25 @@ type AnnotationInput struct {
 
 // SubmittedAnnotation is immutable evidence accepted with one user message.
 type SubmittedAnnotation struct {
-	ID             uint64 `json:"id"`
-	Kind           string `json:"kind"`
-	WorkspaceID    string `json:"workspace_id,omitempty"`
-	TargetID       string `json:"target_id,omitempty"`
-	TargetRevision string `json:"target_revision,omitempty"`
-	Side           string `json:"side,omitempty"`
-	Path           string `json:"path"`
-	FileRevision   string `json:"file_revision"`
-	StartLine      int    `json:"start_line"`
-	EndLine        int    `json:"end_line"`
-	Preview        string `json:"preview"`
-	Truncated      bool   `json:"truncated,omitempty"`
-	Body           string `json:"body"`
+	ID                uint64 `json:"id"`
+	Kind              string `json:"kind"`
+	WorkspaceID       string `json:"workspace_id,omitempty"`
+	TargetID          string `json:"target_id,omitempty"`
+	TargetRevision    string `json:"target_revision,omitempty"`
+	TargetWorkspaceID string `json:"target_workspace_id,omitempty"`
+	TargetKind        string `json:"target_kind,omitempty"`
+	TargetBaseKind    string `json:"target_base_kind,omitempty"`
+	TargetBaseOID     string `json:"target_base_oid,omitempty"`
+	TargetHeadKind    string `json:"target_head_kind,omitempty"`
+	TargetHeadOID     string `json:"target_head_oid,omitempty"`
+	Side              string `json:"side,omitempty"`
+	Path              string `json:"path"`
+	FileRevision      string `json:"file_revision"`
+	StartLine         int    `json:"start_line"`
+	EndLine           int    `json:"end_line"`
+	Preview           string `json:"preview"`
+	Truncated         bool   `json:"truncated,omitempty"`
+	Body              string `json:"body"`
 }
 
 func (AnnotationInput) isInputContent() {}

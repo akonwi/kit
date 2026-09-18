@@ -205,7 +205,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
   [ADR 0022](../adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] CORE-REVIEW-001 — Provide revision-pinned working-tree, commit, and branch
   review data with staged, unstaged, representable untracked files, explicit
-  skipped sections, and target-scoped annotation workflows.
+  skipped sections, and target-scoped annotation workflows. See
+  [ADR 0024](../adrs/0024-generalize-diff-review-targets.md).
 - [ ] CORE-CMD-001 — Add compact synthetic transcript identity for discovered
   prompt commands and Claude-compatible command discovery/namespacing.
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical

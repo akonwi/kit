@@ -114,6 +114,8 @@ type selectionMovedCallback func(ui.EventContext, int)
 type shellCallbacks struct {
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
+	ShowDiffWarning             func(string)
+	ShowDiffNotice              func(string)
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
 	MoveProviderSelection       selectionMovedCallback
@@ -198,11 +200,11 @@ type shellCallbacks struct {
 }
 
 type shellView struct {
-	Snapshot        shellSnapshot
-	Callbacks       shellCallbacks
-	WorkspaceFiles  sessionclient.WorkspaceFilesSession
-	WorkingTreeDiff sessionclient.WorkingTreeDiffSession
-	presentation    transcriptPresentation
+	Snapshot       shellSnapshot
+	Callbacks      shellCallbacks
+	WorkspaceFiles sessionclient.WorkspaceFilesSession
+	Diff           sessionclient.DiffSession
+	presentation   transcriptPresentation
 }
 
 type quitIntent struct{}
@@ -1114,6 +1116,9 @@ func composerAnnotationRow(theme ui.Theme, annotation protocol.AnnotationSummary
 	style := ui.Style{Foreground: theme.MutedForeground}
 	if annotation.Stale {
 		meta += " " + glyphMiddleDot + " stale"
+		style.Foreground = theme.WarningText
+	} else if annotation.ValidationDeferred {
+		meta += " " + glyphMiddleDot + " validation pending"
 		style.Foreground = theme.WarningText
 	}
 	markerWidget := ui.Widget(ui.Text{Value: glyphComment + " ", Style: ui.Style{Foreground: theme.AccentText}, MaxLines: 1})

@@ -22,12 +22,20 @@ func TestAnnotationValidation(t *testing.T) {
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("valid annotation: %v", err)
 	}
-	cases := []Annotation{valid, valid, valid, valid, valid}
+	deferred := valid
+	deferred.ValidationDeferred = true
+	if err := deferred.Validate(); err != nil {
+		t.Fatalf("deferred annotation: %v", err)
+	}
+	cases := []Annotation{valid, valid, valid, valid, valid, valid}
 	cases[0].ID = 0
 	cases[1].Anchor.WorkspaceFile = nil
 	cases[2].Body = " "
 	cases[3].Preview.EndLine = 11
 	cases[4].Stale = true
+	cases[5].Stale = true
+	cases[5].StaleReason = AnnotationStaleFile
+	cases[5].ValidationDeferred = true
 	for index, candidate := range cases {
 		if err := candidate.Validate(); err == nil {
 			t.Errorf("case %d unexpectedly valid", index)

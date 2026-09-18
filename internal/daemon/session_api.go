@@ -61,9 +61,9 @@ func (r annotationWorkspaceReader) ReadFile(ctx context.Context, sessionID, cwd 
 	}, nil
 }
 
-func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkingTreeDiffAnchor) (kitannotation.FileEvidence, error) {
+func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd string, anchor kitannotation.WorkingTreeDiffAnchor, target *protocol.PinnedDiffTarget, deriveTarget bool) (kitannotation.FileEvidence, error) {
 	read, err := r.service.ReadLineRange(ctx, sessionID, cwd, kitworkingdiff.LineRangeInput{
-		TargetID: anchor.TargetID, TargetRevision: anchor.TargetRevision, Path: anchor.Path, FileRevision: anchor.FileRevision,
+		TargetID: anchor.TargetID, TargetRevision: anchor.TargetRevision, Target: target, DeriveTarget: deriveTarget, Path: anchor.Path, FileRevision: anchor.FileRevision,
 		Side: anchor.Side, StartLine: anchor.StartLine, EndLine: anchor.EndLine,
 	})
 	if err != nil {
@@ -88,7 +88,7 @@ func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd strin
 		}
 		return kitannotation.FileEvidence{}, err
 	}
-	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine}, nil
+	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine, DiffTarget: read.Target}, nil
 }
 
 const maxSessionRequestBytes = 1 << 20
@@ -111,6 +111,8 @@ type sessionService interface {
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
+	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
 	ReadFileDiff(context.Context, string, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
 	ListAnnotations(context.Context, string, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)
@@ -365,6 +367,50 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 	return result, nil
 }
 
+func (s runtimeSessionService) ListDiffTargets(ctx context.Context, sessionID string, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	if s.diffs == nil {
+		return protocol.DiffTargetCatalog{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	result, err := s.diffs.ListTargets(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.DiffTargetCatalog{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ObserveDiff(ctx context.Context, sessionID string, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	if s.diffs == nil {
+		return protocol.DiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	result, err := s.diffs.ObserveTarget(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.DiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
 func (s runtimeSessionService) ObserveWorkingTree(ctx context.Context, sessionID string, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
 	if s.diffs == nil {
 		return protocol.WorkingTreePage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
@@ -395,7 +441,19 @@ func (s runtimeSessionService) ReadFileDiff(ctx context.Context, sessionID strin
 	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}
-	result, err := s.diffs.ReadFile(ctx, sessionID, record.CWD, input)
+	var result protocol.FileDiffPage
+	if input.AnnotationID != 0 {
+		if s.annotations == nil {
+			return protocol.FileDiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "annotation evidence is unavailable"}
+		}
+		target, authorizeErr := s.annotations.AuthorizeDiffRead(ctx, sessionID, record.CWD, input.AnnotationID, input)
+		if authorizeErr != nil {
+			return protocol.FileDiffPage{}, authorizeErr
+		}
+		result, err = s.diffs.ReadFileForAnnotation(ctx, sessionID, record.CWD, input, target)
+	} else {
+		result, err = s.diffs.ReadFile(ctx, sessionID, record.CWD, input)
+	}
 	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}
@@ -515,22 +573,27 @@ func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID s
 }
 
 func projectAnnotation(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.Annotation {
+	deferred := stale == protocol.AnnotationValidationDeferred
+	if deferred {
+		stale = ""
+	}
 	return protocol.Annotation{
 		ID: record.ID, SessionID: record.SessionID,
-		Anchor:  record.Anchor,
-		Body:    record.Body,
-		Preview: protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
-		Stale:   stale != "", StaleReason: stale,
+		Anchor:     record.Anchor,
+		DiffTarget: record.DiffTarget,
+		Body:       record.Body,
+		Preview:    protocol.AnnotationPreview{StartLine: record.Preview.StartLine, EndLine: record.Preview.EndLine, Text: record.Preview.Text, Truncated: record.Preview.Truncated},
+		Stale:      stale != "", StaleReason: stale, ValidationDeferred: deferred,
 	}
 }
 
 func projectAnnotationSummary(record kitannotation.Record, stale protocol.AnnotationStaleReason) protocol.AnnotationSummary {
 	annotation := projectAnnotation(record, stale)
 	return protocol.AnnotationSummary{
-		ID: annotation.ID, Anchor: annotation.Anchor,
+		ID: annotation.ID, Anchor: annotation.Anchor, DiffTarget: annotation.DiffTarget,
 		BodyPreview: truncateAnnotationSummary(annotation.Body),
 		Preview:     truncateAnnotationSummary(annotation.Preview.Text),
-		Stale:       annotation.Stale, StaleReason: annotation.StaleReason,
+		Stale:       annotation.Stale, StaleReason: annotation.StaleReason, ValidationDeferred: annotation.ValidationDeferred,
 	}
 }
 
@@ -1070,8 +1133,16 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 					FileRevision: annotation.FileRevision, Side: annotation.Side, StartLine: annotation.StartLine, EndLine: annotation.EndLine,
 				}
 			}
+			var diffTarget *protocol.PinnedDiffTarget
+			if annotation.TargetKind != "" {
+				diffTarget = &protocol.PinnedDiffTarget{
+					WorkspaceID: annotation.TargetWorkspaceID, Kind: annotation.TargetKind,
+					Base: protocol.DiffEndpoint{Kind: annotation.TargetBaseKind, OID: annotation.TargetBaseOID},
+					Head: protocol.DiffEndpoint{Kind: annotation.TargetHeadKind, OID: annotation.TargetHeadOID},
+				}
+			}
 			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
-				OriginalAnnotationID: annotation.ID, Anchor: anchor, Body: annotation.Body,
+				OriginalAnnotationID: annotation.ID, Anchor: anchor, DiffTarget: diffTarget, Body: annotation.Body,
 				Preview: protocol.AnnotationPreview{StartLine: annotation.StartLine, EndLine: annotation.EndLine, Text: annotation.Preview, Truncated: annotation.Truncated},
 			})
 		}
@@ -1529,6 +1600,58 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid workspace file: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/targets", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ListDiffTargetsInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		sessionID := request.PathValue("sessionID")
+		result, err := service.ListDiffTargets(request.Context(), sessionID, input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid diff target catalog: %w", err))
+			return
+		}
+		if result.SessionID != sessionID || result.WorkspaceID != input.WorkspaceID {
+			writeSessionError(writer, fmt.Errorf("diff target catalog identity does not match request"))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/observations", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ObserveDiffInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		sessionID := request.PathValue("sessionID")
+		result, err := service.ObserveDiff(request.Context(), sessionID, input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid diff observation page: %w", err))
+			return
+		}
+		if result.Observation.SessionID != sessionID || result.Observation.Target.WorkspaceID != input.WorkspaceID || result.Observation.Target.ID != input.ExpectedTargetID || input.ExpectedTargetRevision != "" && result.Observation.Revision != input.ExpectedTargetRevision {
+			writeSessionError(writer, fmt.Errorf("diff observation identity does not match request"))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)

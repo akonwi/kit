@@ -61,9 +61,11 @@ type control struct {
 	omitted, unexamined int
 }
 type retainedFile struct {
-	summary  protocol.DiffFileSummary
-	old, new []byte
-	identity string
+	summary          protocol.DiffFileSummary
+	old, new         []byte
+	oldTree, newTree treeEntry
+	hasOld, hasNew   bool
+	identity         string
 }
 type observation struct {
 	protocol.DiffObservation
@@ -72,6 +74,7 @@ type observation struct {
 	control           control
 	files             []retainedFile
 	allLive           map[string]workspace.DiffEntry
+	committed         bool
 	touched, expires  time.Time
 	size              int64
 }
@@ -168,11 +171,7 @@ func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.
 	if in.Cursor != "" {
 		return s.listCursor(session, in)
 	}
-	deadline := time.Now().Add(8 * time.Second)
-	if d, ok := ctx.Deadline(); ok && d.Before(deadline) {
-		deadline = d
-	}
-	ctx, cancel := context.WithDeadline(ctx, deadline)
+	ctx, cancel := boundedContext(ctx)
 	defer cancel()
 	var last error
 	for attempt := 0; attempt < 3; attempt++ {
@@ -190,6 +189,14 @@ func (s *Service) Observe(ctx context.Context, session, cwd string, in protocol.
 }
 
 var errRaced = errors.New("observation raced")
+
+func boundedContext(ctx context.Context) (context.Context, context.CancelFunc) {
+	deadline := time.Now().Add(8 * time.Second)
+	if existing, ok := ctx.Deadline(); ok && existing.Before(deadline) {
+		deadline = existing
+	}
+	return context.WithDeadline(ctx, deadline)
+}
 
 func (s *Service) observeAttempt(ctx context.Context, session, cwd string, in protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
 	ref := s.workspaces.Ref(session, cwd)
@@ -246,7 +253,7 @@ func (s *Service) observeAttempt(ctx context.Context, session, cwd string, in pr
 		return protocol.WorkingTreePage{}, errRaced
 	}
 	files, all, size, complete, trunc, omissions := s.classify(c0, live, blobs)
-	targetID := token("difftarget_", session, in.WorkspaceID, cwd, "working_tree", "policy-1")
+	targetID := targetID(session, in.WorkspaceID, repo, protocol.DiffTargetWorkingTree, protocol.DiffEndpoint{}, protocol.DiffEndpoint{})
 	manifest := manifestBytes(session, in.WorkspaceID, targetID, c0, files, live.RootIdentity, complete, trunc, omissions)
 	revision := token("diffrev_", string(manifest))
 	head := protocol.DiffHead{State: "commit", OID: c0.head}

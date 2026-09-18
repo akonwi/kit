@@ -1,10 +1,13 @@
 package storage
 
 import (
+	"database/sql"
 	"encoding/base64"
 	"errors"
 	"path/filepath"
 	"testing"
+	"testing/fstest"
+	"time"
 
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/protocol"
@@ -19,6 +22,10 @@ func TestDiffAnnotationAnchorRoundTrips(t *testing.T) {
 		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go",
 		FileRevision: "diff_file_" + token, Side: "old", StartLine: 2, EndLine: 3,
 	}}
+	record.DiffTarget = &protocol.PinnedDiffTarget{
+		WorkspaceID: "workspace_" + token, Kind: protocol.DiffTargetCommit,
+		Base: protocol.DiffEndpoint{Kind: "empty_tree"}, Head: protocol.DiffEndpoint{Kind: "commit", OID: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}
 	record.Preview = kitannotation.Preview{StartLine: 2, EndLine: 3, Text: "old evidence"}
 	created, err := store.CreateAnnotation(t.Context(), record, 10)
 	if err != nil {
@@ -28,8 +35,61 @@ func TestDiffAnnotationAnchorRoundTrips(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if loaded.Anchor.WorkingTreeDiff == nil || *loaded.Anchor.WorkingTreeDiff != *record.Anchor.WorkingTreeDiff {
-		t.Fatalf("loaded diff anchor = %+v", loaded.Anchor)
+	if loaded.Anchor.WorkingTreeDiff == nil || *loaded.Anchor.WorkingTreeDiff != *record.Anchor.WorkingTreeDiff || loaded.DiffTarget == nil || *loaded.DiffTarget != *record.DiffTarget {
+		t.Fatalf("loaded diff annotation = %+v", loaded)
+	}
+	if _, err := store.db.ExecContext(t.Context(), `UPDATE annotations SET target_head_oid = NULL WHERE session_id = ? AND annotation_id = ?`, sessionID, created.ID); err == nil {
+		t.Fatal("partial persisted target update was accepted")
+	}
+}
+
+func TestAnnotationDiffTargetMigrationPreservesExistingAnchors(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kit.db")
+	legacyDB, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := fstest.MapFS{}
+	for _, name := range []string{"0001_initial.sql", "0002_session_cwd_mutations.sql", "0003_session_configuration_revision.sql", "0004_subagents.sql", "0005_peer_queries.sql", "0006_annotations.sql", "0007_diff_annotation_anchors.sql"} {
+		body, err := migrationFiles.ReadFile("migrations/" + name)
+		if err != nil {
+			t.Fatal(err)
+		}
+		prefix["migrations/"+name] = &fstest.MapFile{Data: body}
+	}
+	if err := migrateFS(t.Context(), legacyDB, prefix); err != nil {
+		t.Fatal(err)
+	}
+	legacy := &Store{db: legacyDB, path: path}
+	sessionID := testSessionID('m')
+	if _, err := legacy.CreateSession(t.Context(), session.NewSession{ID: sessionID, CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+		t.Fatal(err)
+	}
+	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+	record := annotationTestRecord(sessionID, "legacy")
+	record.Anchor = protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &protocol.WorkingTreeDiffAnnotationAnchor{
+		TargetID: "difftarget_" + token, TargetRevision: "diffrev_" + token, Path: "main.go", FileRevision: "diff_file_" + token, Side: "old", StartLine: 1, EndLine: 1,
+	}}
+	now := formatTimestamp(time.Now())
+	if _, err := legacyDB.ExecContext(t.Context(), `
+		INSERT INTO annotations(session_id, annotation_id, anchor_kind, target_id, target_revision, path, file_revision, side,
+			start_line, end_line, body, preview_start_line, preview_end_line, preview_text, preview_truncated, created_at, updated_at)
+		VALUES (?, 1, 'working_tree_diff', ?, ?, ?, ?, ?, 1, 1, ?, 1, 1, ?, 0, ?, ?)
+	`, sessionID, record.Anchor.WorkingTreeDiff.TargetID, record.Anchor.WorkingTreeDiff.TargetRevision, record.Anchor.WorkingTreeDiff.Path,
+		record.Anchor.WorkingTreeDiff.FileRevision, record.Anchor.WorkingTreeDiff.Side, record.Body, record.Preview.Text, now, now); err != nil {
+		t.Fatal(err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	upgraded, err := Open(t.Context(), path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer upgraded.Close()
+	loaded, err := upgraded.GetAnnotation(t.Context(), sessionID, 1)
+	if err != nil || loaded.Anchor.WorkingTreeDiff == nil || loaded.DiffTarget != nil {
+		t.Fatalf("loaded = %+v, %v", loaded, err)
 	}
 }
 

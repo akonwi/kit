@@ -58,7 +58,7 @@ func (w annotationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 		if index == w.Snapshot.Selection {
 			style.Background = theme.SurfaceHovered
 		}
-		if annotation.Stale {
+		if annotation.Stale || annotation.ValidationDeferred {
 			style.Foreground = theme.WarningText
 		}
 		remove := ui.Widget(ui.Text{Value: glyphTimes, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
@@ -82,6 +82,11 @@ func (w annotationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 				ui.Text{Value: "Frozen evidence", Style: ui.Style{Foreground: theme.WarningText}, MaxLines: 1},
 				ui.Text{Value: selected.Preview, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true, MaxLines: 3},
 				ui.Text{Value: selected.BodyPreview, Style: ui.Style{Foreground: theme.Foreground}, SoftWrap: true, MaxLines: 3},
+			)
+		} else if selected.ValidationDeferred {
+			bodyChildren = append(bodyChildren,
+				ui.SizedBox{Height: 1},
+				ui.Text{Value: "Evidence validation pending", Style: ui.Style{Foreground: theme.WarningText}, MaxLines: 1},
 			)
 		}
 	}

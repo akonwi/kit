@@ -1335,6 +1335,11 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 				snapshot.TargetID, snapshot.TargetRevision = anchor.TargetID, anchor.TargetRevision
 				snapshot.Path, snapshot.FileRevision, snapshot.Side = anchor.Path, anchor.FileRevision, anchor.Side
 				snapshot.StartLine, snapshot.EndLine = anchor.StartLine, anchor.EndLine
+				if target := record.DiffTarget; target != nil {
+					snapshot.TargetWorkspaceID, snapshot.TargetKind = target.WorkspaceID, target.Kind
+					snapshot.TargetBaseKind, snapshot.TargetBaseOID = target.Base.Kind, target.Base.OID
+					snapshot.TargetHeadKind, snapshot.TargetHeadOID = target.Head.Kind, target.Head.OID
+				}
 			}
 			snapshots = append(snapshots, snapshot)
 		}

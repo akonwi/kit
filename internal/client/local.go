@@ -75,6 +75,7 @@ var _ sessionclient.Server = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
 var _ sessionclient.WorkspaceFilesSession = (*localSession)(nil)
+var _ sessionclient.DiffSession = (*localSession)(nil)
 var _ sessionclient.WorkingTreeDiffSession = (*localSession)(nil)
 var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
@@ -187,6 +188,14 @@ func (c *localSession) ReadWorkspaceFile(ctx context.Context, input protocol.Rea
 	return result, projectWorkspaceError(err)
 }
 
+func (c *localSession) ListDiffTargets(ctx context.Context, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	result, err := c.transport.ListDiffTargets(ctx, c.id, input)
+	return result, projectDiffError(err)
+}
+func (c *localSession) ObserveDiff(ctx context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	result, err := c.transport.ObserveDiff(ctx, c.id, input)
+	return result, projectDiffError(err)
+}
 func (c *localSession) ObserveWorkingTree(ctx context.Context, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
 	result, err := c.transport.ObserveWorkingTree(ctx, c.id, input)
 	return result, projectDiffError(err)

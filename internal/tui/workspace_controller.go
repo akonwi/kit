@@ -36,6 +36,7 @@ type workspacePaneDescriptor struct {
 	ExpectedFileRevision string
 	DiffTargetID         string
 	DiffSide             string
+	AnnotationID         uint64
 	RevealStartLine      int
 	RevealEndLine        int
 	OpenGeneration       uint64
@@ -50,7 +51,7 @@ func fileWorkspacePane(workspaceID, path string) workspacePaneDescriptor {
 }
 
 func workingTreeDiffWorkspacePane(workspaceID string) workspacePaneDescriptor {
-	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "working_tree"}
+	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "diff"}
 }
 
 type workspacePaneIdentity string
