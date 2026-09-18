@@ -828,17 +828,19 @@ func TestWorkspaceDiffPaneLoadsAllChangedFilePagesForCycling(t *testing.T) {
 }
 
 func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing.T) {
-	drafts := 2
 	catalog := testDiffCatalog()
 	catalog.Targets = append(catalog.Targets, protocol.DiffTargetEntry{
 		Reference: "commit-head", TargetID: "difftarget_commit", Kind: protocol.DiffTargetCommit,
 		Head:     protocol.DiffEndpoint{Kind: "commit", OID: strings.Repeat("a", 40)},
-		Metadata: protocol.DiffTargetMetadata{Label: "a1b2c3d  Fix parser bounds", Subject: "Fix parser bounds", Abbreviated: "a1b2c3d"}, AnnotationCount: &drafts,
+		Metadata: protocol.DiffTargetMetadata{Label: "a1b2c3d  Fix parser bounds", Subject: "Fix parser bounds", Abbreviated: "a1b2c3d"},
 	})
 	backend := fakeWorkingTreeDiff{catalog: catalog, observation: testDiffObservation()}
 	dispatch := &queuedDiffDispatch{}
+	annotation := func(id uint64) protocol.AnnotationSummary {
+		return protocol.AnnotationSummary{ID: id, Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &protocol.WorkingTreeDiffAnnotationAnchor{TargetID: "difftarget_commit"}}}
+	}
 	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
-		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, Annotations: []protocol.AnnotationSummary{annotation(1), annotation(2)}})
 	pumpDiffUntil(t, application, dispatch, 100, 26, "No changes for Working tree")
 	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
 	application.Pump(100, 26)
@@ -848,6 +850,13 @@ func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing
 			t.Fatalf("target picker missing %q:\n%s", expected, text)
 		}
 	}
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	application.Pump(100, 26)
+	if strings.Contains(application.Text(), "Select diff target") {
+		t.Fatal("selecting the active target did not close the picker")
+	}
+	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+	application.Pump(100, 26)
 	for _, character := range "parser" {
 		application.Send(vaxis.Key{Text: string(character), Keycode: character})
 	}
@@ -1084,6 +1093,12 @@ func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.
 	application.Pump(100, 25)
 	if text := application.Text(); !strings.Contains(text, glyphCheck+" b1b2b3b  Pinned review") {
 		t.Fatalf("annotation target was not selected in picker:\n%s", text)
+	}
+	application.Send(vaxis.Key{Keycode: vaxis.KeyUp})
+	application.Send(vaxis.Key{Keycode: vaxis.KeyEnter})
+	pumpDiffUntil(t, application, dispatch, 100, 14, "live evidence")
+	if strings.Contains(application.Text(), "Select diff target") {
+		t.Fatal("switching pinned evidence back to the live target left the picker open")
 	}
 }
 

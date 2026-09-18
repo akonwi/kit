@@ -722,12 +722,22 @@ func (s *workspaceDiffPaneState) completeCatalog(catalog protocol.DiffTargetCata
 	if wantedTargetID == "" {
 		wantedTargetID = s.activeTarget.TargetID
 	}
+	matchedTarget := false
 	if wantedTargetID != "" {
 		for _, target := range s.catalog {
 			if target.TargetID == wantedTargetID {
 				s.activeTarget = target
+				matchedTarget = true
 				break
 			}
+		}
+	}
+	if wantedTargetID != "" && !matchedTarget && s.activeTarget.Kind == protocol.DiffTargetWorkingTree && len(s.catalog) > 0 && s.catalog[0].Kind == protocol.DiffTargetWorkingTree {
+		if s.refreshBlocked() {
+			s.pendingTarget = s.catalog[0]
+			s.changesAvailable = true
+		} else {
+			s.switchTarget(s.catalog[0])
 		}
 	}
 	if s.activeTarget.Reference == "" && s.observation.Target.ID == "" && len(s.catalog) > 0 {
@@ -742,7 +752,12 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 		s.warning("Finish the active range or comment before changing target")
 		return
 	}
-	if target.Reference == "" || target.TargetID == s.activeTarget.TargetID {
+	if target.Reference == "" {
+		return
+	}
+	s.targetPickerOpen = false
+	s.targetQuery = ""
+	if target.TargetID == s.activeTarget.TargetID && !s.pinnedEvidence {
 		return
 	}
 	w := s.Widget().(workspaceDiffPane)
@@ -755,8 +770,6 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 	}
 	s.refreshLine = 0
 	s.pendingTarget = target
-	s.targetPickerOpen = false
-	s.targetQuery = ""
 	s.stopPolling()
 	s.startObservation()
 }
@@ -1824,9 +1837,19 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 		if target.TargetID == s.activeTarget.TargetID {
 			marker = glyphCheck + " "
 		}
+		draftCount := 0
+		if target.AnnotationCount != nil {
+			draftCount = *target.AnnotationCount
+		} else {
+			for _, annotation := range s.Widget().(workspaceDiffPane).Annotations {
+				if anchor := annotation.Anchor.WorkingTreeDiff; anchor != nil && anchor.TargetID == target.TargetID {
+					draftCount++
+				}
+			}
+		}
 		draft := ""
-		if target.AnnotationCount != nil && *target.AnnotationCount > 0 {
-			draft = fmt.Sprintf("  %s %d", glyphCircleFilled, *target.AnnotationCount)
+		if draftCount > 0 {
+			draft = fmt.Sprintf("  %s %d", glyphCircleFilled, draftCount)
 		}
 		label := target.Metadata.Label
 		if label == "" {
