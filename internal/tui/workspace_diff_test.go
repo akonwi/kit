@@ -209,6 +209,34 @@ func TestWorkspaceDiffSplitHorizontalSlicePreservesStyledGraphemes(t *testing.T)
 	}
 }
 
+func TestWorkspaceDiffSplitLayoutMeasurementsAreCached(t *testing.T) {
+	lineNumber := 1
+	state := &workspaceDiffPaneState{
+		viewportWidth: 120,
+		hunks: []protocol.DiffHunk{{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 1, Lines: []protocol.DiffLine{{
+			Kind: "addition", NewLine: &lineNumber, Content: strings.Repeat("wide ", 40), HasTerminatingLF: true,
+		}}}},
+	}
+	state.rebuildHunkRows()
+	first := state.splitTargets()
+	if len(first) != 1 || !state.splitTargetsValid {
+		t.Fatalf("initial split measurements = %+v", first)
+	}
+	first[0].height = 99
+	if got := state.splitTargets()[0].height; got != 99 {
+		t.Fatalf("cached split height = %d, want reused measurement", got)
+	}
+	firstNavigation := state.splitNavigationLines()
+	firstNavigation[0].row = 42
+	if got := state.splitNavigationLines()[0].row; got != 42 {
+		t.Fatalf("cached navigation row = %d, want reused index", got)
+	}
+	state.invalidateSplitTargets()
+	if state.splitTargetsValid || state.splitNavigationValid {
+		t.Fatal("split caches remained valid after invalidation")
+	}
+}
+
 func TestWorkspaceDiffSplitWrapHeightIsConfigurable(t *testing.T) {
 	lineNumber := 100_000
 	line := protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: strings.Repeat("wide ", 40), HasTerminatingLF: true}
@@ -238,15 +266,13 @@ func TestWorkspaceDiffPaneTogglesSplitLineWrapping(t *testing.T) {
 		}},
 	}
 	dispatch := &queuedDiffDispatch{}
+	var persistedWrap bool
 	application := uitest.New(workspaceDiffPane{
 		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
-		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		Presentation:       workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		OnWrapLinesChanged: func(enabled bool) { persistedWrap = enabled },
 	})
-	pumpDiffUntil(t, application, dispatch, 120, 12, "wrapped.go")
-	for range 3 {
-		dispatch.flush()
-		application.Pump(120, 12)
-	}
+	pumpDiffUntil(t, application, dispatch, 120, 12, "START-")
 	contentColumn, contentRow := findRenderedDiffText(t, application, 120, 12, "START-")
 	application.Send(vaxis.Mouse{Col: contentColumn, Row: contentRow, Button: vaxis.MouseWheelRight, EventType: vaxis.EventPress})
 	application.Pump(120, 12)
@@ -266,6 +292,18 @@ func TestWorkspaceDiffPaneTogglesSplitLineWrapping(t *testing.T) {
 	}
 	if wrappedRows < 2 || !strings.Contains(strings.Join(rows, "\n"), "w clip") {
 		t.Fatalf("split line did not wrap into multiple visual rows:\n%s", strings.Join(rows, "\n"))
+	}
+	if !persistedWrap {
+		t.Fatal("wrap preference callback did not persist enabled state")
+	}
+	reopenedDispatch := &queuedDiffDispatch{}
+	reopened := uitest.New(workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: reopenedDispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, InitialWrapLines: persistedWrap,
+	})
+	reopenedRows := pumpDiffUntil(t, reopened, reopenedDispatch, 120, 12, "w clip")
+	if !strings.Contains(strings.Join(reopenedRows, "\n"), "w clip") {
+		t.Fatalf("reopened diff did not restore wrap preference:\n%s", strings.Join(reopenedRows, "\n"))
 	}
 }
 
@@ -300,6 +338,7 @@ func TestWorkspaceDiffSplitNavigationVisitsLogicalLinesOnce(t *testing.T) {
 	}}}
 	state.cursorRow = 1
 	state.cursorSide = workspaceDiffSideOld
+	state.invalidateSplitTargets()
 	state.moveSplitLine(1)
 	if state.cursorRow != 2 || state.cursorSide != workspaceDiffSideOld {
 		t.Fatalf("replacement deletion target = row:%d side:%d", state.cursorRow, state.cursorSide)

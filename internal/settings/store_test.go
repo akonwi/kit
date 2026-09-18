@@ -317,3 +317,30 @@ func TestStoreUpdatesAndClearsModelContextWindow(t *testing.T) {
 		t.Fatalf("settings document = %s", raw)
 	}
 }
+
+func TestUpdateDiffWrapLinesPersistsPreferenceAndUnknownFields(t *testing.T) {
+	t.Parallel()
+	path := filepath.Join(t.TempDir(), "settings.json")
+	if err := os.WriteFile(path, []byte(`{"future":{"enabled":true}}`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	store := newTestStore(t, path)
+	updated, err := store.UpdateDiffWrapLines(true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !updated.DiffWrapLines {
+		t.Fatal("updated wrapping preference is false")
+	}
+	loaded, warnings, err := store.Load()
+	if err != nil || len(warnings) != 0 || !loaded.DiffWrapLines {
+		t.Fatalf("Load() = %#v, %v, %v", loaded, warnings, err)
+	}
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(data), `"diffWrapLines": true`) || !strings.Contains(string(data), `"future"`) {
+		t.Fatalf("settings = %s", data)
+	}
+}

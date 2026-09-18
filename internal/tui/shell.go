@@ -22,6 +22,7 @@ type shellSnapshot struct {
 	Composer                     string
 	ComposerAttachments          []stagedAttachment
 	ComposerAnnotations          []protocol.AnnotationSummary
+	DiffWrapLines                bool
 	ComposerCursorEndGeneration  uint64
 	ComposerCursorOffset         int
 	ComposerCursorGeneration     uint64
@@ -112,6 +113,7 @@ type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
 	WorkspaceMouse              *workspaceMouseGestureController
+	SetDiffWrapLines            func(bool)
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
 	MoveProviderSelection       selectionMovedCallback

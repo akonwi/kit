@@ -96,6 +96,8 @@ type workspaceDiffPane struct {
 	Dispatch           func(func())
 	Presentation       workspacePanePresentation
 	Annotations        []protocol.AnnotationSummary
+	InitialWrapLines   bool
+	OnWrapLinesChanged func(bool)
 	MouseGestures      *workspaceMouseGestureController
 	OnFocusRequest     ui.VoidCallback
 	OnCreateAnnotation func(protocol.AnnotationAnchor, string, func(error))
@@ -139,6 +141,8 @@ type workspaceDiffPaneState struct {
 	wrapLines                bool
 	splitColumn              int
 	splitTargetsCached       []workspaceDiffSplitTarget
+	splitNavigationCached    []workspaceDiffNavigationLine
+	splitNavigationValid     bool
 	splitTargetsWidth        int
 	splitTargetsWrap         bool
 	splitMaxColumn           int
@@ -183,6 +187,7 @@ func (s *workspaceDiffPaneState) InitState() {
 	w := s.Widget().(workspaceDiffPane)
 	s.appliedOpen = w.Descriptor.OpenGeneration
 	s.cursorSide = workspaceDiffSideNew
+	s.wrapLines = w.InitialWrapLines
 	if w.Presentation.Active && !s.isFrozen(w) {
 		s.startDescriptorLoad()
 	}
@@ -191,6 +196,15 @@ func (s *workspaceDiffPaneState) InitState() {
 func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 	previous := old.(workspaceDiffPane)
 	w := s.Widget().(workspaceDiffPane)
+	if previous.InitialWrapLines != w.InitialWrapLines && s.wrapLines != w.InitialWrapLines {
+		s.wrapLines = w.InitialWrapLines
+		if s.wrapLines {
+			s.splitColumn = 0
+		}
+		s.invalidateSplitTargets()
+		s.cursorRevealPending = true
+		s.revealPendingLayout = true
+	}
 	if s.isFrozen(w) {
 		s.stopWork()
 		return
@@ -578,6 +592,7 @@ func (s *workspaceDiffPaneState) appendHunks(next []protocol.DiffHunk) {
 }
 
 func (s *workspaceDiffPaneState) rebuildHunkRows() {
+	s.invalidateSplitTargets()
 	s.hunkRows = s.hunkRows[:0]
 	s.lineRows = s.lineRows[:0]
 	row := 0
@@ -736,6 +751,8 @@ func workspaceDiffSplitPairHeight(oldLine, newLine *protocol.DiffLine, viewport 
 
 func (s *workspaceDiffPaneState) invalidateSplitTargets() {
 	s.splitTargetsCached = nil
+	s.splitNavigationCached = nil
+	s.splitNavigationValid = false
 	s.splitMaxColumn = 0
 	s.splitTargetsValid = false
 }
@@ -821,6 +838,9 @@ type workspaceDiffNavigationLine struct {
 }
 
 func (s *workspaceDiffPaneState) splitNavigationLines() []workspaceDiffNavigationLine {
+	if s.splitNavigationValid {
+		return s.splitNavigationCached
+	}
 	lines := make([]workspaceDiffNavigationLine, 0, len(s.lineRows))
 	row := 0
 	for _, hunk := range s.hunks {
@@ -839,6 +859,8 @@ func (s *workspaceDiffPaneState) splitNavigationLines() []workspaceDiffNavigatio
 			row++
 		}
 	}
+	s.splitNavigationCached = lines
+	s.splitNavigationValid = true
 	return lines
 }
 
@@ -1371,8 +1393,9 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 			shortcuts["{"] = moveWorkspaceDiffHunkIntent{delta: -1}
 			shortcuts["}"] = moveWorkspaceDiffHunkIntent{delta: 1}
 			bindings[toggleWorkspaceDiffWrapIntent{}.IntentType()] = func(_ ui.EventContext, _ ui.Intent) ui.EventResult {
+				next := !s.wrapLines
 				s.SetState(func() {
-					s.wrapLines = !s.wrapLines
+					s.wrapLines = next
 					if s.wrapLines {
 						s.splitColumn = 0
 					}
@@ -1380,6 +1403,9 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 					s.cursorRevealPending = true
 					s.revealPendingLayout = true
 				})
+				if w.OnWrapLinesChanged != nil {
+					w.OnWrapLinesChanged(next)
+				}
 				return ui.EventHandled
 			}
 			bindings[panWorkspaceDiffIntent{}.IntentType()] = func(_ ui.EventContext, intent ui.Intent) ui.EventResult {

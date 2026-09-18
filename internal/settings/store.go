@@ -22,6 +22,7 @@ import (
 type Settings struct {
 	Theme          string
 	DefaultModel   string
+	DiffWrapLines  bool
 	ModelOverrides map[string]ModelOverride
 
 	fields map[string]json.RawMessage
@@ -110,6 +111,26 @@ func (s *Store) UpdateModelContextWindow(selector string, contextWindow int) (Se
 	return cloneSettings(current), nil
 }
 
+// UpdateDiffWrapLines persists the working-tree diff wrapping preference.
+func (s *Store) UpdateDiffWrapLines(enabled bool) (Settings, error) {
+	if s == nil {
+		return Settings{}, errors.New("update diff wrapping: store is nil")
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, _, err := s.load()
+	if err != nil {
+		return Settings{}, err
+	}
+	current.DiffWrapLines = enabled
+	encoded, _ := json.Marshal(enabled)
+	current.fields["diffWrapLines"] = encoded
+	if err := s.write(current.fields); err != nil {
+		return Settings{}, err
+	}
+	return cloneSettings(current), nil
+}
+
 func (s *Store) UpdateTheme(name string) (Settings, error) {
 	if s == nil {
 		return Settings{}, errors.New("update settings theme: store is nil")
@@ -175,6 +196,12 @@ func (s *Store) load() (Settings, []Warning, error) {
 			warnings = append(warnings, Warning{Field: "theme", Err: errors.New("is not a valid theme name; using system")})
 		} else {
 			result.Theme = name
+		}
+	}
+	if raw, ok := fields["diffWrapLines"]; ok {
+		if err := json.Unmarshal(raw, &result.DiffWrapLines); err != nil {
+			warnings = append(warnings, Warning{Field: "diffWrapLines", Err: errors.New("must be a boolean; using clip mode")})
+			result.DiffWrapLines = false
 		}
 	}
 	if raw, ok := fields["defaultModel"]; ok {
@@ -247,7 +274,7 @@ func defaultSettings() Settings {
 }
 
 func cloneSettings(source Settings) Settings {
-	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, fields: make(map[string]json.RawMessage, len(source.fields))}
+	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, DiffWrapLines: source.DiffWrapLines, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

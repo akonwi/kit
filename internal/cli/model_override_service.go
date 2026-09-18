@@ -10,3 +10,12 @@ func (s interactiveModelOverrideService) SetContextWindow(selector string, conte
 	_, err := s.settings.UpdateModelContextWindow(selector, contextWindow)
 	return err
 }
+
+type interactiveDiffPreferenceService struct {
+	settings *settings.Store
+}
+
+func (s interactiveDiffPreferenceService) SetWrapLines(enabled bool) error {
+	_, err := s.settings.UpdateDiffWrapLines(enabled)
+	return err
+}

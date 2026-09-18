@@ -44,30 +44,37 @@ type APIKeyLogin interface {
 	Login(context.Context, string, string) error
 }
 
+// DiffPreferenceService persists working-tree diff presentation preferences.
+type DiffPreferenceService interface {
+	SetWrapLines(bool) error
+}
+
 // Options configures one native TUI client attached to one session.
 type Options struct {
-	Context              context.Context
-	Server               sessionclient.Server
-	CWD                  string
-	Location             string
-	ResolveLocation      func(context.Context, string) string
-	DefaultModel         string
-	DefaultThinking      string
-	ResumeModelFilter    string
-	ResumeThinkingFilter string
-	AvailableProviders   map[string]bool
-	Authenticated        bool
-	SessionID            string
-	NewSessionID         string
-	NewSessionName       string
-	TemporarySession     bool
-	Login                DeviceLogin
-	BrowserLogin         BrowserLogin
-	APIKeyLogin          APIKeyLogin
-	ThemeName            string
-	ThemeDefinition      kittheme.Definition
-	ThemeService         ThemeService
-	ModelOverrideService ModelOverrideService
+	Context               context.Context
+	Server                sessionclient.Server
+	CWD                   string
+	Location              string
+	ResolveLocation       func(context.Context, string) string
+	DefaultModel          string
+	DefaultThinking       string
+	ResumeModelFilter     string
+	ResumeThinkingFilter  string
+	AvailableProviders    map[string]bool
+	Authenticated         bool
+	SessionID             string
+	NewSessionID          string
+	NewSessionName        string
+	TemporarySession      bool
+	Login                 DeviceLogin
+	BrowserLogin          BrowserLogin
+	APIKeyLogin           APIKeyLogin
+	ThemeName             string
+	ThemeDefinition       kittheme.Definition
+	ThemeService          ThemeService
+	ModelOverrideService  ModelOverrideService
+	DiffWrapLines         bool
+	DiffPreferenceService DiffPreferenceService
 
 	appDone        <-chan struct{}
 	terminalStatus *terminalStatusReporter
@@ -301,6 +308,12 @@ type appState struct {
 	subagentFocuses                  map[string]*ui.FocusNode
 	workspace                        workspaceController
 	workspaceMouse                   workspaceMouseGestureController
+	diffWrapLines                    bool
+	diffPreferenceMu                 sync.Mutex
+	diffPreferenceDesired            bool
+	diffPreferenceGeneration         uint64
+	diffPreferenceWriting            bool
+	diffPreferenceWrites             sync.WaitGroup
 	workspaceID                      string
 	workspaceFilePicker              workspaceFilePickerController
 	workspaceFilePickerScroll        ui.ScrollController
@@ -401,6 +414,7 @@ func (s *appState) InitState() {
 		s.themeName = kittheme.SystemName
 	}
 	s.themeDefinition = options.ThemeDefinition
+	s.diffWrapLines = options.DiffWrapLines
 	s.ctx, s.cancel = context.WithCancel(options.Context)
 	s.resetAttachmentContext()
 	s.available = cloneProviders(options.AvailableProviders)
@@ -895,6 +909,7 @@ func (s *appState) Dispose() {
 	if s.cancel != nil {
 		s.cancel()
 	}
+	s.flushDiffPreferenceWrites(2 * time.Second)
 }
 
 func (s *appState) activityPresentation(mainMessages []transcriptMessage, conversationID string) transcriptPresentation {
@@ -932,6 +947,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Composer:                     s.composer,
 		ComposerAttachments:          append([]stagedAttachment(nil), s.composerAttachments...),
 		ComposerAnnotations:          append([]protocol.AnnotationSummary(nil), s.annotations...),
+		DiffWrapLines:                s.diffWrapLines,
 		ComposerCursorEndGeneration:  s.composerCursorEndGeneration,
 		ComposerCursorOffset:         s.composerCursorOffset,
 		ComposerCursorGeneration:     s.composerCursorGeneration,
@@ -1017,7 +1033,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
-		WorkspaceMouse: &s.workspaceMouse,
+		WorkspaceMouse:   &s.workspaceMouse,
+		SetDiffWrapLines: s.setDiffWrapLines,
 		OpenAuth: func(ui.EventContext) {
 			if s.phase == phaseAuthGate {
 				s.enterAuthSelect(false)
@@ -4535,6 +4552,76 @@ func (s *appState) dismissSubagent(conversationID string, generation uint64) {
 			}
 		})
 	}()
+}
+
+func (s *appState) enqueueDiffPreferenceWrite(service DiffPreferenceService, enabled bool, report func(uint64, error)) {
+	s.diffPreferenceMu.Lock()
+	s.diffPreferenceDesired = enabled
+	s.diffPreferenceGeneration++
+	if s.diffPreferenceWriting {
+		s.diffPreferenceMu.Unlock()
+		return
+	}
+	s.diffPreferenceWriting = true
+	s.diffPreferenceWrites.Add(1)
+	s.diffPreferenceMu.Unlock()
+	go func() {
+		defer s.diffPreferenceWrites.Done()
+		for {
+			s.diffPreferenceMu.Lock()
+			desired := s.diffPreferenceDesired
+			generation := s.diffPreferenceGeneration
+			s.diffPreferenceMu.Unlock()
+			err := service.SetWrapLines(desired)
+			s.diffPreferenceMu.Lock()
+			if generation != s.diffPreferenceGeneration {
+				s.diffPreferenceMu.Unlock()
+				continue
+			}
+			s.diffPreferenceWriting = false
+			s.diffPreferenceMu.Unlock()
+			if err != nil && report != nil {
+				report(generation, err)
+			}
+			return
+		}
+	}()
+}
+
+func (s *appState) flushDiffPreferenceWrites(timeout time.Duration) bool {
+	done := make(chan struct{})
+	go func() {
+		s.diffPreferenceWrites.Wait()
+		close(done)
+	}()
+	select {
+	case <-done:
+		return true
+	case <-time.After(timeout):
+		return false
+	}
+}
+
+func (s *appState) setDiffWrapLines(enabled bool) {
+	s.SetState(func() { s.diffWrapLines = enabled })
+	service := s.Widget().(app).Options.DiffPreferenceService
+	if service == nil {
+		return
+	}
+	runtime := s.Context().Runtime()
+	s.enqueueDiffPreferenceWrite(service, enabled, func(generation uint64, err error) {
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			s.diffPreferenceMu.Lock()
+			current := generation == s.diffPreferenceGeneration
+			s.diffPreferenceMu.Unlock()
+			if current {
+				s.showToast(toastInput{Title: "Could not save diff preference", Subtitle: err.Error(), Variant: toastWarning})
+			}
+		})
+	})
 }
 
 func (s *appState) openConfigurationPicker(mode configurationPickerMode) {

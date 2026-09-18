@@ -17,6 +17,38 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+type blockingDiffPreferenceService struct {
+	calls   chan bool
+	release chan struct{}
+}
+
+func (s blockingDiffPreferenceService) SetWrapLines(enabled bool) error {
+	s.calls <- enabled
+	<-s.release
+	return nil
+}
+
+func TestDiffPreferenceWritesCoalesceInOrderAndFlushBoundedly(t *testing.T) {
+	service := blockingDiffPreferenceService{calls: make(chan bool, 2), release: make(chan struct{}, 2)}
+	state := &appState{}
+	state.enqueueDiffPreferenceWrite(service, true, nil)
+	if got := <-service.calls; !got {
+		t.Fatalf("first persisted value = %v, want true", got)
+	}
+	state.enqueueDiffPreferenceWrite(service, false, nil)
+	service.release <- struct{}{}
+	if got := <-service.calls; got {
+		t.Fatalf("coalesced persisted value = %v, want false", got)
+	}
+	if state.flushDiffPreferenceWrites(10 * time.Millisecond) {
+		t.Fatal("flush completed while latest preference write was blocked")
+	}
+	service.release <- struct{}{}
+	if !state.flushDiffPreferenceWrites(time.Second) {
+		t.Fatal("flush did not complete after latest preference write")
+	}
+}
+
 func liveToolMessage(t *testing.T, state *appState, callID string) transcriptMessage {
 	t.Helper()
 	for _, message := range state.liveMessages {
