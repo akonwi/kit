@@ -4,6 +4,7 @@ import (
 	"errors"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -171,18 +172,10 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 		t.Fatalf("separate paste events = %q", pasted.Query)
 	}
 
-	many := make([]paletteCommand, 20)
-	for index := range many {
-		many[index] = paletteCommand{ID: paletteCommandID(string(rune('a' + index))), Name: string(rune('a' + index))}
-	}
 	if width := paletteNameWidth([]paletteCommand{{Name: "界界"}}); width != 4 {
 		t.Fatalf("wide command name width = %d, want 4", width)
 	}
 
-	window, offset := paletteCommandWindow(many, 12, 6)
-	if len(window) != 6 || offset != 9 || window[3].Name != many[12].Name {
-		t.Fatalf("window length=%d offset=%d commands=%#v", len(window), offset, window)
-	}
 }
 
 func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
@@ -948,4 +941,90 @@ func (s *paletteHarnessState) execute(command paletteCommandID) {
 		s.executed = command
 		s.palette.Close()
 	})
+}
+
+func TestPaletteScrollListFillsBodyAndRevealsSelection(t *testing.T) {
+	state := &paletteScrollHarnessState{}
+	state.snapshot.Selection = filteredPaletteCommands(false, "")[0].ID
+	app := uitest.New(paletteScrollHarness{state})
+	const width, height = 100, 30
+	app.Pump(width, height)
+	state.TickFrame(time.Now())
+	app.Pump(width, height)
+	rows := paintedRows(app, width, height)
+	commands := filteredPaletteCommands(false, "")
+	first := findPaintedRow(rows, commands[0].Description)
+	footer := findPaintedRow(rows, "↑↓ move · enter run · esc close")
+	if first < 0 || footer-first-1 <= 11 {
+		t.Fatalf("expected more than eleven available command rows:\n%s", strings.Join(rows, "\n"))
+	}
+	for row := first; row < footer-1; row++ {
+		index := row - first
+		if index >= len(commands) || !strings.Contains(rows[row], commands[index].Name) {
+			t.Fatalf("command row %d = %q; expected command index %d", row, rows[row], index)
+		}
+	}
+	// Wheel scrolling moves the viewport without changing keyboard selection.
+	app.Send(vaxis.Mouse{Col: 20, Row: first + 1, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
+	for range 6 {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	rows = paintedRows(app, width, height)
+	if got := findPaintedRow(rows, commands[1].Description); got != first {
+		t.Fatalf("wheel-scrolled row = %d, want %d:\n%s", got, first, strings.Join(rows, "\n"))
+	}
+	// Keyboard navigation reveals the last command without moving the footer.
+	state.SetState(func() { state.snapshot.Selection = commands[len(commands)-1].ID })
+	for range 6 {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if row := findPaintedRow(rows, commands[len(commands)-1].Description); row != footer-2 {
+		t.Fatalf("last command row = %d, want %d:\n%s", row, footer-2, strings.Join(rows, "\n"))
+	}
+	// A smaller viewport still reveals the selected row above the fixed footer.
+	for range 6 {
+		app.Pump(width, 18)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(width, 18)
+	smallRows := paintedRows(app, width, 18)
+	smallFooter := findPaintedRow(smallRows, "↑↓ move · enter run · esc close")
+	if got := findPaintedRow(smallRows, commands[len(commands)-1].Description); got != smallFooter-2 {
+		t.Fatalf("resized selection row = %d, want %d", got, smallFooter-2)
+	}
+	for range 6 {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	// Filtering resets the scroll position and exposes the selected result.
+	state.SetState(func() { state.snapshot.Query = "compact"; state.snapshot.Selection = paletteCommandCompact })
+	for range 6 {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(width, height)
+	rows = paintedRows(app, width, height)
+	if got := findPaintedRow(rows, "Compact session context"); got != first {
+		t.Fatalf("filtered row = %d, want %d:\n%s", got, first, strings.Join(rows, "\n"))
+	}
+	if got := findPaintedRow(rows, "↑↓ move · enter run · esc close"); got != footer {
+		t.Fatalf("footer row = %d, want %d", got, footer)
+	}
+}
+
+type paletteScrollHarness struct{ state *paletteScrollHarnessState }
+
+func (w paletteScrollHarness) CreateState() ui.State { return w.state }
+
+type paletteScrollHarnessState struct {
+	commandPaletteSurfaceState
+	snapshot paletteSnapshot
+}
+
+func (s *paletteScrollHarnessState) Build(ctx ui.BuildContext) ui.Widget {
+	return s.commandPaletteSurfaceState.build(ctx, commandPaletteSurface{Snapshot: s.snapshot})
 }

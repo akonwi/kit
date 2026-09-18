@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -10,7 +11,6 @@ import (
 )
 
 const (
-	paletteMaxVisible   = 11
 	paletteMaxNameWidth = 32
 
 	paletteCommandCD        paletteCommandID = "cd"
@@ -60,12 +60,48 @@ type commandPaletteSurface struct {
 	Callbacks paletteCallbacks
 }
 
-func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
+func (commandPaletteSurface) CreateState() ui.State {
+	return &commandPaletteSurfaceState{selection: -1}
+}
+
+type commandPaletteSurfaceState struct {
+	ui.StateBase
+	scroll      ui.ScrollController
+	list        ui.SliverListController
+	selection   int
+	query       string
+	count       int
+	viewport    int
+	needsReveal bool
+}
+
+func (s *commandPaletteSurfaceState) TickFrame(_ time.Time) bool {
+	viewport := s.scroll.Metrics().ViewportHeight
+	if viewport != s.viewport {
+		s.viewport = viewport
+		s.needsReveal = true
+	}
+	if !s.needsReveal || viewport <= 0 || !s.list.Attached() {
+		return false
+	}
+	s.needsReveal = false
+	return s.list.RevealIndex(s.selection)
+}
+
+func (s *commandPaletteSurfaceState) Build(ctx ui.BuildContext) ui.Widget {
+	return s.build(ctx, s.Widget().(commandPaletteSurface))
+}
+
+func (s *commandPaletteSurfaceState) build(ctx ui.BuildContext, w commandPaletteSurface) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	commands := filteredPaletteCommands(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
 	selection, hasSelection := paletteSelectionIndex(w.Snapshot.Selection, commands)
 	if !hasSelection {
 		selection = 0
+	}
+	if selection != s.selection || w.Snapshot.Query != s.query || len(commands) != s.count {
+		s.selection, s.query, s.count = selection, w.Snapshot.Query, len(commands)
+		s.needsReveal = true
 	}
 	catalog := paletteCommands(w.Snapshot.Contributions)
 	nameWidth := paletteNameWidth(catalog)
@@ -76,26 +112,23 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 		}
 	}
 
-	results := []ui.Widget(nil)
+	var sliver ui.Widget
 	if len(commands) == 0 {
-		results = []ui.Widget{ui.Text{
-			Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground},
-		}}
+		sliver = ui.SliverToBox{Child: ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}}}
 	} else {
-		visible, _ := paletteCommandWindow(commands, selection, paletteMaxVisible)
-		results = make([]ui.Widget, 0, len(visible))
-		for _, command := range visible {
-			command := command
-			disabledReason := paletteCommandDisabledReason(command.ID, w.Snapshot.Running)
-			results = append(results, paletteOptionRow{
-				Command: command, NameWidth: nameWidth, DisabledReason: disabledReason,
-				Selected: hasSelection && command.ID == commands[selection].ID,
-				OnPressed: func(event ui.EventContext) {
-					if w.Callbacks.RunCommand != nil {
-						w.Callbacks.RunCommand(event, command.ID)
-					}
-				},
-			})
+		sliver = ui.SliverListBuilder{Controller: &s.list, Count: len(commands), ItemExtent: 1,
+			Builder: func(_ ui.BuildContext, index int) ui.Widget {
+				command := commands[index]
+				return paletteOptionRow{
+					Command: command, NameWidth: nameWidth, DisabledReason: paletteCommandDisabledReason(command.ID, w.Snapshot.Running),
+					Selected: hasSelection && index == selection,
+					OnPressed: func(event ui.EventContext) {
+						if w.Callbacks.RunCommand != nil {
+							w.Callbacks.RunCommand(event, command.ID)
+						}
+					},
+				}
+			},
 		}
 	}
 
@@ -118,9 +151,7 @@ func (w commandPaletteSurface) Build(ctx ui.BuildContext) ui.Widget {
 		Children: []ui.Widget{
 			query,
 			ui.SizedBox{Height: 1},
-			ui.Expanded(ui.ScrollView{Child: ui.Flex{
-				Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: results,
-			}}),
+			ui.Expanded(ui.Scrollbar{Child: ui.CustomScrollView{Controller: &s.scroll, Slivers: []ui.Widget{sliver}}}),
 		},
 	})
 	footer := ui.Text{
@@ -495,15 +526,6 @@ func paletteNameWidth(commands []paletteCommand) int {
 		width = max(width, commandWidth)
 	}
 	return min(width, paletteMaxNameWidth)
-}
-
-func paletteCommandWindow(commands []paletteCommand, selection, maximum int) ([]paletteCommand, int) {
-	if maximum <= 0 || len(commands) <= maximum {
-		return commands, 0
-	}
-	offset := selection - maximum/2
-	offset = max(0, min(offset, len(commands)-maximum))
-	return commands[offset : offset+maximum], offset
 }
 
 func paletteCommandLabel(command paletteCommand) string {
