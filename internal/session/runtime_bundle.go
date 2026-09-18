@@ -133,6 +133,10 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 	}
 	catalog.Diagnostics = append(catalog.Diagnostics, discoveryDiagnostics...)
 	sections := []systemprompt.Section{catalog}
+	if record.ParentSessionID != "" {
+		sections = append(sections, systemprompt.StaticSection("session-lineage", systemprompt.SectionFeature,
+			"This session's parent session ID is "+record.ParentSessionID+". This session has independent state."))
+	}
 	var subagents subagent.LoadResult
 	if b.subagentLoader != nil {
 		subagents, err = b.subagentLoader.Load(ctx, record.CWD)

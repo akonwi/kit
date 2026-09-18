@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log/slog"
 	"os"
 	"path/filepath"
 	"strings"
@@ -551,8 +552,17 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 			if existing.ParentSessionID == sourceSessionID && existing.DroidInitializedAt != nil && (name == "" || existing.Name == name) {
 				childRuntime, runtimeErr := m.runtime(ctx, childID)
 				if runtimeErr == nil {
+					childRuntime.transitionMu.Lock()
+					childRuntime.mu.Lock()
 					snapshot, snapshotErr := childRuntime.droid.Snapshot(ctx, droids.SnapshotOptions{})
+					childRuntime.mu.Unlock()
+					childRuntime.transitionMu.Unlock()
 					if snapshotErr == nil && snapshot.Conversation.ForkedFrom != nil && snapshot.Conversation.ForkedFrom.ConversationID == droids.ConversationID(sourceSessionID) {
+						source.transitionMu.Lock()
+						source.mu.Lock()
+						informDroidOfFork(ctx, source, childID)
+						source.mu.Unlock()
+						source.transitionMu.Unlock()
 						return ForkResult{Session: existing, Point: *snapshot.Conversation.ForkedFrom}, nil
 					}
 				}
@@ -615,7 +625,9 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 
 	source.transitionMu.Lock()
 	defer source.transitionMu.Unlock()
-	source.admissionMu.Lock()
+	if !source.admissionMu.TryLock() {
+		return ForkResult{}, ErrBusy
+	}
 	defer source.admissionMu.Unlock()
 	record, err := m.sessionRecord(ctx, sourceSessionID)
 	if err != nil {
@@ -679,7 +691,22 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 	}
 	child.ParentSessionName = record.Name
 	published = true
+	// The fork is published; a best-effort notification must not fail it.
+	informDroidOfFork(ctx, source, childID)
 	return ForkResult{Session: child, Point: forked.Point}, nil
+}
+
+// Callers hold the parent's transition lock to keep its droid stable.
+// Inform is safe during an active run; do not wait for its admission lock.
+func informDroidOfFork(ctx context.Context, parent *runtime, childID string) {
+	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)
+	defer cancel()
+	if err := parent.droid.Inform(ctx, droids.BoundaryMessage{
+		ID: "session-fork:" + childID, Kind: "session_forked", Source: "session-manager",
+		Content: []droids.InputContent{droids.TextInput{Text: "This session was forked into session " + childID + ". The fork has independent state."}},
+	}); err != nil {
+		slog.WarnContext(ctx, "Could not notify parent of session fork", "child_session_id", childID, "error", err)
+	}
 }
 
 func forkSessionName(parent string) string {
