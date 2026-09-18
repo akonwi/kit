@@ -92,6 +92,7 @@ type shellSnapshot struct {
 	SubagentDismissPending       bool
 	SubagentDismissError         string
 	InlineActivityOpen           map[string]bool
+	ActiveToolSourceID           string
 	ActivityExpanded             map[activityToolKey]bool
 	ActivityCursor               activityToolKey
 	BashRunning                  bool
@@ -682,6 +683,7 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 }
 
 func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool, identity string, controller *ui.ScrollController, listController *ui.SliverListController, followOutput bool, leading ui.Widget) ui.Widget {
+	w.Snapshot.ActiveToolSourceID = activeToolSource(presentation, w.Snapshot.AgentRunning)
 	// Measured sliver extents are indexed, so include the first stable item in
 	// the key. Appends retain measurements while session replacement and
 	// compaction remount the list instead of applying stale heights to new rows.
@@ -890,7 +892,7 @@ func transcriptAssistantEntry(theme ui.Theme, message protocol.TranscriptMessage
 func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem, toolStates map[transcriptToolStateKey]transcriptMessage) ui.Widget {
 	calls := displayItemToolCalls(item)
 	aborted := false
-	inProgress := false
+	inProgress := toolGroupInProgress(item, toolStates, w.Snapshot.ActiveToolSourceID)
 	failedCount := 0
 	for _, step := range item.Items {
 		aborted = aborted || step.Aborted
@@ -900,9 +902,6 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 		resolved := resolveActivityToolState(state, exists, aborted)
 		if resolved == activityToolFailed {
 			failedCount++
-		}
-		if !aborted && (!exists || state.Pending) {
-			inProgress = true
 		}
 	}
 	countLabel := fmt.Sprintf("%d tool calls", len(calls))
@@ -915,7 +914,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			countLabel = "1 step"
 		}
 	}
-	expanded := w.Snapshot.InlineActivityOpen[item.ID]
+	expanded := inlineActivityIsOpen(w.Snapshot.InlineActivityOpen, item.ID, len(calls), inProgress && !aborted)
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
 	rowStyle := ui.Style{Background: theme.Background}
 	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: mutedStyle})

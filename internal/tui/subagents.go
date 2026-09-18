@@ -518,6 +518,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 	if len(presentation.Items) > 0 {
 		transcriptView := w
 		transcriptView.Snapshot.Scroll = controller
+		transcriptView.Snapshot.AgentRunning = conversation.State == "running"
 		transcriptView.Callbacks.OpenActivity = func(ctx ui.EventContext, sourceID string) {
 			if w.Callbacks.OpenSubagentActivity != nil {
 				w.Callbacks.OpenSubagentActivity(ctx, conversationID, sourceID)

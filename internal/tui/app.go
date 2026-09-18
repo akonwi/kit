@@ -1080,10 +1080,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.activityConversationID = ""
 				presentation := s.activityPresentation(presentedMessages, "")
-				opening := !s.inlineActivityOpen[sourceID]
+				opening := !activitySourceIsOpen(s.inlineActivityOpen, presentation, sourceID, s.runPending)
 				for id := range s.inlineActivityOpen {
-					delete(s.inlineActivityOpen, id)
+					s.inlineActivityOpen[id] = false
 				}
+				s.inlineActivityOpen[sourceID] = opening
 				if !opening {
 					s.activitySourceID = ""
 					s.activityCursor = activityToolKey{}
@@ -1273,10 +1274,18 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.subagentFocus(conversationID).RequestFocus()
 			s.SetState(func() {
 				presentation := s.activityPresentation(presentedMessages, conversationID)
-				opening := !s.inlineActivityOpen[sourceID]
-				for id := range s.inlineActivityOpen {
-					delete(s.inlineActivityOpen, id)
+				running := false
+				for _, conversation := range s.subagentConversations {
+					if conversation.ID == conversationID {
+						running = conversation.State == "running"
+						break
+					}
 				}
+				opening := !activitySourceIsOpen(s.inlineActivityOpen, presentation, sourceID, running)
+				for id := range s.inlineActivityOpen {
+					s.inlineActivityOpen[id] = false
+				}
+				s.inlineActivityOpen[sourceID] = opening
 				if !opening {
 					s.activitySourceID = ""
 					s.activityConversationID = ""

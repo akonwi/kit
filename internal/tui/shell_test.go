@@ -564,7 +564,7 @@ func TestLiveToolCallAppearsBeforeTurnFinishes(t *testing.T) {
 	}})
 	app.Pump(80, 18)
 	rows := paintedRows(app, 80, 18)
-	if findPaintedRow(rows, "⠋ 1 tool call") < 0 {
+	if findPaintedRow(rows, "▾ 1 tool call") < 0 {
 		t.Fatalf("running tool call chip missing before turn completion:\n%s", strings.Join(rows, "\n"))
 	}
 }
