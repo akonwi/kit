@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"sync"
 	"testing"
@@ -23,12 +24,44 @@ const (
 )
 
 type fakeWorkingTreeDiff struct {
-	observation      protocol.WorkingTreePage
-	observationPages map[string]protocol.WorkingTreePage
-	pages            map[string]protocol.FileDiffPage
+	catalog              protocol.DiffTargetCatalog
+	catalogErr           error
+	catalogWait          <-chan struct{}
+	catalogEmpty         bool
+	observation          protocol.WorkingTreePage
+	observationsByTarget map[string]protocol.WorkingTreePage
+	observeFn            func(context.Context, protocol.ObserveDiffInput) (protocol.DiffPage, error)
+	observationPages     map[string]protocol.WorkingTreePage
+	pages                map[string]protocol.FileDiffPage
 }
 
-func (f fakeWorkingTreeDiff) ObserveWorkingTree(_ context.Context, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+func (f fakeWorkingTreeDiff) ListDiffTargets(ctx context.Context, _ protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	if f.catalogWait != nil {
+		select {
+		case <-f.catalogWait:
+		case <-ctx.Done():
+			return protocol.DiffTargetCatalog{}, ctx.Err()
+		}
+	}
+	if f.catalogErr != nil {
+		return protocol.DiffTargetCatalog{}, f.catalogErr
+	}
+	if f.catalogEmpty {
+		return protocol.DiffTargetCatalog{Targets: []protocol.DiffTargetEntry{}}, nil
+	}
+	if len(f.catalog.Targets) > 0 {
+		return f.catalog, nil
+	}
+	return testDiffCatalog(), nil
+}
+
+func (f fakeWorkingTreeDiff) ObserveDiff(ctx context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	if f.observeFn != nil {
+		return f.observeFn(ctx, input)
+	}
+	if page, ok := f.observationsByTarget[input.TargetReference]; ok {
+		return page, nil
+	}
 	if page, ok := f.observationPages[input.Cursor]; ok {
 		return page, nil
 	}
@@ -36,10 +69,23 @@ func (f fakeWorkingTreeDiff) ObserveWorkingTree(_ context.Context, input protoco
 }
 
 func (f fakeWorkingTreeDiff) ReadFileDiff(_ context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+	if page, ok := f.pages[input.TargetID+"\x00"+input.Path+"\x00"+input.Cursor]; ok {
+		return page, nil
+	}
+	if page, ok := f.pages[input.TargetID+"\x00"+input.Path]; ok {
+		return page, nil
+	}
 	if page, ok := f.pages[input.Path+"\x00"+input.Cursor]; ok {
 		return page, nil
 	}
 	return f.pages[input.Path], nil
+}
+
+func testDiffCatalog() protocol.DiffTargetCatalog {
+	return protocol.DiffTargetCatalog{SessionID: "session_test", WorkspaceID: testDiffWorkspace, Targets: []protocol.DiffTargetEntry{{
+		Reference: "test-working-tree", TargetID: testDiffTarget, Kind: protocol.DiffTargetWorkingTree,
+		Metadata: protocol.DiffTargetMetadata{Label: "Working tree"},
+	}}}
 }
 
 func testDiffObservation(files ...protocol.DiffFileSummary) protocol.WorkingTreePage {
@@ -64,7 +110,11 @@ type pollingWorkingTreeDiff struct {
 	calls       int
 }
 
-func (f *pollingWorkingTreeDiff) ObserveWorkingTree(_ context.Context, _ protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+func (f *pollingWorkingTreeDiff) ListDiffTargets(context.Context, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	return testDiffCatalog(), nil
+}
+
+func (f *pollingWorkingTreeDiff) ObserveDiff(_ context.Context, _ protocol.ObserveDiffInput) (protocol.DiffPage, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.calls++
@@ -115,6 +165,10 @@ func (s *diffPanePresentationState) Build(ui.BuildContext) ui.Widget {
 
 func (m *diffPanePresentationModel) setActive(active bool) {
 	m.state.SetState(func() { m.active = active })
+}
+
+func (m *diffPanePresentationModel) setPane(pane workspaceDiffPane) {
+	m.state.SetState(func() { m.pane = pane })
 }
 
 type queuedDiffDispatch struct {
@@ -403,7 +457,7 @@ func TestWorkspaceDiffPaneTogglesSplitLineWrapping(t *testing.T) {
 }
 
 func TestWorkspaceDiffPollingRequiresVisibleLivePane(t *testing.T) {
-	state := &workspaceDiffPaneState{}
+	state := &workspaceDiffPaneState{activeTarget: testDiffCatalog().Targets[0]}
 	live := workspaceDiffPane{
 		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: fakeWorkingTreeDiff{},
 		Presentation: workspacePanePresentation{Active: true, Visible: true},
@@ -418,8 +472,14 @@ func TestWorkspaceDiffPollingRequiresVisibleLivePane(t *testing.T) {
 	}
 	pinned := live
 	pinned.Descriptor.DiffTargetID = testDiffTarget
+	state.pinnedEvidence = true
 	if state.pollEligible(pinned) {
 		t.Fatal("revision-pinned diff is polling eligible")
+	}
+	state.pinnedEvidence = false
+	state.activeTarget = protocol.DiffTargetEntry{Reference: "commit", Kind: protocol.DiffTargetCommit}
+	if state.pollEligible(live) {
+		t.Fatal("committed target is polling eligible")
 	}
 }
 
@@ -764,6 +824,239 @@ func TestWorkspaceDiffPaneLoadsAllChangedFilePagesForCycling(t *testing.T) {
 	rows = pumpDiffUntil(t, application, dispatch, 80, 12, "second.go")
 	if !strings.Contains(strings.Join(rows, "\n"), "2 of 2") {
 		t.Fatalf("second changed-file page was not available to cycling:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing.T) {
+	drafts := 2
+	catalog := testDiffCatalog()
+	catalog.Targets = append(catalog.Targets, protocol.DiffTargetEntry{
+		Reference: "commit-head", TargetID: "difftarget_commit", Kind: protocol.DiffTargetCommit,
+		Head:     protocol.DiffEndpoint{Kind: "commit", OID: strings.Repeat("a", 40)},
+		Metadata: protocol.DiffTargetMetadata{Label: "a1b2c3d  Fix parser bounds", Subject: "Fix parser bounds", Abbreviated: "a1b2c3d"}, AnnotationCount: &drafts,
+	})
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: testDiffObservation()}
+	dispatch := &queuedDiffDispatch{}
+	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+	pumpDiffUntil(t, application, dispatch, 100, 26, "No changes for Working tree")
+	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+	application.Pump(100, 26)
+	text := application.Text()
+	for _, expected := range []string{"Select diff target", "✓ Working tree", "a1b2c3d  Fix parser bounds", glyphCircleFilled + " 2", "Filter branch, subject, or object ID", "↑↓ move · enter select · esc close"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("target picker missing %q:\n%s", expected, text)
+		}
+	}
+	for _, character := range "parser" {
+		application.Send(vaxis.Key{Text: string(character), Keycode: character})
+	}
+	application.Pump(100, 26)
+	text = application.Text()
+	if !strings.Contains(text, "Fix parser bounds") || strings.Contains(text, "✓ Working tree") {
+		t.Fatalf("filtered picker presentation is incoherent:\n%s", text)
+	}
+}
+
+func TestWorkspaceDiffTargetPickerShowsLoadingErrorAndEmptyStates(t *testing.T) {
+	t.Run("loading", func(t *testing.T) {
+		wait := make(chan struct{})
+		dispatch := &queuedDiffDispatch{}
+		application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: fakeWorkingTreeDiff{catalogWait: wait}, Dispatch: dispatch.dispatch,
+			Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+		application.Pump(90, 25)
+		application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+		application.Pump(90, 25)
+		if text := application.Text(); !strings.Contains(text, "Loading diff targets") {
+			t.Fatalf("loading picker:\n%s", text)
+		}
+		close(wait)
+	})
+	t.Run("error", func(t *testing.T) {
+		dispatch := &queuedDiffDispatch{}
+		application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: fakeWorkingTreeDiff{catalogErr: errors.New("catalog unavailable")}, Dispatch: dispatch.dispatch,
+			Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+		pumpDiffUntil(t, application, dispatch, 90, 25, "Could not list diff targets")
+		application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+		text := strings.Join(pumpDiffUntil(t, application, dispatch, 90, 25, glyphCross+" Could not load diff"), "\n")
+		if !strings.Contains(text, glyphCross+" Could not load diff") {
+			t.Fatalf("error picker:\n%s", text)
+		}
+	})
+	t.Run("empty", func(t *testing.T) {
+		dispatch := &queuedDiffDispatch{}
+		application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: fakeWorkingTreeDiff{catalogEmpty: true}, Dispatch: dispatch.dispatch,
+			Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+		pumpDiffUntil(t, application, dispatch, 90, 25, "No diff targets available")
+		application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+		text := strings.Join(pumpDiffUntil(t, application, dispatch, 90, 25, "No matching targets"), "\n")
+		if !strings.Contains(text, "No matching targets") {
+			t.Fatalf("empty picker:\n%s", text)
+		}
+	})
+}
+
+func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
+	oid := strings.Repeat("a", 40)
+	catalog := testDiffCatalog()
+	catalog.Targets[0].Head = protocol.DiffEndpoint{Kind: "commit", OID: oid}
+	commitTarget := protocol.DiffTargetEntry{Reference: "commit-head", TargetID: "difftarget_commit", Kind: protocol.DiffTargetCommit,
+		Head: protocol.DiffEndpoint{Kind: "commit", OID: oid}, Metadata: protocol.DiffTargetMetadata{Label: "a1b2c3d  Fix parser bounds", Subject: "Fix parser bounds", Abbreviated: "a1b2c3d"}}
+	catalog.Targets = append(catalog.Targets, commitTarget)
+	file := textDiffFile("shared.go", 1, 0)
+	working := testDiffObservation(file)
+	commit := testDiffObservation(file)
+	commit.Observation.Target.ID, commit.Observation.Target.Kind, commit.Observation.Revision = commitTarget.TargetID, protocol.DiffTargetCommit, "diffrev_commit"
+	line := 1
+	workingFile := protocol.FileDiffPage{Observation: working.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "working evidence", HasTerminatingLF: true}}}}}
+	commitFile := workingFile
+	commitFile.Observation = commit.Observation
+	commitFile.Hunks = []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "committed evidence", HasTerminatingLF: true}}}}
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, observationsByTarget: map[string]protocol.WorkingTreePage{"commit-head": commit}, pages: map[string]protocol.FileDiffPage{
+		testDiffTarget + "\x00shared.go": workingFile, commitTarget.TargetID + "\x00shared.go": commitFile,
+	}}
+	dispatch := &queuedDiffDispatch{}
+	notice := ""
+	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message }})
+	pumpDiffUntil(t, application, dispatch, 100, 14, "working evidence")
+	application.Send(vaxis.Key{Text: "g", Keycode: 'g'})
+	application.Pump(100, 14)
+	if notice != "Working-tree changes are not included in this committed target" {
+		t.Fatalf("notice = %q", notice)
+	}
+	if text := application.Text(); !strings.Contains(text, "Diff › Working tree") || !strings.Contains(text, "working evidence") {
+		t.Fatalf("switch discarded the old coherent presentation before completion:\n%s", text)
+	}
+	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")
+	text := strings.Join(rows, "\n")
+	for _, expected := range []string{"Diff › a1b2c3d  Fix parser bounds", "shared.go", "committed evidence"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("switched target missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestWorkspaceDiffTargetSwitchIgnoresOutOfOrderCompletion(t *testing.T) {
+	workingTarget := testDiffCatalog().Targets[0]
+	targetA := protocol.DiffTargetEntry{Reference: "target-a", TargetID: "difftarget_a", Kind: protocol.DiffTargetCommit, Metadata: protocol.DiffTargetMetadata{Label: "aaaaaaa  Older"}}
+	targetB := protocol.DiffTargetEntry{Reference: "target-b", TargetID: "difftarget_b", Kind: protocol.DiffTargetCommit, Metadata: protocol.DiffTargetMetadata{Label: "bbbbbbb  Winner"}}
+	catalog := testDiffCatalog()
+	catalog.Targets = append(catalog.Targets, targetA, targetB)
+	fileA, fileB := textDiffFile("a.go", 1, 0), textDiffFile("b.go", 1, 0)
+	pageA, pageB := testDiffObservation(fileA), testDiffObservation(fileB)
+	pageA.Observation.Target.ID, pageA.Observation.Target.Kind, pageA.Observation.Revision = targetA.TargetID, protocol.DiffTargetCommit, "diffrev_a"
+	pageB.Observation.Target.ID, pageB.Observation.Target.Kind, pageB.Observation.Revision = targetB.TargetID, protocol.DiffTargetCommit, "diffrev_b"
+	startedA, releaseA := make(chan struct{}), make(chan struct{})
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: testDiffObservation(), observeFn: func(_ context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+		switch input.TargetReference {
+		case workingTarget.Reference:
+			return testDiffObservation(), nil
+		case targetA.Reference:
+			close(startedA)
+			<-releaseA
+			return pageA, nil
+		default:
+			return pageB, nil
+		}
+	}, pages: map[string]protocol.FileDiffPage{targetB.TargetID + "\x00b.go": {Observation: pageB.Observation, File: fileB, Computation: protocol.DiffComputation{State: "complete"}}}}
+	dispatch := &queuedDiffDispatch{}
+	state := &workspaceDiffPaneState{}
+	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch, testState: state,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+	pumpDiffUntil(t, application, dispatch, 90, 14, "No changes for Working tree")
+	state.SetState(func() { state.switchTarget(targetA) })
+	<-startedA
+	state.SetState(func() { state.switchTarget(targetB) })
+	pumpDiffUntil(t, application, dispatch, 90, 14, "Diff › bbbbbbb  Winner")
+	close(releaseA)
+	time.Sleep(time.Millisecond)
+	dispatch.flush()
+	application.Pump(90, 14)
+	text := application.Text()
+	if !strings.Contains(text, "Diff › bbbbbbb  Winner") || strings.Contains(text, "aaaaaaa  Older") || strings.Contains(text, "a.go") {
+		t.Fatalf("stale target completion replaced or mixed presentation:\n%s", text)
+	}
+}
+
+func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.T) {
+	oid := strings.Repeat("b", 40)
+	catalog := testDiffCatalog()
+	commitTarget := protocol.DiffTargetEntry{Reference: "commit-pinned", TargetID: "difftarget_pinned", Kind: protocol.DiffTargetCommit,
+		Head: protocol.DiffEndpoint{Kind: "commit", OID: oid}, Metadata: protocol.DiffTargetMetadata{Label: "b1b2b3b  Pinned review", Subject: "Pinned review", Abbreviated: "b1b2b3b"}}
+	catalog.Targets = append(catalog.Targets, commitTarget)
+	file := textDiffFile("pinned.go", 1, 0)
+	line := 1
+	working := testDiffObservation(file)
+	workingPage := protocol.FileDiffPage{Observation: working.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "live evidence", HasTerminatingLF: true}}}}}
+	commitObservation := working.Observation
+	commitObservation.Target.ID = commitTarget.TargetID
+	commitObservation.Target.Kind = protocol.DiffTargetCommit
+	commitObservation.Revision = "diffrev_pinned"
+	commitPage := workingPage
+	commitPage.Observation = commitObservation
+	commitPage.Hunks = []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "exact pinned evidence", HasTerminatingLF: true}}}}
+	backend := fakeWorkingTreeDiff{catalog: catalog, observation: working, pages: map[string]protocol.FileDiffPage{testDiffTarget + "\x00pinned.go": workingPage, commitTarget.TargetID + "\x00pinned.go": commitPage}}
+	dispatch := &queuedDiffDispatch{}
+	pane := workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch}
+	model := &diffPanePresentationModel{pane: pane, active: true}
+	application := uitest.New(diffPanePresentationHarness{model: model})
+	pumpDiffUntil(t, application, dispatch, 100, 14, "live evidence")
+	descriptor := workingTreeDiffWorkspacePane(testDiffWorkspace)
+	descriptor.OpenGeneration = 2
+	descriptor.Path = file.Path
+	descriptor.DiffTargetID = commitTarget.TargetID
+	descriptor.ExpectedRevision = commitObservation.Revision
+	descriptor.ExpectedFileRevision = file.FileRevision
+	pane.Descriptor = descriptor
+	model.setPane(pane)
+	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "exact pinned evidence")
+	if text := strings.Join(rows, "\n"); !strings.Contains(text, "Diff › b1b2b3b  Pinned review") {
+		t.Fatalf("annotation target crumb was not restored:\n%s", text)
+	}
+	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+	application.Pump(100, 25)
+	if text := application.Text(); !strings.Contains(text, glyphCheck+" b1b2b3b  Pinned review") {
+		t.Fatalf("annotation target was not selected in picker:\n%s", text)
+	}
+}
+
+func TestWorkspaceDiffTargetSwitchBlockedByRangeWithWarning(t *testing.T) {
+	file := textDiffFile("range.go", 1, 0)
+	observation := testDiffObservation(file)
+	line := 1
+	backend := fakeWorkingTreeDiff{observation: observation, pages: map[string]protocol.FileDiffPage{"range.go": {Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "selected", HasTerminatingLF: true}}}}}}}
+	dispatch := &queuedDiffDispatch{}
+	warning := ""
+	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnCreateAnnotation: func(protocol.AnnotationAnchor, string, func(error)) {}, OnWarning: func(message string) { warning = message }})
+	pumpDiffUntil(t, application, dispatch, 90, 14, "selected")
+	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+	application.Send(vaxis.Key{Text: "v", Keycode: 'v'})
+	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
+	application.Pump(90, 14)
+	if warning != "Finish the active range or comment before changing target" {
+		t.Fatalf("warning = %q", warning)
+	}
+	if strings.Contains(application.Text(), "Select diff target") {
+		t.Fatalf("blocked switch opened picker:\n%s", application.Text())
+	}
+}
+
+func TestWorkspaceDiffTargetFilteringMatchesAllCatalogMetadata(t *testing.T) {
+	state := workspaceDiffPaneState{catalog: []protocol.DiffTargetEntry{
+		{Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}},
+		{Metadata: protocol.DiffTargetMetadata{RefName: "feature/review", BaseRefName: "main", Subject: "Parser bounds", Abbreviated: "abcdef1"}},
+	}}
+	for _, query := range []string{"feature", "MAIN", "parser", "abcdef1"} {
+		state.targetQuery = query
+		if got := state.filteredTargets(); len(got) != 1 || got[0].Metadata.RefName != "feature/review" {
+			t.Fatalf("query %q = %+v", query, got)
+		}
+	}
+	state.targetQuery = "missing"
+	if got := state.filteredTargets(); len(got) != 0 {
+		t.Fatalf("missing query = %+v", got)
 	}
 }
 

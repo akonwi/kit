@@ -1038,6 +1038,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	callbacks := shellCallbacks{
 		WorkspaceMouse:   &s.workspaceMouse,
 		SetDiffWrapLines: s.setDiffWrapLines,
+		ShowDiffWarning: func(message string) {
+			s.showToast(toastInput{Title: "Diff target unchanged", Subtitle: message, Variant: toastWarning})
+		},
+		ShowDiffNotice: func(message string) {
+			s.showToast(toastInput{Title: "Viewing committed target", Subtitle: message, Variant: toastInfo})
+		},
 		OpenAuth: func(ui.EventContext) {
 			if s.phase == phaseAuthGate {
 				s.enterAuthSelect(false)
@@ -1557,8 +1563,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Dismiss: s.dismiss,
 	}
 	files, _ := s.bound.(sessionclient.WorkspaceFilesSession)
-	diffs, _ := s.bound.(sessionclient.WorkingTreeDiffSession)
-	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, WorkingTreeDiff: diffs}
+	diffs, _ := s.bound.(sessionclient.DiffSession)
+	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, Diff: diffs}
 }
 
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
@@ -3680,8 +3686,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 }
 
 func (s *appState) openWorkingTreeDiff() {
-	if _, ok := s.bound.(sessionclient.WorkingTreeDiffSession); !ok {
-		s.showToast(toastInput{Title: "Diff unavailable", Subtitle: "This session does not expose working-tree changes.", Variant: toastWarning})
+	if _, ok := s.bound.(sessionclient.DiffSession); !ok {
+		s.showToast(toastInput{Title: "Diff unavailable", Subtitle: "This session does not expose repository changes.", Variant: toastWarning})
 		return
 	}
 	if s.workspaceID == "" {

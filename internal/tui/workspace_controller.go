@@ -50,7 +50,7 @@ func fileWorkspacePane(workspaceID, path string) workspacePaneDescriptor {
 }
 
 func workingTreeDiffWorkspacePane(workspaceID string) workspacePaneDescriptor {
-	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "working_tree"}
+	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "diff"}
 }
 
 type workspacePaneIdentity string

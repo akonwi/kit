@@ -51,10 +51,10 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 	workspacePaneDiff: {
 		Kind: workspacePaneDiff, Closable: true,
 		Identity: func(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {
-			if descriptor.WorkspaceID == "" || descriptor.ResourceID != "working_tree" {
-				return "", fmt.Errorf("working-tree diff identity is required")
+			if descriptor.WorkspaceID == "" || descriptor.ResourceID != "diff" {
+				return "", fmt.Errorf("workspace diff identity is required")
 			}
-			return workspacePaneIdentity("diff:" + descriptor.WorkspaceID + ":working_tree"), nil
+			return workspacePaneIdentity("diff:" + descriptor.WorkspaceID), nil
 		},
 		Label:     func(shellSnapshot, workspacePaneDescriptor) string { return "Diff" },
 		Available: func(shellSnapshot, workspacePaneDescriptor) bool { return true },
@@ -62,7 +62,7 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 		Build: func(view shellView, _ ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
 			return workspaceDiffPane{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
-				Diff: view.WorkingTreeDiff, Presentation: presentation,
+				Diff: view.Diff, Presentation: presentation,
 				Annotations:        view.Snapshot.ComposerAnnotations,
 				InitialWrapLines:   view.Snapshot.DiffWrapLines,
 				OnWrapLinesChanged: view.Callbacks.SetDiffWrapLines,
@@ -72,6 +72,8 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,
 				OnUpdateAnnotation: view.Callbacks.UpdateAnnotation,
 				OnRemoveAnnotation: view.Callbacks.RemoveAnnotation,
+				OnWarning:          view.Callbacks.ShowDiffWarning,
+				OnNotice:           view.Callbacks.ShowDiffNotice,
 			}
 		},
 	},
