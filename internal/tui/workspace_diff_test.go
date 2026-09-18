@@ -956,8 +956,8 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	if notice != "Working-tree changes are not included in this committed target" {
 		t.Fatalf("notice = %q", notice)
 	}
-	if text := application.Text(); !strings.Contains(text, "Diff › Working tree") || !strings.Contains(text, "working evidence") {
-		t.Fatalf("switch discarded the old coherent presentation before completion:\n%s", text)
+	if text := application.Text(); !strings.Contains(text, "Diff › a1b2c3d  Fix parser bounds") || !strings.Contains(text, "Switching target…") || !strings.Contains(text, "working evidence") {
+		t.Fatalf("switch did not provide immediate feedback while preserving the old coherent presentation:\n%s", text)
 	}
 	close(releaseCommit)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")
@@ -1015,6 +1015,11 @@ firstPageReady:
 	text := application.Text()
 	if !strings.Contains(text, "Diff › ccccccc  Paged") || !strings.Contains(text, "Loading file diff") || strings.Contains(text, "old presentation") {
 		t.Fatalf("first coherent page was not published atomically:\n%s", text)
+	}
+	rows := paintedRows(application, 100, 14)
+	loadingColumn, _ := findTextCell(t, rows, "Loading file diff…")
+	if want := (100-len([]rune("⠋ Loading file diff…")))/2 + 2; loadingColumn != want {
+		t.Fatalf("loading label column = %d, want centered column %d (viewport width %d):\n%s", loadingColumn, want, state.viewportWidth, strings.Join(rows, "\n"))
 	}
 	close(releaseNext)
 	pumpDiffUntil(t, application, dispatch, 100, 14, "first.go")

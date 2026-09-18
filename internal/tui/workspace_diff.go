@@ -1790,7 +1790,7 @@ func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string)
 
 func (s *workspaceDiffPaneState) targetLabel() string {
 	target := s.activeTarget
-	if target.TargetID == "" && s.pendingTarget.TargetID != "" {
+	if s.pendingTarget.TargetID != "" {
 		target = s.pendingTarget
 	}
 	if target.Metadata.Label != "" {
@@ -1920,9 +1920,17 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 		semantic = semanticFallback(theme)
 	}
 	left, right := "Diff › "+s.targetLabel(), ""
+	if s.pendingTarget.Reference != "" {
+		right = "Switching target…"
+	}
 	if len(s.files) > 0 && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
 		file := s.files[s.selectedFile]
-		right = fmt.Sprintf("%s  %s  %d of %d", file.Path, glyphMiddleDot, s.selectedFile+1, len(s.files))
+		fileStatus := fmt.Sprintf("%s  %s  %d of %d", file.Path, glyphMiddleDot, s.selectedFile+1, len(s.files))
+		if right != "" {
+			right += "  " + glyphMiddleDot + "  " + fileStatus
+		} else {
+			right = fileStatus
+		}
 		if file.Additions != nil && file.Deletions != nil {
 			right += fmt.Sprintf("  +%d −%d", *file.Additions, *file.Deletions)
 		}
@@ -2132,7 +2140,13 @@ func (s *workspaceDiffPaneState) body(theme ui.Theme, semantic SemanticTheme) ui
 			ui.Text{Value: s.errorText, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis},
 		}})
 	case s.loadingFile:
-		child = ui.Center(spinnerWithLabel("Loading file diff…", ui.Style{Foreground: theme.MutedForeground}))
+		const loadingLabel = "Loading file diff…"
+		loadingWidth := len([]rune(spinnerFrames[0] + " " + loadingLabel))
+		loading := ui.Stack{Children: []ui.Widget{
+			ui.Text{Value: strings.Repeat(" ", max(1, s.viewportWidth)), MaxLines: 1},
+			ui.Positioned{Left: max(0, (s.viewportWidth-loadingWidth)/2), Child: spinner{Style: ui.Style{Foreground: theme.MutedForeground}, Label: loadingLabel}},
+		}}
+		child = ui.Flex{Axis: ui.Vertical, MainAxisAlignment: ui.MainAxisCenter, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{loading}}
 	case s.errorText != "":
 		child = ui.Center(ui.Text{Value: s.errorText, Style: ui.Style{Foreground: theme.DangerText}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
 	case len(s.hunks) == 0:
@@ -2161,18 +2175,19 @@ func (s *workspaceDiffPaneState) body(theme ui.Theme, semantic SemanticTheme) ui
 			ThumbStyle: ui.Style{Foreground: semantic.Token(kittheme.TokenScrollbarForeground)},
 			TrackStyle: ui.Style{Foreground: semantic.Token(kittheme.TokenScrollbarBackground)},
 		}
-		child = widthProbe{WidthChanged: func(width int) {
-			if width != s.viewportWidth {
-				s.viewportWidth = width
-				s.splitColumn = 0
-				s.invalidateSplitTargets()
-				s.cursorRevealPending = true
-				s.revealPendingLayout = true
-				s.MarkNeedsBuild()
-			}
-		}, Child: pane}
+		child = pane
 	}
-	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{ui.Expanded(child)}}
+	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{ui.Expanded(child)}})
+	return widthProbe{WidthChanged: func(width int) {
+		if width != s.viewportWidth {
+			s.viewportWidth = width
+			s.splitColumn = 0
+			s.invalidateSplitTargets()
+			s.cursorRevealPending = true
+			s.revealPendingLayout = true
+			s.MarkNeedsBuild()
+		}
+	}, Child: content}
 }
 
 func workspaceDiffContentStateText(file protocol.DiffFileSummary) string {
