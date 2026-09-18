@@ -2239,9 +2239,13 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSel
 		contentBackground = semantic.Token(kittheme.TokenDiffRemovedContentBg)
 		gutterBackground = semantic.Token(kittheme.TokenDiffRemovedLineNumberBg)
 	}
-	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
+	gutterForeground := theme.MutedForeground
+	if line.Kind == "addition" || line.Kind == "deletion" {
+		gutterForeground = theme.Foreground
+	}
+	gutterStyle := ui.Style{Foreground: gutterForeground, Background: gutterBackground}
 	if rangeSelected {
-		gutterStyle.Foreground = theme.Primary
+		gutterStyle.Foreground = theme.Foreground
 		gutterStyle.Attribute = ui.AttrBold
 	}
 	spans := append([]ui.TextSpan(nil), item.syntax...)
@@ -2325,14 +2329,18 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 		contentBackground = semantic.Token(kittheme.TokenDiffRemovedContentBg)
 		gutterBackground = semantic.Token(kittheme.TokenDiffRemovedLineNumberBg)
 	}
-	gutterStyle := ui.Style{Foreground: theme.MutedForeground, Background: gutterBackground}
+	gutterForeground := theme.MutedForeground
+	if line.Kind == "addition" || line.Kind == "deletion" {
+		gutterForeground = theme.Foreground
+	}
+	gutterStyle := ui.Style{Foreground: gutterForeground, Background: gutterBackground}
 	oldNumberStyle, newNumberStyle := gutterStyle, gutterStyle
 	if oldRangeSelected {
-		oldNumberStyle.Foreground = theme.Primary
+		oldNumberStyle.Foreground = theme.Foreground
 		oldNumberStyle.Attribute = ui.AttrBold
 	}
 	if newRangeSelected {
-		newNumberStyle.Foreground = theme.Primary
+		newNumberStyle.Foreground = theme.Foreground
 		newNumberStyle.Attribute = ui.AttrBold
 	}
 	contentStyle := ui.Style{Foreground: theme.Foreground, Background: contentBackground}

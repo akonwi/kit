@@ -258,11 +258,17 @@ func TestWorkspaceDiffChangedLinesPrioritizeReadableDiffForeground(t *testing.T)
 	if got := unified.Cell(14, 0).Style.Foreground; got != theme.Foreground {
 		t.Fatalf("unified changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
 	}
+	if got := unified.Cell(10, 0).Style.Foreground; got != theme.Foreground {
+		t.Fatalf("unified changed-line number foreground = %v, want readable foreground %v", got, theme.Foreground)
+	}
 	item := &workspaceDiffRenderedLine{line: protocol.DiffLine{Kind: "addition", NewLine: &lineNumber, Content: "comment", HasTerminatingLF: true}, syntax: syntax}
 	split := uitest.New(workspaceDiffSideWidget(item, false, false, true, 1, false, 0, theme, semanticFallback(theme), nil, nil, nil))
 	split.Pump(40, 2)
 	if got := split.Cell(8, 0).Style.Foreground; got != theme.Foreground {
 		t.Fatalf("split changed-line foreground = %v, want readable foreground %v", got, theme.Foreground)
+	}
+	if got := split.Cell(4, 0).Style.Foreground; got != theme.Foreground {
+		t.Fatalf("split changed-line number foreground = %v, want readable foreground %v", got, theme.Foreground)
 	}
 }
 
@@ -273,8 +279,8 @@ func TestWorkspaceDiffUnifiedRangeStylesOnlyAnchoredSide(t *testing.T) {
 		nil, false, true, false, ui.DefaultTheme(), semanticFallback(ui.DefaultTheme()), nil, nil, nil,
 	))
 	application.Pump(40, 2)
-	if application.Cell(4, 0).Style.Foreground != ui.DefaultTheme().Primary {
-		t.Fatalf("old range line number foreground = %v, want primary", application.Cell(4, 0).Style.Foreground)
+	if application.Cell(4, 0).Style.Foreground != ui.DefaultTheme().Foreground {
+		t.Fatalf("old range line number foreground = %v, want readable foreground", application.Cell(4, 0).Style.Foreground)
 	}
 	if application.Cell(10, 0).Style.Foreground != ui.DefaultTheme().MutedForeground {
 		t.Fatalf("new unselected line number foreground = %v, want muted", application.Cell(10, 0).Style.Foreground)
