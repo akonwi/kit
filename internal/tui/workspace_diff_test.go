@@ -969,16 +969,21 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	if notice != "Working-tree changes are not included in this committed target" {
 		t.Fatalf("notice = %q", notice)
 	}
-	if text := application.Text(); !strings.Contains(text, "Diff › a1b2c3d  Fix parser bounds") || !strings.Contains(text, "Switching target…") || !strings.Contains(text, "Loading diff…") || strings.Contains(text, "working evidence") {
+	if text := application.Text(); !strings.Contains(text, "a1b2c3d  Fix parser bounds") || !strings.Contains(text, "Switching target…") || !strings.Contains(text, "Loading diff…") || strings.Contains(text, "working evidence") {
 		t.Fatalf("switch did not enter its loading state immediately:\n%s", text)
 	}
 	close(releaseCommit)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Diff › a1b2c3d  Fix parser bounds", "shared.go", "committed evidence"} {
+	for _, expected := range []string{"1 of 1  " + glyphMiddleDot + "  shared.go", "a1b2c3d  Fix parser bounds", "committed evidence"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("switched target missing %q:\n%s", expected, text)
 		}
+	}
+	header := rows[0]
+	position, path, revision := strings.Index(header, "1 of 1"), strings.Index(header, "shared.go"), strings.Index(header, "a1b2c3d  Fix parser bounds")
+	if position < 0 || path <= position || revision <= path || !strings.HasSuffix(strings.TrimSpace(header), "a1b2c3d  Fix parser bounds") {
+		t.Fatalf("diff header hierarchy is incorrect: %q", header)
 	}
 }
 
@@ -1026,7 +1031,7 @@ func TestWorkspaceDiffTargetSwitchPublishesFirstCoherentPage(t *testing.T) {
 	}
 firstPageReady:
 	text := application.Text()
-	if !strings.Contains(text, "Diff › ccccccc  Paged") || !strings.Contains(text, "Loading file diff") || strings.Contains(text, "old presentation") {
+	if !strings.Contains(text, "ccccccc  Paged") || !strings.Contains(text, "Loading file diff") || strings.Contains(text, "old presentation") {
 		t.Fatalf("first coherent page was not published atomically:\n%s", text)
 	}
 	rows := paintedRows(application, 100, 14)
@@ -1069,13 +1074,13 @@ func TestWorkspaceDiffTargetSwitchIgnoresOutOfOrderCompletion(t *testing.T) {
 	state.SetState(func() { state.switchTarget(targetA) })
 	<-startedA
 	state.SetState(func() { state.switchTarget(targetB) })
-	pumpDiffUntil(t, application, dispatch, 90, 14, "Diff › bbbbbbb  Winner")
+	pumpDiffUntil(t, application, dispatch, 90, 14, "bbbbbbb  Winner")
 	close(releaseA)
 	time.Sleep(time.Millisecond)
 	dispatch.flush()
 	application.Pump(90, 14)
 	text := application.Text()
-	if !strings.Contains(text, "Diff › bbbbbbb  Winner") || strings.Contains(text, "aaaaaaa  Older") || strings.Contains(text, "a.go") {
+	if !strings.Contains(text, "bbbbbbb  Winner") || strings.Contains(text, "aaaaaaa  Older") || strings.Contains(text, "a.go") {
 		t.Fatalf("stale target completion replaced or mixed presentation:\n%s", text)
 	}
 }
@@ -1121,7 +1126,7 @@ func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.
 	pane.Descriptor = descriptor
 	model.setPane(pane)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "exact pinned evidence")
-	if text := strings.Join(rows, "\n"); !strings.Contains(text, "Diff › b1b2b3b  Pinned review") {
+	if text := strings.Join(rows, "\n"); !strings.Contains(text, "b1b2b3b  Pinned review") {
 		t.Fatalf("annotation target crumb was not restored:\n%s", text)
 	}
 	readMu.Lock()

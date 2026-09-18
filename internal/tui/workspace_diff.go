@@ -1926,27 +1926,19 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	if !ok {
 		semantic = semanticFallback(theme)
 	}
-	left, right := "Diff › "+s.targetLabel(), ""
+	left, right := "No changed files", s.targetLabel()
 	if s.pendingTarget.Reference != "" {
-		right = "Switching target…"
-	}
-	if s.pendingTarget.Reference == "" && len(s.files) > 0 && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
+		left = "Loading files…"
+		right = "Switching target…  " + glyphMiddleDot + "  " + right
+	} else if len(s.files) > 0 && s.selectedFile >= 0 && s.selectedFile < len(s.files) {
 		file := s.files[s.selectedFile]
-		fileStatus := fmt.Sprintf("%s  %s  %d of %d", file.Path, glyphMiddleDot, s.selectedFile+1, len(s.files))
-		if right != "" {
-			right += "  " + glyphMiddleDot + "  " + fileStatus
-		} else {
-			right = fileStatus
-		}
+		left = fmt.Sprintf("%d of %d  %s  %s", s.selectedFile+1, len(s.files), glyphMiddleDot, file.Path)
 		if file.Additions != nil && file.Deletions != nil {
-			right += fmt.Sprintf("  +%d −%d", *file.Additions, *file.Deletions)
+			left += fmt.Sprintf("  +%d −%d", *file.Additions, *file.Deletions)
 		}
 	}
 	if s.isFrozen(w) {
-		if right != "" {
-			right += "  " + glyphMiddleDot + "  "
-		}
-		right += "Frozen"
+		right = "Frozen  " + glyphMiddleDot + "  " + right
 	}
 	header := ui.Widget(workspacePanelHeader(theme, left, right))
 	if w.Presentation.Active {
