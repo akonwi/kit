@@ -139,7 +139,8 @@ resolving this decision.
 - [ ] TUI-REVIEW-001 — Extend File and Diff tabs with target-scoped annotations,
   plus modal review-target and changed-file navigation; do not add a separate
   Review tab. Depends on `CORE-REVIEW-001`, `CORE-ANN-001`, and `CORE-ANN-002`.
-  See [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md).
+  See [ADR 0020](../adrs/0020-file-diff-review-workspace-surfaces.md) and
+  [ADR 0024](../adrs/0024-generalize-diff-review-targets.md).
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
   panes without duplicating server state.
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
