@@ -3,6 +3,7 @@ package daemon
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"github.com/akonwi/kit/internal/protocol"
 	"net/http"
@@ -13,11 +14,18 @@ import (
 
 type diffRouteService struct {
 	sessionService
+	catalog protocol.DiffTargetCatalog
 	observe protocol.WorkingTreePage
 	diff    protocol.FileDiffPage
 	err     error
 }
 
+func (s diffRouteService) ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	return s.catalog, s.err
+}
+func (s diffRouteService) ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	return s.observe, s.err
+}
 func (s diffRouteService) ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
 	return s.observe, s.err
 }
@@ -27,6 +35,57 @@ func (s diffRouteService) ReadFileDiff(context.Context, string, protocol.ReadFil
 func routeObservation() protocol.DiffObservation {
 	return protocol.DiffObservation{SessionID: "session_test", Target: protocol.DiffTarget{ID: "difftarget_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", WorkspaceID: "workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Kind: "working_tree", RepositoryPath: ""}, Revision: "diffrev_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA", Head: protocol.DiffHead{State: "unborn"}, IndexSummary: "clean", Complete: true, Omissions: []protocol.DiffOmission{}}
 }
+func routeTargetReference() string {
+	return "difftargetref_" + base64.RawURLEncoding.EncodeToString([]byte(`{"k":"working_tree"}`)) + "." + base64.RawURLEncoding.EncodeToString(make([]byte, 32))
+}
+
+func TestGeneralizedDiffRoutes(t *testing.T) {
+	observation := routeObservation()
+	oid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	endpoint := protocol.DiffEndpoint{Kind: "commit", OID: oid}
+	entry := protocol.DiffTargetEntry{Reference: routeTargetReference(), TargetID: observation.Target.ID, Kind: protocol.DiffTargetWorkingTree, Base: endpoint, Head: endpoint, Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}}
+	catalog := protocol.DiffTargetCatalog{SessionID: observation.SessionID, WorkspaceID: observation.Target.WorkspaceID, Targets: []protocol.DiffTargetEntry{entry}, Diagnostics: []protocol.DiffTargetDiagnostic{}}
+	page := protocol.WorkingTreePage{Observation: observation, Files: []protocol.DiffFileSummary{}}
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, diffRouteService{catalog: catalog, observe: page})
+	for path, body := range map[string]string{
+		"/v1/sessions/session_test/diff/targets":      `{"workspaceId":"` + observation.Target.WorkspaceID + `"}`,
+		"/v1/sessions/session_test/diff/observations": `{"workspaceId":"` + observation.Target.WorkspaceID + `","targetReference":"` + entry.Reference + `"}`,
+	} {
+		request := httptest.NewRequest(http.MethodPost, path, strings.NewReader(body))
+		response := httptest.NewRecorder()
+		mux.ServeHTTP(response, request)
+		if response.Code != http.StatusOK {
+			t.Fatalf("%s response=%d %s", path, response.Code, response.Body.String())
+		}
+	}
+}
+
+func TestGeneralizedDiffClientResponsesRequireRequestedIdentity(t *testing.T) {
+	observation := routeObservation()
+	oid := "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	endpoint := protocol.DiffEndpoint{Kind: "commit", OID: oid}
+	entry := protocol.DiffTargetEntry{Reference: routeTargetReference(), TargetID: observation.Target.ID, Kind: protocol.DiffTargetWorkingTree, Base: endpoint, Head: endpoint, Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}}
+	catalog := protocol.DiffTargetCatalog{SessionID: observation.SessionID, WorkspaceID: observation.Target.WorkspaceID, Targets: []protocol.DiffTargetEntry{entry}, Diagnostics: []protocol.DiffTargetDiagnostic{}}
+	catalogInput := protocol.ListDiffTargetsInput{WorkspaceID: observation.Target.WorkspaceID}
+	if err := validateDiffTargetCatalogResponse(observation.SessionID, catalogInput, catalog); err != nil {
+		t.Fatal(err)
+	}
+	catalog.SessionID = "other_session"
+	if err := validateDiffTargetCatalogResponse(observation.SessionID, catalogInput, catalog); err == nil {
+		t.Fatal("catalog session mismatch was accepted")
+	}
+	page := protocol.DiffPage{Observation: observation, Files: []protocol.DiffFileSummary{}}
+	observeInput := protocol.ObserveDiffInput{WorkspaceID: observation.Target.WorkspaceID, TargetReference: entry.Reference}
+	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err != nil {
+		t.Fatal(err)
+	}
+	page.Observation.Target.WorkspaceID = "workspace_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	if err := validateObserveDiffResponse(observation.SessionID, observeInput, page); err == nil {
+		t.Fatal("observation workspace mismatch was accepted")
+	}
+}
+
 func TestFileDiffClientResponseRequiresRequestedIdentity(t *testing.T) {
 	observation := routeObservation()
 	file := protocol.DiffFileSummary{
