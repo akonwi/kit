@@ -7,6 +7,19 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 )
 
+type friendlyAnnotationError struct{}
+
+func (friendlyAnnotationError) Error() string { return "raw transport error" }
+func (friendlyAnnotationError) UserMessage() string {
+	return "the diff changed; refresh it and try again"
+}
+
+func TestAnnotationErrorTextUsesUserFacingMessage(t *testing.T) {
+	if got := annotationErrorText(friendlyAnnotationError{}); got != "the diff changed; refresh it and try again" {
+		t.Fatalf("annotation error text = %q", got)
+	}
+}
+
 func TestAnnotationEventsUseIdleMetadataStream(t *testing.T) {
 	for _, kind := range []protocol.SessionEventKind{
 		protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,

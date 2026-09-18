@@ -53,22 +53,41 @@ type FileEvidence struct {
 
 // EvidenceErrorKind classifies authoritative reader failures without coupling
 // annotation logic to a concrete workspace implementation.
-type EvidenceErrorKind string
+type EvidenceErrorKind = protocol.AnnotationEvidenceErrorCode
 
 const (
-	EvidenceStaleWorkspace EvidenceErrorKind = "stale_workspace"
-	EvidenceStaleTarget    EvidenceErrorKind = "stale_target"
-	EvidenceStaleFile      EvidenceErrorKind = "stale_file"
-	EvidenceUnavailable    EvidenceErrorKind = "unavailable"
-	EvidencePermission     EvidenceErrorKind = "permission_denied"
-	EvidenceInvalid        EvidenceErrorKind = "invalid_evidence"
-	EvidenceLimit          EvidenceErrorKind = "limit_exceeded"
+	EvidenceStaleWorkspace = protocol.AnnotationEvidenceErrorStaleWorkspace
+	EvidenceStaleTarget    = protocol.AnnotationEvidenceErrorStaleTarget
+	EvidenceStaleFile      = protocol.AnnotationEvidenceErrorStaleFile
+	EvidenceUnavailable    = protocol.AnnotationEvidenceErrorUnavailable
+	EvidencePermission     = protocol.AnnotationEvidenceErrorPermission
+	EvidenceInvalid        = protocol.AnnotationEvidenceErrorInvalid
+	EvidenceLimit          = protocol.AnnotationEvidenceErrorLimit
 )
 
 // EvidenceError is a bounded annotation-facing resource-read failure.
 type EvidenceError struct{ Kind EvidenceErrorKind }
 
-func (e *EvidenceError) Error() string { return "annotation evidence is " + string(e.Kind) }
+func (e *EvidenceError) Error() string {
+	switch e.Kind {
+	case EvidenceStaleWorkspace:
+		return "the workspace changed; reopen the file or diff and try again"
+	case EvidenceStaleTarget:
+		return "the diff changed; refresh it and try again"
+	case EvidenceStaleFile:
+		return "the file changed; refresh it and try again"
+	case EvidenceUnavailable:
+		return "the selected evidence is no longer available"
+	case EvidencePermission:
+		return "permission to read the selected evidence was denied"
+	case EvidenceInvalid:
+		return "that range cannot be annotated; select lines shown in the current file or diff"
+	case EvidenceLimit:
+		return "the selected evidence exceeds the annotation limit"
+	default:
+		return "annotation evidence is unavailable"
+	}
+}
 
 // FileReader validates workspace identity and file revision while reading evidence.
 type FileReader interface {

@@ -662,7 +662,7 @@ func (s *workspaceFilePaneState) beginEditComment(w workspaceFilePane, annotatio
 			s.commentLoadCancel = nil
 			s.commentLoading = false
 			if err != nil {
-				s.commentError = err.Error()
+				s.commentError = annotationErrorText(err)
 				s.commentLoadFailed = true
 				return
 			}
@@ -715,7 +715,7 @@ func (s *workspaceFilePaneState) submitComment(w workspaceFilePane, body string)
 		s.SetState(func() {
 			if err != nil {
 				s.commentPending = false
-				s.commentError = err.Error()
+				s.commentError = annotationErrorText(err)
 				return
 			}
 			s.closeCommentEditor()

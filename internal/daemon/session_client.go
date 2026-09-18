@@ -32,6 +32,9 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("daemon returned HTTP %d: %s", e.StatusCode, e.Message)
 }
 
+// UserMessage returns the bounded server-provided explanation without transport details.
+func (e *APIError) UserMessage() string { return e.Message }
+
 // CreateSession creates a persisted or temporary session through the local daemon.
 func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	if err := input.Validate(); err != nil {
@@ -674,7 +677,9 @@ func decodeAPIError(statusCode int, body []byte) error {
 		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
 			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
 			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
-			if workspaceError.Validate() != nil && diffError.Validate() != nil {
+			annotationError := protocol.AnnotationEvidenceError{Code: protocol.AnnotationEvidenceErrorCode(typed.Code), Message: typed.Message}
+			annotationErrorValid := annotationError.Validate() == nil && len(typed.Details) == 0
+			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid {
 				return fmt.Errorf("daemon returned malformed typed error")
 			}
 			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, typed.Details

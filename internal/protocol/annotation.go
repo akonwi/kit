@@ -127,6 +127,39 @@ func (p AnnotationPreview) Validate(anchor AnnotationAnchor) error {
 	return nil
 }
 
+// AnnotationEvidenceErrorCode classifies guarded annotation evidence failures.
+type AnnotationEvidenceErrorCode string
+
+const (
+	AnnotationEvidenceErrorStaleWorkspace AnnotationEvidenceErrorCode = "stale_workspace"
+	AnnotationEvidenceErrorStaleTarget    AnnotationEvidenceErrorCode = "stale_target"
+	AnnotationEvidenceErrorStaleFile      AnnotationEvidenceErrorCode = "stale_file"
+	AnnotationEvidenceErrorUnavailable    AnnotationEvidenceErrorCode = "unavailable"
+	AnnotationEvidenceErrorPermission     AnnotationEvidenceErrorCode = "permission_denied"
+	AnnotationEvidenceErrorInvalid        AnnotationEvidenceErrorCode = "invalid_evidence"
+	AnnotationEvidenceErrorLimit          AnnotationEvidenceErrorCode = "limit_exceeded"
+)
+
+// AnnotationEvidenceError is a renderer-safe guarded evidence failure.
+type AnnotationEvidenceError struct {
+	Code    AnnotationEvidenceErrorCode `json:"code"`
+	Message string                      `json:"message"`
+}
+
+// Validate checks the error code and bounded renderer-safe message.
+func (e AnnotationEvidenceError) Validate() error {
+	switch e.Code {
+	case AnnotationEvidenceErrorStaleWorkspace, AnnotationEvidenceErrorStaleTarget, AnnotationEvidenceErrorStaleFile,
+		AnnotationEvidenceErrorUnavailable, AnnotationEvidenceErrorPermission, AnnotationEvidenceErrorInvalid, AnnotationEvidenceErrorLimit:
+	default:
+		return fmt.Errorf("annotation evidence error code is invalid")
+	}
+	if !validRendererText(e.Message, 512) {
+		return fmt.Errorf("annotation evidence error message is invalid")
+	}
+	return nil
+}
+
 // AnnotationStaleReason explains why a live annotation cannot be submitted.
 type AnnotationStaleReason string
 

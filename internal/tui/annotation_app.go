@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"sort"
+	"strings"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -36,6 +37,22 @@ func (s *appState) applyAnnotationEvent(event protocol.SessionEvent) {
 			s.removeAnnotationSummary(id)
 		}
 	}
+}
+
+func annotationErrorText(err error) string {
+	if err == nil {
+		return ""
+	}
+	message := err.Error()
+	var userMessage interface{ UserMessage() string }
+	if errors.As(err, &userMessage) {
+		message = userMessage.UserMessage()
+	}
+	message = strings.TrimSpace(message)
+	if message == "" {
+		return "annotation operation failed"
+	}
+	return message
 }
 
 func annotationSummaryText(value string) string {

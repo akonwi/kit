@@ -1211,7 +1211,7 @@ func (s *workspaceDiffPaneState) beginEditComment(w workspaceDiffPane, annotatio
 			s.commentLoadCancel = nil
 			s.commentLoading = false
 			if err != nil {
-				s.commentError = err.Error()
+				s.commentError = annotationErrorText(err)
 				return
 			}
 			s.commentBody = body
@@ -1250,7 +1250,7 @@ func (s *workspaceDiffPaneState) submitComment(w workspaceDiffPane, body string)
 		s.SetState(func() {
 			if err != nil {
 				s.commentPending = false
-				s.commentError = err.Error()
+				s.commentError = annotationErrorText(err)
 				return
 			}
 			s.closeComment()
