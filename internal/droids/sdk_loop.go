@@ -666,12 +666,17 @@ func setProtocolFailure(message *AssistantMessage, expected Model, _ error) {
 	message.StopReason = StopReasonError
 	message.ErrorKind = ProviderProtocol
 	message.ErrorMessage = safeProviderMessage(ProviderProtocol, "")
-	message.Error = &ProviderError{Kind: ProviderProtocol, Message: message.ErrorMessage}
+	message.Error = &ProviderError{Kind: ProviderProtocol, Message: message.ErrorMessage, Retryable: true}
 }
 
 func normalizeProviderError(message *AssistantMessage) {
 	message.ErrorMessage = boundedDiagnostic(message.ErrorMessage)
 	if message.Error != nil {
+		// A malformed response can be transient, even when the adapter did not
+		// classify it as retryable. The session retry policy still bounds retries.
+		if message.Error.Kind == ProviderProtocol {
+			message.Error.Retryable = true
+		}
 		if message.ErrorKind == "" {
 			message.ErrorKind = message.Error.Kind
 		}
@@ -695,7 +700,7 @@ func normalizeProviderError(message *AssistantMessage) {
 	message.ErrorMessage = safeProviderMessage(kind, message.ErrorMessage)
 	message.Error = &ProviderError{
 		Kind: kind, Message: message.ErrorMessage,
-		Retryable: kind == ProviderRateLimit || kind == ProviderTransport || kind == ProviderInternal,
+		Retryable: kind == ProviderRateLimit || kind == ProviderTransport || kind == ProviderInternal || kind == ProviderProtocol,
 	}
 }
 

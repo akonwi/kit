@@ -361,6 +361,7 @@ func TestSDKMalformedProviderUsageIsNotAggregated(t *testing.T) {
 	}}
 	droid, err := droids.Spawn(t.Context(), "conversation_invalid_usage", droids.Config{
 		Model: resolvedTestModel(providers, "test/usage"),
+		Retry: &droids.RetryPolicy{Enabled: false},
 	})
 	if err != nil {
 		t.Fatal(err)
