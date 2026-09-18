@@ -258,6 +258,15 @@ func TestAnthropicFableUsesManagedEffortRequest(t *testing.T) {
 	}
 }
 
+func TestAnthropicLongContextBetaFeatures(t *testing.T) {
+	if got := anthropicBetaFeatures(false, Model{ContextWindow: 1_000_000}, false); got != anthropicLongContextBeta {
+		t.Fatalf("long-context beta features = %q", got)
+	}
+	if got := anthropicBetaFeatures(false, Model{ContextWindow: 200_000}, false); got != "" {
+		t.Fatalf("standard-context beta features = %q", got)
+	}
+}
+
 func TestAnthropicAdaptiveEffortMapping(t *testing.T) {
 	if got := anthropicEffort("minimal"); got != anthropic.OutputConfigEffortLow {
 		t.Fatalf("minimal effort = %q", got)

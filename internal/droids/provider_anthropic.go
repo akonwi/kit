@@ -23,6 +23,7 @@ const (
 	anthropicOAuthExpirySkew                 = 30 * time.Second
 	anthropicClaudeCodeVersion               = "2.1.251"
 	anthropicFineGrainedToolsBeta            = "fine-grained-tool-streaming-2025-05-14"
+	anthropicLongContextBeta                 = "context-1m-2025-08-07"
 	anthropicMidConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
 	anthropicThinkingBindingControlsBeta     = "thinking-binding-controls-2026-08-01"
 )
@@ -467,12 +468,15 @@ func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Cl
 }
 
 func anthropicBetaFeatures(oauth bool, model Model, hasTools bool) string {
-	features := make([]string, 0, 5)
+	features := make([]string, 0, 6)
 	if oauth {
 		features = append(features, "claude-code-20250219", "oauth-2025-04-20")
 	}
 	if hasTools {
 		features = append(features, anthropicFineGrainedToolsBeta)
+	}
+	if model.ContextWindow > 200_000 {
+		features = append(features, anthropicLongContextBeta)
 	}
 	if model.SupportsMidConversationEffort {
 		features = append(features, anthropicMidConversationOutputConfigBeta, anthropicThinkingBindingControlsBeta)
