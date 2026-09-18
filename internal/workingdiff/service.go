@@ -72,6 +72,7 @@ type observation struct {
 	control           control
 	files             []retainedFile
 	allLive           map[string]workspace.DiffEntry
+	committed         bool
 	touched, expires  time.Time
 	size              int64
 }
@@ -246,7 +247,7 @@ func (s *Service) observeAttempt(ctx context.Context, session, cwd string, in pr
 		return protocol.WorkingTreePage{}, errRaced
 	}
 	files, all, size, complete, trunc, omissions := s.classify(c0, live, blobs)
-	targetID := token("difftarget_", session, in.WorkspaceID, cwd, "working_tree", "policy-1")
+	targetID := targetID(session, in.WorkspaceID, repo, protocol.DiffTargetWorkingTree, protocol.DiffEndpoint{}, protocol.DiffEndpoint{})
 	manifest := manifestBytes(session, in.WorkspaceID, targetID, c0, files, live.RootIdentity, complete, trunc, omissions)
 	revision := token("diffrev_", string(manifest))
 	head := protocol.DiffHead{State: "commit", OID: c0.head}

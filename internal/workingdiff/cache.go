@@ -210,32 +210,39 @@ func (s *Service) ReadFile(ctx context.Context, session, cwd string, in protocol
 	if e != nil && ctx.Err() != nil {
 		return protocol.FileDiffPage{}, ctx.Err()
 	}
-	if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || rediscovered.authorityDigest != o.repo.authorityDigest {
+	if e != nil || rediscovered.gitdirID != o.repo.gitdirID || rediscovered.commonID != o.repo.commonID || rediscovered.objectsID != o.repo.objectsID || o.committed && authorityToken(rediscovered) != authorityToken(o.repo) || !o.committed && rediscovered.authorityDigest != o.repo.authorityDigest {
 		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "repository authority changed"}
 	}
-	current, e := s.observeControl(ctx, o.repo)
-	if e != nil {
-		return protocol.FileDiffPage{}, e
-	}
-	if current.digest != o.control.digest {
-		return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff target changed"}
-	}
-	aggregate := int64(0)
-	snap, e := s.workspaces.ObserveDiffPaths(ctx, session, cwd, o.Target.WorkspaceID, o.control.candidates, protocol.MaxDiffFileBytes, &aggregate)
-	if e != nil {
-		return protocol.FileDiffPage{}, projectWorkspace(e)
-	}
-	if snap.RootIdentity != o.rootIdentity {
-		return protocol.FileDiffPage{}, &Error{Code: StaleWorkspace, Message: "workspace root changed"}
-	}
-	for _, entry := range snap.Entries {
-		old := o.allLive[entry.Path]
-		if entry.Path == in.Path {
-			if entry.Identity != old.Identity || entry.Digest != old.Digest || entry.Mode != old.Mode || entry.Kind != old.Kind {
-				return protocol.FileDiffPage{}, &Error{Code: StaleFile, Message: "requested file changed"}
+	if o.committed {
+		ref := targetReference{Kind: o.Target.Kind, Base: o.Target.Base, Head: o.Target.Head}
+		if e := s.verifyPinnedTarget(ctx, rediscovered, ref); e != nil {
+			return protocol.FileDiffPage{}, e
+		}
+	} else {
+		current, e := s.observeControl(ctx, o.repo)
+		if e != nil {
+			return protocol.FileDiffPage{}, e
+		}
+		if current.digest != o.control.digest {
+			return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "diff target changed"}
+		}
+		aggregate := int64(0)
+		snap, e := s.workspaces.ObserveDiffPaths(ctx, session, cwd, o.Target.WorkspaceID, o.control.candidates, protocol.MaxDiffFileBytes, &aggregate)
+		if e != nil {
+			return protocol.FileDiffPage{}, projectWorkspace(e)
+		}
+		if snap.RootIdentity != o.rootIdentity {
+			return protocol.FileDiffPage{}, &Error{Code: StaleWorkspace, Message: "workspace root changed"}
+		}
+		for _, entry := range snap.Entries {
+			old := o.allLive[entry.Path]
+			if entry.Path == in.Path {
+				if entry.Identity != old.Identity || entry.Digest != old.Digest || entry.Mode != old.Mode || entry.Kind != old.Kind {
+					return protocol.FileDiffPage{}, &Error{Code: StaleFile, Message: "requested file changed"}
+				}
+			} else if entry.Identity != old.Identity || entry.Mode != old.Mode || entry.Kind != old.Kind {
+				return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "another target file changed"}
 			}
-		} else if entry.Identity != old.Identity || entry.Mode != old.Mode || entry.Kind != old.Kind {
-			return protocol.FileDiffPage{}, &Error{Code: StaleTarget, Message: "another target file changed"}
 		}
 	}
 	result := protocol.FileDiffPage{Observation: o.DiffObservation, File: f.summary, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{}}

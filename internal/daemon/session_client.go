@@ -189,6 +189,52 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 	return output, nil
 }
 
+// ListDiffTargets returns a bounded authoritative target catalog.
+func (c *Client) ListDiffTargets(ctx context.Context, sessionID string, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/targets"
+	var output protocol.DiffTargetCatalog
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	if err := validateDiffTargetCatalogResponse(sessionID, input, output); err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	return output, nil
+}
+
+func validateDiffTargetCatalogResponse(sessionID string, input protocol.ListDiffTargetsInput, output protocol.DiffTargetCatalog) error {
+	if err := output.Validate(); err != nil {
+		return fmt.Errorf("validate daemon diff target catalog: %w", err)
+	}
+	if output.SessionID != sessionID || output.WorkspaceID != input.WorkspaceID {
+		return fmt.Errorf("daemon diff target catalog identity does not match request")
+	}
+	return nil
+}
+
+// ObserveDiff observes one server-issued target reference.
+func (c *Client) ObserveDiff(ctx context.Context, sessionID string, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/observations"
+	var output protocol.DiffPage
+	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+		return protocol.DiffPage{}, err
+	}
+	if err := validateObserveDiffResponse(sessionID, input, output); err != nil {
+		return protocol.DiffPage{}, err
+	}
+	return output, nil
+}
+
+func validateObserveDiffResponse(sessionID string, input protocol.ObserveDiffInput, output protocol.DiffPage) error {
+	if err := output.Validate(); err != nil {
+		return fmt.Errorf("validate daemon diff observation page: %w", err)
+	}
+	if output.Observation.SessionID != sessionID || output.Observation.Target.WorkspaceID != input.WorkspaceID {
+		return fmt.Errorf("daemon diff observation identity does not match request")
+	}
+	return nil
+}
+
 // ObserveWorkingTree returns a stable page from a retained working-tree observation.
 func (c *Client) ObserveWorkingTree(ctx context.Context, sessionID string, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/working-tree"

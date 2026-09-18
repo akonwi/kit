@@ -56,7 +56,15 @@ type WorkspaceFilesSession interface {
 	ReadWorkspaceFile(context.Context, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
 }
 
-// WorkingTreeDiffSession is the optional server-authoritative working-tree diff surface.
+// DiffSession is the optional server-authoritative generalized diff surface.
+type DiffSession interface {
+	ListDiffTargets(context.Context, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
+	ObserveDiff(context.Context, protocol.ObserveDiffInput) (protocol.DiffPage, error)
+	ReadFileDiff(context.Context, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
+}
+
+// WorkingTreeDiffSession is the compatibility surface for clients that have
+// not yet adopted the generalized target catalog.
 type WorkingTreeDiffSession interface {
 	ObserveWorkingTree(context.Context, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
 	ReadFileDiff(context.Context, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)

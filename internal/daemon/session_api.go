@@ -111,6 +111,8 @@ type sessionService interface {
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
 	ReadWorkspaceFile(context.Context, string, protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error)
+	ListDiffTargets(context.Context, string, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
+	ObserveDiff(context.Context, string, protocol.ObserveDiffInput) (protocol.DiffPage, error)
 	ObserveWorkingTree(context.Context, string, protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error)
 	ReadFileDiff(context.Context, string, protocol.ReadFileDiffInput) (protocol.FileDiffPage, error)
 	ListAnnotations(context.Context, string, protocol.ListAnnotationsInput) (protocol.AnnotationPage, error)
@@ -361,6 +363,50 @@ func (s runtimeSessionService) ReadWorkspaceFile(ctx context.Context, sessionID 
 	}
 	if current.CWD != record.CWD {
 		return protocol.WorkspaceFileRead{}, &kitworkspace.Error{Code: kitworkspace.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ListDiffTargets(ctx context.Context, sessionID string, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	if s.diffs == nil {
+		return protocol.DiffTargetCatalog{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	result, err := s.diffs.ListTargets(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffTargetCatalog{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.DiffTargetCatalog{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) ObserveDiff(ctx context.Context, sessionID string, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+	if s.diffs == nil {
+		return protocol.DiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
+	}
+	record, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	result, err := s.diffs.ObserveTarget(ctx, sessionID, record.CWD, input)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	current, err := s.manager.Get(ctx, sessionID)
+	if err != nil {
+		return protocol.DiffPage{}, err
+	}
+	if current.CWD != record.CWD {
+		return protocol.DiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.StaleWorkspace, Message: "the session workspace changed"}
 	}
 	return result, nil
 }
@@ -1529,6 +1575,40 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		if err := result.Validate(); err != nil {
 			writeSessionError(writer, fmt.Errorf("invalid workspace file: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/targets", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ListDiffTargetsInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ListDiffTargets(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid diff target catalog: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/observations", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ObserveDiffInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		result, err := service.ObserveDiff(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid diff observation page: %w", err))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
