@@ -445,4 +445,4 @@ ADR does not commit Kit to implementing them.
 - [0013: Bound initial transcript snapshots](0013-bound-initial-transcript-snapshots.md)
 - [`../features/session-cwd.md`](../features/session-cwd.md)
 - [`../../backlog/core.md`](../../backlog/core.md) (`CORE-WORK-001`)
-- [`../../backlog/tui.md`](../../backlog/tui.md) (`TUI-DIR-001`, `TUI-FILE-001`)
+- [Native TUI backlog](../../backlog/tui.md)

@@ -7,36 +7,27 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Directory, file, and diff workspace
 
-- [ ] TUI-WORK-001 — Register retained file and diff panes with stable identity,
-  deduplication, predictable open/close/focus behavior, and preserved selection
-  and scroll state across pane switches and responsive
-  terminal-width transitions. Accept Agent-originated file and search-match
-  opens with relevant line anchors. Deduplicate mutable file panes by workspace
-  incarnation and canonical relative path regardless of origin. See
-  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md) and the
-  [tool activity working design](../docs/design/tui-tool-activity.md).
-- [x] TUI-DIR-001 — Provide a modal flat file picker backed by the same bounded,
-  session/cwd-scoped project-path index as composer `@` mentions, with fuzzy
-  path filtering; keyboard and primary-mouse navigation; visible loading,
-  empty, error, and truncation states; guarded refresh; and direct opening into
-  a retained File tab through the current workspace reference. Reserve the
-  workspace directory APIs for future static directory/tree displays. Depends
-  on `CORE-WORK-001`. See
-  [ADR 0019](../docs/adrs/0019-expose-session-workspace-files.md) and
-  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
-- [x] TUI-FILE-001 — Provide a selectable, syntax-highlighted file viewer with
-  line numbers, vertical and horizontal navigation, truncation/staleness
-  feedback, refresh that preserves position when possible, and safe binary or
-  unreadable-file handling. Depends on `CORE-WORK-001`. See
-  [ADR 0019](../docs/adrs/0019-expose-session-workspace-files.md) and
-  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
-- [x] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
-  including agent edits, in one continuous scrollable document with per-file
-  loading and retry states, changed-file and hunk navigation, semantic
-  added/removed/context styling, line-number gutters, unified and split layouts
-  where width permits, bounded automatic refresh while the pane is active and
-  visible, and explicit loading, empty, stale, truncated, and error states. Depends on
-  `CORE-DIFF-001`. See
+- [ ] TUI-WORK-005 — Make existing file-path chips in `read`, `write`, and
+  `edit` tool activity clickable with the primary mouse button. Highlight only
+  the hovered chip; activation opens or selects the retained File tab and
+  reveals a relevant line/range when available. Reuse
+  workspace-incarnation/canonical-path identity, report unavailable files, and
+  never open tabs merely because a tool runs. Add no activity-file picker,
+  palette action, shortcut, or new Tab stop. Preserve the
+  [tool activity design's](../docs/design/tui-tool-activity.md) omission of
+  generic inline output. Verify navigation from live and restored transcripts.
+- [ ] TUI-WORK-006 — Provide an intentionally designed search-result navigation
+  surface for `grep`, `find`, and `glob` activity. Explicit keyboard and
+  primary-mouse activation opens or selects the matching File tab and reveals
+  the match line/range when available. Resolve how results are exposed within
+  the [tool activity design](../docs/design/tui-tool-activity.md); do not restore
+  generic output disclosure implicitly. Verify path-only results, anchored
+  matches, repeated activation, and unavailable-file feedback.
+- [ ] TUI-WORK-007 — Add mounted shell integration tests proving actual File and
+  Diff panes preserve cursor, selection, and scroll state across tab switches
+  and narrow/wide terminal resizing, including unified/split diff transitions.
+  Assert the restored visible content and focus, and verify repeated anchored
+  opens reuse the existing tab without reordering it. See
   [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
 
 ### Transcript and activity
