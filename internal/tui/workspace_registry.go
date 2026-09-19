@@ -63,7 +63,7 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 		Build: func(view shellView, _ ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
 			return workspaceDiffPane{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
-				Diff: view.Diff, Presentation: presentation,
+				Diff: view.Diff, Presentation: presentation, Dispatch: view.WorkspaceDispatch,
 				Annotations:        view.Snapshot.ComposerAnnotations,
 				InitialWrapLines:   view.Snapshot.DiffWrapLines,
 				OnWrapLinesChanged: view.Callbacks.SetDiffWrapLines,
@@ -100,7 +100,7 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 		Build: func(view shellView, _ ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
 			return workspaceFilePane{
 				Descriptor: descriptor, CurrentWorkspaceID: view.Snapshot.CurrentWorkspaceID,
-				Files: view.WorkspaceFiles, Presentation: presentation,
+				Files: view.WorkspaceFiles, Presentation: presentation, Dispatch: view.WorkspaceDispatch,
 				Annotations:        view.Snapshot.ComposerAnnotations,
 				MouseGestures:      view.Callbacks.WorkspaceMouse,
 				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,

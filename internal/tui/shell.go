@@ -220,6 +220,8 @@ type shellView struct {
 	WorkspaceFiles  sessionclient.WorkspaceFilesSession
 	Diff            sessionclient.DiffSession
 	presentation    transcriptPresentation
+	// WorkspaceDispatch optionally supplies the host's UI event-loop dispatcher.
+	WorkspaceDispatch func(func())
 }
 
 type quitIntent struct{}

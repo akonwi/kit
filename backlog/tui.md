@@ -16,19 +16,19 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   palette action, shortcut, or new Tab stop. Preserve the
   [tool activity design's](../docs/design/tui-tool-activity.md) omission of
   generic inline output. Verify navigation from live and restored transcripts.
-- [ ] TUI-WORK-006 — Provide an intentionally designed search-result navigation
-  surface for `grep`, `find`, and `glob` activity. Explicit keyboard and
-  primary-mouse activation opens or selects the matching File tab and reveals
-  the match line/range when available. Resolve how results are exposed within
-  the [tool activity design](../docs/design/tui-tool-activity.md); do not restore
-  generic output disclosure implicitly. Verify path-only results, anchored
-  matches, repeated activation, and unavailable-file feedback.
-- [ ] TUI-WORK-007 — Add mounted shell integration tests proving actual File and
+- [x] TUI-WORK-007 — Add mounted shell integration tests proving actual File and
   Diff panes preserve cursor, selection, and scroll state across tab switches
   and narrow/wide terminal resizing, including unified/split diff transitions.
   Assert the restored visible content and focus, and verify repeated anchored
   opens reuse the existing tab without reordering it. See
   [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
+- [ ] TUI-WORK-008 — Restore File-pane keyboard navigation after clicking body
+  text. In the mounted shell, a primary press/release on file content leaves
+  subsequent `j`/`k` navigation ineffective, although initial and tab-restored
+  pane focus work. The root selection area takes focus after pane capture.
+  Reconcile text-selection focus with pane input ownership without breaking
+  drag selection or copying; add a mounted-shell regression and check the
+  equivalent Diff body interaction.
 
 ### Transcript and activity
 
