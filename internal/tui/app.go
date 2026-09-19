@@ -274,6 +274,13 @@ type appState struct {
 	transcriptHistoryAnchorExpected  int
 	transcriptHistoryAnchorInput     uint64
 	transcriptHistoryInputGeneration uint64
+	transcriptInitialLoading         bool
+	transcriptInitialPositioned      bool
+	transcriptInitialStable          bool
+	transcriptInitialMetrics         ui.ScrollMetrics
+	transcriptHistoryUserScroll      bool
+	transcriptHistoryScrollInput     bool
+	transcriptHistoryLastOffset      int
 	transcriptHistoryAnchorEnd       bool
 	transcriptHistoryRestore         int
 	liveAssistant                    int
@@ -477,7 +484,17 @@ func (s *appState) TickFrame(now time.Time) bool {
 		s.syncTerminalStatus(now, s.Context().EventContext().SetTitle)
 	}
 	keepTicking := false
-	if s.needsScroll && s.transcriptHistoryRestore == 0 {
+	positioning := s.transcriptInitialLoading || s.needsScroll || s.transcriptHistoryRestore != 0
+	if s.transcriptInitialLoading {
+		keepTicking = s.settleInitialTranscript()
+	}
+	if !s.transcriptInitialLoading && !positioning {
+		s.observeTranscriptScroll()
+	} else {
+		s.transcriptHistoryLastOffset = s.scroll.Metrics().ScrollOffset
+		s.transcriptHistoryScrollInput = false
+	}
+	if !s.transcriptInitialLoading && s.needsScroll && s.transcriptHistoryRestore == 0 {
 		if s.scrollPendingLayout {
 			// Live events can arrive before the deferred follow-up frame. Apply the
 			// latest completed layout now so repeated updates cannot starve follow.
@@ -496,7 +513,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.restoreTranscriptHistoryAnchor() {
 		keepTicking = true
 	}
-	if s.maybeLoadTranscriptHistory() {
+	if !positioning && s.maybeLoadTranscriptHistory() {
 		keepTicking = true
 	}
 	if s.subagentNeedsScroll {
@@ -542,11 +559,65 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || s.needsScroll || s.transcriptHistoryRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
+	return keepTicking || (s.needsScroll && !s.transcriptInitialLoading) || s.transcriptHistoryRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
+}
+
+// Keep pagination disabled until measured layout confirms the recent tail at
+// the bottom across consecutive frames, rather than relying on a fixed delay.
+func (s *appState) settleInitialTranscript() bool {
+	if !s.transcriptVisible || s.phase != phaseReady {
+		return false
+	}
+	count := len(s.mainTranscriptPresentation().Items)
+	if count == 0 {
+		s.SetState(func() { s.transcriptInitialLoading = false; s.transcriptInitialPositioned = true })
+		s.needsScroll, s.scrollPendingLayout = false, false
+		return true
+	}
+	if !s.scroll.Attached() {
+		return false
+	}
+	metrics := s.scroll.Metrics()
+	if metrics.ViewportHeight <= 0 {
+		return false
+	}
+	if !s.transcriptList.Attached() {
+		return true
+	}
+	_, last, visible := s.transcriptList.VisibleRange()
+	atEnd := metrics.ScrollOffset == metrics.MaxScrollOffset && visible && last == count
+	if atEnd && s.transcriptInitialStable && metrics == s.transcriptInitialMetrics {
+		s.SetState(func() { s.transcriptInitialLoading = false; s.transcriptInitialPositioned = true })
+		s.needsScroll, s.scrollPendingLayout = false, false
+		s.transcriptHistoryLastOffset = metrics.ScrollOffset
+		return true
+	}
+	s.transcriptInitialStable = atEnd
+	s.transcriptInitialMetrics = metrics
+	s.scroll.ScrollToEnd()
+	return true
+}
+
+func (s *appState) observeTranscriptScroll() {
+	if !s.transcriptVisible || !s.scroll.Attached() {
+		return
+	}
+	offset := s.scroll.Metrics().ScrollOffset
+	if s.transcriptHistoryScrollInput && offset < s.transcriptHistoryLastOffset {
+		s.transcriptHistoryUserScroll = true
+	}
+	s.transcriptHistoryLastOffset = offset
+	s.transcriptHistoryScrollInput = false
+}
+
+func (s *appState) noteTranscriptHistoryScrollUp(ui.EventContext) {
+	if s.transcriptVisible && !s.transcriptInitialLoading && !s.needsScroll && s.transcriptHistoryRestore == 0 {
+		s.transcriptHistoryUserScroll = true
+	}
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
-	if s.transcriptHistoryRestore != 0 || s.transcriptHistoryLoading || !s.transcriptHistoryHasMore || s.transcriptHistoryError != "" || s.phase != phaseReady {
+	if s.transcriptInitialLoading || !s.transcriptVisible || s.needsScroll || !s.transcriptHistoryUserScroll || s.transcriptHistoryRestore != 0 || s.transcriptHistoryLoading || !s.transcriptHistoryHasMore || s.transcriptHistoryError != "" || s.phase != phaseReady {
 		return false
 	}
 	first, _, ok := s.transcriptList.VisibleRange()
@@ -571,6 +642,7 @@ func (s *appState) loadTranscriptHistory() {
 		s.transcriptHistoryGeneration++
 		generation = s.transcriptHistoryGeneration
 		s.transcriptHistoryLoading = true
+		s.transcriptHistoryUserScroll = false
 		s.transcriptHistoryError = ""
 	})
 	runtime := s.Context().Runtime()
@@ -988,6 +1060,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		TranscriptHistoryInitialized: s.transcriptHistoryInitialized,
 		TranscriptHistoryHasMore:     s.transcriptHistoryHasMore,
 		TranscriptHistoryLoading:     s.transcriptHistoryLoading,
+		TranscriptInitialLoading:     s.transcriptInitialLoading,
 		TranscriptHistoryError:       s.transcriptHistoryError,
 		ActivityScroll:               &s.activityScroll,
 		ActivityList:                 &s.activityList,
@@ -1049,8 +1122,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.enterAuthSelect(false)
 			}
 		},
-		SelectProvider:         s.selectProvider,
-		RetryTranscriptHistory: s.retryTranscriptHistory,
+		SelectProvider:            s.selectProvider,
+		RetryTranscriptHistory:    s.retryTranscriptHistory,
+		TranscriptHistoryScrollUp: s.noteTranscriptHistoryScrollUp,
 		MoveProviderSelection: func(_ ui.EventContext, delta int) {
 			s.moveProviderSelection(delta)
 		},
@@ -1583,6 +1657,20 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
 	if ctx.Phase() != ui.CapturePhase {
 		return ui.EventIgnored
+	}
+	if s.transcriptVisible && !s.transcriptInitialLoading {
+		switch input := event.(type) {
+		case ui.Mouse:
+			switch input.Button {
+			case ui.MouseWheelUp, ui.MouseWheelDown, ui.MouseLeftButton:
+				s.transcriptHistoryScrollInput = true
+			}
+		case ui.Key:
+			switch input.Keycode {
+			case ui.KeyUp, vaxis.KeyPgUp, ui.KeyHome:
+				s.transcriptHistoryScrollInput = true
+			}
+		}
 	}
 	if mouse, ok := event.(ui.Mouse); ok && s.transcriptVisible && s.transcriptHistoryRestore != 0 {
 		switch mouse.Button {
@@ -2166,6 +2254,13 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 }
 
 func (s *appState) resetTranscriptHistoryFromSnapshot(snapshot protocol.SessionSnapshot) {
+	if !s.transcriptInitialPositioned {
+		s.transcriptInitialLoading = len(s.mainTranscriptPresentation().Items) > 0
+		s.transcriptInitialPositioned = !s.transcriptInitialLoading
+		s.transcriptInitialStable = false
+		s.transcriptHistoryUserScroll = false
+	}
+
 	_, paginationAvailable := s.bound.(sessionclient.TranscriptPager)
 	s.transcriptHistoryInitialized = paginationAvailable
 	s.transcriptHistoryCursor = snapshot.PreviousMessageCursor
@@ -5477,6 +5572,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.transcriptList = ui.SliverListController{}
+	s.transcriptInitialLoading, s.transcriptInitialPositioned, s.transcriptInitialStable = false, false, false
+	s.transcriptHistoryUserScroll = false
+	s.transcriptHistoryLastOffset = 0
 	s.transcriptHistoryInitialized = false
 	s.transcriptHistoryCursor = ""
 	s.transcriptHistoryHasMore = false

@@ -60,6 +60,7 @@ type shellSnapshot struct {
 	TranscriptHistoryInitialized bool
 	TranscriptHistoryHasMore     bool
 	TranscriptHistoryLoading     bool
+	TranscriptInitialLoading     bool
 	TranscriptHistoryError       string
 	ActivityScroll               *ui.ScrollController
 	ActivityList                 *activityListController
@@ -131,6 +132,7 @@ type shellCallbacks struct {
 	ShowTranscript              ui.VoidCallback
 	CloseActivity               ui.VoidCallback
 	RetryTranscriptHistory      ui.VoidCallback
+	TranscriptHistoryScrollUp   ui.VoidCallback
 	CancelSubagentTask          func(ui.EventContext, string, uint64)
 	DismissSubagent             func(ui.EventContext, string, uint64)
 	SelectSubagent              func(ui.EventContext, string)
@@ -679,9 +681,14 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		case w.Snapshot.TranscriptHistoryHasMore:
 			status = ui.Text{Value: "↑ Scroll for earlier messages", Style: ui.Style{Foreground: theme.MutedForeground}}
 		}
-		leading = ui.SizedBox{Height: 1, Child: ui.Padding(ui.Insets{Left: 1, Right: 1}, status)}
+		leading = w.transcriptScrollIntent(ui.SizedBox{Height: 1, Child: ui.Padding(ui.Insets{Left: 1, Right: 1}, status)})
 	}
-	return w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, w.Snapshot.TranscriptList, true, leading)
+	transcript := w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, w.Snapshot.TranscriptList, true, leading)
+	children := []ui.Widget{transcript}
+	if w.Snapshot.TranscriptInitialLoading {
+		children = append(children, ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Background}}, ui.Center(spinnerWithLabel("Loading conversation…", ui.Style{Foreground: theme.MutedForeground}))))
+	}
+	return ui.Stack{Children: children}
 }
 
 func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool, identity string, controller *ui.ScrollController, listController *ui.SliverListController, followOutput bool, leading ui.Widget) ui.Widget {
@@ -706,7 +713,7 @@ func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresent
 			if index == len(presentation.Items)-1 {
 				insets.Bottom = 1
 			}
-			return keyedTranscriptItem{ID: item.ID, Child: ui.Padding(insets, child)}
+			return keyedTranscriptItem{ID: item.ID, Child: w.transcriptScrollIntent(ui.Padding(insets, child))}
 		},
 	}})
 	return keyedTranscriptItem{ID: "transcript-viewport:" + identity, Child: ui.Scrollbar{Child: ui.CustomScrollView{
@@ -1605,4 +1612,15 @@ func allDigits(value string) bool {
 		}
 	}
 	return true
+}
+
+// Observe upward wheel events only after nested controls have had a chance to
+// consume them, before they bubble to the transcript's scroll view.
+func (w shellView) transcriptScrollIntent(child ui.Widget) ui.Widget {
+	return mouseActivator{Child: child, OnScroll: func(ctx ui.EventContext, mouse ui.Mouse) ui.EventResult {
+		if ctx.Phase() != ui.CapturePhase && mouse.Button == ui.MouseWheelUp && w.Callbacks.TranscriptHistoryScrollUp != nil {
+			w.Callbacks.TranscriptHistoryScrollUp(ctx)
+		}
+		return ui.EventIgnored
+	}}
 }
