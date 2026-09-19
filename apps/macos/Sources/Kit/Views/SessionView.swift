@@ -5,9 +5,11 @@ struct SessionView: View {
     @Bindable var state: SessionStore
     @State private var latestOutOfView = false
     @State private var resumeRequest = 0
+    @State private var reading = TranscriptReadingState()
 
     var body: some View {
         VStack(spacing: 0) {
+            TranscriptReadingNavigation(state: reading)
             transcript
         }.background(theme.surface)
     }
@@ -18,7 +20,7 @@ struct SessionView: View {
                          historyError: state.historyError, active: state.selected?.activity != nil,
                          presentation: state.ui.transcript, workspace: state.ui.workspace,
                          resumeRequest: resumeRequest, latestOutOfView: $latestOutOfView,
-                         loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID)
+                         loadHistory: { state.loadHistory() }, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
             .id(state.selectedID)
             .onChange(of: state.selectedID) { latestOutOfView = false }
             .overlay(alignment: .bottomTrailing) {

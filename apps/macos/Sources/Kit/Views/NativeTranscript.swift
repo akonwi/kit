@@ -17,6 +17,7 @@ struct NativeTranscript: NSViewRepresentable {
     let theme: MicaTheme
     var attachmentClient: (any AttachmentClient)? = nil
     var attachmentSession = ""
+    var reading: TranscriptReadingState? = nil
     @AppStorage("interfaceFont") private var interfaceFont = ""
     @AppStorage("monoFont") private var monoFont = ""
     @AppStorage("interfaceFontSize") private var interfaceSize = 0.0
@@ -51,6 +52,8 @@ struct NativeTranscript: NSViewRepresentable {
     private var pendingMeasurements: [String: PendingMeasurement] = [:]
     private var measurementFlushQueued = false
     private var indices: [String: Int] = [:]
+    private var sections: [String: [TranscriptReadingSection]] = [:]
+    private var arrival: String?
 
     init(_ input: NativeTranscript) {
         self.input = input
@@ -82,6 +85,7 @@ struct NativeTranscript: NSViewRepresentable {
         scroll.willScroll = { [weak self] event in
             guard let self else { return }
             self.insertionAnchor = nil
+            self.arrival = nil
             // Unpin before AppKit lays out newly exposed rows during the gesture.
             if event.scrollingDeltaY > 0 {
                 self.follow.userScrolled(distanceFromBottom: max(9, self.distanceFromBottom))
@@ -122,7 +126,14 @@ struct NativeTranscript: NSViewRepresentable {
             content = AnyView(header)
         } else {
             content = AnyView(NativeMessageRow(message: message, presentation: input.presentation,
-                                               workspace: input.workspace, inProgress: liveGroups.contains(message.id)) { [weak self] in
+                                               workspace: input.workspace, inProgress: liveGroups.contains(message.id),
+                                               onSections: { [weak self, weak cell] values in
+                DispatchQueue.main.async {
+                    guard let self, !self.stopped, cell?.configuration == token else { return }
+                    self.sections[message.id] = values
+                    self.publishReadingLocation()
+                }
+            }) { [weak self] in
                 guard let self else { return }
                 let current = self.liveGroups.contains(message.id)
                 self.insertionAnchor = nil
@@ -189,7 +200,11 @@ struct NativeTranscript: NSViewRepresentable {
             heightOrder.append(id)
             changed.insert(row)
         }
-        while heightOrder.count > 256 { heights.removeValue(forKey: heightOrder.removeFirst()) }
+        while heightOrder.count > 256 {
+            let expired = heightOrder.removeFirst()
+            heights.removeValue(forKey: expired)
+            sections.removeValue(forKey: expired)
+        }
         guard !changed.isEmpty else { return }
         // Resize all changed rows and correct the viewport in one nonanimated
         // layout transaction. Expanded content stays clipped until this commits.
@@ -200,8 +215,17 @@ struct NativeTranscript: NSViewRepresentable {
             context.allowsImplicitAnimation = false
             table.noteHeightOfRows(withIndexesChanged: changed)
             table.layoutSubtreeIfNeeded()
+            if let id = arrival, let row = indices[id], changed.contains(row) {
+                arrival = nil
+                if follow.followsBottom, table.rect(ofRow: row).height > scroll.contentSize.height {
+                    follow.userScrolled(distanceFromBottom: 9)
+                    let start = Anchor(id: id, inset: 0)
+                    insertionAnchor = start
+                    restore(start)
+                }
+            }
             if follow.followsBottom { positionAtBottom() }
-            else if let saved { restore(saved) }
+            else if let target = insertionAnchor ?? saved { restore(target) }
         }
         CATransaction.commit()
         publishVisibility()
@@ -285,6 +309,13 @@ struct NativeTranscript: NSViewRepresentable {
         defer { updating = false }
         let saved = insertionAnchor ?? anchor()
         let old = messages
+        // Only a newly delivered response during a live turn initiates reading.
+        // Snapshot/history loads retain the existing restoration behavior.
+        if old.contains(where: { $0.id != Self.headerID }), input.active || next.active, follow.followsBottom,
+           let last = next.messages.last, last.role == "assistant", !last.text.isEmpty,
+           !old.contains(where: { $0.id == "message:" + last.id }) {
+            arrival = "message:" + last.id
+        }
         let styleChanged = input.theme != next.theme || typography != next.typography
             || input.sessionLink?.serverID != next.sessionLink?.serverID
             || input.presentation !== next.presentation || input.workspace !== next.workspace
@@ -334,7 +365,8 @@ struct NativeTranscript: NSViewRepresentable {
                 configure(cell, row: row)
             }
         }
-        if resume { follow.resume() }
+        sections = sections.filter { indices[$0.key] != nil }
+        if resume { arrival = nil; insertionAnchor = nil; follow.resume() }
         if styleChanged { invalidateHeights() }
         if follow.followsBottom { positionAtBottom() }
         else if !diff.isEmpty, let saved { restore(saved) }
@@ -359,6 +391,7 @@ struct NativeTranscript: NSViewRepresentable {
     private func userScrolled() {
         guard !stopped else { return }
         insertionAnchor = nil
+        arrival = nil
         follow.userScrolled(distanceFromBottom: distanceFromBottom)
         publishVisibility()
         if scroll.contentView.bounds.minY < 240, !follow.followsBottom,
@@ -369,12 +402,14 @@ struct NativeTranscript: NSViewRepresentable {
 
     private func publishVisibility() {
         guard !stopped else { return }
+        publishReadingLocation()
         let outOfView: Bool
-        if messages.count <= 1 { outOfView = false }
+        if messages.isEmpty { outOfView = false }
         else {
             let frame = table.rect(ofRow: messages.count - 1)
             let viewport = scroll.contentView.bounds
             outOfView = frame.maxY <= viewport.minY || frame.minY >= viewport.maxY
+                || (messages.last?.role == "assistant" && frame.height > viewport.height && distanceFromBottom > 8)
         }
         guard outOfView != lastOutOfView else { return }
         lastOutOfView = outOfView
@@ -382,6 +417,42 @@ struct NativeTranscript: NSViewRepresentable {
             guard let self, !self.stopped else { return }
             self.input.latestOutOfView = self.lastOutOfView
         }
+    }
+
+    private func publishReadingLocation() {
+        guard let reading = input.reading else { return }
+        let bounds = scroll.contentView.bounds
+        let visible = table.rows(in: bounds)
+        var location: TranscriptReadingState.Location?
+        if visible.location != NSNotFound {
+            for row in visible.location..<min(messages.count, NSMaxRange(visible)) {
+                let message = messages[row]
+                let frame = table.rect(ofRow: row)
+                guard message.role == "assistant", frame.height > bounds.height,
+                      let values = sections[message.id], !values.isEmpty else { continue }
+                let offset = (distanceFromBottom <= 8 ? bounds.maxY : bounds.minY) - frame.minY - 12
+                let selected = values.lastIndex(where: { $0.offset <= offset + 24 }) ?? 0
+                location = .init(message: message.id, sections: values, selected: selected)
+                break
+            }
+        }
+        let current = location
+        DispatchQueue.main.async { [weak self, weak reading] in
+            guard let self, !self.stopped, let reading else { return }
+            if reading.location != current { reading.location = current }
+            reading.navigate = { [weak self] section in self?.navigate(to: section) }
+        }
+    }
+
+    private func navigate(to section: Int) {
+        guard let location = input.reading?.location,
+              let target = location.sections.first(where: { $0.id == section }) else { return }
+        arrival = nil
+        follow.userScrolled(distanceFromBottom: 9)
+        let destination = Anchor(id: location.message, inset: target.offset + 12)
+        insertionAnchor = destination
+        restore(destination)
+        publishVisibility()
     }
 
     func stop() {
@@ -488,6 +559,7 @@ private struct NativeMessageRow: View {
     let presentation: TranscriptPresentationState
     let workspace: WorkspaceState
     let inProgress: Bool
+    let onSections: ([TranscriptReadingSection]) -> Void
     let onExpand: () -> Void
     @Environment(\.mica) private var theme
     var body: some View {
@@ -507,7 +579,7 @@ private struct NativeMessageRow: View {
                                         Text(message.role == "preview" ? "Preview" : "Compacted context")
                                             .font(.kit(size: 12, weight: .semibold))
                                     }
-                                    if !message.text.isEmpty { MarkdownView(source: message.text) }
+                                    if !message.text.isEmpty { MarkdownView(source: message.text, onSections: message.role == "assistant" ? onSections : nil) }
                                     TranscriptAnnotations(annotations: message.annotations ?? [])
                                     TranscriptAttachments(attachments: message.attachments ?? [])
                                 }

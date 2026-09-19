@@ -91,6 +91,78 @@ import Testing
         _ = try await height { $0 < 80 }
     }
 
+    @Test func longResponseStartsAtBeginningAndNavigatesRenderedHeadings() async throws {
+        let reading = TranscriptReadingState()
+        let presentation = TranscriptPresentationState()
+        let workspace = WorkspaceState(demo: false)
+        var rows = [TranscriptMessage(id: "question", role: "user", text: "Explain the design", tools: [])]
+        var active = true
+        func input(resume: Int = 0) -> NativeTranscript {
+            NativeTranscript(messages: rows, hasHistory: false, historyLoading: false,
+                historyError: nil, active: active, presentation: presentation, workspace: workspace,
+                resumeRequest: resume, latestOutOfView: .constant(false), loadHistory: {},
+                theme: MicaTheme(dark: false), reading: reading)
+        }
+        let adapter = NativeTranscriptCoordinator(input())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 400),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        func settle(_ predicate: () -> Bool) async throws {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(3))
+            while !predicate(), ContinuousClock.now < deadline {
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            #expect(predicate())
+        }
+        adapter.receive(input())
+        try await settle { adapter.table.rect(ofRow: 0).height != 90 }
+        rows.append(TranscriptMessage(id: "answer", role: "assistant", text:
+            "## Overview\n\n" + String(repeating: "A paragraph explaining the design.\n\n", count: 15)
+            + "## Details\n\n" + String(repeating: "Implementation detail.\n\n", count: 15), tools: []))
+        active = false
+        adapter.receive(input())
+        try await settle { reading.location?.sections.count == 2 && adapter.anchor()?.id == "message:answer" }
+        #expect(abs(adapter.anchor()?.inset ?? -100) < 1)
+        #expect(reading.location?.sections.map(\.title) == ["Overview", "Details"])
+        let details = try #require(reading.location?.sections.last)
+        reading.navigate?(details.id)
+        try await settle { reading.location?.selected == 1 }
+        #expect(abs((adapter.anchor()?.inset ?? 0) - details.offset - 12) < 1)
+        adapter.receive(input(resume: 1))
+        try await settle { adapter.distanceFromBottom < 1 }
+
+        // A response arriving while the reader is above the bottom leaves the
+        // same message and intra-message position visible.
+        reading.navigate?(try #require(reading.location?.sections.first?.id))
+        let before = try #require(adapter.anchor())
+        active = true
+        adapter.receive(input(resume: 1))
+        rows.append(TranscriptMessage(id: "second", role: "assistant", text: rows[1].text, tools: []))
+        active = false
+        adapter.receive(input(resume: 1))
+        try await Task.sleep(for: .milliseconds(200))
+        #expect(adapter.anchor()?.id == before.id)
+        #expect(abs((adapter.anchor()?.inset ?? 0) - before.inset) < 1)
+
+        // Opening a snapshot containing the same long answer starts at Latest.
+        let restored = NativeTranscriptCoordinator(input())
+        defer { restored.stop() }
+        window.contentView = restored.scroll
+        restored.receive(input())
+        try await settle { restored.table.rect(ofRow: rows.count - 1).height > 400 }
+        #expect(restored.distanceFromBottom < 1)
+        active = true
+        restored.receive(input())
+        rows.append(TranscriptMessage(id: "short", role: "assistant", text: "Done.", tools: []))
+        active = false
+        restored.receive(input())
+        try await settle { restored.table.rect(ofRow: rows.count - 1).height < 90 }
+        #expect(restored.distanceFromBottom < 1)
+    }
+
     @Test func nestedWheelScrollingChainsAtBoundaries() {
         let outer = NativeTranscriptScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         let body = FlippedDocument(frame: NSRect(x: 0, y: 0, width: 500, height: 1200))

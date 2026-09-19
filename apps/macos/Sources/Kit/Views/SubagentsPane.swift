@@ -10,6 +10,7 @@ struct AgentPane: View {
     @State private var presentation = TranscriptPresentationState()
     @State private var latestOutOfView = false
     @State private var resumeRequest = 0
+    @State private var reading = TranscriptReadingState()
     @State private var retry = 0
 
     private var agent: SubagentRoster.Item? { state.selected?.subagents?.items.first { $0.name == name } }
@@ -52,10 +53,11 @@ struct AgentPane: View {
                 Rule()
             }
             if conversation.loaded && !conversation.messages.isEmpty {
+                TranscriptReadingNavigation(state: reading)
                 NativeTranscript(messages: conversation.messages, hasHistory: false,
                     historyLoading: false, historyError: nil, active: conversation.activity != nil, presentation: presentation,
                     workspace: state.ui.workspace, resumeRequest: resumeRequest,
-                    latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID)
+                    latestOutOfView: $latestOutOfView, loadHistory: {}, theme: theme, attachmentClient: state.attachmentClient, attachmentSession: state.selectedID, reading: reading)
                     .overlay(alignment: .bottomTrailing) {
                         if latestOutOfView {
                             Button("Latest", systemImage: "arrow.down") { resumeRequest += 1 }

@@ -4,9 +4,23 @@ import SwiftUI
 
 struct MarkdownView: View {
     let source: String
+    var onSections: (([TranscriptReadingSection]) -> Void)? = nil
 
     var body: some View {
-        MarkdownBlocks(blocks: MarkdownContentCache.shared.content(for: source).blocks)
+        MarkdownBlocks(blocks: MarkdownContentCache.shared.content(for: source).blocks, measureSections: onSections != nil)
+            .coordinateSpace(name: "markdownSections")
+            .onPreferenceChange(MarkdownSectionFrames.self) { frames in
+                guard onSections != nil else { return }
+                let blocks = MarkdownContentCache.shared.content(for: source).blocks
+                let sections = blocks.enumerated().compactMap { index, block -> TranscriptReadingSection? in
+                    guard let offset = frames[index] else { return nil }
+                    if case .heading(_, let title) = block {
+                        return TranscriptReadingSection(id: index, title: String(title.characters), offset: offset)
+                    }
+                    return index == 0 ? TranscriptReadingSection(id: index, title: "Overview", offset: offset) : nil
+                }
+                onSections?(sections)
+            }
             .font(.kit(size: 14)).textSelection(.enabled)
     }
 }
@@ -14,36 +28,51 @@ struct MarkdownView: View {
 private struct MarkdownBlocks: View {
     @Environment(\.mica) private var theme
     let blocks: [MarkdownContent.Block]
+    var measureSections = false
 
     var body: some View {
         VStack(alignment: .leading, spacing: 10) {
-            ForEach(Array(blocks.enumerated()), id: \.offset) { _, block in
-                switch block {
-                case .paragraph(let value): MarkdownInline(value: value).lineSpacing(5)
-                case .heading(let level, let value):
-                    MarkdownInline(value: value)
-                        .font(.kit(size: level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
-                        .padding(.top, 4)
-                case .code(let language, let value): CodeBlock(language: language, source: value)
-                case .quote(let children):
-                    MarkdownBlocks(blocks: children)
-                        .padding(.leading, 14)
-                        .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
-                case .list(let items):
-                    VStack(alignment: .leading, spacing: 8) {
-                        ForEach(Array(items.enumerated()), id: \.offset) { _, item in
-                            HStack(alignment: .firstTextBaseline, spacing: 10) {
-                                Text(item.marker).foregroundStyle(theme.muted)
-                                    .frame(minWidth: 18, alignment: .trailing)
-                                MarkdownBlocks(blocks: item.blocks)
+            ForEach(Array(blocks.enumerated()), id: \.offset) { index, block in
+                Group {
+                    switch block {
+                    case .paragraph(let value): MarkdownInline(value: value).lineSpacing(5)
+                    case .heading(let level, let value):
+                        MarkdownInline(value: value)
+                            .font(.kit(size: level == 1 ? 20 : level == 2 ? 17 : 15, weight: .semibold))
+                            .padding(.top, 4)
+                    case .code(let language, let value): CodeBlock(language: language, source: value)
+                    case .quote(let children):
+                        MarkdownBlocks(blocks: children)
+                            .padding(.leading, 14)
+                            .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
+                    case .list(let items):
+                        VStack(alignment: .leading, spacing: 8) {
+                            ForEach(Array(items.enumerated()), id: \.offset) { _, item in
+                                HStack(alignment: .firstTextBaseline, spacing: 10) {
+                                    Text(item.marker).foregroundStyle(theme.muted)
+                                        .frame(minWidth: 18, alignment: .trailing)
+                                    MarkdownBlocks(blocks: item.blocks)
+                                }
                             }
                         }
+                    case .table(let table): MarkdownTable(table: table)
+                    case .rule: Rule().padding(.vertical, 4)
                     }
-                case .table(let table): MarkdownTable(table: table)
-                case .rule: Rule().padding(.vertical, 4)
+                }.background {
+                    if measureSections && isSectionStart(block, index: index) {
+                        GeometryReader { geometry in
+                            Color.clear.preference(key: MarkdownSectionFrames.self,
+                                value: [index: geometry.frame(in: .named("markdownSections")).minY])
+                        }
+                    }
                 }
             }
         }.frame(maxWidth: .infinity, alignment: .leading)
+    }
+    private func isSectionStart(_ block: MarkdownContent.Block, index: Int) -> Bool {
+        if index == 0 { return true }
+        if case .heading = block { return true }
+        return false
     }
 }
 

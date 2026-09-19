@@ -56,6 +56,13 @@ The collapsed summary shows activity, the cumulative call count, and failures.
 Groups also settle closed at completion; a manual expand/collapse choice takes
 precedence and stays with the session. Automatic changes preserve scroll position.
 
+Long final responses open at their beginning when you were following the live turn.
+Reading earlier content keeps your current position. A quiet section menu and
+previous/next controls navigate the visible long response using its rendered
+Markdown headings; scrolling remains continuous and the composer stays available.
+Latest resumes following the bottom. Loading a saved transcript does not initiate
+a new-response jump. The same behavior applies to subagent conversations.
+
 ## Development and validation
 
 The Swift wire graph is generated from `internal/protocol`. After protocol changes:
