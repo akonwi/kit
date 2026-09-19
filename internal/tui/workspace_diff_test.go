@@ -323,7 +323,7 @@ func TestWorkspaceDiffPaneRendersSemanticUnifiedRows(t *testing.T) {
 	})
 	rows := pumpDiffUntil(t, application, dispatch, 80, 12, "next value")
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"internal/app.go", "1 of 1", "+2 −2", "◆ -2,2 +2,2", "+ old value", "− old next", "+ new value", "+ next value", "[ ] files", "{ } hunks", "r refresh"} {
+	for _, expected := range []string{"internal/app.go", "1 changed file", "+2 −2", "◆ -2,2 +2,2", "+ old value", "− old next", "+ new value", "+ next value", "[ ] files", "{ } hunks"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("diff missing %q:\n%s", expected, text)
 		}
@@ -420,8 +420,8 @@ func TestWorkspaceDiffSplitHorizontalSlicePreservesStyledGraphemes(t *testing.T)
 
 func TestWorkspaceDiffSplitLayoutMeasurementsAreCached(t *testing.T) {
 	lineNumber := 1
-	state := &workspaceDiffPaneState{
-		viewportWidth: 120,
+	state := &workspaceDiffFileState{
+		pane: &workspaceDiffPaneState{viewportWidth: 120},
 		hunks: []protocol.DiffHunk{{OldStart: 0, OldCount: 0, NewStart: 1, NewCount: 1, Lines: []protocol.DiffLine{{
 			Kind: "addition", NewLine: &lineNumber, Content: strings.Repeat("wide ", 40), HasTerminatingLF: true,
 		}}}},
@@ -603,8 +603,8 @@ func TestWorkspaceDiffPanePollsAndDefersRefreshWhileCommenting(t *testing.T) {
 }
 
 func TestWorkspaceDiffSplitNavigationVisitsLogicalLinesOnce(t *testing.T) {
-	state := workspaceDiffPaneState{
-		viewportWidth: workspaceDiffSplitBreakpoint,
+	state := workspaceDiffFileState{
+		pane: &workspaceDiffPaneState{viewportWidth: workspaceDiffSplitBreakpoint},
 		hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{
 			{Kind: "context"}, {Kind: "deletion"}, {Kind: "context"}, {Kind: "addition"},
 		}}},
@@ -645,9 +645,9 @@ func TestWorkspaceDiffSplitNavigationVisitsLogicalLinesOnce(t *testing.T) {
 }
 
 func TestWorkspaceDiffSplitCursorMappingSupportsAdditionFirstRuns(t *testing.T) {
-	state := workspaceDiffPaneState{
-		viewportWidth: workspaceDiffSplitBreakpoint,
-		hunks:         []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition"}, {Kind: "deletion"}}}},
+	state := workspaceDiffFileState{
+		pane:  &workspaceDiffPaneState{viewportWidth: workspaceDiffSplitBreakpoint},
+		hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition"}, {Kind: "deletion"}}}},
 	}
 	for _, target := range []struct {
 		cursor int
@@ -745,7 +745,7 @@ func TestWorkspaceDiffPaneOpensPinnedAnnotationObservation(t *testing.T) {
 		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true},
 		Annotations:  []protocol.AnnotationSummary{{ID: 4, Anchor: protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkingTreeDiff, WorkingTreeDiff: &anchor}, BodyPreview: "range note", Preview: "first page\npinned evidence"}},
 	})
-	rows := pumpDiffUntil(t, application, dispatch, 80, 10, "range note")
+	rows := pumpDiffUntil(t, application, dispatch, 80, 13, "range note")
 	if !strings.Contains(strings.Join(rows, "\n"), "+ first page") || !strings.Contains(strings.Join(rows, "\n"), "pinned evidence") {
 		t.Fatalf("complete pinned range was not loaded and revealed:\n%s", strings.Join(rows, "\n"))
 	}
@@ -861,7 +861,7 @@ func TestWorkspaceDiffPaneLoadsMoreHunksNearLoadedBoundary(t *testing.T) {
 	}
 }
 
-func TestWorkspaceDiffPaneLoadsAllChangedFilePagesForCycling(t *testing.T) {
+func TestWorkspaceDiffPaneLoadsAllChangedFilePagesIntoOneDocument(t *testing.T) {
 	first := textDiffFile("first.go", 1, 0)
 	second := textDiffFile("second.go", 0, 1)
 	initial := testDiffObservation(first)
@@ -881,13 +881,13 @@ func TestWorkspaceDiffPaneLoadsAllChangedFilePagesForCycling(t *testing.T) {
 		Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
 		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true},
 	})
-	rows := pumpDiffUntil(t, application, dispatch, 80, 12, "1 of 2")
+	rows := pumpDiffUntil(t, application, dispatch, 80, 12, "second.go")
 	if !strings.Contains(strings.Join(rows, "\n"), "first.go") {
 		t.Fatalf("first changed file was not selected:\n%s", strings.Join(rows, "\n"))
 	}
 	application.Send(vaxis.Key{Text: "]", Keycode: ']'})
 	rows = pumpDiffUntil(t, application, dispatch, 80, 12, "second.go")
-	if !strings.Contains(strings.Join(rows, "\n"), "2 of 2") {
+	if !strings.Contains(strings.Join(rows, "\n"), "2 changed files") {
 		t.Fatalf("second changed-file page was not available to cycling:\n%s", strings.Join(rows, "\n"))
 	}
 }
@@ -1037,25 +1037,36 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	close(releaseCommit)
 	rows := pumpDiffUntil(t, application, dispatch, 100, 14, "committed evidence")
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"1 of 1  " + glyphMiddleDot + "  shared.go", "a1b2c3d  Fix parser bounds", "committed evidence"} {
+	for _, expected := range []string{"shared.go", "a1b2c3d  Fix parser bounds", "committed evidence"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("switched target missing %q:\n%s", expected, text)
 		}
 	}
 	header := rows[0]
-	position, path, revision := strings.Index(header, "1 of 1"), strings.Index(header, "shared.go"), strings.Index(header, "a1b2c3d  Fix parser bounds")
-	if position < 0 || path <= position || revision <= path || !strings.HasSuffix(strings.TrimSpace(header), "a1b2c3d  Fix parser bounds") {
+	position, revision := strings.Index(header, "1 changed file"), strings.Index(header, "a1b2c3d  Fix parser bounds")
+	if revision < 0 || position <= revision || !strings.HasPrefix(strings.TrimSpace(header), "a1b2c3d  Fix parser bounds") || !strings.HasSuffix(strings.TrimSpace(header), "Unified") {
 		t.Fatalf("diff header hierarchy is incorrect: %q", header)
 	}
+
 	revisionColumn, headerRow := findRenderedDiffText(t, application, 100, 14, "a1b2c3d  Fix parser bounds")
-	pathColumn, _ := findRenderedDiffText(t, application, 100, 14, "shared.go")
+	if revisionColumn != 1 || headerRow != 0 {
+		t.Fatalf("revision position = (%d,%d), want (1,0)", revisionColumn, headerRow)
+	}
+	countColumn, _ := findRenderedDiffText(t, application, 100, 14, "1 changed file")
+	layoutColumn, _ := findRenderedDiffText(t, application, 100, 14, "Unified")
+	wantCountColumn := revisionColumn + len("a1b2c3d  Fix parser bounds") + 2
+	if countColumn != wantCountColumn || layoutColumn != 92 {
+		t.Fatalf("header count/layout columns = %d/%d, want %d/92", countColumn, layoutColumn, wantCountColumn)
+	}
+
+	pathColumn, pathRow := findRenderedDiffText(t, application, 100, 14, "shared.go")
 	baseBackground := application.Cell(revisionColumn, headerRow).Style.Background
 	application.Send(vaxis.Mouse{Col: revisionColumn, Row: headerRow, EventType: vaxis.EventMotion})
 	application.Pump(100, 14)
 	if application.Cell(revisionColumn, headerRow).Style.Background == baseBackground {
 		t.Fatal("revision control did not show its hover surface")
 	}
-	application.Send(vaxis.Mouse{Col: pathColumn, Row: headerRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Send(vaxis.Mouse{Col: pathColumn, Row: pathRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
 	application.Pump(100, 14)
 	if strings.Contains(application.Text(), "Select diff target") {
 		t.Fatal("clicking the file portion of the header opened the target picker")
@@ -1111,14 +1122,16 @@ func TestWorkspaceDiffTargetSwitchPublishesFirstCoherentPage(t *testing.T) {
 	}
 firstPageReady:
 	text := application.Text()
-	if !strings.Contains(text, "ccccccc  Paged") || !strings.Contains(text, "Loading file diff") || strings.Contains(text, "old presentation") {
+	if !strings.Contains(text, "ccccccc  Paged") || !strings.Contains(text, "Scroll to load diff") || strings.Contains(text, "old presentation") {
 		t.Fatalf("first coherent page was not published atomically:\n%s", text)
 	}
 	rows := paintedRows(application, 100, 14)
-	loadingColumn, _ := findTextCell(t, rows, "Loading file diff…")
-	if want := (100-len([]rune("⠋ Loading file diff…")))/2 + 2; loadingColumn != want {
-		t.Fatalf("loading label column = %d, want centered column %d (viewport width %d):\n%s", loadingColumn, want, state.viewportWidth, strings.Join(rows, "\n"))
+	_, fileRow := findTextCell(t, rows, "first.go")
+	_, loadingRow := findTextCell(t, rows, "Scroll to load diff")
+	if loadingRow != fileRow+2 {
+		t.Fatalf("loading state should belong to its file section:\n%s", strings.Join(rows, "\n"))
 	}
+
 	close(releaseNext)
 	pumpDiffUntil(t, application, dispatch, 100, 14, "first.go")
 }

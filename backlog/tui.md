@@ -48,7 +48,8 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   [ADR 0019](../docs/adrs/0019-expose-session-workspace-files.md) and
   [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
 - [x] TUI-DIFF-001 — Provide a read-only diff viewer for working-tree changes,
-  including agent edits, with changed-file and hunk navigation, semantic
+  including agent edits, in one continuous scrollable document with per-file
+  loading and retry states, changed-file and hunk navigation, semantic
   added/removed/context styling, line-number gutters, unified and split layouts
   where width permits, bounded automatic refresh while the pane is active and
   visible, and explicit loading, empty, stale, truncated, and error states. Depends on

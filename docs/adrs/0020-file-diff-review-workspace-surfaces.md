@@ -89,6 +89,20 @@ truncated, loading, empty, and error presentation. Diff panes provide changed
 file and hunk navigation, semantic added/removed/context styling, line-number
 gutters, and unified or split layouts where width permits.
 
+A Diff pane presents one continuous vertical document containing all changed-file
+sections. Each section has a path and addition/deletion summary above its hunks;
+file and hunk navigation moves within the document rather than replacing its
+content. The header groups revision selection and the changed-file count on the
+left, with wrapping and unified/split layout controls on the right.
+File bodies and continuation pages load on demand with bounded concurrency.
+Loading, retry, non-text, and incomplete-content states belong to their file
+section, and a continuation failure preserves already loaded evidence. Offscreen
+sections retain their measured extent without mounted code or animation widgets,
+except that active editors and ranges remain mounted to preserve interaction.
+Loading an earlier section preserves the viewport's position within its current
+file. Cursor and annotation coordinates remain file- and revision-bound, and a
+range or active editor cannot migrate across file sections.
+
 ### Annotations and review without a Review tab
 
 Annotations are session-owned inputs for a message being drafted, as defined by

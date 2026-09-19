@@ -363,6 +363,10 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 ### Diffs and inline comments
 
+- Present changed files as titled sections in one continuous scroll document.
+  File/hunk shortcuts jump within that document, not between isolated file views.
+  Keep loading, continuation, retry, and non-text states local to their section;
+  preserve loaded evidence and viewport position as other sections load.
 - Use the `diffAdded*`, `diffRemoved*`, and `diffCursor*` token families rather than custom tints.
 - Keep line-number gutters visually distinct from content while preserving one cursor state across the row.
 - Use named glyphs such as `DASHED_VERTICAL` and `DIAMOND` for diff markers.
