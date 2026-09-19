@@ -500,7 +500,7 @@ func (s *workspaceFilePaneState) Build(ctx ui.BuildContext) ui.Widget {
 		}
 	}
 	content := ui.Widget(workspacePanelLayout{Header: header, Body: body, Footer: footer})
-	content = ui.Focus(&s.focus, content)
+	content = controlFocusScope{Passive: true, Child: ui.FocusWithOptions(&s.focus, ui.FocusOptions{SkipTraversal: !w.Presentation.Active}, content)}
 	content = ui.FocusScope{AutoFocus: w.Presentation.Active, Child: content}
 	content = mouseReleaseListener{Child: content, OnRelease: func(ui.EventContext) { s.finishGutterComment(w) }}
 	content = mouseActivator{Child: content, DefaultMouseShape: true, OnPrimaryDownCapture: func(event ui.EventContext) {
@@ -508,7 +508,9 @@ func (s *workspaceFilePaneState) Build(ctx ui.BuildContext) ui.Widget {
 		if w.OnFocusRequest != nil {
 			w.OnFocusRequest(event)
 		}
-		s.focus.RequestFocus()
+		if !w.Presentation.KeyboardBlocked {
+			s.focus.RequestFocus()
+		}
 	}}
 	return ui.Actions{Bindings: bindings, Child: keyShortcuts{Bindings: shortcuts, Child: content}}
 }
@@ -625,7 +627,7 @@ func (s *workspaceFilePaneState) extendGutterComment(line int) {
 }
 
 func (s *workspaceFilePaneState) finishGutterComment(w workspaceFilePane) {
-	if s.mouseSelectionAnchor <= 0 || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
+	if w.Presentation.KeyboardBlocked || s.mouseSelectionAnchor <= 0 || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
 		s.mouseSelectionAnchor = 0
 		return
 	}

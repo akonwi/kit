@@ -195,7 +195,10 @@ type subagentDiagnosticToastKey struct {
 func (a app) CreateState() ui.State { return &appState{} }
 
 type appState struct {
+	inputControl       *controlFocusState
+	pasteControl       *controlFocusState
 	inputReturn        shellFocusReturn
+	paneInput          paneInputOwner
 	replacingPalette   bool
 	renderedInput      inputToken
 	inputGeneration    uint64
@@ -1080,6 +1083,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
 		Workspace:                    s.workspace.Snapshot(),
 		CurrentWorkspaceID:           s.workspaceID,
+		PaneInput:                    s.paneInput,
 		WorkspaceFilePicker:          s.workspaceFilePicker,
 		WorkspaceFilePickerScroll:    &s.workspaceFilePickerScroll,
 		WorkspacePickerOpen:          s.workspacePickerOpen,
@@ -1124,6 +1128,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	callbacks := shellCallbacks{
 		InputOwner:       s.inputOwner,
+		PaneInputChanged: s.setPaneInputOwner,
 		WorkspaceMouse:   &s.workspaceMouse,
 		SetDiffWrapLines: s.setDiffWrapLines,
 		ShowDiffWarning: func(message string) {
@@ -1347,7 +1352,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			if s.inputOwner().trapsFocus() {
 				return
 			}
-			s.SetState(func() { s.workspace.MoveFocus() })
+			s.SetState(func() { s.inputControl = nil; s.workspace.MoveFocus() })
 		},
 		FocusWorkspaceComposer: func(ui.EventContext) {
 			if s.inputOwner().trapsFocus() {
@@ -1684,6 +1689,9 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		}
 	}
 	s.reconcileInputOwner()
+	if s.inputOwner().permitsRoot() {
+		ctx.Invoke(captureControlFocusIntent{Report: func(control *controlFocusState) { s.inputControl = control }})
+	}
 	// Ignore stale pointer targets during ownership transitions. Background
 	// scrolling remains available for a dock, but no old control may activate.
 	if mouse, ok := event.(ui.Mouse); ok && s.inputOwner() == inputInteraction && mouse.Button == ui.MouseLeftButton {
@@ -1694,8 +1702,25 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 			return ui.EventHandled
 		}
 	}
+	// A pane-local modal is geometrically bounded by its pane, so its barrier
+	// cannot cover shell chrome or the composer. The logical owner still makes
+	// those regions inert while preserving pointer interaction inside the picker.
+	if mouse, ok := event.(ui.Mouse); ok && s.inputOwner() == inputPane && !s.targetOwnsInput(ctx) {
+		if mouse.EventType == vaxis.EventRelease {
+			s.workspaceMouse.Release()
+		}
+		return ui.EventHandled
+	}
+	// A dock leaves background selection and scrolling available, not lower
+	// editor/button activation. Passive pane focus anchors are selection surfaces.
+	if mouse, ok := event.(ui.Mouse); ok && mouse.Button == ui.MouseLeftButton && s.inputOwner() == inputInteraction && !s.targetOwnsInput(ctx) {
+		if control := captureInputControl(ctx); control != nil && !control.Widget().(controlFocusScope).Passive {
+			return ui.EventHandled
+		}
+	}
 	if _, starting := event.(vaxis.PasteStartEvent); starting {
 		s.pasteOwner = s.inputToken()
+		s.pasteControl = captureInputControl(ctx)
 	}
 	if key, ok := event.(ui.Key); ok && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
 		if key.EventType != ui.EventRelease {
@@ -1704,7 +1729,7 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return ui.EventHandled
 	}
 	if result, consumed := s.paste.Observe(ctx, event, func(ctx ui.EventContext, key ui.Key) ui.EventResult {
-		if s.pasteOwner != s.inputToken() {
+		if s.pasteOwner != s.inputToken() || s.pasteControl != captureInputControl(ctx) {
 			return ui.EventHandled
 		}
 		return s.deliverPaste(ctx, key)
@@ -1733,7 +1758,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if key.EventType != vaxis.EventPaste && key.MatchString("Escape") && owner.modal() && owner != inputAuth {
+	if key.EventType != vaxis.EventPaste && key.MatchString("Escape") && owner.modal() && owner != inputAuth && owner != inputPane {
 		if key.EventType != ui.EventRelease {
 			s.dismiss(ctx)
 		}
@@ -6324,6 +6349,8 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		return
 	case inputInteraction:
 		return // The dock's local dismiss action owns cancellation.
+	case inputPane:
+		return // The pane-local child owns dismissal after it is rendered.
 	}
 
 	switch s.phase {

@@ -67,7 +67,7 @@ func (s *plainButtonState) Build(ctx ui.BuildContext) ui.Widget {
 	if s.focused || s.hovered {
 		style.Background = theme.SurfaceHovered
 	}
-	return ui.RichText{Spans: []ui.TextSpan{{
+	return controlFocusScope{Child: ui.RichText{Spans: []ui.TextSpan{{
 		Text:            " " + config.Label + " ",
 		Style:           style,
 		ClickAffordance: ui.ClickAffordanceNone,
@@ -92,5 +92,5 @@ func (s *plainButtonState) Build(ctx ui.BuildContext) ui.Widget {
 				s.SetState(func() { s.focused = false })
 			}
 		},
-	}}}
+	}}}}
 }

@@ -5,13 +5,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ## R1 required
 
-### Theme and shell
-
-- [~] TUI-SHELL-002 — Unify overlay admission, input ownership, dismissal,
-  paste routing, and focus restoration for the built-in keymap. Verify nested
-  dialogs and asynchronous interaction arrival against the same precedence
-  rules. See the [completion proposal](tui-input-ownership.md).
-
 ### Directory, file, and diff workspace
 
 - [ ] TUI-WORK-001 — Register retained file and diff panes with stable identity,

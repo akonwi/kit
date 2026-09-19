@@ -255,6 +255,27 @@ Handlers are registered only while their layer and pane are eligible. A hidden
 pane cannot consume an event, and a conditional Vaxis action is omitted rather
 than registered with an ignored result that would block an outer action.
 
+Pane-local dialogs participate in the same admission and ownership rules as
+shell dialogs. Their ownership is scoped to the attached session, workspace,
+selected pane, and pane incarnation. Only explicitly supported child dialogs
+may nest. An interaction arriving beneath a modal waits without taking focus;
+closing the modal hands focus to the pending interaction before restoring the
+underlying control. Mounted editors retain their cursor and selection, and
+return addresses are validated before restoring focus. Invalid return targets
+fall back to the composer.
+
+Bracketed paste belongs to its originating session, owner incarnation, and
+control. Ownership changes discard it rather than redirecting it. Paste is text
+insertion only, never a navigation, submission, or dismissal command. A rendered
+target that no longer owns input cannot receive stale keys or paste; after a
+background text selection temporarily captures native focus, the interaction
+dock reclaims focus on the next frame. Background selection and scrolling remain
+available without granting keyboard ownership.
+
+`Ctrl+C` always quits/detaches the client without cancelling server-owned work or
+interactions. Escape cancels only the innermost reversible operation; pending
+non-cancellable work consumes it.
+
 `Tab` moves focus between the selected Agent/workspace content and the composer;
 `Shift+Tab` performs the reverse transition. These bindings are part of the shell
 contract rather than ordinary pane bindings. When a modal picker, dialog, or

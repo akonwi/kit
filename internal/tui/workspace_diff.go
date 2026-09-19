@@ -117,25 +117,26 @@ func (moveWorkspaceDiffTargetIntent) IntentType() ui.IntentType {
 }
 
 type workspaceDiffPane struct {
-	Descriptor         workspacePaneDescriptor
-	CurrentWorkspaceID string
-	Diff               sessionclient.DiffSession
-	Highlighter        highlight.Highlighter
-	Dispatch           func(func())
-	Presentation       workspacePanePresentation
-	Annotations        []protocol.AnnotationSummary
-	InitialWrapLines   bool
-	OnWrapLinesChanged func(bool)
-	MouseGestures      *workspaceMouseGestureController
-	OnFocusRequest     ui.VoidCallback
-	OnCreateAnnotation func(protocol.AnnotationAnchor, string, func(error))
-	OnLoadAnnotation   func(uint64, func(string, error)) func()
-	OnUpdateAnnotation func(uint64, string, func(error))
-	OnRemoveAnnotation func(ui.EventContext, uint64)
-	OnWarning          func(string)
-	OnNotice           func(string)
-	RefreshInterval    time.Duration
-	testState          *workspaceDiffPaneState
+	Descriptor          workspacePaneDescriptor
+	CurrentWorkspaceID  string
+	Diff                sessionclient.DiffSession
+	Highlighter         highlight.Highlighter
+	Dispatch            func(func())
+	Presentation        workspacePanePresentation
+	Annotations         []protocol.AnnotationSummary
+	InitialWrapLines    bool
+	OnWrapLinesChanged  func(bool)
+	MouseGestures       *workspaceMouseGestureController
+	OnFocusRequest      ui.VoidCallback
+	OnInputOwnerChanged func(paneInputKind, bool) bool
+	OnCreateAnnotation  func(protocol.AnnotationAnchor, string, func(error))
+	OnLoadAnnotation    func(uint64, func(string, error)) func()
+	OnUpdateAnnotation  func(uint64, string, func(error))
+	OnRemoveAnnotation  func(ui.EventContext, uint64)
+	OnWarning           func(string)
+	OnNotice            func(string)
+	RefreshInterval     time.Duration
+	testState           *workspaceDiffPaneState
 }
 
 func (w workspaceDiffPane) CreateState() ui.State {
@@ -260,11 +261,15 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 		return
 	}
 	if previous.Presentation.Active && !w.Presentation.Active || previous.Presentation.Visible && !w.Presentation.Visible {
+		s.targetPickerOpen = false
+		s.targetQuery = ""
 		s.stopWork()
 		s.stopCatalog()
 		return
 	}
 	if w.Descriptor.OpenGeneration != s.appliedOpen {
+		s.targetPickerOpen = false
+		s.targetQuery = ""
 		s.appliedOpen = w.Descriptor.OpenGeneration
 		if w.Presentation.Active {
 			s.startDescriptorLoad()
@@ -747,8 +752,7 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 	if target.Reference == "" {
 		return
 	}
-	s.targetPickerOpen = false
-	s.targetQuery = ""
+	s.setTargetPickerOpen(false)
 	if target.TargetID == s.activeTarget.TargetID && !s.pinnedEvidence {
 		return
 	}
@@ -768,12 +772,32 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 	s.startObservation()
 }
 
+func (s *workspaceDiffPaneState) setTargetPickerOpen(open bool) bool {
+	if s.targetPickerOpen == open {
+		return true
+	}
+	callback := s.Widget().(workspaceDiffPane).OnInputOwnerChanged
+	if open && callback != nil && !callback(paneInputDiffTarget, true) {
+		return false
+	}
+	s.targetPickerOpen = open
+	if !open {
+		s.targetQuery = ""
+		if callback != nil {
+			callback(paneInputDiffTarget, false)
+		}
+	}
+	return true
+}
+
 func (s *workspaceDiffPaneState) openTargetPicker() {
 	if s.refreshBlocked() {
 		s.warning("Finish the active range or comment before changing target")
 		return
 	}
-	s.targetPickerOpen = true
+	if !s.setTargetPickerOpen(true) {
+		return
+	}
 	s.targetQuery = ""
 	s.ensureTargetSelection()
 	s.loadTargetCatalog(false)
@@ -1115,6 +1139,7 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 	}})
 	content := pickerDialogContent(theme, body, ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
 	actions := map[ui.IntentType]ui.ActionFunc{
+		inputTargetIntent{}.IntentType(): inputTargetAction(inputPane),
 		moveWorkspaceDiffTargetIntent{}.IntentType(): func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
 			s.SetState(func() {
 				targets := s.filteredTargets()
@@ -1125,12 +1150,12 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 			return ui.EventHandled
 		},
 		ui.DismissIntentType: func(ui.EventContext, ui.Intent) ui.EventResult {
-			s.SetState(func() { s.targetPickerOpen = false; s.targetQuery = "" })
+			s.SetState(func() { s.setTargetPickerOpen(false) })
 			return ui.EventHandled
 		},
 	}
 	content = ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: ui.ShortcutMap{"Up": moveWorkspaceDiffTargetIntent{delta: -1}, "Down": moveWorkspaceDiffTargetIntent{delta: 1}}, Child: content}}
-	return pickerDialogPositioner{Percent: 70, MinWidth: 48, MaxWidth: 96, Height: pickerModalMinHeight, Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content}}
+	return pickerDialogPositioner{Percent: 70, MinWidth: 48, MaxWidth: 96, Height: pickerModalMinHeight, Child: ui.FocusScope{Trap: true, AutoFocus: true, ReclaimFocus: true, Child: content}}
 }
 
 func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
@@ -1335,7 +1360,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 	if s.targetPickerOpen {
 		content = ui.Overlay{Child: content, Entries: []ui.OverlayEntry{{Modal: true, Barrier: clearModalBarrier{}, Child: s.targetPicker(ctx, theme)}}}
 	}
-	content = ui.Focus(&s.focus, content)
+	content = controlFocusScope{Passive: true, Child: ui.FocusWithOptions(&s.focus, ui.FocusOptions{SkipTraversal: !w.Presentation.Active}, content)}
 	content = ui.FocusScope{AutoFocus: w.Presentation.Active, Child: content}
 	content = mouseReleaseListener{Child: content, OnRelease: func(ui.EventContext) { s.active.finishGutterRange(w) }}
 	content = mouseActivator{Child: content, DefaultMouseShape: true, OnScroll: func(_ ui.EventContext, mouse ui.Mouse) ui.EventResult {
@@ -1366,7 +1391,9 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 		if w.OnFocusRequest != nil {
 			w.OnFocusRequest(event)
 		}
-		s.focus.RequestFocus()
+		if !w.Presentation.KeyboardBlocked {
+			s.focus.RequestFocus()
+		}
 	}}
 	return ui.Actions{Bindings: bindings, Child: keyShortcuts{Bindings: shortcuts, Child: content}}
 }

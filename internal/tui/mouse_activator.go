@@ -16,16 +16,20 @@ type mouseActivator struct {
 
 func (w mouseActivator) WidgetChild() ui.Widget { return w.Child }
 
-func (w mouseActivator) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+func (w mouseActivator) CreateRenderObject(ctx ui.BuildContext) ui.RenderObject {
+	policy, _ := ui.Depend[workspacePointerPolicy](ctx)
 	return &renderMouseActivator{
-		OnPressed: w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit,
+		InputAllowed: policy.Allow,
+		OnPressed:    w.OnPressed, OnHover: w.OnHover, OnHoverExit: w.OnHoverExit,
 		OnPrimaryDownCapture: w.OnPrimaryDownCapture, OnMotion: w.OnMotion, OnScroll: w.OnScroll,
 		DefaultMouseShape: w.DefaultMouseShape,
 	}
 }
 
-func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
+func (w mouseActivator) UpdateRenderObject(ctx ui.BuildContext, renderObject ui.RenderObject) {
+	policy, _ := ui.Depend[workspacePointerPolicy](ctx)
 	render := renderObject.(*renderMouseActivator)
+	render.InputAllowed = policy.Allow
 	render.OnPressed = w.OnPressed
 	render.OnHover = w.OnHover
 	render.OnHoverExit = w.OnHoverExit
@@ -36,6 +40,7 @@ func (w mouseActivator) UpdateRenderObject(_ ui.BuildContext, renderObject ui.Re
 }
 
 type renderMouseActivator struct {
+	InputAllowed func(ui.EventContext) bool
 	ui.SingleChildRenderObject
 	OnPressed            ui.VoidCallback
 	OnHover              ui.VoidCallback
@@ -80,7 +85,7 @@ func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) 
 				return r.OnScroll(ctx, mouse)
 			}
 		}
-		if ok && mouse.EventType == ui.EventPress && mouse.Button == ui.MouseLeftButton && r.OnPrimaryDownCapture != nil {
+		if ok && mouse.EventType == ui.EventPress && mouse.Button == ui.MouseLeftButton && r.OnPrimaryDownCapture != nil && (r.InputAllowed == nil || r.InputAllowed(ctx)) {
 			r.OnPrimaryDownCapture(ctx)
 		}
 		return ui.EventIgnored
@@ -98,6 +103,9 @@ func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) 
 		return ui.EventIgnored
 	}
 	if mouse.EventType == ui.EventMotion {
+		if r.InputAllowed != nil && !r.InputAllowed(ctx) {
+			return ui.EventIgnored
+		}
 		if r.OnMotion != nil {
 			r.OnMotion(ctx, mouse)
 		}
@@ -117,6 +125,9 @@ func (r *renderMouseActivator) HandleEvent(ctx ui.EventContext, event ui.Event) 
 	}
 	if mouse.EventType != ui.EventPress || mouse.Button != ui.MouseLeftButton || r.OnPressed == nil {
 		return ui.EventIgnored
+	}
+	if r.InputAllowed != nil && !r.InputAllowed(ctx) {
+		return ui.EventHandled
 	}
 	r.OnPressed(ctx)
 	return ui.EventHandled

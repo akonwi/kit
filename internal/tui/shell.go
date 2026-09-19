@@ -68,6 +68,7 @@ type shellSnapshot struct {
 	SubagentFocuses              map[string]*ui.FocusNode
 	Workspace                    workspaceControllerSnapshot
 	CurrentWorkspaceID           string
+	PaneInput                    paneInputOwner
 	WorkspaceFilePicker          workspaceFilePickerController
 	WorkspaceFilePickerScroll    *ui.ScrollController
 	WorkspacePickerOpen          bool
@@ -117,6 +118,7 @@ type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
 	InputOwner                  func() inputOwner
+	PaneInputChanged            func(workspacePaneDescriptor, paneInputKind, bool) bool
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
 	ShowDiffWarning             func(string)
@@ -450,21 +452,27 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if !focusOwnerRendered() {
+			if !focusOwnerRendered() || (currentOwner().trapsFocus() && renderedInputTarget(ctx) != currentOwner()) {
 				return ui.EventHandled
 			}
 			if !currentOwner().trapsFocus() && w.Callbacks.MoveWorkspaceFocus != nil {
 				w.Callbacks.MoveWorkspaceFocus(ctx)
+				if w.Callbacks.InputOwner != nil {
+					return ui.EventHandled
+				}
 			}
 			ctx.FocusNext()
 			return ui.EventHandled
 		},
 		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if !focusOwnerRendered() {
+			if !focusOwnerRendered() || (currentOwner().trapsFocus() && renderedInputTarget(ctx) != currentOwner()) {
 				return ui.EventHandled
 			}
 			if !currentOwner().trapsFocus() && w.Callbacks.MoveWorkspaceFocus != nil {
 				w.Callbacks.MoveWorkspaceFocus(ctx)
+				if w.Callbacks.InputOwner != nil {
+					return ui.EventHandled
+				}
 			}
 			ctx.FocusPrevious()
 			return ui.EventHandled
@@ -581,9 +589,10 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			active := workspace.Selected == identity
 			retainedPanes = append(retainedPanes, retainedWorkspacePane{
 				Identity: identity, Active: active,
-				Child: ui.FocusScope{AutoFocus: active && w.restoreContent, Child: definition.Build(w, theme, descriptor, workspacePanePresentation{
+				Child: ui.Provider[workspacePointerPolicy]{Value: panePointerPolicy(w), Child: ui.Provider[controlFocusRegion]{Value: focusRegionForPane(w, descriptor), Child: ui.FocusScope{AutoFocus: active && w.restoreContent, Child: definition.Build(w, theme, descriptor, workspacePanePresentation{
 					Active: active, Visible: active, Focused: active && w.workspacePaneFocused(descriptor),
-				})},
+					KeyboardBlocked: w.Snapshot.inputOwner().trapsFocus() && w.Snapshot.inputOwner() != inputPane,
+				})}}},
 			})
 		}
 		secondaryPane := ui.Widget(retainedWorkspacePaneStack{Panes: retainedPanes})
@@ -607,7 +616,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			pending = ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}
 			pendingHeight += annotationRows + len(w.Snapshot.ComposerAttachments)
 		}
-		composer := ui.Widget(ui.FocusScope{AutoFocus: w.restoreComposer, Child: w.composer(theme)})
+		composer := ui.Widget(ui.Provider[controlFocusRegion]{Value: focusRegionFor(w, false), Child: ui.FocusScope{AutoFocus: w.restoreComposer, Child: w.composer(theme)}})
 		composerHeightLimit := composerMaxHeight
 		composerLayers := []ui.Widget{retainedComposer{Visible: len(w.Snapshot.PendingInteractions) == 0, Child: composer}}
 		if len(w.Snapshot.PendingInteractions) > 0 {
@@ -620,7 +629,7 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 		composer = ui.Stack{Children: composerLayers}
 		body = ui.Expanded(conversationWorkspaceHost{
 			Open: workspace.StripVisible(), ActivitySelected: paneSelected,
-			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
+			Tabs: w.workspaceTabs(theme), Transcript: ui.Provider[controlFocusRegion]{Value: focusRegionFor(w, true), Child: ui.FocusScope{AutoFocus: w.restoreContent && !paneSelected, Child: w.body(theme)}},
 			Pending: pending, PendingHeight: pendingHeight,
 			ComposerSeparator: ui.Divider{Style: ui.Style{Foreground: w.composerSeparatorColor(theme), Background: theme.Background}},
 			Composer:          composer, ComposerHeightLimit: composerHeightLimit,

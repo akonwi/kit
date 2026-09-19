@@ -75,7 +75,7 @@ func (s *textInputState) Build(ui.BuildContext) ui.Widget {
 				s.MarkNeedsBuild()
 			}
 		},
-		Child: ui.Provider[ui.Theme]{Value: widget.Theme, Child: field},
+		Child: ui.Provider[ui.Theme]{Value: widget.Theme, Child: controlFocusScope{Child: field}},
 	}
 }
 

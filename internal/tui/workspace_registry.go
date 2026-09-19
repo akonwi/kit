@@ -32,9 +32,10 @@ func (activity workspacePaneActivity) marker() string {
 }
 
 type workspacePanePresentation struct {
-	Active  bool
-	Visible bool
-	Focused bool
+	KeyboardBlocked bool
+	Active          bool
+	Visible         bool
+	Focused         bool
 }
 
 type workspacePaneDefinition struct {
@@ -68,6 +69,9 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 				OnWrapLinesChanged: view.Callbacks.SetDiffWrapLines,
 				MouseGestures:      view.Callbacks.WorkspaceMouse,
 				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,
+				OnInputOwnerChanged: func(kind paneInputKind, active bool) bool {
+					return view.Callbacks.PaneInputChanged != nil && view.Callbacks.PaneInputChanged(descriptor, kind, active)
+				},
 				OnCreateAnnotation: view.Callbacks.CreateAnnotation,
 				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,
 				OnUpdateAnnotation: view.Callbacks.UpdateAnnotation,

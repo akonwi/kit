@@ -775,7 +775,7 @@ func (s *workspaceDiffFileState) extendGutterRange(w workspaceDiffPane, row int,
 }
 
 func (s *workspaceDiffFileState) finishGutterRange(w workspaceDiffPane) {
-	if !s.selectionActive() || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
+	if w.Presentation.KeyboardBlocked || !s.selectionActive() || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
 		return
 	}
 	s.mouseSelectionGeneration = 0

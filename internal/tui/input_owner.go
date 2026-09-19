@@ -15,6 +15,7 @@ const (
 	inputSessionMention
 	inputInteraction
 	inputAuth
+	inputPane
 	inputBashHistory
 	inputConfiguration
 	inputSessionDetails
@@ -84,6 +85,8 @@ func (w shellSnapshot) inputOwner() inputOwner {
 		return inputConfiguration
 	case w.BashHistory.Open:
 		return inputBashHistory
+	case w.PaneInput.active(w):
+		return inputPane
 	case len(w.PendingInteractions) > 0:
 		return inputInteraction
 	case w.SessionMention.Open && composerOwnsWorkspaceInput(w.Workspace):
@@ -97,7 +100,7 @@ func (w shellSnapshot) inputOwner() inputOwner {
 
 func (s *appState) inputOwner() inputOwner {
 	return (shellSnapshot{
-		Phase: s.phase, Workspace: s.workspace.Snapshot(), PaletteOpen: s.palette.Open, ThemePicker: s.themePicker.Snapshot(),
+		Phase: s.phase, Session: s.session, Workspace: s.workspace.Snapshot(), CurrentWorkspaceID: s.workspaceID, PaneInput: s.paneInput, PaletteOpen: s.palette.Open, ThemePicker: s.themePicker.Snapshot(),
 		SubagentDismissID: s.subagentDismissID, SubagentsOpen: s.subagentsOpen,
 		WorkspacePickerOpen: s.workspacePickerOpen, WorkspaceFilePicker: s.workspaceFilePicker,
 		SessionExplorer: s.sessionExplorer.Snapshot(), SessionRename: s.sessionRename.Snapshot(),
@@ -153,6 +156,9 @@ func (s *appState) inputToken() inputToken {
 	case inputAuth:
 		token.controllerGeneration = s.loginGeneration
 		token.control = s.authProviderID
+	case inputPane:
+		token.controllerGeneration = s.paneInput.Generation
+		token.control = string(s.paneInput.Pane)
 	}
 	if len(s.pendingInteractions) > 0 {
 		token.interactionID = s.pendingInteractions[0].ID
@@ -160,6 +166,11 @@ func (s *appState) inputToken() inputToken {
 	return token
 }
 func (s *appState) reconcileInputOwner() {
+	snapshot := shellSnapshot{Phase: s.phase, Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot(), PaneInput: s.paneInput}
+	if s.paneInput.Kind != paneInputNone && !s.paneInput.active(snapshot) {
+		s.paneInput = paneInputOwner{}
+		s.inputGeneration++
+	}
 	if len(s.pendingInteractions) > 0 || !composerOwnsWorkspaceInput(s.workspace.Snapshot()) {
 		s.fileMention.Close()
 		if s.sessionMention.Open {
@@ -171,6 +182,9 @@ func (s *appState) reconcileInputOwner() {
 	view := shellView{Snapshot: shellSnapshot{Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot()}}
 	if owner.trapsFocus() && !s.previousInputOwner.trapsFocus() {
 		s.inputReturn = captureShellFocus(view)
+		if s.inputControl.valid(view) {
+			s.inputReturn = s.inputControl.region
+		}
 	}
 	if !owner.trapsFocus() && s.previousInputOwner.trapsFocus() {
 		focus := workspaceFocusComposer
@@ -249,9 +263,13 @@ func inputTargetAction(owner inputOwner) ui.ActionFunc {
 		return ui.EventHandled
 	}
 }
-func (s *appState) targetOwnsInput(ctx ui.EventContext) bool {
+func renderedInputTarget(ctx ui.EventContext) inputOwner {
 	target := inputBase
 	ctx.Invoke(inputTargetIntent{Report: func(owner inputOwner) { target = owner }})
+	return target
+}
+func (s *appState) targetOwnsInput(ctx ui.EventContext) bool {
+	target := renderedInputTarget(ctx)
 	owner := s.inputOwner()
 	return target == owner || (target == inputBase && (owner == inputFileMention || owner == inputSessionMention))
 }

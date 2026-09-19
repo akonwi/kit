@@ -85,7 +85,7 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 		SoftWrap:     true,
 		AutoFocus:    true,
 	}
-	children := []ui.Widget{input}
+	children := []ui.Widget{controlFocusScope{Child: input}}
 	if s.value == "" && config.Placeholder != "" {
 		children = append(children, composerPlaceholder{Child: ui.Padding(ui.Symmetric(1, 0), ui.Text{
 			Value:    config.Placeholder,

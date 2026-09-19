@@ -218,7 +218,7 @@ func (s *inputOwnerTransitionState) Build(ui.BuildContext) ui.Widget {
 	s.renderedInput = s.inputToken()
 	return shellView{
 		Snapshot: shellSnapshot{
-			Phase: s.phase, Composer: s.composer, Scroll: &s.scroll, Session: s.session, Workspace: s.workspace.Snapshot(),
+			Phase: s.phase, Composer: s.composer, Scroll: &s.scroll, Session: s.session,
 			PaletteOpen: s.palette.Open, PaletteQuery: s.palette.Query,
 			PaletteSelection: s.palette.Selection, PaletteCommands: s.palette.Contributions,
 			ConfigurationPicker: s.configurationPicker.Snapshot(),
