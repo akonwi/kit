@@ -414,7 +414,13 @@ func (s *markdownLifecycleHarnessState) Build(ui.BuildContext) ui.Widget {
 }
 
 func markdownTestSurface(child ui.Widget) ui.Widget {
-	return markdownThemedTestSurface(ui.DefaultThemeSet().Dark, child)
+	// These synchronous layout tests inspect the immediate plain-code fallback.
+	// Highlight completion/style is exercised with a queued UI dispatcher in
+	// markdown_code_presentation_test.go, not uitest's inline runtime dispatcher.
+	return ui.Provider[markdownCodeHighlighting]{
+		Value: markdownCodeHighlighting{Dispatch: func(func()) {}},
+		Child: markdownThemedTestSurface(ui.DefaultThemeSet().Dark, child),
+	}
 }
 
 func markdownThemedTestSurface(theme ui.Theme, child ui.Widget) ui.Widget {

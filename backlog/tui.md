@@ -7,8 +7,16 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Transcript and activity
 
-- [ ] TUI-TRANSCRIPT-002 — Add syntax highlighting and drag-safe in-app link
-  activation while preserving selectable text and terminal-native copying.
+- [x] TUI-TRANSCRIPT-002 — Add syntax highlighting to fenced code blocks in
+  transcript Markdown using the fence language and semantic theme colors.
+  Preserve readable plain-text fallback, wrapping, selectable text, and
+  terminal-native copying. See
+  [ADR 0021](../docs/adrs/0021-use-native-tree-sitter-highlighting.md).
+- [ ] TUI-TRANSCRIPT-007 — Add drag-safe in-app link activation to transcript
+  Markdown. A primary click/release opens a validated `http`, `https`, or
+  `mailto` destination; dragging selects text without opening the link.
+  Preserve literal destinations, terminal hyperlink metadata, selectable text,
+  and terminal-native copying.
 - [~] TUI-TRANSCRIPT-003 — Present model/thinking selection, context
   pressure/capacity, retry countdowns, compaction lifecycle, cancellation, and
   terminal run state without obscuring retained evidence. Depends on

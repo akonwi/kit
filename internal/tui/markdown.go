@@ -287,22 +287,6 @@ func markdownListItem(theme ui.Theme, base ui.Style, container kitmarkdown.Conta
 	}}
 }
 
-func markdownCodeBlock(theme ui.Theme, base ui.Style, _ string, source string) ui.Widget {
-	// The semantic block retains its language for future syntax highlighting;
-	// this presentation deliberately spends no transcript row displaying it.
-	display := expandMarkdownTabs(source)
-	base.Background = theme.Surface
-	spans := []ui.TextSpan{{Text: display, Style: base}}
-	content := ui.ConstrainedBox{
-		Constraints: ui.Constraints{MinHeight: 1},
-		Child:       ui.RichText{Spans: spans, SoftWrap: true},
-	}
-	return ui.DecoratedBox(
-		ui.Decoration{Style: ui.Style{Background: theme.Surface}},
-		ui.Padding(ui.Symmetric(1, 0), content),
-	)
-}
-
 func markdownTable(theme ui.Theme, base ui.Style, block kitmarkdown.Block) ui.Widget {
 	columnCount := 0
 	for _, row := range block.Rows {
