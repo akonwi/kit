@@ -34,6 +34,63 @@ import Testing
         }
     }
 
+    @Test func progressiveGroupsResizeNativeRowsAndRespectManualExpansion() async throws {
+        let presentation = TranscriptPresentationState()
+        let workspace = WorkspaceState(demo: false)
+        var count = 5
+        var active = true
+        func input() -> NativeTranscript {
+            let tools = (0..<count).map {
+                ToolActivity(id: "call-\($0)", name: "read", summary: "file\($0).go", output: "contents", failed: $0 == 0, status: "Completed")
+            }
+            return NativeTranscript(messages: [TranscriptMessage(id: "group", role: "tools", text: "", tools: tools)],
+                hasHistory: false, historyLoading: false, historyError: nil, active: active,
+                presentation: presentation, workspace: workspace, resumeRequest: 0,
+                latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
+        }
+        let adapter = NativeTranscriptCoordinator(input())
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        func height(matching predicate: (CGFloat) -> Bool) async throws -> CGFloat {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while ContinuousClock.now < deadline {
+                let value = adapter.table.rect(ofRow: 0).height
+                if predicate(value) { return value }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let value = adapter.table.rect(ofRow: 0).height
+            #expect(predicate(value), "Unexpected tool group height: \(value)")
+            return value
+        }
+        adapter.receive(input())
+        let openHeight = try await height { $0 > 150 }
+        count = 6
+        adapter.receive(input())
+        let closedHeight = try await height { $0 < 80 }
+        #expect(openHeight > closedHeight)
+        #expect(adapter.distanceFromBottom < 1)
+        presentation.drawer(for: "group").expanded = true
+        _ = try await height { $0 > openHeight }
+        count = 7
+        adapter.receive(input())
+        _ = try await height { $0 > openHeight }
+        active = false
+        adapter.receive(input())
+        #expect(presentation.drawer(for: "group").isExpanded(count: count, inProgress: active))
+        presentation.drawer(for: "group").expanded = nil
+        _ = try await height { $0 < 80 }
+        count = 3; active = true
+        adapter.receive(input())
+        _ = try await height { $0 > 100 }
+        active = false
+        adapter.receive(input())
+        _ = try await height { $0 < 80 }
+    }
+
     @Test func nestedWheelScrollingChainsAtBoundaries() {
         let outer = NativeTranscriptScrollView(frame: NSRect(x: 0, y: 0, width: 500, height: 400))
         let body = FlippedDocument(frame: NSRect(x: 0, y: 0, width: 500, height: 1200))

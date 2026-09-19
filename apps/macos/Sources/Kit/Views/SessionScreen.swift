@@ -3,7 +3,6 @@ import SwiftUI
 struct SessionScreen: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
-    @Environment(\.colorScheme) private var colorScheme
     @Environment(\.openWindow) private var openWindow
     let windows: SessionWindowRegistry
     var onSelection: (String) -> Void = { _ in }
@@ -19,8 +18,8 @@ struct SessionScreen: View {
 
     var body: some View {
         @Bindable var ui = state.ui
-        let windowScheme: ColorScheme? = appearance == "system" ? nil : appearance == "dark" ? .dark : .light
-        let isDark = appearance == "dark" || (appearance == "system" && colorScheme == .dark)
+        let windowScheme = SystemAppearance.shared.resolve(appearance)
+        let isDark = windowScheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: isDark)
         let serverID = state.serverID
         let content = VStack(spacing: 0) {

@@ -189,6 +189,11 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Deferred workflows and compatibility
 
+- [ ] CORE-BASH-001 — Let clients discover direct shell executions started and
+  completed by another client, including executions excluded from model context.
+  Expose replayable lifecycle events or a bounded execution listing with a cursor
+  so short executions cannot be missed between polls. Define retention and
+  reconnect/gap recovery without adding excluded output to model context.
 - [-] CORE-HANDOFF-001 — Superseded by the renamed R1 `/fork` workflow tracked
   by `CORE-FORK-001`.
 - [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an

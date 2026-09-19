@@ -40,6 +40,22 @@ to adjust the presentation. Drag a gutter range to annotate it.
 Scratchpad server integration remains backlog work. Subagent
 conversations are read-only by product decision.
 
+While Kit is inactive, a completed or failed turn or a new input request briefly
+bounces its Dock icon. Closely timed events share one bounce; initial snapshots
+and reconnects do not replay attention feedback. No notification permission is needed.
+
+Session feedback appears above the composer. Confirmations fade after five seconds;
+hovering or keyboard focus keeps them visible. Persistent warnings remain available in the footer’s notice list. Dismissing a
+card or its list entry removes the notice from both surfaces. Notices are local
+to each session and do not send system notifications. Compaction outcomes, shell
+operation errors, run failures, and subagent-definition diagnostics use this surface;
+ongoing progress stays in the footer and input-specific errors remain at their source.
+
+Live tool groups reveal their first five calls, then collapse when the sixth arrives.
+The collapsed summary shows activity, the cumulative call count, and failures.
+Groups also settle closed at completion; a manual expand/collapse choice takes
+precedence and stays with the session. Automatic changes preserve scroll position.
+
 ## Development and validation
 
 The Swift wire graph is generated from `internal/protocol`. After protocol changes:
@@ -77,3 +93,20 @@ inputs used by `ThemeTests`, not app resources.
 - [Native design language](../../docs/design/macos-design-language.md)
 - [Client implementation reference](../../docs/design/macos-client.md)
 - [Outstanding work](../../backlog/macos.md)
+
+### Settings
+
+The Settings window separates app-local Appearance preferences (themes and
+interface/code typography) from Models defaults shared with the TUI. Models
+reads `$KIT_HOME/settings.json`, defaulting to `~/.kit-v2/settings.json`, and
+edits `defaultModel` and per-provider/model `modelOverrides.contextWindow` values.
+Local daemon discovery uses the same home. New sessions prefer the configured
+default when it is available; changing it does not reconfigure existing sessions.
+
+Settings writes re-read the latest document, preserve unrelated JSON fields,
+and replace the file atomically. Reads and writes are limited to 1 MB. Invalid
+configuration is reported without overwriting it; unavailable model catalogs do
+not prevent editing saved overrides. Removing an override restores the model's
+default context limit. As with the CLI settings store, simultaneous writes by
+independent processes are last-writer-wins. App-local appearance remains in
+UserDefaults and does not change the terminal theme.

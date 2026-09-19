@@ -3,6 +3,7 @@ import SwiftUI
 
 struct TypographySettingsView: View {
     @Bindable private var typography = Typography.shared
+    @Environment(\.mica) private var theme
     private let families = NSFontManager.shared.availableFontFamilies.sorted()
     private var monospaceFamilies: [String] {
         families.filter { family in
@@ -14,33 +15,49 @@ struct TypographySettingsView: View {
     }
 
     var body: some View {
-        Form {
-            Section("Interface") {
-                Picker("Font", selection: $typography.interfaceFamily) {
-                    Text("System (default)").tag("System")
-                    ForEach(families, id: \.self) { Text($0).tag($0) }
-                }
-                Stepper("Size: \(Int(typography.interfaceSize)) pt", value: $typography.interfaceSize, in: 10...20)
+        VStack(alignment: .leading, spacing: 18) {
+            HStack {
+                Text("Typography").fontWeight(.semibold)
+                Spacer()
+                Button("Restore defaults") { typography.reset() }.buttonStyle(.link)
             }
-            Section("Monospace") {
-                Picker("Font", selection: $typography.monoFamily) {
+            HStack {
+                Text("Interface")
+                Spacer()
+                Picker("Interface font", selection: $typography.interfaceFamily) {
+                    Text("System").tag("System")
+                    ForEach(families, id: \.self) { Text($0).tag($0) }
+                }.labelsHidden().frame(width: 180)
+                size($typography.interfaceSize, range: 10...20, label: "Interface font size")
+            }
+            Divider()
+            HStack {
+                Text("Code & technical text")
+                Spacer()
+                Picker("Code font", selection: $typography.monoFamily) {
                     Text("System monospace").tag("System")
                     ForEach(monospaceFamilies, id: \.self) { Text($0).tag($0) }
-                }
-                Stepper("Size: \(Int(typography.monoSize)) pt", value: $typography.monoSize, in: 9...22)
-                Text("Used for code, editors, diffs, tool output, and paths. JetBrains Mono is included with Kit.")
-                    .foregroundStyle(.secondary)
+                }.labelsHidden().frame(width: 180)
+                size($typography.monoSize, range: 9...22, label: "Code font size")
             }
-            Section("Preview") {
-                VStack(alignment: .leading, spacing: 12) {
-                    Text("A workspace for you and your agent.").font(.kit(size: 13))
-                    Text("func greet(name: String) {\n    print(\"Hello, \\(name)!\")\n}")
-                        .font(.kit(size: 12, design: .monospaced))
-                    Text("0O 1Il  {} []  ->  !=").font(.kit(size: 12, design: .monospaced))
-                }.padding(.vertical, 8)
-            }
-            Button("Restore defaults") { typography.reset() }
+            Text("JetBrains Mono is included with Kit.").font(.kit(size: 12)).foregroundStyle(theme.muted)
+            Divider()
+            VStack(alignment: .leading, spacing: 14) {
+                Text("Keep the workspace simple and focused.")
+                    .padding(12).frame(maxWidth: .infinity, alignment: .leading)
+                    .background(theme.accent.opacity(0.12), in: RoundedRectangle(cornerRadius: 7))
+                Text("The session is ready. Let’s build something.")
+                (Text("func ").foregroundColor(theme.accent) + Text("restoreWorkspace() {\n    tabs.restore()\n}"))
+                    .font(.kit(size: 12, design: .monospaced))
+                    .padding(.leading, 14).overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 1) }
+            }.accessibilityElement(children: .contain).accessibilityLabel("Typography preview")
         }
-        .formStyle(.grouped)
+    }
+
+    private func size(_ value: Binding<Double>, range: ClosedRange<Double>, label: String) -> some View {
+        HStack(spacing: 4) {
+            Text("\(Int(value.wrappedValue)) pt").monospacedDigit().frame(width: 38)
+            Stepper(label, value: value, in: range).labelsHidden().fixedSize()
+        }.accessibilityElement(children: .contain)
     }
 }

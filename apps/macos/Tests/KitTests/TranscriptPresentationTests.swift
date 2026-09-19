@@ -15,7 +15,7 @@ import Testing
         otherDrawer.selectedTool = "run-tests"
         ui.switchSession(from: other, to: first, demo: false)
         #expect(ui.transcript.drawer(for: "tools-turn") === drawer)
-        #expect(drawer.expanded)
+        #expect(drawer.expanded == true)
         #expect(drawer.selectedTool == "read-file")
         ui.switchSession(from: first, to: other, demo: false)
         #expect(ui.transcript.drawer(for: "tools-turn") === otherDrawer)

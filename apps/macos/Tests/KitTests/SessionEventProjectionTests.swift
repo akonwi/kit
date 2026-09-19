@@ -44,6 +44,8 @@ struct SessionEventProjectionTests {
         #expect(state.session.activeCompactionID == "compact_a")
         try state.apply(event("compaction.completed", ["compactionId": "compact_a"]))
         #expect(state.session.activeCompactionID == nil)
+        #expect(state.session.compactionOutcome?.id == "compact_a")
+        #expect(state.session.compactionOutcome?.failed == false)
         #expect(state.session.activity == "Working…")
     }
 

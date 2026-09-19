@@ -5,29 +5,32 @@ struct ToolActivityView: View {
     let tools: [ToolActivity]
     let workspace: WorkspaceState
     @Bindable var state: ToolDrawerState
+    var inProgress = false
     var onExpand: () -> Void = {}
 
     var body: some View {
+        let expanded = state.isExpanded(count: tools.count, inProgress: inProgress)
         VStack(alignment: .leading, spacing: 10) {
             Button {
-                state.expanded.toggle()
-                if state.expanded { onExpand() }
+                state.expanded = !expanded
+                if !expanded { onExpand() }
             } label: {
                 HStack(spacing: 9) {
-                    Image(systemName: state.expanded ? "chevron.down" : "chevron.right")
-                        .font(.kit(size: 10, weight: .semibold)).frame(width: 16)
-                    Text("\(tools.count) tool \(tools.count == 1 ? "call" : "calls")")
-                    if tools.contains(where: { $0.status == "Running…" || $0.status == "Planned" }) {
-                        Text("· Running…")
+                    if inProgress && !expanded {
+                        KitSpinner().frame(width: 16)
+                    } else {
+                        Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                            .font(.kit(size: 10, weight: .semibold)).frame(width: 16)
                     }
+                    Text("\(tools.count) tool \(tools.count == 1 ? "call" : "calls")")
                     if tools.contains(where: \.failed) {
                         Text("· \(tools.filter(\.failed).count) failed").foregroundStyle(theme.danger)
                     }
                 }.padding(.vertical, 5).contentShape(Rectangle())
             }
             .buttonStyle(.plain).foregroundStyle(theme.muted)
-            .accessibilityLabel("\(state.expanded ? "Collapse" : "Expand") \(tools.count) recorded tool calls")
-            if state.expanded {
+            .accessibilityLabel("\(expanded ? "Collapse" : "Expand") \(tools.count) recorded tool calls")
+            if expanded {
                 ForEach(tools) { tool in
                     if let thinking = tool.thinking, !thinking.isEmpty {
                         MarkdownView(source: thinking).padding(.leading, 25)

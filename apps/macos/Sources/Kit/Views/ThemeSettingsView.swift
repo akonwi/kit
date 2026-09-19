@@ -5,20 +5,16 @@ import UniformTypeIdentifiers
 struct ThemeSettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
-    @Environment(\.colorScheme) private var scheme
     @State private var importError: String?
     @State private var notice = ""
 
     private var configuration: ThemeConfiguration { .decode(storedConfiguration) }
-    private var activeDark: Bool { appearance == "dark" || (appearance == "system" && scheme == .dark) }
+    private var activeDark: Bool { SystemAppearance.shared.resolve(appearance) == .dark }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 24) {
             HStack {
-                VStack(alignment: .leading, spacing: 5) {
-                    Text("Appearance").font(.kit(size: 20, weight: .semibold))
-                    Text("Choose a theme for each part of your day.").font(.kit(size: 12)).foregroundStyle(.secondary)
-                }
+                Text("Appearance mode")
                 Spacer()
                 Picker("Appearance mode", selection: $appearance) {
                     Text("System").tag("system")
@@ -46,7 +42,7 @@ struct ThemeSettingsView: View {
             if !notice.isEmpty {
                 Text(notice).font(.kit(size: 12)).foregroundStyle(.secondary)
             }
-        }.padding(24)
+        }
         .alert("Themes could not be imported", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
             Button("OK") { importError = nil }
         } message: { Text(importError ?? "") }
@@ -82,30 +78,12 @@ struct ThemeSettingsView: View {
     }
 
     private func preview(theme: MicaTheme) -> some View {
-        VStack(alignment: .leading, spacing: 14) {
-            HStack {
-                Circle().fill(theme.accent).frame(width: 6, height: 6)
-                Text("Kit").font(.kit(size: 11, weight: .semibold))
-                Spacer()
-                Image(systemName: "sidebar.right").foregroundStyle(theme.muted)
+        HStack(spacing: 6) {
+            ForEach(Array([theme.surface, theme.raised, theme.text, theme.accent].enumerated()), id: \.offset) { _, color in
+                Circle().fill(color).overlay(Circle().strokeBorder(theme.border)).frame(width: 20, height: 20)
             }
-            Text("A little room to think.").font(.kit(size: 12))
-                .padding(10).frame(maxWidth: .infinity, alignment: .leading)
-                .background(theme.raised, in: RoundedRectangle(cornerRadius: 6))
-            (Text("let ").foregroundColor(theme.syntax("keyword", fallback: theme.accent)) +
-             Text("idea = ").foregroundColor(theme.text) +
-             Text("\"Hello\"").foregroundColor(theme.syntax("string", fallback: theme.success)))
-                .font(.kit(size: 11, design: .monospaced))
-            HStack {
-                Text("Message…").foregroundStyle(theme.muted)
-                Spacer()
-                Image(systemName: "arrow.up").foregroundStyle(theme.surface)
-                    .padding(5).background(theme.text, in: RoundedRectangle(cornerRadius: 4))
-            }.font(.kit(size: 10)).padding(8)
-                .overlay(RoundedRectangle(cornerRadius: 6).strokeBorder(theme.focusBorder))
-        }.padding(12).foregroundStyle(theme.text)
-            .background(theme.surface, in: RoundedRectangle(cornerRadius: 8))
-            .overlay(RoundedRectangle(cornerRadius: 8).strokeBorder(theme.border))
+            Spacer()
+        }
     }
 
     private func importThemes() {

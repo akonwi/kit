@@ -53,6 +53,7 @@ struct SessionEventProjection {
     mutating func updateSubagents(_ snapshot: WireSessionSnapshot) throws {
         guard snapshot.session.id == session.id else { throw ClientError.invalidPayload }
         session.subagents = try SubagentRoster(snapshot)
+        session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
     }
 
     mutating func apply(_ event: WireSessionEvent) throws {
@@ -201,7 +202,9 @@ struct SessionEventProjection {
             session.activeCompactionID = event.compactionID
             session.activity = "Compacting context…"
         case "compaction.failed", "compaction.completed":
-            if session.activeCompactionID == event.compactionID {
+            if let id = event.compactionID, session.activeCompactionID == id {
+                session.compactionOutcome = CompactionOutcome(id: id, failed: event.kind == "compaction.failed",
+                                                              detail: event.errorMessage ?? "")
                 session.activeCompactionID = nil
                 session.activity = activeRunID == nil ? nil : "Working…"
             }

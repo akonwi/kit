@@ -34,6 +34,7 @@ struct NativeTranscript: NSViewRepresentable {
     let table = NSTableView()
     private var input: NativeTranscript
     private var messages: [TranscriptMessage] = []
+    private var liveGroups: Set<String> = []
     private var attachments: TranscriptAttachmentStore?
     private var heights: [String: CGFloat] = [:]
     private var heightOrder: [String] = []
@@ -121,9 +122,9 @@ struct NativeTranscript: NSViewRepresentable {
             content = AnyView(header)
         } else {
             content = AnyView(NativeMessageRow(message: message, presentation: input.presentation,
-                                               workspace: input.workspace) { [weak self] in
+                                               workspace: input.workspace, inProgress: liveGroups.contains(message.id)) { [weak self] in
                 guard let self else { return }
-                let current = self.input.active && self.messages.last?.id == message.id
+                let current = self.liveGroups.contains(message.id)
                 self.insertionAnchor = nil
                 _ = self.follow.expandedDrawer(isCurrent: current)
                 // Follow after the expanded row has its new height, not once at
@@ -292,6 +293,9 @@ struct NativeTranscript: NSViewRepresentable {
         if input.attachmentSession != next.attachmentSession || input.attachmentClient?.serverID != next.attachmentClient?.serverID {
             attachments = next.attachmentClient.map { TranscriptAttachmentStore(client: $0, session: next.attachmentSession) }
         }
+        let oldLiveGroups = liveGroups
+        liveGroups = Set(ToolGroupActivity.liveGroups(in: next.messages, active: next.active).map { "message:" + $0 })
+        let activityChanged = oldLiveGroups.symmetricDifference(liveGroups)
         input = next
         typography = next.typography
         scroll.backgroundColor = NSColor(next.theme.surface)
@@ -323,7 +327,7 @@ struct NativeTranscript: NSViewRepresentable {
             table.endUpdates()
         }
         let previous = Dictionary(uniqueKeysWithValues: old.map { ($0.id, $0) })
-        for (row, message) in messages.enumerated() where previous[message.id] != message || styleChanged {
+        for (row, message) in messages.enumerated() where previous[message.id] != message || styleChanged || activityChanged.contains(message.id) {
             heights.removeValue(forKey: message.id)
             heightOrder.removeAll { $0 == message.id }
             if !insertions.contains(row), let cell = table.view(atColumn: 0, row: row, makeIfNecessary: false) as? NativeTranscriptCell {
@@ -483,6 +487,7 @@ private struct NativeMessageRow: View {
     let message: TranscriptMessage
     let presentation: TranscriptPresentationState
     let workspace: WorkspaceState
+    let inProgress: Bool
     let onExpand: () -> Void
     @Environment(\.mica) private var theme
     var body: some View {
@@ -491,7 +496,7 @@ private struct NativeMessageRow: View {
         } else if message.role == "tools" {
             VStack(alignment: .leading, spacing: 12) {
                 ToolActivityView(tools: message.tools, workspace: workspace,
-                                 state: presentation.drawer(for: String(message.id.dropFirst("message:".count))), onExpand: onExpand)
+                                 state: presentation.drawer(for: String(message.id.dropFirst("message:".count))), inProgress: inProgress, onExpand: onExpand)
                 ForEach(message.tools.filter { $0.name == "show_image" }) { tool in
                     TranscriptAttachments(attachments: (tool.attachments ?? []).filter(\.isImage))
                 }

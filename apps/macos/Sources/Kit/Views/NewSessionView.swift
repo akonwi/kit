@@ -87,7 +87,13 @@ struct NewSessionView: View {
         defer { loading = false }
         do {
             models = try await client.models()
-            model = models.first { $0.id == suggestedModel }?.id ?? models.first?.id ?? ""
+            let defaults: SharedSettingsStore.Snapshot
+            do { defaults = try await SharedSettingsStore.shared.load() }
+            catch {
+                defaults = .init()
+                self.error = "Couldn’t load the default model. Choose a model below. " + error.localizedDescription
+            }
+            model = SharedSettingsStore.preferredModel(defaults, available: models.map(\.id), suggested: suggestedModel)
             thinking = levels.contains("medium") ? "medium" : levels.first ?? ""
         } catch { self.error = error.localizedDescription }
     }

@@ -40,6 +40,7 @@ struct SessionComposerRegion: View {
                     .frame(maxWidth: 780).padding(.horizontal, 32)
                     .frame(maxWidth: .infinity)
             }
+            SessionFeedbackView(feedback: state.feedback)
             if let flow = state.interactions.first {
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
                     .id(flow.id).frame(maxWidth: .infinity)
@@ -55,6 +56,8 @@ struct SessionComposerRegion: View {
             }
             SessionFooter(state: state).padding(.top, 12)
         }.background(theme.surface)
+        .onChange(of: state.bashOperation.error, initial: true) { state.syncBashFeedback() }
+        .onChange(of: state.bashOperation.pending) { state.syncBashFeedback() }
         .task(id: "bash/\(state.serverID)/\(state.selectedID)/\(state.unavailable)") {
             if !state.unavailable { await state.monitorBash() }
         }

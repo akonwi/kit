@@ -210,6 +210,7 @@ struct WirePromptCommand: Codable, Sendable {
 struct WireFollowUpQueue: Codable, Sendable {
     let `count`: Int
     let `previews`: [String]?
+    let `annotationIds`: [UInt64]?
 }
 
 struct WireSubagentSource: Codable, Sendable {

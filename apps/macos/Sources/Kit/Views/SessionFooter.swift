@@ -11,43 +11,17 @@ struct SessionFooter: View {
         VStack(spacing: 0) {
             Rule()
             HStack(spacing: 12) {
-                if let error = state.bashOperation.error {
-                    Text(error).foregroundStyle(theme.warning).lineLimit(1).help(error)
-                    if state.bashOperation.unresolved { Button("Retry shell command") { state.retryBash() }.disabled(state.bashOperation.pending) }
-                    Button("Dismiss") { state.bashOperation.dismissError() }
-                } else if state.bashOperation.pending || state.activeBashID != nil {
+                if state.bashOperation.pending || state.activeBashID != nil {
                     KitSpinner()
                     Text(state.bashOperation.stopping ? "Stopping shell…" : state.bashOperation.pending ? "Starting shell…" : "Running shell…")
-                } else if compaction.showsFeedback {
-                    HStack(spacing: 6) {
-                        if compaction.pending { KitSpinner() }
-                        let detail = compaction.error ?? compaction.refreshError
-                        Text(compaction.title + (detail.map { ": " + $0 } ?? ""))
-                            .lineLimit(1).help(detail ?? compaction.title)
-                            .foregroundStyle(detail == nil ? theme.muted : theme.warning)
-                        if !compaction.pending {
-                            if detail != nil {
-                                Button(compaction.result == nil ? "Retry" : "Refresh session") {
-                                    Task { await state.compactSession() }
-                                }.disabled(state.compactionUnavailableReason != nil)
-                            }
-                            Button { compaction.dismissFeedback() } label: { Image(systemName: "xmark") }
-                                .buttonStyle(.plain).accessibilityLabel("Dismiss compaction status")
-                        }
-                    }
-                    .task(id: state.selectedID + "|" + compaction.title) {
-                        guard !compaction.pending, compaction.result != nil,
-                              compaction.error == nil, compaction.refreshError == nil else { return }
-                        do { try await Task.sleep(for: .seconds(5)) } catch { return }
-                        compaction.dismissFeedback()
-                    }
+                } else if compaction.pending {
+                    KitSpinner()
+                    Text(compaction.title)
                 } else if let retryAt = state.selected?.providerRetryAt {
                     TimelineView(.periodic(from: .now, by: 1)) { context in
                         Text("Provider retry in \(Self.secondsRemaining(retryAt, now: context.date))s")
                             .foregroundStyle(theme.warning)
                     }
-                } else if let error = state.selected?.terminalError, !error.isEmpty {
-                    Text(error).foregroundStyle(theme.danger).lineLimit(1).help(error)
                 } else if let status {
                     Label(status.title, systemImage: status.symbol)
                         .foregroundStyle(state.approval ? theme.warning : theme.accent)
@@ -58,6 +32,7 @@ struct SessionFooter: View {
                         .lineLimit(1).truncationMode(.tail)
                         .help(state.notice)
                 }
+                SessionNoticeButton(feedback: state.feedback)
                 Spacer(minLength: 8)
                 WorkspaceLocation(session: state.selected)
                     .layoutPriority(1)

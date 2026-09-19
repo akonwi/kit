@@ -37,7 +37,7 @@ final class HTTPClient: DiffClient, AnnotationClient, WorkspaceFileClient, Subag
 
     static func local() async throws -> HTTPClient {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
-        let root = FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit-v2/run")
+        let root = SharedSettingsStore.home.appendingPathComponent("run")
         struct Registry: Decodable { let registryVersion: Int; let protocolVersion: Int; let url: String; let instanceId: String; let pid: Int }
         let registry: Registry
         let token: String

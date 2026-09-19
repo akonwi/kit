@@ -34,8 +34,10 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var historyCursor: String? = nil
     var historyStart: Int64? = nil
     var subagents: SubagentRoster? = nil
+    var subagentDiagnostics: [WireSubagentDiagnostic]? = nil
     var promptCommands: [PromptCommand]? = nil
     var activeCompactionID: String? = nil
+    var compactionOutcome: CompactionOutcome? = nil
     var activeBashID: String? = nil
     var activeRunID: String? = nil
     var observedTurns: [String]? = nil
@@ -76,4 +78,10 @@ struct TranscriptAttachment: Decodable, Sendable, Equatable, Hashable {
     let filename: String
     let mediaType: String?
     let isImage: Bool
+}
+
+struct CompactionOutcome: Decodable, Sendable {
+    let id: String
+    let failed: Bool
+    let detail: String
 }

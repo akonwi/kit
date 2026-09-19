@@ -26,7 +26,7 @@ struct MutationNotSent: LocalizedError {
 
 extension SessionMutationClient {
     func followUps(_ session: String) async throws -> FollowUpState {
-        try await snapshot(session).followUps ?? FollowUpState(WireFollowUpQueue(count: 0, previews: []))
+        try await snapshot(session).followUps ?? FollowUpState(WireFollowUpQueue(count: 0, previews: [], annotationIds: nil))
     }
 }
 

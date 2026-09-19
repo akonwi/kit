@@ -6,7 +6,6 @@ struct SessionLauncherView: View {
     let open: (SessionExcerpt) -> Void
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
-    @Environment(\.colorScheme) private var colorScheme
 
     @State private var refreshRequest = 0
     @State private var creating = false
@@ -14,8 +13,8 @@ struct SessionLauncherView: View {
     @State private var deleting = false
 
     var body: some View {
-        let scheme: ColorScheme? = appearance == "system" ? nil : appearance == "dark" ? .dark : .light
-        let dark = scheme == .dark || (scheme == nil && colorScheme == .dark)
+        let scheme = SystemAppearance.shared.resolve(appearance)
+        let dark = scheme == .dark
         let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: dark)
         SessionLauncherContent(sessions: app.sessions, connecting: app.connecting,
                                connected: app.client != nil, error: app.error, open: open, refresh: { refreshRequest += 1 },

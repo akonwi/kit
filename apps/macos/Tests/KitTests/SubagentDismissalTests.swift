@@ -81,7 +81,7 @@ private actor DismissalSessionStub: SubagentDismissalClient {
                 "status": conversation == nil ? "inactive" : "idle", "conversationID": conversation as Any? ?? NSNull(), "generation": 1]
             result.subagents = try JSONDecoder().decode(SubagentRoster.self,
                 from: JSONSerialization.data(withJSONObject: ["items": [item], "diagnostics": []]))
-            result.followUps = try FollowUpState(.init(count: 0, previews: nil))
+            result.followUps = try FollowUpState(.init(count: 0, previews: nil, annotationIds: nil))
             return result
         }
         let before = try session("old"), after = try session(replacement ? "new" : nil)

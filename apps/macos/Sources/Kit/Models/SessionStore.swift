@@ -3,6 +3,13 @@ import Observation
 
 @MainActor @Observable
 final class SessionStore {
+    @ObservationIgnored private var feedbackBySession: [String: SessionFeedback] = [:]
+    var feedback: SessionFeedback { feedback(for: selectedID) }
+    private func feedback(for id: String) -> SessionFeedback {
+        if let value = feedbackBySession[id] { return value }
+        let value = SessionFeedback(); feedbackBySession[id] = value; return value
+    }
+
     @ObservationIgnored private var compactions: [String: SessionCompactionOperation] = [:]
     var compactionOperation: SessionCompactionOperation {
         if let value = compactions[selectedID] { return value }
@@ -22,10 +29,25 @@ final class SessionStore {
     func compactSession() async {
         guard compactionUnavailableReason == nil, let client = catalogClient as? any SessionCompactionClient else { return }
         let id = selectedID
-        await compactionOperation.perform(session: id, client: client) { [weak self] in
+        let operation = compactionOperation
+        feedback(for: id).clear(key: "compaction")
+        await operation.perform(session: id, client: client) { [weak self] in
             guard let self, self.selectedID == id else { throw CancellationError() }
             _ = try await self.replica.resynchronize()
         }
+        let detail = operation.error ?? operation.refreshError
+        let feedback = feedback(for: id)
+        let retry: (@MainActor () -> Void)?
+        if detail != nil {
+            retry = { [weak self] in
+                guard let self, self.selectedID == id else { return }
+                Task { await self.compactSession() }
+            }
+        } else { retry = nil }
+        feedback.show(key: "compaction", title: operation.title, detail: detail ?? "", tone: detail == nil ? .info : .error,
+                      persistent: detail != nil, actionTitle: detail == nil ? nil : (operation.result == nil ? "Retry" : "Refresh session"),
+                      action: retry)
+        operation.dismissFeedback()
     }
 
     @ObservationIgnored private var reloads: [String: SessionReloadOperation] = [:]
@@ -80,6 +102,22 @@ final class SessionStore {
             guard let self, self.selectedID == id else { throw CancellationError() }
             try await self.replica.refreshWorkspace()
         }
+    }
+
+    func syncBashFeedback() {
+        let operation = bashOperation, id = selectedID
+        guard let error = operation.error else { feedback.clear(key: "shell-error"); return }
+        guard !operation.pending else { return }
+        let retry: (@MainActor () -> Void)?
+        if operation.unresolved {
+            retry = { [weak self] in
+                guard let self, self.selectedID == id else { return }
+                self.retryBash()
+            }
+        } else { retry = nil }
+        feedback.show(key: "shell-error", title: "Shell command needs attention", detail: error,
+                      tone: .error, persistent: true,
+                      actionTitle: operation.unresolved ? "Retry shell command" : nil, action: retry)
     }
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
@@ -273,6 +311,10 @@ final class SessionStore {
         configurations[replica.selectedID] = ComposerConfiguration()
         if let cwd = replica.snapshot?.cwd { knownDirectories[replica.selectedID] = cwd }
         replica.onReceive = { [weak self] session in
+            self?.feedback(for: session.id).observe(session, manualCompaction: self?.compactions[session.id]?.pending == true)
+            if let self, !self.isDemo {
+                SessionAttention.shared.observe(session, server: self.serverID)
+            }
             if let self, let cwd = session.cwd {
                 if let previous = self.knownDirectories[session.id], previous != cwd, self.selectedID == session.id {
                     self.ui.workspace.invalidateDirectory()

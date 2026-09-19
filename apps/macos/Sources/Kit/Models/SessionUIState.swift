@@ -66,6 +66,11 @@ final class SessionUIState {
 }
 
 @MainActor @Observable final class ToolDrawerState {
-    var expanded = false
+    /// Nil follows the progressive default; explicit choices survive updates.
+    var expanded: Bool?
     var selectedTool: String?
+
+    func isExpanded(count: Int, inProgress: Bool) -> Bool {
+        expanded ?? (inProgress && (1...5).contains(count))
+    }
 }

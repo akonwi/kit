@@ -28,6 +28,7 @@ enum SessionProjection {
         session.contextTokens = snapshot.contextTokens
         session.contextWindow = snapshot.contextWindow
         session.subagents = try SubagentRoster(snapshot)
+        session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
         session.pendingInteractions = snapshot.pendingInteractions ?? []
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId

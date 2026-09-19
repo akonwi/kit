@@ -13,7 +13,7 @@ private actor MutationStub: SessionMutationClient {
     func failSnapshots(_ error: ClientError?) { snapshotFailure = error }
     func acceptThenLoseAcknowledgement(queued: Bool = false) {
         if queued {
-            queue = WireFollowUpQueue(count: 1, previews: [calls.last!.text])
+            queue = WireFollowUpQueue(count: 1, previews: [calls.last!.text], annotationIds: nil)
         } else {
             durableMessages["s"] = [TranscriptMessage(id: "server-user", role: "user", text: calls.last!.text, tools: [])]
         }
@@ -25,7 +25,7 @@ private actor MutationStub: SessionMutationClient {
     var calls: [WirePromptInput] = []
     var continuation: CheckedContinuation<WirePromptSubmission, any Error>?
     var aborted: [String] = []
-    var queue = WireFollowUpQueue(count: 0, previews: [])
+    var queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt {
         snapshotReads += 1
@@ -45,18 +45,18 @@ private actor MutationStub: SessionMutationClient {
         return try await withCheckedThrowingContinuation { continuation = $0 }
     }
     func acknowledge(_ session: String = "s", queued: Bool = false) {
-        queue = WireFollowUpQueue(count: queued ? 1 : 0, previews: queued ? ["Queued prompt"] : [])
+        queue = WireFollowUpQueue(count: queued ? 1 : 0, previews: queued ? ["Queued prompt"] : [], annotationIds: nil)
         continuation?.resume(returning: WirePromptSubmission(reservation: queued ? nil : WireRunReservation(sessionId: session, turnId: "turn", runId: "run"), queued: queued, queue: queue))
         continuation = nil
     }
     func reject(_ error: ClientError) { continuation?.resume(throwing: error); continuation = nil }
     func followUps(_ session: String) async throws -> FollowUpState { try FollowUpState(queue) }
     func restoreFollowUps(_ session: String) async throws -> WireRestoreFollowUpsResult {
-        queue = WireFollowUpQueue(count: 0, previews: [])
+        queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WireRestoreFollowUpsResult(messages: [WirePromptInput(text: "Restored", attachmentIds: ["attachment"], annotationIds: nil)], queue: queue)
     }
     func promoteFollowUps(_ session: String) async throws -> WirePromoteFollowUpsResult {
-        queue = WireFollowUpQueue(count: 0, previews: [])
+        queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WirePromoteFollowUpsResult(promoted: 1, queue: queue)
     }
     func abort(_ session: String, run: String) async throws { aborted.append(run) }
