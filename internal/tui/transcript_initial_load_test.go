@@ -36,8 +36,9 @@ func (s *initialTranscriptState) Build(ui.BuildContext) ui.Widget {
 	return shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Messages: s.messages, Scroll: &s.scroll, TranscriptList: &s.transcriptList,
 		TranscriptInitialLoading:     s.transcriptInitialLoading,
-		TranscriptHistoryInitialized: true, TranscriptHistoryHasMore: true,
-		TranscriptHistoryLoading: s.transcriptHistoryLoading,
+		TranscriptHistoryInitialized: s.transcriptHistoryInitialized,
+		TranscriptHistoryHasMore:     s.transcriptHistoryHasMore,
+		TranscriptHistoryLoading:     s.transcriptHistoryLoading,
 	}, Callbacks: shellCallbacks{TranscriptHistoryScrollUp: s.noteTranscriptHistoryScrollUp}}
 }
 
@@ -158,6 +159,12 @@ func TestShortInitialTranscriptWaitsForUpwardScroll(t *testing.T) {
 	if state.transcriptHistoryLoading {
 		t.Fatal("short transcript automatically paginated")
 	}
+	rows := paintedRows(app, 80, 24)
+	messageRow := findPaintedRow(rows, "Latest short message")
+	composerRow := findPaintedRow(rows, "Ask kit to do something")
+	if messageRow != composerRow-4 {
+		t.Fatalf("short transcript not bottom anchored: message row %d, composer row %d\n%s", messageRow, composerRow, strings.Join(rows, "\n"))
+	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyHome})
 	app.Pump(80, 24)
 	state.TickFrame(time.Now())
@@ -167,6 +174,9 @@ func TestShortInitialTranscriptWaitsForUpwardScroll(t *testing.T) {
 	if state.transcriptHistoryLoading {
 		t.Fatal("composer input triggered history pagination")
 	}
+	// A first upward wheel must both cancel a deferred pane-restoration follow
+	// and retain its request for earlier history at offset zero.
+	state.requestTranscriptScroll()
 	app.Send(vaxis.Mouse{Col: 10, Row: findPaintedRow(paintedRows(app, 80, 24), "Latest short message"), Button: vaxis.MouseWheelUp, EventType: vaxis.EventPress})
 	state.TickFrame(time.Now())
 	if !state.transcriptHistoryLoading {
@@ -176,6 +186,104 @@ func TestShortInitialTranscriptWaitsForUpwardScroll(t *testing.T) {
 	case <-pager.requested:
 	case <-time.After(time.Second):
 		t.Fatal("history request did not start")
+	}
+}
+
+func TestShortTranscriptGrowsUpwardAndReanchorsOnResize(t *testing.T) {
+	state := &initialTranscriptState{appState: appState{
+		phase: phaseReady, transcriptVisible: true,
+		messages: []transcriptMessage{{ID: "first", TurnID: "turn_1", Role: "user", Text: "First message"}},
+	}}
+	state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{})
+	app := uitest.New(initialTranscriptHarness{state})
+	pumpInitialTranscript(t, app, state, 80, 24)
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "First message", 4)
+
+	state.SetState(func() {
+		state.messages = append(state.messages, transcriptMessage{ID: "second", TurnID: "turn_2", Role: "user", Text: "Second message"})
+		state.requestTranscriptScroll()
+	})
+	for range 6 {
+		app.Pump(80, 24)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(80, 24)
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "Second message", 4)
+	rows := paintedRows(app, 80, 24)
+	if first, second := findPaintedRow(rows, "First message"), findPaintedRow(rows, "Second message"); first < 0 || first >= second {
+		t.Fatalf("messages did not grow upward: first row %d, second row %d\n%s", first, second, strings.Join(rows, "\n"))
+	}
+
+	state.SetState(func() {
+		for i := range 12 {
+			state.messages = append(state.messages, transcriptMessage{ID: fmt.Sprint("overflow_", i), TurnID: fmt.Sprint("overflow_turn_", i), Role: "user", Text: fmt.Sprintf("Overflow message %02d", i)})
+		}
+		state.requestTranscriptScroll()
+	})
+	for range 12 {
+		app.Pump(80, 24)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(80, 24)
+	if metrics := state.scroll.Metrics(); metrics.MaxScrollOffset <= 0 || metrics.ScrollOffset != metrics.MaxScrollOffset {
+		t.Fatalf("growth past viewport did not remain pinned: %+v", metrics)
+	}
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "Overflow message 11", 4)
+
+	for range 4 {
+		app.Pump(60, 16)
+		state.TickFrame(time.Now())
+	}
+	app.Pump(60, 16)
+	assertTranscriptMessageAtBottom(t, app, 60, 16, "Overflow message 11", 4)
+}
+
+func TestInitialTranscriptReleasesScrollingAfterPositioning(t *testing.T) {
+	state := &initialTranscriptState{appState: appState{phase: phaseReady, transcriptVisible: true}}
+	for i := range 20 {
+		state.messages = append(state.messages, transcriptMessage{ID: fmt.Sprint("message_", i), TurnID: fmt.Sprint("turn_", i), Role: "user", Text: fmt.Sprintf("Message %02d", i)})
+	}
+	state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{})
+	app := uitest.New(initialTranscriptHarness{state})
+	pumpInitialTranscript(t, app, state, 60, 16)
+	if !state.scroll.ScrollToStart() {
+		t.Fatal("long transcript did not have a scrollable initial offset")
+	}
+	for range 4 {
+		app.Pump(60, 16)
+		state.TickFrame(time.Now())
+	}
+	if offset := state.scroll.Metrics().ScrollOffset; offset != 0 {
+		t.Fatalf("user scroll was overwritten after initialization: offset %d", offset)
+	}
+	rows := strings.Join(paintedRows(app, 60, 16), "\n")
+	if !strings.Contains(rows, "Message 00") {
+		t.Fatalf("scrolled transcript did not remain at the beginning:\n%s", rows)
+	}
+}
+
+func pumpInitialTranscript(t *testing.T, app *uitest.App, state *initialTranscriptState, width, height int) {
+	t.Helper()
+	for frame := 0; frame < 100 && state.transcriptInitialLoading; frame++ {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	for range 3 {
+		app.Pump(width, height)
+		state.TickFrame(time.Now())
+	}
+	if state.transcriptInitialLoading {
+		t.Fatal("initial transcript did not settle")
+	}
+}
+
+func assertTranscriptMessageAtBottom(t *testing.T, app *uitest.App, width, height int, message string, rowsAboveComposer int) {
+	t.Helper()
+	rows := paintedRows(app, width, height)
+	messageRow := findPaintedRow(rows, message)
+	composerRow := findPaintedRow(rows, "Ask kit to do something")
+	if messageRow != composerRow-rowsAboveComposer {
+		t.Fatalf("%q not bottom anchored: message row %d, composer row %d\n%s", message, messageRow, composerRow, strings.Join(rows, "\n"))
 	}
 }
 

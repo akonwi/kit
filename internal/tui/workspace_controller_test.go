@@ -7,6 +7,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
+	"go.rockorager.dev/vaxis/ui"
 )
 
 func TestWorkspaceControllerStartsWithAgentOnly(t *testing.T) {
@@ -89,6 +90,24 @@ func TestWorkspaceTabRoundTripRestoresPinnedTranscriptEnd(t *testing.T) {
 	state.syncWorkspaceSelection()
 	if !state.transcriptVisible || !state.needsScroll || !state.scrollPendingLayout {
 		t.Fatalf("restored transcript state = visible:%t needsScroll:%t pendingLayout:%t", state.transcriptVisible, state.needsScroll, state.scrollPendingLayout)
+	}
+}
+
+func TestWorkspaceTabRestoreYieldsToTranscriptScroll(t *testing.T) {
+	t.Parallel()
+	state := &appState{phase: phaseReady, transcriptVisible: true}
+	if _, _, err := state.workspace.Open(workingTreeDiffWorkspacePane("workspace_AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA")); err != nil {
+		t.Fatal(err)
+	}
+	state.syncWorkspaceSelection()
+	state.workspace.SelectAgent()
+	state.syncWorkspaceSelection()
+	if !state.needsScroll || !state.scrollPendingLayout {
+		t.Fatal("restoring a pinned transcript did not schedule end positioning")
+	}
+	state.noteTranscriptHistoryScrollUp(ui.EventContext{})
+	if state.needsScroll || state.scrollPendingLayout {
+		t.Fatalf("upward transcript scroll did not cancel restoration: needs:%t pending:%t", state.needsScroll, state.scrollPendingLayout)
 	}
 }
 

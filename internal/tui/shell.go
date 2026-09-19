@@ -751,7 +751,7 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		leading = w.transcriptScrollIntent(ui.SizedBox{Height: 1, Child: ui.Padding(ui.Insets{Left: 1, Right: 1}, status)})
 	}
 	transcript := w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, w.Snapshot.TranscriptList, true, leading)
-	children := []ui.Widget{transcript}
+	children := []ui.Widget{ui.Align{Alignment: ui.BottomCenter, Child: transcript}}
 	if w.Snapshot.TranscriptInitialLoading {
 		children = append(children, ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Background}}, ui.Center(spinnerWithLabel("Loading conversation…", ui.Style{Foreground: theme.MutedForeground}))))
 	}

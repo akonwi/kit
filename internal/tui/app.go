@@ -625,9 +625,16 @@ func (s *appState) observeTranscriptScroll() {
 }
 
 func (s *appState) noteTranscriptHistoryScrollUp(ui.EventContext) {
-	if s.transcriptVisible && !s.transcriptInitialLoading && !s.needsScroll && s.transcriptHistoryRestore == 0 {
-		s.transcriptHistoryUserScroll = true
+	if !s.transcriptVisible || s.transcriptInitialLoading || s.transcriptHistoryRestore != 0 {
+		return
 	}
+	if s.needsScroll {
+		// A transcript-directed upward scroll takes ownership from a deferred
+		// follow request, including one scheduled while restoring the Agent pane.
+		s.needsScroll = false
+		s.scrollPendingLayout = false
+	}
+	s.transcriptHistoryUserScroll = true
 }
 
 func (s *appState) maybeLoadTranscriptHistory() bool {
