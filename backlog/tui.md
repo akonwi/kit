@@ -68,7 +68,9 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 - [~] TUI-COMP-001 — Complete durable drafts, composer history, and attachment
   editing around the existing multiline composer, follow-up queue, abort, paste,
-  and cursor behavior. Depends on `CORE-ATT-001`.
+  and cursor behavior. Mark queued annotations read-only in workspace/picker
+  controls with a restore action; the server already enforces captured queue
+  ownership. Depends on `CORE-ATT-001`.
 - [ ] TUI-SESSION-001 — Expose session creation, opening, switching, naming,
   deletion, automatic names, and recovery errors through bounded native flows.
 - [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the

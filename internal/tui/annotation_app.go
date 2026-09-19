@@ -3,6 +3,7 @@ package tui
 import (
 	"context"
 	"errors"
+	"slices"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -82,10 +83,22 @@ func (s *appState) removeAnnotationSummary(id uint64) {
 
 func (s *appState) annotationIDs() []uint64 {
 	ids := make([]uint64, 0, len(s.annotations))
-	for _, annotation := range s.annotations {
+	for _, annotation := range s.composerAnnotations() {
 		ids = append(ids, annotation.ID)
 	}
 	return ids
+}
+
+// Queued annotations belong to their captured message rather than the next
+// composer submission. Restoring the queue makes them editable again.
+func (s *appState) composerAnnotations() []protocol.AnnotationSummary {
+	annotations := make([]protocol.AnnotationSummary, 0, len(s.annotations))
+	for _, annotation := range s.annotations {
+		if !slices.Contains(s.followUps.AnnotationIDs, annotation.ID) {
+			annotations = append(annotations, annotation)
+		}
+	}
+	return annotations
 }
 
 func (s *appState) activateAnnotation(annotation protocol.AnnotationSummary) {

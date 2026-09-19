@@ -321,3 +321,20 @@ func TestPromptOutcomeValidate(t *testing.T) {
 		t.Fatalf("Validate() rejected a known provider error kind: %v", err)
 	}
 }
+
+func TestFollowUpQueueAnnotationOwnershipValidation(t *testing.T) {
+	valid := FollowUpQueue{Count: 2, Previews: []string{"Annotation", "Attachment"}, AnnotationIDs: []uint64{2, 1}}
+	if err := valid.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for _, queue := range []FollowUpQueue{
+		{AnnotationIDs: []uint64{1}},
+		{Count: 1, AnnotationIDs: []uint64{0}},
+		{Count: 2, AnnotationIDs: []uint64{1, 1}},
+		{Count: 1, AnnotationIDs: make([]uint64, MaxAnnotationsPerPrompt+1)},
+	} {
+		if err := queue.Validate(); err == nil {
+			t.Fatalf("accepted invalid queue %+v", queue)
+		}
+	}
+}

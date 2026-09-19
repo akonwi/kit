@@ -8,7 +8,9 @@ import (
 	"reflect"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/apphome"
@@ -716,4 +718,241 @@ func (b *countingRuntimeBundleBuilder) count() int {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	return b.builds
+}
+
+type queuedAnnotationReader struct {
+	stale   atomic.Bool
+	pause   atomic.Bool
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (r *queuedAnnotationReader) ReadFile(ctx context.Context, _ string, _ string, _ kitannotation.WorkspaceFileAnchor) (kitannotation.FileEvidence, error) {
+	if r.pause.Load() {
+		r.entered <- struct{}{}
+		select {
+		case <-r.release:
+		case <-ctx.Done():
+			return kitannotation.FileEvidence{}, ctx.Err()
+		}
+	}
+	if r.stale.Load() {
+		return kitannotation.FileEvidence{}, kitannotation.ErrStale
+	}
+	return kitannotation.FileEvidence{Content: "first\nsecond\nthird"}, nil
+}
+
+func TestManagerQueuesStructuredFollowUps(t *testing.T) {
+	for _, mode := range []string{"automatic", "promote", "shutdown", "shutdown-race", "dispose"} {
+		for _, kind := range []string{"annotation", "attachment", "both"} {
+			if mode == "shutdown-race" && kind == "attachment" {
+				continue
+			}
+			t.Run(mode+"/"+kind, func(t *testing.T) {
+				base := t.TempDir()
+				store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(func() { _ = store.Close() })
+				reader := &queuedAnnotationReader{entered: make(chan struct{}, 1), release: make(chan struct{})}
+				annotations, err := kitannotation.NewService(store, reader)
+				if err != nil {
+					t.Fatal(err)
+				}
+				attachments, err := attachment.NewFilesystem(filepath.Join(base, "attachments"))
+				if err != nil {
+					t.Fatal(err)
+				}
+				providers := &authorityProviders{block: make(chan struct{}), started: make(chan struct{})}
+				manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAnnotationService(annotations), session.WithAttachmentStore(attachments))
+				if err != nil {
+					t.Fatal(err)
+				}
+				t.Cleanup(manager.Close)
+				record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: mode == "dispose"})
+				if err != nil {
+					t.Fatal(err)
+				}
+				if mode == "dispose" {
+					annotations.SetTemporary(record.ID)
+				}
+				input := session.PromptInput{}
+				if kind != "attachment" {
+					note, err := annotations.Create(t.Context(), record.ID, base, protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorWorkspaceFile, WorkspaceFile: &kitannotation.WorkspaceFileAnchor{WorkspaceID: "workspace_q910VG98LjAo2kcaf1zof8JyFwVkDF-ShNRhyZIDuC4", Path: "main.go", FileRevision: "file_H3T9powiSBvNvpOX7c0rfRXfUK9elSR5ymvVeBfsi7A", StartLine: 2, EndLine: 3}}, "Queued instruction")
+					if err != nil {
+						t.Fatal(err)
+					}
+					input.AnnotationIDs = []uint64{note.ID}
+				}
+				if kind != "annotation" {
+					file, err := attachments.Put(t.Context(), attachment.PutInput{SessionID: record.ID, Filename: "queued.txt", MediaType: "text/plain", Content: strings.NewReader("queued attachment"), MaxBytes: 64})
+					if err != nil {
+						t.Fatal(err)
+					}
+					input.AttachmentIDs = []string{file.ID}
+				}
+				if _, err := manager.StartPrompt(t.Context(), record.ID, "initial"); err != nil {
+					t.Fatal(err)
+				}
+				<-providers.started
+				if mode == "shutdown-race" {
+					reader.pause.Store(true)
+					submitted := make(chan error, 1)
+					go func() { _, err := manager.SubmitPromptInput(t.Context(), record.ID, input); submitted <- err }()
+					select {
+					case <-reader.entered:
+					case <-time.After(5 * time.Second):
+						t.Fatal("queue did not reach annotation preparation")
+					}
+					closed := make(chan struct{})
+					go func() { manager.Close(); close(closed) }()
+					deadline := time.Now().Add(5 * time.Second)
+					for {
+						if _, err := manager.Get(t.Context(), record.ID); errors.Is(err, session.ErrClosed) {
+							break
+						}
+						if time.Now().After(deadline) {
+							t.Fatal("shutdown did not begin")
+						}
+						time.Sleep(time.Millisecond)
+					}
+					close(reader.release)
+					if err := <-submitted; err != nil {
+						t.Fatal(err)
+					}
+					select {
+					case <-closed:
+					case <-time.After(5 * time.Second):
+						t.Fatal("shutdown did not finish")
+					}
+					reader.pause.Store(false)
+					if _, err := annotations.Update(t.Context(), record.ID, base, input.AnnotationIDs[0], "Recovered after racing shutdown"); err != nil {
+						t.Fatalf("shutdown leaked queued ownership: %v", err)
+					}
+					return
+				}
+
+				result, err := manager.SubmitPromptInput(t.Context(), record.ID, input)
+				if err != nil || !result.Queued {
+					t.Fatalf("queue = %+v, %v", result, err)
+				}
+				if mode == "dispose" {
+					if err := manager.DisposeTemporary(t.Context(), record.ID); err != nil {
+						t.Fatal(err)
+					}
+					if len(input.AnnotationIDs) > 0 {
+						if _, err := annotations.Update(t.Context(), record.ID, base, input.AnnotationIDs[0], "Released after disposal"); err != nil {
+							t.Fatalf("disposal leaked queue ownership: %v", err)
+						}
+					}
+					return
+				}
+
+				wantPreview := "Annotation"
+				if len(input.AttachmentIDs) > 0 {
+					wantPreview = "Attachment"
+				}
+				if !reflect.DeepEqual(result.Queue.Previews, []string{wantPreview}) || !reflect.DeepEqual(result.Queue.AnnotationIDs, input.AnnotationIDs) {
+					t.Fatalf("queue = %+v", result.Queue)
+				}
+				if len(input.AnnotationIDs) > 0 {
+					if _, err := manager.SubmitPromptInput(t.Context(), record.ID, input); !errors.Is(err, session.ErrInvalidInput) {
+						t.Fatalf("duplicate annotation admission = %v", err)
+					}
+					if _, err := store.GetAnnotation(t.Context(), record.ID, input.AnnotationIDs[0]); err != nil {
+						t.Fatalf("queued annotation must remain available: %v", err)
+					}
+				}
+				if len(input.AnnotationIDs) > 0 {
+					if _, err := annotations.Update(t.Context(), record.ID, base, input.AnnotationIDs[0], "Modified"); err == nil {
+						t.Fatal("queued annotation was editable")
+					}
+					if err := annotations.Delete(t.Context(), record.ID, input.AnnotationIDs[0]); err == nil {
+						t.Fatal("queued annotation was deletable")
+					}
+				}
+
+				snapshot, err := manager.Snapshot(t.Context(), record.ID)
+				if err != nil || !reflect.DeepEqual(snapshot.FollowUps, result.Queue) {
+					t.Fatalf("snapshot queue = %+v, %v", snapshot.FollowUps, err)
+				}
+				restored, err := manager.RestoreFollowUps(t.Context(), record.ID)
+				if err != nil || !reflect.DeepEqual(restored.Messages, []session.PromptInput{input}) || restored.Queue.Count != 0 || len(restored.Queue.AnnotationIDs) != 0 {
+					t.Fatalf("restore = %+v, %v", restored, err)
+				}
+				if len(input.AnnotationIDs) > 0 {
+					if _, err := annotations.Update(t.Context(), record.ID, base, input.AnnotationIDs[0], "Queued instruction"); err != nil {
+						t.Fatalf("restored annotation was not editable: %v", err)
+					}
+				}
+
+				if _, err := manager.SubmitPromptInput(t.Context(), record.ID, restored.Messages[0]); err != nil {
+					t.Fatal(err)
+				}
+				if mode == "shutdown" {
+					manager.Close()
+					if len(input.AnnotationIDs) > 0 {
+						if _, err := annotations.Update(t.Context(), record.ID, base, input.AnnotationIDs[0], "Recovered draft"); err != nil {
+							t.Fatalf("shutdown retained ownership: %v", err)
+						}
+					}
+					return
+				}
+				reader.stale.Store(true) // The active run changes the file after queue acceptance.
+
+				if mode == "promote" {
+					promoted, err := manager.PromoteFollowUps(t.Context(), record.ID)
+					if err != nil || promoted.Promoted != 1 || promoted.Queue.Count != 0 || len(promoted.Queue.AnnotationIDs) != 0 {
+						t.Fatalf("promotion = %+v, %v", promoted, err)
+					}
+				}
+				close(providers.block)
+				deadline := time.Now().Add(5 * time.Second)
+				for {
+					snapshot, err = manager.Snapshot(t.Context(), record.ID)
+					if err != nil {
+						t.Fatal(err)
+					}
+					if snapshot.ActiveRunID == "" && snapshot.FollowUps.Count == 0 {
+						break
+					}
+					if time.Now().After(deadline) {
+						t.Fatalf("queue did not settle: %+v", snapshot.FollowUps)
+					}
+					time.Sleep(10 * time.Millisecond)
+				}
+				var users []session.TranscriptMessage
+				for _, message := range snapshot.Messages {
+					if message.Role == "user" {
+						users = append(users, message)
+					}
+				}
+				if len(users) != 2 {
+					t.Fatalf("user messages = %+v", users)
+				}
+				var gotAnnotations []uint64
+				var gotAttachments []string
+				for _, content := range users[1].Content {
+					for _, note := range content.Annotations {
+						gotAnnotations = append(gotAnnotations, note.ID)
+						if note.Body != "Queued instruction" || note.Preview != "second\nthird" {
+							t.Fatalf("captured annotation = %+v", note)
+						}
+					}
+					if content.AttachmentID != "" {
+						gotAttachments = append(gotAttachments, content.AttachmentID)
+					}
+				}
+				if !reflect.DeepEqual(gotAnnotations, input.AnnotationIDs) || !reflect.DeepEqual(gotAttachments, input.AttachmentIDs) {
+					t.Fatalf("accepted annotations=%v attachments=%v, want %+v", gotAnnotations, gotAttachments, input)
+				}
+				if len(input.AnnotationIDs) > 0 {
+					if _, err := store.GetAnnotation(t.Context(), record.ID, input.AnnotationIDs[0]); !errors.Is(err, kitannotation.ErrNotFound) {
+						t.Fatalf("accepted annotation not consumed: %v", err)
+					}
+				}
+			})
+		}
+	}
 }

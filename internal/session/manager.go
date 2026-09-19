@@ -9,6 +9,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -214,15 +215,18 @@ func (r *runtime) signalEventChangedLocked() {
 
 // PromptInput is one ordered prompt with optional durable attachments.
 type PromptInput struct {
-	Text          string
-	AttachmentIDs []string
-	AnnotationIDs []uint64
+	queuedAnnotations *kitannotation.QueuedSubmission
+	fromQueue         bool
+	Text              string
+	AttachmentIDs     []string
+	AnnotationIDs     []uint64
 }
 
 // FollowUpQueue is the renderer-safe state of one session's deferred prompts.
 type FollowUpQueue struct {
-	Count    int
-	Previews []string
+	Count         int
+	Previews      []string
+	AnnotationIDs []uint64
 }
 
 // PromptSubmission reports whether a prompt started immediately or was queued.
@@ -856,6 +860,10 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	}()
 
 	if loaded != nil {
+		if !loaded.transitionMu.TryLock() {
+			return ErrDeleteBusy
+		}
+		defer loaded.transitionMu.Unlock()
 		if !loaded.admissionMu.TryLock() {
 			return ErrDeleteBusy
 		}
@@ -864,7 +872,7 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		defer loaded.mu.Unlock()
 		loaded.workspace.mutationMu.Lock()
 		defer loaded.workspace.mutationMu.Unlock()
-		active := loaded.activeRun != ""
+		active := loaded.activeRun != "" || len(loaded.followUps) > 0
 		if active {
 			return ErrDeleteBusy
 		}
@@ -1030,6 +1038,16 @@ func (m *Manager) finishTemporaryDisposal(
 	}
 
 	if loaded != nil {
+		loaded.transitionMu.Lock()
+		loaded.mu.Lock()
+		queued := loaded.followUps
+		loaded.followUps = nil
+		loaded.mu.Unlock()
+		for _, prompt := range queued {
+			if prompt.queuedAnnotations != nil {
+				prompt.queuedAnnotations.Release()
+			}
+		}
 		loaded.mu.Lock()
 		loaded.workspace.mutationMu.Lock()
 		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
@@ -1052,6 +1070,7 @@ func (m *Manager) finishTemporaryDisposal(
 	if loaded != nil {
 		loaded.workspace.mutationMu.Unlock()
 		loaded.mu.Unlock()
+		loaded.transitionMu.Unlock()
 	}
 }
 
@@ -1141,6 +1160,10 @@ func (m *Manager) SubmitPrompt(ctx context.Context, sessionID, prompt string) (P
 
 // SubmitPromptInput atomically starts an idle session or queues a structured follow-up.
 func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, prompt PromptInput) (PromptSubmission, error) {
+	if err := m.beginOperation(); err != nil {
+		return PromptSubmission{}, err
+	}
+	defer m.ops.Done()
 	if err := validatePromptInput(prompt); err != nil {
 		return PromptSubmission{}, err
 	}
@@ -1150,11 +1173,22 @@ func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, promp
 	}
 	loaded.transitionMu.Lock()
 	defer loaded.transitionMu.Unlock()
+	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
+		return PromptSubmission{}, err
+	}
 	loaded.mu.Lock()
 	if loaded.activeRun != "" {
 		if len(loaded.followUps) >= maxFollowUps {
 			loaded.mu.Unlock()
 			return PromptSubmission{}, fmt.Errorf("%w: follow-up queue capacity reached", ErrBusy)
+		}
+		for _, queued := range loaded.followUps {
+			for _, id := range queued.AnnotationIDs {
+				if slices.Contains(prompt.AnnotationIDs, id) {
+					loaded.mu.Unlock()
+					return PromptSubmission{}, fmt.Errorf("%w: annotation %d already belongs to a queued message", ErrInvalidInput, id)
+				}
+			}
 		}
 		loaded.mu.Unlock()
 		prepared, err := m.prepareAnnotations(ctx, loaded, sessionID, prompt)
@@ -1176,6 +1210,9 @@ func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, promp
 		if _, err := m.resolvePromptContent(ctx, sessionID, loaded.model, prompt, annotationRecords, annotationSubmissionID); err != nil {
 			return PromptSubmission{}, err
 		}
+		if prepared != nil {
+			prompt.queuedAnnotations = prepared.Queue()
+		}
 		loaded.mu.Lock()
 		loaded.followUps = append(loaded.followUps, clonePromptInputs([]PromptInput{prompt})[0])
 		queue := projectFollowUpQueue(loaded.followUps)
@@ -1190,16 +1227,44 @@ func (m *Manager) SubmitPromptInput(ctx context.Context, sessionID string, promp
 	return PromptSubmission{Reservation: reservation}, nil
 }
 
+// validateQueueRuntime rejects callers that waited while their runtime was revoked.
+func (m *Manager) validateQueueRuntime(sessionID string, loaded *runtime) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed {
+		return ErrClosed
+	}
+	if m.deleting[sessionID] || m.runtimes[sessionID] != loaded {
+		return ErrDeleteBusy
+	}
+	return nil
+}
+
 // RestoreFollowUps atomically drains every deferred prompt in queue order.
 func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (FollowUpRestore, error) {
+	if err := m.beginOperation(); err != nil {
+		return FollowUpRestore{}, err
+	}
+	defer m.ops.Done()
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
 		return FollowUpRestore{}, err
 	}
 	loaded.transitionMu.Lock()
 	defer loaded.transitionMu.Unlock()
+	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
+		return FollowUpRestore{}, err
+	}
 	loaded.mu.Lock()
 	messages := clonePromptInputs(loaded.followUps)
+	loaded.mu.Unlock()
+	for index := range messages {
+		if messages[index].queuedAnnotations != nil {
+			messages[index].queuedAnnotations.Release()
+			messages[index].queuedAnnotations = nil
+		}
+	}
+	loaded.mu.Lock()
 	loaded.followUps = nil
 	queue := projectFollowUpQueue(loaded.followUps)
 	loaded.mu.Unlock()
@@ -1208,12 +1273,19 @@ func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (Follo
 
 // PromoteFollowUps atomically removes deferred prompts as droid steering accepts them.
 func (m *Manager) PromoteFollowUps(ctx context.Context, sessionID string) (FollowUpPromotion, error) {
+	if err := m.beginOperation(); err != nil {
+		return FollowUpPromotion{}, err
+	}
+	defer m.ops.Done()
 	loaded, err := m.runtime(ctx, sessionID)
 	if err != nil {
 		return FollowUpPromotion{}, err
 	}
 	loaded.transitionMu.Lock()
 	defer loaded.transitionMu.Unlock()
+	if err := m.validateQueueRuntime(sessionID, loaded); err != nil {
+		return FollowUpPromotion{}, err
+	}
 	loaded.mu.Lock()
 	if loaded.activeRun == "" {
 		loaded.mu.Unlock()
@@ -1321,7 +1393,7 @@ func validatePromptInput(input PromptInput) error {
 func clonePromptInputs(inputs []PromptInput) []PromptInput {
 	cloned := make([]PromptInput, len(inputs))
 	for index, input := range inputs {
-		cloned[index] = PromptInput{Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
+		cloned[index] = PromptInput{queuedAnnotations: input.queuedAnnotations, fromQueue: input.fromQueue, Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
 	}
 	return cloned
 }
@@ -1335,6 +1407,9 @@ func (m *Manager) prepareAnnotations(ctx context.Context, loaded *runtime, sessi
 	}
 	if err := m.annotations.RecoverSubmissions(ctx, sessionID, loaded.droid.HasAnnotationSubmission); err != nil {
 		return nil, err
+	}
+	if input.queuedAnnotations != nil {
+		return input.queuedAnnotations.Prepare(ctx)
 	}
 	return m.annotations.PrepareSubmission(ctx, sessionID, loaded.workspace.CWD(), input.AnnotationIDs)
 }
@@ -1442,10 +1517,20 @@ func validatePromptText(prompt string) error {
 
 func projectFollowUpQueue(messages []PromptInput) FollowUpQueue {
 	queue := FollowUpQueue{Count: len(messages), Previews: make([]string, 0, len(messages))}
+	seenAnnotations := make(map[uint64]bool)
 	for _, message := range messages {
+		for _, id := range message.AnnotationIDs {
+			if !seenAnnotations[id] {
+				queue.AnnotationIDs = append(queue.AnnotationIDs, id)
+				seenAnnotations[id] = true
+			}
+		}
 		preview := strings.Join(strings.Fields(message.Text), " ")
 		if preview == "" && len(message.AttachmentIDs) > 0 {
 			preview = "Attachment"
+		}
+		if preview == "" && len(message.AnnotationIDs) > 0 {
+			preview = "Annotation"
 		}
 		runes := []rune(preview)
 		if len(runes) > 160 {
@@ -1502,6 +1587,10 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 	if m.sessionDeleting(sessionID) {
 		release()
 		return RunReservation{}, ErrDeleteBusy
+	}
+	if len(loaded.followUps) > 0 && !input.fromQueue {
+		release()
+		return RunReservation{}, fmt.Errorf("%w: restore pending follow-ups before starting a new prompt", ErrBusy)
 	}
 	if commandName != "" {
 		if loaded.bundle.PromptCommands == nil {
@@ -1814,6 +1903,7 @@ func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {
 		return
 	}
 	prompt := loaded.followUps[0]
+	prompt.fromQueue = true
 	loaded.mu.Unlock()
 	if _, err := m.StartPromptInput(context.Background(), sessionID, prompt); err != nil {
 		return
@@ -1976,6 +2066,19 @@ func (m *Manager) finishShutdown(runtimes []*runtime) {
 	m.bashRuns.Wait()
 	m.ops.Wait()
 	m.cleanups.Wait()
+	for _, loaded := range runtimes {
+		loaded.transitionMu.Lock()
+		loaded.mu.Lock()
+		queued := loaded.followUps
+		loaded.followUps = nil
+		loaded.mu.Unlock()
+		for _, prompt := range queued {
+			if prompt.queuedAnnotations != nil {
+				prompt.queuedAnnotations.Release()
+			}
+		}
+		loaded.transitionMu.Unlock()
+	}
 	if m.temporaryDroids {
 		shutdownErr = errors.Join(shutdownErr, os.RemoveAll(m.droidDirectory))
 	}

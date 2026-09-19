@@ -746,7 +746,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		PendingBoundaries: make([]protocol.PendingBoundary, 0, len(snapshot.Boundaries)),
 		PromptCommands:    make([]protocol.PromptCommand, 0, len(snapshot.PromptCommands)),
 		FollowUps: protocol.FollowUpQueue{
-			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...),
+			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...), AnnotationIDs: append([]uint64(nil), snapshot.FollowUps.AnnotationIDs...),
 		},
 		Warnings:              append([]string(nil), snapshot.Warnings...),
 		SubagentDefinitions:   make([]protocol.SubagentDefinition, 0, len(snapshot.SubagentDefinitions)),
@@ -1343,7 +1343,7 @@ func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID strin
 	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
-	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}
+	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
 	if !result.Queued {
 		output.Reservation = &protocol.RunReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID, RunID: result.Reservation.RunID}
 	}
@@ -1356,12 +1356,12 @@ func (s runtimeSessionService) RestoreFollowUps(ctx context.Context, sessionID s
 	for _, message := range result.Messages {
 		messages = append(messages, protocol.PromptInput{Text: message.Text, AttachmentIDs: append([]string(nil), message.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), message.AnnotationIDs...)})
 	}
-	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
+	return protocol.RestoreFollowUpsResult{Messages: messages, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}, err
 }
 
 func (s runtimeSessionService) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
 	result, err := s.manager.PromoteFollowUps(ctx, sessionID)
-	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews}}, err
+	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}, err
 }
 
 func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {

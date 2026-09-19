@@ -128,6 +128,7 @@ type Observer interface {
 
 // Service validates evidence and serializes mutations for each session.
 type Service struct {
+	queued               sync.Map // queuedAnnotationKey -> *QueuedSubmission; mutations hold the session lock
 	repository           Repository
 	memory               *MemoryRepository
 	files                FileReader
@@ -183,6 +184,12 @@ func (s *Service) ForgetSession(sessionID string) {
 	lock.Lock()
 	defer lock.Unlock()
 	s.memory.DeleteSession(sessionID)
+	s.queued.Range(func(key, _ any) bool {
+		if key.(queuedAnnotationKey).sessionID == sessionID {
+			s.queued.Delete(key)
+		}
+		return true
+	})
 	s.locksMu.Lock()
 	delete(s.temporary, sessionID)
 	delete(s.locks, sessionID)
@@ -242,6 +249,9 @@ func (s *Service) Update(ctx context.Context, sessionID, cwd string, id uint64, 
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
+	if s.isQueued(sessionID, id) {
+		return Record{}, fmt.Errorf("annotation %d belongs to a queued message; restore it before editing", id)
+	}
 	repository := s.repositoryFor(sessionID)
 	record, err := repository.GetAnnotation(ctx, sessionID, id)
 	if err != nil {
@@ -270,6 +280,9 @@ func (s *Service) Delete(ctx context.Context, sessionID string, id uint64) error
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
 	defer lock.Unlock()
+	if s.isQueued(sessionID, id) {
+		return fmt.Errorf("annotation %d belongs to a queued message; restore it before editing", id)
+	}
 	err := s.repositoryFor(sessionID).DeleteAnnotation(ctx, sessionID, id)
 	if err == nil {
 		if observer := s.currentObserver(); observer != nil {
@@ -379,8 +392,9 @@ func (s *Service) AuthorizeDiffRead(ctx context.Context, sessionID, _ string, an
 }
 
 // PreparedSubmission holds the per-session mutation lock while a caller admits
-// a message. Callers must invoke Commit or Abort exactly once.
+// a message. Callers must Commit and Release, Abort, or transfer ownership with Queue.
 type PreparedSubmission struct {
+	queued       *QueuedSubmission
 	service      *Service
 	sessionID    string
 	ids          []uint64
@@ -409,6 +423,10 @@ func (s *Service) PrepareSubmission(ctx context.Context, sessionID, cwd string, 
 			return nil, fmt.Errorf("annotation ids must be unique")
 		}
 		seen[id] = struct{}{}
+		if s.isQueued(sessionID, id) {
+			lock.Unlock()
+			return nil, fmt.Errorf("annotation %d already belongs to a queued message", id)
+		}
 		record, err := s.repositoryFor(sessionID).GetAnnotation(ctx, sessionID, id)
 		if err != nil {
 			lock.Unlock()
@@ -448,6 +466,9 @@ func (p *PreparedSubmission) Commit() error {
 		return fmt.Errorf("annotation submission is not reserved")
 	}
 	p.finalized = true
+	if p.queued != nil {
+		p.queued.releaseLocked()
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 	return p.service.repositoryFor(p.sessionID).FinalizeAnnotationSubmission(ctx, p.sessionID, p.submissionID)

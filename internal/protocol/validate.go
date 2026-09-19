@@ -438,6 +438,16 @@ func (queue FollowUpQueue) Validate() error {
 	if queue.Count < 0 || queue.Count > 64 || len(queue.Previews) > queue.Count {
 		return fmt.Errorf("follow-up queue count is invalid")
 	}
+	if len(queue.AnnotationIDs) > queue.Count*MaxAnnotationsPerPrompt {
+		return fmt.Errorf("follow-up queue has too many annotation ids")
+	}
+	seen := make(map[uint64]bool, len(queue.AnnotationIDs))
+	for _, id := range queue.AnnotationIDs {
+		if id == 0 || seen[id] {
+			return fmt.Errorf("follow-up queue annotation ids must be nonzero and unique")
+		}
+		seen[id] = true
+	}
 	for index, preview := range queue.Previews {
 		if strings.TrimSpace(preview) == "" || !validRendererText(preview, 1024) {
 			return fmt.Errorf("follow-up preview %d is invalid", index)

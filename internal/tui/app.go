@@ -1025,7 +1025,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Status:                       s.status,
 		Composer:                     s.composer,
 		ComposerAttachments:          append([]stagedAttachment(nil), s.composerAttachments...),
-		ComposerAnnotations:          append([]protocol.AnnotationSummary(nil), s.annotations...),
+		ComposerAnnotations:          s.composerAnnotations(),
 		DiffWrapLines:                s.diffWrapLines,
 		ComposerCursorEndGeneration:  s.composerCursorEndGeneration,
 		ComposerCursorOffset:         s.composerCursorOffset,
@@ -5765,11 +5765,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		return
 	}
 	if s.runPending {
-		if len(annotationIDs) > 0 {
-			s.SetState(func() { s.status = "Annotations wait for the active run to finish before sending" })
-			return
-		}
-		s.queueFollowUp(text)
+		s.queueFollowUp(text, s.Context().Runtime())
 		return
 	}
 	bound := s.bound
@@ -5799,7 +5795,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	})
 }
 
-func (s *appState) queueFollowUp(text string) {
+func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
 	if s.followUpMutationPending || !ok {
 		return
@@ -5809,7 +5805,7 @@ func (s *appState) queueFollowUp(text string) {
 	submittedAttachments := s.composerPromptAttachmentIDs()
 	submittedAnnotations := s.annotationIDs()
 	submittedRows := append([]stagedAttachment(nil), s.composerAttachments...)
-	ctx, runtime := s.ctx, s.Context().Runtime()
+	ctx := s.ctx
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
 		var result sessionclient.PromptSubmission
@@ -5904,26 +5900,42 @@ func (s *appState) restoreFollowUps(_ ui.EventContext) {
 				if err != nil {
 					return
 				}
-				texts := make([]string, 0, len(result.Messages))
-				for _, message := range result.Messages {
-					texts = append(texts, message.Text)
-					for _, id := range message.AttachmentIDs {
-						s.composerAttachments = append(s.composerAttachments, restoredAttachments[id])
-					}
-				}
-				restored := strings.Join(texts, "\n\n")
-				if restored != "" && s.composer != "" {
-					restored += "\n\n" + s.composer
-				}
-				s.composer = restored
-				s.composerCursorEndGeneration++
-				s.followUps = result.Queue
+				s.restoreFollowUpDraft(result, restoredAttachments)
 			})
 			if err != nil {
 				s.showToast(toastInput{Title: "Could not restore follow-ups", Subtitle: err.Error(), Variant: toastError})
 			}
 		})
 	}()
+}
+
+func (s *appState) restoreFollowUpDraft(result protocol.RestoreFollowUpsResult, restoredAttachments map[string]stagedAttachment) {
+	seen := make(map[string]bool)
+	for _, id := range s.composerAttachmentIDs {
+		seen[id] = true
+	}
+	for _, item := range s.composerAttachments {
+		seen[item.Info.ID] = true
+	}
+	texts := make([]string, 0, len(result.Messages))
+	for _, message := range result.Messages {
+		if message.Text != "" {
+			texts = append(texts, message.Text)
+		}
+		for _, id := range message.AttachmentIDs {
+			if !seen[id] {
+				s.composerAttachments = append(s.composerAttachments, restoredAttachments[id])
+				seen[id] = true
+			}
+		}
+	}
+	if s.composer != "" {
+		texts = append(texts, s.composer)
+	}
+	s.composer = strings.Join(texts, "\n\n")
+	s.composerCursorEndGeneration++
+	s.composerDraftGeneration++
+	s.followUps = result.Queue
 }
 
 func (s *appState) promoteFollowUps() {

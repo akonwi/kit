@@ -158,6 +158,8 @@ type PromptInput struct {
 type FollowUpQueue struct {
 	Count    int      `json:"count"`
 	Previews []string `json:"previews,omitempty"`
+	// AnnotationIDs identifies annotations already assigned to queued messages.
+	AnnotationIDs []uint64 `json:"annotationIds,omitempty"`
 }
 
 // PromptSubmission reports whether a prompt started or became a follow-up.
