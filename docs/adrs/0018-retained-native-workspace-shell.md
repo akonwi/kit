@@ -272,9 +272,12 @@ background text selection temporarily captures native focus, the interaction
 dock reclaims focus on the next frame. Background selection and scrolling remain
 available without granting keyboard ownership.
 
-`Ctrl+C` always quits/detaches the client without cancelling server-owned work or
-interactions. Escape cancels only the innermost reversible operation; pending
-non-cancellable work consumes it.
+`Ctrl+C` clears text and staged attachments when the non-empty composer owns
+input. Otherwise it quits/detaches the client without cancelling server-owned
+work, interactions, or annotations. A draft behind another input owner is not
+cleared. Key releases and repeats do not trigger another action. Escape cancels
+only the innermost reversible operation; pending non-cancellable work consumes
+it.
 
 `Tab` moves focus between the selected Agent/workspace content and the composer;
 `Shift+Tab` performs the reverse transition. These bindings are part of the shell

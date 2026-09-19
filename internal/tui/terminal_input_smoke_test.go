@@ -11,7 +11,8 @@ import (
 // TestTerminalInputOwnershipSmoke is opt-in because ui.Run requires a terminal.
 // It uses only client fixtures: no daemon, credentials, or provider requests.
 // The driver types a draft, opens the palette, injects a dock with F2, pastes an
-// answer, closes the dock, edits at the retained draft cursor, and quits.
+// answer, closes the dock, edits at the retained draft cursor, clears the draft
+// with Ctrl+C, then detaches with a second Ctrl+C.
 func TestTerminalInputOwnershipSmoke(t *testing.T) {
 	if os.Getenv("KIT_TUI_TERMINAL_SMOKE") != "1" {
 		t.Skip("requires an interactive PTY driver")
@@ -20,8 +21,8 @@ func TestTerminalInputOwnershipSmoke(t *testing.T) {
 	if err := ui.Run(terminalInputSmoke{state}); err != nil {
 		t.Fatal(err)
 	}
-	if state.answer != "answer" || state.composer != "Xdra!ft" || state.paletteAtArrival != "model" {
-		t.Fatalf("terminal transition: answer=%q draft=%q palette=%q", state.answer, state.composer, state.paletteAtArrival)
+	if state.answer != "answer" || state.composer != "" || state.paletteAtArrival != "model" || len(state.ctrlCDrafts) != 2 || state.ctrlCDrafts[0] != "Xdra!ft" || state.ctrlCDrafts[1] != "" {
+		t.Fatalf("terminal transition: answer=%q draft=%q palette=%q Ctrl+C drafts=%q", state.answer, state.composer, state.paletteAtArrival, state.ctrlCDrafts)
 	}
 }
 
@@ -32,9 +33,13 @@ func (w terminalInputSmoke) CreateState() ui.State { return w.state }
 type terminalInputSmokeState struct {
 	inputOwnerTransitionState
 	answer, paletteAtArrival string
+	ctrlCDrafts              []string
 }
 
 func (s *terminalInputSmokeState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	if key, ok := event.(ui.Key); ok && ctx.Phase() == ui.CapturePhase && key.EventType == ui.EventPress && key.MatchString("Ctrl+c") {
+		s.ctrlCDrafts = append(s.ctrlCDrafts, s.composer)
+	}
 	if key, ok := event.(ui.Key); ok && ctx.Phase() == ui.CapturePhase && key.MatchString("F2") {
 		s.SetState(func() {
 			s.paletteAtArrival = s.palette.Query

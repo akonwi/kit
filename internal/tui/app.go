@@ -1736,10 +1736,7 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		s.pasteControl = captureInputControl(ctx)
 	}
 	if key, ok := event.(ui.Key); ok && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
-		if key.EventType != ui.EventRelease {
-			ctx.Quit()
-		}
-		return ui.EventHandled
+		return s.handleCtrlC(ctx, key)
 	}
 	if result, consumed := s.paste.Observe(ctx, event, func(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		if s.pasteOwner != s.inputToken() || s.pasteControl != captureInputControl(ctx) {
@@ -1766,10 +1763,7 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	owner := s.inputOwner()
 	if key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
-		if key.EventType != ui.EventRelease {
-			ctx.Quit()
-		}
-		return ui.EventHandled
+		return s.handleCtrlC(ctx, key)
 	}
 	if key.EventType != vaxis.EventPaste && key.MatchString("Escape") && owner.modal() && owner != inputAuth && owner != inputPane {
 		if key.EventType != ui.EventRelease {

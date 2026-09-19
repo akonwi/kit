@@ -31,7 +31,8 @@ STEPS = [
     (7.5, b"!"),  # Insert at the original draft cursor
     (8, b"\x1b[<0;2;28M\x1b[<0;2;28m"),  # Click composer start
     (8.5, b"X"),
-    (9, b"\x03"),
+    (9, b"\x03"),  # Clear the non-empty composer
+    (9.5, b"\x03"),  # Empty composer: detach
 ]
 REPLIES = [
     (b"\x1b[c", b"\x1b[?64;1;2;6;9;15;18;21;22c"),
@@ -92,7 +93,7 @@ def run():
             os.close(fd)
         if step != len(STEPS) or os.waitstatus_to_exitcode(status) != 0 or b"--- PASS:" not in output:
             raise SystemExit("Terminal input smoke check failed:\n" + repr(bytes(output)))
-        print("PASS: terminal palette/dock ownership, bracketed paste, cursor restoration, mouse, Ctrl+C")
+        print("PASS: terminal palette/dock ownership, bracketed paste, cursor restoration, mouse, Ctrl+C clear/detach")
 
 
 if __name__ == "__main__":
