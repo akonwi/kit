@@ -312,6 +312,18 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 	if !ok {
 		return ui.EventIgnored
 	}
+	if key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
+		if key.EventType != ui.EventRelease {
+			ctx.Quit()
+		}
+		return ui.EventHandled
+	}
+	if key.EventType == vaxis.EventPaste {
+		if !s.controller.DeleteOpen && !s.controller.RenamePending {
+			ctx.Invoke(ui.InsertTextIntent{Text: pastedKeyText(key)})
+		}
+		return ui.EventHandled
+	}
 	if s.controller.DeleteOpen {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled

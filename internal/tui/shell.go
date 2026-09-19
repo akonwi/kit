@@ -116,6 +116,7 @@ type providerSelectedCallback func(ui.EventContext, string)
 type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
+	InputOwner                  func() inputOwner
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
 	ShowDiffWarning             func(string)
@@ -156,6 +157,7 @@ type shellCallbacks struct {
 	WorkspacePickerSelection    func(ui.EventContext, int)
 	MoveWorkspaceFocus          ui.VoidCallback
 	FocusWorkspaceContent       ui.VoidCallback
+	FocusWorkspaceComposer      ui.VoidCallback
 	MoveWorkspaceSelection      func(ui.EventContext, int)
 	OpenSubagentActivity        func(ui.EventContext, string, string)
 	OpenSubagentFromTool        func(ui.EventContext, string)
@@ -208,11 +210,13 @@ type shellCallbacks struct {
 }
 
 type shellView struct {
-	Snapshot       shellSnapshot
-	Callbacks      shellCallbacks
-	WorkspaceFiles sessionclient.WorkspaceFilesSession
-	Diff           sessionclient.DiffSession
-	presentation   transcriptPresentation
+	restoreContent  bool
+	restoreComposer bool
+	Snapshot        shellSnapshot
+	Callbacks       shellCallbacks
+	WorkspaceFiles  sessionclient.WorkspaceFilesSession
+	Diff            sessionclient.DiffSession
+	presentation    transcriptPresentation
 }
 
 type quitIntent struct{}
@@ -267,7 +271,10 @@ type dismissSubagentIntent struct{}
 
 func (dismissSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.dismiss" }
 
-func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
+func (w shellView) Build(ui.BuildContext) ui.Widget { return shellFocusHost{View: w} }
+
+func (w shellView) build(ctx ui.BuildContext) ui.Widget {
+	owner := w.Snapshot.inputOwner()
 	theme := ui.MustDepend[ui.Theme](ctx)
 	w.presentation = presentTranscript(w.Snapshot.Messages)
 	content := ui.Widget(ui.DecoratedBox(
@@ -275,7 +282,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		ui.SelectionArea{Child: w.baseShell(theme)},
 	))
 	overlays := w.authOverlays(theme)
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.FileMention.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputFileMention {
 		controller := w.Snapshot.FileMention
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
 		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
@@ -284,7 +291,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			OnSelect: w.Callbacks.SelectFileMention,
 		}})
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionMention.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputSessionMention {
 		controller := w.Snapshot.SessionMention
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
 		overlays = append(overlays, ui.OverlayEntry{Child: sessionMentionSurface{
@@ -292,7 +299,7 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			BottomInset: composerHeight + 4, PrimaryPercent: 100, OnSelect: w.Callbacks.SelectSessionMention,
 		}})
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.BashHistory.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputBashHistory {
 		controller := w.Snapshot.BashHistory
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
 		overlays = append(overlays, ui.OverlayEntry{
@@ -304,25 +311,25 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			},
 		})
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.ConfigurationPicker.Mode != configurationPickerClosed {
+	if w.Snapshot.Phase == phaseReady && owner == inputConfiguration {
 		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
 			Snapshot: w.Snapshot.ConfigurationPicker, QueryChanged: w.Callbacks.ConfigurationQuery,
 			Select: w.Callbacks.SelectConfiguration, Apply: w.Callbacks.ApplyConfiguration,
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionDetailsOpen {
+	if w.Snapshot.Phase == phaseReady && owner == inputSessionDetails {
 		overlays = append(overlays, modalDialogEntry(sessionDetailsSurface{
 			Session: w.Snapshot.Session, ContextTokens: w.Snapshot.ContextTokens,
 			ContextWindow: w.Snapshot.ContextWindow, Usage: w.Snapshot.SessionUsage,
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.AnnotationPicker.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputAnnotations {
 		overlays = append(overlays, modalDialogEntry(annotationPickerSurface{
 			Snapshot:  w.Snapshot.AnnotationPicker,
 			Callbacks: annotationPickerCallbacks{Activate: w.Callbacks.ActivateAnnotation, Remove: w.Callbacks.RemoveAnnotation},
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionRename.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputRename {
 		overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
 			Snapshot: w.Snapshot.SessionRename,
 			Callbacks: sessionRenameCallbacks{
@@ -330,12 +337,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			},
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionExplorer.Open {
+	if w.Snapshot.Phase == phaseReady && owner.root() == inputSessions {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
 			Snapshot:  w.Snapshot.SessionExplorer,
 			Callbacks: sessionExplorerCallbacks{QueryChanged: w.Callbacks.SessionQueryChanged, Select: w.Callbacks.SelectSession, Toggle: w.Callbacks.ToggleSessionTree},
 		}))
-		if w.Snapshot.SessionExplorer.RenameOpen {
+		if owner == inputSessionRename {
 			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
 				Snapshot: sessionExplorerRenameSnapshot(w.Snapshot.SessionExplorer),
 				Callbacks: sessionRenameCallbacks{
@@ -343,11 +350,11 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 				},
 			}))
 		}
-		if w.Snapshot.SessionExplorer.DeleteOpen {
+		if owner == inputSessionDelete {
 			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
 		}
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspaceFilePicker.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputFiles {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
 			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
 			Callbacks: workspaceFilePickerCallbacks{
@@ -360,27 +367,27 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			},
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.WorkspacePickerOpen {
+	if w.Snapshot.Phase == phaseReady && owner == inputTabs {
 		overlays = append(overlays, modalDialogEntry(w.workspacePickerDialog(ctx, theme)))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SubagentsOpen {
+	if w.Snapshot.Phase == phaseReady && owner.root() == inputSubagents {
 		overlays = append(overlays, modalDialogEntry(dialogSurface(
 			theme, "Open subagent", "",
 			ui.SizedBox{Height: 18, Child: w.subagentsPane(ctx, theme)}, nil, false,
 		)))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.SubagentDismissID != "" {
+	if w.Snapshot.Phase == phaseReady && owner == inputSubagentDismiss {
 		overlays = append(overlays, modalDialogEntry(subagentDismissSurface{
 			Name: w.Snapshot.SubagentDismissName, Pending: w.Snapshot.SubagentDismissPending, Error: w.Snapshot.SubagentDismissError,
 		}))
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.ThemePicker.Open {
+	if w.Snapshot.Phase == phaseReady && owner == inputTheme {
 		overlays = append(overlays, ui.OverlayEntry{Modal: true, Barrier: clearModalBarrier{}, Child: themePickerSurface{
 			Snapshot:  w.Snapshot.ThemePicker,
 			Callbacks: themePickerCallbacks{Select: w.Callbacks.SelectTheme},
 		}})
 	}
-	if w.Snapshot.Phase == phaseReady && w.Snapshot.PaletteOpen {
+	if w.Snapshot.Phase == phaseReady && owner == inputPalette {
 		overlays = append(overlays, ui.OverlayEntry{
 			Modal: true, Barrier: clearModalBarrier{},
 			Child: commandPaletteSurface{
@@ -396,6 +403,18 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			},
 		})
 	}
+	// Only the visually top modal may reclaim focus. Parent surfaces remain
+	// mounted but resume their scope only after their explicit child closes.
+	for index := range overlays {
+		if overlays[index].Modal {
+			active := index == len(overlays)-1
+			targetOwner := inputBase
+			if active {
+				targetOwner = owner
+			}
+			overlays[index].Child = ui.Actions{Bindings: map[ui.IntentType]ui.ActionFunc{inputTargetIntent{}.IntentType(): inputTargetAction(targetOwner)}, Child: ui.FocusScope{Trap: active, AutoFocus: active, ReclaimFocus: active, Child: overlays[index].Child}}
+		}
+	}
 	if len(w.Snapshot.Toasts) > 0 {
 		overlays = append(overlays, ui.OverlayEntry{Child: toastStack{
 			Toasts: w.Snapshot.Toasts, OnDismiss: w.Callbacks.DismissToast, Animate: true,
@@ -409,12 +428,21 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			OnRelease: func(ui.EventContext) { w.Callbacks.WorkspaceMouse.Release() },
 		}
 	}
-	workspaceFocusTrapped := len(w.Snapshot.PendingInteractions) > 0
-	for _, overlay := range overlays {
-		workspaceFocusTrapped = workspaceFocusTrapped || overlay.Modal
+	workspaceFocusTrapped := owner.trapsFocus()
+	currentOwner := func() inputOwner {
+		if w.Callbacks.InputOwner != nil {
+			return w.Callbacks.InputOwner()
+		}
+		return owner
 	}
+	focusOwnerRendered := func() bool { return currentOwner() == owner }
 
+	baseTarget := inputBase
+	if owner == inputAuth && !w.Snapshot.AuthReturnReady {
+		baseTarget = inputAuth
+	}
 	actions := map[ui.IntentType]ui.ActionFunc{
+		inputTargetIntent{}.IntentType(): inputTargetAction(baseTarget),
 		quitIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			if w.Callbacks.Quit != nil {
 				w.Callbacks.Quit(ctx)
@@ -422,21 +450,27 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 		ui.NextFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceFocus != nil {
+			if !focusOwnerRendered() {
+				return ui.EventHandled
+			}
+			if !currentOwner().trapsFocus() && w.Callbacks.MoveWorkspaceFocus != nil {
 				w.Callbacks.MoveWorkspaceFocus(ctx)
 			}
 			ctx.FocusNext()
 			return ui.EventHandled
 		},
 		ui.PreviousFocusIntentType: func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceFocus != nil {
+			if !focusOwnerRendered() {
+				return ui.EventHandled
+			}
+			if !currentOwner().trapsFocus() && w.Callbacks.MoveWorkspaceFocus != nil {
 				w.Callbacks.MoveWorkspaceFocus(ctx)
 			}
 			ctx.FocusPrevious()
 			return ui.EventHandled
 		},
 		moveWorkspaceSelectionIntent{}.IntentType(): func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if !workspaceFocusTrapped && w.Callbacks.MoveWorkspaceSelection != nil {
+			if !currentOwner().trapsFocus() && w.Callbacks.MoveWorkspaceSelection != nil {
 				w.Callbacks.MoveWorkspaceSelection(ctx, intent.(moveWorkspaceSelectionIntent).Delta)
 			}
 			return ui.EventHandled
@@ -448,12 +482,12 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 		"Super+c": ui.CopySelectionTextIntent{OnCopied: w.Callbacks.CopySelection},
 		"Tab":     ui.NextFocusIntent{}, "Shift+Tab": ui.PreviousFocusIntent{},
 	}
-	if w.Snapshot.Phase == phaseReady {
+	if w.Snapshot.Phase == phaseReady && owner.permitsRoot() {
 		shortcuts["Ctrl+p"] = openPaletteIntent{}
 		if !workspaceFocusTrapped {
 			shortcuts["Ctrl+o"] = openWorkspaceFilePickerIntent{}
 			actions[openWorkspaceFilePickerIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-				if w.Callbacks.OpenWorkspaceFilePicker != nil {
+				if !currentOwner().trapsFocus() && w.Callbacks.OpenWorkspaceFilePicker != nil {
 					w.Callbacks.OpenWorkspaceFilePicker(ctx)
 				}
 				return ui.EventHandled
@@ -464,13 +498,13 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			shortcuts["Ctrl+["] = moveWorkspaceSelectionIntent{Delta: -1}
 		}
 		actions[openPaletteIntent{}.IntentType()] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			if w.Callbacks.OpenPalette != nil {
+			if !currentOwner().trapsFocus() && w.Callbacks.OpenPalette != nil {
 				w.Callbacks.OpenPalette(ctx)
 			}
 			return ui.EventHandled
 		}
 	}
-	if w.Snapshot.PaletteOpen {
+	if owner == inputPalette {
 		shortcuts["Up"] = movePaletteIntent{Delta: -1}
 		shortcuts["Down"] = movePaletteIntent{Delta: 1}
 		actions[movePaletteIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
@@ -483,11 +517,8 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 	if w.Snapshot.Phase == phaseReady || w.Snapshot.Phase == phaseAuthSelect || w.Snapshot.Phase == phaseAuthWaiting || w.Snapshot.Phase == phaseAuthBrowser ||
 		(w.Snapshot.Phase == phaseAuthAPIKey && !w.Snapshot.AuthPending) {
 		actions[ui.DismissIntentType] = func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
-			activityFocused := w.Snapshot.ActivityFocus == nil || w.Snapshot.ActivityFocus.HasFocus()
-			if w.Snapshot.SubagentsOpen && activityFocused && !w.Snapshot.PaletteOpen && w.Snapshot.SubagentDismissID == "" {
-				if w.Callbacks.CloseActivity != nil {
-					w.Callbacks.CloseActivity(ctx)
-				}
+			if currentOwner() == inputSubagents && w.Callbacks.CloseActivity != nil {
+				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
 			}
@@ -550,9 +581,9 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			active := workspace.Selected == identity
 			retainedPanes = append(retainedPanes, retainedWorkspacePane{
 				Identity: identity, Active: active,
-				Child: definition.Build(w, theme, descriptor, workspacePanePresentation{
+				Child: ui.FocusScope{AutoFocus: active && w.restoreContent, Child: definition.Build(w, theme, descriptor, workspacePanePresentation{
 					Active: active, Visible: active, Focused: active && w.workspacePaneFocused(descriptor),
-				}),
+				})},
 			})
 		}
 		secondaryPane := ui.Widget(retainedWorkspacePaneStack{Panes: retainedPanes})
@@ -576,18 +607,17 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 			pending = ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}
 			pendingHeight += annotationRows + len(w.Snapshot.ComposerAttachments)
 		}
-		composer := w.composer(theme)
+		composer := ui.Widget(ui.FocusScope{AutoFocus: w.restoreComposer, Child: w.composer(theme)})
 		composerHeightLimit := composerMaxHeight
+		composerLayers := []ui.Widget{retainedComposer{Visible: len(w.Snapshot.PendingInteractions) == 0, Child: composer}}
 		if len(w.Snapshot.PendingInteractions) > 0 {
 			request := w.Snapshot.PendingInteractions[0]
 			pending = ui.SizedBox{}
 			pendingHeight = 0
 			composerHeightLimit = 14
-			composer = ui.Stack{Children: []ui.Widget{
-				ui.Positioned{Left: 0, Top: 0, Child: ui.SizedBox{Height: 0, Child: composer}},
-				interactionDock{Request: request, QueueLength: len(w.Snapshot.PendingInteractions), OnRespond: w.Callbacks.RespondInteraction},
-			}}
+			composerLayers = append(composerLayers, interactionDock{Suspended: w.Snapshot.inputOwner().modal(), Request: request, QueueLength: len(w.Snapshot.PendingInteractions), OnRespond: w.Callbacks.RespondInteraction})
 		}
+		composer = ui.Stack{Children: composerLayers}
 		body = ui.Expanded(conversationWorkspaceHost{
 			Open: workspace.StripVisible(), ActivitySelected: paneSelected,
 			Tabs: w.workspaceTabs(theme), Transcript: w.body(theme),
@@ -1110,9 +1140,14 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		CursorGeneration:    w.Snapshot.ComposerCursorGeneration,
 	}
 	content := ui.Widget(ui.Provider[ui.Theme]{Value: composerTheme, Child: composer})
-	if w.Snapshot.ActivitySelected {
-		content = mouseActivator{Child: content, OnPrimaryDownCapture: w.Callbacks.ShowTranscript}
-	}
+	content = mouseActivator{Child: content, OnPrimaryDownCapture: func(ctx ui.EventContext) {
+		if w.Snapshot.ActivitySelected && w.Callbacks.ShowTranscript != nil {
+			w.Callbacks.ShowTranscript(ctx)
+		}
+		if w.Callbacks.FocusWorkspaceComposer != nil {
+			w.Callbacks.FocusWorkspaceComposer(ctx)
+		}
+	}}
 	return content
 }
 

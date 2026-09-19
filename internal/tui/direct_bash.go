@@ -295,6 +295,9 @@ func cloneBashExecution(execution protocol.BashExecution) protocol.BashExecution
 }
 
 func (s *appState) openBashHistory(_ int) bool {
+	if !s.admitRootModal() {
+		return false
+	}
 	entries := s.bashHistoryEntries()
 	opened := false
 	s.SetState(func() { opened = s.bashHistory.OpenFor(entries, s.composer) })

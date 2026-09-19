@@ -9,6 +9,9 @@ import (
 )
 
 func (s *appState) openWorkspaceFilePicker() {
+	if !s.admitRootModal() {
+		return
+	}
 	files, ok := s.bound.(sessionclient.WorkspaceFilesSession)
 	if !ok {
 		s.showToast(toastInput{Title: "Workspace files unavailable", Subtitle: "This session does not expose workspace files.", Variant: toastWarning})

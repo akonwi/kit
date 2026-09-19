@@ -7,20 +7,10 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Theme and shell
 
-- [x] TUI-THEME-001 — Complete Kit's semantic vaxis/ui design language across
-  terminal capabilities, surface hierarchy, focus, empty/error states, and
-  responsive layouts.
-- [x] TUI-THEME-002 — Discover and select themes, preserve current custom-theme
-  compatibility, persist the selection, apply changes immediately, and provide
-  semantic fallbacks for incomplete themes.
-- [x] TUI-SHELL-001 — Complete the full-width Agent/workspace tab shell,
-  retained pane state, `Tab`/`Shift+Tab` content-composer focus cycling, labeled
-  overflow and modal pane picker,
-  the modal subagent roster/status picker with explicitly opened conversation
-  tabs, and the extensible pane registry used by supported surfaces. See
-  [ADR 0018](../docs/adrs/0018-retained-native-workspace-shell.md).
-- [~] TUI-SHELL-002 — Complete layered focus and deterministic overlay
-  precedence for the built-in keymap.
+- [~] TUI-SHELL-002 — Unify overlay admission, input ownership, dismissal,
+  paste routing, and focus restoration for the built-in keymap. Verify nested
+  dialogs and asynchronous interaction arrival against the same precedence
+  rules. See the [completion proposal](tui-input-ownership.md).
 
 ### Directory, file, and diff workspace
 

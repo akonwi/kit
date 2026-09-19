@@ -87,7 +87,7 @@ func (c *pasteCoalescer) apply(ctx ui.EventContext, deliver func(ui.EventContext
 	if deliver != nil && deliver(ctx, key) == ui.EventHandled {
 		return
 	}
-	ctx.Invoke(ui.InsertTextIntent{Text: key.Text})
+	insertPastedText(ctx, key.Text)
 }
 
 // pastedKeyText returns the literal text a pasted key contributes. Control
@@ -113,4 +113,14 @@ func pastedKeyText(key ui.Key) string {
 		return "\t"
 	}
 	return ""
+}
+
+// insertPasteIntent marks provenance only at actual delivery, never at framing.
+type insertPasteIntent struct{ Text string }
+
+func (insertPasteIntent) IntentType() ui.IntentType { return "kit.insert-paste" }
+func insertPastedText(ctx ui.EventContext, text string) {
+	if text != "" && ctx.Invoke(insertPasteIntent{Text: text}) != ui.EventHandled {
+		ctx.Invoke(ui.InsertTextIntent{Text: text})
+	}
 }

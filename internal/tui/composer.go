@@ -96,6 +96,12 @@ func (s *messageComposerState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	actions := map[ui.IntentType]ui.ActionFunc{
 		submitComposerIntent{}.IntentType(): s.submit,
+		insertPasteIntent{}.IntentType(): func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+			s.pasteChange = true
+			defer func() { s.pasteChange = false }()
+			ctx.Invoke(ui.InsertTextIntent{Text: intent.(insertPasteIntent).Text})
+			return ui.EventHandled
+		},
 	}
 	shortcuts := composerEditingShortcuts()
 	shortcuts["Enter"] = submitComposerIntent{}
@@ -141,16 +147,9 @@ func (s *messageComposerState) HandleEvent(ctx ui.EventContext, event ui.Event) 
 	if ctx.Phase() != ui.CapturePhase {
 		return ui.EventIgnored
 	}
-	// A coalesced bracketed paste reaches the editor as an insert intent rather
-	// than a key, so the surrounding markers establish paste provenance. The key
-	// check still covers terminals that report paste keys without markers.
-	if _, ok := event.(vaxis.PasteStartEvent); ok {
-		s.pasteChange = true
-		return ui.EventIgnored
-	}
 	key, ok := event.(ui.Key)
-	if ok && key.EventType == vaxis.EventPaste && (key.Text != "" || key.Keycode == vaxis.KeyEnter) {
-		s.pasteChange = true
+	if ok {
+		s.pasteChange = key.EventType == vaxis.EventPaste && (key.Text != "" || key.Keycode == vaxis.KeyEnter)
 	}
 	return ui.EventIgnored
 }

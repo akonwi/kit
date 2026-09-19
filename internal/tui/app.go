@@ -195,6 +195,12 @@ type subagentDiagnosticToastKey struct {
 func (a app) CreateState() ui.State { return &appState{} }
 
 type appState struct {
+	inputReturn        shellFocusReturn
+	replacingPalette   bool
+	renderedInput      inputToken
+	inputGeneration    uint64
+	previousInputOwner inputOwner
+	pasteOwner         inputToken
 	ui.StateBase
 
 	ctx                     context.Context
@@ -1006,6 +1012,8 @@ func (s *appState) activityPresentation(mainMessages []transcriptMessage, conver
 }
 
 func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
 	s.reconcileSessionMention()
 	if control, ok := ui.Depend[ThemeControl](ctx); ok {
 		s.applyTheme = control.Apply
@@ -1115,6 +1123,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
+		InputOwner:       s.inputOwner,
 		WorkspaceMouse:   &s.workspaceMouse,
 		SetDiffWrapLines: s.setDiffWrapLines,
 		ShowDiffWarning: func(message string) {
@@ -1255,6 +1264,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.openSubagentConversation(conversationID)
 		},
 		SelectWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
+			if owner := s.inputOwner(); owner.trapsFocus() && owner != inputTabs {
+				return
+			}
 			if descriptor.Kind == workspacePaneSubagentConversation {
 				s.openSubagentConversation(descriptor.ResourceID)
 				return
@@ -1267,6 +1279,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		CloseWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) {
+			if owner := s.inputOwner(); owner.trapsFocus() && owner != inputTabs {
+				return
+			}
 			if descriptor.Kind == workspacePaneSubagentConversation {
 				s.closeSubagentConversation(descriptor.ResourceID)
 			} else {
@@ -1329,12 +1344,27 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		MoveWorkspaceFocus: func(ui.EventContext) {
+			if s.inputOwner().trapsFocus() {
+				return
+			}
 			s.SetState(func() { s.workspace.MoveFocus() })
 		},
+		FocusWorkspaceComposer: func(ui.EventContext) {
+			if s.inputOwner().trapsFocus() {
+				return
+			}
+			s.SetState(func() { s.workspace.SetFocusOwner(workspaceFocusComposer) })
+		},
 		FocusWorkspaceContent: func(ui.EventContext) {
+			if s.inputOwner().trapsFocus() {
+				return
+			}
 			s.SetState(func() { s.workspace.SetFocusOwner(workspaceFocusContent) })
 		},
 		MoveWorkspaceSelection: func(_ ui.EventContext, delta int) {
+			if s.inputOwner().trapsFocus() {
+				return
+			}
 			selectedConversationID := ""
 			s.SetState(func() {
 				if s.workspace.MoveSelection(delta) {
@@ -1486,6 +1516,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.updateInlineAnnotation(annotationID, body, done)
 		},
 		OpenAnnotationPicker: func(ui.EventContext) {
+			if !s.admitRootModal() {
+				return
+			}
 			s.SetState(func() { s.annotationPicker.Begin() })
 		},
 		RestoreFollowUps: func(ctx ui.EventContext) {
@@ -1617,64 +1650,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
 		Quit: func(ctx ui.EventContext) {
-			if s.themePicker.Open {
-				if s.themePicker.Pending {
-					ctx.Quit()
-				} else {
-					s.cancelThemePicker()
-				}
-				return
-			}
-			if s.annotationPicker.Open {
-				s.SetState(func() { s.annotationPicker.Close() })
-				return
-			}
-			if s.sessionRename.Open {
-				if !s.sessionRename.Pending {
-					s.SetState(func() { s.sessionRename.Cancel() })
-				}
-				return
-			}
-			if s.configurationPicker.Mode != configurationPickerClosed {
-				s.SetState(func() { s.configurationPicker.Close() })
-				return
-			}
-			if s.sessionDetailsOpen {
-				s.SetState(func() { s.sessionDetailsOpen = false })
-				return
-			}
-			if s.sessionExplorer.Open {
-				if s.sessionExplorer.RenamePending || s.sessionExplorer.DeletePending {
-					return
-				}
-				s.cancelSessionSwitch()
-				s.SetState(func() { s.sessionExplorer.Close() })
-				return
-			}
-			if s.sessionMention.Open {
-				s.SetState(func() { s.closeSessionMention() })
-				return
-			}
-			if s.fileMention.Open {
-				s.SetState(func() { s.fileMention.Close() })
-				return
-			}
-			if s.bashHistory.Open {
-				s.SetState(func() { s.bashHistory.Close() })
-				return
-			}
-			if s.palette.Open {
-				s.SetState(func() { s.palette.Close() })
-				return
-			}
-			if (s.composer != "" || len(s.composerAttachments) > 0 || len(s.composerAttachmentIDs) > 0) && s.phase == phaseReady {
-				s.SetState(func() {
-					s.composer = ""
-					s.composerAttachments = nil
-					s.composerAttachmentIDs = nil
-				})
-				return
-			}
 			ctx.Quit()
 		},
 		Dismiss: s.dismiss,
@@ -1708,18 +1683,69 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 			s.transcriptHistoryInputGeneration++
 		}
 	}
-	if result, consumed := s.paste.Observe(ctx, event, s.handleKey); consumed {
+	s.reconcileInputOwner()
+	// Ignore stale pointer targets during ownership transitions. Background
+	// scrolling remains available for a dock, but no old control may activate.
+	if mouse, ok := event.(ui.Mouse); ok && s.inputOwner() == inputInteraction && mouse.Button == ui.MouseLeftButton {
+		s.SetState(func() {})
+	}
+	if mouse, ok := event.(ui.Mouse); ok && s.inputToken() != s.renderedInput && s.inputOwner().trapsFocus() {
+		if s.inputOwner().modal() || mouse.Button == ui.MouseLeftButton {
+			return ui.EventHandled
+		}
+	}
+	if _, starting := event.(vaxis.PasteStartEvent); starting {
+		s.pasteOwner = s.inputToken()
+	}
+	if key, ok := event.(ui.Key); ok && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
+		if key.EventType != ui.EventRelease {
+			ctx.Quit()
+		}
+		return ui.EventHandled
+	}
+	if result, consumed := s.paste.Observe(ctx, event, func(ctx ui.EventContext, key ui.Key) ui.EventResult {
+		if s.pasteOwner != s.inputToken() {
+			return ui.EventHandled
+		}
+		return s.deliverPaste(ctx, key)
+	}); consumed {
 		return result
 	}
 	key, ok := event.(ui.Key)
 	if !ok {
 		return ui.EventIgnored
 	}
-	return s.handleKey(ctx, key)
+	if key.EventType == vaxis.EventPaste {
+		return s.deliverPaste(ctx, key)
+	}
+	result := s.handleKey(ctx, key)
+	if result == ui.EventIgnored && !key.MatchString("Super+c") && (s.inputToken() != s.renderedInput || !s.targetOwnsInput(ctx)) {
+		return ui.EventHandled
+	}
+	return result
 }
 
 func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
-	if s.subagentDismissID != "" {
+	owner := s.inputOwner()
+	if key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+c") {
+		if key.EventType != ui.EventRelease {
+			ctx.Quit()
+		}
+		return ui.EventHandled
+	}
+	if key.EventType != vaxis.EventPaste && key.MatchString("Escape") && owner.modal() && owner != inputAuth {
+		if key.EventType != ui.EventRelease {
+			s.dismiss(ctx)
+		}
+		return ui.EventHandled
+	}
+	if key.EventType == vaxis.EventPaste && !s.acceptsPaste(owner) {
+		return ui.EventHandled
+	}
+	if owner.trapsFocus() && key.EventType != vaxis.EventPaste && (key.MatchString("Ctrl+p") || key.MatchString("Ctrl+]") || key.MatchString("Ctrl+[") || (key.MatchString("Ctrl+o") && owner != inputConfiguration)) {
+		return ui.EventHandled
+	}
+	if owner == inputSubagentDismiss {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled
 		}
@@ -1732,7 +1758,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if s.annotationPicker.Open {
+	if owner == inputAnnotations {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled
 		}
@@ -1759,7 +1785,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if s.sessionRename.Open {
+	if owner == inputRename {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled
 		}
@@ -1780,7 +1806,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventIgnored
 	}
-	if s.themePicker.Open {
+	if owner == inputTheme {
 		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
 			return ui.EventHandled
 		}
@@ -1797,12 +1823,12 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if s.configurationPicker.Mode != configurationPickerClosed {
-		if key.EventType != ui.EventRelease && key.MatchString("Ctrl+o") {
+	if owner == inputConfiguration {
+		if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+o") {
 			s.SetState(func() { s.configurationPicker.BeginContextEdit() })
 			return ui.EventHandled
 		}
-		if s.configurationPicker.EditingContext && key.EventType != ui.EventRelease && key.MatchString("Enter") {
+		if s.configurationPicker.EditingContext && key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
 			s.saveModelContextWindow()
 			return ui.EventHandled
 		}
@@ -1821,7 +1847,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if s.sessionExplorer.Open {
+	if owner.root() == inputSessions {
 		if s.sessionExplorer.DeleteOpen {
 			if key.EventType == ui.EventRelease {
 				return ui.EventHandled
@@ -1866,7 +1892,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 	}
-	if s.sessionMention.Open {
+	if owner == inputSessionMention {
 		var entry protocol.SessionInfo
 		var selectEntry, handled bool
 		s.SetState(func() { entry, selectEntry, handled = s.sessionMention.HandleKey(s.sessionMentions.Entries, key) })
@@ -1877,7 +1903,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 	}
-	if s.fileMention.Open {
+	if owner == inputFileMention {
 		var entry protocol.FileIndexEntry
 		var selectEntry, handled bool
 		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(s.indexedFiles.Entries, key) })
@@ -1888,7 +1914,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 	}
-	if s.bashHistory.Open {
+	if owner == inputBashHistory {
 		var entry bashHistoryEntry
 		var selectEntry, handled bool
 		s.SetState(func() {
@@ -1905,7 +1931,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if !s.palette.Open {
+	if owner != inputPalette {
 		return ui.EventIgnored
 	}
 	var command paletteCommand
@@ -2108,6 +2134,7 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	}
 	if s.liveSequence == 0 || (snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor >= s.liveSequence) {
 		s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
+		s.reconcileInputOwner()
 		s.agentFeedbackPending = len(s.pendingInteractions) > 0
 	}
 	s.applySubagentSnapshot(snapshot)
@@ -2189,6 +2216,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.annotations = append([]protocol.AnnotationSummary(nil), snapshot.Annotations...)
 	}
 	s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
+	s.reconcileInputOwner()
 	currentActiveBash, hasCurrentActiveBash := findBashExecution(s.messages, s.liveMessages, s.activeBashID)
 	projected := projectTranscript(snapshot.Messages)
 	for index := range projected {
@@ -2721,6 +2749,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 					s.pendingInteractions = append(s.pendingInteractions, *event.Interaction)
 				}
 				s.agentFeedbackPending = true
+				s.reconcileInputOwner()
 				s.setTurnActivity("Waiting for feedback…")
 			}
 		case protocol.SessionEventInteractionResolved:
@@ -3770,10 +3799,10 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionMention.Open || s.sessionDetailsOpen || s.sessionRename.Open || s.annotationPicker.Open ||
-		s.subagentDismissID != "" || s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
+	if !s.admitRootModal() {
 		return
 	}
+
 	s.SetState(func() { s.palette.OpenFor(s.hasActiveWork()) })
 }
 
@@ -3801,6 +3830,9 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		return
 	}
 	_, args := splitPaletteQuery(s.palette.Query)
+	s.replacingPalette = true
+	defer func() { s.replacingPalette = false }()
+	s.inputGeneration++
 	s.SetState(func() { s.palette.Close() })
 	if name, ok := promptPaletteCommandName(commandID); ok {
 		s.submitPromptCommand(name, args)
@@ -3869,6 +3901,9 @@ func (s *appState) openWorkingTreeDiff() {
 }
 
 func (s *appState) openThemePicker() {
+	if !s.admitRootModal() {
+		return
+	}
 	service := s.Widget().(app).Options.ThemeService
 	if service == nil {
 		s.showToast(toastInput{Title: "Theme picker unavailable", Variant: toastWarning})
@@ -4000,6 +4035,9 @@ func (s *appState) cancelThemePicker() {
 }
 
 func (s *appState) openSubagents() {
+	if !s.admitRootModal() {
+		return
+	}
 	if s.phase != phaseReady || s.bound == nil {
 		return
 	}
@@ -4499,6 +4537,9 @@ func (s *appState) closeSubagentConversation(conversationID string) {
 }
 
 func (s *appState) openWorkspacePicker() {
+	if !s.admitRootModal() {
+		return
+	}
 	if !s.workspace.StripVisible() {
 		s.showToast(toastInput{Title: "No workspace tabs", Subtitle: "Open a secondary surface first.", Variant: toastWarning})
 		return
@@ -4817,6 +4858,9 @@ func (s *appState) setDiffWrapLines(enabled bool) {
 }
 
 func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
+	if !s.admitRootModal() {
+		return
+	}
 	if s.phase != phaseReady || s.bound == nil || s.configurationPicker.Mode != configurationPickerClosed {
 		return
 	}
@@ -5201,10 +5245,10 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 }
 
 func (s *appState) openCurrentSessionRename() {
-	if s.phase != phaseReady || s.session.ID == "" || s.sessionRename.Open || s.sessionRename.Pending ||
-		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionMention.Open {
+	if !s.admitRootModal() || s.session.ID == "" || s.sessionRename.Pending {
 		return
 	}
+
 	s.SetState(func() { s.sessionRename.Begin(s.session) })
 }
 
@@ -5245,6 +5289,9 @@ func (s *appState) renameCurrentSession(value string) {
 }
 
 func (s *appState) openSessionExplorer() {
+	if !s.admitRootModal() {
+		return
+	}
 	if s.phase != phaseReady || s.sessionExplorer.Open {
 		return
 	}
@@ -6187,11 +6234,12 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 }
 
 func (s *appState) dismiss(_ ui.EventContext) {
-	if s.themePicker.Open {
+	owner := s.inputOwner()
+	if owner == inputTheme {
 		s.cancelThemePicker()
 		return
 	}
-	if s.subagentDismissID != "" {
+	if owner == inputSubagentDismiss {
 		if !s.subagentDismissPending {
 			s.SetState(func() {
 				s.subagentDismissID = ""
@@ -6202,25 +6250,28 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		}
 		return
 	}
-	if s.annotationPicker.Open {
+	if owner == inputAnnotations {
 		s.SetState(func() { s.annotationPicker.Close() })
 		return
 	}
-	if s.sessionRename.Open {
+	if owner == inputRename {
 		if !s.sessionRename.Pending {
 			s.SetState(func() { s.sessionRename.Cancel() })
 		}
 		return
 	}
-	if s.configurationPicker.Mode != configurationPickerClosed {
-		s.SetState(func() { s.configurationPicker.Close() })
+	if owner == inputConfiguration {
+		if s.configurationPicker.Pending {
+			return
+		}
+		s.SetState(func() { s.configurationPicker.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}) })
 		return
 	}
-	if s.sessionDetailsOpen {
+	if owner == inputSessionDetails {
 		s.SetState(func() { s.sessionDetailsOpen = false })
 		return
 	}
-	if s.sessionExplorer.Open {
+	if owner.root() == inputSessions {
 		if s.sessionExplorer.DeleteOpen {
 			if !s.sessionExplorer.DeletePending {
 				s.SetState(func() { s.sessionExplorer.CancelDelete() })
@@ -6241,22 +6292,40 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		}
 		return
 	}
-	if s.sessionMention.Open {
+	if owner == inputSessionMention {
 		s.SetState(func() { s.closeSessionMention() })
 		return
 	}
-	if s.fileMention.Open {
+	if owner == inputFileMention {
 		s.SetState(func() { s.fileMention.Close() })
 		return
 	}
-	if s.bashHistory.Open {
+	if owner == inputBashHistory {
 		s.SetState(func() { s.bashHistory.Close() })
 		return
 	}
-	if s.palette.Open {
+	if owner == inputPalette {
 		s.SetState(func() { s.palette.Close() })
 		return
 	}
+	switch owner {
+	case inputFiles:
+		s.SetState(func() { s.closeWorkspaceFilePicker() })
+		return
+	case inputTabs:
+		s.SetState(func() {
+			s.workspacePickerOpen = false
+			s.workspacePickerQuery = ""
+			s.workspacePickerRevealPending = false
+		})
+		return
+	case inputSubagents:
+		s.closeSubagents()
+		return
+	case inputInteraction:
+		return // The dock's local dismiss action owns cancellation.
+	}
+
 	switch s.phase {
 	case phaseAuthSelect:
 		s.SetState(func() {

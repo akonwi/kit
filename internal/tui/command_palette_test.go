@@ -454,7 +454,7 @@ func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing
 func TestTabsActionExplainsAgentOnlyWorkspace(t *testing.T) {
 	t.Parallel()
 	var presented toastInput
-	state := &appState{showToastOverride: func(toast toastInput) { presented = toast }}
+	state := &appState{phase: phaseReady, showToastOverride: func(toast toastInput) { presented = toast }}
 	state.openWorkspacePicker()
 	if state.workspacePickerOpen || presented.Title != "No workspace tabs" || presented.Subtitle != "Open a secondary surface first." {
 		t.Fatalf("Agent-only tabs action = picker:%t toast:%+v", state.workspacePickerOpen, presented)

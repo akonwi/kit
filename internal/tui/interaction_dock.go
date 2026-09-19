@@ -5,6 +5,7 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/protocol"
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -29,6 +30,7 @@ type continueInteractionIntent struct{}
 func (continueInteractionIntent) IntentType() ui.IntentType { return "kit.interaction.continue" }
 
 type interactionDock struct {
+	Suspended   bool
 	Request     protocol.InteractionRequest
 	QueueLength int
 	OnRespond   func(ui.EventContext, protocol.InteractionResponse, func(error))
@@ -95,6 +97,13 @@ func (s *interactionDockState) Build(ctx ui.BuildContext) ui.Widget {
 		ui.SizedBox{Width: 2}, plainButton{Label: "Cancel", OnPressed: cancel},
 	}})
 	actions := map[ui.IntentType]ui.ActionFunc{
+		inputTargetIntent{}.IntentType(): inputTargetAction(inputInteraction),
+		insertPasteIntent{}.IntentType(): func(event ui.EventContext, intent ui.Intent) ui.EventResult {
+			if s.acceptsPaste() {
+				event.Invoke(ui.InsertTextIntent{Text: intent.(insertPasteIntent).Text})
+			}
+			return ui.EventHandled
+		},
 		"vaxis.dismiss": func(event ui.EventContext, _ ui.Intent) ui.EventResult { cancel(event); return ui.EventHandled },
 	}
 	if request.Kind == protocol.InteractionGuided {
@@ -142,10 +151,14 @@ func (s *interactionDockState) Build(ctx ui.BuildContext) ui.Widget {
 		shortcuts["Enter"] = chooseInteractionOptionIntent{}
 		shortcuts["Space"] = chooseInteractionOptionIntent{}
 	}
-	content := ui.FocusScope{Trap: true, AutoFocus: true, ReclaimFocus: true, Child: ui.DecoratedBox(
+	content := ui.FocusScope{Trap: !widget.Suspended, AutoFocus: !widget.Suspended, ReclaimFocus: !widget.Suspended, Child: ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Background: theme.Background}},
 		ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}),
 	)}
+	if widget.Suspended {
+		actions = nil
+		shortcuts = nil
+	}
 	return ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: shortcuts, Child: content}}
 }
 
@@ -168,7 +181,7 @@ func (s *interactionDockState) body(theme ui.Theme, request protocol.Interaction
 		}
 		return booleanChoices(choose)
 	case protocol.InteractionInput:
-		return ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: "Type a response", AutoFocus: true,
+		return ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: "Type a response", AutoFocus: !s.Widget().(interactionDock).Suspended,
 			OnChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.value = value }) },
 			OnSubmitted: func(event ui.EventContext, value string) {
 				if strings.TrimSpace(value) == "" {
@@ -258,7 +271,7 @@ func (s *interactionDockState) guidedBody(theme ui.Theme, request protocol.Inter
 	}
 	switch question.Kind {
 	case protocol.InteractionQuestionText:
-		children = append(children, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: "Type an answer", AutoFocus: true,
+		children = append(children, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: "Type an answer", AutoFocus: !s.Widget().(interactionDock).Suspended,
 			OnChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.value = value }) },
 			OnSubmitted: func(event ui.EventContext, value string) {
 				if strings.TrimSpace(value) == "" {
@@ -545,7 +558,7 @@ func (s *interactionOptionRowState) Build(ctx ui.BuildContext) ui.Widget {
 }
 
 func (s *interactionDockState) respond(event ui.EventContext, callback func(ui.EventContext, protocol.InteractionResponse, func(error)), response protocol.InteractionResponse) {
-	if callback == nil || s.submitting {
+	if callback == nil || s.submitting || s.Widget().(interactionDock).Suspended {
 		return
 	}
 	s.SetState(func() { s.submitting = true })
@@ -554,4 +567,24 @@ func (s *interactionDockState) respond(event ui.EventContext, callback func(ui.E
 			s.SetState(func() { s.submitting = false })
 		}
 	})
+}
+
+func (s *interactionDockState) acceptsPaste() bool {
+	w := s.Widget().(interactionDock)
+	if w.Suspended || s.submitting {
+		return false
+	}
+	return w.Request.Kind == protocol.InteractionInput || (w.Request.Kind == protocol.InteractionGuided && s.step < len(w.Request.Questions) && w.Request.Questions[s.step].Kind == protocol.InteractionQuestionText)
+}
+func (s *interactionDockState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	if ctx.Phase() != ui.CapturePhase {
+		return ui.EventIgnored
+	}
+	if key, ok := event.(ui.Key); ok && key.EventType == vaxis.EventPaste {
+		if s.acceptsPaste() {
+			insertPastedText(ctx, pastedKeyText(key))
+		}
+		return ui.EventHandled
+	}
+	return ui.EventIgnored
 }
