@@ -3,7 +3,9 @@ package tui
 import (
 	"context"
 	"errors"
+	"fmt"
 	"reflect"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -344,7 +346,7 @@ func TestWorkspaceFileViewerPresentsAlignedSelectableHighlightedContent(t *testi
 	app.Pump(48, 10)
 	rows := paintedRows(app, 48, 10)
 	visible := strings.Join(rows, "\n")
-	for _, want := range []string{"cmd/main.go", "Ln 1 · 5 lines · 43 B", "1 │ package main", "4 │     value := 42", "↑↓ lines · ←→ columns · r refresh"} {
+	for _, want := range []string{"cmd/main.go", "Ln 1 · 5 lines · 43 B", "1 + package main", "4 │     value := 42", "↑↓ lines · ←→ columns · r refresh"} {
 		if !strings.Contains(visible, want) {
 			t.Fatalf("file viewer missing %q:\n%s", want, visible)
 		}
@@ -357,7 +359,7 @@ func TestWorkspaceFileViewerPresentsAlignedSelectableHighlightedContent(t *testi
 	if got, want := app.Cell(46, packageRow).Style.Background, ui.DefaultTheme().SurfaceHovered; got != want {
 		t.Fatalf("active line trailing background = %#v, want %#v", got, want)
 	}
-	firstGutter, _ := findTextCell(t, rows, "1 │")
+	firstGutter, _ := findTextCell(t, rows, "1 +")
 	fourthGutter, _ := findTextCell(t, rows, "4 │")
 	if firstGutter != fourthGutter {
 		t.Fatalf("line-number gutters are not aligned: %d != %d", firstGutter, fourthGutter)
@@ -444,7 +446,7 @@ func TestWorkspaceFileViewerRetainsCursorAndBoundedHorizontalPosition(t *testing
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	app.Pump(26, 8)
 	beforeHorizontalScroll := strings.Join(paintedRows(app, 26, 8), "\n")
-	if !strings.Contains(beforeHorizontalScroll, "1 │ first") || !strings.Contains(beforeHorizontalScroll, "2 │ second line") {
+	if !strings.Contains(beforeHorizontalScroll, "1 │ first") || !strings.Contains(beforeHorizontalScroll, "2 + second line") {
 		t.Fatalf("in-viewport cursor movement scrolled the file:\n%s", beforeHorizontalScroll)
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyRight})
@@ -490,7 +492,7 @@ func TestWorkspaceFileViewerGutterMouseCreatesAndExtendsCommentRange(t *testing.
 	app := uitest.New(filePaneHarness{model: model})
 	pumpUntil(t, app, model, 60, 12, "three")
 	rows := paintedRows(app, 60, 12)
-	gutterColumn, firstRow := findTextCell(t, rows, "1 │")
+	gutterColumn, firstRow := findTextCell(t, rows, "1 +")
 	_, thirdRow := findTextCell(t, rows, "3 │")
 	app.Send(vaxis.Mouse{Col: gutterColumn, Row: firstRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
 	app.Send(vaxis.Mouse{Col: gutterColumn, Row: thirdRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
@@ -667,14 +669,14 @@ func TestWorkspaceFileViewerScrollsOnlyWhenCursorLeavesViewport(t *testing.T) {
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	app.Pump(48, 8)
 	rows := strings.Join(paintedRows(app, 48, 8), "\n")
-	if !strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "3 │ three") {
+	if !strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "3 + three") {
 		t.Fatalf("cursor movement inside viewport scrolled content:\n%s", rows)
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	app.Pump(48, 8)
 	app.Pump(48, 8)
 	rows = strings.Join(paintedRows(app, 48, 8), "\n")
-	if strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "2 │ two") || !strings.Contains(rows, "4 │ four") {
+	if strings.Contains(rows, "1 │ one") || !strings.Contains(rows, "2 │ two") || !strings.Contains(rows, "4 + four") {
 		t.Fatalf("cursor leaving viewport did not scroll minimally:\n%s", rows)
 	}
 }
@@ -894,6 +896,139 @@ func TestWorkspaceFileViewerEmptyTruncatedAndErrorPresentation(t *testing.T) {
 			model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", path), workspace: "workspace_a", active: true, show: true, files: files}
 			app := uitest.New(filePaneHarness{model: model})
 			pumpUntil(t, app, model, 44, 8, test.want)
+		})
+	}
+}
+
+func TestWorkspaceFileViewerCommentButtonFollowsMouseAndKeyboard(t *testing.T) {
+	for _, width := range []int{40, 100} {
+		t.Run(strconv.Itoa(width), func(t *testing.T) {
+			files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\n")}}
+			model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+			app := uitest.New(filePaneHarness{model: model})
+			pumpUntil(t, app, model, width, 12, "three")
+			rows := paintedRows(app, width, 12)
+			col, firstRow := findTextCell(t, rows, "1 + one")
+			_, secondRow := findTextCell(t, rows, "2 │ two")
+			_, thirdRow := findTextCell(t, rows, "3 │ three")
+			for _, row := range []int{secondRow, thirdRow, secondRow} {
+				app.Send(vaxis.Mouse{Col: col + 5, Row: row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion})
+				app.Pump(width, 12)
+				wantLine := 2
+				wantText := "2 + two"
+				if row == thirdRow {
+					wantLine, wantText = 3, "3 + three"
+				}
+				rendered := paintedRows(app, width, 12)
+				if !strings.Contains(rendered[row], wantText) || !app.Contains(fmt.Sprintf("Ln %d", wantLine)) {
+					t.Fatalf("hover row %d:\n%s", row, strings.Join(rendered, "\n"))
+				}
+				if app.Cell(col+2, row).Style.Background != ui.DefaultTheme().Primary || app.Cell(col+2, row).Style.Foreground != ui.DefaultTheme().Background {
+					t.Fatalf("comment button does not share diff action style: %+v", app.Cell(col+2, row).Style)
+				}
+				if !strings.Contains(rendered[firstRow], "1 │ one") {
+					t.Fatalf("previous cursor gutter = %q", rendered[firstRow])
+				}
+			}
+			app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+			app.Pump(width, 12)
+			rows = paintedRows(app, width, 12)
+			if !strings.Contains(rows[secondRow], "2 │ two") || !strings.Contains(rows[thirdRow], "3 + three") {
+				t.Fatalf("keyboard did not move the same gutter action:\n%s", strings.Join(rows, "\n"))
+			}
+			// Pressing source text remains source selection, not annotation activation.
+			app.Send(vaxis.Mouse{Col: col + 5, Row: secondRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+			app.Send(vaxis.Mouse{Col: col + 6, Row: thirdRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+			app.Send(vaxis.Mouse{Col: col + 6, Row: thirdRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+			app.Pump(width, 12)
+			if !strings.Contains(paintedRows(app, width, 12)[thirdRow], "3 + three") || len(model.annotated) != 0 {
+				t.Fatal("source selection changed the comment cursor or created an annotation")
+			}
+		})
+	}
+}
+
+func TestWorkspaceFileViewerCommentButtonClickPinsHoveredLine(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 16, "three")
+	col, row := findTextCell(t, paintedRows(app, 60, 16), "two")
+	app.Send(vaxis.Mouse{Col: col, Row: row, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion})
+	app.Pump(60, 16)
+	gutterColumn, _ := findTextCell(t, paintedRows(app, 60, 16), "2 + two")
+	// Secondary-button activation leaves the line affordance in place.
+	app.Send(vaxis.Mouse{Col: gutterColumn + 2, Row: row, Button: vaxis.MouseRightButton, EventType: vaxis.EventPress})
+	app.Send(vaxis.Mouse{Col: gutterColumn + 2, Row: row, Button: vaxis.MouseRightButton, EventType: vaxis.EventRelease})
+	app.Pump(60, 16)
+	if !strings.Contains(paintedRows(app, 60, 16)[row], "2 + two") || model.focused != 0 {
+		t.Fatal("secondary click activated the comment action")
+	}
+	app.Send(vaxis.Mouse{Col: gutterColumn + 2, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	app.Send(vaxis.Mouse{Col: gutterColumn + 2, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+	app.Pump(60, 16)
+	_, editorRow := findTextCell(t, paintedRows(app, 60, 16), "Write a comment")
+	if editorRow != row+2 || model.focused != 1 {
+		t.Fatalf("clicked comment editor row=%d focus requests=%d", editorRow, model.focused)
+	}
+	// Hovering another source row while typing cannot relocate the editor.
+	col, firstRow := findTextCell(t, paintedRows(app, 60, 16), "one")
+	app.Send(vaxis.Mouse{Col: col, Row: firstRow, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion})
+	app.Key("x")
+	app.Enter()
+	app.Pump(60, 16)
+	want := protocol.WorkspaceFileAnnotationAnchor{WorkspaceID: "workspace_a", Path: "main.go", FileRevision: "file_revision", StartLine: 2, EndLine: 2}
+	if len(model.annotated) != 1 || model.annotated[0] != want {
+		t.Fatalf("clicked comment anchor = %+v, want %+v", model.annotated, want)
+	}
+}
+
+func TestWorkspaceFileViewerUnavailableCommentGutterIsPlain(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\n")}}
+	model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+	app := uitest.New(filePaneHarness{model: model})
+	pumpUntil(t, app, model, 60, 12, "two")
+	model.update(func() { model.workspace = "workspace_b" })
+	app.Pump(60, 12)
+	rows := paintedRows(app, 60, 12)
+	_, firstRow := findTextCell(t, rows, "1 │ one")
+	col, secondRow := findTextCell(t, rows, "2 │ two")
+	app.Send(vaxis.Mouse{Col: col + 5, Row: secondRow, Button: vaxis.MouseNoButton, EventType: vaxis.EventMotion})
+	app.Click(col+2, secondRow)
+	app.Send(vaxis.Mouse{Col: col + 2, Row: secondRow, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+	app.Pump(60, 12)
+	rows = paintedRows(app, 60, 12)
+	if !strings.Contains(rows[firstRow], "1 │ one") || !strings.Contains(rows[secondRow], "2 │ two") || len(model.annotated) != 0 {
+		t.Fatalf("frozen file did not retain plain read-only gutters:\n%s", strings.Join(rows, "\n"))
+	}
+}
+
+func TestWorkspaceFileViewerGutterGestureStopsWhenCommentsBecomeUnavailable(t *testing.T) {
+	for _, transition := range []string{"frozen", "inactive"} {
+		t.Run(transition, func(t *testing.T) {
+			files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "main.go", "file_revision", "one\ntwo\nthree\n")}}
+			model := &filePaneHarnessModel{descriptor: fileWorkspacePane("workspace_a", "main.go"), workspace: "workspace_a", active: true, show: true, files: files}
+			app := uitest.New(filePaneHarness{model: model})
+			pumpUntil(t, app, model, 60, 12, "three")
+			col, row := findTextCell(t, paintedRows(app, 60, 12), "1 + one")
+			app.Send(vaxis.Mouse{Col: col + 2, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+			model.update(func() {
+				if transition == "frozen" {
+					model.workspace = "workspace_b"
+				} else {
+					model.active = false
+				}
+			})
+			app.Pump(60, 12)
+			app.Send(vaxis.Mouse{Col: col + 2, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+			app.Pump(60, 12)
+			rows := paintedRows(app, 60, 12)
+			if !strings.Contains(rows[row+1], "2 │ two") || !strings.Contains(rows[row+2], "3 │ three") {
+				t.Fatalf("%s gesture inserted an editor into read-only content:\n%s", transition, strings.Join(rows, "\n"))
+			}
+			if len(model.annotated) != 0 {
+				t.Fatalf("%s gesture created an annotation", transition)
+			}
 		})
 	}
 }
