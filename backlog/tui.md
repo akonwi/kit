@@ -7,7 +7,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Directory, file, and diff workspace
 
-- [ ] TUI-WORK-005 — Make existing file-path chips in `read`, `write`, and
+- [x] TUI-WORK-005 — Make existing file-path chips in `read`, `write`, and
   `edit` tool activity clickable with the primary mouse button. Highlight only
   the hovered chip; activation opens or selects the retained File tab and
   reveals a relevant line/range when available. Reuse

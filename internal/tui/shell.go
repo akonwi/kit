@@ -117,6 +117,7 @@ type providerSelectedCallback func(ui.EventContext, string)
 type selectionMovedCallback func(ui.EventContext, int)
 
 type shellCallbacks struct {
+	OpenActivityFile            func(ui.EventContext, toolFileTarget)
 	InputOwner                  func() inputOwner
 	PaneInputChanged            func(workspacePaneDescriptor, paneInputKind, bool) bool
 	WorkspaceMouse              *workspaceMouseGestureController
@@ -1020,6 +1021,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			SubagentConversations: w.Snapshot.SubagentConversations,
 			OnSelectTool:          w.Callbacks.SelectActivityTool,
 			OnOpenSubagent:        w.Callbacks.OpenSubagentFromTool,
+			OnOpenFile:            w.Callbacks.OpenActivityFile,
 		})
 	}
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}

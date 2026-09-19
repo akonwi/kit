@@ -115,6 +115,17 @@ informative tail:
 
 - Batch disclosure is available by mouse without adding a keyboard focus marker.
 - Tool rows have no output disclosure interaction.
+- File-path chips on `read`, `write`, and `edit` calls open or select the retained
+  File tab on a primary click. Only the hovered chip changes background; the
+  action title and surrounding row do not gain hover styling. Chips add no
+  keyboard shortcut, palette action, picker, or Tab stop.
+- Navigation uses the complete path, not its truncated label. Recorded resolved
+  paths take precedence over relative arguments when available. Files open in
+  the current associated workspace, not as historical snapshots; unavailable
+  or stale targets produce a warning rather than an unrelated file open. Reads
+  reveal their known line/range; edits and writes do not invent line anchors.
+- Rendering or completing a tool call never opens a tab automatically. Repeated
+  activation reuses the file's workspace/path identity without reordering tabs.
 - A subagent call may still open its retained conversation when that conversation
   exists; this is navigation, not inline output expansion.
 - Batch expansion survives ordinary repaint and responsive narrow/wide changes.

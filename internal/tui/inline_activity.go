@@ -16,6 +16,7 @@ type inlineActivityWindow struct {
 	SubagentConversations []protocol.SubagentConversation
 	OnSelectTool          func(ui.EventContext, activityToolKey)
 	OnOpenSubagent        func(ui.EventContext, string)
+	OnOpenFile            func(ui.EventContext, toolFileTarget)
 }
 
 func (w inlineActivityWindow) WidgetKey() ui.KeyValue { return ui.KeyValue("inline-activity:" + w.ID) }
@@ -44,6 +45,7 @@ func (s *inlineActivityWindowState) Build(ctx ui.BuildContext) ui.Widget {
 	}, Callbacks: shellCallbacks{
 		SelectActivityTool:   window.OnSelectTool,
 		OpenSubagentFromTool: window.OnOpenSubagent,
+		OpenActivityFile:     window.OnOpenFile,
 	}}
 	for index, item := range items {
 		widgets[index] = view.activityListItem(theme, item, window.States)

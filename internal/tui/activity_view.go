@@ -33,6 +33,7 @@ func (w shellView) activityListItem(theme ui.Theme, item activityListItem, state
 			SubagentAgentName: subagentName,
 			OnSelect:          w.Callbacks.SelectActivityTool,
 			OnOpenSubagent:    w.Callbacks.OpenSubagentFromTool,
+			OnOpenFile:        w.Callbacks.OpenActivityFile,
 		}
 	}
 }
@@ -93,6 +94,7 @@ type activityToolRowWidget struct {
 	SubagentAgentName   string
 	OnSelect            func(ui.EventContext, activityToolKey)
 	OnOpenSubagent      func(ui.EventContext, string)
+	OnOpenFile          func(ui.EventContext, toolFileTarget)
 }
 
 func (w activityToolRowWidget) WidgetKey() ui.KeyValue {
@@ -130,6 +132,9 @@ func (s *activityToolRowWidgetState) Build(ctx ui.BuildContext) ui.Widget {
 		Value: " " + summary + " ", Style: chipStyle,
 		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 	})
+	if target, ok := toolRowFileTarget(row.Call, row.State, row.Exists); ok && row.OnOpenFile != nil {
+		chip = toolFileChip{Text: " " + summary + " ", Style: chipStyle, OnPressed: func(ctx ui.EventContext) { row.OnOpenFile(ctx, target) }}
+	}
 	if agentName := row.SubagentAgentName; agentName != "" && row.OnOpenSubagent != nil {
 		chip = subagentToolLink{
 			Name: " " + agentName + " ", Style: chipStyle,

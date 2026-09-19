@@ -334,6 +334,8 @@ type appState struct {
 	diffPreferenceWriting            bool
 	diffPreferenceWrites             sync.WaitGroup
 	workspaceID                      string
+	toolFileNavigationGeneration     uint64
+	toolFileNavigationCancel         context.CancelFunc
 	workspaceFilePicker              workspaceFilePickerController
 	workspaceFilePickerScroll        ui.ScrollController
 	workspaceFilePickerContext       context.Context
@@ -974,6 +976,11 @@ func (s *appState) resetAttachmentContext() {
 }
 
 func (s *appState) Dispose() {
+	s.toolFileNavigationGeneration++
+	if s.toolFileNavigationCancel != nil {
+		s.toolFileNavigationCancel()
+		s.toolFileNavigationCancel = nil
+	}
 	s.stopVCSMonitoring()
 	if s.sessionWatchCancel != nil {
 		s.sessionWatchCancel()
@@ -1127,6 +1134,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
+		OpenActivityFile: func(_ ui.EventContext, target toolFileTarget) {
+			target.SessionID = snapshot.Session.ID
+			target.WorkspaceID = snapshot.CurrentWorkspaceID
+			target.CWD = snapshot.Session.CWD
+			s.openToolFile(target)
+		},
 		InputOwner:       s.inputOwner,
 		PaneInputChanged: s.setPaneInputOwner,
 		WorkspaceMouse:   &s.workspaceMouse,
