@@ -284,7 +284,21 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	w.presentation = presentTranscript(w.Snapshot.Messages)
 	content := ui.Widget(ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}},
-		ui.SelectionArea{Child: w.baseShell(theme)},
+		markdownLinkActivator{
+			GestureKey: w.Snapshot.Session.ID + "\x00" + string(w.Snapshot.Workspace.Selected),
+			Enabled: func() bool {
+				if w.Snapshot.Phase != phaseReady {
+					return false
+				}
+				currentOwner := owner
+				if w.Callbacks.InputOwner != nil {
+					currentOwner = w.Callbacks.InputOwner()
+				}
+				return currentOwner.permitsRoot()
+			},
+			OpenURL: w.Callbacks.OpenURL,
+			Child:   ui.SelectionArea{Child: w.baseShell(theme)},
+		},
 	))
 	overlays := w.authOverlays(theme)
 	if w.Snapshot.Phase == phaseReady && owner == inputFileMention {
