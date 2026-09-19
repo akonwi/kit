@@ -39,23 +39,43 @@ type retainedDiffShell struct{ state *retainedDiffShellState }
 func (w retainedDiffShell) CreateState() ui.State { return w.state }
 
 type retainedDiffShellState struct {
-	ui.StateBase
-	workspace workspaceController
-	diff      fakeWorkingTreeDiff
-	dispatch  retainedDiffDispatch
-	pane      *workspaceDiffPaneState
+	appState
+	diff         fakeWorkingTreeDiff
+	dispatch     retainedDiffDispatch
+	pane         *workspaceDiffPaneState
+	copied       string
+	interactions []protocol.InteractionRequest
+	response     protocol.InteractionResponse
 }
 
+func (s *retainedDiffShellState) InitState() {
+	s.phase = phaseReady
+	s.session = protocol.SessionInfo{ID: toolNavigationSessionID, Name: "Retention", Model: "test/echo", CWD: "/repo"}
+	s.workspaceID = testDiffWorkspace
+}
+func (*retainedDiffShellState) Dispose() {}
+func (s *retainedDiffShellState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
 func (s *retainedDiffShellState) Build(ui.BuildContext) ui.Widget {
-	return shellView{Snapshot: shellSnapshot{
+	s.pendingInteractions = s.interactions
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
+	view := shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady,
 		Session: protocol.SessionInfo{
 			ID: toolNavigationSessionID, Name: "Retention", Model: "test/echo", CWD: "/repo",
 		},
-		CurrentWorkspaceID: testDiffWorkspace,
-		Workspace:          s.workspace.Snapshot(),
-		Scroll:             &ui.ScrollController{},
+		CurrentWorkspaceID:  testDiffWorkspace,
+		Workspace:           s.workspace.Snapshot(),
+		Scroll:              &ui.ScrollController{},
+		PendingInteractions: s.interactions,
 	}, Callbacks: shellCallbacks{
+		InputOwner: s.inputOwner,
+		RespondInteraction: func(_ ui.EventContext, response protocol.InteractionResponse, done func(error)) {
+			s.response = response
+			done(nil)
+		},
 		MoveWorkspaceSelection: func(_ ui.EventContext, delta int) {
 			s.SetState(func() { s.workspace.MoveSelection(delta) })
 		},
@@ -73,6 +93,7 @@ func (s *retainedDiffShellState) Build(ui.BuildContext) ui.Widget {
 		},
 		CreateAnnotation: func(protocol.AnnotationAnchor, string, func(error)) {},
 	}, WorkspaceDispatch: s.dispatch.dispatch, Diff: s.diff}
+	return keyShortcuts{Bindings: ui.ShortcutMap{"Alt+y": ui.CopySelectionTextIntent{OnCopied: func(text string) { s.copied = text }}}, Child: view}
 }
 
 func (s *retainedDiffShellState) reopenDiff(startLine, endLine int) error {
@@ -333,4 +354,73 @@ func TestShellDiffRepeatedAnchoredOpenReusesTabWithoutReordering(t *testing.T) {
 	if !strings.Contains(strings.Join(rows, "\n"), "retained line 08") {
 		t.Fatalf("repeated anchored cursor was not visibly revealed:\n%s", strings.Join(rows, "\n"))
 	}
+}
+
+func clickRetainedDiffText(t *testing.T, application *uitest.App, width, height int, text string) (int, int) {
+	t.Helper()
+	column, row := findRenderedDiffText(t, application, width, height, text)
+	application.Send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+	return column, row
+}
+
+func TestShellDiffBodySelectionFocusRemainsInsidePaneKeyboardRoute(t *testing.T) {
+	const width, height = 140, 18
+	t.Run("plain click then keyboard", func(t *testing.T) {
+		application, state := mountRetainedDiffShell(t)
+		clickRetainedDiffText(t, application, width, height, "◆ -1,30 +1,30")
+		application.Pump(width, height)
+		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+		pumpRetainedDiffCursor(t, application, state, width, height, "retained line 02")
+	})
+
+	t.Run("drag selection then keyboard", func(t *testing.T) {
+		application, state := mountRetainedDiffShell(t)
+		column, row := findRenderedDiffText(t, application, width, height, "◆ -1,30 +1,30")
+		application.Send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+		application.Send(vaxis.Mouse{Col: column + 8, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+		application.Send(vaxis.Mouse{Col: column + 8, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+		application.Pump(width, height)
+		selectedCells := 0
+		for offset := 0; offset <= 8; offset++ {
+			if application.Cell(column+offset, row).Style.Background == ui.DefaultTheme().Selection {
+				selectedCells++
+			}
+		}
+		if selectedCells != 8 {
+			t.Fatalf("Diff drag selection styled %d cells, want 8", selectedCells)
+		}
+		application.Send(vaxis.Key{Keycode: 'y', Modifiers: vaxis.ModAlt})
+		if state.copied != "◆ -1,30 " {
+			t.Fatalf("Diff copied selection = %q, want %q", state.copied, "◆ -1,30 ")
+		}
+		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
+		pumpRetainedDiffCursor(t, application, state, width, height, "retained line 02")
+	})
+}
+
+func TestShellDiffBackgroundSelectionDefersInputToInteractionDockFrame(t *testing.T) {
+	const width, height = 140, 30
+	application, state := mountRetainedDiffShell(t)
+	pumpRetainedDiffCursor(t, application, state, width, height, "retained line 01")
+	state.SetState(func() {
+		state.interactions = []protocol.InteractionRequest{{ID: "diff-input", Kind: protocol.InteractionInput, Title: "Answer diff question"}}
+	})
+	pumpRetainedDiffShell(t, application, state, width, height, "Answer diff question")
+
+	clickRetainedDiffText(t, application, width, height, "◆ -1,30 +1,30")
+	application.Key("x")
+	application.Enter()
+	if state.response.Value != nil {
+		t.Fatalf("coalesced background input submitted response %+v", state.response)
+	}
+
+	application.Pump(width, height)
+	application.Key("answer")
+	application.Enter()
+	application.Pump(width, height)
+	if state.response.Value == nil || *state.response.Value != "answer" {
+		t.Fatalf("post-frame dock response = %+v, want answer", state.response)
+	}
+	retainedDiffCursorRow(t, application, width, height, "retained line 01")
 }

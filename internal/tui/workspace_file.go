@@ -499,7 +499,9 @@ func (s *workspaceFilePaneState) Build(ctx ui.BuildContext) ui.Widget {
 			shortcuts["r"] = refreshWorkspaceFileIntent{}
 		}
 	}
-	content := ui.Widget(workspacePanelLayout{Header: header, Body: body, Footer: footer})
+	// Keep read-only text selection focus inside this pane's keyboard route.
+	// Otherwise the shell selection area takes focus outside our shortcuts.
+	content := ui.Widget(ui.SelectionArea{Child: workspacePanelLayout{Header: header, Body: body, Footer: footer}})
 	content = controlFocusScope{Passive: true, Child: ui.FocusWithOptions(&s.focus, ui.FocusOptions{SkipTraversal: !w.Presentation.Active}, content)}
 	content = ui.FocusScope{AutoFocus: w.Presentation.Active, Child: content}
 	content = mouseReleaseListener{Child: content, OnRelease: func(ui.EventContext) { s.finishGutterComment(w) }}

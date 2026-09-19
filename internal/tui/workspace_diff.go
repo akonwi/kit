@@ -1356,7 +1356,9 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 		}
 	}
-	content := ui.Widget(workspacePanelLayout{Header: header, Body: body, Footer: footer})
+	// Keep read-only text selection focus inside this pane's keyboard route.
+	// Otherwise the shell selection area takes focus outside our shortcuts.
+	content := ui.Widget(ui.SelectionArea{Child: workspacePanelLayout{Header: header, Body: body, Footer: footer}})
 	if s.targetPickerOpen {
 		content = ui.Overlay{Child: content, Entries: []ui.OverlayEntry{{Modal: true, Barrier: clearModalBarrier{}, Child: s.targetPicker(ctx, theme)}}}
 	}

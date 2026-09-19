@@ -19,19 +19,37 @@ type fileRetentionShell struct{ state *fileRetentionShellState }
 func (w fileRetentionShell) CreateState() ui.State { return w.state }
 
 type fileRetentionShellState struct {
-	ui.StateBase
-	workspace workspaceController
-	files     *fileViewerSession
-	dispatch  toolNavigationDispatch
-	scroll    ui.ScrollController
-	composer  string
+	appState
+	files        *fileViewerSession
+	dispatch     toolNavigationDispatch
+	scroll       ui.ScrollController
+	copied       string
+	interactions []protocol.InteractionRequest
+	response     protocol.InteractionResponse
 }
 
+func (s *fileRetentionShellState) InitState() {
+	s.phase = phaseReady
+	s.session = protocol.SessionInfo{ID: "session_1", Name: "Retention", Model: "test/model"}
+	s.workspaceID = "workspace_a"
+}
+func (*fileRetentionShellState) Dispose() {}
+func (s *fileRetentionShellState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
 func (s *fileRetentionShellState) Build(ui.BuildContext) ui.Widget {
-	return shellView{
+	s.pendingInteractions = s.interactions
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
+	return keyShortcuts{Bindings: ui.ShortcutMap{"Alt+y": ui.CopySelectionTextIntent{OnCopied: func(text string) { s.copied = text }}}, Child: shellView{
 		WorkspaceFiles: s.files, WorkspaceDispatch: s.dispatch.dispatch,
-		Snapshot: shellSnapshot{Phase: phaseReady, Session: protocol.SessionInfo{ID: "session_1", Name: "Retention", Model: "test/model"}, CurrentWorkspaceID: "workspace_a", Workspace: s.workspace.Snapshot(), Scroll: &s.scroll, Composer: s.composer},
+		Snapshot: shellSnapshot{Phase: phaseReady, Session: protocol.SessionInfo{ID: "session_1", Name: "Retention", Model: "test/model"}, CurrentWorkspaceID: "workspace_a", Workspace: s.workspace.Snapshot(), Scroll: &s.scroll, Composer: s.composer, PendingInteractions: s.interactions},
 		Callbacks: shellCallbacks{
+			InputOwner: s.inputOwner,
+			RespondInteraction: func(_ ui.EventContext, response protocol.InteractionResponse, done func(error)) {
+				s.response = response
+				done(nil)
+			},
 			SelectWorkspacePane: func(_ ui.EventContext, pane workspacePaneDescriptor) {
 				s.SetState(func() { id, _ := workspacePaneIdentityFor(pane); s.workspace.Select(id) })
 			},
@@ -41,7 +59,7 @@ func (s *fileRetentionShellState) Build(ui.BuildContext) ui.Widget {
 			MoveWorkspaceFocus:     func(ui.EventContext) { s.SetState(func() { s.workspace.MoveFocus() }) },
 			ComposerChanged:        func(_ ui.EventContext, text string) { s.SetState(func() { s.composer = text }) },
 		},
-	}
+	}}
 }
 func (s *fileRetentionShellState) pump(app *uitest.App, width, height int) {
 	s.dispatch.flush()
@@ -92,6 +110,7 @@ func TestFileShellRetainsPositionSelectionAndFocusAcrossTabsAndResize(t *testing
 	}
 	app := uitest.New(fileRetentionShell{state})
 	state.until(t, app, 100, 24, "01 payload")
+	clickFileRetentionText(t, app, 100, 24, "01 payload")
 	for range 29 {
 		app.Key("j")
 		state.pump(app, 100, 24)
@@ -193,5 +212,81 @@ func TestFileShellRetainsPositionSelectionAndFocusAcrossTabsAndResize(t *testing
 	}
 	if got := len(files.inputs()); got != 2 {
 		t.Fatalf("retention should reuse loaded content: reads=%d", got)
+	}
+}
+
+func TestFileShellBodyDragPreservesCopyAndKeyboardNavigation(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "first.txt", "file_first", "alpha beta\ngamma delta")}}
+	state := &fileRetentionShellState{files: files}
+	if _, _, err := state.workspace.Open(fileWorkspacePane("workspace_a", "first.txt")); err != nil {
+		t.Fatal(err)
+	}
+	app := uitest.New(fileRetentionShell{state})
+	state.until(t, app, 100, 24, "alpha beta")
+	x, y := findTextCell(t, paintedRows(app, 100, 24), "alpha beta")
+	app.Click(x, y)
+	app.Send(vaxis.Mouse{Col: x + 5, Row: y, Button: vaxis.MouseLeftButton, EventType: vaxis.EventMotion})
+	app.Send(vaxis.Mouse{Col: x + 5, Row: y, Button: vaxis.MouseLeftButton, EventType: vaxis.EventRelease})
+	state.pump(app, 100, 24)
+	for col := x; col < x+5; col++ {
+		if got := app.Cell(col, y).Style.Background; got != ui.DefaultTheme().Selection {
+			t.Fatalf("drag selection column %d background=%v", col, got)
+		}
+	}
+	// Exercise the native copy intent without changing Kit's global Ctrl+C detach.
+	app.Send(vaxis.Key{Keycode: 'y', Modifiers: vaxis.ModAlt})
+	if state.copied != "alpha" {
+		t.Fatalf("copied text=%q, want alpha", state.copied)
+	}
+	app.Key("j")
+	state.pump(app, 100, 24)
+	if !app.Contains("Ln 2 · 2 lines") {
+		t.Fatalf("navigation after drag: %s", app.Text())
+	}
+	app.Tab()
+	state.pump(app, 100, 24)
+	app.Key("draft")
+	state.pump(app, 100, 24)
+	if state.composer != "draft" {
+		t.Fatalf("composer focus after body selection: %q", state.composer)
+	}
+	app.ShiftTab()
+	state.pump(app, 100, 24)
+	app.Key("k")
+	state.pump(app, 100, 24)
+	if !app.Contains("Ln 1 · 2 lines") {
+		t.Fatalf("pane focus restored after composer: %s", app.Text())
+	}
+}
+
+func TestFileShellBodyClickPreservesInteractionDockOwnership(t *testing.T) {
+	files := &fileViewerSession{results: []protocol.WorkspaceFileRead{fileViewerRead("workspace_a", "first.txt", "file_first", "alpha beta\ngamma delta")}}
+	state := &fileRetentionShellState{files: files}
+	if _, _, err := state.workspace.Open(fileWorkspacePane("workspace_a", "first.txt")); err != nil {
+		t.Fatal(err)
+	}
+	app := uitest.New(fileRetentionShell{state})
+	state.until(t, app, 100, 30, "alpha beta")
+	state.SetState(func() {
+		state.interactions = []protocol.InteractionRequest{{ID: "input", Kind: protocol.InteractionInput, Title: "Answer"}}
+	})
+	state.pump(app, 100, 30)
+	clickFileRetentionText(t, app, 100, 30, "alpha beta")
+	// Coalesced keys are discarded while the native selection target is still
+	// focused; the next frame restores the dock's exact input control.
+	app.Key("k")
+	app.Enter()
+	if state.response.RequestID != "" {
+		t.Fatalf("background selection submitted dock input: %+v", state.response)
+	}
+	state.pump(app, 100, 30)
+	app.Key("j")
+	app.Enter()
+	state.pump(app, 100, 30)
+	if state.response.Value == nil || *state.response.Value != "j" {
+		t.Fatalf("dock response=%+v, want j", state.response)
+	}
+	if !app.Contains("Ln 1 · 2 lines") {
+		t.Fatalf("background pane cursor changed: %s", app.Text())
 	}
 }

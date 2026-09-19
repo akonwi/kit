@@ -5,31 +5,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ## R1 required
 
-### Directory, file, and diff workspace
-
-- [x] TUI-WORK-005 — Make existing file-path chips in `read`, `write`, and
-  `edit` tool activity clickable with the primary mouse button. Highlight only
-  the hovered chip; activation opens or selects the retained File tab and
-  reveals a relevant line/range when available. Reuse
-  workspace-incarnation/canonical-path identity, report unavailable files, and
-  never open tabs merely because a tool runs. Add no activity-file picker,
-  palette action, shortcut, or new Tab stop. Preserve the
-  [tool activity design's](../docs/design/tui-tool-activity.md) omission of
-  generic inline output. Verify navigation from live and restored transcripts.
-- [x] TUI-WORK-007 — Add mounted shell integration tests proving actual File and
-  Diff panes preserve cursor, selection, and scroll state across tab switches
-  and narrow/wide terminal resizing, including unified/split diff transitions.
-  Assert the restored visible content and focus, and verify repeated anchored
-  opens reuse the existing tab without reordering it. See
-  [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md).
-- [ ] TUI-WORK-008 — Restore File-pane keyboard navigation after clicking body
-  text. In the mounted shell, a primary press/release on file content leaves
-  subsequent `j`/`k` navigation ineffective, although initial and tab-restored
-  pane focus work. The root selection area takes focus after pane capture.
-  Reconcile text-selection focus with pane input ownership without breaking
-  drag selection or copying; add a mounted-shell regression and check the
-  equivalent Diff body interaction.
-
 ### Transcript and activity
 
 - [ ] TUI-TRANSCRIPT-002 — Add syntax highlighting and drag-safe in-app link
