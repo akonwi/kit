@@ -51,7 +51,6 @@ func TestMarkdownLinkShellPrimaryReleaseOpensSafeLiteralDestination(t *testing.T
 			if app.Cell(x, y).Hyperlink != target {
 				t.Fatalf("native link=%q", app.Cell(x, y).Hyperlink)
 			}
-			findTextCell(t, paintedRows(app, 100, 28), target)
 			sendMarkdownLinkMouse(app, x, y, vaxis.EventPress)
 			if len(state.opened) != 0 {
 				t.Fatalf("opened before release: %v", state.opened)
@@ -119,9 +118,9 @@ func TestMarkdownLinkShellOwnerChangeBeforePaintCancelsPress(t *testing.T) {
 	}
 }
 
-func TestMarkdownLinkShellWrappedDestinationAndWideGlyphUseFullURL(t *testing.T) {
+func TestMarkdownLinkShellWrappedTitleAndWideGlyphUseFullURL(t *testing.T) {
 	const target = "https://example.com/a/very/long/documentation/path"
-	app, state := mountMarkdownLinkShell(t, "[文 documentation]("+target+")")
+	app, state := mountMarkdownLinkShell(t, "[文 documentation reference with a very long descriptive title]("+target+")")
 	app.Pump(36, 28)
 	x, y := findTextCell(t, paintedRows(app, 36, 28), "文")
 	// Both terminal cells occupied by a wide glyph are part of the same link.

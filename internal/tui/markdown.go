@@ -354,14 +354,7 @@ func markdownTableContentWidths(block kitmarkdown.Block, columnCount int) []int 
 		for index, cell := range row.Cells {
 			width := 0
 			for _, run := range cell.Runs {
-				text := run.Text
-				if run.Image {
-					text = "image: " + text
-				}
-				width += markdownCellWidth(text)
-				if run.Link != "" && !markdownLinkTextMatchesTarget(text, run.Link) {
-					width += markdownCellWidth(run.Link) + 3
-				}
+				width += markdownCellWidth(markdownRunText(run))
 			}
 			widths[index] = max(widths[index], width)
 		}
@@ -425,58 +418,32 @@ func markdownRichText(theme ui.Theme, base ui.Style, runs []kitmarkdown.Run) ui.
 }
 
 func markdownTextSpans(theme ui.Theme, base ui.Style, runs []kitmarkdown.Run) []ui.TextSpan {
-	spans := make([]ui.TextSpan, 0, len(runs)+4)
-	for start := 0; start < len(runs); {
-		if runs[start].Link == "" {
-			spans = append(spans, markdownRunSpan(theme, base, runs[start]))
-			start++
-			continue
+	spans := make([]ui.TextSpan, 0, len(runs))
+	for _, run := range runs {
+		run.Text = markdownRunText(run)
+		span := markdownRunSpan(theme, base, run)
+		if safe := safeExternalHyperlink(run.Link); safe != "" {
+			span.Style.UnderlineStyle = ui.UnderlineSingle
+			span.Style.Hyperlink = safe
 		}
-		target := runs[start].Link
-		safe := safeExternalHyperlink(target)
-		end := start
-		visible := strings.Builder{}
-		image := false
-		for end < len(runs) && runs[end].Link == target {
-			run := runs[end]
-			if run.Image {
-				image = true
-				if run.Text == "" {
-					run.Text = "image"
-				} else {
-					run.Text = "image: " + run.Text
-				}
-			} else if run.Text == "" {
-				run.Text = "link"
-			}
-			visible.WriteString(run.Text)
-			span := markdownRunSpan(theme, base, run)
-			if safe != "" {
-				span.Style.UnderlineStyle = ui.UnderlineSingle
-				span.Style.Hyperlink = safe
-			}
-			spans = append(spans, span)
-			end++
-		}
-		displayTarget := sanitizeMarkdownLinkTarget(target)
-		if image || !markdownLinkTextMatchesTarget(visible.String(), target) {
-			spans = append(spans, ui.TextSpan{Text: " (", Style: base})
-			linkStyle := base
-			if safe != "" {
-				linkStyle = mergeMarkdownStyle(base, ui.Style{UnderlineStyle: ui.UnderlineSingle})
-				if markdownSemanticColorAllowed(theme, base) {
-					linkStyle.Foreground = theme.AccentText
-				}
-			}
-			linkSpan := ui.TextSpan{
-				Text: displayTarget, Style: linkStyle,
-			}
-			linkSpan.Style.Hyperlink = safe
-			spans = append(spans, linkSpan, ui.TextSpan{Text: ")", Style: base})
-		}
-		start = end
+		spans = append(spans, span)
 	}
 	return spans
+}
+
+// Labeled links display their text, with the destination retained as metadata.
+// An empty link label falls back to the destination so it remains identifiable.
+func markdownRunText(run kitmarkdown.Run) string {
+	if run.Image {
+		if run.Text == "" {
+			return "image"
+		}
+		return "image: " + run.Text
+	}
+	if run.Text == "" && run.Link != "" {
+		return sanitizeMarkdownLinkTarget(run.Link)
+	}
+	return run.Text
 }
 
 func markdownRunSpan(theme ui.Theme, base ui.Style, run kitmarkdown.Run) ui.TextSpan {
@@ -528,13 +495,6 @@ func mergeMarkdownStyle(base, overlay ui.Style) ui.Style {
 	}
 	overlay.Attribute |= base.Attribute
 	return overlay
-}
-
-func markdownLinkTextMatchesTarget(text, target string) bool {
-	if text == target {
-		return true
-	}
-	return strings.HasPrefix(strings.ToLower(target), "mailto:") && text == target[len("mailto:"):]
 }
 
 func sanitizeMarkdownLinkTarget(target string) string {

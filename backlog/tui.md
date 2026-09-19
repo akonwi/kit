@@ -15,8 +15,9 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [x] TUI-TRANSCRIPT-007 — Add drag-safe in-app link activation to transcript
   Markdown. A primary click/release opens a validated `http`, `https`, or
   `mailto` destination; dragging selects text without opening the link.
-  Preserve literal destinations, terminal hyperlink metadata, selectable text,
-  and terminal-native copying.
+  Display labeled links without an appended URL; preserve full destinations in
+  terminal hyperlink metadata and activation, selectable text, and
+  terminal-native copying.
 - [~] TUI-TRANSCRIPT-003 — Present model/thinking selection, context
   pressure/capacity, retry countdowns, compaction lifecycle, cancellation, and
   terminal run state without obscuring retained evidence. Depends on

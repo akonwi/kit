@@ -194,7 +194,7 @@ func TestMarkdownViewPreservesContainerOrderAndOrderedTaskMarker(t *testing.T) {
 	}
 }
 
-func TestMarkdownViewShowsLiteralTargetsAndOnlyStylesSafeLinks(t *testing.T) {
+func TestMarkdownViewShowsLinkLabelsAndOnlyStylesSafeLinks(t *testing.T) {
 	t.Parallel()
 
 	const safe = "https://example.com/docs"
@@ -204,21 +204,18 @@ func TestMarkdownViewShowsLiteralTargetsAndOnlyStylesSafeLinks(t *testing.T) {
 	}))
 	app.Pump(96, 4)
 	rows := paintedRows(app, 96, 4)
-	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"docs here (" + safe + ")", "private (" + unsafe + ")"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("literal link target %q missing:\n%s", expected, text)
-		}
+	if got := strings.TrimSpace(rows[0]); got != "docs here and private" {
+		t.Fatalf("link labels = %q", got)
 	}
 
-	for _, label := range []string{"docs", "here", safe} {
+	for _, label := range []string{"docs", "here"} {
 		row, column := markdownCellPosition(rows, label)
 		cell := app.Cell(column, row)
 		if row < 0 || cell.Hyperlink != safe || cell.UnderlineStyle == ui.UnderlineOff {
 			t.Fatalf("safe link %q cell = %#v", label, cell)
 		}
 	}
-	row, column := markdownCellPosition(rows, unsafe)
+	row, column := markdownCellPosition(rows, "private")
 	cell := app.Cell(column, row)
 	if row < 0 || cell.Hyperlink != "" || cell.UnderlineStyle != ui.UnderlineOff ||
 		cell.Foreground != ui.DefaultThemeSet().Dark.Foreground {
@@ -233,14 +230,10 @@ func TestMarkdownViewRendersDestinationOnlyLinksAndImages(t *testing.T) {
 		ID: "empty-links", Source: "[](https://example.com) ![](https://example.com/image.png)",
 	}))
 	app.Pump(96, 4)
-	text := strings.Join(paintedRows(app, 96, 4), "\n")
-	for _, expected := range []string{
-		"link (https://example.com)", "image (https://example.com/image.png)",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("destination fallback %q missing:\n%s", expected, text)
-		}
+	if got := strings.TrimSpace(paintedRows(app, 96, 4)[0]); got != "https://example.com image" {
+		t.Fatalf("empty-label fallback = %q", got)
 	}
+
 }
 
 func TestMarkdownViewRendersGFMTableWithinWidth(t *testing.T) {
@@ -441,4 +434,26 @@ func markdownCellPosition(rows []string, text string) (int, int) {
 		}
 	}
 	return -1, -1
+}
+
+func TestMarkdownLinkTableWidthsUseVisibleLabels(t *testing.T) {
+	document := parseMarkdownDocument(markdownView{Source: "| Link | State |\n| --- | --- |\n| [docs](https://example.com/a/very/long/path) | ready |"})
+	widths := markdownTableContentWidths(document.Blocks[0], 2)
+	if len(widths) != 2 || widths[0] != 4 || widths[1] != 5 {
+		t.Fatalf("visible table column widths = %v, want [4 5]", widths)
+	}
+}
+
+func TestMarkdownBareURLKeepsVisibleDestination(t *testing.T) {
+	const target = "https://example.com/docs"
+	app := uitest.New(markdownTestSurface(markdownView{ID: "bare-link", Source: target}))
+	app.Pump(80, 4)
+	rows := paintedRows(app, 80, 4)
+	if got := strings.TrimSpace(rows[0]); got != target {
+		t.Fatalf("bare URL = %q", got)
+	}
+	x, y := findTextCell(t, rows, target)
+	if app.Cell(x, y).Hyperlink != target {
+		t.Fatalf("bare hyperlink = %q", app.Cell(x, y).Hyperlink)
+	}
 }

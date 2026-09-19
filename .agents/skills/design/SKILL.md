@@ -337,7 +337,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Keep fenced code as explicit language/source blocks so syntax tokenization can be added independently of Markdown parsing and mapped into reactive theme styles.
 - Cache parsed documents by stable content identity. Rebuild width- and theme-dependent widgets rather than caching painted output.
 - Render headings through weight and semantic emphasis rather than literal heading markers. Use hanging indents for wrapped list items and a quiet left border for block quotes.
-- Preserve literal destinations for Markdown links. Only attach OSC 8 and activation behavior to validated `http`, `https`, and `mailto` targets.
+- Render labeled Markdown links using their label only, without appending the raw destination. Bare URLs remain visible as URLs; empty link labels fall back to the destination. Retain the full destination in OSC 8 metadata and activation behavior only for validated `http`, `https`, and `mailto` targets.
 - Fenced code uses a subtle surface, preserves selectable source order, expands tabs consistently, and wraps rather than silently clipping in transcript-width layouts.
 - Stream the latest thinking line as muted Markdown in the fixed one-row pending slot. Keep full thinking as Markdown evidence when a tool-backed Activity source exists, but do not create a transcript drawer for thinking alone.
 - Buffer assistant text deltas by message identity and reveal the completed Markdown atomically. Do not render pending assistant prose in Transcript or Activity; thinking and tool activity remain live.
@@ -358,7 +358,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - Presentation tests for new row-owning inputs must render a value longer than the toolkit's intrinsic minimum width and assert that the complete value remains visible at a representative viewport width. This catches accidentally shrink-wrapped fields.
 - **Toggle:** use the established four-cell track and two-cell knob; active track uses `toggleOn`.
 - **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. Communicate focus with the control background instead of decorative brackets around its label. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
-- **Navigable URL:** keep the literal target visible, underline it, and attach OSC 8 hyperlink metadata when the target is safe. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.
+- **Navigable URL:** underline the displayed link text and attach OSC 8 hyperlink metadata when the target is safe. Labeled Markdown links display only their label; bare URLs display their literal target. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.
 - Handle only the primary mouse button for activation. Prevent propagation when the action should not also select or focus an ancestor.
 
 ### Diffs and inline comments
