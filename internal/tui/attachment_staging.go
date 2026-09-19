@@ -157,6 +157,7 @@ func pastedAttachmentPath(value string) (string, bool) {
 }
 
 func (s *appState) stageAttachments(paths []string, composer string) {
+	s.SetState(s.closeSessionMention)
 	attachments, ok := s.bound.(sessionclient.AttachmentSession)
 	if !ok {
 		s.showToast(toastInput{Title: "Attachments unavailable", Subtitle: fmt.Sprintf("Session client %T cannot upload files.", s.bound), Variant: toastError})

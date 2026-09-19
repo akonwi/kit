@@ -12,7 +12,7 @@ import (
 
 const fileMentionMaxVisible = 10
 
-type fileMentionController struct {
+type inlineMentionController struct {
 	Open      bool
 	Query     string
 	Selection string
@@ -20,7 +20,7 @@ type fileMentionController struct {
 	QueryEnd  int
 }
 
-func (f *fileMentionController) Close() {
+func (f *inlineMentionController) Close() {
 	f.Open = false
 	f.Query = ""
 	f.Selection = ""
@@ -28,9 +28,9 @@ func (f *fileMentionController) Close() {
 	f.QueryEnd = 0
 }
 
-// Observe tracks an inline @query after a contiguous composer edit. Mentions
+// Observe tracks an inline trigger/query after a contiguous composer edit. Mentions
 // only start at the beginning of the draft or after whitespace.
-func (f *fileMentionController) Observe(previous, next string, pasted bool) (opened bool) {
+func (f *inlineMentionController) Observe(previous, next string, pasted bool, trigger byte) (opened bool) {
 	start, oldEnd, newEnd := changedRange(previous, next)
 	if f.Open {
 		if pasted || start < f.Anchor || oldEnd != f.QueryEnd {
@@ -38,19 +38,19 @@ func (f *fileMentionController) Observe(previous, next string, pasted bool) (ope
 			return false
 		}
 		f.QueryEnd += newEnd - oldEnd
-		if f.QueryEnd <= f.Anchor || f.QueryEnd > len(next) || next[f.Anchor] != '@' {
+		if f.QueryEnd <= f.Anchor || f.QueryEnd > len(next) || next[f.Anchor] != trigger {
 			f.Close()
 			return false
 		}
 		query := next[f.Anchor+1 : f.QueryEnd]
-		if strings.IndexFunc(query, func(r rune) bool { return r == '@' || unicode.IsSpace(r) }) >= 0 {
+		if strings.IndexFunc(query, func(r rune) bool { return r == rune(trigger) || unicode.IsSpace(r) }) >= 0 {
 			f.Close()
 			return false
 		}
 		f.Query = query
 		return false
 	}
-	if pasted || newEnd-start != 1 || start >= len(next) || next[start] != '@' {
+	if pasted || newEnd-start != 1 || start >= len(next) || next[start] != trigger {
 		return false
 	}
 	if start > 0 {
@@ -66,6 +66,13 @@ func (f *fileMentionController) Observe(previous, next string, pasted bool) (ope
 	f.QueryEnd = newEnd
 	f.Selection = ""
 	return true
+}
+
+type fileMentionController inlineMentionController
+
+func (f *fileMentionController) Close() { (*inlineMentionController)(f).Close() }
+func (f *fileMentionController) Observe(previous, next string, pasted bool) bool {
+	return (*inlineMentionController)(f).Observe(previous, next, pasted, '@')
 }
 
 func utf8LastRune(value string) (rune, int) { return utf8.DecodeLastRuneInString(value) }

@@ -231,6 +231,9 @@ type appState struct {
 	applyTheme                       func(kittheme.Definition)
 	paste                            pasteCoalescer
 	fileMention                      fileMentionController
+	sessionMention                   sessionMentionController
+	sessionMentions                  sessionMentionSource
+	sessionMentionCancel             context.CancelFunc
 	indexedFiles                     indexedFileSource
 	configurationPicker              configurationPickerController
 	compactPending                   bool
@@ -1003,6 +1006,7 @@ func (s *appState) activityPresentation(mainMessages []transcriptMessage, conver
 }
 
 func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
+	s.reconcileSessionMention()
 	if control, ok := ui.Depend[ThemeControl](ctx); ok {
 		s.applyTheme = control.Apply
 	} else {
@@ -1101,6 +1105,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AnnotationsExpanded:          s.transcriptAnnotationsExpanded,
 		BashHistory:                  s.bashHistory,
 		FileMention:                  s.fileMention,
+		SessionMention:               s.sessionMention,
+		SessionMentions:              s.sessionMentions,
 		IndexedFiles:                 s.indexedFiles,
 		Instructions:                 s.instructions,
 		BrowserInstructions:          s.browserInstructions,
@@ -1408,6 +1414,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SelectFileMention: func(ctx ui.EventContext, path string) {
 			s.selectFileMention(ctx, path)
 		},
+		SelectSessionMention: s.selectSessionMention,
 		CopyCode: func(ctx ui.EventContext) {
 			if s.instructions.UserCode != "" {
 				ctx.Copy(s.instructions.UserCode)
@@ -1430,6 +1437,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
 				s.fileMention.Observe(s.composer, value, true)
+				s.sessionMention.Observe(s.composer, value, true)
+				if !s.sessionMention.Open {
+					s.closeSessionMention()
+				}
 				s.composer = value
 				s.composerDraftGeneration++
 				if followTranscript {
@@ -1494,12 +1505,24 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			openedFileMention := false
+			openedSessionMention := false
 			s.SetState(func() {
 				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.hasActiveWork())
 				if intercepted {
 					return
 				}
 				openedFileMention = s.fileMention.Observe(s.composer, composer, false)
+				openedSessionMention = s.sessionMention.Observe(s.composer, composer, false)
+				if !s.sessionMention.Open {
+					s.closeSessionMention()
+				}
+				if openedFileMention {
+					s.closeSessionMention()
+				}
+				if openedSessionMention {
+					s.fileMention.Close()
+				}
+				s.sessionMention.ensureSelection(s.sessionMentions.Entries)
 				s.fileMention.ensureSelection(s.indexedFiles.Entries)
 				s.composer = composer
 				if followTranscript {
@@ -1508,6 +1531,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 			if openedFileMention {
 				s.loadFileMentions(ctx.Runtime())
+			}
+			if openedSessionMention {
+				s.loadSessionMentions(ctx.Runtime())
 			}
 		},
 		OpenPalette: func(ui.EventContext) {
@@ -1623,6 +1649,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 				s.cancelSessionSwitch()
 				s.SetState(func() { s.sessionExplorer.Close() })
+				return
+			}
+			if s.sessionMention.Open {
+				s.SetState(func() { s.closeSessionMention() })
 				return
 			}
 			if s.fileMention.Open {
@@ -1833,6 +1863,17 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			}
 		})
 		if handled {
+			return ui.EventHandled
+		}
+	}
+	if s.sessionMention.Open {
+		var entry protocol.SessionInfo
+		var selectEntry, handled bool
+		s.SetState(func() { entry, selectEntry, handled = s.sessionMention.HandleKey(s.sessionMentions.Entries, key) })
+		if handled {
+			if selectEntry {
+				s.selectSessionMention(ctx, entry.ID)
+			}
 			return ui.EventHandled
 		}
 	}
@@ -3729,7 +3770,7 @@ func (s *appState) hasActiveWork() bool {
 }
 
 func (s *appState) openPalette() {
-	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionDetailsOpen || s.sessionRename.Open || s.annotationPicker.Open ||
+	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionMention.Open || s.sessionDetailsOpen || s.sessionRename.Open || s.annotationPicker.Open ||
 		s.subagentDismissID != "" || s.configurationPicker.Mode != configurationPickerClosed || s.sessionExplorer.Open {
 		return
 	}
@@ -5161,7 +5202,7 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 
 func (s *appState) openCurrentSessionRename() {
 	if s.phase != phaseReady || s.session.ID == "" || s.sessionRename.Open || s.sessionRename.Pending ||
-		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open || s.fileMention.Open {
+		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen || s.sessionExplorer.Open || s.bashHistory.Open || s.fileMention.Open || s.sessionMention.Open {
 		return
 	}
 	s.SetState(func() { s.sessionRename.Begin(s.session) })
@@ -5553,6 +5594,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	}
 	s.resetAttachmentContext()
 	s.fileMention.Close()
+	s.closeSessionMention()
+	s.sessionMentions.Entries = nil
+	s.sessionMentions.generation++
 	s.operation++
 	s.terminalSettledRunID = ""
 	s.notifiedRunIDs = make(map[string]bool)
@@ -6183,6 +6227,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		} else {
 			s.SetState(func() { s.sessionExplorer.Close() })
 		}
+		return
+	}
+	if s.sessionMention.Open {
+		s.SetState(func() { s.closeSessionMention() })
 		return
 	}
 	if s.fileMention.Open {

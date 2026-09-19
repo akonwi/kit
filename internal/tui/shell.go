@@ -102,6 +102,8 @@ type shellSnapshot struct {
 	AnnotationsExpanded          map[string]bool
 	BashHistory                  bashHistoryController
 	FileMention                  fileMentionController
+	SessionMention               sessionMentionController
+	SessionMentions              sessionMentionSource
 	IndexedFiles                 indexedFileSource
 	Instructions                 auth.OpenAICodexDeviceInstructions
 	BrowserInstructions          auth.AnthropicLoginInstructions
@@ -166,6 +168,7 @@ type shellCallbacks struct {
 	BashHistoryChanged          ui.TextChangedCallback
 	SelectBashHistory           func(ui.EventContext, string)
 	SelectFileMention           func(ui.EventContext, string)
+	SelectSessionMention        func(ui.EventContext, string)
 	ComposerChanged             ui.TextChangedCallback
 	ComposerPasted              ui.TextChangedCallback
 	RemoveAttachment            func(ui.EventContext, int)
@@ -279,6 +282,14 @@ func (w shellView) Build(ctx ui.BuildContext) ui.Widget {
 			Controller: &controller, Source: w.Snapshot.IndexedFiles, Composer: w.Snapshot.Composer,
 			BottomInset: composerHeight + 4, PrimaryPercent: 100,
 			OnSelect: w.Callbacks.SelectFileMention,
+		}})
+	}
+	if w.Snapshot.Phase == phaseReady && w.Snapshot.SessionMention.Open {
+		controller := w.Snapshot.SessionMention
+		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
+		overlays = append(overlays, ui.OverlayEntry{Child: sessionMentionSurface{
+			Controller: &controller, Source: w.Snapshot.SessionMentions, Composer: w.Snapshot.Composer,
+			BottomInset: composerHeight + 4, PrimaryPercent: 100, OnSelect: w.Callbacks.SelectSessionMention,
 		}})
 	}
 	if w.Snapshot.Phase == phaseReady && w.Snapshot.BashHistory.Open {
