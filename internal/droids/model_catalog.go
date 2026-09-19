@@ -36,6 +36,7 @@ type modelsDevReasoningOption struct {
 }
 
 type modelsDevModel struct {
+	Status           string                     `json:"status"`
 	ID               string                     `json:"id"`
 	Name             string                     `json:"name"`
 	Family           string                     `json:"family"`
@@ -157,7 +158,7 @@ func catalogProviderNPM(provider modelsDevProvider, model modelsDevModel) string
 }
 
 func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, source modelsDevModel) (Model, bool) {
-	if source.ID == "" || !source.ToolCall || source.Limit.Context <= 0 || source.Limit.Output <= 0 {
+	if source.Status == "deprecated" || source.ID == "" || !source.ToolCall || source.Limit.Context <= 0 || source.Limit.Output <= 0 {
 		return Model{}, false
 	}
 	if !containsString(source.Modalities.Input, "text") || !containsString(source.Modalities.Output, "text") {

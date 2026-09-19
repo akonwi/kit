@@ -126,3 +126,26 @@ func mustJSON(value any) []byte {
 	encoded, _ := json.Marshal(value)
 	return encoded
 }
+
+func TestOpenCodeGoExcludesDeprecatedGrok(t *testing.T) {
+	t.Parallel()
+	if _, ok := OpenCodeGoModel("grok-4.5"); ok {
+		t.Fatal("deprecated grok-4.5 is still available")
+	}
+	providers, err := NewProviders(OpenCodeGo{APIKey: "test-key"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := providers.Model("opencode-go/grok-4.5"); ok {
+		t.Fatal("provider still resolves deprecated grok-4.5")
+	}
+	for _, model := range providers.Models() {
+		if model.ID == "grok-4.5" {
+			t.Fatal("provider still lists deprecated grok-4.5")
+		}
+	}
+	model, ok := providers.Model("opencode-go/grok-4.6")
+	if !ok || model.API != ModelAPIOpenAIResponses {
+		t.Fatalf("replacement model = %#v, %v", model, ok)
+	}
+}
