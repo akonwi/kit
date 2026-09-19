@@ -230,7 +230,7 @@ Defaults:
 
 - `Store`: a new `MemoryStore`
 - `Retry == nil`: `DefaultRetryPolicy()`
-- `Execution == nil`: unbounded model cycles, parallel tools, four simultaneous
+- `Execution == nil`: unbounded model cycles, parallel tools, eight simultaneous
   tools
 - `Compaction`: built-in prompt and active conversation model
 
@@ -761,7 +761,7 @@ Defaults:
 
 - `MaxModelCycles == 0`: unbounded
 - `ToolExecution`: parallel
-- `MaxParallelTools`: 4
+- `MaxParallelTools`: 8
 
 The droid serializes its model cycles. Parallelism applies only inside an
 eligible tool batch.

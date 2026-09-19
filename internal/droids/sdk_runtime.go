@@ -15,6 +15,7 @@ import (
 )
 
 const (
+	defaultMaxParallelTools   = 8
 	defaultSubscriptionBuffer = 128
 	maxSubscriptionBuffer     = 4096
 	maxSubscriptionReplay     = 1000
@@ -170,14 +171,14 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if config.Store == nil {
 		config.Store = NewMemoryStore()
 	}
-	execution := ExecutionPolicy{ToolExecution: ModeParallel, MaxParallelTools: 4}
+	execution := ExecutionPolicy{ToolExecution: ModeParallel, MaxParallelTools: defaultMaxParallelTools}
 	if config.Execution != nil {
 		execution = *config.Execution
 		if execution.ToolExecution == ModeDefault {
 			execution.ToolExecution = ModeParallel
 		}
 		if execution.MaxParallelTools == 0 {
-			execution.MaxParallelTools = 4
+			execution.MaxParallelTools = defaultMaxParallelTools
 		}
 	}
 	if execution.MaxParallelTools < 1 {
