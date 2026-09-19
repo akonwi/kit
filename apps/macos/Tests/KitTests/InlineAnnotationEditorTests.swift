@@ -29,6 +29,21 @@ private struct InlineAnnotationClient: AnnotationClient {
         return view.subviews.compactMap { controller(in: $0) }.first
     }
 
+    /// Wait for SwiftUI to mount the input and AppKit to apply its queued focus
+    /// request. Do not make it first responder here: that is behavior under test.
+    static func waitForFocusedInput(in host: NSView, window: NSWindow,
+                                    sourceLocation: SourceLocation = #_sourceLocation) async throws -> ComposerTextView {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: .seconds(2))
+        while clock.now < deadline {
+            if let input = input(in: host), window.firstResponder === input { return input }
+            try await Task.sleep(for: .milliseconds(20))
+        }
+        let input = try #require(input(in: host), sourceLocation: sourceLocation)
+        try #require(window.firstResponder === input, sourceLocation: sourceLocation)
+        return input
+    }
+
     static func input(in view: NSView) -> ComposerTextView? {
         if let input = view as? ComposerTextView { return input }
         return view.subviews.compactMap { input(in: $0) }.first

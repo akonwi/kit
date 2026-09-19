@@ -221,8 +221,7 @@ extension InlineAnnotationEditorTests {
             let anchor = try #require(annotations.editor?.anchor.workingTreeDiff)
             #expect(anchor.side == "old" && anchor.startLine == 1 && anchor.endLine == 2)
             #expect(anchor.targetId == "difftarget_test" && anchor.targetRevision == "diffrev_test")
-            try await Task.sleep(for: .milliseconds(200))
-            #expect(window.firstResponder === InlineAnnotationEditorTests.input(in: host))
+            _ = try await Self.waitForFocusedInput(in: host, window: window)
             #expect(manager.blockHeights[2, default: 0] > 100)
         }
     }
