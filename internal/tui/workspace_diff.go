@@ -1550,17 +1550,6 @@ func workspaceDiffSliceSpans(spans []ui.TextSpan, columns int) []ui.TextSpan {
 	return result
 }
 
-func workspaceDiffGutter(base ui.Widget, width int, selected bool, theme ui.Theme, onPressed ui.VoidCallback, onMotion func(ui.EventContext, ui.Mouse)) ui.Widget {
-	children := []ui.Widget{base}
-	if selected {
-		button := ui.SizedBox{Width: 3, Height: 1, Child: ui.Text{
-			Value: " + ", Style: ui.Style{Foreground: theme.Background, Background: theme.Primary}, MaxLines: 1,
-		}}
-		children = append(children, ui.Positioned{Left: width - 3, Top: 0, Child: button})
-	}
-	return mouseActivator{Child: ui.SizedBox{Width: width, Height: 1, Child: ui.Stack{Children: children}}, OnPressed: onPressed, OnMotion: onMotion}
-}
-
 func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSelected, actionSide bool, height int, wrap bool, columnOffset int, theme ui.Theme, semantic SemanticTheme, moveCursor, gutterPress ui.VoidCallback, gutterMotion func(ui.EventContext, ui.Mouse)) ui.Widget {
 	if item == nil {
 		return ui.SizedBox{Height: height, Child: ui.Text{Value: "", Style: ui.Style{Background: theme.Background}, MaxLines: 1}}
@@ -1603,7 +1592,7 @@ func workspaceDiffSideWidget(item *workspaceDiffRenderedLine, selected, rangeSel
 	if !wrap && columnOffset > 0 {
 		spans = workspaceDiffSliceSpans(spans, columnOffset)
 	}
-	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, gutterPress, gutterMotion)
+	gutter := workspaceCommentGutter(ui.RichText{Spans: []ui.TextSpan{{Text: fmt.Sprintf("%5s ", number), Style: gutterStyle}, {Text: marker + " ", Style: gutterStyle}}, SoftWrap: false}, 8, selected, theme, gutterPress, gutterMotion)
 	content := ui.SizedBox{Height: height, Child: ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Background: contentBackground}},
 		ui.RichText{Spans: spans, SoftWrap: wrap},
@@ -1706,7 +1695,7 @@ func workspaceDiffLineWidget(line protocol.DiffLine, syntaxSpans []ui.TextSpan, 
 			syntaxSpans[index].Style.Background = contentBackground
 		}
 	}
-	gutter := workspaceDiffGutter(ui.RichText{Spans: []ui.TextSpan{
+	gutter := workspaceCommentGutter(ui.RichText{Spans: []ui.TextSpan{
 		{Text: fmt.Sprintf("%5s", oldNumber), Style: oldNumberStyle},
 		{Text: " ", Style: gutterStyle},
 		{Text: fmt.Sprintf("%5s", newNumber), Style: newNumberStyle},

@@ -369,6 +369,11 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
   preserve loaded evidence and viewport position as other sections load.
 - Use the `diffAdded*`, `diffRemoved*`, and `diffCursor*` token families rather than custom tints.
 - Keep line-number gutters visually distinct from content while preserving one cursor state across the row.
+- File and Diff viewers share the same code-facing `+` gutter action on the
+  hovered or keyboard-current source line. Clicking comments on that line;
+  dragging in the gutter selects a bounded range. Source text remains selectable,
+  and hovering must not relocate an active comment editor. Read-only or stale
+  evidence must not offer an actionable comment button.
 - Use named glyphs such as `DASHED_VERTICAL` and `DIAMOND` for diff markers.
 - Render a saved annotation immediately after its anchored line or range and project the same comment as a structured attachment chip above the composer.
 - Keep inline annotations and chips synchronized through edit, anchor navigation, removal, stale state, submission, and successful consumption.

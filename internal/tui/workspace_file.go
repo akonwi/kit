@@ -131,6 +131,7 @@ func (s *workspaceFilePaneState) DidUpdateWidget(old ui.Widget) {
 		s.cachedBody = nil
 	}
 	if s.isFrozen(w) {
+		s.mouseSelectionAnchor = 0
 		if s.loadState != workspaceFileFrozen {
 			s.stopLoad()
 			s.loadState = workspaceFileFrozen
@@ -467,7 +468,7 @@ func (s *workspaceFilePaneState) Build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		}
 		shortcuts["v"] = toggleWorkspaceFileSelectionIntent{}
-		if w.OnCreateAnnotation != nil && s.hasContent && s.read.Revision != "" && (s.loadState == workspaceFileReady || s.loadState == workspaceFileTruncated) {
+		if s.canComment() {
 			bindings[annotateWorkspaceFileIntent{}.IntentType()] = func(ui.EventContext, ui.Intent) ui.EventResult {
 				start, end := s.selectedRange()
 				s.beginNewComment(w, start, end)
@@ -599,8 +600,14 @@ func (s *workspaceFilePaneState) beginNewComment(w workspaceFilePane, start, end
 	})
 }
 
+func (s *workspaceFilePaneState) canComment() bool {
+	w := s.Widget().(workspaceFilePane)
+	return w.Presentation.Active && !w.Presentation.KeyboardBlocked && w.OnCreateAnnotation != nil && s.hasContent && s.read.Revision != "" &&
+		(s.loadState == workspaceFileReady || s.loadState == workspaceFileTruncated)
+}
+
 func (s *workspaceFilePaneState) beginGutterComment(w workspaceFilePane, line int) {
-	if s.commenting || s.commentPending || w.OnCreateAnnotation == nil || !s.hasContent || s.read.Revision == "" || s.loadState != workspaceFileReady && s.loadState != workspaceFileTruncated {
+	if s.commenting || s.commentPending || !s.canComment() {
 		return
 	}
 	s.SetState(func() {
@@ -629,7 +636,7 @@ func (s *workspaceFilePaneState) extendGutterComment(line int) {
 }
 
 func (s *workspaceFilePaneState) finishGutterComment(w workspaceFilePane) {
-	if w.Presentation.KeyboardBlocked || s.mouseSelectionAnchor <= 0 || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
+	if !s.canComment() || s.mouseSelectionAnchor <= 0 || w.MouseGestures.ReleasedGeneration() != s.mouseSelectionGeneration {
 		s.mouseSelectionAnchor = 0
 		return
 	}
@@ -896,21 +903,34 @@ func (s *workspaceFilePaneState) fileRows(result highlight.Result, theme ui.Them
 		lineContent := ui.Widget(ui.RichText{Spans: lineSpans, SoftWrap: false})
 		if len(lineSpans) > 0 {
 			gutter := ui.Widget(ui.RichText{Spans: lineSpans[:1], SoftWrap: false})
-			if w.OnCreateAnnotation != nil && (s.loadState == workspaceFileReady || s.loadState == workspaceFileTruncated) {
-				gutter = mouseActivator{
-					Child:     gutter,
-					OnPressed: func(ui.EventContext) { s.beginGutterComment(w, lineNumber) },
-					OnMotion: func(_ ui.EventContext, mouse ui.Mouse) {
+			if s.canComment() && !s.commenting {
+				gutter = workspaceCommentGutter(gutter, lineNumberWidth+3, lineNumber == s.cursorLine, theme,
+					func(ui.EventContext) { s.beginGutterComment(w, lineNumber) },
+					func(_ ui.EventContext, mouse ui.Mouse) {
 						if mouse.Button == ui.MouseLeftButton {
 							s.extendGutterComment(lineNumber)
 						} else {
 							s.mouseSelectionAnchor = 0
 						}
 					},
-				}
+				)
 			}
 			lineContent = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{gutter, ui.Expanded(ui.RichText{Spans: lineSpans[1:], SoftWrap: false})}}
 		}
+		// Motion follows source rows without consuming source text selection.
+		// A held mouse button belongs to selection/dragging, not cursor hover.
+		lineContent = mouseActivator{Child: lineContent, OnMotion: func(_ ui.EventContext, mouse ui.Mouse) {
+			if mouse.Button == ui.MouseNoButton && s.canComment() && !s.commenting && s.cursorLine != lineNumber {
+				s.SetState(func() {
+					next := lineNumber
+					if s.selectionAnchor > 0 {
+						next = max(s.selectionAnchor-protocol.MaxAnnotationRangeLines+1, min(s.selectionAnchor+protocol.MaxAnnotationRangeLines-1, next))
+					}
+					s.cursorLine = next
+					s.cachedBody = nil
+				})
+			}
+		}}
 		rows = append(rows, ui.SizedBox{Width: rowWidth, Child: ui.DecoratedBox(ui.Decoration{Style: style}, lineContent)})
 		rowIndex++
 		contentHeight++
