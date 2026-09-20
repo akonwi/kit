@@ -297,7 +297,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 				return currentOwner.permitsRoot()
 			},
 			OpenURL: w.Callbacks.OpenURL,
-			Child:   ui.SelectionArea{Child: w.baseShell(theme)},
+			Child:   selectionFeedbackArea{Child: w.baseShell(theme)},
 		},
 	))
 	overlays := w.authOverlays(theme)
@@ -501,10 +501,23 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 			return ui.EventHandled
 		},
 	}
+	copyNow := time.Now
+	if clock, ok := ui.Depend[selectionCopyNow](ctx); ok {
+		copyNow = clock
+	}
+	actions[copySelectionIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
+		observe := intent.(copySelectionIntent).Observe
+		return ctx.Invoke(ui.CopySelectionTextIntent{OnCopied: func(text string) {
+			ctx.Invoke(selectionCopyPulseIntent{Now: copyNow()})
+			if observe != nil {
+				observe(text)
+			}
+		}})
+	}
 	shortcuts := ui.ShortcutMap{
 		"Escape":  ui.DismissIntent{},
 		"Ctrl+c":  quitIntent{},
-		"Super+c": ui.CopySelectionTextIntent{OnCopied: w.Callbacks.CopySelection},
+		"Super+c": copySelectionIntent{Observe: w.Callbacks.CopySelection},
 		"Tab":     ui.NextFocusIntent{}, "Shift+Tab": ui.PreviousFocusIntent{},
 	}
 	if w.Snapshot.Phase == phaseReady && owner.permitsRoot() {
@@ -1346,7 +1359,7 @@ func modalDialogEntry(child ui.Widget) ui.OverlayEntry {
 	return ui.OverlayEntry{
 		Modal: true, Barrier: clearModalBarrier{},
 		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: ui.Stack{
-			Children: []ui.Widget{ui.SelectionArea{Child: child}, modalFocusAnchor{}},
+			Children: []ui.Widget{selectionFeedbackArea{Child: child}, modalFocusAnchor{}},
 		}},
 	}
 }

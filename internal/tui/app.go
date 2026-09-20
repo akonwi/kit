@@ -1476,9 +1476,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.showToast(toastInput{Title: "Device code copied", Variant: toastInfo})
 			}
 		},
-		CopySelection: func(string) {
-			s.showToast(toastInput{Title: "Copied to clipboard", Variant: toastInfo})
-		},
 		DismissToast: s.dismissToast,
 		ComposerPasted: func(_ ui.EventContext, value string) {
 			if s.phase != phaseReady {

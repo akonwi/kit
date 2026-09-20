@@ -347,6 +347,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
 - **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
+- **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render
   unavailable rows with disabled/muted text plus a concise reason such as
   `⊘ idle only`; disable pointer activation. Keyboard activation of a selected
