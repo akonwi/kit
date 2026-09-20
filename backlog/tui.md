@@ -5,45 +5,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ## R1 required
 
-### Transcript and activity
-
-- [x] TUI-TRANSCRIPT-002 — Add syntax highlighting to fenced code blocks in
-  transcript Markdown using the fence language and semantic theme colors.
-  Preserve readable plain-text fallback, wrapping, selectable text, and
-  terminal-native copying. See
-  [ADR 0021](../docs/adrs/0021-use-native-tree-sitter-highlighting.md).
-- [x] TUI-TRANSCRIPT-007 — Add drag-safe in-app link activation to transcript
-  Markdown. A primary click/release opens a validated `http`, `https`, or
-  `mailto` destination; dragging selects text without opening the link.
-  Display labeled links without an appended URL; preserve full destinations in
-  terminal hyperlink metadata and activation, selectable text, and
-  terminal-native copying.
-- [x] TUI-TRANSCRIPT-008 — Refresh the open model picker's capacity after
-  saving or clearing a context-window override. Project effective overrides in
-  the server model catalog without changing active sessions. Preserve filter
-  and selection, surface save/refresh failures, and verify the mounted save,
-  clear, retry, and stale-completion flows.
-- [ ] TUI-TRANSCRIPT-009 — Recover visibly from failed or timed-out run aborts.
-  The Escape path currently discards abort errors and can remain stuck on
-  “Stopping…” with further abort attempts suppressed. Reconcile authoritative
-  run state, show actionable failure feedback, and permit another attempt when
-  appropriate without discarding transcript evidence. Add mounted coverage for
-  failure, timeout, and successful terminalization. End-to-end cooperative
-  cancellation remains owned by `CORE-RUN-003`.
-- [ ] TUI-TRANSCRIPT-010 — Verify context-pressure presentation in the mounted
-  shell: exact percentage and normal/warning/danger styling at threshold
-  boundaries, plus unknown-capacity behavior and live context updates. The
-  percentage calculation and header presentation already exist.
-- [ ] TUI-TRANSCRIPT-011 — Verify retry countdown presentation in the mounted
-  shell across scheduled deadlines, retry start, reconnect restoration, and
-  cancellation precedence while retaining transcript evidence. Event handling
-  and countdown formatting already exist; `CORE-RUN-004` is complete.
-- [ ] TUI-TRANSCRIPT-012 — Complete mounted compaction lifecycle coverage:
-  pending state restored from a snapshot, completion/failure feedback, updated
-  context pressure, and stale/duplicate outcomes without losing retained
-  evidence. Lifecycle presentation already exists; proactive/overflow policy
-  and durable checkpoints remain owned by `CORE-RUN-005`.
-
 ### Composer, sessions, and commands
 
 - [~] TUI-COMP-001 — Complete durable drafts, composer history, and attachment

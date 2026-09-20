@@ -313,6 +313,7 @@ type appState struct {
 	pendingInteractions              []protocol.InteractionRequest
 	followUpMutationPending          bool
 	runStopping                      bool
+	runAbortGeneration               uint64
 	providerRetry                    *protocol.ProviderRetry
 	activeCompactionID               string
 	compactionOutcomeIDs             map[string]struct{}
@@ -6159,28 +6160,34 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 			}
 			return
 		}
-		abort := func() {
-			abortContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		// A pending Escape follows the accepted run through the same error-aware
+		// abort path as an Escape issued after admission. If the UI has already
+		// detached, retain its explicit cancellation request as bounded cleanup.
+		abortDetached := func() {
+			if !admission.abort.Load() {
+				return
+			}
+			abortContext, cancel := context.WithTimeout(context.Background(), runAbortTimeout)
 			defer cancel()
 			_ = run.Abort(abortContext)
 		}
-		if admission.abort.Load() {
-			abort()
-		}
 		if s.ctx.Err() != nil {
-			if admission.abort.Load() {
-				abort()
-			}
+			abortDetached()
 			return
 		}
 		runtime.Dispatch(func() {
+			if s.ctx.Err() != nil {
+				go abortDetached()
+				return
+			}
 			accepted := false
 			s.SetState(func() { accepted = s.acceptPromptAdmission(operation, run) })
 			if !accepted {
+				go abortDetached()
 				return
 			}
 			if admission.abort.Load() {
-				go abort()
+				s.requestRunAbort(runtime.Dispatch, runAbortTimeout)
 			}
 			s.watchSession(bound, operation, run.ID())
 		})
@@ -6423,30 +6430,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		if !s.runPending || s.runStopping {
 			return
 		}
-		run := s.activeRun
-		runID := s.activeRunID
-		bound := s.bound
-		admission := s.prompt
-		if admission != nil {
-			admission.abort.Store(true)
-		}
-		s.SetState(func() {
-			s.runStopping = true
-			s.turnActivity = "Stopping…"
-			s.turnThinking = ""
-			s.status = "esc abort · ctrl+c detach"
-		})
-		go func() {
-			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
-			defer cancel()
-			if run != nil {
-				_ = run.Abort(ctx)
-				return
-			}
-			if bound != nil && runID != "" {
-				_ = bound.Abort(ctx, runID)
-			}
-		}()
+		s.abortRunWithDispatch(s.Context().Runtime().Dispatch, runAbortTimeout)
 	}
 }
 
