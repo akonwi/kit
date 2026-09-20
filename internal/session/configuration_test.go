@@ -15,6 +15,91 @@ import (
 	"github.com/akonwi/kit/internal/storage"
 )
 
+func TestModelCapabilitiesProjectsCurrentContextWindowOverrideWithoutMutatingProviderOrActiveSession(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+
+	providers := &configurationProviders{}
+	overrides := map[string]int{}
+	manager, err := session.NewManager(
+		store,
+		providers,
+		staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(base, "droids")),
+		session.WithModelContextWindow(func(selector string) int { return overrides[selector] }),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+
+	capability := func(selector string) session.ModelCapability {
+		t.Helper()
+		catalog, catalogErr := manager.ModelCapabilities(t.Context())
+		if catalogErr != nil {
+			t.Fatal(catalogErr)
+		}
+		for _, model := range catalog {
+			if model.ID == selector {
+				return model
+			}
+		}
+		t.Fatalf("catalog does not contain %q: %+v", selector, catalog)
+		return session.ModelCapability{}
+	}
+
+	overrides["test/large"] = 1_000_000
+	saved := capability("test/large")
+	if saved.ContextWindow != 1_000_000 || saved.MaxInputTokens != 1_000_000 {
+		t.Fatalf("saved override capability = %+v", saved)
+	}
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/large"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if before.ContextWindow != 1_000_000 {
+		t.Fatalf("active session context window = %d", before.ContextWindow)
+	}
+
+	overrides["test/large"] = 640_000
+	changed := capability("test/large")
+	if changed.ContextWindow != 640_000 || changed.MaxInputTokens != 640_000 {
+		t.Fatalf("changed override capability = %+v", changed)
+	}
+	unchanged, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if unchanged.ContextWindow != before.ContextWindow {
+		t.Fatalf("catalog refresh mutated active session context: before=%d after=%d", before.ContextWindow, unchanged.ContextWindow)
+	}
+
+	delete(overrides, "test/large")
+	cleared := capability("test/large")
+	if cleared.ContextWindow != 128_000 || cleared.MaxInputTokens != 0 {
+		t.Fatalf("cleared override capability = %+v", cleared)
+	}
+	raw, ok := providers.Model("test/large")
+	if !ok || raw.ContextWindow != 128_000 || raw.MaxInputTokens != 0 {
+		t.Fatalf("provider model was mutated: %+v, found=%v", raw, ok)
+	}
+	stillUnchanged, err := manager.Snapshot(t.Context(), record.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if stillUnchanged.ContextWindow != before.ContextWindow {
+		t.Fatalf("clearing catalog override mutated active session context: before=%d after=%d", before.ContextWindow, stillUnchanged.ContextWindow)
+	}
+}
+
 func TestConfigureSessionAdaptsContextClampsThinkingAndReplacesRuntime(t *testing.T) {
 	base := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))

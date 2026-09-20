@@ -4905,25 +4905,43 @@ func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 		s.showToast(toastInput{Title: "Session is busy", Subtitle: "Wait for the current session transition to finish.", Variant: toastWarning})
 		return
 	}
-	server := s.Widget().(app).Options.Server
 	generation := uint64(0)
 	s.SetState(func() {
 		generation = s.configurationPicker.Begin(mode, s.session.Model, s.session.ThinkingLevel)
 	})
-	runtime := s.Context().Runtime()
+	s.loadConfigurationCatalog(s.Widget().(app).Options.Server, s.Context().Runtime().Dispatch, generation, false)
+}
+
+func (s *appState) loadConfigurationCatalog(server sessionclient.Server, dispatch func(func()), generation uint64, afterSave bool) {
+	ctx := s.ctx
 	go func() {
-		catalog, err := server.Models(s.ctx)
-		if s.ctx.Err() != nil {
+		request, cancel := context.WithTimeout(ctx, 10*time.Second)
+		defer cancel()
+		catalog, err := server.Models(request)
+		if ctx.Err() != nil {
 			return
 		}
-		runtime.Dispatch(func() {
+		if err != nil && afterSave {
+			err = fmt.Errorf("Context-window override saved, but model refresh failed: %w", err)
+		}
+		dispatch(func() {
+			if ctx.Err() != nil {
+				return
+			}
 			s.SetState(func() { s.configurationPicker.Resolve(generation, catalog, err) })
 		})
 	}()
 }
 
 func (s *appState) saveModelContextWindow() {
-	service := s.Widget().(app).Options.ModelOverrideService
+	options := s.Widget().(app).Options
+	s.saveModelContextWindowWith(options.ModelOverrideService, options.Server, s.Context().Runtime().Dispatch)
+}
+
+func (s *appState) saveModelContextWindowWith(service ModelOverrideService, server sessionclient.Server, dispatch func(func())) {
+	if !s.configurationPicker.EditingContext || s.configurationPicker.Loading || s.configurationPicker.Pending {
+		return
+	}
 	if service == nil {
 		s.SetState(func() { s.configurationPicker.Error = "Context-window settings are unavailable" })
 		return
@@ -4942,12 +4960,9 @@ func (s *appState) saveModelContextWindow() {
 		s.SetState(func() { s.configurationPicker.Error = err.Error() })
 		return
 	}
-	s.SetState(func() {
-		s.configurationPicker.EditingContext = false
-		s.configurationPicker.EditModel = ""
-		s.configurationPicker.EditValue = ""
-	})
-	s.openConfigurationPicker(configurationPickerModel)
+	var generation uint64
+	s.SetState(func() { generation = s.configurationPicker.BeginRefresh() })
+	s.loadConfigurationCatalog(server, dispatch, generation, true)
 }
 
 func (s *appState) applyConfigurationSelection() {

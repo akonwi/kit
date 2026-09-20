@@ -66,6 +66,16 @@ func (controller *configurationPickerController) Begin(mode configurationPickerM
 	return controller.generation
 }
 
+func (controller *configurationPickerController) BeginRefresh() uint64 {
+	controller.generation++
+	controller.Loading = true
+	controller.Error = ""
+	controller.EditingContext = false
+	controller.EditModel = ""
+	controller.EditValue = ""
+	return controller.generation
+}
+
 func (controller *configurationPickerController) Resolve(generation uint64, catalog protocol.ModelCatalog, err error) bool {
 	if controller.Mode == configurationPickerClosed || generation != controller.generation {
 		return false
@@ -78,9 +88,14 @@ func (controller *configurationPickerController) Resolve(generation uint64, cata
 	controller.Models = append([]protocol.ModelCapability(nil), catalog.Models...)
 	if controller.Mode == configurationPickerModel {
 		models := controller.filteredModels()
-		controller.Selection = controller.CurrentModel
-		if modelCapabilityIndex(models, controller.Selection) < 0 && len(models) > 0 {
-			controller.Selection = models[0].ID
+		if modelCapabilityIndex(models, controller.Selection) < 0 {
+			controller.Selection = controller.CurrentModel
+			if modelCapabilityIndex(models, controller.Selection) < 0 {
+				controller.Selection = ""
+				if len(models) > 0 {
+					controller.Selection = models[0].ID
+				}
+			}
 		}
 	} else {
 		levels := controller.thinkingLevels()
@@ -111,7 +126,7 @@ func (controller *configurationPickerController) Snapshot() configurationPickerS
 }
 
 func (controller *configurationPickerController) SetQuery(value string) {
-	if controller.Mode != configurationPickerModel || controller.Pending {
+	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending {
 		return
 	}
 	controller.Query = value
@@ -125,7 +140,7 @@ func (controller *configurationPickerController) SetQuery(value string) {
 }
 
 func (controller *configurationPickerController) Select(value string) {
-	if controller.Pending {
+	if controller.Loading || controller.Pending {
 		return
 	}
 	if controller.Mode == configurationPickerModel {
@@ -139,7 +154,7 @@ func (controller *configurationPickerController) Select(value string) {
 }
 
 func (controller *configurationPickerController) Move(delta int) {
-	if controller.Pending || delta == 0 {
+	if controller.Loading || controller.Pending || delta == 0 {
 		return
 	}
 	values := controller.values()
@@ -183,7 +198,7 @@ func (controller *configurationPickerController) ResolveApply(generation uint64,
 }
 
 func (controller *configurationPickerController) BeginContextEdit() bool {
-	if controller.Mode != configurationPickerModel || controller.Pending || controller.Selection == "" {
+	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending || controller.Selection == "" {
 		return false
 	}
 	index := modelCapabilityIndex(controller.Models, controller.Selection)
@@ -228,7 +243,7 @@ func (controller *configurationPickerController) HandleKey(key ui.Key) (bool, bo
 }
 
 func (controller *configurationPickerController) HandleEditorKey(key ui.Key) bool {
-	if controller.Mode != configurationPickerModel || controller.Pending || key.EventType == ui.EventRelease {
+	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending || key.EventType == ui.EventRelease {
 		return false
 	}
 	if controller.EditingContext {
@@ -343,6 +358,7 @@ func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Text{Value: surface.Snapshot.EditModel, Style: ui.Style{Foreground: theme.MutedForeground}},
 			ui.SizedBox{Height: 1},
 			textInput(theme, textInputConfig{Value: surface.Snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true}),
+			ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
 		}})
 	case surface.Snapshot.Mode == configurationPickerModel:
 		body = surface.modelBody(theme)

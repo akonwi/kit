@@ -45,6 +45,8 @@ func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, err
 	models := m.providers.Models()
 	result := make([]ModelCapability, 0, len(models))
 	for _, model := range models {
+		selector := model.Provider + "/" + model.ID
+		model = m.applyModelContextWindow(selector, model)
 		name := strings.TrimSpace(model.Name)
 		if name == "" {
 			name = model.ID
@@ -54,7 +56,7 @@ func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, err
 			inputs = []string{"text"}
 		}
 		result = append(result, ModelCapability{
-			ID: model.Provider + "/" + model.ID, Name: name, Provider: model.Provider, API: string(model.API),
+			ID: selector, Name: name, Provider: model.Provider, API: string(model.API),
 			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
 			ThinkingLevels: append([]string(nil), supportedThinkingLevels(model)...), Inputs: inputs,
 		})
