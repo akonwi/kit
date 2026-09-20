@@ -72,30 +72,6 @@ struct SessionScreen: View {
         .onDisappear { state.detach() }
         .navigationTitle(state.selected?.title ?? "Kit")
         .navigationSubtitle((state.isTemporary ? "Temporary · " : "") + (state.selected?.workspace ?? ""))
-        .toolbar {
-            ToolbarItemGroup(placement: .primaryAction) {
-                Button {
-                    windows.showLauncher { openWindow(id: "session", value: $0) }
-                } label: { Image(systemName: "plus") }
-                .help("New tab").accessibilityLabel("New tab")
-                Button { state.ui.workspace.open(.review) } label: { Image(systemName: "chevron.left.forwardslash.chevron.right") }
-                    .help("Diff").accessibilityLabel("Diff").disabled(!(state.catalogClient is any DiffClient))
-                Button { state.ui.workspace.open(.scratchpad) } label: { Image(systemName: "note.text") }
-                    .help("Scratchpad").accessibilityLabel("Scratchpad").disabled(!state.isDemo)
-                Button { state.ui.subagentsPresented.toggle() } label: { Image(systemName: "person.2") }
-                    .help("Subagents").accessibilityLabel("Subagents")
-                    .popover(isPresented: $ui.subagentsPresented, arrowEdge: .bottom) {
-                        SubagentsPopover(state: state)
-                            .environment(\.mica, theme)
-                            .preferredColorScheme(isDark ? .dark : .light)
-                    }
-                Button { state.showFiles(intent: "open") } label: { Image(systemName: "doc") }
-                    .help("Open file").accessibilityLabel("Open file").disabled(state.unavailable)
-                Button { state.ui.palette = true } label: { Image(systemName: "command") }
-                    .help("Commands (⌘K)").accessibilityLabel("Open command palette")
-
-            }
-        }
         .toolbarBackground(theme.raised, for: .windowToolbar)
         .toolbarBackgroundVisibility(.visible, for: .windowToolbar)
         .font(.kit(size: 13))

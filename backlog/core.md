@@ -202,8 +202,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-INT-003 — Recover pending user interactions across server restarts.
 - [ ] CORE-THREAD-001 — Expand bounded `#thread` references with escaping and
   active-session exclusion.
-- [ ] CORE-SCRATCH-001 — Implement guarded scratchpad reads/edits, autosave,
-  context injection, and fork/handoff copying.
+- [x] CORE-SCRATCH-001 — Provide database-backed family-owned scratchpads with
+  guarded human writes, transactional agent edits, snapshots, bounded events,
+  and explicit path-free model tools without implicit prompt inclusion. See
+  [ADR 0025](../docs/adrs/0025-share-database-backed-scratchpads-across-session-families.md).
 - [x] CORE-ANN-001 — Provide bounded, session-owned draft annotations with
   server-allocated monotonic IDs, typed revision-pinned anchors, authoritative
   previews, mutation, deletion, stale guards, persistence, snapshots, and events,

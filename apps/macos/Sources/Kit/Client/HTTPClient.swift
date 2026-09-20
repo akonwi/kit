@@ -9,7 +9,7 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
-final class HTTPClient: DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -621,6 +621,49 @@ final class HTTPClient: DiffClient, AnnotationClient, WorkspaceFileClient, Subag
     }
 
     func snapshot(_ id: String) async throws -> SessionExcerpt { try SessionProjection.snapshot(await wireSnapshot(id)) }
+
+    func scratchpad(session id: String) async throws -> ScratchpadRecord {
+        guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
+        let wire: WireScratchpad = try await get("v1/sessions/" + id + "/scratchpad")
+        return try ScratchpadRecord(wire)
+    }
+
+    func updateScratchpad(session id: String, content: String, expectedRevision: Int64) async throws -> ScratchpadRecord {
+        guard Self.validScratchpadSession(id), expectedRevision > 0,
+              ScratchpadRecord.validContent(content) else {
+            throw ClientError.invalidPayload
+        }
+        var request = try request("v1/sessions/" + id + "/scratchpad")
+        request.httpMethod = "PUT"
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(WireUpdateScratchpadInput(expectedRevision: String(expectedRevision), content: content))
+        let (data, response) = try await session.data(for: request)
+        guard data.count <= 256 * 1024, let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+        if response.statusCode == 409 {
+            struct Envelope: Decodable {
+                struct Detail: Decodable { let scratchpad: WireScratchpad? }
+                struct Failure: Decodable { let code: String; let message: String; let details: Detail? }
+                let error: Failure
+            }
+            if let error = try? JSONDecoder().decode(Envelope.self, from: data).error {
+                if error.code == "scratchpad_revision_conflict", let current = error.details?.scratchpad {
+                    throw ScratchpadFailure.conflict(try ScratchpadRecord(current))
+                }
+                throw ScratchpadFailure.rejected(error.message)
+            }
+        }
+        guard response.statusCode == 200 else { throw ClientError.http(response.statusCode) }
+        let result = try ScratchpadRecord(JSONDecoder().decode(WireScratchpad.self, from: data))
+        guard result.content == content,
+              result.revision == expectedRevision || (expectedRevision < Int64.max && result.revision == expectedRevision + 1) else {
+            throw ClientError.invalidPayload
+        }
+        return result
+    }
+
+    private static func validScratchpadSession(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
 
     private struct StreamResync: Error {}
 

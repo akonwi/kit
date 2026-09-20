@@ -18,7 +18,7 @@ func TestPeerQueryAdmissionIsIdempotentAndOrdered(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cwd := t.TempDir()
 	for _, id := range []string{testSessionID('a'), testSessionID('b')} {
-		if _, err := store.CreateSession(t.Context(), session.NewSession{ID: id, CWD: cwd, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+		if _, err := store.CreateSession(t.Context(), session.NewSession{ID: id, ScratchpadOwnerID: id, CWD: cwd, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -75,7 +75,7 @@ func TestArchiveSettlesQueuedPeerQueries(t *testing.T) {
 	cwd := t.TempDir()
 	sender, recipient := testSessionID('c'), testSessionID('d')
 	for _, id := range []string{sender, recipient} {
-		if _, err := store.CreateSession(t.Context(), session.NewSession{ID: id, CWD: cwd, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+		if _, err := store.CreateSession(t.Context(), session.NewSession{ID: id, ScratchpadOwnerID: id, CWD: cwd, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
 			t.Fatal(err)
 		}
 	}

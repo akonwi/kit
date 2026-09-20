@@ -49,6 +49,36 @@ type workspacePaneDefinition struct {
 }
 
 var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
+	workspacePaneScratchpad: {
+		Kind: workspacePaneScratchpad, Closable: true,
+		Identity: func(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {
+			if descriptor.ResourceID != "" || descriptor.WorkspaceID != "" || descriptor.Path != "" {
+				return "", fmt.Errorf("scratchpad workspace identity is invalid")
+			}
+			return workspacePaneIdentity("scratchpad"), nil
+		},
+		Label:     func(shellSnapshot, workspacePaneDescriptor) string { return "Scratchpad" },
+		Available: func(snapshot shellSnapshot, _ workspacePaneDescriptor) bool { return snapshot.ScratchpadAvailable },
+		Activity: func(snapshot shellSnapshot, _ workspacePaneDescriptor) workspacePaneActivity {
+			switch snapshot.Scratchpad.State {
+			case scratchpadConflict:
+				return workspacePaneActivityWarning
+			case scratchpadSaveFailed:
+				return workspacePaneActivityError
+			default:
+				return workspacePaneActivityNone
+			}
+		},
+		Build: func(view shellView, _ ui.Theme, _ workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
+			return workspaceScratchpadPane{
+				Presentation: presentation, Scratchpad: view.Scratchpad, Editor: view.Snapshot.Scratchpad,
+				OnChanged: view.Callbacks.ScratchpadChanged, OnRetry: view.Callbacks.RetryScratchpad,
+				OnReview: view.Callbacks.ReviewScratchpad, OnKeep: view.Callbacks.KeepEditingScratchpad,
+				OnUseShared: view.Callbacks.UseSharedScratchpad, OnReplace: view.Callbacks.ReplaceSharedScratchpad,
+				OnFocus: view.Callbacks.FocusWorkspaceContent,
+			}
+		},
+	},
 	workspacePaneDiff: {
 		Kind: workspacePaneDiff, Closable: true,
 		Identity: func(descriptor workspacePaneDescriptor) (workspacePaneIdentity, error) {

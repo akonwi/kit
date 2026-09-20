@@ -53,7 +53,7 @@ func TestCommittedAnnotationCreateListAndSubmitAfterDiffServiceRestart(t *testin
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, err := store.CreateSession(t.Context(), kitsession.NewSession{ID: sessionID, CWD: dir, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+	if _, err := store.CreateSession(t.Context(), kitsession.NewSession{ID: sessionID, ScratchpadOwnerID: sessionID, CWD: dir, Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
 		t.Fatal(err)
 	}
 	workspaces := kitworkspace.NewService()

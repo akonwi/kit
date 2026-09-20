@@ -36,7 +36,7 @@ func TestInitialSchemaContainsSessionRegistryAndDurableMailboxState(t *testing.T
 		}
 		tables = append(tables, name)
 	}
-	want := []string{"annotation_sequences", "annotations", "parent_mailbox", "peer_session_queries", "schema_migrations", "session_cwd_mutations", "sessions", "subagent_conversations", "subagent_events", "subagent_tasks"}
+	want := []string{"annotation_sequences", "annotations", "parent_mailbox", "peer_session_queries", "schema_migrations", "scratchpads", "session_cwd_mutations", "sessions", "subagent_conversations", "subagent_events", "subagent_tasks"}
 	if fmt.Sprint(tables) != fmt.Sprint(want) {
 		t.Fatalf("tables = %v, want %v", tables, want)
 	}
@@ -57,7 +57,7 @@ func TestSessionRegistryChangesCWD(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	created, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_cwd", CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model",
+		ID: "session_cwd", ScratchpadOwnerID: "session_cwd", CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -114,7 +114,7 @@ func TestSessionRegistryRenamesNonArchivedSession(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	created, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_rename", CWD: t.TempDir(), Name: "Before", Persistent: true,
+		ID: "session_rename", ScratchpadOwnerID: "session_rename", CWD: t.TempDir(), Name: "Before", Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
@@ -142,14 +142,14 @@ func TestSessionRegistryTouchesActivityMonotonicallyAndSorts(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cwd := t.TempDir()
 	first, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_first", CWD: cwd, Persistent: true,
+		ID: "session_first", ScratchpadOwnerID: "session_first", CWD: cwd, Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	second, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_second", CWD: cwd, Persistent: true,
+		ID: "session_second", ScratchpadOwnerID: "session_second", CWD: cwd, Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
@@ -208,7 +208,7 @@ func TestSessionRegistrySerializesConcurrentActivityAndCWDWrites(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	cwd := t.TempDir()
 	record, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_concurrent", CWD: cwd, Persistent: true,
+		ID: "session_concurrent", ScratchpadOwnerID: "session_concurrent", CWD: cwd, Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
@@ -264,7 +264,7 @@ func TestSessionRegistryArchivesSession(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	created, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_delete", CWD: t.TempDir(), Persistent: true,
+		ID: "session_delete", ScratchpadOwnerID: "session_delete", CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {
@@ -300,7 +300,7 @@ func TestSessionRegistryTracksDroidInitialization(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	record, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_test", CWD: t.TempDir(), Persistent: true,
+		ID: "session_test", ScratchpadOwnerID: "session_test", CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "model",
 	})
 	if err != nil {

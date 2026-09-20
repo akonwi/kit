@@ -16,12 +16,14 @@ const (
 	workspacePaneSubagentConversation workspacePaneKind = "subagent-conversation"
 	workspacePaneFile                 workspacePaneKind = "file"
 	workspacePaneDiff                 workspacePaneKind = "diff"
+	workspacePaneScratchpad           workspacePaneKind = "scratchpad"
 )
 
 var workspacePaneKinds = [...]workspacePaneKind{
 	workspacePaneSubagentConversation,
 	workspacePaneFile,
 	workspacePaneDiff,
+	workspacePaneScratchpad,
 }
 
 // workspacePaneDescriptor is renderer-neutral client state. It identifies a

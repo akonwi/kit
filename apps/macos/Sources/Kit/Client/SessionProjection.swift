@@ -30,6 +30,7 @@ enum SessionProjection {
         session.subagents = try SubagentRoster(snapshot)
         session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
         session.pendingInteractions = snapshot.pendingInteractions ?? []
+        session.scratchpad = try snapshot.scratchpad.map(ScratchpadRecord.init)
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId
         session.activeRunID = snapshot.activeRunId

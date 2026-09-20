@@ -43,6 +43,12 @@ type Session interface {
 	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
 }
 
+// ScratchpadSession is the optional bound-session shared scratchpad capability.
+type ScratchpadSession interface {
+	Scratchpad(context.Context) (protocol.Scratchpad, error)
+	UpdateScratchpad(context.Context, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
+}
+
 // FileIndexRefreshSession is the optional bound-session forced index-refresh facet.
 type FileIndexRefreshSession interface {
 	RefreshFileIndex(context.Context) (protocol.SessionFileIndex, error)

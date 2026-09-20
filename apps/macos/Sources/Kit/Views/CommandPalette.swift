@@ -20,6 +20,7 @@ struct CommandPalette: View {
     private var actions: [PaletteCommand] {
         PaletteCommand.catalog(dark: theme.dark)
             .filter { state.isDemo || !$0.demoOnly }
+            .filter { $0.id != "Open Scratchpad" || state.canOpenScratchpad }
             .filter { $0.id != "Dispose temporary session" || state.isTemporary }
             .filter { $0.matches(query) }
     }

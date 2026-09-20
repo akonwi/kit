@@ -233,13 +233,14 @@ type BashExecution struct {
 	CompletedAt        string              `json:"completedAt,omitempty"`
 }
 
-// SessionInfo is the client-facing projection of persisted session metadata.
+// SessionInfo is the client-facing projection of authoritative session metadata.
 type SessionInfo struct {
 	ID                    string `json:"id"`
 	CWD                   string `json:"cwd"`
 	Name                  string `json:"name,omitempty"`
 	ParentSessionID       string `json:"parentSessionId,omitempty"`
 	ParentSessionName     string `json:"parentSessionName,omitempty"`
+	Temporary             bool   `json:"temporary,omitempty"`
 	Model                 string `json:"model"`
 	ThinkingLevel         string `json:"thinkingLevel"`
 	ConfigurationRevision uint64 `json:"configurationRevision"`
@@ -469,6 +470,7 @@ type SessionSnapshot struct {
 	SubagentMailbox       []SubagentMailboxItem  `json:"subagentMailbox,omitempty"`
 	PendingInteractions   []InteractionRequest   `json:"pendingInteractions,omitempty"`
 	Annotations           []AnnotationSummary    `json:"annotations,omitempty"`
+	Scratchpad            *Scratchpad            `json:"scratchpad,omitempty"`
 }
 
 // TranscriptPage is one complete-turn-bounded page preceding a cursor.

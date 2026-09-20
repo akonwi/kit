@@ -31,8 +31,11 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 	if s == nil || s.db == nil {
 		return SessionRecord{}, fmt.Errorf("store is closed")
 	}
-	if input.ID == "" || input.CWD == "" || input.ModelProvider == "" || input.ModelID == "" {
-		return SessionRecord{}, fmt.Errorf("session id, cwd, model provider, and model id are required")
+	if input.ID == "" || input.CWD == "" || input.ModelProvider == "" || input.ModelID == "" || input.ScratchpadOwnerID == "" {
+		return SessionRecord{}, fmt.Errorf("session id, cwd, scratchpad owner, model provider, and model id are required")
+	}
+	if !input.Persistent {
+		return SessionRecord{}, fmt.Errorf("durable session repository does not accept temporary sessions")
 	}
 	now := time.Now().UTC()
 	persistent := 0
@@ -43,26 +46,55 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 	if input.DroidInitializedAt != nil {
 		initializedAt = input.DroidInitializedAt.UTC().Format(timestampLayout)
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return SessionRecord{}, fmt.Errorf("begin session %q creation: %w", input.ID, err)
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	ownerID := input.ScratchpadOwnerID
+	if ownerID != input.ID {
+		if input.ParentSessionID == "" {
+			return SessionRecord{}, fmt.Errorf("inherited scratchpad owner requires a parent session")
+		}
+		var parentOwnerID string
+		if err := tx.QueryRowContext(ctx,
+			`SELECT scratchpad_owner_id FROM sessions WHERE id = ?`,
+			input.ParentSessionID,
+		).Scan(&parentOwnerID); errors.Is(err, sql.ErrNoRows) {
+			return SessionRecord{}, fmt.Errorf("parent session %q: %w", input.ParentSessionID, ErrNotFound)
+		} else if err != nil {
+			return SessionRecord{}, fmt.Errorf("load parent session %q scratchpad owner: %w", input.ParentSessionID, err)
+		}
+		if parentOwnerID != ownerID {
+			return SessionRecord{}, fmt.Errorf("scratchpad owner %q does not match parent session family", ownerID)
+		}
+	}
+	formattedNow := now.Format(timestampLayout)
+	_, err = tx.ExecContext(ctx, `
 		INSERT INTO sessions(
-			id, cwd, name, persistent, parent_session_id,
+			id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 			model_provider, model_id, thinking_level, droid_initialized_at, created_at, updated_at
-		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, NULLIF(?, ''), ?, ?, ?)
+		) VALUES (?, ?, NULLIF(?, ''), ?, NULLIF(?, ''), ?, ?, ?, NULLIF(?, ''), ?, ?, ?)
 	`,
 		input.ID,
 		input.CWD,
 		input.Name,
 		persistent,
 		input.ParentSessionID,
+		ownerID,
 		input.ModelProvider,
 		input.ModelID,
 		input.ThinkingLevel,
 		initializedAt,
-		now.Format(timestampLayout),
-		now.Format(timestampLayout),
+		formattedNow,
+		formattedNow,
 	)
 	if err != nil {
 		return SessionRecord{}, fmt.Errorf("create session %q: %w", input.ID, err)
+	}
+	if err := tx.Commit(); err != nil {
+		return SessionRecord{}, fmt.Errorf("commit session %q creation: %w", input.ID, err)
 	}
 	return s.GetSession(ctx, input.ID)
 }
@@ -106,7 +138,7 @@ func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutatio
 			return SessionRecord{}, CWDMutation{}, fmt.Errorf("cwd mutation id %q was reused", mutation.ID)
 		}
 		record, loadErr := scanSession(tx.QueryRowContext(ctx, `
-			SELECT id, cwd, name, persistent, parent_session_id,
+			SELECT id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 			       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 			       created_at, updated_at, archived_at
 			FROM sessions WHERE id = ? AND archived_at IS NULL
@@ -130,7 +162,7 @@ func (s *Store) ApplySessionCWDMutation(ctx context.Context, mutation CWDMutatio
 		SET cwd = CASE WHEN ? = 1 THEN ? ELSE cwd END,
 		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
-		RETURNING id, cwd, name, persistent, parent_session_id,
+		RETURNING id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		          created_at, updated_at, archived_at
 	`, changed, mutation.CWD, activityAt, activityAt, mutation.SessionID))
@@ -215,7 +247,7 @@ func (s *Store) UpdateSessionConfiguration(ctx context.Context, update Configura
 		SET model_provider = ?, model_id = ?, thinking_level = NULLIF(?, ''),
 		    configuration_revision = ?, updated_at = ?
 		WHERE id = ? AND archived_at IS NULL AND configuration_revision = ?
-		RETURNING id, cwd, name, persistent, parent_session_id,
+		RETURNING id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		          created_at, updated_at, archived_at
 	`, update.ModelProvider, update.ModelID, update.ThinkingLevel,
@@ -261,7 +293,7 @@ func (s *Store) RenameSession(ctx context.Context, id, name string) (SessionReco
 		SET name = ?,
 		    updated_at = CASE WHEN updated_at < ? THEN ? ELSE updated_at END
 		WHERE id = ? AND archived_at IS NULL
-		RETURNING id, cwd, name, persistent, parent_session_id,
+		RETURNING id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 		          model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		          created_at, updated_at, archived_at
 	`, name, activityAt, activityAt, id)
@@ -367,7 +399,7 @@ func (s *Store) GetSession(ctx context.Context, id string) (SessionRecord, error
 		return SessionRecord{}, fmt.Errorf("store is closed")
 	}
 	row := s.db.QueryRowContext(ctx, `
-		SELECT id, cwd, name, persistent, parent_session_id,
+		SELECT id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 		       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
@@ -389,7 +421,7 @@ func (s *Store) ListSessions(ctx context.Context, cwd string) ([]SessionRecord, 
 		return nil, fmt.Errorf("store is closed")
 	}
 	query := `
-		SELECT id, cwd, name, persistent, parent_session_id,
+		SELECT id, cwd, name, persistent, parent_session_id, scratchpad_owner_id,
 		       model_provider, model_id, thinking_level, configuration_revision, droid_initialized_at,
 		       created_at, updated_at, archived_at
 		FROM sessions
@@ -446,6 +478,7 @@ func scanSession(scanner rowScanner) (SessionRecord, error) {
 		&name,
 		&persistent,
 		&parent,
+		&record.ScratchpadOwnerID,
 		&modelProvider,
 		&modelID,
 		&thinking,

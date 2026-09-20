@@ -67,6 +67,8 @@ type shellSnapshot struct {
 	ActivityFocus                *ui.FocusNode
 	SubagentFocuses              map[string]*ui.FocusNode
 	Workspace                    workspaceControllerSnapshot
+	ScratchpadAvailable          bool
+	Scratchpad                   scratchpadEditorState
 	CurrentWorkspaceID           string
 	PaneInput                    paneInputOwner
 	WorkspaceFilePicker          workspaceFilePickerController
@@ -147,6 +149,12 @@ type shellCallbacks struct {
 	OpenSubagentConversation    func(ui.EventContext, string)
 	SelectWorkspacePane         func(ui.EventContext, workspacePaneDescriptor)
 	CloseWorkspacePane          func(ui.EventContext, workspacePaneDescriptor)
+	ScratchpadChanged           ui.TextChangedCallback
+	RetryScratchpad             ui.VoidCallback
+	ReviewScratchpad            ui.VoidCallback
+	KeepEditingScratchpad       ui.VoidCallback
+	UseSharedScratchpad         ui.VoidCallback
+	ReplaceSharedScratchpad     ui.VoidCallback
 	OpenWorkspaceFilePicker     ui.VoidCallback
 	CloseWorkspaceFilePicker    ui.VoidCallback
 	WorkspaceFilePickerQuery    ui.TextChangedCallback
@@ -219,6 +227,7 @@ type shellView struct {
 	Callbacks       shellCallbacks
 	WorkspaceFiles  sessionclient.WorkspaceFilesSession
 	Diff            sessionclient.DiffSession
+	Scratchpad      sessionclient.ScratchpadSession
 	presentation    transcriptPresentation
 	// WorkspaceDispatch optionally supplies the host's UI event-loop dispatcher.
 	WorkspaceDispatch func(func())

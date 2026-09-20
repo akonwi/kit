@@ -16,7 +16,7 @@ struct WorkspaceLayout: View {
                         WorkspaceSplitDivider(fraction: $workspace.splitFraction, color: theme.border)
                     }
                     ForEach(Array(workspace.groups.indices), id: \.self) { group in
-                        WorkspaceTabStrip(workspace: workspace, group: group,
+                        WorkspaceTabStrip(state: state, workspace: workspace, group: group,
                             runningAgents: Set((state.selected?.subagents?.items ?? []).filter { $0.status == "running" }.map(\.name)))
                             .frame(width: group == 0 ? left : geometry.size.width - left - 5)
                             .offset(x: group == 0 ? 0 : left + 5)
@@ -47,7 +47,7 @@ struct WorkspaceLayout: View {
         switch pane {
         case .conversation: SessionView(state: state)
         case .review: ReviewPane(state: state)
-        case .scratchpad: ScratchpadPane(workspace: state.ui.workspace)
+        case .scratchpad: ScratchpadPane(state: state)
         case .agent(let name): AgentPane(state: state, name: name)
         case .file(let path): FilePane(state: state, path: path)
         }
@@ -56,6 +56,7 @@ struct WorkspaceLayout: View {
 
 private struct WorkspaceTabStrip: View {
     @Environment(\.mica) private var theme
+    let state: SessionStore
     @Bindable var workspace: WorkspaceState
     let group: Int
     let runningAgents: Set<String>
@@ -64,7 +65,7 @@ private struct WorkspaceTabStrip: View {
             ScrollView(.horizontal) {
                 HStack(spacing: 0) {
                     ForEach(workspace.groups[group]) { pane in
-                        WorkspaceTab(workspace: workspace, pane: pane, group: group,
+                        WorkspaceTab(state: state, workspace: workspace, pane: pane, group: group,
                             running: { if case .agent(let name) = pane { return runningAgents.contains(name) }; return false }())
                     }
                 }
@@ -78,6 +79,7 @@ private struct WorkspaceTabStrip: View {
 
 private struct WorkspaceTab: View {
     @Environment(\.mica) private var theme
+    let state: SessionStore
     @Bindable var workspace: WorkspaceState
     let pane: WorkspacePane
     let group: Int
@@ -106,7 +108,7 @@ private struct WorkspaceTab: View {
             }
             .overlay(alignment: .trailing) {
                 if pane.closable && (hovering || focused) {
-                    Button { workspace.close(pane) } label: {
+                    Button { close() } label: {
                         Image(systemName: "xmark").font(.kit(size: 9)).frame(width: 24, height: 28)
                             .background(theme.surface)
                     }.buttonStyle(.plain).padding(.trailing, 2).accessibilityLabel("Close \(pane.title)")
@@ -114,7 +116,7 @@ private struct WorkspaceTab: View {
             }
             .onHover { hovering = $0 }
             .onChange(of: focused) { if focused { workspace.select(pane) } }
-            .contextMenu { WorkspaceTabActions(workspace: workspace, pane: pane) }
+            .contextMenu { WorkspaceTabActions(state: state, workspace: workspace, pane: pane) }
             .accessibilityAddTraits(selected ? .isSelected : [])
     }
     private var icon: String? {
@@ -125,9 +127,15 @@ private struct WorkspaceTab: View {
         default: nil
         }
     }
+    private func close() {
+        if pane == .scratchpad, let client = state.scratchpadClient {
+            Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
+        } else { workspace.close(pane) }
+    }
 }
 
 private struct WorkspaceTabActions: View {
+    let state: SessionStore
     let workspace: WorkspaceState
     let pane: WorkspacePane
     var body: some View {
@@ -138,7 +146,11 @@ private struct WorkspaceTabActions: View {
         }
         if pane.closable {
             Divider()
-            Button("Close tab") { workspace.close(pane) }
+            Button("Close tab") {
+                if pane == .scratchpad, let client = state.scratchpadClient {
+                    Task { await workspace.closeScratchpad(client: client, session: state.selectedID) }
+                } else { workspace.close(pane) }
+            }
         }
     }
 }
@@ -153,25 +165,66 @@ private struct RobotTabIcon: View {
 }
 struct ScratchpadPane: View {
     @Environment(\.mica) private var theme
-    @Bindable var workspace: WorkspaceState
+    let state: SessionStore
+    private var workspace: WorkspaceState { state.ui.workspace }
+    private var pad: ScratchpadState { workspace.scratchpadState }
     var body: some View {
         VStack(spacing: 0) {
-            HStack {
-                MetaLabel(text: "SESSION NOTES")
-                Spacer()
-                Button(workspace.scratchPreview ? "Edit" : "Preview") { workspace.scratchPreview.toggle() }
-                    .buttonStyle(MicaButtonStyle(compact: true))
-            }.padding(12)
-            Rule()
-            if workspace.scratchPreview {
-                ScrollView { MarkdownView(source: workspace.scratchpad).frame(maxWidth: .infinity, alignment: .leading).padding(20) }
-            } else {
-                ScratchpadEditor(text: $workspace.scratchpad)
+            if pad.status == .conflict {
+                HStack {
+                    Text("Shared scratchpad changed. Your draft is preserved.")
+                    Spacer()
+                    Button("Review changes") { pad.review() }
+                }.font(.kit(size: 11)).foregroundStyle(theme.warning).padding(12)
+                Rule()
             }
-            Spacer(minLength: 0)
-            Rule()
-            HStack { Text("Edits retained in this preview"); Spacer(); Text("\(workspace.scratchpad.count) characters") }
-                .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+            if pad.reviewing {
+                ScrollView([.vertical, .horizontal]) {
+                    HStack {
+                        Text(pad.reviewText).font(.kit(size: 12, design: .monospaced))
+                            .textSelection(.enabled).fixedSize(horizontal: true, vertical: false)
+                        Spacer(minLength: 0)
+                    }.frame(maxWidth: .infinity, alignment: .leading).padding(16)
+                }.accessibilityLabel("Scratchpad changes")
+                Rule()
+                HStack {
+                    Button("Keep editing") { pad.keepEditing() }
+                    Button("Use shared") { pad.useShared() }
+                    Spacer()
+                    Button("Replace shared with mine") {
+                        guard let client = state.scratchpadClient else { return }
+                        Task { await pad.replaceReviewed(client: client, session: state.selectedID) }
+                    }
+                }.padding(12)
+            } else {
+                @Bindable var workspace = workspace
+                ScratchpadEditor(text: $workspace.scratchpad, documentVersion: pad.documentVersion,
+                    editorState: $workspace.scratchpadPosition)
+            }
+            if pad.status != .saved {
+                Rule()
+                HStack {
+                    Spacer()
+                    switch pad.status {
+                    case .loading: Text("Loading…")
+                    case .saved: EmptyView()
+                    case .unsaved: Text("Unsaved")
+                    case .saving: Text("Saving…")
+                    case .conflict: Text("Conflict")
+                    case .failed(let message):
+                        Text(message).lineLimit(1)
+                        Button("Retry") {
+                            guard let client = state.scratchpadClient else { return }
+                            Task { _ = await pad.save(client: client, session: state.selectedID) }
+                        }
+                    }
+                }.font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+            }
+        }
+        .task(id: state.selectedID) {
+            guard let client = state.scratchpadClient else { return }
+            pad.bind(client: client, session: state.selectedID)
+            await pad.load(client: client, session: state.selectedID)
         }
     }
 }

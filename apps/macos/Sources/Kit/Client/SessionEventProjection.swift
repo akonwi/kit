@@ -67,6 +67,11 @@ struct SessionEventProjection {
             + (event.content ?? []).reduce(0) { $0 + ($1.text?.utf8.count ?? 0) }
         guard liveBytes <= 32 * 1024 * 1024 else { throw ClientError.oversized }
         switch event.kind {
+        case "scratchpad.changed":
+            guard let record = event.scratchpad else { throw ClientError.invalidPayload }
+            let projected = try ScratchpadRecord(record)
+            if let previous = session.scratchpad, previous.owner != projected.owner { throw ClientError.invalidPayload }
+            if projected.revision >= (session.scratchpad?.revision ?? 0) { session.scratchpad = projected }
         case "annotation.created", "annotation.updated":
             guard let value = event.annotation else { throw ClientError.invalidPayload }
             let annotation = try FileAnnotation(value, session: session.id)

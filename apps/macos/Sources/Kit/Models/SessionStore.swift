@@ -121,6 +121,8 @@ final class SessionStore {
     }
 
     var isTemporary: Bool { TemporarySessions.shared.contains(server: serverID, session: selectedID) }
+    var scratchpadClient: (any ScratchpadClient)? { catalogClient as? any ScratchpadClient }
+    var canOpenScratchpad: Bool { (isDemo || scratchpadClient != nil) && !isTemporary && !unavailable }
     @ObservationIgnored private var annotationStates: [String: AnnotationState] = [:]
     var annotationState: AnnotationState {
         if let value = annotationStates[selectedID] { return value }
@@ -324,6 +326,9 @@ final class SessionStore {
             }
             for row in session.messages { if let bash = row.bash { self?.shells[session.id]?.record(bash) } }
             self?.annotationStates[session.id]?.observe(session.annotations ?? [])
+            if let self, session.id == self.selectedID, let scratchpad = session.scratchpad {
+                self.ui.workspace.scratchpadState.observe(scratchpad)
+            }
             self?.operationsBySession[session.id]?.reconcile(session)
             self?.reconcileInteractions(session)
         }

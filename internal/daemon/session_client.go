@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"mime"
@@ -15,6 +16,7 @@ import (
 
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -22,10 +24,12 @@ const maxSessionResponseBytes = 8 << 20
 
 // APIError is a non-success response from the local session protocol.
 type APIError struct {
-	StatusCode int
-	Code       string
-	Message    string
-	Details    map[string]string
+	StatusCode        int
+	Code              string
+	Message           string
+	Details           map[string]string
+	CurrentScratchpad *protocol.Scratchpad
+	scratchpadError   *protocol.ScratchpadError
 }
 
 func (e *APIError) Error() string {
@@ -34,6 +38,14 @@ func (e *APIError) Error() string {
 
 // UserMessage returns the bounded server-provided explanation without transport details.
 func (e *APIError) UserMessage() string { return e.Message }
+
+// Unwrap exposes stable typed domain errors carried by the HTTP envelope.
+func (e *APIError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.scratchpadError
+}
 
 // CreateSession creates a persisted or temporary session through the local daemon.
 func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -47,7 +59,7 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 	if err := output.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate daemon session response: %w", err)
 	}
-	if input.ID != "" && output.ID != input.ID {
+	if (input.ID != "" && output.ID != input.ID) || output.Temporary != input.Temporary {
 		return protocol.SessionInfo{}, fmt.Errorf("daemon session creation identity mismatch")
 	}
 	return output, nil
@@ -66,7 +78,7 @@ func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input 
 	if err := output.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate forked daemon session: %w", err)
 	}
-	if output.ParentSessionID != sourceSessionID || (input.ID != "" && output.ID != input.ID) {
+	if output.Temporary || output.ParentSessionID != sourceSessionID || (input.ID != "" && output.ID != input.ID) {
 		return protocol.SessionInfo{}, fmt.Errorf("daemon session fork identity mismatch")
 	}
 	return output, nil
@@ -499,6 +511,43 @@ func (c *Client) ConfigureSession(ctx context.Context, sessionID string, input p
 	return output, nil
 }
 
+// GetScratchpad reads the authoritative shared scratchpad through one bound session identity.
+func (c *Client) GetScratchpad(ctx context.Context, sessionID string) (protocol.Scratchpad, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/scratchpad"
+	var output protocol.Scratchpad
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.Scratchpad{}, fmt.Errorf("validate daemon scratchpad: %w", err)
+	}
+	return output, nil
+}
+
+// UpdateScratchpad applies one revision-guarded content replacement.
+func (c *Client) UpdateScratchpad(ctx context.Context, sessionID string, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
+	if err := input.Validate(); err != nil {
+		code := protocol.ScratchpadInvalidContent
+		message := "scratchpad content is invalid"
+		if errors.Is(err, scratchpad.ErrContentTooLarge) {
+			code = protocol.ScratchpadTooLarge
+			message = "scratchpad content is too large"
+		} else if !errors.Is(err, scratchpad.ErrInvalidContent) {
+			return protocol.Scratchpad{}, fmt.Errorf("validate scratchpad update: %w", err)
+		}
+		return protocol.Scratchpad{}, &protocol.ScratchpadError{Code: code, Message: message}
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/scratchpad"
+	var output protocol.Scratchpad
+	if err := c.sessionJSON(ctx, http.MethodPut, path, input, http.StatusOK, &output); err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	if err := output.ValidateApplied(input); err != nil {
+		return protocol.Scratchpad{}, fmt.Errorf("validate daemon scratchpad update: %w", err)
+	}
+	return output, nil
+}
+
 // CompactSession applies one idempotent explicit context compaction.
 func (c *Client) CompactSession(ctx context.Context, sessionID string, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
 	if err := input.Validate(); err != nil {
@@ -716,24 +765,70 @@ func decodeAPIError(statusCode int, body []byte) error {
 			return apiError
 		}
 		var typed struct {
-			Code    string            `json:"code"`
-			Message string            `json:"message"`
-			Details map[string]string `json:"details"`
+			Code    string          `json:"code"`
+			Message string          `json:"message"`
+			Details json.RawMessage `json:"details"`
 		}
 		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
-			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
-			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: typed.Details}
+			var stringDetails map[string]string
+			_ = json.Unmarshal(typed.Details, &stringDetails)
+			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: stringDetails}
+			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: stringDetails}
 			annotationError := protocol.AnnotationEvidenceError{Code: protocol.AnnotationEvidenceErrorCode(typed.Code), Message: typed.Message}
-			annotationErrorValid := annotationError.Validate() == nil && len(typed.Details) == 0
-			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid {
+			annotationErrorValid := annotationError.Validate() == nil && len(stringDetails) == 0
+			scratchpadCode := protocol.ScratchpadErrorCode(typed.Code)
+			var scratchpadDetails protocol.ScratchpadErrorDetails
+			scratchpadErrorValid := decodeStrictJSONObject(typed.Details, &scratchpadDetails) == nil
+			typedScratchpadError := &protocol.ScratchpadError{Code: scratchpadCode, Message: typed.Message, Current: scratchpadDetails.Scratchpad}
+			scratchpadErrorValid = scratchpadErrorValid && typedScratchpadError.Validate() == nil && scratchpadStatusMatches(scratchpadCode, statusCode)
+			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid && !scratchpadErrorValid {
 				return fmt.Errorf("daemon returned malformed typed error")
 			}
-			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, typed.Details
+			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, stringDetails
+			if scratchpadErrorValid {
+				apiError.CurrentScratchpad = scratchpadDetails.Scratchpad
+				apiError.scratchpadError = typedScratchpadError
+			}
 			return apiError
 		}
 	}
 	apiError.Message = message
 	return apiError
+}
+
+func scratchpadStatusMatches(code protocol.ScratchpadErrorCode, status int) bool {
+	switch code {
+	case protocol.ScratchpadInvalidContent:
+		return status == http.StatusBadRequest
+	case protocol.ScratchpadTooLarge:
+		return status == http.StatusRequestEntityTooLarge
+	case protocol.ScratchpadRevisionConflict, protocol.ScratchpadRevisionExhausted,
+		protocol.ScratchpadMigrationRequired, protocol.ScratchpadUnsupported:
+		return status == http.StatusConflict
+	case protocol.ScratchpadUnavailable:
+		return status == http.StatusServiceUnavailable
+	default:
+		return false
+	}
+}
+
+func decodeStrictJSONObject(data []byte, target any) error {
+	trimmed := bytes.TrimSpace(data)
+	if len(trimmed) < 2 || trimmed[0] != '{' || trimmed[len(trimmed)-1] != '}' {
+		return fmt.Errorf("expected one JSON object")
+	}
+	decoder := json.NewDecoder(bytes.NewReader(trimmed))
+	decoder.DisallowUnknownFields()
+	if err := decoder.Decode(target); err != nil {
+		return err
+	}
+	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
+		if err == nil {
+			return fmt.Errorf("multiple JSON values")
+		}
+		return err
+	}
+	return nil
 }
 
 // SubmitPrompt starts an idle prompt or queues it behind active work.

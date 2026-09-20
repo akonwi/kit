@@ -33,6 +33,7 @@ type SessionRecord struct {
 	Persistent            bool
 	ParentSessionID       string
 	ParentSessionName     string // projected from the parent registry row; not persisted on the child
+	ScratchpadOwnerID     string
 	ModelProvider         string
 	ModelID               string
 	ThinkingLevel         string
@@ -50,6 +51,7 @@ type NewSession struct {
 	Name               string
 	Persistent         bool
 	ParentSessionID    string
+	ScratchpadOwnerID  string
 	ModelProvider      string
 	ModelID            string
 	ThinkingLevel      string

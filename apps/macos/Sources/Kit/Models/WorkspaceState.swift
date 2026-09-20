@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+@preconcurrency import CodeEditSourceEditor
 
 struct WorkspaceFixture: Decodable {
     let files: [PreviewFile]
@@ -59,15 +60,26 @@ final class WorkspaceState {
         contentFocused = true
         selections[group] = pane
     }
-    var scratchpad: String
-    var scratchPreview = false
+    var scratchpadState: ScratchpadState
+    var scratchpadPosition = SourceEditorState()
+    var scratchpad: String {
+        get { scratchpadState.draft }
+        set { scratchpadState.edit(newValue) }
+    }
     var selectedFile = ""
     var changesVisible = true
     var notes: [String: String] = [:]
     var editingLine: Int?
     var noteDraft = ""
 
-    init(demo: Bool = true) { fixture = WorkspaceFixture(files: [], scratchpad: demo ? "# Scratchpad\n\n" : ""); scratchpad = fixture.scratchpad; selectedFile = fixture.files.first(where: { !$0.patch.isEmpty })?.path ?? "" }
+    init(demo: Bool = true) { fixture = WorkspaceFixture(files: [], scratchpad: demo ? "# Scratchpad\n\n" : ""); scratchpadState = ScratchpadState(demo: demo); selectedFile = fixture.files.first(where: { !$0.patch.isEmpty })?.path ?? "" }
+
+    func closeScratchpad(client: any ScratchpadClient, session: String) async {
+        if scratchpadState.dirty {
+            guard await scratchpadState.save(client: client, session: session) else { select(.scratchpad); return }
+        }
+        close(.scratchpad)
+    }
 
     func invalidateDirectory() {
         fileIndex = FileIndexCache()

@@ -20,6 +20,7 @@ import (
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
@@ -91,7 +92,10 @@ func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd strin
 	return kitannotation.FileEvidence{Content: read.Content, ContentStartLine: anchor.StartLine, CompleteLineCount: read.EndLine, DiffTarget: read.Target}, nil
 }
 
-const maxSessionRequestBytes = 1 << 20
+const (
+	maxSessionRequestBytes   = 1 << 20
+	maxSessionEventPageBytes = 512 << 10
+)
 
 var errInvalidSessionRequest = errors.New("invalid session request")
 
@@ -123,6 +127,8 @@ type sessionService interface {
 	WaitEvents(context.Context, string, string, int64) (protocol.SessionEventBatch, error)
 	Reload(context.Context, string) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, string, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
+	Scratchpad(context.Context, string) (protocol.Scratchpad, error)
+	UpdateScratchpad(context.Context, string, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
 	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.RunReservation, error)
 	SubmitPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
@@ -756,6 +762,10 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
 		Annotations:           annotations,
 	}
+	if snapshot.Scratchpad != nil {
+		projectedScratchpad := projectScratchpad(*snapshot.Scratchpad)
+		result.Scratchpad = &projectedScratchpad
+	}
 	if snapshot.ProviderRetry != nil {
 		result.ProviderRetry = &protocol.ProviderRetry{
 			Count: snapshot.ProviderRetry.Count, RetryAt: snapshot.ProviderRetry.RetryAt.Format(time.RFC3339Nano),
@@ -1223,6 +1233,10 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 			annotation := projectAnnotation(*event.Annotation, "")
 			projected.Annotation = &annotation
 		}
+		if event.Scratchpad != nil {
+			scratchpadRecord := projectScratchpad(*event.Scratchpad)
+			projected.Scratchpad = &scratchpadRecord
+		}
 		if event.Kind == kitsession.EventSessionCWDChanged && s.workspaces != nil {
 			workspaceRef := s.workspaces.Ref(event.SessionID, event.CWD)
 			projected.Workspace = &workspaceRef
@@ -1238,6 +1252,13 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 			projected.Interaction = &interaction
 		}
 		batch.Events = append(batch.Events, projected)
+	}
+	for len(batch.Events) > 1 {
+		encoded, err := json.Marshal(batch)
+		if err != nil || len(encoded) <= maxSessionEventPageBytes {
+			break
+		}
+		batch.Events = batch.Events[:len(batch.Events)-1]
 	}
 	return batch
 }
@@ -1269,6 +1290,66 @@ func (s runtimeSessionService) Configure(ctx context.Context, sessionID string, 
 		Compacted: result.Compacted, CheckpointID: result.CheckpointID,
 		Warnings: append([]string(nil), result.Warnings...),
 	}, nil
+}
+
+func (s runtimeSessionService) Scratchpad(ctx context.Context, sessionID string) (protocol.Scratchpad, error) {
+	if s.manager == nil {
+		return protocol.Scratchpad{}, kitscratchpad.ErrUnavailable
+	}
+	record, err := s.manager.Scratchpad(ctx, sessionID)
+	if err != nil {
+		return protocol.Scratchpad{}, normalizeScratchpadError(err)
+	}
+	return projectScratchpad(record), nil
+}
+
+func (s runtimeSessionService) UpdateScratchpad(ctx context.Context, sessionID string, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
+	if s.manager == nil {
+		return protocol.Scratchpad{}, kitscratchpad.ErrUnavailable
+	}
+	if err := validateScratchpadInput(input); err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	record, err := s.manager.UpdateScratchpad(ctx, sessionID, int64(input.ExpectedRevision), input.Content)
+	if err != nil {
+		return protocol.Scratchpad{}, normalizeScratchpadError(err)
+	}
+	return projectScratchpad(record), nil
+}
+
+func validateScratchpadInput(input protocol.UpdateScratchpadInput) error {
+	if err := input.Validate(); err != nil {
+		if errors.Is(err, kitscratchpad.ErrInvalidContent) || errors.Is(err, kitscratchpad.ErrContentTooLarge) {
+			return err
+		}
+		return fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	return nil
+}
+
+func normalizeScratchpadError(err error) error {
+	switch {
+	case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded),
+		errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInvalidInput),
+		errors.Is(err, kitsession.ErrClosed), errors.Is(err, kitsession.ErrDeleteBusy):
+		return err
+	case errors.Is(err, kitscratchpad.ErrInvalidContent), errors.Is(err, kitscratchpad.ErrContentTooLarge),
+		errors.Is(err, kitscratchpad.ErrConflict),
+		errors.Is(err, kitscratchpad.ErrRevisionExhausted), errors.Is(err, kitscratchpad.ErrMigrationRequired),
+		errors.Is(err, kitscratchpad.ErrUnsupported):
+		return err
+	default:
+		return kitscratchpad.ErrUnavailable
+	}
+}
+
+func projectScratchpad(record kitscratchpad.Record) protocol.Scratchpad {
+	return protocol.Scratchpad{
+		OwnerSessionID: record.OwnerSessionID,
+		Content:        record.Content,
+		Revision:       protocol.ScratchpadRevision(record.Revision),
+		UpdatedAt:      record.UpdatedAt.UTC().Format(time.RFC3339Nano),
+	}
 }
 
 func (s runtimeSessionService) Compact(ctx context.Context, sessionID string, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
@@ -1809,6 +1890,10 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
+		if err := batch.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid session event page: %w", err))
+			return
+		}
 		writeJSON(writer, http.StatusOK, batch)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/events/stream", func(writer http.ResponseWriter, request *http.Request) {
@@ -1923,6 +2008,39 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
+		record, err := service.Scratchpad(request.Context(), request.PathValue("sessionID"))
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := record.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid scratchpad result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, record)
+	})
+	mux.HandleFunc("PUT /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.UpdateScratchpadInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := validateScratchpadInput(input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		record, err := service.UpdateScratchpad(request.Context(), request.PathValue("sessionID"), input)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := record.ValidateApplied(input); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid scratchpad update result: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, record)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/configure", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ConfigureSessionInput
@@ -2229,6 +2347,7 @@ func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
 	return protocol.SessionInfo{
 		ID: record.ID, CWD: record.CWD, Name: name, ParentSessionID: record.ParentSessionID,
 		ParentSessionName: parentName,
+		Temporary:         !record.Persistent,
 		Model:             record.ModelProvider + "/" + record.ModelID,
 		ThinkingLevel:     record.ThinkingLevel, ConfigurationRevision: record.ConfigurationRevision,
 		CreatedAt: record.CreatedAt.Format(time.RFC3339Nano),
@@ -2285,6 +2404,39 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 }
 
 func writeSessionError(writer http.ResponseWriter, err error) {
+	var scratchpadConflict *kitscratchpad.ConflictError
+	if errors.As(err, &scratchpadConflict) {
+		current := projectScratchpad(scratchpadConflict.Current)
+		if validationErr := current.Validate(); validationErr != nil {
+			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
+			return
+		}
+		writeJSON(writer, http.StatusConflict, map[string]any{"error": map[string]any{
+			"code": protocol.ScratchpadRevisionConflict, "message": "scratchpad revision conflict",
+			"details": protocol.ScratchpadErrorDetails{Scratchpad: &current},
+		}})
+		return
+	}
+	for _, mapped := range []struct {
+		target  error
+		code    protocol.ScratchpadErrorCode
+		status  int
+		message string
+	}{
+		{kitscratchpad.ErrContentTooLarge, protocol.ScratchpadTooLarge, http.StatusRequestEntityTooLarge, "scratchpad content is too large"},
+		{kitscratchpad.ErrInvalidContent, protocol.ScratchpadInvalidContent, http.StatusBadRequest, "scratchpad content is invalid"},
+		{kitscratchpad.ErrRevisionExhausted, protocol.ScratchpadRevisionExhausted, http.StatusConflict, "scratchpad revision is exhausted"},
+		{kitscratchpad.ErrMigrationRequired, protocol.ScratchpadMigrationRequired, http.StatusConflict, "scratchpad migration is required"},
+		{kitscratchpad.ErrUnsupported, protocol.ScratchpadUnsupported, http.StatusConflict, "scratchpad is unsupported for this session"},
+		{kitscratchpad.ErrUnavailable, protocol.ScratchpadUnavailable, http.StatusServiceUnavailable, "scratchpad is unavailable"},
+	} {
+		if errors.Is(err, mapped.target) {
+			writeJSON(writer, mapped.status, map[string]any{"error": map[string]any{
+				"code": mapped.code, "message": mapped.message, "details": protocol.ScratchpadErrorDetails{},
+			}})
+			return
+		}
+	}
 	var evidenceErr *kitannotation.EvidenceError
 	if errors.As(err, &evidenceErr) {
 		status := http.StatusServiceUnavailable

@@ -556,7 +556,7 @@ func createSupervisorOwner(t *testing.T, store *storage.Store, suffix string) st
 	digest := sha256.Sum256([]byte(suffix))
 	id := "session_" + hex.EncodeToString(digest[:16])
 	_, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: id, CWD: t.TempDir(), Persistent: true,
+		ID: id, ScratchpadOwnerID: id, CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "model", ThinkingLevel: "medium",
 	})
 	if err != nil {

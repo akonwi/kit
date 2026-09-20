@@ -60,9 +60,12 @@ func TestAnnotationDiffTargetMigrationPreservesExistingAnchors(t *testing.T) {
 	if err := migrateFS(t.Context(), legacyDB, prefix); err != nil {
 		t.Fatal(err)
 	}
-	legacy := &Store{db: legacyDB, path: path}
 	sessionID := testSessionID('m')
-	if _, err := legacy.CreateSession(t.Context(), session.NewSession{ID: sessionID, CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+	sessionNow := formatTimestamp(time.Now())
+	if _, err := legacyDB.ExecContext(t.Context(), `
+		INSERT INTO sessions(id, cwd, persistent, model_provider, model_id, created_at, updated_at)
+		VALUES (?, ?, 1, 'test', 'model', ?, ?)
+	`, sessionID, t.TempDir(), sessionNow, sessionNow); err != nil {
 		t.Fatal(err)
 	}
 	token := base64.RawURLEncoding.EncodeToString(make([]byte, 32))
@@ -182,7 +185,7 @@ func annotationTestStore(t *testing.T) (*Store, string) {
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	sessionID := testSessionID('n')
-	if _, err := store.CreateSession(t.Context(), session.NewSession{ID: sessionID, CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
+	if _, err := store.CreateSession(t.Context(), session.NewSession{ID: sessionID, ScratchpadOwnerID: sessionID, CWD: t.TempDir(), Persistent: true, ModelProvider: "test", ModelID: "model"}); err != nil {
 		t.Fatal(err)
 	}
 	return store, sessionID

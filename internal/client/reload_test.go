@@ -14,6 +14,7 @@ import (
 	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
@@ -66,6 +67,22 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 	bound, err := server.Attach(t.Context(), created.ID)
 	if err != nil {
 		t.Fatal(err)
+	}
+	if _, ok := bound.(sessionclient.ScratchpadSession); ok {
+		t.Fatal("temporary session exposed scratchpad capability")
+	}
+	persistent, err := server.CreateSession(t.Context(), protocol.CreateSessionInput{
+		ID: "session_dddddddddddddddddddddddddddddddd", CWD: workspace, Model: "test/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	persistentBound, err := server.Attach(t.Context(), persistent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, ok := persistentBound.(sessionclient.ScratchpadSession); !ok {
+		t.Fatal("persistent session omitted scratchpad capability")
 	}
 	before, err := bound.Snapshot(t.Context())
 	if err != nil {

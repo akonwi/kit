@@ -48,6 +48,7 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var configurationRevision: UInt64? = nil
     var annotations: [FileAnnotation]? = nil
     var pendingInteractions: [WireInteractionRequest]? = nil
+    var scratchpad: ScratchpadRecord? = nil
 }
 
 struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {

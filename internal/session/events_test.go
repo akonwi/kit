@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/scratchpad"
 )
 
 func TestSessionCWDChangedEventIsSessionScoped(t *testing.T) {
@@ -210,7 +211,7 @@ func TestEventLogAllowsContiguousRetainedSuffix(t *testing.T) {
 	}
 	events := make([]NewEvent, 4097)
 	for index := range events {
-		events[index] = NewEvent{SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: EventRunStarted, Status: RunStatusRunning}
+		events[index] = NewEvent{SessionID: "session_1", Kind: EventSessionRenamed, SessionName: "renamed"}
 	}
 	if err := log.append(events); err != nil {
 		t.Fatal(err)
@@ -514,6 +515,40 @@ func TestAssistantPresentationExcludesRedactedThinking(t *testing.T) {
 	}})
 	if thinking != "visible" || text != "response" {
 		t.Fatalf("assistant presentation = thinking %q text %q", thinking, text)
+	}
+}
+
+func TestRuntimeEventLogBoundsRetainedAndPagedScratchpadBytes(t *testing.T) {
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	content := strings.Repeat("x", scratchpad.MaxContentBytes)
+	for revision := int64(1); revision <= 140; revision++ {
+		record := scratchpad.Record{
+			OwnerSessionID: "session_0123456789abcdef0123456789abcdef",
+			Content:        content, Revision: revision, UpdatedAt: time.Now().UTC(),
+		}
+		if err := log.append([]NewEvent{{SessionID: record.OwnerSessionID, Kind: EventScratchpadChanged, Scratchpad: &record}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if log.retainedBytes > maxRetainedEventBytes {
+		t.Fatalf("retained bytes = %d, limit %d", log.retainedBytes, maxRetainedEventBytes)
+	}
+	if log.replayAvailable {
+		t.Fatal("byte eviction preserved complete replay")
+	}
+	page := log.page(log.streamID, log.tailFrom)
+	if page.ResyncRequired || len(page.Events) == 0 {
+		t.Fatalf("retained byte page = %+v", page)
+	}
+	pageBytes := 0
+	for _, event := range page.Events {
+		pageBytes += event.encodedSize
+	}
+	if pageBytes > maxEventPageBytes {
+		t.Fatalf("page bytes = %d, limit %d", pageBytes, maxEventPageBytes)
 	}
 }
 

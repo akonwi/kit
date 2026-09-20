@@ -73,7 +73,13 @@ indirect enum WireJSON: Codable, Sendable {
 }
 
 /// Resolve discovery afresh for each attachment, including after daemon restart.
-struct LocalClient: TranscriptPagingClient, SubagentStreamingClient {
+struct LocalClient: ScratchpadClient, TranscriptPagingClient, SubagentStreamingClient {
+    func scratchpad(session: String) async throws -> ScratchpadRecord {
+        try await HTTPClient.local().scratchpad(session: session)
+    }
+    func updateScratchpad(session: String, content: String, expectedRevision: Int64) async throws -> ScratchpadRecord {
+        try await HTTPClient.local().updateScratchpad(session: session, content: content, expectedRevision: expectedRevision)
+    }
     func subagentTranscript(session: String, conversation: String) async throws -> [TranscriptMessage] {
         try await HTTPClient.local().subagentTranscript(session: session, conversation: conversation)
     }

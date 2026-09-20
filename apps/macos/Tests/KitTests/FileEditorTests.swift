@@ -82,6 +82,38 @@ struct FileEditorTests {
         #expect(try #require(editor(host)).textView.selectedRange() == NSRange(location: 5, length: 0))
     }
 
+    @Test func scratchpadRemoteUpdateKeepsNativeSelection() async throws {
+        let workspace = WorkspaceState(demo: false)
+        let source = (0..<150).map { "- note \($0)" }.joined(separator: "\n")
+        workspace.scratchpadState.observe(ScratchpadRecord(owner: "root", content: source,
+            revision: 1, updatedAt: "2026-09-20T12:00:00Z"))
+        let host = NSHostingController(rootView: ScratchpadHarness(workspace: workspace))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 500, height: 250),
+            styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false; window.contentViewController = host; window.orderFront(nil)
+        defer { window.close() }
+        func editor(_ view: NSView) -> TextViewController? {
+            if let value = view.nextResponder as? TextViewController { return value }
+            return view.subviews.compactMap(editor).first
+        }
+        try await Task.sleep(for: .milliseconds(250))
+        let controller = try #require(editor(host.view))
+        controller.setCursorPositions([CursorPosition(range: NSRange(location: 30, length: 5))])
+        controller.scrollView.contentView.scroll(to: CGPoint(x: 0, y: 200))
+        controller.scrollView.reflectScrolledClipView(controller.scrollView.contentView)
+        try await Task.sleep(for: .milliseconds(150))
+        let scroll = controller.scrollView.contentView.bounds.origin.y
+        workspace.scratchpadPosition = SourceEditorState(cursorPositions: controller.cursorPositions,
+            scrollPosition: controller.scrollView.contentView.bounds.origin)
+        workspace.scratchpadState.observe(ScratchpadRecord(owner: "root", content: source + "\n- remote note",
+            revision: 2, updatedAt: "2026-09-20T12:00:01Z"))
+        try await Task.sleep(for: .milliseconds(300))
+        let refreshed = try #require(editor(host.view))
+        #expect(refreshed.textView.string.hasSuffix("- remote note"))
+        #expect(refreshed.textView.selectedRange() == NSRange(location: 30, length: 5))
+        #expect(abs(refreshed.scrollView.contentView.bounds.origin.y - scroll) < 3)
+    }
+
     @Test func languagesFollowFilenameAndExtension() {
         #expect(ReadOnlyFileEditor.language(for: "main.go").id == CodeLanguage.go.id)
         #expect(ReadOnlyFileEditor.language(for: "View.swift").id == CodeLanguage.swift.id)
@@ -107,5 +139,13 @@ private struct RefreshHarness: View {
     @Bindable var document: RefreshDocument
     var body: some View {
         ReadOnlyFileEditor(path: "test.swift", source: document.source, position: $document.position)
+    }
+}
+
+private struct ScratchpadHarness: View {
+    @Bindable var workspace: WorkspaceState
+    var body: some View {
+        ScratchpadEditor(text: $workspace.scratchpad, documentVersion: workspace.scratchpadState.documentVersion,
+            editorState: $workspace.scratchpadPosition)
     }
 }

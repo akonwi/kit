@@ -22,6 +22,7 @@ import (
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/peer"
+	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/subagent"
 )
 
@@ -109,6 +110,7 @@ type PromptResult struct {
 // Registry lookups should otherwise release Manager.mu before touching a runtime.
 type Manager struct {
 	store                 Repository
+	scratchpads           scratchpad.Repository
 	providers             droids.Providers
 	bundleBuilder         RuntimeBundleBuilder
 	modelContextWindow    func(string) int
@@ -179,15 +181,16 @@ type temporaryDisposal struct {
 }
 
 type runtime struct {
-	droid        *droids.Droid
-	model        droids.Model
-	store        droids.Store
-	closeStore   func() error
-	bundle       RuntimeBundle
-	workspace    *workspaceScope
-	events       *eventLog
-	eventCursor  droids.EventSequence
-	eventChanged chan struct{}
+	droid             *droids.Droid
+	model             droids.Model
+	store             droids.Store
+	closeStore        func() error
+	bundle            RuntimeBundle
+	workspace         *workspaceScope
+	events            *eventLog
+	eventCursor       droids.EventSequence
+	eventChanged      chan struct{}
+	scratchpadOwnerID string
 
 	subagentEventMu       sync.Mutex
 	subagentEventPending  *NewEvent
@@ -364,6 +367,9 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	if mailbox, ok := store.(subagent.Repository); ok {
 		manager.mailbox = mailbox
 	}
+	if scratchpads, ok := store.(scratchpad.Repository); ok {
+		manager.scratchpads = scratchpads
+	}
 	if queries, ok := store.(peer.Repository); ok {
 		manager.peerQueries = queries
 	}
@@ -473,9 +479,14 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 		close(creation.done)
 		m.mu.Unlock()
 	}()
+	scratchpadOwnerID := id
+	if input.Temporary {
+		scratchpadOwnerID = ""
+	}
 	requested := NewSession{
 		ID: id, CWD: cwd, Name: name, Persistent: !input.Temporary, ParentSessionID: input.ParentSessionID,
-		ModelProvider: model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
+		ScratchpadOwnerID: scratchpadOwnerID,
+		ModelProvider:     model.Provider, ModelID: model.ID, ThinkingLevel: input.ThinkingLevel,
 	}
 	if input.Temporary {
 		if persisted, loadErr := m.store.GetSession(ctx, id); loadErr == nil && persisted.ID != "" {
@@ -537,6 +548,13 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 	if err != nil {
 		return ForkResult{}, err
 	}
+	sourceMetadata, err := m.sessionRecord(ctx, sourceSessionID)
+	if err != nil {
+		return ForkResult{}, err
+	}
+	if !sourceMetadata.Persistent {
+		return ForkResult{}, fmt.Errorf("%w: temporary sessions cannot be forked", ErrInvalidInput)
+	}
 
 	childID := input.ID
 	if childID == "" {
@@ -553,7 +571,7 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 	name := strings.TrimSpace(input.Name)
 	if input.ID != "" {
 		if existing, lookupErr := m.store.GetSession(ctx, childID); lookupErr == nil {
-			if existing.ParentSessionID == sourceSessionID && existing.DroidInitializedAt != nil && (name == "" || existing.Name == name) {
+			if existing.ParentSessionID == sourceSessionID && existing.ScratchpadOwnerID == sourceMetadata.ScratchpadOwnerID && existing.DroidInitializedAt != nil && (name == "" || existing.Name == name) {
 				childRuntime, runtimeErr := m.runtime(ctx, childID)
 				if runtimeErr == nil {
 					childRuntime.transitionMu.Lock()
@@ -637,9 +655,6 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 	if err != nil {
 		return ForkResult{}, err
 	}
-	if !record.Persistent {
-		return ForkResult{}, fmt.Errorf("%w: temporary sessions cannot be forked", ErrInvalidInput)
-	}
 	if name == "" {
 		name = forkSessionName(record.Name)
 	}
@@ -682,13 +697,14 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 	initializedAt := time.Now().UTC()
 	child, err := m.store.CreateSession(ctx, NewSession{
 		ID: childID, CWD: record.CWD, Name: name, Persistent: true,
-		ParentSessionID: sourceSessionID, ModelProvider: record.ModelProvider,
-		ModelID: record.ModelID, ThinkingLevel: record.ThinkingLevel,
+		ParentSessionID: sourceSessionID, ScratchpadOwnerID: record.ScratchpadOwnerID,
+		ModelProvider: record.ModelProvider,
+		ModelID:       record.ModelID, ThinkingLevel: record.ThinkingLevel,
 		DroidInitializedAt: &initializedAt,
 	})
 	if err != nil {
 		reconciled, lookupErr := m.store.GetSession(context.Background(), childID)
-		if lookupErr != nil || reconciled.ParentSessionID != sourceSessionID || reconciled.DroidInitializedAt == nil {
+		if lookupErr != nil || reconciled.ParentSessionID != sourceSessionID || reconciled.ScratchpadOwnerID != record.ScratchpadOwnerID || reconciled.DroidInitializedAt == nil {
 			return ForkResult{}, err
 		}
 		child = reconciled
@@ -742,6 +758,7 @@ func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
 	// replay of the original create request must still resolve to this session.
 	return record.ID == input.ID && record.CWD == input.CWD &&
 		record.Persistent == input.Persistent && record.ParentSessionID == input.ParentSessionID &&
+		record.ScratchpadOwnerID == input.ScratchpadOwnerID &&
 		record.ModelProvider == input.ModelProvider && record.ModelID == input.ModelID &&
 		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
 }
@@ -2208,7 +2225,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	})
 	bundle.Prompt.Prompt += interactionPromptGuidance
 	bundle.Tools = append(bundle.Tools, interactionTools(record.ID, interactions)...)
-	bundle.Tools = append(bundle.Tools, m.changeCWDTool(record.ID, workspace))
+	bundle.Tools = append(bundle.Tools, m.boundSessionTools(record, workspace)...)
 	var store droids.Store
 	closeStore := func() error { return nil }
 	if record.Persistent {
@@ -2251,7 +2268,8 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	loaded = &runtime{
 		droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
-		runs: make(map[string]*liveRun), interactions: interactions,
+		scratchpadOwnerID: record.ScratchpadOwnerID,
+		runs:              make(map[string]*liveRun), interactions: interactions,
 	}
 	interactions.authority = &loaded.mu
 	quiescent, err := droid.WaitQuiescent(ctx)

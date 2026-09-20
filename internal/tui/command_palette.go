@@ -13,23 +13,24 @@ import (
 const (
 	paletteMaxNameWidth = 32
 
-	paletteCommandCD        paletteCommandID = "cd"
-	paletteCommandCompact   paletteCommandID = "compact"
-	paletteCommandLogin     paletteCommandID = "login"
-	paletteCommandModel     paletteCommandID = "model"
-	paletteCommandName      paletteCommandID = "name"
-	paletteCommandNew       paletteCommandID = "new"
-	paletteCommandQuit      paletteCommandID = "quit"
-	paletteCommandReload    paletteCommandID = "reload"
-	paletteCommandDebug     paletteCommandID = "debug"
-	paletteCommandDiff      paletteCommandID = "diff"
-	paletteCommandFork      paletteCommandID = "fork"
-	paletteCommandFiles     paletteCommandID = "files"
-	paletteCommandSessions  paletteCommandID = "sessions"
-	paletteCommandSubagents paletteCommandID = "subagents"
-	paletteCommandTabs      paletteCommandID = "tabs"
-	paletteCommandTheme     paletteCommandID = "theme"
-	paletteCommandThinking  paletteCommandID = "thinking"
+	paletteCommandCD         paletteCommandID = "cd"
+	paletteCommandCompact    paletteCommandID = "compact"
+	paletteCommandLogin      paletteCommandID = "login"
+	paletteCommandModel      paletteCommandID = "model"
+	paletteCommandName       paletteCommandID = "name"
+	paletteCommandNew        paletteCommandID = "new"
+	paletteCommandQuit       paletteCommandID = "quit"
+	paletteCommandReload     paletteCommandID = "reload"
+	paletteCommandDebug      paletteCommandID = "debug"
+	paletteCommandDiff       paletteCommandID = "diff"
+	paletteCommandFork       paletteCommandID = "fork"
+	paletteCommandFiles      paletteCommandID = "files"
+	paletteCommandSessions   paletteCommandID = "sessions"
+	paletteCommandScratchpad paletteCommandID = "scratchpad"
+	paletteCommandSubagents  paletteCommandID = "subagents"
+	paletteCommandTabs       paletteCommandID = "tabs"
+	paletteCommandTheme      paletteCommandID = "theme"
+	paletteCommandThinking   paletteCommandID = "thinking"
 )
 
 type paletteCommandID string
@@ -465,6 +466,10 @@ func filteredPaletteCommands(_ bool, query string, contributions ...[]paletteCom
 			Title: command.Name, Description: command.Description, Aliases: command.Aliases,
 		}
 	})
+}
+
+func scratchpadPaletteCommand() paletteCommand {
+	return paletteCommand{ID: paletteCommandScratchpad, Name: "scratchpad", Description: "Open shared working notes", Aliases: []string{"notes", "memory"}}
 }
 
 func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {

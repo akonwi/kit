@@ -20,7 +20,7 @@ func TestSessionConfigurationUpdateIsAtomicRevisionGuardedAndMonotonic(t *testin
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	created, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_config", CWD: t.TempDir(), Persistent: true,
+		ID: "session_config", ScratchpadOwnerID: "session_config", CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "small", ThinkingLevel: "low",
 	})
 	if err != nil {
@@ -103,7 +103,7 @@ func TestAmbiguousConfigurationResponseResynchronizesFromRegistry(t *testing.T) 
 	}
 	t.Cleanup(func() { _ = store.Close() })
 	created, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_config_resync", CWD: t.TempDir(), Persistent: true,
+		ID: "session_config_resync", ScratchpadOwnerID: "session_config_resync", CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "small", ThinkingLevel: "low",
 	})
 	if err != nil {
@@ -152,6 +152,13 @@ func TestConfigurationRevisionMigrationUpgradesExistingSessionsAtRevisionOne(t *
 		_ = legacyDB.Close()
 		t.Fatal(err)
 	}
+	if _, err := legacyDB.ExecContext(t.Context(), `
+		INSERT INTO sessions(id, cwd, persistent, parent_session_id, model_provider, model_id, thinking_level, created_at, updated_at)
+		VALUES (?, ?, 1, ?, ?, ?, ?, ?, ?)
+	`, "session_legacy_child", t.TempDir(), "session_legacy_config", "test", "legacy", "medium", now, now); err != nil {
+		_ = legacyDB.Close()
+		t.Fatal(err)
+	}
 	if err := legacyDB.Close(); err != nil {
 		t.Fatal(err)
 	}
@@ -162,15 +169,56 @@ func TestConfigurationRevisionMigrationUpgradesExistingSessionsAtRevisionOne(t *
 	}
 	t.Cleanup(func() { _ = upgraded.Close() })
 	version, err := upgraded.CurrentMigration(t.Context())
-	if err != nil || version != 8 {
-		t.Fatalf("migration version = %d, %v; want 8", version, err)
+	if err != nil || version != 9 {
+		t.Fatalf("migration version = %d, %v; want 9", version, err)
 	}
 	record, err := upgraded.GetSession(t.Context(), "session_legacy_config")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if record.ConfigurationRevision != 1 || record.ModelID != "legacy" || record.ThinkingLevel != "medium" {
+	if record.ConfigurationRevision != 1 || record.ModelID != "legacy" || record.ThinkingLevel != "medium" || record.ScratchpadOwnerID != record.ID {
 		t.Fatalf("upgraded session = %+v", record)
+	}
+	child, err := upgraded.GetSession(t.Context(), "session_legacy_child")
+	if err != nil || child.ScratchpadOwnerID != child.ID {
+		t.Fatalf("upgraded child = %+v, %v", child, err)
+	}
+	scratch, err := upgraded.Get(t.Context(), record.ID)
+	if err != nil || scratch.OwnerSessionID != record.ID || scratch.Revision != 1 || scratch.Content != "" {
+		t.Fatalf("upgraded scratchpad = %+v, %v", scratch, err)
+	}
+}
+
+func TestScratchpadMigrationRejectsLegacyTemporaryRows(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kit.db")
+	legacyDB, err := sql.Open("sqlite", sqliteDSN(path))
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix := fstest.MapFS{}
+	body, err := migrationFiles.ReadFile("migrations/0001_initial.sql")
+	if err != nil {
+		t.Fatal(err)
+	}
+	prefix["migrations/0001_initial.sql"] = &fstest.MapFile{Data: body}
+	if err := migrateFS(t.Context(), legacyDB, prefix); err != nil {
+		_ = legacyDB.Close()
+		t.Fatal(err)
+	}
+	now := formatTimestamp(time.Now())
+	if _, err := legacyDB.ExecContext(t.Context(), `
+		INSERT INTO sessions(id, cwd, persistent, model_provider, model_id, created_at, updated_at)
+		VALUES (?, ?, 0, ?, ?, ?, ?)
+	`, "session_legacy_temporary", t.TempDir(), "test", "model", now, now); err != nil {
+		_ = legacyDB.Close()
+		t.Fatal(err)
+	}
+	if err := legacyDB.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if store, err := Open(t.Context(), path); err == nil {
+		_ = store.Close()
+		t.Fatal("migration accepted a durable temporary session")
 	}
 }
 

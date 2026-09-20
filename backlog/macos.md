@@ -22,7 +22,7 @@ in this branch. Items marked **Server-ready** do not require new server function
 
 ## File, review, and scratchpad workspace
 
-- [ ] MAC-SCRATCH-001 — Load scratchpad content from the session's server and
+- [x] MAC-SCRATCH-001 — Load scratchpad content from the session's server and
   persist guarded edits with autosave, conflict, and retry feedback. Depends on
   `CORE-SCRATCH-001`.
 

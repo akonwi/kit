@@ -32,13 +32,16 @@ Within a session, Agent, files, and subagents occupy retained workspace tabs.
 Use a tab's context menu to split, move, join, or close panes.
 The shared composer always addresses the parent session. Enter submits;
 Cmd+Enter inserts a newline. Cmd+K opens commands; Cmd+, opens settings.
+Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
+are centered in the footer, with status on the left and cwd/Git information on the
+right. They remain available when an interaction replaces the composer.
 
 File views read from the session server and support highlighted, selectable
 content. The Diff toolbar opens working-tree, branch, and commit comparisons with
 old/new line numbers and inline comments. Use Unified/Split and Wrap in the header
 to adjust the presentation. Drag a gutter range to annotate it.
-Scratchpad server integration remains backlog work. Subagent
-conversations are read-only by product decision.
+Scratchpad edits synchronize through the bound session with guarded autosave
+and conflict review. Subagent conversations are read-only by product decision.
 
 While Kit is inactive, a completed or failed turn or a new input request briefly
 bounces its Dock icon. Closely timed events share one bounce; initial snapshots

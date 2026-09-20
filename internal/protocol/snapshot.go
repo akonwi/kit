@@ -161,6 +161,14 @@ func (snapshot SessionSnapshot) Validate() error {
 	if snapshot.Session.ThinkingLevel == "" {
 		return fmt.Errorf("snapshot session thinking level is missing")
 	}
+	if snapshot.Scratchpad != nil {
+		if snapshot.Session.Temporary {
+			return fmt.Errorf("temporary snapshot cannot carry a scratchpad")
+		}
+		if err := snapshot.Scratchpad.Validate(); err != nil {
+			return fmt.Errorf("snapshot scratchpad: %w", err)
+		}
+	}
 	if snapshot.ContextTokens < 0 || snapshot.ContextWindow < 0 || snapshot.EventCursor < 0 || snapshot.EventReplayFrom < 0 {
 		return fmt.Errorf("snapshot context usage cannot be negative")
 	}

@@ -110,9 +110,6 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		}
 	}
 	defaultThinking := options.Thinking
-	if defaultThinking == "" {
-		defaultThinking = "medium"
-	}
 	credentialStore := auth.NewStore(paths.Auth)
 	login, err := auth.NewOpenAICodexDeviceLogin(auth.OpenAICodexDeviceLoginOptions{
 		Store: credentialStore,
@@ -404,18 +401,25 @@ func executePrint(
 			if model == "" {
 				model = options.DefaultModel
 			}
-			if model == "" {
-				fmt.Fprintln(stderr, "kit: --model is required when no authenticated default model is available")
-				return 2
+			if model != "" && !printModelAvailable(options.AvailableProviders, model) {
+				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
+				return 1
+			}
+			catalog, modelErr := client.Models(ctx)
+			if modelErr != nil {
+				fmt.Fprintf(stderr, "kit: list models: %v\n", modelErr)
+				return 1
+			}
+			model, modelErr = sessionclient.ResolveAvailableModel(catalog, model, options.Model != "")
+			if modelErr != nil {
+				fmt.Fprintf(stderr, "kit: %v\n", modelErr)
+				return 1
 			}
 			if !printModelAvailable(options.AvailableProviders, model) {
 				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
 				return 1
 			}
 			thinking := options.ThinkingLevel
-			if thinking == "" {
-				thinking = "medium"
-			}
 			requestedID := ""
 			if options.Temporary {
 				var err error

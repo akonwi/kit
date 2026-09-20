@@ -2,7 +2,7 @@ import AppKit
 import SwiftUI
 import UniformTypeIdentifiers
 
-/// A wrapping text view whose content determines its height; no scroll container.
+/// Grows with the draft up to a bounded height, then scrolls within the composer.
 struct GrowingComposerEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
@@ -28,8 +28,9 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var pickerAnchor: ComposerPickerAnchor? = nil
     var theme = MicaTheme(dark: false)
 
-    func makeNSView(context: Context) -> ComposerTextView {
-        let view = ComposerTextView(frame: .zero)
+    func makeNSView(context: Context) -> ComposerScrollView {
+        let scroll = ComposerScrollView()
+        let view = scroll.editor
         view.delegate = context.coordinator
         view.registerForDraggedTypes([.fileURL, .png, .tiff])
         view.isRichText = false
@@ -46,10 +47,11 @@ struct GrowingComposerEditor: NSViewRepresentable {
         view.isVerticallyResizable = false
         view.setAccessibilityLabel(accessibilityLabel)
         view.setContentCompressionResistancePriority(.required, for: .vertical)
-        return view
+        return scroll
     }
 
-    func updateNSView(_ view: ComposerTextView, context: Context) {
+    func updateNSView(_ scroll: ComposerScrollView, context: Context) {
+        let view = scroll.editor
         context.coordinator.parent = self
         view.pickerAnchor = pickerAnchor
         pickerAnchor?.changed = { [weak coordinator = context.coordinator, weak view] in
@@ -79,6 +81,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         view.isSelectable = context.environment.isEnabled
         if view.draftText != text {
             view.setDraftText(text)
+            scroll.revealSelectionAfterLayout = true
             mentions?.close(); commands?.close()
         }
         context.coordinator.previousText = view.string
@@ -91,6 +94,8 @@ struct GrowingComposerEditor: NSViewRepresentable {
         view.placeholderColor = NSColor(placeholderColor)
         view.needsDisplay = true
         view.invalidateIntrinsicContentSize()
+        scroll.invalidateIntrinsicContentSize()
+        scroll.needsLayout = true
         context.coordinator.renderMentions(view)
         if focusEnabled && context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
@@ -98,19 +103,14 @@ struct GrowingComposerEditor: NSViewRepresentable {
         }
     }
 
-    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ComposerTextView, context: Context) -> CGSize? {
-        guard let width = proposal.width, width > 0,
-              let container = nsView.textContainer, let layout = nsView.layoutManager,
-              let font = nsView.font else { return nil }
-        container.containerSize = NSSize(width: width, height: .greatestFiniteMagnitude)
-        layout.ensureLayout(for: container)
-        let used = layout.usedRect(for: container).maxY
-        let trailingLine = layout.extraLineFragmentRect.maxY
-        return CGSize(width: width, height: ceil(max(layout.defaultLineHeight(for: font), used, trailingLine)))
+    func sizeThatFits(_ proposal: ProposedViewSize, nsView: ComposerScrollView, context: Context) -> CGSize? {
+        guard let width = proposal.width, width > 0 else { return nil }
+        return CGSize(width: width, height: min(ComposerScrollView.maximumHeight, nsView.contentHeight(width: width)))
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    static func dismantleNSView(_ view: ComposerTextView, coordinator: Coordinator) {
+    static func dismantleNSView(_ scroll: ComposerScrollView, coordinator: Coordinator) {
+        let view = scroll.editor
         coordinator.highlightTask?.cancel()
         coordinator.commandPanel.dismiss(); coordinator.parent.commands?.close()
         coordinator.panel.dismiss(); coordinator.parent.mentions?.close()
@@ -197,10 +197,57 @@ struct GrowingComposerEditor: NSViewRepresentable {
             if opened { loadMentions() }
             renderMentions(view)
             view.invalidateIntrinsicContentSize()
+            view.enclosingScrollView?.invalidateIntrinsicContentSize()
+            (view.enclosingScrollView as? ComposerScrollView)?.revealSelectionAfterLayout = true
+            view.enclosingScrollView?.needsLayout = true
             view.needsDisplay = true
         }
         func textDidBeginEditing(_ notification: Notification) { parent.focused = true }
         func textDidEndEditing(_ notification: Notification) { parent.focused = false }
+    }
+}
+
+/// The document keeps its full height so selection, keyboard navigation, and
+/// paste reveal the caret through AppKit's normal text scrolling behavior.
+final class ComposerScrollView: NSScrollView {
+    static let maximumHeight: CGFloat = 240
+    let editor = ComposerTextView(frame: .zero)
+    var revealSelectionAfterLayout = false
+
+    init() {
+        super.init(frame: .zero)
+        drawsBackground = false
+        borderType = .noBorder
+        hasVerticalScroller = true
+        hasHorizontalScroller = false
+        autohidesScrollers = true
+        scrollerStyle = .overlay
+        documentView = editor
+    }
+    required init?(coder: NSCoder) { fatalError("init(coder:) is not supported") }
+
+    func contentHeight(width: CGFloat) -> CGFloat {
+        guard let container = editor.textContainer, let layout = editor.layoutManager,
+              let font = editor.font else { return 20 }
+        container.containerSize = NSSize(width: max(1, width), height: .greatestFiniteMagnitude)
+        layout.ensureLayout(for: container)
+        return ceil(max(layout.defaultLineHeight(for: font), layout.usedRect(for: container).maxY,
+                        layout.extraLineFragmentRect.maxY))
+    }
+
+    override var intrinsicContentSize: NSSize {
+        NSSize(width: NSView.noIntrinsicMetric, height: min(Self.maximumHeight, contentHeight(width: contentSize.width)))
+    }
+
+    override func layout() {
+        super.layout()
+        let height = contentHeight(width: contentSize.width)
+        let size = NSSize(width: contentSize.width, height: max(contentSize.height, height))
+        if editor.frame.size != size { editor.setFrameSize(size) }
+        if revealSelectionAfterLayout {
+            revealSelectionAfterLayout = false
+            editor.scrollRangeToVisible(editor.selectedRange())
+        }
     }
 }
 

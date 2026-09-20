@@ -18,6 +18,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/scratchpad"
 )
 
 // EventKind identifies one renderer-neutral live session update.
@@ -26,6 +27,9 @@ type EventKind string
 const (
 	maxEventPayloadBytes  = 128 << 10
 	maxLiveEventTextBytes = 64 << 10
+	maxRetainedEventBytes = 8 << 20
+	maxEventPageBytes     = 512 << 10
+	maxRetainedEventCount = 4096
 )
 
 const (
@@ -57,6 +61,7 @@ const (
 	EventAnnotationUpdated      EventKind = "annotation.updated"
 	EventAnnotationDeleted      EventKind = "annotation.deleted"
 	EventAnnotationSubmitted    EventKind = "annotation.submitted"
+	EventScratchpadChanged      EventKind = "scratchpad.changed"
 )
 
 // NewEvent is a live session update awaiting a runtime-local stream sequence.
@@ -99,13 +104,15 @@ type NewEvent struct {
 	Annotation             *kitannotation.Record
 	AnnotationIDs          []uint64
 	AcceptedMessageID      string
+	Scratchpad             *scratchpad.Record
 }
 
 // Event is one ordered live update retained by a loaded runtime.
 type Event struct {
 	NewEvent
-	StreamID string
-	Sequence int64
+	StreamID    string
+	Sequence    int64
+	encodedSize int
 }
 
 // EventPage contains ordered updates after a caller's last seen sequence.
@@ -145,7 +152,11 @@ func (event NewEvent) Validate() error {
 	if event.SessionID == "" {
 		return fmt.Errorf("session id is required")
 	}
-	if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged {
+	if event.Kind == EventScratchpadChanged {
+		if event.TurnID != "" || event.RunID != "" || event.Scratchpad == nil {
+			return fmt.Errorf("scratchpad event requires a record without parent turn identity")
+		}
+	} else if event.Kind == EventSessionRenamed || event.Kind == EventSessionCWDChanged {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("session metadata event cannot carry parent turn identity")
 		}
@@ -194,6 +205,9 @@ func (event NewEvent) Validate() error {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
 	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	if event.Scratchpad != nil {
+		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
+	}
 	if event.Annotation != nil {
 		anchorBytes, _ := json.Marshal(event.Annotation.Anchor)
 		payloadBytes += len(event.Annotation.SessionID) + len(anchorBytes) + len(event.Annotation.Body) + len(event.Annotation.Preview.Text) + 64
@@ -291,6 +305,16 @@ func (event NewEvent) Validate() error {
 		if err := validateAnnotationEventRecord(*event.Annotation); err != nil {
 			return err
 		}
+	case EventScratchpadChanged:
+		if !identifier.Valid(event.Scratchpad.OwnerSessionID, "session_") || event.Scratchpad.UpdatedAt.IsZero() {
+			return fmt.Errorf("scratchpad event record identity or update time is invalid")
+		}
+		if err := scratchpad.ValidateRevision(event.Scratchpad.Revision); err != nil {
+			return err
+		}
+		if err := scratchpad.ValidateContent(event.Scratchpad.Content); err != nil {
+			return err
+		}
 	case EventSubagentChanged, EventPeerQueryChanged, EventAnnotationDeleted, EventAnnotationSubmitted:
 	case EventInteractionRequested:
 		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.ID == "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
@@ -329,6 +353,14 @@ func (event NewEvent) Validate() error {
 	if event.Kind == EventSessionCWDChanged {
 		if payloadBytes != len(event.CWD) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil || event.ContextTokens != 0 || event.ContextWindow != 0 || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
 			return fmt.Errorf("session cwd event carries invalid payload")
+		}
+	}
+	if event.Kind == EventScratchpadChanged {
+		scratchpadBytes := len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
+		if payloadBytes != scratchpadBytes || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
+			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			return fmt.Errorf("scratchpad event carries invalid payload")
 		}
 	}
 	if event.Kind == EventSubagentChanged {
@@ -386,6 +418,9 @@ func (event NewEvent) Validate() error {
 	}
 	if event.Kind != EventInteractionResolved && (event.InteractionID != "" || event.InteractionResolution != "") {
 		return fmt.Errorf("event kind %q cannot carry interaction resolution data", event.Kind)
+	}
+	if event.Kind != EventScratchpadChanged && event.Scratchpad != nil {
+		return fmt.Errorf("event kind %q cannot carry a scratchpad", event.Kind)
 	}
 	isAnnotation := event.Kind == EventAnnotationCreated || event.Kind == EventAnnotationUpdated || event.Kind == EventAnnotationDeleted || event.Kind == EventAnnotationSubmitted
 	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
@@ -459,6 +494,7 @@ type eventLog struct {
 	events          []Event
 	replayAvailable bool
 	tailFrom        int64
+	retainedBytes   int
 	changed         chan struct{}
 }
 
@@ -481,6 +517,7 @@ func (log *eventLog) reset() error {
 	log.events = nil
 	log.replayAvailable = true
 	log.tailFrom = 0
+	log.retainedBytes = 0
 	log.signalChangedLocked()
 	log.mu.Unlock()
 	return nil
@@ -500,6 +537,7 @@ func (log *eventLog) replace(replacement *eventLog) {
 	log.events = nil
 	log.replayAvailable = replayAvailable
 	log.tailFrom = tailFrom
+	log.retainedBytes = 0
 	log.signalChangedLocked()
 	log.mu.Unlock()
 }
@@ -531,19 +569,47 @@ func (log *eventLog) append(events []NewEvent) error {
 		previousUsage = &copy
 	}
 	for _, event := range events {
-		log.events = append(log.events, Event{NewEvent: event, StreamID: log.streamID, Sequence: log.next})
+		retained := Event{NewEvent: event, StreamID: log.streamID, Sequence: log.next}
+		encoded, err := json.Marshal(retained)
+		if err != nil {
+			return fmt.Errorf("encode retained event: %w", err)
+		}
+		retained.encodedSize = len(encoded)
+		log.events = append(log.events, retained)
+		log.retainedBytes += retained.encodedSize
 		log.next++
 	}
-	const retained = 4096
-	if len(log.events) > retained {
-		log.events = append([]Event(nil), log.events[len(log.events)-retained:]...)
+	for len(log.events) > maxRetainedEventCount || log.retainedBytes > maxRetainedEventBytes {
+		evict := 0
+		if log.protectsActiveRunStartLocked() && len(log.events) > 1 {
+			evict = 1
+		}
+		log.retainedBytes -= log.events[evict].encodedSize
+		log.events = append(log.events[:evict], log.events[evict+1:]...)
 		log.replayAvailable = false
-		log.tailFrom = log.events[0].Sequence - 1
+		if len(log.events) > 1 && log.events[0].Kind == EventRunStarted {
+			log.tailFrom = log.events[1].Sequence - 1
+		} else if len(log.events) > 0 {
+			log.tailFrom = log.events[0].Sequence - 1
+		}
 	}
 	if len(events) > 0 {
 		log.signalChangedLocked()
 	}
 	return nil
+}
+
+func (log *eventLog) protectsActiveRunStartLocked() bool {
+	if len(log.events) == 0 || log.events[0].Kind != EventRunStarted {
+		return false
+	}
+	runID := log.events[0].RunID
+	for _, event := range log.events[1:] {
+		if event.Kind == EventRunFinished && event.RunID == runID {
+			return false
+		}
+	}
+	return true
 }
 
 func (log *eventLog) invalidate() {
@@ -564,6 +630,7 @@ func (log *eventLog) invalidate() {
 	log.next = 1
 	log.events = nil
 	log.tailFrom = 0
+	log.retainedBytes = 0
 	log.replayAvailable = false
 	log.signalChangedLocked()
 	log.mu.Unlock()
@@ -610,13 +677,18 @@ func (log *eventLog) pageLocked(expectedStream string, after int64) EventPage {
 		page.ResyncRequired = true
 		return page
 	}
+	pageBytes := 0
 	for _, event := range log.events {
 		if event.Sequence <= after && event.Usage != nil {
 			copy := *event.Usage
 			page.UsageBaseline = &copy
 		}
 		if event.Sequence > after {
+			if len(page.Events) > 0 && pageBytes+event.encodedSize > maxEventPageBytes {
+				break
+			}
 			page.Events = append(page.Events, event)
+			pageBytes += event.encodedSize
 			if len(page.Events) == 32 {
 				break
 			}

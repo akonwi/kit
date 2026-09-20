@@ -5,7 +5,8 @@ import SwiftUI
 struct ScratchpadEditor: View {
     @Environment(\.mica) private var theme
     @Binding var text: String
-    @State private var editorState = SourceEditorState()
+    var documentVersion = 0
+    @Binding var editorState: SourceEditorState
 
     var body: some View {
         SourceEditor(
@@ -13,6 +14,7 @@ struct ScratchpadEditor: View {
             configuration: FileEditorTheme.configuration(theme, isEditable: true, wrapLines: true),
             state: $editorState
         )
+        .id(documentVersion)
         .clipped()
         .accessibilityLabel("Scratchpad editor")
     }

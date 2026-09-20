@@ -66,6 +66,39 @@ func TestExecutePrintRejectsUnavailableProviderBeforeCreation(t *testing.T) {
 	}
 }
 
+func TestExecutePrintCreatesSessionFromAvailableCatalogWithoutDefault(t *testing.T) {
+	t.Parallel()
+	client := &fakeSessionClient{
+		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/echo", Provider: "test", Available: true}}},
+		created: protocol.SessionInfo{ID: "session-new", Model: "test/echo", ThinkingLevel: "off"},
+		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.RunStatusCompleted},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", NewSession: true, AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 0 || client.createInput.Model != "test/echo" || client.createInput.ThinkingLevel != "" {
+		t.Fatalf("exit = %d create = %+v stderr = %q", code, client.createInput, stderr.String())
+	}
+}
+
+func TestExecutePrintReplacesStaleImplicitDefaultFromSameProvider(t *testing.T) {
+	t.Parallel()
+	client := &fakeSessionClient{
+		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/current", Provider: "test", Available: true}}},
+		created: protocol.SessionInfo{ID: "session-new", Model: "test/current", ThinkingLevel: "off"},
+		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.RunStatusCompleted},
+	}
+	var stdout, stderr bytes.Buffer
+	code := executePrint(context.Background(), client, printOptions{
+		CWD: "/workspace", DefaultModel: "test/deprecated", NewSession: true,
+		AvailableProviders: map[string]bool{"test": true}, Prompt: "go",
+	}, &stdout, &stderr)
+	if code != 0 || client.createInput.Model != "test/current" {
+		t.Fatalf("exit = %d create = %+v stderr = %q", code, client.createInput, stderr.String())
+	}
+}
+
 func TestExecutePrintCreatesSessionForModel(t *testing.T) {
 	t.Parallel()
 
@@ -175,6 +208,7 @@ func TestExecutePrintAbortsCanceledForegroundRun(t *testing.T) {
 
 type fakeSessionClient struct {
 	sessions     []protocol.SessionInfo
+	models       protocol.ModelCatalog
 	created      protocol.SessionInfo
 	outcome      protocol.PromptOutcome
 	createInput  protocol.CreateSessionInput
@@ -216,7 +250,10 @@ func (c *fakeSessionClient) ListSessions(context.Context, string) ([]protocol.Se
 }
 
 func (c *fakeSessionClient) Models(context.Context) (protocol.ModelCatalog, error) {
-	return protocol.ModelCatalog{}, errors.New("unexpected Models")
+	if c.models.Models == nil {
+		return protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/echo", Provider: "test", Available: true}}}, nil
+	}
+	return c.models, nil
 }
 
 func (c *fakeSessionClient) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {

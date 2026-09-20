@@ -139,13 +139,13 @@ func TestConfigureSessionAdaptsContextClampsThinkingAndReplacesRuntime(t *testin
 		t.Fatal(err)
 	}
 	if configured.Session.ModelProvider != "test" || configured.Session.ModelID != "small" ||
-		configured.Session.ThinkingLevel != "low" || configured.Session.ConfigurationRevision != 2 {
+		configured.Session.ThinkingLevel != "off" || configured.Session.ConfigurationRevision != 2 {
 		t.Fatalf("configured session = %+v", configured.Session)
 	}
 	if !configured.Compacted || configured.CheckpointID == "" {
 		t.Fatalf("configuration did not adapt context: %+v", configured)
 	}
-	if len(configured.Warnings) != 1 || !strings.Contains(configured.Warnings[0], `Thinking level "medium"`) || !strings.Contains(configured.Warnings[0], `using "low"`) {
+	if len(configured.Warnings) != 1 || !strings.Contains(configured.Warnings[0], `Thinking level "medium"`) || !strings.Contains(configured.Warnings[0], `using "off"`) {
 		t.Fatalf("configuration warnings = %#v", configured.Warnings)
 	}
 	if configured.EventStreamID == before.EventStreamID {
@@ -548,7 +548,7 @@ func TestConfigureSessionReconcilesCommittedWriteAndRetainsRuntimeOnPrecommitFai
 	if _, err := manager.RunPrompt(t.Context(), record.ID, "new runtime published"); err != nil {
 		t.Fatal(err)
 	}
-	if call := providers.lastCall(); call.model != "small" || call.reasoning != "low" {
+	if call := providers.lastCall(); call.model != "small" || call.reasoning != "off" {
 		t.Fatalf("provider after reconciled commit = %+v", call)
 	}
 
@@ -842,14 +842,14 @@ func TestRuntimeRestoresAndPersistsMissingOrUnsupportedThinking(t *testing.T) {
 	t.Cleanup(func() { _ = store.Close() })
 	providers := &configurationProviders{}
 	stale, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: base, Persistent: true,
+		ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", ScratchpadOwnerID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: base, Persistent: true,
 		ModelProvider: "test", ModelID: "small", ThinkingLevel: "xhigh",
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	missing, err := store.CreateSession(t.Context(), session.NewSession{
-		ID: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CWD: base, Persistent: true,
+		ID: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", ScratchpadOwnerID: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CWD: base, Persistent: true,
 		ModelProvider: "test", ModelID: "small",
 	})
 	if err != nil {
@@ -863,7 +863,7 @@ func TestRuntimeRestoresAndPersistsMissingOrUnsupportedThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if staleSnapshot.Session.ThinkingLevel != "high" || staleSnapshot.Session.ConfigurationRevision != 2 ||
+	if staleSnapshot.Session.ThinkingLevel != "off" || staleSnapshot.Session.ConfigurationRevision != 2 ||
 		len(staleSnapshot.Warnings) != 1 {
 		t.Fatalf("restored stale thinking = %+v", staleSnapshot)
 	}
@@ -885,7 +885,7 @@ func TestRuntimeRestoresAndPersistsMissingOrUnsupportedThinking(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reopenedSnapshot.Session.ThinkingLevel != "high" || reopenedSnapshot.Session.ConfigurationRevision != 2 || len(reopenedSnapshot.Warnings) != 0 {
+	if reopenedSnapshot.Session.ThinkingLevel != "off" || reopenedSnapshot.Session.ConfigurationRevision != 2 || len(reopenedSnapshot.Warnings) != 0 {
 		t.Fatalf("reopened restored thinking = %+v", reopenedSnapshot)
 	}
 }

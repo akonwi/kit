@@ -71,8 +71,10 @@ resolving this decision.
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
   draft attachments, restoration, submission, and failure recovery.
-- [ ] TUI-SCRATCH-001 — Add a scratchpad workspace with guarded edits and
-  autosave feedback. Depends on `CORE-SCRATCH-001`.
+- [x] TUI-SCRATCH-001 — Add the retained singleton scratchpad workspace with
+  guarded autosave, silent clean reconciliation, and inline conflict review.
+  Depends on `CORE-SCRATCH-001`. See
+  [ADR 0025](../docs/adrs/0025-share-database-backed-scratchpads-across-session-families.md).
 - [x] TUI-ANN-001 — Add retained File-pane line/range selection and inline
   workspace-file annotations with bounded editing, anchor navigation, stale
   treatment, keyboard and gutter-mouse interaction, and server-authoritative

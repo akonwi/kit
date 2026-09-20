@@ -24,9 +24,8 @@ import (
 )
 
 const (
-	defaultThinkingLevel = "medium"
-	codexDefaultModel    = "openai-codex/gpt-5.6-sol"
-	subagentReadTimeout  = 10 * time.Second
+	codexDefaultModel   = "openai-codex/gpt-5.6-sol"
+	subagentReadTimeout = 10 * time.Second
 )
 
 // DeviceLogin performs an application-facing provider device login.
@@ -91,12 +90,7 @@ func Run(options Options) error {
 	if options.Context == nil {
 		options.Context = context.Background()
 	}
-	if options.DefaultThinking == "" {
-		options.DefaultThinking = defaultThinkingLevel
-	}
-	if options.Authenticated && options.DefaultModel == "" {
-		return errors.New("tui: default model is required when authenticated")
-	}
+
 	if options.SessionID != "" && options.NewSessionID != "" {
 		return errors.New("tui: exact and new session selections are mutually exclusive")
 	}
@@ -327,6 +321,15 @@ type appState struct {
 	activityFocus                    ui.FocusNode
 	subagentFocuses                  map[string]*ui.FocusNode
 	workspace                        workspaceController
+	scratchpad                       scratchpadEditorState
+	scratchpadDebounceCancel         context.CancelFunc
+	scratchpadSaveGeneration         uint64
+	scratchpadWritePending           bool
+	scratchpadWriteContent           string
+	scratchpadWriteDone              <-chan scratchpadWriteOutcome
+	scratchpadClosePending           bool
+	scratchpadDrafts                 map[string]scratchpadEditorState
+	scratchpadDispatch               func(func())
 	workspaceMouse                   workspaceMouseGestureController
 	diffWrapLines                    bool
 	diffPreferenceMu                 sync.Mutex
@@ -458,6 +461,7 @@ func (s *appState) InitState() {
 	s.sessionDrafts = make(map[string]string)
 	s.sessionDraftAttachments = make(map[string][]stagedAttachment)
 	s.sessionDraftAttachmentIDs = make(map[string][]string)
+	s.scratchpadDrafts = make(map[string]scratchpadEditorState)
 	s.subagentTranscripts = make(map[string]protocol.SubagentTranscript)
 	s.subagentTranscriptErrors = make(map[string]string)
 	s.subagentTranscriptLoads = make(map[string]uint64)
@@ -990,6 +994,7 @@ func (s *appState) Dispose() {
 		s.toolFileNavigationCancel = nil
 	}
 	s.stopVCSMonitoring()
+	s.bestEffortSaveScratchpad(250 * time.Millisecond)
 	if s.sessionWatchCancel != nil {
 		s.sessionWatchCancel()
 	}
@@ -1045,6 +1050,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	if capable, ok := s.bound.(sessionclient.AttachmentSession); ok {
 		attachments = capable
 	}
+	var scratchpad sessionclient.ScratchpadSession
+	if capable, ok := s.bound.(sessionclient.ScratchpadSession); ok {
+		scratchpad = capable
+	}
 	snapshot := shellSnapshot{
 		Phase:                        s.phase,
 		Error:                        s.errorText,
@@ -1097,6 +1106,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ActivityFocus:                &s.activityFocus,
 		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
 		Workspace:                    s.workspace.Snapshot(),
+		ScratchpadAvailable:          scratchpad != nil,
+		Scratchpad:                   s.scratchpad,
 		CurrentWorkspaceID:           s.workspaceID,
 		PaneInput:                    s.paneInput,
 		WorkspaceFilePicker:          s.workspaceFilePicker,
@@ -1308,7 +1319,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			if owner := s.inputOwner(); owner.trapsFocus() && owner != inputTabs {
 				return
 			}
-			if descriptor.Kind == workspacePaneSubagentConversation {
+			if descriptor.Kind == workspacePaneScratchpad {
+				s.closeScratchpad()
+			} else if descriptor.Kind == workspacePaneSubagentConversation {
 				s.closeSubagentConversation(descriptor.ResourceID)
 			} else {
 				s.SetState(func() {
@@ -1325,6 +1338,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				})
 			}
 		},
+		ScratchpadChanged:        func(_ ui.EventContext, value string) { s.changeScratchpad(value) },
+		RetryScratchpad:          func(ui.EventContext) { s.saveScratchpad(false, nil) },
+		ReviewScratchpad:         func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = true }) },
+		KeepEditingScratchpad:    func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = false }) },
+		UseSharedScratchpad:      func(ui.EventContext) { s.useSharedScratchpad() },
+		ReplaceSharedScratchpad:  func(ui.EventContext) { s.replaceSharedScratchpad() },
 		OpenWorkspaceFilePicker:  func(ui.EventContext) { s.openWorkspaceFilePicker() },
 		CloseWorkspaceFilePicker: func(ui.EventContext) { s.SetState(func() { s.closeWorkspaceFilePicker() }) },
 		WorkspaceFilePickerQuery: func(_ ui.EventContext, query string) {
@@ -1679,7 +1698,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	files, _ := s.bound.(sessionclient.WorkspaceFilesSession)
 	diffs, _ := s.bound.(sessionclient.DiffSession)
-	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, Diff: diffs}
+	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, Diff: diffs, Scratchpad: scratchpad}
 }
 
 func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
@@ -2112,11 +2131,9 @@ func bootstrapSession(
 	}
 	var err error
 	if selected.ID == "" {
-		if defaultModel == "" {
-			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("no authenticated model is available")
-		}
-		if !providerAvailable(defaultModel) {
-			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("model provider for %q is not authenticated", defaultModel)
+		defaultModel, err = resolveBootstrapModel(ctx, server, defaultModel, resumeModelFilter != "")
+		if err != nil {
+			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, err
 		}
 		selected, err = server.CreateSession(ctx, protocol.CreateSessionInput{
 			ID:            newSessionID,
@@ -2142,6 +2159,14 @@ func bootstrapSession(
 		return selected, nil, protocol.SessionSnapshot{}, fmt.Errorf("snapshot session: %w", err)
 	}
 	return selected, bound, snapshot, nil
+}
+
+func resolveBootstrapModel(ctx context.Context, server sessionclient.Server, preferred string, explicit bool) (string, error) {
+	catalog, err := server.Models(ctx)
+	if err != nil {
+		return "", fmt.Errorf("list models: %w", err)
+	}
+	return sessionclient.ResolveAvailableModel(catalog, preferred, explicit)
 }
 
 func (s *appState) snapshotMetadataStale(snapshot protocol.SessionSnapshot) bool {
@@ -2220,6 +2245,7 @@ func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapsho
 	s.session.CWD = snapshot.Session.CWD
 	s.metadataStreamID = snapshot.EventStreamID
 	s.metadataSequence = snapshot.EventCursor
+	s.reconcileScratchpad(snapshot.Scratchpad)
 	s.sessionExplorer.ApplyExternalRename(snapshot.Session.ID, snapshot.Session.Name)
 }
 
@@ -2238,7 +2264,13 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		messages = append(messages, s.liveMessages...)
 		previousActivitySource, _ = transcriptActivitySource(presentTranscript(messages).Items, s.activitySourceID)
 	}
-	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
+	commands := make([]paletteCommand, 0, len(snapshot.PromptCommands)+1)
+	if _, ok := s.bound.(sessionclient.ScratchpadSession); ok {
+		commands = append(commands, scratchpadPaletteCommand())
+	}
+	commands = append(commands, promptPaletteCommands(snapshot.PromptCommands)...)
+	s.palette.SetContributions(commands, s.hasActiveWork())
+	s.reconcileScratchpad(snapshot.Scratchpad)
 	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
 		name, cwd := snapshot.Session.Name, snapshot.Session.CWD
@@ -3111,6 +3143,8 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		case protocol.SessionEventSessionRenamed:
 			s.session.Name = event.SessionName
 			s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
+		case protocol.SessionEventScratchpadChanged:
+			s.reconcileScratchpad(event.Scratchpad)
 		case protocol.SessionEventSessionCWDChanged:
 			if event.Workspace == nil {
 				continue
@@ -3129,7 +3163,7 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 
 func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
 	switch kind {
-	case protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged,
+	case protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged, protocol.SessionEventScratchpadChanged,
 		protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
 		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
 		return true
@@ -3905,6 +3939,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.openWorkspaceFilePicker()
 	case paletteCommandSessions:
 		s.openSessionExplorer()
+	case paletteCommandScratchpad:
+		s.openScratchpad()
 	case paletteCommandSubagents:
 		s.openSubagents()
 	case paletteCommandTabs:
@@ -5443,11 +5479,7 @@ func (s *appState) createNewSession() {
 	}
 
 	options := s.Widget().(app).Options
-	input := protocol.CreateSessionInput{
-		CWD:           s.session.CWD,
-		Model:         options.DefaultModel,
-		ThinkingLevel: options.DefaultThinking,
-	}
+	input := newSessionInput(s.session, options.DefaultModel)
 	createContext, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 	generation := s.sessionCreateGeneration + 1
 	sourceOperation := s.operation
@@ -5488,6 +5520,18 @@ func (s *appState) createNewSession() {
 			s.watchAttachedSession(bound, operation)
 		})
 	}()
+}
+
+func newSessionInput(current protocol.SessionInfo, defaultModel string) protocol.CreateSessionInput {
+	model := current.Model
+	if model == "" {
+		model = defaultModel
+	}
+	return protocol.CreateSessionInput{
+		CWD:           current.CWD,
+		Model:         model,
+		ThinkingLevel: current.ThinkingLevel,
+	}
 }
 
 func (s *appState) forkCurrentSession(message string) {
@@ -5690,7 +5734,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 		s.sessionDrafts[s.session.ID] = s.composer
 		s.sessionDraftAttachments[s.session.ID] = append([]stagedAttachment(nil), s.composerAttachments...)
 		s.sessionDraftAttachmentIDs[s.session.ID] = append([]string(nil), s.composerAttachmentIDs...)
+		s.cacheScratchpadDraft(s.session.ID)
 	}
+	s.bestEffortSaveScratchpad(250 * time.Millisecond)
 	s.resetAttachmentContext()
 	s.fileMention.Close()
 	s.closeSessionMention()
@@ -5744,6 +5790,13 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.activityScroll = ui.ScrollController{}
 	s.activityList = activityListController{}
 	s.workspace.Reset()
+	s.cancelScratchpadDebounce()
+	s.scratchpadSaveGeneration++
+	s.scratchpadWritePending = false
+	s.scratchpadWriteContent = ""
+	s.scratchpadWriteDone = nil
+	s.scratchpadClosePending = false
+	s.restoreScratchpadDraft(snapshot.Session.ID, snapshot.Scratchpad)
 	s.workspaceID = ""
 	s.closeWorkspaceFilePicker()
 	s.indexedFiles.reset()

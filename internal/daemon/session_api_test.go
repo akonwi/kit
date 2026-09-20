@@ -23,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/version"
 )
@@ -39,6 +40,72 @@ func (service eventStreamTestService) Events(context.Context, string, string, in
 
 func (eventStreamTestService) WaitEvents(ctx context.Context, _ string, _ string, _ int64) (protocol.SessionEventBatch, error) {
 	return protocol.SessionEventBatch{}, ctx.Err()
+}
+
+func TestProjectedScratchpadEventPageUsesWireByteLimit(t *testing.T) {
+	t.Parallel()
+	record := scratchpad.Record{
+		OwnerSessionID: "session_0123456789abcdef0123456789abcdef",
+		Content:        strings.Repeat("x", scratchpad.MaxContentBytes), Revision: 1, UpdatedAt: time.Now().UTC(),
+	}
+	page := kitsession.EventPage{StreamID: "stream_test", FirstSequence: 1, LastSequence: 10}
+	for sequence := int64(1); sequence <= 10; sequence++ {
+		copy := record
+		copy.Revision = sequence
+		page.Events = append(page.Events, kitsession.Event{
+			NewEvent: kitsession.NewEvent{SessionID: "session_child", Kind: kitsession.EventScratchpadChanged, Scratchpad: &copy},
+			StreamID: page.StreamID, Sequence: sequence,
+		})
+	}
+	projected := projectSessionEventPage(page)
+	encoded, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(encoded) > maxSessionEventPageBytes || len(projected.Events) == 0 || len(projected.Events) >= len(page.Events) {
+		t.Fatalf("projected events = %d bytes=%d", len(projected.Events), len(encoded))
+	}
+	if err := projected.Validate(); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestNormalizeScratchpadErrorPreservesCancellation(t *testing.T) {
+	t.Parallel()
+	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
+		if normalized := normalizeScratchpadError(err); !errors.Is(normalized, err) {
+			t.Fatalf("normalizeScratchpadError(%v) = %v", err, normalized)
+		}
+	}
+}
+
+func TestWriteSessionErrorProjectsStableScratchpadFailures(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name   string
+		err    error
+		status int
+		code   protocol.ScratchpadErrorCode
+	}{
+		{"invalid", scratchpad.ErrInvalidContent, http.StatusBadRequest, protocol.ScratchpadInvalidContent},
+		{"too large", scratchpad.ErrContentTooLarge, http.StatusRequestEntityTooLarge, protocol.ScratchpadTooLarge},
+		{"exhausted", scratchpad.ErrRevisionExhausted, http.StatusConflict, protocol.ScratchpadRevisionExhausted},
+		{"migration", scratchpad.ErrMigrationRequired, http.StatusConflict, protocol.ScratchpadMigrationRequired},
+		{"unsupported", scratchpad.ErrUnsupported, http.StatusConflict, protocol.ScratchpadUnsupported},
+		{"unavailable", scratchpad.ErrUnavailable, http.StatusServiceUnavailable, protocol.ScratchpadUnavailable},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			recorder := httptest.NewRecorder()
+			writeSessionError(recorder, test.err)
+			if recorder.Code != test.status {
+				t.Fatalf("status = %d, want %d", recorder.Code, test.status)
+			}
+			var apiError *APIError
+			if err := decodeAPIError(recorder.Code, recorder.Body.Bytes()); !errors.As(err, &apiError) || apiError.Code != string(test.code) {
+				t.Fatalf("decoded error = %#v", err)
+			}
+		})
+	}
 }
 
 func TestRuntimeSessionServiceWorkspaceUnavailableWithoutService(t *testing.T) {
@@ -392,6 +459,47 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
+	}
+	scratch, err := client.GetScratchpad(context.Background(), created.ID)
+	if err != nil || scratch.OwnerSessionID != created.ID || scratch.Content != "" || scratch.Revision != 1 {
+		t.Fatalf("GetScratchpad() = %+v, %v", scratch, err)
+	}
+	scratchSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil || scratchSnapshot.Scratchpad == nil || *scratchSnapshot.Scratchpad != scratch {
+		t.Fatalf("initial scratchpad snapshot = %+v, %v", scratchSnapshot.Scratchpad, err)
+	}
+	canceledScratchContext, cancelScratch := context.WithCancel(context.Background())
+	cancelScratch()
+	if _, err := client.UpdateScratchpad(canceledScratchContext, created.ID, protocol.UpdateScratchpadInput{
+		ExpectedRevision: scratch.Revision, Content: "canceled",
+	}); !errors.Is(err, context.Canceled) {
+		t.Fatalf("canceled UpdateScratchpad() error = %v", err)
+	}
+	updatedScratch, err := client.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
+		ExpectedRevision: scratch.Revision, Content: "# Shared notes\n",
+	})
+	if err != nil || updatedScratch.OwnerSessionID != created.ID || updatedScratch.Content != "# Shared notes\n" || updatedScratch.Revision != 2 {
+		t.Fatalf("UpdateScratchpad() = %+v, %v", updatedScratch, err)
+	}
+	scratchEvents, err := client.GetSessionEvents(context.Background(), created.ID, scratchSnapshot.EventStreamID, scratchSnapshot.EventCursor)
+	if err != nil || len(scratchEvents.Events) != 1 || scratchEvents.Events[0].Kind != protocol.SessionEventScratchpadChanged ||
+		scratchEvents.Events[0].Scratchpad == nil || *scratchEvents.Events[0].Scratchpad != updatedScratch {
+		t.Fatalf("scratchpad events = %+v, %v", scratchEvents, err)
+	}
+	updatedSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
+	if err != nil || updatedSnapshot.Scratchpad == nil || *updatedSnapshot.Scratchpad != updatedScratch {
+		t.Fatalf("updated scratchpad snapshot = %+v, %v", updatedSnapshot.Scratchpad, err)
+	}
+	if _, err := client.UpdateScratchpad(context.Background(), created.ID, protocol.UpdateScratchpadInput{
+		ExpectedRevision: scratch.Revision, Content: "stale",
+	}); err == nil {
+		t.Fatal("UpdateScratchpad() accepted a stale revision")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict ||
+			apiError.Code != string(protocol.ScratchpadRevisionConflict) || apiError.CurrentScratchpad == nil || *apiError.CurrentScratchpad != updatedScratch {
+			t.Fatalf("stale UpdateScratchpad() error = %#v", err)
+		}
 	}
 	vcsStatus, err := client.GetSessionVCSStatus(context.Background(), created.ID)
 	if err != nil {
@@ -787,6 +895,14 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	})
 	if err != nil || temporary.ID != temporaryID {
 		t.Fatalf("CreateSession(temporary) = %+v, %v", temporary, err)
+	}
+	if _, err := client.GetScratchpad(context.Background(), temporaryID); err == nil {
+		t.Fatal("GetScratchpad(temporary) succeeded")
+	} else {
+		var apiError *APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode != http.StatusConflict || apiError.Code != string(protocol.ScratchpadUnsupported) {
+			t.Fatalf("GetScratchpad(temporary) error = %#v", err)
+		}
 	}
 	sessions, err = client.ListSessions(context.Background(), "")
 	if err != nil {

@@ -198,7 +198,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	replacement.Prompt.Prompt += interactionPromptGuidance
 	replacement.Tools = append(replacement.Tools, interactionTools(sessionID, loaded.interactions)...)
-	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
+	replacement.Tools = append(replacement.Tools, m.boundSessionTools(targetRecord, loaded.workspace)...)
 	nextEvents, err := newEventLog()
 	if err != nil {
 		return ConfigureSessionResult{}, fmt.Errorf("prepare replacement event stream for session %q: %w", sessionID, err)
@@ -466,21 +466,14 @@ func resolveSavedThinkingLevel(model droids.Model, saved string) (string, bool, 
 			return level, original != canonical, nil
 		}
 	}
-	rank, known := thinkingLevelRank(canonical)
-	if !known {
-		return supported[0], true, nil
-	}
-	candidate := ""
+	fallback := supported[0]
 	for _, level := range supported {
-		levelRank, _ := thinkingLevelRank(level)
-		if levelRank <= rank {
-			candidate = level
+		if level == "off" {
+			fallback = level
+			break
 		}
 	}
-	if candidate == "" {
-		candidate = supported[0]
-	}
-	return candidate, true, nil
+	return fallback, true, nil
 }
 
 func supportedThinkingLevels(model droids.Model) []string {
@@ -500,15 +493,6 @@ func canonicalThinkingLevel(level string) string {
 		return "off"
 	}
 	return level
-}
-
-func thinkingLevelRank(level string) (int, bool) {
-	for index, candidate := range canonicalThinkingLevels {
-		if candidate == level {
-			return index, true
-		}
-	}
-	return 0, false
 }
 
 func (m *Manager) quarantineRuntime(sessionID string, loaded *runtime, replacement *droids.Droid) {

@@ -7,6 +7,7 @@ struct WireSessionInfo: Codable, Sendable {
     let `name`: String?
     let `parentSessionId`: String?
     let `parentSessionName`: String?
+    let `temporary`: Bool?
     let `model`: String
     let `thinkingLevel`: String
     let `configurationRevision`: UInt64
@@ -332,6 +333,13 @@ struct WireAnnotationSummary: Codable, Sendable {
     let `validationDeferred`: Bool?
 }
 
+struct WireScratchpad: Codable, Sendable {
+    let `ownerSessionId`: String
+    let `content`: String
+    let `revision`: String
+    let `updatedAt`: String
+}
+
 struct WireSessionSnapshot: Codable, Sendable {
     let `session`: WireSessionInfo
     let `workspace`: WireWorkspaceRef?
@@ -359,6 +367,7 @@ struct WireSessionSnapshot: Codable, Sendable {
     let `subagentMailbox`: [WireSubagentMailboxItem]?
     let `pendingInteractions`: [WireInteractionRequest]?
     let `annotations`: [WireAnnotationSummary]?
+    let `scratchpad`: WireScratchpad?
 }
 
 enum WireSessionEventKind: String, Codable, Sendable {
@@ -390,6 +399,7 @@ enum WireSessionEventKind: String, Codable, Sendable {
     case value25 = "annotation.updated"
     case value26 = "annotation.deleted"
     case value27 = "annotation.submitted"
+    case value28 = "scratchpad.changed"
 }
 
 enum WireRunStatus: String, Codable, Sendable {
@@ -463,6 +473,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `annotation`: WireAnnotation?
     let `annotationIds`: [UInt64]?
     let `acceptedMessageId`: String?
+    let `scratchpad`: WireScratchpad?
 }
 
 struct WireSessionEventBatch: Codable, Sendable {
@@ -472,6 +483,11 @@ struct WireSessionEventBatch: Codable, Sendable {
     let `resyncRequired`: Bool?
     let `usageBaseline`: WireSessionUsage?
     let `events`: [WireSessionEvent]?
+}
+
+struct WireUpdateScratchpadInput: Codable, Sendable {
+    let `expectedRevision`: String
+    let `content`: String
 }
 
 enum WireVCSHeadKind: String, Codable, Sendable {
@@ -973,4 +989,4 @@ struct WireDiffError: Codable, Sendable {
     let `details`: [String: String]?
 }
 
-let kitWireVersion = 34
+let kitWireVersion = 36

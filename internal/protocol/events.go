@@ -12,6 +12,7 @@ import (
 const (
 	maxSessionEventPayloadBytes  = 128 << 10
 	maxSessionEventContentBlocks = 128
+	maxSessionEventPageBytes     = 512 << 10
 )
 
 // SessionEventKind identifies one live renderer-neutral session update.
@@ -46,6 +47,7 @@ const (
 	SessionEventAnnotationUpdated      SessionEventKind = "annotation.updated"
 	SessionEventAnnotationDeleted      SessionEventKind = "annotation.deleted"
 	SessionEventAnnotationSubmitted    SessionEventKind = "annotation.submitted"
+	SessionEventScratchpadChanged      SessionEventKind = "scratchpad.changed"
 )
 
 // SessionEvent is one ordered update in a loaded runtime stream.
@@ -90,6 +92,7 @@ type SessionEvent struct {
 	Annotation             *Annotation         `json:"annotation,omitempty"`
 	AnnotationIDs          []uint64            `json:"annotationIds,omitempty"`
 	AcceptedMessageID      string              `json:"acceptedMessageId,omitempty"`
+	Scratchpad             *Scratchpad         `json:"scratchpad,omitempty"`
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -110,7 +113,11 @@ func (event SessionEvent) Validate() error {
 	if event.SessionID == "" {
 		return fmt.Errorf("event session id is required")
 	}
-	if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSessionCWDChanged {
+	if event.Kind == SessionEventScratchpadChanged {
+		if event.TurnID != "" || event.RunID != "" || event.Scratchpad == nil {
+			return fmt.Errorf("scratchpad event requires a record without parent turn identity")
+		}
+	} else if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSessionCWDChanged {
 		if event.TurnID != "" || event.RunID != "" {
 			return fmt.Errorf("session rename event cannot carry parent turn identity")
 		}
@@ -159,6 +166,9 @@ func (event SessionEvent) Validate() error {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
 	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	if event.Scratchpad != nil {
+		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
+	}
 	if event.Annotation != nil {
 		raw, err := json.Marshal(event.Annotation)
 		if err != nil {
@@ -262,6 +272,10 @@ func (event SessionEvent) Validate() error {
 		if event.Workspace == nil || event.Workspace.Validate() != nil || event.Workspace.SessionID != event.SessionID {
 			return fmt.Errorf("session cwd event requires a valid workspace")
 		}
+	case SessionEventScratchpadChanged:
+		if err := event.Scratchpad.Validate(); err != nil {
+			return fmt.Errorf("scratchpad event record: %w", err)
+		}
 	case SessionEventSubagentChanged:
 		if !validRendererText(event.SubagentConversationID, 128) ||
 			(event.SubagentTaskID != "" && !validRendererText(event.SubagentTaskID, 128)) || event.PeerRequestID != "" || payloadBytes != 0 {
@@ -320,6 +334,14 @@ func (event SessionEvent) Validate() error {
 	if event.Kind == SessionEventSessionCWDChanged && (event.Workspace == nil || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil || event.ContextTokens != 0 || event.ContextWindow != 0 || event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted) {
 		return fmt.Errorf("session cwd event carries invalid payload")
 	}
+	if event.Kind == SessionEventScratchpadChanged {
+		scratchpadBytes := len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
+		if payloadBytes != scratchpadBytes || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
+			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
+			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
+			return fmt.Errorf("scratchpad event carries invalid payload")
+		}
+	}
 	switch event.ErrorKind {
 	case "", ProviderErrorAuthentication, ProviderErrorEntitlement,
 		ProviderErrorUsageLimit, ProviderErrorRateLimit, ProviderErrorTransport,
@@ -364,6 +386,9 @@ func (event SessionEvent) Validate() error {
 	}
 	if event.Kind != SessionEventInteractionResolved && (event.InteractionID != "" || event.InteractionResolution != "") {
 		return fmt.Errorf("event kind %q cannot carry interaction resolution data", event.Kind)
+	}
+	if event.Kind != SessionEventScratchpadChanged && event.Scratchpad != nil {
+		return fmt.Errorf("event kind %q cannot carry a scratchpad", event.Kind)
 	}
 	isAnnotation := event.Kind == SessionEventAnnotationCreated || event.Kind == SessionEventAnnotationUpdated || event.Kind == SessionEventAnnotationDeleted || event.Kind == SessionEventAnnotationSubmitted
 	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
@@ -415,6 +440,13 @@ func validProtocolInteractionResolution(reason string) bool {
 
 // Validate checks event ordering and runtime-stream identity for a transport page.
 func (batch SessionEventBatch) Validate() error {
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		return fmt.Errorf("encode event batch: %w", err)
+	}
+	if len(encoded) > maxSessionEventPageBytes {
+		return fmt.Errorf("event batch exceeds 512 KiB")
+	}
 	if batch.FirstSequence < 0 || batch.LastSequence < 0 ||
 		(batch.FirstSequence == 0) != (batch.LastSequence == 0) ||
 		batch.FirstSequence > batch.LastSequence {
@@ -454,7 +486,7 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSubagentChanged || event.Kind == SessionEventPeerQueryChanged || event.Kind == SessionEventAnnotationCreated || event.Kind == SessionEventAnnotationUpdated || event.Kind == SessionEventAnnotationDeleted || event.Kind == SessionEventAnnotationSubmitted {
+		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSessionCWDChanged || event.Kind == SessionEventScratchpadChanged || event.Kind == SessionEventSubagentChanged || event.Kind == SessionEventPeerQueryChanged || event.Kind == SessionEventAnnotationCreated || event.Kind == SessionEventAnnotationUpdated || event.Kind == SessionEventAnnotationDeleted || event.Kind == SessionEventAnnotationSubmitted {
 			previous = event.Sequence
 			continue
 		}

@@ -335,7 +335,7 @@ func newSubagentStore(t *testing.T) (*Store, string) {
 	t.Cleanup(func() { _ = store.Close() })
 	owner := "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
 	_, err = store.CreateSession(t.Context(), session.NewSession{
-		ID: owner, CWD: t.TempDir(), Persistent: true,
+		ID: owner, ScratchpadOwnerID: owner, CWD: t.TempDir(), Persistent: true,
 		ModelProvider: "test", ModelID: "model", ThinkingLevel: "medium",
 	})
 	if err != nil {

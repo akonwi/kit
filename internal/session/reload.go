@@ -56,7 +56,7 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	}
 	replacement.Prompt.Prompt += interactionPromptGuidance
 	replacement.Tools = append(replacement.Tools, interactionTools(sessionID, loaded.interactions)...)
-	replacement.Tools = append(replacement.Tools, m.changeCWDTool(sessionID, loaded.workspace))
+	replacement.Tools = append(replacement.Tools, m.boundSessionTools(record, loaded.workspace)...)
 	if m.isClosed() {
 		return ReloadResult{}, ErrClosed
 	}

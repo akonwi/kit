@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/subagent"
 )
@@ -187,6 +188,7 @@ type Snapshot struct {
 	SubagentConversations []SubagentConversation
 	SubagentMailbox       []SubagentMailboxItem
 	PendingInteractions   []InteractionRequest
+	Scratchpad            *scratchpad.Record
 }
 
 // TranscriptPage is one page of older complete-turn history.
@@ -248,6 +250,15 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 			loaded.events.mu.Unlock()
 			unlockMetadata()
 			return Snapshot{}, err
+		}
+		if record.Persistent && m.scratchpads != nil {
+			scratchpadRecord, scratchpadErr := m.scratchpads.Get(ctx, sessionID)
+			if scratchpadErr != nil {
+				loaded.events.mu.Unlock()
+				unlockMetadata()
+				return Snapshot{}, normalizeScratchpadReadError(scratchpadErr)
+			}
+			result.Scratchpad = &scratchpadRecord
 		}
 		latest, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 		if err != nil {

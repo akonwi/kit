@@ -25,6 +25,28 @@ func TestSessionRenamedEventValidation(t *testing.T) {
 	}
 }
 
+func TestScratchpadChangedEventValidation(t *testing.T) {
+	t.Parallel()
+	event := SessionEvent{
+		StreamID: "stream_test", Sequence: 1, SessionID: "session_child", Kind: SessionEventScratchpadChanged,
+		Scratchpad: &Scratchpad{
+			OwnerSessionID: "session_0123456789abcdef0123456789abcdef",
+			Content:        "shared", Revision: 2, UpdatedAt: "2026-03-23T12:34:56Z",
+		},
+	}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	batch := SessionEventBatch{StreamID: event.StreamID, FirstSequence: 1, LastSequence: 1, Events: []SessionEvent{event}}
+	if err := batch.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	event.Scratchpad = nil
+	if err := event.Validate(); err == nil {
+		t.Fatal("scratchpad event without record was accepted")
+	}
+}
+
 func TestPeerQueryChangedEventValidation(t *testing.T) {
 	t.Parallel()
 	event := SessionEvent{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Kind: SessionEventPeerQueryChanged, PeerRequestID: "peer_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}

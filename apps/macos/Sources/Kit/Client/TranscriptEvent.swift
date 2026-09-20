@@ -28,9 +28,11 @@ struct TranscriptEvent {
     var annotation: WireAnnotation?
     var annotationId: UInt64?
     var annotationIds: [UInt64]?
+    var scratchpad: WireScratchpad?
 
     init(_ event: WireSessionEvent) {
         annotation = event.annotation; annotationId = event.annotationId; annotationIds = event.annotationIds
+        scratchpad = event.scratchpad
         kind = event.kind.rawValue; turnId = event.turnId; runId = event.runId
         messageId = event.messageId; contentIndex = event.contentIndex
         delta = event.delta; text = event.text; thinking = event.thinking

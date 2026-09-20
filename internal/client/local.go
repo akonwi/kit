@@ -30,9 +30,15 @@ type sessionMutationTransport interface {
 	GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error)
 }
 
+type scratchpadTransport interface {
+	GetScratchpad(context.Context, string) (protocol.Scratchpad, error)
+	UpdateScratchpad(context.Context, string, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
+}
+
 type localSession struct {
 	transport          *daemon.Client
 	mutations          sessionMutationTransport
+	scratchpads        scratchpadTransport
 	id                 string
 	mu                 sync.Mutex
 	snapshot           protocol.SessionSnapshot
@@ -45,6 +51,10 @@ type localSession struct {
 	eventRunID         string
 	eventRunStarted    bool
 }
+
+type scratchpadLocalSession struct{ *localSession }
+
+var _ sessionclient.ScratchpadSession = (*scratchpadLocalSession)(nil)
 
 type localRun struct {
 	transport *daemon.Client
@@ -126,9 +136,20 @@ func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclie
 	if strings.TrimSpace(sessionID) == "" {
 		return nil, fmt.Errorf("session id is empty")
 	}
+	snapshot, err := c.transport.GetSessionSnapshot(ctx, sessionID)
+	if err != nil {
+		return nil, err
+	}
 	mutationGate := make(chan struct{}, 1)
 	mutationGate <- struct{}{}
-	return &localSession{transport: c.transport, mutations: c.transport, id: sessionID, mutationGate: mutationGate}, nil
+	bound := &localSession{
+		transport: c.transport, mutations: c.transport, scratchpads: c.transport, id: sessionID,
+		mutationGate: mutationGate, snapshot: snapshot,
+	}
+	if snapshot.Session.Temporary {
+		return bound, nil
+	}
+	return &scratchpadLocalSession{localSession: bound}, nil
 }
 
 func (c *localSession) ID() string { return c.id }
@@ -262,6 +283,12 @@ func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, 
 		return protocol.SessionSnapshot{}, err
 	}
 	c.mu.Lock()
+	mergedScratchpad, scratchpadChanged, mergeErr := reconcileScratchpad(c.snapshot.Scratchpad, snapshot.Scratchpad)
+	if mergeErr != nil {
+		c.mu.Unlock()
+		return protocol.SessionSnapshot{}, fmt.Errorf("reconcile snapshot scratchpad: %w", mergeErr)
+	}
+	snapshot.Scratchpad = mergedScratchpad
 	if c.cacheGeneration == generation {
 		c.snapshot = snapshot
 		if c.eventStreamID != snapshot.EventStreamID {
@@ -278,6 +305,9 @@ func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, 
 				c.eventRunStarted = true
 			}
 		}
+	} else if scratchpadChanged {
+		c.snapshot.Scratchpad = mergedScratchpad
+		c.cacheGeneration++
 	}
 	c.mu.Unlock()
 	return snapshot, nil
@@ -444,6 +474,100 @@ func (c *localSession) Configure(ctx context.Context, input protocol.ConfigureSe
 	return result, nil
 }
 
+func (c *scratchpadLocalSession) Scratchpad(ctx context.Context) (protocol.Scratchpad, error) {
+	transport := c.scratchpads
+	if transport == nil {
+		transport = c.transport
+	}
+	record, err := transport.GetScratchpad(ctx, c.id)
+	if err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	return c.cacheScratchpad(record)
+}
+
+func (c *scratchpadLocalSession) UpdateScratchpad(ctx context.Context, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
+	transport := c.scratchpads
+	if transport == nil {
+		transport = c.transport
+	}
+	record, err := transport.UpdateScratchpad(ctx, c.id, input)
+	if err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	return c.cacheScratchpad(record)
+}
+
+func (c *scratchpadLocalSession) cacheScratchpad(record protocol.Scratchpad) (protocol.Scratchpad, error) {
+	return c.localSession.cacheScratchpad(record)
+}
+
+func (c *localSession) cacheScratchpad(record protocol.Scratchpad) (protocol.Scratchpad, error) {
+	c.mu.Lock()
+	merged, changed, err := reconcileScratchpad(c.snapshot.Scratchpad, &record)
+	if err == nil && changed {
+		c.snapshot.Scratchpad = merged
+		c.cacheGeneration++
+	}
+	c.mu.Unlock()
+	if err != nil {
+		return protocol.Scratchpad{}, err
+	}
+	return *merged, nil
+}
+
+func reconcileScratchpad(current, incoming *protocol.Scratchpad) (*protocol.Scratchpad, bool, error) {
+	if incoming == nil {
+		return current, false, nil
+	}
+	if current == nil {
+		copy := *incoming
+		return &copy, true, nil
+	}
+	if current.OwnerSessionID != incoming.OwnerSessionID {
+		return nil, false, fmt.Errorf("scratchpad owner identity changed")
+	}
+	if incoming.Revision < current.Revision {
+		copy := *current
+		return &copy, false, nil
+	}
+	if incoming.Revision == current.Revision {
+		if *incoming != *current {
+			return nil, false, fmt.Errorf("scratchpad revision %d has inconsistent records", incoming.Revision)
+		}
+		copy := *current
+		return &copy, false, nil
+	}
+	copy := *incoming
+	return &copy, true, nil
+}
+
+func (c *localSession) reduceScratchpadEvents(events []protocol.SessionEvent) ([]protocol.SessionEvent, error) {
+	filtered := make([]protocol.SessionEvent, 0, len(events))
+	for _, event := range events {
+		if event.Kind != protocol.SessionEventScratchpadChanged || event.Scratchpad == nil {
+			filtered = append(filtered, event)
+			continue
+		}
+		c.mu.Lock()
+		merged, changed, err := reconcileScratchpad(c.snapshot.Scratchpad, event.Scratchpad)
+		if err == nil && changed {
+			c.snapshot.Scratchpad = merged
+			c.cacheGeneration++
+		}
+		c.mu.Unlock()
+		if err != nil {
+			return nil, err
+		}
+		if changed {
+			copy := event
+			copy.Scratchpad = merged
+			filtered = append(filtered, copy)
+		}
+	}
+	return filtered, nil
+}
+
 func (c *localSession) Compact(ctx context.Context, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
 	if err := ctx.Err(); err != nil {
 		return protocol.CompactSessionResult{}, err
@@ -530,7 +654,7 @@ func (c *localSession) Watch(ctx context.Context) (protocol.SessionSnapshot, ses
 		return protocol.SessionSnapshot{}, nil, err
 	}
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
-	go stream.readSSE(ctx, body, "", true, "", snapshot.EventStreamID, snapshot.EventCursor, nil, true)
+	go stream.readSSE(ctx, body, "", true, "", snapshot.EventStreamID, snapshot.EventCursor, nil, c.reduceScratchpadEvents, true)
 	return snapshot, stream, nil
 }
 
@@ -581,7 +705,7 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 			c.eventRunStarted = runStarted
 		}
 		c.mu.Unlock()
-	}, false)
+	}, c.reduceScratchpadEvents, false)
 	return stream, nil
 }
 
@@ -798,10 +922,11 @@ func (s *localEventStream) Err() error {
 	return s.err
 }
 
-func isAnnotationSessionEvent(kind protocol.SessionEventKind) bool {
+func isSessionScopedEvent(kind protocol.SessionEventKind) bool {
 	switch kind {
 	case protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
-		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
+		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted,
+		protocol.SessionEventScratchpadChanged:
 		return true
 	default:
 		return false
@@ -817,6 +942,7 @@ func (s *localEventStream) readSSE(
 	expectedStreamID string,
 	after int64,
 	recordCursor func(string, int64, bool),
+	reduceEvents func([]protocol.SessionEvent) ([]protocol.SessionEvent, error),
 	allRuns bool,
 ) {
 	defer body.Close()
@@ -857,18 +983,29 @@ func (s *localEventStream) readSSE(
 			s.err = errEventResyncRequired
 			return false
 		}
-		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
+		receivedEvents := batch.Events
 		cursor := int64(0)
-		for _, event := range batch.Events {
+		for _, event := range receivedEvents {
 			if event.Sequence > cursor {
 				cursor = event.Sequence
 			}
+		}
+		if reduceEvents != nil {
+			var reduceErr error
+			batch.Events, reduceErr = reduceEvents(receivedEvents)
+			if reduceErr != nil {
+				s.err = fmt.Errorf("%w: %v", errEventResyncRequired, reduceErr)
+				return false
+			}
+		}
+		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
+		for _, event := range batch.Events {
 			if allRuns {
 				matching = append(matching, event)
 				continue
 			}
 			if event.RunID != runID {
-				if isAnnotationSessionEvent(event.Kind) {
+				if isSessionScopedEvent(event.Kind) {
 					matching = append(matching, event)
 				}
 				continue

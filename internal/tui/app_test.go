@@ -1142,6 +1142,14 @@ func TestPreferredStartupModelPreservesExplicitCLISelectionAfterLogin(t *testing
 	}
 }
 
+func TestNewSessionInputPreservesActiveModelAndThinking(t *testing.T) {
+	t.Parallel()
+	input := newSessionInput(protocol.SessionInfo{CWD: "/repo", Model: "test/current", ThinkingLevel: "high"}, "test/default")
+	if input.CWD != "/repo" || input.Model != "test/current" || input.ThinkingLevel != "high" {
+		t.Fatalf("new session input = %+v", input)
+	}
+}
+
 func TestResolveSessionLocationUsesAttachedSessionCWD(t *testing.T) {
 	t.Parallel()
 	if got := resolveSessionLocation(context.Background(), "/session-b", "/invocation-a", nil); got != "/session-b" {
@@ -1306,6 +1314,65 @@ func TestBootstrapSessionRejectsCreationForUnavailableProvider(t *testing.T) {
 	}
 }
 
+func TestBootstrapSessionSelectsAvailableCatalogModelWithoutDefault(t *testing.T) {
+	t.Parallel()
+	const selectedModel = "opencode-go/deepseek-v4-flash"
+	server := &fakeServer{
+		models: func() (protocol.ModelCatalog, error) {
+			return protocol.ModelCatalog{Models: []protocol.ModelCapability{
+				{ID: "anthropic/unavailable", Provider: "anthropic", Available: false},
+				{ID: selectedModel, Provider: "opencode-go", Available: true},
+			}}, nil
+		},
+		createdResult: protocol.SessionInfo{ID: "created", CWD: "/repo", Model: selectedModel, ThinkingLevel: "off"},
+	}
+	info, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", "", "", "", "", "", false, "", "", false, protocol.SessionInfo{},
+		func(model string) bool { return modelProvider(model) == "opencode-go" },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if info.ID != "created" || server.created.Model != selectedModel || server.created.ThinkingLevel != "" {
+		t.Fatalf("catalog-backed create = info:%+v input:%+v", info, server.created)
+	}
+}
+
+func TestBootstrapSessionReplacesDeprecatedImplicitDefaultWithinProvider(t *testing.T) {
+	t.Parallel()
+	const selectedModel = "opencode-go/deepseek-v4-flash"
+	server := &fakeServer{
+		models: func() (protocol.ModelCatalog, error) {
+			return protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: selectedModel, Provider: "opencode-go", Available: true}}}, nil
+		},
+		createdResult: protocol.SessionInfo{ID: "created", CWD: "/repo", Model: selectedModel, ThinkingLevel: "off"},
+	}
+	_, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", "opencode-go/kimi-k2.7-code", "", "", "", "", false, "", "", false, protocol.SessionInfo{},
+		func(string) bool { return true },
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if server.created.Model != selectedModel || server.created.ThinkingLevel != "" {
+		t.Fatalf("deprecated implicit default create = %+v", server.created)
+	}
+}
+
+func TestBootstrapSessionRejectsUnavailableExplicitModel(t *testing.T) {
+	t.Parallel()
+	server := &fakeServer{models: func() (protocol.ModelCatalog, error) {
+		return protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/current", Provider: "test", Available: true}}}, nil
+	}}
+	_, _, _, err := bootstrapSession(
+		context.Background(), server, "/repo", "test/deprecated", "", "test/deprecated", "", "", true,
+		"session_0123456789abcdef0123456789abcdef", "", false, protocol.SessionInfo{}, func(string) bool { return true },
+	)
+	if err == nil || server.createCalls != 0 {
+		t.Fatalf("explicit unavailable model error=%v creates=%d", err, server.createCalls)
+	}
+}
+
 func TestBootstrapSessionCreatesWhenNoUsableSessionExists(t *testing.T) {
 	t.Parallel()
 
@@ -1412,7 +1479,11 @@ func (s *fakeServer) Models(context.Context) (protocol.ModelCatalog, error) {
 	if s.models != nil {
 		return s.models()
 	}
-	return protocol.ModelCatalog{}, nil
+	return protocol.ModelCatalog{Models: []protocol.ModelCapability{{
+		ID: codexDefaultModel, Provider: "openai-codex", Available: true,
+		ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingMedium},
+		Inputs:         []protocol.ModelInputKind{protocol.ModelInputText},
+	}}}, nil
 }
 
 func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {
