@@ -2,6 +2,7 @@ package tui
 
 import (
 	"fmt"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -340,7 +341,50 @@ type configurationPickerSurface struct {
 	Apply        ui.VoidCallback
 }
 
-func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
+func (configurationPickerSurface) CreateState() ui.State {
+	return &configurationPickerSurfaceState{selection: -1}
+}
+
+type configurationPickerSurfaceState struct {
+	ui.StateBase
+	scroll      ui.ScrollController
+	list        ui.SliverListController
+	selection   int
+	query       string
+	count       int
+	viewport    int
+	needsReveal bool
+}
+
+func (s *configurationPickerSurfaceState) TickFrame(time.Time) bool {
+	viewport := s.scroll.Metrics().ViewportHeight
+	if viewport != s.viewport {
+		s.viewport = viewport
+		s.needsReveal = true
+	}
+	if !s.needsReveal || viewport <= 0 || !s.list.Attached() {
+		return false
+	}
+	s.needsReveal = false
+	return s.list.RevealIndex(s.selection)
+}
+
+func (s *configurationPickerSurfaceState) optionsList(rows []ui.Widget, selection int, query string) ui.Widget {
+	if s.selection != selection || s.query != query || s.count != len(rows) {
+		s.selection, s.query, s.count = selection, query, len(rows)
+		s.needsReveal = true
+	}
+	return ui.Scrollbar{Child: ui.CustomScrollView{Controller: &s.scroll, Slivers: []ui.Widget{
+		ui.SliverListBuilder{Controller: &s.list, Count: len(rows), ItemExtent: 1,
+			Builder: func(_ ui.BuildContext, index int) ui.Widget { return rows[index] }},
+	}}}
+}
+
+func (s *configurationPickerSurfaceState) Build(ctx ui.BuildContext) ui.Widget {
+	surface := s.Widget().(configurationPickerSurface)
+	if surface.Snapshot.Loading || surface.Snapshot.EditingContext {
+		s.needsReveal = true
+	}
 	theme := ui.MustDepend[ui.Theme](ctx)
 	title := "Select model"
 	if surface.Snapshot.Mode == configurationPickerThinking {
@@ -361,9 +405,9 @@ func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
 		}})
 	case surface.Snapshot.Mode == configurationPickerModel:
-		body = surface.modelBody(theme)
+		body = surface.modelBody(theme, s)
 	default:
-		body = surface.thinkingBody(theme)
+		body = surface.thinkingBody(theme, s)
 	}
 	footerText := "↑↓ move · enter apply · ctrl+o overrides · esc close"
 	if surface.Snapshot.EditingContext {
@@ -390,12 +434,9 @@ func (surface configurationPickerSurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 }
 
-func (surface configurationPickerSurface) modelBody(theme ui.Theme) ui.Widget {
+func (surface configurationPickerSurface) modelBody(theme ui.Theme, state *configurationPickerSurfaceState) ui.Widget {
 	models := surface.filteredModels()
 	queryCursor := len(surface.Snapshot.Query)
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
 	rows := make([]ui.Widget, 0, len(models))
 	for _, model := range models {
 		model := model
@@ -418,18 +459,16 @@ func (surface configurationPickerSurface) modelBody(theme ui.Theme) ui.Widget {
 		rows = []ui.Widget{ui.Text{Value: "No models", Style: ui.Style{Foreground: theme.MutedForeground}}}
 	}
 	children := []ui.Widget{
-		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			textInput(fieldTheme, textInputConfig{
-				Value: surface.Snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,
-				OnChanged: surface.QueryChanged, AutoFocus: true,
-			}),
-		}},
+		pickerSearchInput(theme, textInputConfig{
+			Value: surface.Snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,
+			OnChanged: surface.QueryChanged, AutoFocus: true,
+		}),
 		ui.SizedBox{Height: 1},
 	}
 	if surface.Snapshot.Error != "" {
 		children = append(children, ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1})
 	}
-	children = append(children, ui.Expanded(ui.ScrollView{Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}}))
+	children = append(children, ui.Expanded(state.optionsList(rows, max(0, modelCapabilityIndex(models, surface.Snapshot.Selection)), surface.Snapshot.Query)))
 	return ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
 		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children,
 	})
@@ -451,7 +490,7 @@ func filterModels(query string, models []protocol.ModelCapability) []protocol.Mo
 	})
 }
 
-func (surface configurationPickerSurface) thinkingBody(theme ui.Theme) ui.Widget {
+func (surface configurationPickerSurface) thinkingBody(theme ui.Theme, state *configurationPickerSurfaceState) ui.Widget {
 	index := modelCapabilityIndex(surface.Snapshot.Models, surface.Snapshot.CurrentModel)
 	var levels []protocol.ThinkingLevel
 	if index >= 0 {
@@ -480,9 +519,17 @@ func (surface configurationPickerSurface) thinkingBody(theme ui.Theme) ui.Widget
 	if surface.Snapshot.Error != "" {
 		rows = append([]ui.Widget{ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}}, ui.SizedBox{Height: 1}}, rows...)
 	}
-	return ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.ScrollView{Child: ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows,
-	}})
+	selection := 0
+	for index, level := range levels {
+		if string(level) == surface.Snapshot.Selection {
+			selection = index
+			break
+		}
+	}
+	if surface.Snapshot.Error != "" {
+		selection += 2
+	}
+	return ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, state.optionsList(rows, selection, ""))
 }
 
 type configurationOptionRow struct {
@@ -501,26 +548,26 @@ func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 		marker = glyphCheck + " "
 	}
 	presentation := resolvePickerRowPresentation(ctx, theme)
-	background := theme.Background
 	foreground := presentation.ItemText
 	detailsForeground := theme.MutedForeground
 	if row.Selected {
-		background = presentation.FocusedBg
 		foreground = presentation.FocusedText
 		detailsForeground = presentation.FocusedText
 	}
-	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	// Keep text backgrounds transparent so ListTile paints one continuous
+	// hover/selection surface through the label, metadata and padding.
+	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	var content ui.Widget = label
 	if row.Details != "" {
 		children := []ui.Widget{
 			ui.SizedBox{Width: 24, Child: label},
 			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
+			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
 		}
 		if row.Meta != "" {
 			children = append(children,
 				ui.SizedBox{Width: 1},
-				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground, Background: background}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
 			)
 		}
 		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}

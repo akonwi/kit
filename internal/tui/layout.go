@@ -33,6 +33,17 @@ func resolvePickerRowPresentation(ctx ui.BuildContext, theme ui.Theme) pickerRow
 	}
 }
 
+// pickerSearchInput gives searchable modal pickers one marker, spacing and
+// transparent input surface. The caller supplies its query and callbacks.
+func pickerSearchInput(theme ui.Theme, config textInputConfig) ui.Widget {
+	theme.Surface = theme.Background
+	theme.SurfaceHovered = theme.Background
+	return ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
+		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
+		textInput(theme, config),
+	}}
+}
+
 // pickerDialogContent owns the shared border and fixed footer structure for
 // picker-style dialogs. Callers own the body above the divider.
 func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {

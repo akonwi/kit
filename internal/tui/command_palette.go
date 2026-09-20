@@ -132,20 +132,13 @@ func (s *commandPaletteSurfaceState) build(ctx ui.BuildContext, w commandPalette
 		}
 	}
 
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
 	queryCursor := len(w.Snapshot.Query)
-	query := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-		ui.SizedBox{Width: 1},
-		textInput(fieldTheme, textInputConfig{
-			Value: w.Snapshot.Query, Placeholder: "Search commands…",
-			CursorOffset: &queryCursor,
-			OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
-			AutoFocus: true,
-		}),
-	}}
+	query := pickerSearchInput(theme, textInputConfig{
+		Value: w.Snapshot.Query, Placeholder: "Search commands…",
+		CursorOffset: &queryCursor,
+		OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
+		AutoFocus: true,
+	})
 	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
 		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
@@ -178,19 +171,14 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	presentation := resolvePickerRowPresentation(ctx, theme)
 	rowTheme := presentation.Theme
-	background := theme.Background
 	primary := presentation.ItemText
 	if w.Selected {
-		background = presentation.FocusedBg
 		primary = presentation.FocusedText
 	}
 	if w.DisabledReason != "" {
 		primary = theme.DisabledForeground
 		rowTheme.Primary = theme.SurfaceHovered
 		rowTheme.PrimaryHovered = theme.SurfaceHovered
-		if w.Selected {
-			background = theme.SurfaceHovered
-		}
 	}
 	secondary := theme.MutedForeground
 	if w.Selected {
@@ -203,14 +191,16 @@ func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
 	if w.DisabledReason != "" {
 		description = glyphCircleSlash + " " + w.DisabledReason + " · " + description
 	}
+	// ListTile owns the full-row background, including hover and selection.
+	// Opaque child spans would mask it over the label and description.
 	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Width: w.NameWidth, Child: ui.RichText{
-			Spans:    paletteCommandNameSpans(w.Command, ui.Style{Foreground: primary, Background: background}, ui.Style{Foreground: secondary, Background: background}),
+			Spans:    paletteCommandNameSpans(w.Command, ui.Style{Foreground: primary}, ui.Style{Foreground: secondary}),
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}},
 		ui.SizedBox{Width: 1},
 		ui.Expanded(ui.Text{
-			Value: description, Style: ui.Style{Foreground: secondary, Background: background},
+			Value: description, Style: ui.Style{Foreground: secondary},
 			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
 		}),
 	}}
