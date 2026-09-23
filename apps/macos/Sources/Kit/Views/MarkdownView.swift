@@ -101,10 +101,9 @@ private struct MarkdownTable: View {
     var body: some View {
         ScrollView(.horizontal) {
             Grid(alignment: .topLeading, horizontalSpacing: 0, verticalSpacing: 0) {
-                HStack(alignment: .top, spacing: 0) {
+                GridRow(alignment: .top) {
                     cells(table.header, header: true)
                 }
-                .background { Rectangle().fill(theme.raised) }
                 Rule().gridCellUnsizedAxes(.horizontal)
                 ForEach(Array(table.rows.enumerated()), id: \.offset) { _, cells in
                     GridRow(alignment: .top) { self.cells(cells, header: false) }
@@ -121,9 +120,23 @@ private struct MarkdownTable: View {
         ForEach(Array(values.enumerated()), id: \.offset) { index, cell in
             MarkdownInline(value: cell)
                 .fontWeight(header ? .semibold : .regular)
-                .frame(width: 240, alignment: alignment(index))
+                .multilineTextAlignment(textAlignment(index))
+                .frame(maxWidth: .infinity, alignment: alignment(index))
                 .fixedSize(horizontal: false, vertical: true)
                 .padding(10)
+                .containerRelativeFrame(.horizontal, alignment: alignment(index)) { width, _ in
+                    MarkdownTableSizing.columnWidth(viewport: width, columns: table.header.count)
+                }
+                .background(header ? theme.raised : theme.surface)
+        }
+    }
+
+    private func textAlignment(_ index: Int) -> TextAlignment {
+        guard table.alignments.indices.contains(index) else { return .leading }
+        switch table.alignments[index] {
+        case .leading: return .leading
+        case .center: return .center
+        case .trailing: return .trailing
         }
     }
 
@@ -134,6 +147,15 @@ private struct MarkdownTable: View {
         case .center: return .center
         case .trailing: return .trailing
         }
+    }
+}
+
+/// Padded columns fill the viewport, overflowing only to preserve readable cell widths.
+enum MarkdownTableSizing {
+    static let minimumColumnWidth: CGFloat = 180
+
+    static func columnWidth(viewport: CGFloat, columns: Int) -> CGFloat {
+        max(minimumColumnWidth, viewport / CGFloat(max(1, columns)))
     }
 }
 
