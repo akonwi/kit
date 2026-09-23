@@ -18,6 +18,7 @@ import {
 	SESSIONS_DIR,
 	writeSession,
 } from "../src/session";
+import { loadSettings } from "../src/settings";
 
 const repoRoot = path.resolve(import.meta.dir, "../..");
 const pluginRoot = path.join(
@@ -221,6 +222,16 @@ description: Smoke-test subagent
 Follow the caller's request and return only the exact token it asks for.
 `;
 
+// Resumed sessions keep their stored model instead of the configured default,
+// and a session without one falls back to the provider's first catalog model,
+// which the account may not support. Seed smoke sessions with a usable model.
+const explicitModel = process.env.KIT_PRINT_MODE_SMOKE_MODEL;
+const sessionModelSelector =
+	explicitModel ?? (await loadSettings()).settings.defaultModel;
+const sessionModelId = sessionModelSelector?.slice(
+	sessionModelSelector.indexOf("/") + 1,
+);
+
 try {
 	await writeFile(readFixture, "READ_TOOL_OK\n");
 	await mkdir(pluginRoot, { recursive: true });
@@ -230,7 +241,7 @@ try {
 	await writeFile(subagentPath, subagentSource);
 
 	const defaultCwd = await realpath(tempDir);
-	const defaultSession = await createSession(defaultCwd);
+	const defaultSession = await createSession(defaultCwd, sessionModelId);
 	await writeSession(defaultSession);
 	await expectExact(
 		"default persistent session",
@@ -258,7 +269,6 @@ try {
 		"PLAIN_OK",
 		"Do not call tools. Reply with exactly PLAIN_OK and nothing else.",
 	);
-	const explicitModel = process.env.KIT_PRINT_MODE_SMOKE_MODEL;
 	if (explicitModel) {
 		await expectExact(
 			"explicit model",
@@ -271,7 +281,7 @@ try {
 			"SKIP explicit model: set KIT_PRINT_MODE_SMOKE_MODEL=<provider>/<model-id>",
 		);
 	}
-	const smokeSession = await createSession(tempDir);
+	const smokeSession = await createSession(tempDir, sessionModelId);
 	smokeSessionId = smokeSession.id;
 	await writeSession(smokeSession);
 	await expectExact(
