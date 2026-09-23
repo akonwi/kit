@@ -1,4 +1,5 @@
 import { describe, expect, test } from "bun:test";
+import type { ToolCall } from "@earendil-works/pi-ai";
 import type { AgentRuntimeEvent } from "../../runtime/agent-runtime";
 import type {
 	AppendableSessionEntry,
@@ -51,15 +52,7 @@ const agents: SubagentDefinition[] = [
 
 function assistantMessage(
 	text: string,
-	content?: Array<
-		| { type: "text"; text: string }
-		| {
-				type: "toolCall";
-				id: string;
-				name: string;
-				arguments: Record<string, unknown>;
-		  }
-	>,
+	content?: Array<{ type: "text"; text: string } | ToolCall>,
 ) {
 	return {
 		role: "assistant" as const,

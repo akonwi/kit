@@ -11,11 +11,21 @@ import {
 	writeSession,
 } from "../session";
 import { scratchpadPath } from "../storage/session-sidecars";
-import type { AgentTool } from "./agent";
+import { type Agent, type AgentTool, SYSTEM_SECTIONS } from "./agent";
 import { AgentRuntime, isRetryableProviderErrorMessage } from "./agent-runtime";
 
-const blockedTool = { name: "blocked" } as AgentTool;
-const customTool = { name: "custom" } as AgentTool;
+function fakeTool(name: string): AgentTool {
+	return {
+		name,
+		label: name,
+		description: `${name} test tool`,
+		parameters: {},
+		execute: async () => ({ content: [], details: undefined }),
+	} as AgentTool;
+}
+
+const blockedTool = fakeTool("blocked");
+const customTool = fakeTool("custom");
 
 function runtimeSession(id: string): Session {
 	const timestamp = new Date().toISOString();
@@ -27,6 +37,10 @@ function runtimeSession(id: string): Session {
 		updatedAt: timestamp,
 		turns: [],
 	};
+}
+
+function agentOf(runtime: AgentRuntime): Agent {
+	return (runtime as unknown as { agent: Agent }).agent;
 }
 
 describe("AgentRuntime tool exclusions", () => {
@@ -54,6 +68,54 @@ describe("AgentRuntime tool exclusions", () => {
 			expect(runtime.getTools().map((tool) => tool.name)).toContain(
 				blockedTool.name,
 			);
+		} finally {
+			runtime.dispose();
+		}
+	});
+});
+
+describe("AgentRuntime system prompt additions", () => {
+	function promptWith(order: string[]): string {
+		const runtime = new AgentRuntime(runtimeSession("prompt-order-test"), {
+			disableGitWatcher: true,
+		});
+		try {
+			for (const text of order) runtime.addSystemPromptAddition(text);
+			return agentOf(runtime).systemPrompt;
+		} finally {
+			runtime.dispose();
+		}
+	}
+
+	test("renders additions in a stable order regardless of registration order", () => {
+		expect(promptWith(["Alpha policy", "Beta policy"])).toBe(
+			promptWith(["Beta policy", "Alpha policy"]),
+		);
+	});
+});
+
+describe("AgentRuntime scratchpad section", () => {
+	test("keeps scratchpad contents out of the main prompt section", () => {
+		const runtime = new AgentRuntime(runtimeSession("scratchpad-section"), {
+			disableGitWatcher: true,
+		});
+		try {
+			runtime.setScratchpadContent("first note");
+			const agent = agentOf(runtime);
+			const promptSection = () =>
+				(
+					agent as unknown as {
+						pendingSections: Map<string, string | null>;
+					}
+				).pendingSections.get(SYSTEM_SECTIONS.prompt);
+			const mainPrompt = promptSection();
+
+			runtime.setScratchpadContent("second note");
+
+			expect(promptSection()).toBe(mainPrompt);
+			expect(mainPrompt).not.toContain("first note");
+			expect(agent.systemPrompt).toContain("second note");
+			expect(agent.systemPrompt).not.toContain("first note");
 		} finally {
 			runtime.dispose();
 		}

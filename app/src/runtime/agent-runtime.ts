@@ -47,6 +47,7 @@ import {
 	type BeforeToolCallContext,
 	type BeforeToolCallResult,
 	type Model,
+	SYSTEM_SECTIONS,
 	type ThinkingLevel,
 	type UserMessage,
 } from "./agent";
@@ -470,17 +471,30 @@ export class AgentRuntime {
 
 	private getEffectiveSystemPrompt(): string {
 		const scratchpadGuidance = this.scratchpadEnabled
-			? `The active session scratchpad is the Markdown file at ${scratchpadPath(this.session.id)}. Its contents are included in context. Use edit_scratchpad for targeted changes so edits always apply to the active session; use read or write only when inspection or full replacement is necessary.`
+			? `The active session scratchpad is the Markdown file at ${scratchpadPath(this.session.id)}. Its current contents are provided in the <scratchpad> system section. Use edit_scratchpad for targeted changes so edits always apply to the active session; use read or write only when inspection or full replacement is necessary.`
 			: "";
 		const basePrompt = [
 			DEFAULT_SYSTEM_PROMPT,
 			scratchpadGuidance,
-			...this.systemPromptAdditions,
+			// Sort additions so plugin registration timing and remove/re-add cycles
+			// don't reorder the prompt; any text change re-sends the full prompt.
+			...[...this.systemPromptAdditions].sort(),
 			...this.systemPromptSlots.map((slot) => slot.text),
 		]
 			.filter((value) => value.trim().length > 0)
 			.join("\n\n");
-		return buildSystemPrompt(basePrompt, this.getEffectiveContextFiles());
+		// Scratchpad contents are a separate section (see syncScratchpadSection)
+		// so frequent edits don't re-send the whole prompt.
+		return buildSystemPrompt(basePrompt, this.contextFiles);
+	}
+
+	private syncScratchpadSection(): void {
+		this.agent.setSystemSection(
+			SYSTEM_SECTIONS.scratchpad,
+			this.scratchpadEnabled
+				? `<scratchpad path=${JSON.stringify(scratchpadPath(this.session.id))}>\n${this.scratchpadContent}\n</scratchpad>`
+				: null,
+		);
 	}
 
 	private findFileOperationHandler(
@@ -517,6 +531,7 @@ export class AgentRuntime {
 	private applySessionContext(session: Session): void {
 		this.contextFiles = discoverContextFiles(session.cwd);
 		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+		this.syncScratchpadSection();
 		this.agent.setTools(this.getEffectiveTools());
 		this.agent.sessionId = session.id;
 		if (!this.disableGitWatcher) {
@@ -1587,8 +1602,12 @@ export class AgentRuntime {
 		const enableTools = !this.scratchpadEnabled;
 		this.scratchpadEnabled = true;
 		this.scratchpadContent = content;
-		this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
-		if (enableTools) this.agent.setTools(this.getEffectiveTools());
+		this.syncScratchpadSection();
+		if (enableTools) {
+			// Enabling adds the scratchpad guidance to the main prompt once.
+			this.agent.setSystemPrompt(this.getEffectiveSystemPrompt());
+			this.agent.setTools(this.getEffectiveTools());
+		}
 	}
 
 	registerFileOperationHandler(handler: FileOperationHandler): () => void {

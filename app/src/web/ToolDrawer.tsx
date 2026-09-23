@@ -15,6 +15,17 @@ import { displayValue } from "./presentation";
 
 const MAX_VISIBLE_TOOL_NAMES = 8;
 
+function normalizeToolArguments(
+	args: Readonly<Record<string, unknown>> | undefined,
+): ToolCall["arguments"] {
+	if (!args) return {};
+	try {
+		return JSON.parse(JSON.stringify(args)) as ToolCall["arguments"];
+	} catch {
+		return {};
+	}
+}
+
 export function mergeLiveToolCalls(
 	toolCalls: ToolCall[],
 	liveTools: ToolActivity[],
@@ -27,7 +38,7 @@ export function mergeLiveToolCalls(
 			type: "toolCall",
 			id: tool.id,
 			name: tool.name,
-			arguments: tool.args ?? {},
+			arguments: normalizeToolArguments(tool.args),
 		});
 	}
 	return merged;

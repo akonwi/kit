@@ -1,5 +1,9 @@
 import { randomUUID } from "node:crypto";
-import type { ImageContent, TextContent } from "../../runtime/agent";
+import type {
+	ImageContent,
+	TextContent,
+	ToolResultMessage,
+} from "../../runtime/agent";
 import {
 	AgentRuntime,
 	type AgentRuntimeEvent,
@@ -190,9 +194,20 @@ function assistantMessageId(message: unknown): string | undefined {
 	return undefined;
 }
 
+function normalizeJsonDetails(
+	value: unknown,
+): ToolResultMessage["details"] | undefined {
+	if (value === undefined) return undefined;
+	try {
+		return JSON.parse(JSON.stringify(value)) as ToolResultMessage["details"];
+	} catch {
+		return undefined;
+	}
+}
+
 function normalizeToolResultContent(result: unknown): {
 	content: (TextContent | ImageContent)[];
-	details?: unknown;
+	details?: ToolResultMessage["details"];
 } {
 	if (result && typeof result === "object") {
 		const candidate = result as { content?: unknown; details?: unknown };
@@ -207,7 +222,10 @@ function normalizeToolResultContent(result: unknown): {
 						(block as { type?: unknown }).type === "image"),
 			);
 			if (content.length > 0) {
-				return { content, details: candidate.details };
+				return {
+					content,
+					details: normalizeJsonDetails(candidate.details),
+				};
 			}
 		}
 	}
@@ -222,7 +240,7 @@ function normalizeToolResultContent(result: unknown): {
 		content: text.trim().length > 0 ? [{ type: "text", text }] : [],
 		details:
 			result && typeof result === "object" && "details" in result
-				? (result as { details?: unknown }).details
+				? normalizeJsonDetails((result as { details?: unknown }).details)
 				: undefined,
 	};
 }

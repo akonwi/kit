@@ -20,10 +20,15 @@ import type {
 	ImageContent,
 	Message,
 	Model,
+	SystemMessage,
 	TextContent,
 	ThinkingBudgets,
 	Transport,
 	UserMessage,
+} from "@earendil-works/pi-ai";
+import {
+	getCurrentSystemMessage,
+	getCurrentSystemPrompt,
 } from "@earendil-works/pi-ai";
 import {
 	type MessagePart,
@@ -50,6 +55,7 @@ export type {
 	ImageContent,
 	Model,
 	Static,
+	SystemMessage,
 	TextContent,
 	ToolCall,
 	ToolResultMessage,
@@ -202,6 +208,18 @@ function kitMessageUpdate(
 	}
 }
 
+const KIT_SYSTEM_PROMPT_SECTION = "kit.system-prompt";
+
+/**
+ * Named system-prompt sections. Each section is replaced independently, so a
+ * change to one does not re-send the others to models that accept
+ * mid-conversation system messages.
+ */
+export const SYSTEM_SECTIONS = {
+	prompt: KIT_SYSTEM_PROMPT_SECTION,
+	scratchpad: "kit.scratchpad",
+} as const;
+
 export class Agent {
 	private readonly pi: PiAgent;
 	private readonly bus = new EventBus<AgentEventMap>();
@@ -218,6 +236,8 @@ export class Agent {
 	private _followUpGeneration = 0;
 	private nextPromptStartsNewTurn = false;
 	private activeAssistantMessageId: string | null = null;
+	private readonly pendingSections = new Map<string, string | null>();
+	private hasStartedRun = false;
 	private _activeAssistantMessage: Extract<
 		KitAgentMessage,
 		{ role: "assistant" }
@@ -232,30 +252,46 @@ export class Agent {
 
 	constructor(opts?: AgentOptions) {
 		const initialTurns = opts?.initialTurns;
+		const sanitizedTurns = initialTurns?.map((turn) => ({
+			...turn,
+			messages: turn.messages.filter((message) => message.role !== "system"),
+		}));
 		const initialMessages =
-			initialTurns?.flatMap((turn) => turn.messages) ?? [];
+			sanitizedTurns?.flatMap((turn) => turn.messages) ?? [];
+		const stateMessages =
+			initialMessages.length > 0
+				? initialMessages
+				: (opts?.initialState?.messages ?? []);
+		const ownsInitialSystemMessage = stateMessages[0]?.role !== "system";
+		const initialSystemPrompt = opts?.initialState?.systemPrompt ?? "";
 		this.pi = new PiAgent({
 			...opts,
 			streamFn: opts?.streamFn ?? kitStreamFn,
 			initialState: {
-				systemPrompt: opts?.initialState?.systemPrompt ?? "",
+				systemPrompt: initialSystemPrompt,
 				thinkingLevel: opts?.initialState?.thinkingLevel ?? "medium",
 				...opts?.initialState,
-				messages:
-					initialMessages.length > 0
-						? initialMessages
-						: (opts?.initialState?.messages ?? []),
+				messages: stateMessages,
 			},
 			steeringMode: opts?.steeringMode ?? "all",
 			followUpMode: opts?.followUpMode ?? "all",
 			convertToLlm,
 		});
 
-		if (initialTurns) {
-			this._turns = initialTurns.map((turn) => ({
-				...turn,
-				messages: [...turn.messages],
-			}));
+		const [initialSystemMessage, ...remainingMessages] = this.pi.state.messages;
+		if (ownsInitialSystemMessage && initialSystemMessage?.role === "system") {
+			this.pi.state.messages = [
+				{
+					...initialSystemMessage,
+					content: "",
+					sections: { [KIT_SYSTEM_PROMPT_SECTION]: initialSystemPrompt },
+				},
+				...remainingMessages,
+			];
+		}
+
+		if (sanitizedTurns) {
+			this._turns = sanitizedTurns;
 		}
 
 		this.unsubscribePi = this.pi.subscribe((event) => {
@@ -326,8 +362,69 @@ export class Agent {
 		return this.bus.subscribe(fn);
 	}
 
+	/** Effective system prompt, including section changes not yet applied. */
+	get systemPrompt(): string {
+		const pending = this.pendingSystemUpdate();
+		return getCurrentSystemPrompt(
+			pending ? [...this.pi.state.messages, pending] : this.pi.state.messages,
+		);
+	}
+
 	setSystemPrompt(v: string): void {
-		this.pi.state.systemPrompt = v;
+		this.setSystemSection(KIT_SYSTEM_PROMPT_SECTION, v);
+	}
+
+	/**
+	 * Queue a named system-prompt section change (`null` removes it). Changes
+	 * are coalesced and applied once when the next run starts, so bursts of
+	 * updates (plugin startup, remove/re-add cycles) produce at most one
+	 * system message per run.
+	 */
+	setSystemSection(name: string, value: string | null): void {
+		this.pendingSections.set(name, value);
+	}
+
+	private pendingSystemUpdate(): SystemMessage | undefined {
+		if (this.pendingSections.size === 0) return undefined;
+		const current =
+			getCurrentSystemMessage(this.pi.state.messages)?.sections ?? {};
+		const changed: Record<string, string | null> = {};
+		for (const [name, value] of this.pendingSections) {
+			if ((current[name] ?? null) === value) continue;
+			changed[name] = value;
+		}
+		if (Object.keys(changed).length === 0) return undefined;
+		return {
+			role: "system",
+			content: "",
+			sections: changed,
+			timestamp: Date.now(),
+		};
+	}
+
+	private flushSystemSections(): void {
+		// A run snapshots the transcript at start; changes wait for the next run.
+		if (this.pi.state.isStreaming) return;
+		const update = this.pendingSystemUpdate();
+		this.pendingSections.clear();
+		const isFirstRun = !this.hasStartedRun;
+		this.hasStartedRun = true;
+		if (!update) return;
+		const messages = this.pi.state.messages;
+		if (!isFirstRun) {
+			this.pi.state.messages = [...messages, update];
+			return;
+		}
+		// This process hasn't sent anything yet. System messages are never
+		// persisted, so the leading one is rebuilt every start anyway: fold the
+		// change into it so restarts send the prompt once, with a stable prefix.
+		const leading = getCurrentSystemMessage([...messages, update]);
+		const conversation = messages.filter(
+			(message) => message.role !== "system",
+		);
+		this.pi.state.messages = leading
+			? [leading, ...conversation]
+			: conversation;
 	}
 
 	setModel(model: Model<Api>): void {
@@ -460,6 +557,7 @@ export class Agent {
 		input: AgentMessage | AgentMessage[] | string,
 		images?: ImageContent[],
 	): Promise<void> {
+		this.flushSystemSections();
 		if (typeof input === "string") {
 			this.nextPromptStartsNewTurn = true;
 			const run = this.pi.prompt(input, images);
@@ -511,6 +609,7 @@ export class Agent {
 	}
 
 	continue(): Promise<void> {
+		this.flushSystemSections();
 		return this.pi.continue();
 	}
 
@@ -622,6 +721,9 @@ export class Agent {
 				return events;
 			}
 			case "message_end": {
+				// System messages (prompt sections, tool declarations) live only in
+				// the model transcript; they are not user-facing turn content.
+				if (event.message.role === "system") return [];
 				const isQueuedSteering =
 					event.message.role === "user" &&
 					this.consumeQueuedSteering(event.message);
@@ -866,7 +968,10 @@ export class Agent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.pi.state.messages = messages;
+		const systemMessage = getCurrentSystemMessage(this.pi.state.messages);
+		this.pi.state.messages = systemMessage
+			? [systemMessage, ...messages]
+			: messages;
 		for (const turn of this._turns) {
 			const message = turn.messages.find((candidate) => predicate(candidate));
 			if (message) {
@@ -893,7 +998,10 @@ export class Agent {
 		const messages = this._turns.flatMap(
 			(turn) => turn.messages,
 		) as AgentMessage[];
-		this.pi.state.messages = messages;
+		const systemMessage = getCurrentSystemMessage(this.pi.state.messages);
+		this.pi.state.messages = systemMessage
+			? [systemMessage, ...messages]
+			: messages;
 	}
 }
 
@@ -913,6 +1021,9 @@ function convertToLlm(messages: AgentMessage[]): Message[] {
 	const result: Message[] = [];
 	for (const msg of messages) {
 		switch (msg.role) {
+			case "system":
+				result.push(msg);
+				break;
 			case "user": {
 				const normalized = normalizeUserMessage(
 					msg as UserMessage | UserMultipartMessage,
