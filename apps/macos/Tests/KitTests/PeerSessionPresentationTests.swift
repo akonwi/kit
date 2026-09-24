@@ -60,9 +60,11 @@ struct PeerSessionPresentationTests {
             let host = NSHostingView(rootView: VStack(alignment: .leading, spacing: 16) {
                 ToolCallDetail(tool: discover, workspace: WorkspaceState())
                 ToolCallDetail(tool: response, workspace: WorkspaceState())
-            }.padding(20).frame(width: 700).environment(\.mica, theme)
+            }.padding(20).frame(width: 700, height: 430, alignment: .topLeading).environment(\.mica, theme)
                 .environment(\.transcriptSessionLink, TranscriptSessionLink(serverID: "test", open: { _ in }))
                 .environment(\.colorScheme, dark ? .dark : .light).foregroundStyle(theme.text).background(theme.surface))
+            // Keep the snapshot viewport fixed while SwiftUI resolves child sizes.
+            host.sizingOptions = []
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 700, height: 430), styleMask: [.borderless], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false
             window.contentView = host
@@ -70,9 +72,11 @@ struct PeerSessionPresentationTests {
             defer { window.close() }
             try await Task.sleep(for: .milliseconds(200))
             host.layoutSubtreeIfNeeded()
+            try #require(host.bounds.size == NSSize(width: 700, height: 430))
             let bitmap = try #require(host.bitmapImageRepForCachingDisplay(in: host.bounds))
             host.cacheDisplay(in: host.bounds, to: bitmap)
-            let actual = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 2, y: 70)?.usingColorSpace(.deviceRGB))
+            // Sample the outer padding in viewport coordinates on either backing scale.
+            let actual = try #require(bitmap.colorAt(x: bitmap.pixelsWide / 70, y: bitmap.pixelsHigh / 43)?.usingColorSpace(.deviceRGB))
             let expected = try #require(NSColor(theme.surface).usingColorSpace(.deviceRGB))
             #expect(abs(actual.redComponent - expected.redComponent) < 0.02)
             #expect(abs(actual.greenComponent - expected.greenComponent) < 0.02)

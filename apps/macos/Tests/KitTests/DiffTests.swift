@@ -240,17 +240,29 @@ extension InlineAnnotationEditorTests {
             let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 560), styleMask: [.titled, .closable], backing: .buffered, defer: false)
             window.isReleasedWhenClosed = false; window.contentView = host; window.makeKeyAndOrderFront(nil)
             defer { window.close() }
-            try await Task.sleep(for: .milliseconds(650))
+            func editors(in view: NSView) -> [TextViewController] {
+                if let editor = view.nextResponder as? TextViewController { return [editor] }
+                return view.subviews.flatMap { editors(in: $0) }
+            }
+            let clock = ContinuousClock()
+            let deadline = clock.now.advanced(by: .seconds(3))
+            var rendered: [TextViewController] = []
+            while clock.now < deadline {
+                host.layoutSubtreeIfNeeded()
+                rendered = editors(in: host)
+                let ready = rendered.count == 2 && rendered.allSatisfy { editor in
+                    guard let gutter = editor.view.subviews.compactMap({ $0 as? AnnotationGutterOverlay }).first else { return false }
+                    return gutter.diffRows?.count == 5 && gutter.frame.height > 70 &&
+                        abs(editor.view.frame.height - editor.textView.layoutManager.estimatedHeight() - 8) < 2
+                }
+                if ready { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
             #expect(state.ui.workspace.diff.target?.metadata.label == "Working tree")
             #expect(state.ui.workspace.diff.selectedPath == "main.swift")
             let controller = try #require(Self.controller(in: host))
             #expect(controller.textView.string.contains("Bonjour 🌿"))
             #expect(state.ui.workspace.diff.fileStates["greeting.swift"]?.document?.file.path == "greeting.swift")
-            func editors(in view: NSView) -> [TextViewController] {
-                if let editor = view.nextResponder as? TextViewController { return [editor] }
-                return view.subviews.flatMap { editors(in: $0) }
-            }
-            let rendered = editors(in: host)
             #expect(rendered.count == 2)
             for editor in rendered {
                 #expect(editor.forwardsVerticalScrollToParent)
