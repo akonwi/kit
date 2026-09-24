@@ -66,7 +66,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   to clients.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
   checkpoints and expose pending, completed, and failed lifecycle state.
-- [ ] CORE-SESSION-002 — Automatically assign useful session names without
+- [x] CORE-SESSION-002 — Automatically assign useful session names without
   overwriting explicit user names.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.

@@ -118,6 +118,7 @@ type Manager struct {
 	pluginContext         context.Context
 	cancelPlugins         context.CancelFunc
 	modelContextWindow    func(string) int
+	autoName              bool
 	attachments           attachment.Store
 	annotations           *kitannotation.Service
 	mailbox               subagent.Repository
@@ -222,6 +223,9 @@ type runtime struct {
 	admissionMu           sync.Mutex
 	mu                    sync.Mutex
 	activeRun             string
+	autoNameRunning       bool
+	autoNameAgain         bool
+	autoNameSettled       bool
 	runs                  map[string]*liveRun
 	recovery              *droids.ExecutionSnapshot
 	configurationWarnings []string
@@ -286,6 +290,16 @@ type managerOptions struct {
 	attachments        attachment.Store
 	annotations        *kitannotation.Service
 	modelContextWindow func(string) int
+	autoName           bool
+}
+
+// WithAutomaticNaming names an unnamed session from a private in-memory fork
+// after two successful user turns. Explicit names are left unchanged.
+func WithAutomaticNaming() ManagerOption {
+	return func(options *managerOptions) error {
+		options.autoName = true
+		return nil
+	}
 }
 
 // WithPluginSubagentCatalogRegistry connects live applied definitions to the
@@ -385,7 +399,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
 	pluginContext, cancelPlugins := context.WithCancel(context.Background())
 	manager := &Manager{
-		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments, annotations: options.annotations,
+		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments, annotations: options.annotations, autoName: options.autoName,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
 		pluginFactory: options.pluginFactory, pluginSubagents: options.pluginSubagents, pluginContext: pluginContext, cancelPlugins: cancelPlugins,
 		bashContext: bashContext, cancelBash: cancelBash,
@@ -1963,6 +1977,7 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 	}
 	loaded.admissionMu.Unlock()
 	m.startQueuedFollowUps(loaded, sessionID)
+	m.scheduleAutoName(sessionID)
 	loaded.mu.Lock()
 	close(run.done)
 	loaded.mu.Unlock()
@@ -2221,6 +2236,9 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	m.mu.Unlock()
 	if err == nil && loaded.plugins != nil {
 		loaded.plugins.Start()
+	}
+	if err == nil {
+		m.scheduleAutoName(sessionID)
 	}
 	if startRecovery {
 		go m.resumeRuntimeWithLimits(loaded, sessionID)

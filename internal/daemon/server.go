@@ -243,6 +243,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		kitsession.WithModelContextWindow(modelContextWindow),
 		kitsession.WithPluginHostFactory(pluginHostFactory(paths, pullRequests, logger)),
 		kitsession.WithPluginSubagentCatalogRegistry(subagentTools),
+		kitsession.WithAutomaticNaming(),
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
