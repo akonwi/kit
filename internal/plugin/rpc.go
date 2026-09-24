@@ -515,11 +515,16 @@ func (e *RPCEndpoint) acceptResponse(message rpcMessage) {
 		} else if pending.validate != nil {
 			result.err = pending.validate(message.Result)
 		}
+		if message.Error == nil && result.err != nil {
+			e.mu.Unlock()
+			// Revoke the endpoint before exposing a malformed response to its
+			// caller, which may immediately initiate instance shutdown.
+			e.Close(result.err)
+			pending.result <- result
+			return
+		}
 		pending.result <- result
 		e.mu.Unlock()
-		if message.Error == nil && result.err != nil {
-			e.Close(result.err)
-		}
 		return
 	}
 	if e.cancelled[key] {

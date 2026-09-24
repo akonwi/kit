@@ -53,6 +53,42 @@ func rpcWritePeer(t *testing.T, peer io.Writer, frame string) {
 	}
 }
 
+func TestRPCMalformedResponseClosesBeforePublishingResult(t *testing.T) {
+	endpoint, _, _ := rpcTestPeer(t, RPCHandlers{}, defaultRPCLimits)
+	invalid := errors.New("invalid response")
+	// An unbuffered result exposes the publication boundary deterministically:
+	// the endpoint must close without first needing the caller to receive.
+	pending := &rpcPending{
+		result:   make(chan rpcResult),
+		validate: func(json.RawMessage) error { return invalid },
+	}
+	id := json.RawMessage(`"invalid-call"`)
+	key, _ := requestKey(id)
+	endpoint.mu.Lock()
+	endpoint.pending[key] = pending
+	endpoint.mu.Unlock()
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		endpoint.acceptResponse(rpcMessage{ID: id, Result: json.RawMessage(`{}`)})
+	}()
+	select {
+	case <-endpoint.closed:
+	case <-time.After(time.Second):
+		// Release a publisher blocked on the incorrect ordering before failing.
+		<-pending.result
+		<-done
+		t.Fatal("malformed response publication blocked endpoint closure")
+	}
+	if err := endpoint.Err(); !errors.Is(err, invalid) {
+		t.Fatalf("endpoint error = %v", err)
+	}
+	if result := <-pending.result; !errors.Is(result.err, invalid) {
+		t.Fatalf("call error = %v", result.err)
+	}
+	<-done
+}
+
 func TestRPCNestedCallsAndIndependentIDNamespaces(t *testing.T) {
 	var endpoint *RPCEndpoint
 	handlers := RPCHandlers{Request: func(ctx context.Context, method string, params json.RawMessage) (json.RawMessage, error) {
