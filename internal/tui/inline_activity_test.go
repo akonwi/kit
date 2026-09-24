@@ -78,7 +78,7 @@ func TestProgressiveToolGroupExpansion(t *testing.T) {
 	state.SetState(func() { state.count = 7 })
 	check("▾ 7 tool calls", 7)
 	state.SetState(func() { state.overrides = map[string]bool{}; state.running = false })
-	check("› 7 tool calls", 0)
+	check("▸ 7 tool calls", 0)
 }
 
 func TestManualCollapseOverridesSmallLiveGroup(t *testing.T) {

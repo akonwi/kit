@@ -6,21 +6,25 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 )
 
+// activityTextIndent aligns interleaved thinking and prose with tool titles,
+// past the shared state-icon column.
+const activityTextIndent = 2
+
 func (w shellView) activityListItem(theme ui.Theme, item activityListItem, states map[transcriptToolStateKey]transcriptMessage) ui.Widget {
 	switch item.Kind {
 	case activityListThinking:
-		return keyedActivityItem{ID: item.ID, Child: markdownView{
+		return keyedActivityItem{ID: item.ID, Child: ui.Padding(ui.Insets{Left: activityTextIndent}, markdownView{
 			ID: item.ID, Source: item.Section.Thinking,
 			BaseStyle: ui.Style{Foreground: theme.MutedForeground, Attribute: ui.AttrItalic},
-		}}
+		})}
 	case activityListProse:
 		style := ui.Style{Foreground: theme.Foreground}
 		if item.Section.Aborted {
 			style.Foreground = theme.MutedForeground
 		}
-		return keyedActivityItem{ID: item.ID, Child: markdownView{
+		return keyedActivityItem{ID: item.ID, Child: ui.Padding(ui.Insets{Left: activityTextIndent}, markdownView{
 			ID: item.ID, Source: item.Section.Prose, BaseStyle: style,
-		}}
+		})}
 	default:
 		state, exists := states[transcriptToolStateKey{TurnID: item.Key.TurnID, ToolCallID: item.Key.ToolCallID}]
 		subagentName := subagentToolAgentName(item.Call)

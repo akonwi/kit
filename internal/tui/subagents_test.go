@@ -579,6 +579,46 @@ func TestSubagentTranscriptRendersFinalResponseAtEnd(t *testing.T) {
 	}
 }
 
+func TestSubagentTranscriptShowsReadingStrip(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	base := shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		Workspace: selectedSubagentWorkspace(conversationID), SubagentScrolls: map[string]*ui.ScrollController{conversationID: &ui.ScrollController{}},
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
+		SubagentReading: map[string]transcriptReadingSnapshot{
+			conversationID: {Visible: true, Title: "Overview", Selected: 0, Count: 4},
+		},
+		SubagentReadingSections: map[string][]transcriptReadingSection{
+			conversationID: {{Title: "Overview"}, {Title: "Findings"}, {Title: "Approach"}, {Title: "Verification"}},
+		},
+	}
+	stripApp := uitest.New(shellView{Snapshot: base})
+	stripApp.Pump(100, 16)
+	strip := ""
+	for _, row := range paintedRows(stripApp, 100, 16) {
+		if strings.Contains(row, "Overview") && strings.Contains(row, "1 / 4") && strings.Contains(row, "↑ ↓") {
+			strip = row
+			break
+		}
+	}
+	if strip == "" || strings.Index(strip, "Overview") > strings.Index(strip, "↑ ↓") {
+		t.Fatalf("subagent reading strip missing or arrows split:\n%s", strings.Join(paintedRows(stripApp, 100, 16), "\n"))
+	}
+
+	picker := base
+	picker.SubagentReadingPickerID = conversationID
+	picker.SubagentReadingPickerSelected = 1
+	pickerApp := uitest.New(shellView{Snapshot: picker})
+	pickerApp.Pump(100, 16)
+	cornerColumn, cornerRow := findPaintedCellSequence(t, pickerApp, 100, 16, "┌")
+	_, labelRow := findPaintedCellSequence(t, pickerApp, 100, 16, "1  Overview")
+	if cornerColumn > 8 || labelRow != cornerRow+1 {
+		t.Fatalf("subagent picker corner %d,%d label row %d, want it over the section title\n%s", cornerColumn, cornerRow, labelRow, strings.Join(paintedRows(pickerApp, 100, 16), "\n"))
+	}
+}
+
 func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 	t.Parallel()
 	layout := &workspaceLayoutState{}

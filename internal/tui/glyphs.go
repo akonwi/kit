@@ -23,4 +23,8 @@ const (
 	glyphHeavyLine      = "━"
 	glyphDiamond        = "◆"
 	glyphComment        = "🗨"
+	glyphLowerHalfBlock = "▄"
+	glyphUpperHalfBlock = "▀"
+	glyphArrowDown      = "↓"
+	glyphChevronUp      = "↑"
 )

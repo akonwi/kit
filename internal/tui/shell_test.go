@@ -540,7 +540,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 		t.Fatalf("completed turn slot = %q, want reserved blank row", got)
 	}
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"I’ll inspect it now.", "› 1 tool call"} {
+	for _, expected := range []string{"I’ll inspect it now.", "▸ 1 tool call"} {
 		if !strings.Contains(text, expected) {
 			t.Errorf("completed activity missing %q:\n%s", expected, text)
 		}

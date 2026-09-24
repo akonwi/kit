@@ -39,6 +39,8 @@ type markdownDocumentCache struct {
 	parsedSource  string
 	pendingSource string
 	parsePending  bool
+	// blockOffsets records each block's row within the rendered message.
+	blockOffsets []int
 }
 
 func newMarkdownDocumentCache(config markdownView) markdownDocumentCache {
@@ -85,12 +87,19 @@ func (s *markdownViewState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	document := s.cache.document
 	children := make([]ui.Widget, 0, len(document.Blocks)*2)
+	offsets := make([]int, len(document.Blocks))
+	rows := 0
 	for index, block := range document.Blocks {
 		if index > 0 && markdownBlocksNeedGap(document.Blocks[index-1], block) {
 			children = append(children, renderMarkdownGap(theme, base, document.Blocks[index-1], block))
+			rows++
 		}
-		children = append(children, renderMarkdownBlock(theme, base, block))
+		offsets[index] = rows
+		rendered := renderMarkdownBlock(theme, base, block)
+		children = append(children, rendered)
+		rows += markdownBlockRows(block)
 	}
+	s.cache.blockOffsets = offsets
 	// Keep one stable outer render-object shape as streaming content changes.
 	return ui.Flex{
 		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin,
@@ -147,6 +156,20 @@ func parseMarkdownDocument(config markdownView) kitmarkdown.Document {
 		return config.parseSource(config.Source)
 	}
 	return kitmarkdown.Parse(config.Source)
+}
+
+// markdownBlockRows estimates a block's rendered height. Wrapped lines are
+// counted as one row, which is exact for headings and short paragraphs and a
+// lower bound for wide blocks.
+func markdownBlockRows(block kitmarkdown.Block) int {
+	switch block.Kind {
+	case kitmarkdown.BlockCode:
+		return strings.Count(block.Code, "\n") + 1
+	case kitmarkdown.BlockTable:
+		return len(block.Rows) + 1
+	default:
+		return max(1, strings.Count(markdownPlainText(block.Runs), "\n")+1)
+	}
 }
 
 func markdownBlocksNeedGap(previous, current kitmarkdown.Block) bool {
@@ -444,6 +467,15 @@ func markdownRunText(run kitmarkdown.Run) string {
 		return sanitizeMarkdownLinkTarget(run.Link)
 	}
 	return run.Text
+}
+
+// markdownPlainText joins a run sequence into its visible text.
+func markdownPlainText(runs []kitmarkdown.Run) string {
+	var text strings.Builder
+	for _, run := range runs {
+		text.WriteString(markdownRunText(run))
+	}
+	return text.String()
 }
 
 func markdownRunSpan(theme ui.Theme, base ui.Style, run kitmarkdown.Run) ui.TextSpan {

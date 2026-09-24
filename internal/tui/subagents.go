@@ -531,7 +531,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 				Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true,
 			})
 		}
-		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, nil, true, leading)
+		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, w.Snapshot.SubagentTranscriptLists[conversationID], true, leading)
 	} else {
 		var state ui.Widget
 		if !loaded && loadError != "" {
@@ -561,6 +561,36 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 			}
 			break
 		}
+	}
+	overlays := []ui.Widget{body}
+	if w.Snapshot.SubagentLatestOutOfView[conversationID] {
+		overlays = append(overlays, ui.Align{Alignment: ui.BottomRight, Child: ui.Padding(ui.Insets{Right: 1, Bottom: 1}, transcriptLatestButton{OnPressed: func(ctx ui.EventContext) {
+			if w.Callbacks.ResumeSubagentFollow != nil {
+				w.Callbacks.ResumeSubagentFollow(ctx, conversationID)
+			}
+		}})})
+	}
+	reading := w.Snapshot.SubagentReading[conversationID]
+	overlays = append(overlays, transcriptReadingChrome(
+		reading, w.Snapshot.SubagentReadingPickerID == conversationID, w.Snapshot.SubagentReadingSections[conversationID], w.Snapshot.SubagentReadingPickerSelected,
+		func(ctx ui.EventContext) {
+			if w.Callbacks.OpenSubagentReading != nil {
+				w.Callbacks.OpenSubagentReading(ctx, conversationID)
+			}
+		},
+		func(ctx ui.EventContext, delta int) {
+			if w.Callbacks.MoveSubagentReading != nil {
+				w.Callbacks.MoveSubagentReading(ctx, conversationID, delta)
+			}
+		},
+		func(ctx ui.EventContext, section int) {
+			if w.Callbacks.SelectSubagentReading != nil {
+				w.Callbacks.SelectSubagentReading(ctx, conversationID, section)
+			}
+		},
+	)...)
+	if len(overlays) > 1 {
+		body = ui.Stack{Children: overlays}
 	}
 	children := []ui.Widget{ui.Expanded(body)}
 	if thinking != "" || activity != "" {

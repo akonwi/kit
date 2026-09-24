@@ -312,6 +312,33 @@ Use `prefixBindings` or `suffixBindings` for ad-hoc actions that are not keyboar
 - Header and footer regions use `flexShrink={0}`; the main content region uses `flexGrow={1}` and owns overflow.
 - Named semantic dimensions are allowed for minimum widths, dialog bounds, toggle rails, and responsive thresholds. Measure available space and avoid assumptions about a fixed terminal width.
 
+## Transcript Layout
+
+The native TUI transcript mirrors the macOS transcript's reading layout:
+
+- Transcript rows keep at least `transcriptMinMargin` (2 cells) on each
+  side and otherwise span the available width. Header, composer, and footer
+  chrome stay edge to edge.
+- Items within the column are separated by one blank row.
+- User messages use the accent wash as a card: two cells of horizontal padding
+  and half-block (`▄`/`▀`) top and bottom edges drawn in the wash color over
+  the transcript background.
+- When the latest message is scrolled entirely out of view, a compact
+  `↓ Latest` shortcut floats at the transcript's bottom-right corner, one row
+  above the composer separator. A tall final message keeps it hidden until the
+  viewport scrolls past the message. Activating it re-pins follow and hides the
+  shortcut. Retained subagent conversation tabs use the same shortcut.
+- While a tall assistant message occupies the viewport, a one-row section strip
+  is pinned to the top of the main transcript: the current heading title
+  (leading non-heading content is Overview), `n / total`, then the previous and
+  next arrows together. Clicking the title opens the section list over that
+  title, dropping down through the section; choosing one, or the arrows, jumps
+  there and unpins follow. Retained subagent conversation tabs use the same strip.
+- Assistant prose and tool-group headers share the column's leading edge. Tool
+  rows use the header's indicator column for their state icons, so tool titles
+  align with the group label; interleaved thinking and prose indent to the same
+  title column.
+
 ## Component Conventions
 
 ### Borders and reusable surfaces

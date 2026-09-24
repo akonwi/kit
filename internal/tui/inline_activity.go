@@ -53,8 +53,7 @@ func (s *inlineActivityWindowState) Build(ctx ui.BuildContext) ui.Widget {
 			keys[index] = item.Key
 		}
 	}
-	body := activityList{Controller: list, OuterScroll: window.OuterScroll, ToolKeys: keys, Children: widgets}
-	return ui.Padding(ui.Symmetric(1, 0), body)
+	return activityList{Controller: list, OuterScroll: window.OuterScroll, ToolKeys: keys, Children: widgets}
 }
 
 // Small live groups reveal their rows until the sixth tool call arrives.

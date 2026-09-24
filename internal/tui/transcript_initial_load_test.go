@@ -162,7 +162,7 @@ func TestShortInitialTranscriptWaitsForUpwardScroll(t *testing.T) {
 	rows := paintedRows(app, 80, 24)
 	messageRow := findPaintedRow(rows, "Latest short message")
 	composerRow := findPaintedRow(rows, "Ask kit to do something")
-	if messageRow != composerRow-4 {
+	if messageRow != composerRow-5 {
 		t.Fatalf("short transcript not bottom anchored: message row %d, composer row %d\n%s", messageRow, composerRow, strings.Join(rows, "\n"))
 	}
 	app.Send(vaxis.Key{Keycode: vaxis.KeyHome})
@@ -197,7 +197,7 @@ func TestShortTranscriptGrowsUpwardAndReanchorsOnResize(t *testing.T) {
 	state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{})
 	app := uitest.New(initialTranscriptHarness{state})
 	pumpInitialTranscript(t, app, state, 80, 24)
-	assertTranscriptMessageAtBottom(t, app, 80, 24, "First message", 4)
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "First message", 5)
 
 	state.SetState(func() {
 		state.messages = append(state.messages, transcriptMessage{ID: "second", TurnID: "turn_2", Role: "user", Text: "Second message"})
@@ -208,7 +208,7 @@ func TestShortTranscriptGrowsUpwardAndReanchorsOnResize(t *testing.T) {
 		state.TickFrame(time.Now())
 	}
 	app.Pump(80, 24)
-	assertTranscriptMessageAtBottom(t, app, 80, 24, "Second message", 4)
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "Second message", 5)
 	rows := paintedRows(app, 80, 24)
 	if first, second := findPaintedRow(rows, "First message"), findPaintedRow(rows, "Second message"); first < 0 || first >= second {
 		t.Fatalf("messages did not grow upward: first row %d, second row %d\n%s", first, second, strings.Join(rows, "\n"))
@@ -228,14 +228,14 @@ func TestShortTranscriptGrowsUpwardAndReanchorsOnResize(t *testing.T) {
 	if metrics := state.scroll.Metrics(); metrics.MaxScrollOffset <= 0 || metrics.ScrollOffset != metrics.MaxScrollOffset {
 		t.Fatalf("growth past viewport did not remain pinned: %+v", metrics)
 	}
-	assertTranscriptMessageAtBottom(t, app, 80, 24, "Overflow message 11", 4)
+	assertTranscriptMessageAtBottom(t, app, 80, 24, "Overflow message 11", 5)
 
 	for range 4 {
 		app.Pump(60, 16)
 		state.TickFrame(time.Now())
 	}
 	app.Pump(60, 16)
-	assertTranscriptMessageAtBottom(t, app, 60, 16, "Overflow message 11", 4)
+	assertTranscriptMessageAtBottom(t, app, 60, 16, "Overflow message 11", 5)
 }
 
 func TestInitialTranscriptReleasesScrollingAfterPositioning(t *testing.T) {

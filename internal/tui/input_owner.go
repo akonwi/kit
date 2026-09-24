@@ -30,6 +30,7 @@ const (
 	inputSubagents
 	inputSubagentDismiss
 	inputTheme
+	inputReading
 	inputPalette
 )
 
@@ -66,6 +67,8 @@ func (w shellSnapshot) inputOwner() inputOwner {
 		return inputSessionRename
 	case w.PaletteOpen:
 		return inputPalette
+	case w.ReadingPickerOpen:
+		return inputReading
 	case w.ThemePicker.Open:
 		return inputTheme
 	case w.SubagentsOpen:
@@ -110,7 +113,7 @@ func (s *appState) inputOwner() inputOwner {
 		AnnotationPicker:   annotationPickerSnapshot{Open: s.annotationPicker.Open},
 		SessionDetailsOpen: s.sessionDetailsOpen, MCPStatusOpen: s.mcpStatusOpen, ConfigurationPicker: s.configurationPicker.Snapshot(),
 		BashHistory: s.bashHistory, SessionMention: s.sessionMention, FileMention: s.fileMention,
-		PendingInteractions: s.pendingInteractions,
+		PendingInteractions: s.pendingInteractions, ReadingPickerOpen: s.transcriptReadingPickerOpen || s.subagentReadingPickerID != "",
 	}).inputOwner()
 }
 

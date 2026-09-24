@@ -297,6 +297,16 @@ type appState struct {
 	transcriptInitialMetrics         ui.ScrollMetrics
 	transcriptHistoryUserScroll      bool
 	transcriptHistoryScrollInput     bool
+	transcriptLatestOutOfView        bool
+	transcriptReading                transcriptReadingSnapshot
+	transcriptReadingPickerOpen      bool
+	transcriptReadingPickerSelected  int
+	transcriptReadingSections        []transcriptReadingSection
+	subagentReading                  map[string]transcriptReadingSnapshot
+	subagentReadingSections          map[string][]transcriptReadingSection
+	subagentReadingPickerID          string
+	subagentReadingPickerSelected    int
+	subagentLatestOutOfView          map[string]bool
 	transcriptHistoryLastOffset      int
 	transcriptHistoryAnchorEnd       bool
 	transcriptHistoryRestore         int
@@ -384,6 +394,7 @@ type appState struct {
 	subagentTranscriptLoading        map[string]bool
 	subagentTranscriptOrder          []string
 	subagentScrolls                  map[string]*ui.ScrollController
+	subagentTranscriptLists          map[string]*ui.SliverListController
 	subagentScrollToEndID            string
 	subagentNeedsScroll              bool
 	subagentPendingLayout            bool
@@ -480,6 +491,7 @@ func (s *appState) InitState() {
 	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentDiagnosticToasts = make(map[subagentDiagnosticToastKey]struct{})
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentTranscriptLists = make(map[string]*ui.SliverListController)
 	s.subagentFocuses = make(map[string]*ui.FocusNode)
 	s.subagentLive = make(map[string]protocol.SubagentLiveEventPage)
 	s.subagentLiveLoads = make(map[string]uint64)
@@ -519,9 +531,13 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.transcriptInitialLoading {
 		keepTicking = s.settleInitialTranscript()
 	}
-	if !s.transcriptInitialLoading && !positioning {
+	if !s.transcriptInitialLoading {
 		s.observeTranscriptScroll()
-	} else {
+		s.observeSubagentTranscriptScroll()
+		s.observeTranscriptReading()
+		s.observeSubagentReading()
+	}
+	if s.transcriptInitialLoading || positioning {
 		s.transcriptHistoryLastOffset = s.scroll.Metrics().ScrollOffset
 		s.transcriptHistoryScrollInput = false
 	}
@@ -639,6 +655,96 @@ func (s *appState) observeTranscriptScroll() {
 	}
 	s.transcriptHistoryLastOffset = offset
 	s.transcriptHistoryScrollInput = false
+	s.observeTranscriptLatestVisibility()
+}
+
+// observeTranscriptLatestVisibility tracks whether the latest content is
+// scrolled out of view so the resume shortcut can appear. It schedules a
+// rebuild only when the visibility changes.
+func (s *appState) observeTranscriptLatestVisibility() {
+	outOfView := false
+	if s.transcriptVisible && s.scroll.Attached() && s.transcriptList.Attached() && len(s.messages) > 0 {
+		count := len(presentTranscript(s.messages).Items)
+		offset, measured := s.transcriptList.OffsetForIndex(count - 1)
+		if measured && offset == 0 && count > 1 {
+			// Rows beyond the viewport are unmeasured, so derive the latest
+			// item's start from the content height and the rows that were laid out.
+			offset, measured = transcriptLatestItemOffset(s.scroll.Metrics(), s.transcriptList.OffsetForIndex, count)
+		}
+		outOfView = transcriptLatestMessageOutOfView(s.scroll.Metrics(), offset, count, measured)
+	}
+	if outOfView == s.transcriptLatestOutOfView {
+		return
+	}
+	s.transcriptLatestOutOfView = outOfView
+	s.MarkNeedsBuild()
+}
+
+// observeSubagentTranscriptScroll tracks the latest-content shortcut for
+// every retained subagent conversation tab.
+func (s *appState) observeSubagentTranscriptScroll() {
+	changed := false
+	for conversationID, controller := range s.subagentScrolls {
+		outOfView := false
+		list := s.subagentTranscriptLists[conversationID]
+		conversation := protocol.SubagentConversation{}
+		for _, candidate := range s.subagentConversations {
+			if candidate.ID == conversationID {
+				conversation = candidate
+				break
+			}
+		}
+		if controller != nil && controller.Attached() && list != nil && list.Attached() {
+			count := len(presentTranscript(subagentPaneMessages(conversation, s.subagentTranscripts[conversationID], s.subagentLive[conversationID])).Items)
+			offset, measured := list.OffsetForIndex(count - 1)
+			if measured && offset == 0 && count > 1 {
+				offset, measured = transcriptLatestItemOffset(controller.Metrics(), list.OffsetForIndex, count)
+			}
+			outOfView = transcriptLatestMessageOutOfView(controller.Metrics(), offset, count, measured)
+		}
+		if s.subagentLatestOutOfView[conversationID] == outOfView {
+			continue
+		}
+		if s.subagentLatestOutOfView == nil {
+			s.subagentLatestOutOfView = map[string]bool{}
+		}
+		if outOfView {
+			s.subagentLatestOutOfView[conversationID] = true
+		} else {
+			delete(s.subagentLatestOutOfView, conversationID)
+		}
+		changed = true
+	}
+	for conversationID := range s.subagentLatestOutOfView {
+		if _, exists := s.subagentScrolls[conversationID]; !exists {
+			delete(s.subagentLatestOutOfView, conversationID)
+			changed = true
+		}
+	}
+	if changed {
+		s.MarkNeedsBuild()
+	}
+}
+
+// resumeSubagentFollow re-pins one subagent transcript to its latest content.
+func (s *appState) resumeSubagentFollow(_ ui.EventContext, conversationID string) {
+	controller := s.subagentScrolls[conversationID]
+	if controller != nil && controller.Attached() {
+		controller.ScrollToEnd()
+	}
+	if s.subagentLatestOutOfView[conversationID] {
+		delete(s.subagentLatestOutOfView, conversationID)
+		s.MarkNeedsBuild()
+	}
+}
+
+// resumeTranscriptFollow re-pins the transcript to its latest content.
+func (s *appState) resumeTranscriptFollow(ui.EventContext) {
+	s.requestTranscriptScroll()
+	if s.transcriptLatestOutOfView {
+		s.transcriptLatestOutOfView = false
+		s.MarkNeedsBuild()
+	}
 }
 
 func (s *appState) noteTranscriptHistoryScrollUp(ui.EventContext) {
@@ -1088,108 +1194,120 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		scratchpad = capable
 	}
 	snapshot := shellSnapshot{
-		Phase:                        s.phase,
-		Error:                        s.errorText,
-		Status:                       s.status,
-		Composer:                     s.composer,
-		ComposerAttachments:          append([]stagedAttachment(nil), s.composerAttachments...),
-		ComposerAnnotations:          s.composerAnnotations(),
-		DiffWrapLines:                s.diffWrapLines,
-		ComposerCursorEndGeneration:  s.composerCursorEndGeneration,
-		ComposerCursorOffset:         s.composerCursorOffset,
-		ComposerCursorGeneration:     s.composerCursorGeneration,
-		PaletteOpen:                  s.palette.Open,
-		PaletteQuery:                 s.palette.Query,
-		PaletteSelection:             s.palette.Selection,
-		PaletteCommands:              s.palette.Contributions,
-		ThemePicker:                  s.themePicker.Snapshot(),
-		ConfigurationPicker:          s.configurationPicker.Snapshot(),
-		SessionDetailsOpen:           s.sessionDetailsOpen,
-		MCPStatusOpen:                s.mcpStatusOpen,
-		MCPServers:                   append([]protocol.MCPServerStatus(nil), s.mcpServers...),
-		MCPWarnings:                  append([]string(nil), s.mcpWarnings...),
-		SessionRename:                s.sessionRename.Snapshot(),
-		AnnotationPicker:             annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
-		SessionExplorer:              s.sessionExplorer.Snapshot(),
-		AuthReturnReady:              s.authReturnReady,
-		AuthFilter:                   s.authFilter,
-		AuthSelection:                s.authSelection,
-		AuthProviderID:               s.authProviderID,
-		AuthAPIKey:                   s.authAPIKey,
-		AuthCode:                     s.authCode,
-		AuthPending:                  s.authPending,
-		Session:                      s.session,
-		Messages:                     presentedMessages,
-		Attachments:                  attachments,
-		Running:                      s.hasActiveWork(),
-		AgentRunning:                 s.runPending,
-		TurnActivity:                 s.presentedTurnActivity(time.Now()),
-		TurnThinking:                 s.turnThinking,
-		FollowUps:                    s.followUps,
-		PendingInteractions:          append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
-		ContextTokens:                s.contextTokens,
-		ContextWindow:                s.contextWindow,
-		SessionUsage:                 s.sessionUsage,
-		Scroll:                       &s.scroll,
-		TranscriptList:               &s.transcriptList,
-		TranscriptHistoryInitialized: s.transcriptHistoryInitialized,
-		TranscriptHistoryHasMore:     s.transcriptHistoryHasMore,
-		TranscriptHistoryLoading:     s.transcriptHistoryLoading,
-		TranscriptInitialLoading:     s.transcriptInitialLoading,
-		TranscriptHistoryError:       s.transcriptHistoryError,
-		ActivityScroll:               &s.activityScroll,
-		ActivityList:                 &s.activityList,
-		ActivityFocus:                &s.activityFocus,
-		SubagentFocuses:              cloneFocusNodeMap(s.subagentFocuses),
-		Workspace:                    s.workspace.Snapshot(),
-		ScratchpadAvailable:          scratchpad != nil,
-		Scratchpad:                   s.scratchpad,
-		CurrentWorkspaceID:           s.workspaceID,
-		PaneInput:                    s.paneInput,
-		WorkspaceFilePicker:          s.workspaceFilePicker,
-		WorkspaceFilePickerScroll:    &s.workspaceFilePickerScroll,
-		WorkspacePickerOpen:          s.workspacePickerOpen,
-		WorkspacePickerQuery:         s.workspacePickerQuery,
-		WorkspacePickerSelection:     s.workspacePickerSelection,
-		WorkspacePickerScroll:        &s.workspacePickerScroll,
-		WorkspaceLayout:              &s.workspaceLayout,
-		ActivitySourceID:             s.activitySourceID,
-		ActivityConversationID:       s.activityConversationID,
-		ActivitySelected:             s.activitySelected,
-		SubagentsOpen:                s.subagentsOpen,
-		SubagentFilter:               s.subagentFilter,
-		SubagentDefinitions:          append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
-		SubagentDiagnostics:          append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
-		SubagentConversations:        append([]protocol.SubagentConversation(nil), s.subagentConversations...),
-		SubagentSelection:            s.subagentSelection,
-		SubagentTranscripts:          cloneSubagentTranscripts(s.subagentTranscripts),
-		SubagentTranscriptErrors:     cloneStringMap(s.subagentTranscriptErrors),
-		SubagentScrolls:              cloneScrollControllerMap(s.subagentScrolls),
-		SubagentLive:                 cloneSubagentLive(s.subagentLive),
-		SubagentDismissID:            s.subagentDismissID,
-		SubagentDismissName:          s.subagentDismissName,
-		SubagentDismissPending:       s.subagentDismissPending,
-		SubagentDismissError:         s.subagentDismissError,
-		InlineActivityOpen:           s.inlineActivityOpen,
-		ActivityExpanded:             s.activityExpanded,
-		ActivityCursor:               s.activityCursor,
-		BashRunning:                  s.activeBashID != "",
-		BashStarting:                 s.bashStarting,
-		BashCollapsed:                s.bashCollapsed,
-		AnnotationsExpanded:          s.transcriptAnnotationsExpanded,
-		BashHistory:                  s.bashHistory,
-		FileMention:                  s.fileMention,
-		SessionMention:               s.sessionMention,
-		SessionMentions:              s.sessionMentions,
-		IndexedFiles:                 s.indexedFiles,
-		Instructions:                 s.instructions,
-		BrowserInstructions:          s.browserInstructions,
-		Remaining:                    s.remaining,
-		Location:                     s.location,
-		LocationURL:                  footerPullRequestURL(s.vcsStatus),
-		LocationLinkText:             footerPullRequestText(s.vcsStatus),
-		PluginFooter:                 s.pluginFooter,
-		Toasts:                       s.toasts.Snapshot(),
+		Phase:                         s.phase,
+		Error:                         s.errorText,
+		Status:                        s.status,
+		Composer:                      s.composer,
+		ComposerAttachments:           append([]stagedAttachment(nil), s.composerAttachments...),
+		ComposerAnnotations:           s.composerAnnotations(),
+		DiffWrapLines:                 s.diffWrapLines,
+		ComposerCursorEndGeneration:   s.composerCursorEndGeneration,
+		ComposerCursorOffset:          s.composerCursorOffset,
+		ComposerCursorGeneration:      s.composerCursorGeneration,
+		PaletteOpen:                   s.palette.Open,
+		PaletteQuery:                  s.palette.Query,
+		PaletteSelection:              s.palette.Selection,
+		PaletteCommands:               s.palette.Contributions,
+		ThemePicker:                   s.themePicker.Snapshot(),
+		ReadingPickerOpen:             s.transcriptReadingPickerOpen || s.subagentReadingPickerID != "",
+		ReadingPickerSelected:         s.transcriptReadingPickerSelected,
+		ConfigurationPicker:           s.configurationPicker.Snapshot(),
+		SessionDetailsOpen:            s.sessionDetailsOpen,
+		MCPStatusOpen:                 s.mcpStatusOpen,
+		MCPServers:                    append([]protocol.MCPServerStatus(nil), s.mcpServers...),
+		MCPWarnings:                   append([]string(nil), s.mcpWarnings...),
+		SessionRename:                 s.sessionRename.Snapshot(),
+		AnnotationPicker:              annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
+		SessionExplorer:               s.sessionExplorer.Snapshot(),
+		AuthReturnReady:               s.authReturnReady,
+		AuthFilter:                    s.authFilter,
+		AuthSelection:                 s.authSelection,
+		AuthProviderID:                s.authProviderID,
+		AuthAPIKey:                    s.authAPIKey,
+		AuthCode:                      s.authCode,
+		AuthPending:                   s.authPending,
+		Session:                       s.session,
+		Messages:                      presentedMessages,
+		Attachments:                   attachments,
+		Running:                       s.hasActiveWork(),
+		AgentRunning:                  s.runPending,
+		TurnActivity:                  s.presentedTurnActivity(time.Now()),
+		TurnThinking:                  s.turnThinking,
+		FollowUps:                     s.followUps,
+		PendingInteractions:           append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
+		ContextTokens:                 s.contextTokens,
+		ContextWindow:                 s.contextWindow,
+		SessionUsage:                  s.sessionUsage,
+		Scroll:                        &s.scroll,
+		TranscriptLatestOutOfView:     s.transcriptLatestOutOfView,
+		TranscriptReading:             s.transcriptReading,
+		TranscriptReadingPickerOpen:   s.transcriptReadingPickerOpen,
+		TranscriptReadingSections:     append([]transcriptReadingSection(nil), s.transcriptReadingSections...),
+		TranscriptList:                &s.transcriptList,
+		TranscriptHistoryInitialized:  s.transcriptHistoryInitialized,
+		TranscriptHistoryHasMore:      s.transcriptHistoryHasMore,
+		TranscriptHistoryLoading:      s.transcriptHistoryLoading,
+		TranscriptInitialLoading:      s.transcriptInitialLoading,
+		TranscriptHistoryError:        s.transcriptHistoryError,
+		ActivityScroll:                &s.activityScroll,
+		ActivityList:                  &s.activityList,
+		ActivityFocus:                 &s.activityFocus,
+		SubagentFocuses:               cloneFocusNodeMap(s.subagentFocuses),
+		Workspace:                     s.workspace.Snapshot(),
+		ScratchpadAvailable:           scratchpad != nil,
+		Scratchpad:                    s.scratchpad,
+		CurrentWorkspaceID:            s.workspaceID,
+		PaneInput:                     s.paneInput,
+		WorkspaceFilePicker:           s.workspaceFilePicker,
+		WorkspaceFilePickerScroll:     &s.workspaceFilePickerScroll,
+		WorkspacePickerOpen:           s.workspacePickerOpen,
+		WorkspacePickerQuery:          s.workspacePickerQuery,
+		WorkspacePickerSelection:      s.workspacePickerSelection,
+		WorkspacePickerScroll:         &s.workspacePickerScroll,
+		WorkspaceLayout:               &s.workspaceLayout,
+		ActivitySourceID:              s.activitySourceID,
+		ActivityConversationID:        s.activityConversationID,
+		ActivitySelected:              s.activitySelected,
+		SubagentsOpen:                 s.subagentsOpen,
+		SubagentFilter:                s.subagentFilter,
+		SubagentDefinitions:           append([]protocol.SubagentDefinition(nil), s.subagentDefinitions...),
+		SubagentDiagnostics:           append([]protocol.SubagentDiagnostic(nil), s.subagentDiagnostics...),
+		SubagentConversations:         append([]protocol.SubagentConversation(nil), s.subagentConversations...),
+		SubagentSelection:             s.subagentSelection,
+		SubagentTranscripts:           cloneSubagentTranscripts(s.subagentTranscripts),
+		SubagentTranscriptErrors:      cloneStringMap(s.subagentTranscriptErrors),
+		SubagentScrolls:               cloneScrollControllerMap(s.subagentScrolls),
+		SubagentTranscriptLists:       cloneSliverListControllerMap(s.subagentTranscriptLists),
+		SubagentLatestOutOfView:       cloneBoolMap(s.subagentLatestOutOfView),
+		SubagentReading:               cloneReadingMap(s.subagentReading),
+		SubagentReadingSections:       cloneReadingSections(s.subagentReadingSections),
+		SubagentReadingPickerID:       s.subagentReadingPickerID,
+		SubagentReadingPickerSelected: s.subagentReadingPickerSelected,
+		SubagentLive:                  cloneSubagentLive(s.subagentLive),
+		SubagentDismissID:             s.subagentDismissID,
+		SubagentDismissName:           s.subagentDismissName,
+		SubagentDismissPending:        s.subagentDismissPending,
+		SubagentDismissError:          s.subagentDismissError,
+		InlineActivityOpen:            s.inlineActivityOpen,
+		ActivityExpanded:              s.activityExpanded,
+		ActivityCursor:                s.activityCursor,
+		BashRunning:                   s.activeBashID != "",
+		BashStarting:                  s.bashStarting,
+		BashCollapsed:                 s.bashCollapsed,
+		AnnotationsExpanded:           s.transcriptAnnotationsExpanded,
+		BashHistory:                   s.bashHistory,
+		FileMention:                   s.fileMention,
+		SessionMention:                s.sessionMention,
+		SessionMentions:               s.sessionMentions,
+		IndexedFiles:                  s.indexedFiles,
+		Instructions:                  s.instructions,
+		BrowserInstructions:           s.browserInstructions,
+		Remaining:                     s.remaining,
+		Location:                      s.location,
+		LocationURL:                   footerPullRequestURL(s.vcsStatus),
+		LocationLinkText:              footerPullRequestText(s.vcsStatus),
+		PluginFooter:                  s.pluginFooter,
+		Toasts:                        s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
 		OpenActivityFile: func(_ ui.EventContext, target toolFileTarget) {
@@ -1216,6 +1334,21 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		SelectProvider:            s.selectProvider,
 		RetryTranscriptHistory:    s.retryTranscriptHistory,
 		TranscriptHistoryScrollUp: s.noteTranscriptHistoryScrollUp,
+		ResumeTranscriptFollow:    s.resumeTranscriptFollow,
+		MoveTranscriptReading:     s.moveTranscriptReading,
+		OpenTranscriptReading:     s.openTranscriptReading,
+		SelectTranscriptReading:   s.selectTranscriptReading,
+		ResumeSubagentFollow:      s.resumeSubagentFollow,
+		OpenSubagentReading:       s.openSubagentReading,
+		MoveSubagentReading:       s.moveSubagentReading,
+		SelectSubagentReading: func(ctx ui.EventContext, conversationID string, section int) {
+			s.SetState(func() {
+				if s.subagentReadingPickerID == conversationID {
+					s.subagentReadingPickerID = ""
+				}
+			})
+			s.jumpSubagentReading(conversationID, section)
+		},
 		MoveProviderSelection: func(_ ui.EventContext, delta int) {
 			s.moveProviderSelection(delta)
 		},
@@ -1900,6 +2033,26 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		return ui.EventIgnored
+	}
+	if owner == inputReading {
+		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+			return ui.EventHandled
+		}
+		switch {
+		case key.MatchString("Escape") || key.MatchString("Ctrl+c"):
+			return ui.EventIgnored
+		case key.MatchString("Up"):
+			s.moveReadingPicker(-1)
+		case key.MatchString("Down"):
+			s.moveReadingPicker(1)
+		case key.MatchString("Enter"):
+			section := s.transcriptReadingPickerSelected
+			if s.subagentReadingPickerID != "" {
+				section = s.subagentReadingPickerSelected
+			}
+			s.selectTranscriptReading(ctx, section)
+		}
+		return ui.EventHandled
 	}
 	if owner == inputTheme {
 		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
@@ -4606,6 +4759,9 @@ func (s *appState) openSubagentConversation(conversationID string) {
 		if s.subagentScrolls[conversationID] == nil {
 			s.subagentScrolls[conversationID] = &ui.ScrollController{}
 		}
+		if s.subagentTranscriptLists[conversationID] == nil {
+			s.subagentTranscriptLists[conversationID] = &ui.SliverListController{}
+		}
 		s.subagentFocus(conversationID)
 		s.syncWorkspaceSelection()
 		s.clearSubagentActivityForConversationChange(conversationID)
@@ -4883,6 +5039,14 @@ func cloneSubagentTranscripts(input map[string]protocol.SubagentTranscript) map[
 	return output
 }
 
+func cloneSliverListControllerMap(input map[string]*ui.SliverListController) map[string]*ui.SliverListController {
+	output := make(map[string]*ui.SliverListController, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
 func cloneScrollControllerMap(input map[string]*ui.ScrollController) map[string]*ui.ScrollController {
 	output := make(map[string]*ui.ScrollController, len(input))
 	for key, value := range input {
@@ -4895,6 +5059,30 @@ func cloneFocusNodeMap(input map[string]*ui.FocusNode) map[string]*ui.FocusNode 
 	output := make(map[string]*ui.FocusNode, len(input))
 	for key, value := range input {
 		output[key] = value
+	}
+	return output
+}
+
+func cloneBoolMap(input map[string]bool) map[string]bool {
+	output := make(map[string]bool, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func cloneReadingMap(input map[string]transcriptReadingSnapshot) map[string]transcriptReadingSnapshot {
+	output := make(map[string]transcriptReadingSnapshot, len(input))
+	for key, value := range input {
+		output[key] = value
+	}
+	return output
+}
+
+func cloneReadingSections(input map[string][]transcriptReadingSection) map[string][]transcriptReadingSection {
+	output := make(map[string][]transcriptReadingSection, len(input))
+	for key, value := range input {
+		output[key] = append([]transcriptReadingSection(nil), value...)
 	}
 	return output
 }
@@ -6017,6 +6205,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.subagentTranscriptLoading = make(map[string]bool)
 	s.subagentTranscriptOrder = nil
 	s.subagentScrolls = make(map[string]*ui.ScrollController)
+	s.subagentTranscriptLists = make(map[string]*ui.SliverListController)
 	s.subagentFocuses = make(map[string]*ui.FocusNode)
 	s.subagentScrollToEndID = ""
 	s.subagentNeedsScroll = false
@@ -6537,6 +6726,13 @@ func (s *appState) dismiss(_ ui.EventContext) {
 	owner := s.inputOwner()
 	if owner == inputTheme {
 		s.cancelThemePicker()
+		return
+	}
+	if owner == inputReading {
+		s.SetState(func() {
+			s.transcriptReadingPickerOpen = false
+			s.subagentReadingPickerID = ""
+		})
 		return
 	}
 	if owner == inputSubagentDismiss {

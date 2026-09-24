@@ -16,109 +16,121 @@ import (
 )
 
 type shellSnapshot struct {
-	Phase                        phase
-	Error                        string
-	Status                       string
-	Composer                     string
-	ComposerAttachments          []stagedAttachment
-	ComposerAnnotations          []protocol.AnnotationSummary
-	DiffWrapLines                bool
-	ComposerCursorEndGeneration  uint64
-	ComposerCursorOffset         int
-	ComposerCursorGeneration     uint64
-	PaletteOpen                  bool
-	PaletteQuery                 string
-	PaletteSelection             paletteCommandID
-	PaletteCommands              []paletteCommand
-	ThemePicker                  themePickerSnapshot
-	ConfigurationPicker          configurationPickerSnapshot
-	SessionDetailsOpen           bool
-	MCPStatusOpen                bool
-	MCPServers                   []protocol.MCPServerStatus
-	MCPWarnings                  []string
-	SessionRename                sessionRenameSnapshot
-	AnnotationPicker             annotationPickerSnapshot
-	SessionExplorer              sessionExplorerSnapshot
-	AuthReturnReady              bool
-	AuthFilter                   string
-	AuthSelection                int
-	AuthProviderID               string
-	AuthAPIKey                   string
-	AuthCode                     string
-	AuthPending                  bool
-	Session                      protocol.SessionInfo
-	Messages                     []transcriptMessage
-	Attachments                  sessionclient.AttachmentSession
-	Running                      bool
-	AgentRunning                 bool
-	TurnActivity                 string
-	TurnThinking                 string
-	FollowUps                    protocol.FollowUpQueue
-	PendingInteractions          []protocol.InteractionRequest
-	ContextTokens                int
-	ContextWindow                int
-	SessionUsage                 protocol.SessionUsage
-	Scroll                       *ui.ScrollController
-	TranscriptList               *ui.SliverListController
-	TranscriptHistoryInitialized bool
-	TranscriptHistoryHasMore     bool
-	TranscriptHistoryLoading     bool
-	TranscriptInitialLoading     bool
-	TranscriptHistoryError       string
-	ActivityScroll               *ui.ScrollController
-	ActivityList                 *activityListController
-	ActivityFocus                *ui.FocusNode
-	SubagentFocuses              map[string]*ui.FocusNode
-	Workspace                    workspaceControllerSnapshot
-	ScratchpadAvailable          bool
-	Scratchpad                   scratchpadEditorState
-	CurrentWorkspaceID           string
-	PaneInput                    paneInputOwner
-	WorkspaceFilePicker          workspaceFilePickerController
-	WorkspaceFilePickerScroll    *ui.ScrollController
-	WorkspacePickerOpen          bool
-	WorkspacePickerQuery         string
-	WorkspacePickerSelection     int
-	WorkspacePickerScroll        *ui.ScrollController
-	WorkspaceLayout              *workspaceLayoutState
-	ActivitySourceID             string
-	ActivityConversationID       string
-	ActivitySelected             bool
-	SubagentsOpen                bool
-	SubagentFilter               string
-	SubagentDefinitions          []protocol.SubagentDefinition
-	SubagentDiagnostics          []protocol.SubagentDiagnostic
-	SubagentConversations        []protocol.SubagentConversation
-	SubagentSelection            string
-	SubagentTranscripts          map[string]protocol.SubagentTranscript
-	SubagentTranscriptErrors     map[string]string
-	SubagentScrolls              map[string]*ui.ScrollController
-	SubagentLive                 map[string]protocol.SubagentLiveEventPage
-	SubagentDismissID            string
-	SubagentDismissName          string
-	SubagentDismissPending       bool
-	SubagentDismissError         string
-	InlineActivityOpen           map[string]bool
-	ActiveToolSourceID           string
-	ActivityExpanded             map[activityToolKey]bool
-	ActivityCursor               activityToolKey
-	BashRunning                  bool
-	BashStarting                 bool
-	BashCollapsed                map[string]bool
-	AnnotationsExpanded          map[string]bool
-	BashHistory                  bashHistoryController
-	FileMention                  fileMentionController
-	SessionMention               sessionMentionController
-	SessionMentions              sessionMentionSource
-	IndexedFiles                 indexedFileSource
-	Instructions                 auth.OpenAICodexDeviceInstructions
-	BrowserInstructions          auth.AnthropicLoginInstructions
-	Remaining                    time.Duration
-	Location                     string
-	LocationURL                  string
-	LocationLinkText             string
-	PluginFooter                 *protocol.PluginFooter
-	Toasts                       []toastRecord
+	Phase                         phase
+	Error                         string
+	Status                        string
+	Composer                      string
+	ComposerAttachments           []stagedAttachment
+	ComposerAnnotations           []protocol.AnnotationSummary
+	DiffWrapLines                 bool
+	ComposerCursorEndGeneration   uint64
+	ComposerCursorOffset          int
+	ComposerCursorGeneration      uint64
+	PaletteOpen                   bool
+	PaletteQuery                  string
+	PaletteSelection              paletteCommandID
+	PaletteCommands               []paletteCommand
+	ThemePicker                   themePickerSnapshot
+	ReadingPickerOpen             bool
+	ReadingPickerSelected         int
+	ConfigurationPicker           configurationPickerSnapshot
+	SessionDetailsOpen            bool
+	MCPStatusOpen                 bool
+	MCPServers                    []protocol.MCPServerStatus
+	MCPWarnings                   []string
+	SessionRename                 sessionRenameSnapshot
+	AnnotationPicker              annotationPickerSnapshot
+	SessionExplorer               sessionExplorerSnapshot
+	AuthReturnReady               bool
+	AuthFilter                    string
+	AuthSelection                 int
+	AuthProviderID                string
+	AuthAPIKey                    string
+	AuthCode                      string
+	AuthPending                   bool
+	Session                       protocol.SessionInfo
+	Messages                      []transcriptMessage
+	Attachments                   sessionclient.AttachmentSession
+	Running                       bool
+	AgentRunning                  bool
+	TurnActivity                  string
+	TurnThinking                  string
+	FollowUps                     protocol.FollowUpQueue
+	PendingInteractions           []protocol.InteractionRequest
+	ContextTokens                 int
+	ContextWindow                 int
+	SessionUsage                  protocol.SessionUsage
+	Scroll                        *ui.ScrollController
+	TranscriptLatestOutOfView     bool
+	TranscriptReading             transcriptReadingSnapshot
+	TranscriptReadingPickerOpen   bool
+	TranscriptReadingSections     []transcriptReadingSection
+	TranscriptList                *ui.SliverListController
+	TranscriptHistoryInitialized  bool
+	TranscriptHistoryHasMore      bool
+	TranscriptHistoryLoading      bool
+	TranscriptInitialLoading      bool
+	TranscriptHistoryError        string
+	ActivityScroll                *ui.ScrollController
+	ActivityList                  *activityListController
+	ActivityFocus                 *ui.FocusNode
+	SubagentFocuses               map[string]*ui.FocusNode
+	Workspace                     workspaceControllerSnapshot
+	ScratchpadAvailable           bool
+	Scratchpad                    scratchpadEditorState
+	CurrentWorkspaceID            string
+	PaneInput                     paneInputOwner
+	WorkspaceFilePicker           workspaceFilePickerController
+	WorkspaceFilePickerScroll     *ui.ScrollController
+	WorkspacePickerOpen           bool
+	WorkspacePickerQuery          string
+	WorkspacePickerSelection      int
+	WorkspacePickerScroll         *ui.ScrollController
+	WorkspaceLayout               *workspaceLayoutState
+	ActivitySourceID              string
+	ActivityConversationID        string
+	ActivitySelected              bool
+	SubagentsOpen                 bool
+	SubagentFilter                string
+	SubagentDefinitions           []protocol.SubagentDefinition
+	SubagentDiagnostics           []protocol.SubagentDiagnostic
+	SubagentConversations         []protocol.SubagentConversation
+	SubagentSelection             string
+	SubagentTranscripts           map[string]protocol.SubagentTranscript
+	SubagentTranscriptErrors      map[string]string
+	SubagentScrolls               map[string]*ui.ScrollController
+	SubagentTranscriptLists       map[string]*ui.SliverListController
+	SubagentLatestOutOfView       map[string]bool
+	SubagentReading               map[string]transcriptReadingSnapshot
+	SubagentReadingSections       map[string][]transcriptReadingSection
+	SubagentReadingPickerID       string
+	SubagentReadingPickerSelected int
+	SubagentLive                  map[string]protocol.SubagentLiveEventPage
+	SubagentDismissID             string
+	SubagentDismissName           string
+	SubagentDismissPending        bool
+	SubagentDismissError          string
+	InlineActivityOpen            map[string]bool
+	ActiveToolSourceID            string
+	ActivityExpanded              map[activityToolKey]bool
+	ActivityCursor                activityToolKey
+	BashRunning                   bool
+	BashStarting                  bool
+	BashCollapsed                 map[string]bool
+	AnnotationsExpanded           map[string]bool
+	BashHistory                   bashHistoryController
+	FileMention                   fileMentionController
+	SessionMention                sessionMentionController
+	SessionMentions               sessionMentionSource
+	IndexedFiles                  indexedFileSource
+	Instructions                  auth.OpenAICodexDeviceInstructions
+	BrowserInstructions           auth.AnthropicLoginInstructions
+	Remaining                     time.Duration
+	Location                      string
+	LocationURL                   string
+	LocationLinkText              string
+	PluginFooter                  *protocol.PluginFooter
+	Toasts                        []toastRecord
 }
 
 type providerSelectedCallback func(ui.EventContext, string)
@@ -147,6 +159,14 @@ type shellCallbacks struct {
 	CloseActivity               ui.VoidCallback
 	RetryTranscriptHistory      ui.VoidCallback
 	TranscriptHistoryScrollUp   ui.VoidCallback
+	ResumeTranscriptFollow      ui.VoidCallback
+	OpenTranscriptReading       ui.VoidCallback
+	SelectTranscriptReading     func(ui.EventContext, int)
+	MoveTranscriptReading       func(ui.EventContext, int)
+	ResumeSubagentFollow        func(ui.EventContext, string)
+	OpenSubagentReading         func(ui.EventContext, string)
+	MoveSubagentReading         func(ui.EventContext, string, int)
+	SelectSubagentReading       func(ui.EventContext, string, int)
 	CancelSubagentTask          func(ui.EventContext, string, uint64)
 	DismissSubagent             func(ui.EventContext, string, uint64)
 	SelectSubagent              func(ui.EventContext, string)
@@ -781,13 +801,20 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		case w.Snapshot.TranscriptHistoryHasMore:
 			status = ui.Text{Value: "↑ Scroll for earlier messages", Style: ui.Style{Foreground: theme.MutedForeground}}
 		}
-		leading = w.transcriptScrollIntent(ui.SizedBox{Height: 1, Child: ui.Padding(ui.Insets{Left: 1, Right: 1}, status)})
+		leading = w.transcriptScrollIntent(ui.SizedBox{Height: 1, Child: transcriptColumn(status)})
 	}
 	transcript := w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, w.Snapshot.TranscriptList, true, leading)
 	children := []ui.Widget{ui.Align{Alignment: ui.BottomCenter, Child: transcript}}
 	if w.Snapshot.TranscriptInitialLoading {
 		children = append(children, ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Background}}, ui.Center(spinnerWithLabel("Loading conversation…", ui.Style{Foreground: theme.MutedForeground}))))
 	}
+	if w.Snapshot.TranscriptLatestOutOfView {
+		children = append(children, ui.Align{Alignment: ui.BottomRight, Child: ui.Padding(ui.Insets{Right: 1, Bottom: 1}, transcriptLatestButton{OnPressed: w.Callbacks.ResumeTranscriptFollow})})
+	}
+	children = append(children, transcriptReadingChrome(
+		w.Snapshot.TranscriptReading, w.Snapshot.TranscriptReadingPickerOpen, w.Snapshot.TranscriptReadingSections, w.Snapshot.ReadingPickerSelected,
+		w.Callbacks.OpenTranscriptReading, w.Callbacks.MoveTranscriptReading, w.Callbacks.SelectTranscriptReading,
+	)...)
 	return ui.Stack{Children: children}
 }
 
@@ -809,11 +836,11 @@ func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresent
 		Builder: func(_ ui.BuildContext, index int) ui.Widget {
 			item := presentation.Items[index]
 			child := w.transcriptRow(theme, presentation, item, interactiveWork)
-			insets := ui.Insets{Top: 1, Left: 1, Right: 1}
+			insets := ui.Insets{Top: 1}
 			if index == len(presentation.Items)-1 {
 				insets.Bottom = 1
 			}
-			return keyedTranscriptItem{ID: item.ID, Child: w.transcriptScrollIntent(ui.Padding(insets, child))}
+			return keyedTranscriptItem{ID: item.ID, Child: w.transcriptScrollIntent(ui.Padding(insets, transcriptColumn(child)))}
 		},
 	}})
 	return keyedTranscriptItem{ID: "transcript-viewport:" + identity, Child: ui.Scrollbar{Child: ui.CustomScrollView{
@@ -914,10 +941,22 @@ func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, att
 			}
 		}
 	}
-	return ui.DecoratedBox(
-		ui.Decoration{Style: ui.Style{Background: fill}},
-		ui.Padding(ui.Insets{Left: 1, Right: 1}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
-	)
+	// Half-block edges give the wash half a row of vertical padding on each
+	// side, approximating the macOS message card without doubling its height.
+	edge := func(glyph string) ui.Widget {
+		return ui.Divider{
+			Character: ui.Character{Grapheme: glyph, Width: 1},
+			Style:     ui.Style{Foreground: fill, Background: theme.Background},
+		}
+	}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, MainAxisSize: ui.MainAxisSizeMin, Children: []ui.Widget{
+		edge(glyphLowerHalfBlock),
+		ui.DecoratedBox(
+			ui.Decoration{Style: ui.Style{Background: fill}},
+			ui.Padding(ui.Insets{Left: 2, Right: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
+		),
+		edge(glyphUpperHalfBlock),
+	}}
 }
 
 // userMessageBackground matches the macOS transcript: a light accent wash over
@@ -1034,7 +1073,7 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 	expanded := inlineActivityIsOpen(w.Snapshot.InlineActivityOpen, item.ID, len(calls), inProgress && !aborted)
 	mutedStyle := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
 	rowStyle := ui.Style{Background: theme.Background}
-	prefix := ui.Widget(ui.Text{Value: glyphChevronRight, Style: mutedStyle})
+	prefix := ui.Widget(ui.Text{Value: glyphTriangleRight, Style: mutedStyle})
 	if expanded {
 		prefix = ui.Text{Value: glyphTriangleDown, Style: mutedStyle}
 	} else if inProgress {
@@ -1051,14 +1090,16 @@ func (w shellView) transcriptWorkChip(theme ui.Theme, item transcriptDisplayItem
 			Style: ui.Style{Foreground: theme.DangerText, Background: theme.Background},
 		})
 	}
-	row := ui.DecoratedBox(ui.Decoration{Style: rowStyle}, ui.Padding(ui.Symmetric(1, 0), ui.Flex{
+	// The header shares the prose edge; its indicator column is the same
+	// column tool rows use for their state icons.
+	row := ui.DecoratedBox(ui.Decoration{Style: rowStyle}, ui.Flex{
 		Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
 			prefix,
 			ui.SizedBox{Width: 1},
 			ui.RichText{Spans: countSpans},
 			ui.Expanded(ui.SizedBox{}),
 		},
-	}))
+	})
 	activate := func(ctx ui.EventContext) {
 		if w.Callbacks.OpenActivity != nil {
 			w.Callbacks.OpenActivity(ctx, item.ID)
