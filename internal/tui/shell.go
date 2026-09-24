@@ -882,8 +882,9 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession, annotationsExpanded bool, toggleAnnotations ui.VoidCallback) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
+	fill := userMessageBackground(theme)
 	if text := message.TextContent(); text != "" {
-		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground, Background: theme.Background}})
+		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground, Background: fill}})
 	}
 	annotations := make([]protocol.SubmittedAnnotation, 0)
 	for _, block := range message.Content {
@@ -906,12 +907,19 @@ func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, att
 		}
 	}
 	return ui.DecoratedBox(
-		ui.Decoration{
-			Style:  ui.Style{Background: theme.Background},
-			Border: ui.Border{Style: ui.Style{Foreground: theme.PrimaryText, Background: theme.Background}, Left: true},
-		},
-		ui.Padding(ui.Insets{Left: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
+		ui.Decoration{Style: ui.Style{Background: fill}},
+		ui.Padding(ui.Insets{Left: 1, Right: 1}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}),
 	)
+}
+
+// userMessageBackground matches the macOS transcript: a light accent wash over
+// the raised surface so a user turn is identifiable without a label.
+func userMessageBackground(theme ui.Theme) ui.Color {
+	opacity := 0.12
+	if theme.Mode == ui.DarkTheme {
+		opacity = 0.18
+	}
+	return tintUIColor(theme.Surface, theme.PrimaryText, opacity)
 }
 
 func submittedAnnotationGroup(theme ui.Theme, annotations []protocol.SubmittedAnnotation, expanded bool, toggle ui.VoidCallback) ui.Widget {

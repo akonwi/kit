@@ -1162,18 +1162,25 @@ func TestTurnWorkChipShowsOnlySpinnerAndCountWhenCollapsed(t *testing.T) {
 	}
 }
 
-func TestTranscriptUserEntryUsesTranscriptBackground(t *testing.T) {
+func TestTranscriptUserEntryUsesAccentWash(t *testing.T) {
 	t.Parallel()
 
 	theme := ui.DefaultTheme()
+	fill := userMessageBackground(theme)
+	if fill == theme.Background {
+		t.Fatal("user message wash matches the transcript background")
+	}
 	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
 		ID:      "user_1",
 		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the file"}},
 	}, nil, false, nil))
 	app.Pump(40, 4)
 	column, row := findPaintedCellSequence(t, app, 40, 4, "Inspect the file")
-	if got := app.Cell(column, row).Background; got != theme.Background {
-		t.Fatalf("user message background = %#v, want transcript background %#v", got, theme.Background)
+	if got := app.Cell(column, row).Background; got != fill {
+		t.Fatalf("user message background = %#v, want accent wash %#v", got, fill)
+	}
+	if got := app.Cell(0, row).Background; got != fill {
+		t.Fatalf("user message inset background = %#v, want accent wash %#v", got, fill)
 	}
 }
 
