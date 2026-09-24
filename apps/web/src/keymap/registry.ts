@@ -400,6 +400,62 @@ export const KEYBINDING_REGISTRY = {
 			hint: "transcript",
 		},
 	},
+	"image-preview": {
+		"open-external": {
+			defaultKeys: "o",
+			desc: "Open image externally",
+			group: "image-preview",
+			hint: "open externally",
+		},
+		"zoom-in": {
+			defaultKeys: ["+", "shift+="],
+			desc: "Zoom in on image",
+			group: "image-preview",
+			hint: false,
+		},
+		"zoom-out": {
+			defaultKeys: "-",
+			desc: "Zoom out on image",
+			group: "image-preview",
+			hint: false,
+		},
+		"reset-zoom": {
+			defaultKeys: "0",
+			desc: "Reset image zoom",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-up": {
+			defaultKeys: ["up", "k"],
+			desc: "Pan image up",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-down": {
+			defaultKeys: ["down", "j"],
+			desc: "Pan image down",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-left": {
+			defaultKeys: ["left", "h"],
+			desc: "Pan image left",
+			group: "image-preview",
+			hint: false,
+		},
+		"pan-right": {
+			defaultKeys: ["right", "l"],
+			desc: "Pan image right",
+			group: "image-preview",
+			hint: false,
+		},
+		close: {
+			defaultKeys: "escape",
+			desc: "Return to transcript",
+			group: "image-preview",
+			hint: "transcript",
+		},
+	},
 	"mermaid-preview": {
 		"open-external": {
 			defaultKeys: "o",
@@ -494,6 +550,80 @@ export const KEYBINDING_REGISTRY = {
 			desc: "Return to transcript",
 			group: "scratchpad",
 			hint: "transcript",
+		},
+	},
+	"plugin-ui": {
+		"select.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin selection",
+			group: "plugin-ui.select",
+			hint: "cancel",
+		},
+		"select.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin selection",
+			group: "plugin-ui.select",
+			hint: "select",
+		},
+		"select.move-up": {
+			defaultKeys: "up",
+			desc: "Move plugin selection up",
+			group: "plugin-ui.select",
+			hint: "move",
+		},
+		"select.move-down": {
+			defaultKeys: "down",
+			desc: "Move plugin selection down",
+			group: "plugin-ui.select",
+			hint: "move",
+		},
+		"input.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin input",
+			group: "plugin-ui.input",
+			hint: "cancel",
+		},
+		"input.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin input",
+			group: "plugin-ui.input",
+			hint: "submit",
+		},
+		"confirm.cancel": {
+			defaultKeys: "escape",
+			desc: "Cancel plugin confirmation",
+			group: "plugin-ui.confirm",
+			hint: "cancel",
+		},
+		"confirm.submit": {
+			defaultKeys: "return",
+			desc: "Submit plugin confirmation",
+			group: "plugin-ui.confirm",
+			hint: "confirm",
+		},
+		"confirm.choose-previous": {
+			defaultKeys: "left",
+			desc: "Choose previous confirmation option",
+			group: "plugin-ui.confirm",
+			hint: "choose",
+		},
+		"confirm.choose-next": {
+			defaultKeys: "right",
+			desc: "Choose next confirmation option",
+			group: "plugin-ui.confirm",
+			hint: "choose",
+		},
+		"confirm.scroll-up": {
+			defaultKeys: "up",
+			desc: "Scroll confirmation details up",
+			group: "plugin-ui.confirm",
+			hint: false,
+		},
+		"confirm.scroll-down": {
+			defaultKeys: "down",
+			desc: "Scroll confirmation details down",
+			group: "plugin-ui.confirm",
+			hint: false,
 		},
 	},
 	"guided-questions": {

@@ -48,4 +48,10 @@ interaction, security, and accessibility.
 - [ ] WEB-A11Y-001 — Pass keyboard, focus, semantics, contrast, screen-reader,
   and reduced-motion verification.
 - [ ] WEB-TEST-001 — Pass browser formatting, lint, typecheck, unit, integration,
-  and accessibility suites.
+  and accessibility suites. The retained workspace currently has a formatting
+  violation in `apps/web/docs/plugin-protocol/protocol.schema.json`.
+- [ ] WEB-TEST-002 — Make retained JavaScript runtime tests hermetic. Auth storage
+  currently uses `HOME` rather than `KIT_HOME`, and runtime tests require an
+  authenticated provider. Until isolated fixtures are built into the harness,
+  run with a temporary, canonicalized `HOME` and a fake API-key credential file;
+  do not let manual-compaction tests read or refresh real OAuth credentials.

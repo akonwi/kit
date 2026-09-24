@@ -18,6 +18,7 @@ export function AssistantEntry(props: {
 	liveTools: ToolActivity[];
 	openActivity: (source: ActivitySource) => void;
 	isActivityOpen: (source: ActivitySource) => boolean;
+	hideTools?: boolean;
 }): JSX.Element {
 	const parts = createMemo(() => extractAssistantParts(props.item.message));
 	const error = createMemo(() =>
@@ -52,7 +53,7 @@ export function AssistantEntry(props: {
 			<Show when={parts().text.trim()}>
 				<SafeMarkdown content={parts().text} />
 			</Show>
-			<Show when={parts().toolCalls.length > 0}>
+			<Show when={!props.hideTools && parts().toolCalls.length > 0}>
 				<ToolDrawer
 					toolCalls={parts().toolCalls}
 					toolResults={props.item.toolResults}
@@ -202,6 +203,10 @@ export function TurnEntry(props: {
 		const item = props.displayItem();
 		return item?.kind === "turn-work" ? item : null;
 	});
+	const projectedProse = createMemo(() => {
+		const item = props.displayItem();
+		return item?.kind === "assistant-prose" ? item.item : null;
+	});
 	const singleItem = createMemo(() => {
 		const item = props.displayItem();
 		return item?.kind === "single" ? item.item : null;
@@ -232,6 +237,17 @@ export function TurnEntry(props: {
 						liveTools={props.liveTools}
 						openActivity={workspace.openActivity}
 						isActivityOpen={workspace.isActivityOpen}
+					/>
+				)}
+			</Match>
+			<Match when={projectedProse()}>
+				{(item) => (
+					<AssistantEntry
+						item={item()}
+						liveTools={props.liveTools}
+						openActivity={workspace.openActivity}
+						isActivityOpen={workspace.isActivityOpen}
+						hideTools
 					/>
 				)}
 			</Match>

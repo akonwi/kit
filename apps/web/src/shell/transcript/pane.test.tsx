@@ -48,6 +48,7 @@ test("transcript turns are direct scrollbox children for viewport culling", asyn
 				openOverlay={openOverlayStub}
 				openActivity={() => {}}
 				openSubagent={() => false}
+				openImage={() => {}}
 				openMessageContextMenu={() => {}}
 			/>
 		),

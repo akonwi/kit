@@ -3,6 +3,7 @@ import { mkdir, mkdtemp, readFile, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import path from "node:path";
 import { clearModelAvailabilityCache } from "../runtime/models";
+import { SHOW_IMAGE_TOOL_NAME } from "../tools";
 import { createEphemeralSession, createHeadlessHost } from "./headless-host";
 
 const tempDirs: string[] = [];
@@ -135,9 +136,11 @@ describe("createHeadlessHost", () => {
 			externalPluginHome: home,
 		});
 		try {
-			expect(host.runtime.getTools().map((tool) => tool.name)).toEqual(
+			const toolNames = host.runtime.getTools().map((tool) => tool.name);
+			expect(toolNames).toEqual(
 				expect.arrayContaining(["user-probe__probe", "project-probe__probe"]),
 			);
+			expect(toolNames).not.toContain(SHOW_IMAGE_TOOL_NAME);
 		} finally {
 			await host.dispose();
 			process.chdir(originalCwd);

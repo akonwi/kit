@@ -68,10 +68,28 @@ export type InternalPluginOverlayComponentProps<T> = {
 	copyText: (text: string) => Promise<void>;
 };
 
+export type InternalPluginInteractionComponentProps<T> = {
+	done: (result: T) => void;
+	active: boolean;
+	copyText: (text: string) => Promise<void>;
+	maxHeight: number;
+};
+
+export type InternalPluginInteractionOptions<T> = {
+	signal?: AbortSignal;
+	abortValue: T;
+};
+
+export type OpenPluginInteraction = <T>(
+	component: (props: InternalPluginInteractionComponentProps<T>) => JSX.Element,
+	options: InternalPluginInteractionOptions<T>,
+) => Promise<T>;
+
 export type InternalPluginUI = PluginAPI["ui"] & {
 	custom: <T>(
 		component: (props: InternalPluginOverlayComponentProps<T>) => JSX.Element,
 	) => Promise<T>;
+	interaction: OpenPluginInteraction;
 	getTranscriptViewport: () => TranscriptViewport | null;
 };
 

@@ -11,7 +11,7 @@ import {
 import { useKeymapLayer } from "../../keymap/useKeymapLayer";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { theme } from "../../shell/theme";
-import type { OpenOverlay } from "../../shell/transcript/types";
+import type { OpenImage, OpenOverlay } from "../../shell/transcript/types";
 import {
 	WorkspacePanelHeader,
 	WorkspacePanelLayout,
@@ -32,6 +32,7 @@ export type SubagentPanelProps = {
 	onBack: () => void;
 	onDismissed: () => void;
 	onFocusRequest?: () => void;
+	openImage: OpenImage;
 	openOverlay: OpenOverlay;
 };
 
@@ -200,6 +201,7 @@ export function SubagentPanel(props: SubagentPanelProps) {
 									<SubagentTranscriptView
 										conversation={current()}
 										entries={entries() ?? []}
+										openImage={props.openImage}
 										setScrollRef={(ref) => {
 											transcriptScrollRef = ref;
 										}}

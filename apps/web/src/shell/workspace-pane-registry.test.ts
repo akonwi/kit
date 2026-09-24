@@ -12,6 +12,7 @@ import { createWorkspaceStateController } from "./workspace-state";
 const paneKinds: WorkspacePane["kind"][] = [
 	"activity",
 	"file",
+	"image",
 	"mermaid",
 	"mcp",
 	"review",
@@ -57,6 +58,17 @@ describe("workspace pane registry", () => {
 				path: "src/index.ts",
 			}),
 		).toBe("file:/repo/src/index.ts");
+		expect(
+			workspacePaneIdentity({
+				kind: "image",
+				id: "tool-call-1",
+				image: {
+					data: "encoded",
+					mimeType: "image/png",
+					filename: "result.png",
+				},
+			}),
+		).toBe("image:tool-call-1");
 		expect(workspacePaneIdentity({ kind: "mermaid", source: "graph TD" })).toBe(
 			"mermaid:graph TD",
 		);
@@ -99,6 +111,20 @@ describe("workspace pane registry", () => {
 				diagrams,
 			),
 		).toBe("code-reviewer");
+		expect(
+			workspacePaneLabel(
+				{
+					kind: "image",
+					id: "tool-call-1",
+					image: {
+						data: "encoded",
+						mimeType: "image/png",
+						filename: "result.png",
+					},
+				},
+				diagrams,
+			),
+		).toBe("result.png");
 		expect(workspacePaneLabel({ kind: "mcp" }, diagrams)).toBe("MCP");
 		expect(
 			workspacePaneLabel(

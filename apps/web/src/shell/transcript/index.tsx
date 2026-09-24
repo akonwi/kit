@@ -1,5 +1,6 @@
 import { createSignal, onCleanup } from "solid-js";
 import type { KitAgentMessage } from "../../session/types";
+import { SHOW_IMAGE_TOOL_NAME } from "../../tools";
 import { TranscriptPane } from "./pane";
 import {
 	buildAssistantTranscriptItem,
@@ -47,6 +48,19 @@ export function Transcript(props: TranscriptProps) {
 		flattenTurnsToTranscriptItems(props.runtime.getTurns()),
 	);
 	const [pendingAssistantText, setPendingAssistantText] = createSignal("");
+	const [expandedImageToolCallIds, setExpandedImageToolCallIds] = createSignal<
+		ReadonlySet<string>
+	>(new Set());
+
+	function setImageToolCallExpanded(toolCallId: string, expanded: boolean) {
+		setExpandedImageToolCallIds((previous) => {
+			if (expanded) return new Set([toolCallId]);
+			if (!previous.has(toolCallId)) return previous;
+			const next = new Set(previous);
+			next.delete(toolCallId);
+			return next;
+		});
+	}
 
 	const unsubscribeUserMessageCreated = props.runtime.subscribe(
 		"user.message.created",
@@ -102,6 +116,14 @@ export function Transcript(props: TranscriptProps) {
 		},
 	);
 
+	const unsubscribeToolEnded = props.runtime.subscribe(
+		"agent.tool.ended",
+		(event) => {
+			if (event.toolName !== SHOW_IMAGE_TOOL_NAME || event.isError) return;
+			setImageToolCallExpanded(event.toolCallId, true);
+		},
+	);
+
 	const unsubscribeTurnCompleted = props.runtime.subscribe(
 		"agent.turn.completed",
 		(_) => {
@@ -119,6 +141,7 @@ export function Transcript(props: TranscriptProps) {
 		"session.active.changed",
 		(_) => {
 			setPendingAssistantText("");
+			setExpandedImageToolCallIds(new Set<string>());
 			setItems(flattenTurnsToTranscriptItems(props.runtime.getTurns()));
 		},
 	);
@@ -142,10 +165,18 @@ export function Transcript(props: TranscriptProps) {
 		unsubscribeAgentMessageEnded();
 		unsubscribeBashCommandStarted();
 		unsubscribeBashCommandCompleted();
+		unsubscribeToolEnded();
 		unsubscribeTurnCompleted();
 		unsubscribeSessionChanged();
 		unsubscribeCompacted();
 	});
 
-	return <TranscriptPane {...props} items={items()} />;
+	return (
+		<TranscriptPane
+			{...props}
+			items={items()}
+			expandedImageToolCallIds={expandedImageToolCallIds()}
+			setImageToolCallExpanded={setImageToolCallExpanded}
+		/>
+	);
 }

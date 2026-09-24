@@ -28,8 +28,14 @@ export function createGuidedQuestionsController() {
 	const [mode, setMode] = createSignal<GuidedQuestionsMode>("select");
 	const [answers, setAnswers] = createSignal<Record<string, AnswerValue>>({});
 
-	let resolveGuidedQuestions: ((result: GuidedQuestionsResult) => void) | null =
-		null;
+	type ActivationRequest = {
+		params: GuidedQuestionsInput;
+		signal?: AbortSignal;
+		resolve: (result: GuidedQuestionsResult) => void;
+		onAbort: () => void;
+	};
+	let currentRequest: ActivationRequest | null = null;
+	const activationQueue: ActivationRequest[] = [];
 	const listeners = new Set<(active: boolean) => void>();
 
 	const currentQuestion = createMemo(() => {
@@ -302,41 +308,92 @@ export function createGuidedQuestionsController() {
 		return () => listeners.delete(listener);
 	}
 
-	function activate(
-		params: GuidedQuestionsInput,
-	): Promise<GuidedQuestionsResult> {
-		const qs = normalizeQuestions(params.questions || []);
+	function startNextActivation(): void {
+		if (currentRequest || activationQueue.length === 0) return;
+		const request = activationQueue.shift();
+		if (!request) return;
+		if (request.signal?.aborted) {
+			request.signal.removeEventListener("abort", request.onAbort);
+			request.resolve({ cancelled: true, answers: {} });
+			queueMicrotask(startNextActivation);
+			return;
+		}
+		currentRequest = request;
+		const qs = normalizeQuestions(request.params.questions || []);
 		if (qs.length === 0) {
-			return Promise.resolve({ cancelled: true, answers: {} });
+			currentRequest = null;
+			request.signal?.removeEventListener("abort", request.onAbort);
+			request.resolve({ cancelled: true, answers: {} });
+			queueMicrotask(startNextActivation);
+			return;
 		}
 
 		setQuestions(qs);
-		setTitle(params.title?.trim() || "Guided questionnaire");
-		setIntro(params.intro?.trim() || "");
+		setTitle(request.params.title?.trim() || "Guided questionnaire");
+		setIntro(request.params.intro?.trim() || "");
 		setCurrentIndex(0);
 		setSelectIndex(0);
 		setAnswers({});
 		setActive(true);
 		notifyActiveChanged();
 		loadQuestionState(qs[0] ?? null);
+	}
 
+	function activate(
+		params: GuidedQuestionsInput,
+		signal?: AbortSignal,
+	): Promise<GuidedQuestionsResult> {
 		return new Promise<GuidedQuestionsResult>((resolve) => {
-			resolveGuidedQuestions = resolve;
+			const request: ActivationRequest = {
+				params,
+				signal,
+				resolve,
+				onAbort: () => {
+					if (currentRequest === request) {
+						finish(true);
+						return;
+					}
+					const index = activationQueue.indexOf(request);
+					if (index < 0) return;
+					activationQueue.splice(index, 1);
+					request.signal?.removeEventListener("abort", request.onAbort);
+					request.resolve({ cancelled: true, answers: {} });
+				},
+			};
+			if (signal?.aborted) {
+				resolve({ cancelled: true, answers: {} });
+				return;
+			}
+			signal?.addEventListener("abort", request.onAbort, { once: true });
+			activationQueue.push(request);
+			startNextActivation();
 		});
 	}
 
 	function finish(cancelled: boolean) {
+		const request = currentRequest;
+		if (!request) return;
 		const result: GuidedQuestionsResult = {
 			cancelled,
 			answers: answers(),
 		};
+		currentRequest = null;
+		request.signal?.removeEventListener("abort", request.onAbort);
 		setActive(false);
 		notifyActiveChanged();
-		resolveGuidedQuestions?.(result);
-		resolveGuidedQuestions = null;
+		request.resolve(result);
+		queueMicrotask(startNextActivation);
 	}
 
 	function cancel() {
+		finish(true);
+	}
+
+	function cancelAll() {
+		for (const request of activationQueue.splice(0)) {
+			request.signal?.removeEventListener("abort", request.onAbort);
+			request.resolve({ cancelled: true, answers: {} });
+		}
 		finish(true);
 	}
 
@@ -375,6 +432,7 @@ export function createGuidedQuestionsController() {
 		subscribe,
 		activate,
 		cancel,
+		cancelAll,
 		selectOption,
 		submitText,
 		submitMultiSelect,

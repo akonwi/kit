@@ -67,7 +67,11 @@ export type TurnActivitySection =
  */
 export type ActivitySource =
 	| { kind: "single-item"; itemId: string }
-	| { kind: "turn-intermediate"; turnId: string };
+	| {
+			kind: "turn-intermediate";
+			turnId: string;
+			anchorItemId: string;
+	  };
 
 function itemsToSections(items: TranscriptItem[]): TurnActivitySection[] {
 	const sections: TurnActivitySection[] = [];
@@ -114,7 +118,12 @@ function buildSectionsForSource(
 	// enough messages accumulate or the turn completes.
 	return {
 		sections: itemsToSections(
-			findTurnWorkItems(items, source.turnId, inProgressTurnId),
+			findTurnWorkItems(
+				items,
+				source.turnId,
+				inProgressTurnId,
+				source.anchorItemId,
+			),
 		),
 		turnId: source.turnId,
 	};

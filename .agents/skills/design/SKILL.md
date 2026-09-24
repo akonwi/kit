@@ -144,6 +144,18 @@ OpenTUI paints border cells with the box background, which can create an inset a
 
 Compose picker behavior with `Picker.Root`, `Picker.Header`, `Picker.Body`, and `Picker.Footer`. Put that composition inside `InlinePicker` for a transient picker or `Dialog.Root` for a modal picker; do not fork picker interaction and selection styling.
 
+### Interaction dock
+
+Examples: model- or plugin-invoked confirmation, short input, selection, and guided questions.
+
+- Replaces the composer while input is required and spans the primary transcript column
+- Uses a top `borderAccent` separator and `bgSurface` without a modal backdrop
+- Keeps the transcript visible and mouse-scrollable while the dock owns keyboard focus
+- Caps its height relative to the terminal and windows or scrolls long option content internally
+- Uses `InteractionDock.Root`, `InteractionDock.Header`, `InteractionDock.Body`, and `InteractionDock.Footer`
+- Queues concurrent requests rather than stacking multiple visible docks
+- Public plugin `confirm`, `input`, and `select` primitives use this surface; arbitrary custom plugin UI remains a dialog
+
 ### Full-screen takeover
 
 Examples: Pager and fatal-error presentation.
@@ -394,6 +406,15 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - **Compact clickable control:** show immediate hover feedback, commonly `bgMuted` plus `textPrimary`. Communicate focus with the control background instead of decorative brackets around its label. A terminal pointer shape is optional supplemental feedback, never the only feedback, and must be reset on mouse-out.
 - **Navigable URL:** underline the displayed link text and attach OSC 8 hyperlink metadata when the target is safe. Labeled Markdown links display only their label; bare URLs display their literal target. When the TUI has mouse reporting enabled, also handle activation explicitly because terminal-native clicks may be delivered to the app. Do not replace useful URLs with opaque `click here` copy.
 - Handle only the primary mouse button for activation. Prevent propagation when the action should not also select or focus an ancestor.
+
+### Transcript images
+
+- Render an image in the main transcript only when message content or an explicit presentation tool identifies it as an image; do not infer images from paths mentioned in prose.
+- Reserve fixed rows before loading an inline preview so decoding cannot shift surrounding transcript content unexpectedly.
+- Keep restored image history collapsed, allow at most one expanded transcript preview, and mount the image renderable only while expanded to bound native image memory.
+- Open clicked transcript images in a workspace preview pane by default; native application launch is an explicit pane action.
+- Use OpenTUI image protocol `auto` so Kitty, Sixel, and Unicode-block fallback follow renderer capabilities.
+- Keep image rows minimally framed. The transcript entry and disclosure row establish context; do not add a decorative preview border.
 
 ### Diffs and inline comments
 

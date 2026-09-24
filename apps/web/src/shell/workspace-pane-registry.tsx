@@ -2,6 +2,8 @@ import path from "node:path";
 import { type JSX, Show } from "solid-js";
 import { FileViewerPanel } from "../features/files";
 import type { FileCommentDraftController } from "../features/files/comment-draft-controller";
+import { ImagePreviewPanel } from "../features/images/ImagePreviewPanel";
+import type { ImagePreviewSource } from "../features/images/types";
 import { type McpPanelData, McpStatusPanel } from "../features/mcp";
 import { MermaidPreviewPanel } from "../features/mermaid-preview/MermaidPreviewPanel";
 import {
@@ -22,11 +24,12 @@ import type { AttachmentsController } from "./attachments-controller";
 import { openExternal } from "./open-external";
 import { TurnActivityPanel } from "./transcript/TurnActivityPanel";
 import type { ActivitySource } from "./transcript/turn-activity-view";
-import type { OpenOverlay } from "./transcript/types";
+import type { OpenImage, OpenOverlay } from "./transcript/types";
 
 export type WorkspacePane =
 	| { kind: "activity"; source: ActivitySource }
 	| { kind: "file"; repoRoot: string; path: string }
+	| { kind: "image"; id: string; image: ImagePreviewSource }
 	| { kind: "mermaid"; source: string }
 	| { kind: "mcp" }
 	| { kind: "review" }
@@ -48,6 +51,7 @@ type PaneOfKind<K extends WorkspacePaneKind> = Extract<
 
 export type WorkspacePaneRenderContext = {
 	active: () => boolean;
+	visible: () => boolean;
 	onFocusRequest: () => void;
 	onLeave: () => void;
 	runtime: AgentRuntime;
@@ -66,6 +70,7 @@ export type WorkspacePaneRenderContext = {
 	openFileFinder: () => void;
 	openSubagents: () => void;
 	openSubagent: (agentName: string) => boolean;
+	openImage: OpenImage;
 	closePane: () => void;
 	openOverlay: OpenOverlay;
 	showToast: (toast: ToastInput) => void;
@@ -138,6 +143,28 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 				toast={context.showToast}
 				onSubmitMessage={context.onSubmitReviewMessage}
 				onFocusRequest={context.onFocusRequest}
+			/>
+		),
+	},
+	image: {
+		kind: "image",
+		identity: (pane) => `image:${pane.id}`,
+		label: (pane) => pane.image.filename,
+		closable: true,
+		render: (pane, context) => (
+			<ImagePreviewPanel
+				image={pane.image}
+				active={context.active()}
+				visible={context.visible()}
+				onClose={context.onLeave}
+				onFocusRequest={context.onFocusRequest}
+				onActionError={(error) =>
+					context.showToast({
+						title: "Could not open image",
+						subtitle: error instanceof Error ? error.message : String(error),
+						variant: "error",
+					})
+				}
 			/>
 		),
 	},
@@ -285,6 +312,7 @@ export const WORKSPACE_PANE_DEFINITIONS = {
 					onBack={context.openSubagents}
 					onDismissed={context.closePane}
 					onFocusRequest={context.onFocusRequest}
+					openImage={context.openImage}
 				/>
 			);
 		},

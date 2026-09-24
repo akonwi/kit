@@ -1,30 +1,29 @@
-import { useBindings } from "@opentui/keymap/solid";
 import {
 	createEffect,
 	createMemo,
 	createSignal,
 	For,
 	type JSX,
-	onCleanup,
 	Show,
 } from "solid-js";
-import { withKitKeyAliases } from "../keymap/bindings";
+import { useKeymapLayer } from "../keymap/useKeymapLayer";
 import type { InternalPluginUI, TranscriptViewport } from "../plugins/types";
-import { Dialog } from "../shell/Dialog";
 import { FULL_BLOCK, VERTICAL_LINE } from "../shell/glyphs";
+import { InteractionDock } from "../shell/InteractionDock";
 import { KeymapHintBar } from "../shell/KeymapHintBar";
 import { KitMarkdown } from "../shell/KitMarkdown";
 import { computeScrollbar } from "../shell/scrollbar";
 import { scrollbarStyle, theme } from "../shell/theme";
 import type { ToastInput } from "../state/toasts";
+import type {
+	InteractionComponentProps,
+	OpenInteraction,
+} from "./interaction-ui";
 import type { OverlayComponentProps } from "./overlay-ui";
 
 const SELECT_MAX_VISIBLE = 8;
-const CONFIRM_DIALOG_MIN_WIDTH = 44;
-const CONFIRM_DIALOG_MAX_WIDTH = 96;
-const DIALOG_HORIZONTAL_CHROME = 4;
-const CONFIRM_ACTION_CHROME = 5;
-const CONFIRM_SCROLLBAR_WIDTH = 1;
+const CONFIRM_MAX_MESSAGE_ROWS = 12;
+const CONFIRM_FIXED_ROWS = 8;
 
 type OpenOverlay = <T>(
 	component: (props: OverlayComponentProps<T>) => JSX.Element,
@@ -73,33 +72,29 @@ type ConfirmOptions = {
 	signal?: AbortSignal;
 };
 
-export function measurePluginConfirmDialogWidth(
-	input: Pick<
-		ConfirmOptions,
-		"title" | "message" | "confirmLabel" | "cancelLabel"
-	>,
+export function measurePluginConfirmMessageHeight(
+	message: string,
+	width: number,
+	maxHeight: number,
 ): number {
-	const cancelLabel = input.cancelLabel ?? "Cancel";
-	const confirmLabel = input.confirmLabel ?? "Confirm";
-	const messageWidth = (input.message ?? "")
-		.split("\n")
-		.reduce((longest, line) => Math.max(longest, Bun.stringWidth(line)), 0);
-	const contentWidth = Math.max(
-		Bun.stringWidth(input.title),
-		messageWidth + CONFIRM_SCROLLBAR_WIDTH,
-		Bun.stringWidth(cancelLabel) +
-			Bun.stringWidth(confirmLabel) +
-			CONFIRM_ACTION_CHROME,
-	);
-	return Math.min(
-		CONFIRM_DIALOG_MAX_WIDTH,
-		Math.max(CONFIRM_DIALOG_MIN_WIDTH, contentWidth + DIALOG_HORIZONTAL_CHROME),
+	const contentWidth = Math.max(1, width - 1);
+	const rows = message.split("\n").reduce((total, line) => {
+		return total + Math.max(1, Math.ceil(Bun.stringWidth(line) / contentWidth));
+	}, 0);
+	return Math.max(
+		1,
+		Math.min(
+			CONFIRM_MAX_MESSAGE_ROWS,
+			Math.max(1, maxHeight - CONFIRM_FIXED_ROWS),
+			rows,
+		),
 	);
 }
 
 export type CreatePluginUIOptions = {
 	toast: (toast: ToastInput) => void;
 	custom: OpenOverlay;
+	interaction: OpenInteraction;
 	getTranscriptViewport: () => TranscriptViewport | null;
 	getTheme: InternalPluginUI["theme"];
 };
@@ -108,9 +103,10 @@ export function createPluginUI(
 	options: CreatePluginUIOptions,
 ): InternalPluginUI {
 	const select = ((input: SelectInput<unknown>) =>
-		options.custom<unknown | undefined>((props) => (
-			<PluginSelectOverlay {...props} input={input} />
-		))) as InternalPluginUI["select"];
+		options.interaction<unknown | undefined>(
+			(props) => <PluginSelectInteraction {...props} input={input} />,
+			{ signal: input.signal, abortValue: undefined },
+		)) as InternalPluginUI["select"];
 
 	return {
 		text: (text, style) => ({ __kitText: true, text, style }),
@@ -118,14 +114,17 @@ export function createPluginUI(
 		toast: options.toast,
 		select,
 		input: (input) =>
-			options.custom<string | undefined>((props) => (
-				<PluginInputOverlay {...props} input={input} />
-			)),
+			options.interaction<string | undefined>(
+				(props) => <PluginInputInteraction {...props} input={input} />,
+				{ signal: input.signal, abortValue: undefined },
+			),
 		confirm: (input) =>
-			options.custom<boolean>((props) => (
-				<PluginConfirmOverlay {...props} input={input} />
-			)),
+			options.interaction<boolean>(
+				(props) => <PluginConfirmInteraction {...props} input={input} />,
+				{ signal: input.signal, abortValue: false },
+			),
 		custom: options.custom,
+		interaction: options.interaction,
 		getTranscriptViewport: options.getTranscriptViewport,
 	};
 }
@@ -151,8 +150,8 @@ function matchesOption(option: NormalizedSelectOption, query: string): boolean {
 	return `${option.label} ${option.description}`.toLowerCase().includes(needle);
 }
 
-function PluginSelectOverlay(
-	props: OverlayComponentProps<unknown | undefined> & {
+export function PluginSelectInteraction(
+	props: InteractionComponentProps<unknown | undefined> & {
 		input: SelectInput<unknown>;
 	},
 ) {
@@ -170,20 +169,32 @@ function PluginSelectOverlay(
 		if (selectedIndex() >= count) setSelectedIndex(Math.max(0, count - 1));
 	});
 
+	const maxVisibleOptions = () =>
+		Math.max(
+			1,
+			Math.min(
+				SELECT_MAX_VISIBLE,
+				props.maxHeight -
+					6 -
+					(props.input.message ? 2 : 0) -
+					(props.input.filterable ? 2 : 0),
+			),
+		);
 	const visibleOptions = createMemo(() => {
 		const all = filteredOptions();
 		const selected = selectedIndex();
-		if (all.length <= SELECT_MAX_VISIBLE) {
+		const visibleCount = maxVisibleOptions();
+		if (all.length <= visibleCount) {
 			return {
 				items: all.map((option, index) => ({ option, index })),
 				offset: 0,
 			};
 		}
-		let offset = selected - Math.floor(SELECT_MAX_VISIBLE / 2);
-		offset = Math.max(0, Math.min(offset, all.length - SELECT_MAX_VISIBLE));
+		let offset = selected - Math.floor(visibleCount / 2);
+		offset = Math.max(0, Math.min(offset, all.length - visibleCount));
 		return {
 			items: all
-				.slice(offset, offset + SELECT_MAX_VISIBLE)
+				.slice(offset, offset + visibleCount)
 				.map((option, index) => ({ option, index: offset + index })),
 			offset,
 		};
@@ -191,7 +202,7 @@ function PluginSelectOverlay(
 	const scrollbar = createMemo(() =>
 		computeScrollbar(
 			filteredOptions().length,
-			SELECT_MAX_VISIBLE,
+			maxVisibleOptions(),
 			visibleOptions().offset,
 		),
 	);
@@ -206,93 +217,28 @@ function PluginSelectOverlay(
 		props.done(filteredOptions()[selectedIndex()]?.value);
 	}
 
-	createEffect(() => {
-		const signal = props.input.signal;
-		if (!signal) return;
-		if (signal.aborted) {
-			props.done(undefined);
-			return;
-		}
-		const abort = () => props.done(undefined);
-		signal.addEventListener("abort", abort, { once: true });
-		onCleanup(() => signal.removeEventListener("abort", abort));
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => props.active,
-			priority: 200,
-			commands: [
-				{
-					name: "plugin-ui.select.cancel",
-					desc: "Cancel plugin selection",
-					group: "plugin-ui.select",
-					hint: "cancel",
-					run: () => props.done(undefined),
-				},
-				{
-					name: "plugin-ui.select.submit",
-					desc: "Submit plugin selection",
-					group: "plugin-ui.select",
-					hint: "select",
-					run: submit,
-				},
-				{
-					name: "plugin-ui.select.move-up",
-					desc: "Move plugin selection up",
-					group: "plugin-ui.select",
-					hint: "move",
-					run: () => move(-1),
-				},
-				{
-					name: "plugin-ui.select.move-down",
-					desc: "Move plugin selection down",
-					group: "plugin-ui.select",
-					hint: "move",
-					run: () => move(1),
-				},
-			],
-			bindings: [
-				{
-					key: "escape",
-					cmd: "plugin-ui.select.cancel",
-					desc: "Cancel plugin selection",
-					group: "plugin-ui.select",
-				},
-				{
-					key: "return",
-					cmd: "plugin-ui.select.submit",
-					desc: "Submit plugin selection",
-					group: "plugin-ui.select",
-				},
-				{
-					key: "up",
-					cmd: "plugin-ui.select.move-up",
-					desc: "Move plugin selection up",
-					group: "plugin-ui.select",
-				},
-				{
-					key: "down",
-					cmd: "plugin-ui.select.move-down",
-					desc: "Move plugin selection down",
-					group: "plugin-ui.select",
-				},
-			],
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => props.active,
+		commands: {
+			"plugin-ui.select.cancel": () => props.done(undefined),
+			"plugin-ui.select.submit": submit,
+			"plugin-ui.select.move-up": () => move(-1),
+			"plugin-ui.select.move-down": () => move(1),
+		},
+	}));
 
 	return (
-		<Dialog.Root
-			surfaceProps={props.surfaceProps}
-			width="70%"
-			maxWidth={80}
-			minWidth={40}
-		>
-			<Dialog.Header>
-				<Dialog.Title>{props.input.title}</Dialog.Title>
-			</Dialog.Header>
+		<InteractionDock.Root maxHeight={props.maxHeight}>
+			<InteractionDock.Header
+				meta={<InteractionDock.Meta>Choose one</InteractionDock.Meta>}
+			>
+				<InteractionDock.Title>{props.input.title}</InteractionDock.Title>
+			</InteractionDock.Header>
 			<Show when={props.input.message}>
-				<text fg={theme.textSecondary}>{props.input.message}</text>
+				<text fg={theme.textSecondary} wrapMode="none">
+					{props.input.message}
+				</text>
 			</Show>
 			<Show when={props.input.filterable}>
 				<box flexDirection="row" gap={1} width="100%">
@@ -314,8 +260,8 @@ function PluginSelectOverlay(
 					/>
 				</box>
 			</Show>
-			<Dialog.Body>
-				<Show when={filteredOptions().length === 0}>
+			<InteractionDock.Body>
+				<Show when={filteredOptions().length === 0} fallback={null}>
 					<text fg={theme.textMuted}>No options</text>
 				</Show>
 				<box flexDirection="row" overflow="hidden">
@@ -345,7 +291,10 @@ function PluginSelectOverlay(
 										<text fg={labelFg()} bg={bg()}>
 											{entry.option.label}
 										</text>
-										<Show when={entry.option.description.length > 0}>
+										<Show
+											when={entry.option.description.length > 0}
+											fallback={null}
+										>
 											<box flexGrow={1} />
 											<text fg={descriptionFg()} bg={bg()}>
 												{entry.option.description}
@@ -356,7 +305,7 @@ function PluginSelectOverlay(
 							}}
 						</For>
 					</box>
-					<Show when={scrollbar()}>
+					<Show when={scrollbar()} fallback={null}>
 						{(track) => (
 							<box flexShrink={0} width={1} flexDirection="column">
 								<For each={track()}>
@@ -376,16 +325,18 @@ function PluginSelectOverlay(
 						)}
 					</Show>
 				</box>
-			</Dialog.Body>
-			<Dialog.Footer>
+			</InteractionDock.Body>
+			<InteractionDock.Footer>
 				<KeymapHintBar borderless group="plugin-ui.select" />
-			</Dialog.Footer>
-		</Dialog.Root>
+			</InteractionDock.Footer>
+		</InteractionDock.Root>
 	);
 }
 
-function PluginInputOverlay(
-	props: OverlayComponentProps<string | undefined> & { input: InputOptions },
+export function PluginInputInteraction(
+	props: InteractionComponentProps<string | undefined> & {
+		input: InputOptions;
+	},
 ) {
 	const [value, setValue] = createSignal(props.input.initialValue ?? "");
 
@@ -393,118 +344,74 @@ function PluginInputOverlay(
 		props.done(value());
 	}
 
-	createEffect(() => {
-		const signal = props.input.signal;
-		if (!signal) return;
-		if (signal.aborted) {
-			props.done(undefined);
-			return;
-		}
-		const abort = () => props.done(undefined);
-		signal.addEventListener("abort", abort, { once: true });
-		onCleanup(() => signal.removeEventListener("abort", abort));
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => props.active,
-			priority: 200,
-			commands: [
-				{
-					name: "plugin-ui.input.cancel",
-					desc: "Cancel plugin input",
-					group: "plugin-ui.input",
-					hint: "cancel",
-					run: () => props.done(undefined),
-				},
-				{
-					name: "plugin-ui.input.submit",
-					desc: "Submit plugin input",
-					group: "plugin-ui.input",
-					hint: "submit",
-					run: submit,
-				},
-			],
-			bindings: [
-				{
-					key: "escape",
-					cmd: "plugin-ui.input.cancel",
-					desc: "Cancel plugin input",
-					group: "plugin-ui.input",
-				},
-				{
-					key: "return",
-					cmd: "plugin-ui.input.submit",
-					desc: "Submit plugin input",
-					group: "plugin-ui.input",
-				},
-			],
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => props.active,
+		commands: {
+			"plugin-ui.input.cancel": () => props.done(undefined),
+			"plugin-ui.input.submit": submit,
+		},
+	}));
 
 	return (
-		<Dialog.Root
-			surfaceProps={props.surfaceProps}
-			width="60%"
-			maxWidth={72}
-			minWidth={40}
-		>
-			<Dialog.Header>
-				<Dialog.Title>{props.input.title}</Dialog.Title>
-			</Dialog.Header>
-			<Show when={props.input.message}>
-				<text fg={theme.textSecondary}>{props.input.message}</text>
-			</Show>
-			<box
-				border
-				borderColor={props.active ? theme.borderAccent : theme.borderDefault}
-				paddingX={1}
-				width="100%"
+		<InteractionDock.Root maxHeight={props.maxHeight}>
+			<InteractionDock.Header
+				meta={<InteractionDock.Meta>Short answer</InteractionDock.Meta>}
 			>
-				<input
-					flexGrow={1}
-					focused={props.active}
-					value={value()}
-					placeholder={props.input.placeholder ?? ""}
-					placeholderColor={theme.textPlaceholder}
-					backgroundColor={theme.bgTransparent}
-					focusedBackgroundColor={theme.bgTransparent}
-					textColor={theme.textPrimary}
-					focusedTextColor={theme.textPrimary}
-					cursorColor={theme.cursor}
-					onInput={(next: string) => setValue(next)}
-				/>
-			</box>
-			<Dialog.Footer>
+				<InteractionDock.Title>{props.input.title}</InteractionDock.Title>
+			</InteractionDock.Header>
+			<InteractionDock.Body gap={1}>
+				<Show when={props.input.message}>
+					<text fg={theme.textSecondary} wrapMode="none">
+						{props.input.message}
+					</text>
+				</Show>
+				<box
+					flexShrink={0}
+					border
+					borderColor={props.active ? theme.borderAccent : theme.borderDefault}
+					paddingX={1}
+					width="100%"
+				>
+					<input
+						flexGrow={1}
+						focused={props.active}
+						value={value()}
+						placeholder={props.input.placeholder ?? ""}
+						placeholderColor={theme.textPlaceholder}
+						backgroundColor={theme.bgTransparent}
+						focusedBackgroundColor={theme.bgTransparent}
+						textColor={theme.textPrimary}
+						focusedTextColor={theme.textPrimary}
+						cursorColor={theme.cursor}
+						onInput={(next: string) => setValue(next)}
+					/>
+				</box>
+			</InteractionDock.Body>
+			<InteractionDock.Footer>
 				<KeymapHintBar borderless group="plugin-ui.input" />
-			</Dialog.Footer>
-		</Dialog.Root>
+			</InteractionDock.Footer>
+		</InteractionDock.Root>
 	);
 }
 
-function PluginConfirmOverlay(
-	props: OverlayComponentProps<boolean> & { input: ConfirmOptions },
+export function PluginConfirmInteraction(
+	props: InteractionComponentProps<boolean> & { input: ConfirmOptions },
 ) {
 	let messageScrollRef:
 		| { scrollBy: (options: { x: number; y: number }) => void }
 		| undefined;
-	const dialogWidth = createMemo(() =>
-		measurePluginConfirmDialogWidth(props.input),
-	);
-	const [messageWidth, setMessageWidth] = createSignal(
-		dialogWidth() - DIALOG_HORIZONTAL_CHROME,
-	);
+	const [messageWidth, setMessageWidth] = createSignal(80);
 	const [selected, setSelected] = createSignal(
 		props.input.defaultValue ? 1 : 0,
 	);
-	const messageHeight = createMemo(() => {
-		const message = props.input.message ?? "";
-		const width = Math.max(1, messageWidth() - 1);
-		const rows = message.split("\n").reduce((total, line) => {
-			return total + Math.max(1, Math.ceil(Bun.stringWidth(line) / width));
-		}, 0);
-		return Math.min(12, Math.max(1, rows));
-	});
+	const messageHeight = createMemo(() =>
+		measurePluginConfirmMessageHeight(
+			props.input.message ?? "",
+			messageWidth(),
+			props.maxHeight,
+		),
+	);
 	const cancelLabel = () => props.input.cancelLabel ?? "Cancel";
 	const confirmLabel = () => props.input.confirmLabel ?? "Confirm";
 
@@ -512,110 +419,24 @@ function PluginConfirmOverlay(
 		props.done(selected() === 1);
 	}
 
-	createEffect(() => {
-		const signal = props.input.signal;
-		if (!signal) return;
-		if (signal.aborted) {
-			props.done(false);
-			return;
-		}
-		const abort = () => props.done(false);
-		signal.addEventListener("abort", abort, { once: true });
-		onCleanup(() => signal.removeEventListener("abort", abort));
-	});
-
-	useBindings(() =>
-		withKitKeyAliases({
-			enabled: () => props.active,
-			priority: 200,
-			commands: [
-				{
-					name: "plugin-ui.confirm.cancel",
-					desc: "Cancel plugin confirmation",
-					group: "plugin-ui.confirm",
-					hint: "cancel",
-					run: () => props.done(false),
-				},
-				{
-					name: "plugin-ui.confirm.submit",
-					desc: "Submit plugin confirmation",
-					group: "plugin-ui.confirm",
-					hint: "confirm",
-					run: submit,
-				},
-				{
-					name: "plugin-ui.confirm.choose-previous",
-					desc: "Choose previous confirmation option",
-					group: "plugin-ui.confirm",
-					hint: "choose",
-					run: () => {
-						setSelected((current) => (current === 0 ? 1 : 0));
-					},
-				},
-				{
-					name: "plugin-ui.confirm.choose-next",
-					desc: "Choose next confirmation option",
-					group: "plugin-ui.confirm",
-					hint: "choose",
-					run: () => {
-						setSelected((current) => (current === 0 ? 1 : 0));
-					},
-				},
-				{
-					name: "plugin-ui.confirm.scroll-up",
-					desc: "Scroll confirmation details up",
-					group: "plugin-ui.confirm",
-					hint: false,
-					run: () => messageScrollRef?.scrollBy({ x: 0, y: -3 }),
-				},
-				{
-					name: "plugin-ui.confirm.scroll-down",
-					desc: "Scroll confirmation details down",
-					group: "plugin-ui.confirm",
-					hint: false,
-					run: () => messageScrollRef?.scrollBy({ x: 0, y: 3 }),
-				},
-			],
-			bindings: [
-				{
-					key: "escape",
-					cmd: "plugin-ui.confirm.cancel",
-					desc: "Cancel plugin confirmation",
-					group: "plugin-ui.confirm",
-				},
-				{
-					key: "return",
-					cmd: "plugin-ui.confirm.submit",
-					desc: "Submit plugin confirmation",
-					group: "plugin-ui.confirm",
-				},
-				{
-					key: "left",
-					cmd: "plugin-ui.confirm.choose-previous",
-					desc: "Choose previous confirmation option",
-					group: "plugin-ui.confirm",
-				},
-				{
-					key: "right",
-					cmd: "plugin-ui.confirm.choose-next",
-					desc: "Choose next confirmation option",
-					group: "plugin-ui.confirm",
-				},
-				{
-					key: "up",
-					cmd: "plugin-ui.confirm.scroll-up",
-					desc: "Scroll confirmation details up",
-					group: "plugin-ui.confirm",
-				},
-				{
-					key: "down",
-					cmd: "plugin-ui.confirm.scroll-down",
-					desc: "Scroll confirmation details down",
-					group: "plugin-ui.confirm",
-				},
-			],
-		}),
-	);
+	useKeymapLayer(() => ({
+		scope: "modal",
+		when: () => props.active,
+		commands: {
+			"plugin-ui.confirm.cancel": () => props.done(false),
+			"plugin-ui.confirm.submit": submit,
+			"plugin-ui.confirm.choose-previous": () => {
+				setSelected((current) => (current === 0 ? 1 : 0));
+			},
+			"plugin-ui.confirm.choose-next": () => {
+				setSelected((current) => (current === 0 ? 1 : 0));
+			},
+			"plugin-ui.confirm.scroll-up": () =>
+				messageScrollRef?.scrollBy({ x: 0, y: -3 }),
+			"plugin-ui.confirm.scroll-down": () =>
+				messageScrollRef?.scrollBy({ x: 0, y: 3 }),
+		},
+	}));
 
 	function option(label: string, index: number) {
 		const focused = () => selected() === index;
@@ -641,43 +462,42 @@ function PluginConfirmOverlay(
 	}
 
 	return (
-		<Dialog.Root
-			surfaceProps={props.surfaceProps}
-			width={dialogWidth()}
-			maxWidth={CONFIRM_DIALOG_MAX_WIDTH}
-		>
-			<Dialog.Header>
-				<Dialog.Title>{props.input.title}</Dialog.Title>
-			</Dialog.Header>
+		<InteractionDock.Root maxHeight={props.maxHeight}>
+			<InteractionDock.Header
+				meta={<InteractionDock.Meta>Confirmation</InteractionDock.Meta>}
+			>
+				<InteractionDock.Title>{props.input.title}</InteractionDock.Title>
+			</InteractionDock.Header>
 			<Show when={props.input.message}>
-				<scrollbox
-					ref={(value) => {
-						messageScrollRef = value as typeof messageScrollRef;
-					}}
-					onSizeChange={() => {
-						const width = (messageScrollRef as { width?: number } | undefined)
-							?.width;
-						if (width && width !== messageWidth()) setMessageWidth(width);
-					}}
-					height={messageHeight()}
-					flexShrink={0}
-					scrollY
-					style={scrollbarStyle()}
-				>
-					<KitMarkdown
-						content={props.input.message ?? ""}
-						fg={theme.textSecondary}
-					/>
-				</scrollbox>
+				<InteractionDock.Body>
+					<scrollbox
+						ref={(value) => {
+							messageScrollRef = value as typeof messageScrollRef;
+						}}
+						onSizeChange={() => {
+							const width = (messageScrollRef as { width?: number } | undefined)
+								?.width;
+							if (width && width !== messageWidth()) setMessageWidth(width);
+						}}
+						height={messageHeight()}
+						flexShrink={1}
+						scrollY
+						style={scrollbarStyle()}
+					>
+						<KitMarkdown
+							content={props.input.message ?? ""}
+							fg={theme.textSecondary}
+						/>
+					</scrollbox>
+				</InteractionDock.Body>
 			</Show>
-			<box flexGrow={1} />
-			<box flexDirection="row" justifyContent="flex-end" gap={1}>
+			<box flexShrink={0} flexDirection="row" justifyContent="flex-end" gap={1}>
 				{option(cancelLabel(), 0)}
 				{option(confirmLabel(), 1)}
 			</box>
-			<Dialog.Footer>
+			<InteractionDock.Footer>
 				<KeymapHintBar borderless group="plugin-ui.confirm" />
-			</Dialog.Footer>
-		</Dialog.Root>
+			</InteractionDock.Footer>
+		</InteractionDock.Root>
 	);
 }

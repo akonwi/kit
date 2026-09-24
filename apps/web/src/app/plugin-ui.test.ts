@@ -1,33 +1,17 @@
 import { describe, expect, test } from "bun:test";
-import { measurePluginConfirmDialogWidth } from "./plugin-ui";
+import { measurePluginConfirmMessageHeight } from "./plugin-ui";
 
-describe("plugin confirmation dialog sizing", () => {
-	test("grows with confirmation content up to its width limit", () => {
-		expect(measurePluginConfirmDialogWidth({ title: "Confirm?" })).toBe(44);
-
-		const medium = measurePluginConfirmDialogWidth({
-			title: "Plugin UI demo: confirm",
-			message: "Show an info toast for the whole project?",
-			confirmLabel: "Show toast",
-			cancelLabel: "Cancel",
-		});
-		expect(medium).toBeGreaterThan(44);
-		expect(medium).toBeLessThan(96);
-
-		expect(
-			measurePluginConfirmDialogWidth({
-				title: "Confirm?",
-				message: "x".repeat(200),
-			}),
-		).toBe(96);
+describe("plugin confirmation message sizing", () => {
+	test("accounts for wrapped and explicit message lines", () => {
+		expect(measurePluginConfirmMessageHeight("short", 20, 24)).toBe(1);
+		expect(measurePluginConfirmMessageHeight("x".repeat(30), 11, 24)).toBe(3);
+		expect(measurePluginConfirmMessageHeight("one\ntwo\nthree", 20, 24)).toBe(
+			3,
+		);
 	});
 
-	test("uses the longest message line rather than total message length", () => {
-		expect(
-			measurePluginConfirmDialogWidth({
-				title: "Confirm?",
-				message: ["short", "also short", "short again"].join("\n"),
-			}),
-		).toBe(44);
+	test("reserves dock rows and caps long messages", () => {
+		expect(measurePluginConfirmMessageHeight("x".repeat(200), 11, 11)).toBe(3);
+		expect(measurePluginConfirmMessageHeight("x".repeat(500), 11, 40)).toBe(12);
 	});
 });

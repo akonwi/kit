@@ -1,6 +1,7 @@
 import { describe, expect, test } from "bun:test";
 import {
 	activateExistingActivityTab,
+	shouldFocusComposerAfterInteraction,
 	shouldFocusSubagentsRosterAfterRemoval,
 	shouldRestoreComposerFocus,
 	shouldReturnToComposerAfterPaneRemoval,
@@ -107,6 +108,39 @@ describe("shouldFocusSubagentsRosterAfterRemoval", () => {
 			shouldFocusSubagentsRosterAfterRemoval({
 				...removal,
 				focusedSurface: "transcript",
+			}),
+		).toBeFalse();
+	});
+});
+
+describe("shouldFocusComposerAfterInteraction", () => {
+	const available = {
+		overlayOpen: false,
+		interactionOpen: false,
+		focusedSurface: "composer" as const,
+	};
+
+	test("restores focus after the final interaction closes", () => {
+		expect(shouldFocusComposerAfterInteraction(available)).toBeTrue();
+	});
+
+	test("does not steal focus from an overlay or newer interaction", () => {
+		expect(
+			shouldFocusComposerAfterInteraction({ ...available, overlayOpen: true }),
+		).toBeFalse();
+		expect(
+			shouldFocusComposerAfterInteraction({
+				...available,
+				interactionOpen: true,
+			}),
+		).toBeFalse();
+	});
+
+	test("does not restore focus after ownership moves to the workspace", () => {
+		expect(
+			shouldFocusComposerAfterInteraction({
+				...available,
+				focusedSurface: "secondary",
 			}),
 		).toBeFalse();
 	});

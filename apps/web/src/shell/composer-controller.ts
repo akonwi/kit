@@ -144,16 +144,34 @@ export function createComposerController(deps: ComposerControllerDeps) {
 	}
 
 	function getTextareaText(): string {
-		return textareaRef?.plainText ?? "";
+		try {
+			return textareaRef?.plainText ?? "";
+		} catch {
+			textareaRef = undefined;
+			return "";
+		}
 	}
 
 	function getTextareaCursorOffset(): number {
-		return textareaRef?.cursorOffset ?? 0;
+		try {
+			return textareaRef?.cursorOffset ?? 0;
+		} catch {
+			textareaRef = undefined;
+			return 0;
+		}
 	}
 
 	function setTextareaText(text: string) {
 		textareaRef?.setText(text);
 		prevTextLength = text.length;
+	}
+
+	function setTextareaCursorOffset(offset: number) {
+		if (!textareaRef) return;
+		textareaRef.cursorOffset = Math.max(
+			0,
+			Math.min(offset, textareaRef.plainText.length),
+		);
 	}
 
 	function insertText(text: string) {
@@ -1064,6 +1082,7 @@ export function createComposerController(deps: ComposerControllerDeps) {
 		getTextareaText,
 		getTextareaCursorOffset,
 		setTextareaText,
+		setTextareaCursorOffset,
 		abort,
 		isStreaming,
 		getPendingMessageCount,

@@ -1,13 +1,13 @@
 # Inline turn activity
 
-Tool activity appears in the transcript as one collapsed summary row per turn. Opening the row expands its activity directly beneath the summary instead of opening a separate workspace pane.
+Tool activity appears in the transcript as collapsed summary rows for adjacent tool work. Opening a row expands its activity directly beneath the summary instead of opening a separate workspace pane. Assistant prose remains visible in the main transcript throughout a turn.
 
 ## Grouping
 
-- Opening assistant prose remains a normal transcript entry.
-- Intermediate or pending assistant prose between tool batches appears inside the activity window.
-- Final assistant prose remains a normal transcript entry.
-- Tool calls from the turn are consolidated into one activity window.
+- Opening, intermediate, and final assistant prose remain normal transcript entries.
+- Adjacent tool-bearing and tool-only messages are grouped into activity windows.
+- Activity windows may repeat associated assistant prose for context.
+- Grouping remains stable when a turn finishes streaming.
 
 ## Interaction
 

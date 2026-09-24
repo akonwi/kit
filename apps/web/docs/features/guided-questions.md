@@ -6,7 +6,8 @@ This is intended for cases where the agent is missing multiple pieces of informa
 
 Current behavior:
 
-- the questionnaire opens in a modal
+- the questionnaire opens in the interaction dock below the transcript
+- the transcript remains visible and mouse-scrollable while answering
 - it shows one question at a time
 - it supports `text`, `select`, `multiselect`, and `boolean` question types
 - it returns structured answers in `details.answers`

@@ -35,6 +35,7 @@ import {
 import { initTemplates } from "../shell/templates";
 import { resolveAndApplyTheme } from "../shell/theme";
 import { FilePersistence } from "../storage/file-persistence";
+import { SHOW_IMAGE_TOOL_NAME } from "../tools";
 import { createHeadlessPluginUI } from "./headless-plugin-ui";
 import type { RemoteInteractionBroker } from "./remote-interaction-broker";
 
@@ -154,7 +155,10 @@ export async function createHeadlessHost(
 	initTemplates(session.cwd);
 	await refreshModelAvailability();
 
-	const runtime = new AgentRuntime(session, { settings: settings.settings });
+	const runtime = new AgentRuntime(session, {
+		settings: settings.settings,
+		excludedToolNames: [SHOW_IMAGE_TOOL_NAME],
+	});
 	const scratchpad = createScratchpadController(
 		runtime,
 		options.persistSession ? undefined : createMemoryScratchpadStorage(),

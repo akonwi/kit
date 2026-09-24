@@ -51,6 +51,10 @@ import {
 	applyStartupModel,
 	StartupModelAuthenticationRequiredError,
 } from "./headless-model";
+import {
+	createInteractionHandler,
+	type InteractionEntry,
+} from "./interaction-ui";
 import { createCustomOverlayHandler, type OverlayEntry } from "./overlay-ui";
 import { createPluginUI } from "./plugin-ui";
 
@@ -95,9 +99,14 @@ type RootState =
 
 export function App(props: AppProps) {
 	const [overlays, setOverlays] = createSignal<OverlayEntry[]>([]);
+	const [interactions, setInteractions] = createSignal<InteractionEntry[]>([]);
 	const [transcriptViewport, setTranscriptViewport] =
 		createSignal<TranscriptViewport | null>(null);
 	const openCustomOverlay = createCustomOverlayHandler(setOverlays);
+	const openInteraction = createInteractionHandler(
+		interactions,
+		setInteractions,
+	);
 	const commands: CommandRegistry = createCommandRegistry(BUILT_IN_COMMANDS);
 
 	let showToast: ((toast: ToastInput) => void) | null = null;
@@ -108,6 +117,7 @@ export function App(props: AppProps) {
 	const ui: InternalPluginUI = createPluginUI({
 		toast,
 		custom: openCustomOverlay,
+		interaction: openInteraction,
 		getTranscriptViewport: () => transcriptViewport(),
 		getTheme: getCurrentThemeConfig,
 	});
@@ -329,6 +339,7 @@ export function App(props: AppProps) {
 					// Overlays belong to the previous active session. Resolve them so
 					// stale components unmount after a true session switch.
 					for (const overlay of overlays()) overlay.resolve(undefined);
+					for (const interaction of interactions()) interaction.cancel();
 				}
 				props.updateTerminalTitle(event.session.name, event.session.cwd);
 				return;
@@ -504,6 +515,7 @@ export function App(props: AppProps) {
 							scratchpad={current.scratchpad}
 							subagentsWorkspace={current.subagentsWorkspace}
 							overlays={overlays}
+							interactions={interactions}
 							openOverlay={openCustomOverlay}
 							dismissToast={current.app.dismissToast}
 							onTranscriptViewportChange={setTranscriptViewport}

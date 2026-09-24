@@ -16,6 +16,7 @@ import { Dialog } from "../../shell/Dialog";
 import { CHEVRON_RIGHT, MIDDLE_DOT } from "../../shell/glyphs";
 import { KeymapHintBar } from "../../shell/KeymapHintBar";
 import { scrollbarStyle, theme } from "../../shell/theme";
+import type { OpenImage } from "../../shell/transcript/types";
 import type { SubagentDefinition } from "./discovery";
 import {
 	mergeItems,
@@ -37,6 +38,7 @@ export type SubagentsStatusModalProps = {
 	readConversationEntries: (conversationId: string) => Promise<SessionEntry[]>;
 	subscribeToChanges: (listener: () => void) => () => void;
 	dismissConversation: (agentName: string) => Promise<boolean>;
+	openImage: OpenImage;
 	active?: boolean;
 	onClose: () => void;
 };
@@ -424,6 +426,7 @@ export function SubagentsStatusModal(props: SubagentsStatusModalProps) {
 											<SubagentTranscriptView
 												conversation={conversation()}
 												entries={entries() ?? []}
+												openImage={props.openImage}
 												setScrollRef={(ref) => {
 													transcriptScrollRef = ref;
 												}}

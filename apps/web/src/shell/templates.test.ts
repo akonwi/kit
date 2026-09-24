@@ -8,17 +8,14 @@ describe("templates", () => {
 		const result = renderTemplate("review-feedback", {
 			content: "FILE_NOTES_HERE",
 		});
-		expect(result).toContain("FILE_NOTES_HERE");
-		expect(result).toContain("Here is my feedback to code");
+		expect(result).toBe("FILE_NOTES_HERE");
 	});
 
-	test("built-in review-feedback template wraps content", () => {
+	test("built-in review-feedback template returns the review content directly", () => {
 		const result = renderTemplate("review-feedback", {
 			content: "Note about file.ts",
 		});
-		expect(result).toContain("Note about file.ts");
-		expect(result).toContain("Here is my feedback to code");
-		expect(result).not.toContain("Please use");
+		expect(result).toBe("Note about file.ts");
 	});
 
 	test("built-in pager-feedback template wraps content", () => {
