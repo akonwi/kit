@@ -339,7 +339,6 @@ func namespaceDescription(server Server) string {
 
 func namespaceToolName(name string) (string, error) {
 	var b strings.Builder
-	b.WriteString("mcp_")
 	underscore := false
 	for _, r := range strings.ToLower(name) {
 		if r <= 127 && ((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_' || r == '-') {
@@ -353,8 +352,11 @@ func namespaceToolName(name string) (string, error) {
 		}
 	}
 	toolName := strings.Trim(b.String(), "_-")
-	if toolName == "mcp" || toolName == "mcp_" {
+	if toolName == "" {
 		return "", fmt.Errorf("droids/mcp: server name %q has no usable tool-name characters", name)
+	}
+	if strings.HasPrefix(toolName, "mcp_") {
+		return "", fmt.Errorf("droids/mcp: server name %q produces reserved tool prefix mcp_", name)
 	}
 	if len(toolName) > maxToolNameLength {
 		return "", fmt.Errorf("droids/mcp: server name %q produces tool name longer than %d characters", name, maxToolNameLength)

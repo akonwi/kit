@@ -6,7 +6,9 @@ Kit includes an MCP feature plugin that can discover configured MCP servers and 
 
 The current MCP integration is **proxy-first**.
 
-Instead of registering every remote tool directly into the model tool list, Kit exposes one namespace proxy per configured server, such as `mcp_github`.
+Instead of registering every remote tool directly into the model tool list, Kit exposes one namespace proxy per configured server. The proxy uses the sanitized connection name directly, such as `github` for a connection named `GitHub`.
+
+Connection names must not collide with another Kit tool after sanitization, and the `mcp_` prefix is reserved by Anthropic.
 
 A namespace proxy can:
 

@@ -144,8 +144,11 @@ func TestManagerValidationAndNamespaceNames(t *testing.T) {
 	); err == nil {
 		t.Fatal("colliding sanitized names accepted")
 	}
-	if got, err := namespaceToolName("GitHub Enterprise"); err != nil || got != "mcp_github_enterprise" {
+	if got, err := namespaceToolName("GitHub Enterprise"); err != nil || got != "github_enterprise" {
 		t.Fatalf("namespaceToolName = %q, %v", got, err)
+	}
+	if _, err := namespaceToolName("mcp_github"); err == nil || !strings.Contains(err.Error(), "reserved tool prefix") {
+		t.Fatalf("reserved mcp_ prefix error = %v", err)
 	}
 }
 

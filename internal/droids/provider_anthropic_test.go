@@ -15,6 +15,32 @@ import (
 	"github.com/anthropics/anthropic-sdk-go"
 )
 
+func TestAnthropicExtraUsageIsUsageLimit(t *testing.T) {
+	apiErr := &anthropic.Error{StatusCode: http.StatusBadRequest}
+	body := []byte(`{"type":"error","error":{"type":"invalid_request_error","message":"You're out of extra usage. Add more at claude.ai/settings/usage and keep going."},"request_id":"req_secret"}`)
+	if err := apiErr.UnmarshalJSON(body); err != nil {
+		t.Fatal(err)
+	}
+	if got := classifyAnthropicError(apiErr); got != ProviderUsageLimit {
+		t.Fatalf("classify = %q, want usage limit", got)
+	}
+	detail := anthropicProviderMessage(apiErr)
+	if got := sanitizedUsageDetail(detail); got != detail {
+		t.Fatalf("sanitized detail = %q, want %q", got, detail)
+	}
+	if got := safeProviderMessage(ProviderUsageLimit, detail); got != detail {
+		t.Fatalf("safe message = %q, want %q", got, detail)
+	}
+	for _, unsafe := range []string{
+		"POST \"https://api.anthropic.com\" request-id secret",
+		"Usage quota exhausted; x-api-key: reflected-secret",
+	} {
+		if got := safeProviderMessage(ProviderUsageLimit, unsafe); got != "Provider usage limit reached" {
+			t.Fatalf("provider error leaked: %q", got)
+		}
+	}
+}
+
 func TestAnthropicResolvesAPIKeyForEveryRequest(t *testing.T) {
 	t.Setenv("ANTHROPIC_AUTH_TOKEN", "unintended-environment-token")
 

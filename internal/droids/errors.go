@@ -65,6 +65,18 @@ func boundedErrorText(err error) string {
 	return boundedDiagnostic(err.Error())
 }
 
+// sanitizedUsageDetail keeps only reviewed provider usage sentences. Arbitrary
+// provider text can reflect request data, so broad keyword filtering is unsafe.
+func sanitizedUsageDetail(message string) string {
+	message = strings.TrimSpace(message)
+	switch strings.ToLower(message) {
+	case "you're out of extra usage. add more at claude.ai/settings/usage and keep going.":
+		return message
+	default:
+		return ""
+	}
+}
+
 func boundedDiagnostic(message string) string {
 	message = strings.ToValidUTF8(message, "�")
 	if len(message) <= maxDurableErrorBytes {

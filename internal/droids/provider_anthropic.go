@@ -389,12 +389,18 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		if reason == StopReasonAborted {
 			kind = ""
 		}
+		message := err.Error()
+		if kind == ProviderUsageLimit {
+			if detail := anthropicProviderMessage(err); detail != "" {
+				message = detail
+			}
+		}
 		final := AssistantMessage{
 			Provider:     model.Provider,
 			Model:        model.ID,
 			StopReason:   reason,
 			ErrorKind:    kind,
-			ErrorMessage: err.Error(),
+			ErrorMessage: message,
 			Timestamp:    time.Now().UnixMilli(),
 		}
 		s.final = final
@@ -420,6 +426,9 @@ func classifyAnthropicError(err error) ProviderErrorKind {
 	case 429:
 		return ProviderRateLimit
 	case 400, 404, 413, 422:
+		if anthropicUsageLimit(apiErr) {
+			return ProviderUsageLimit
+		}
 		return ProviderInvalidRequest
 	default:
 		if apiErr.StatusCode >= 500 {
@@ -427,6 +436,27 @@ func classifyAnthropicError(err error) ProviderErrorKind {
 		}
 		return ProviderProtocol
 	}
+}
+
+func anthropicUsageLimit(err *anthropic.Error) bool {
+	message := strings.ToLower(anthropicProviderMessage(err))
+	return strings.Contains(message, "extra usage") || strings.Contains(message, "usage limit")
+}
+
+func anthropicProviderMessage(err error) string {
+	var apiErr *anthropic.Error
+	if !errors.As(err, &apiErr) || apiErr == nil {
+		return ""
+	}
+	var envelope struct {
+		Error struct {
+			Message string `json:"message"`
+		} `json:"error"`
+	}
+	if json.Unmarshal([]byte(apiErr.RawJSON()), &envelope) != nil {
+		return ""
+	}
+	return strings.TrimSpace(envelope.Error.Message)
 }
 
 func (p *anthropicProvider) clientForRequest(ctx context.Context) (*anthropic.Client, bool, error) {

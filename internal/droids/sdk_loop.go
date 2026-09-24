@@ -713,6 +713,9 @@ func safeProviderMessage(kind ProviderErrorKind, fallback string) string {
 	case ProviderEntitlement:
 		return "Provider access is not entitled for this model"
 	case ProviderUsageLimit:
+		if detail := sanitizedUsageDetail(fallback); detail != "" {
+			return detail
+		}
 		return "Provider usage limit reached"
 	case ProviderRateLimit:
 		return "Provider request was rate limited"
