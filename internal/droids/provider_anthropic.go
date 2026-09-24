@@ -19,9 +19,10 @@ import (
 // official anthropic-sdk-go.
 
 const (
-	defaultAnthropicBaseURL                  = "https://api.anthropic.com"
-	anthropicOAuthExpirySkew                 = 30 * time.Second
-	anthropicClaudeCodeVersion               = "2.1.251"
+	defaultAnthropicBaseURL  = "https://api.anthropic.com"
+	anthropicOAuthExpirySkew = 30 * time.Second
+	// OAuth requests identify as Claude Code. Opus 5.5 rejects clients older than 2.1.280.
+	anthropicClaudeCodeVersion               = "2.1.280"
 	anthropicFineGrainedToolsBeta            = "fine-grained-tool-streaming-2025-05-14"
 	anthropicLongContextBeta                 = "context-1m-2025-08-07"
 	anthropicMidConversationOutputConfigBeta = "mid-conversation-output-config-2026-07-01"
@@ -315,7 +316,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model.ID),
 		MaxTokens: maxTokens,
-		Messages:  toAnthropicMessages(req.Messages),
+		Messages:  toAnthropicMessages(model, req.Messages),
 	}
 	if oauth {
 		params.System = append(params.System, anthropic.TextBlockParam{Text: "You are Claude Code, Anthropic's official CLI for Claude."})
@@ -629,7 +630,7 @@ func validateAnthropicBlocks[T any](role string, content []T) error {
 	return nil
 }
 
-func toAnthropicMessages(messages []Message) []anthropic.MessageParam {
+func toAnthropicMessages(model Model, messages []Message) []anthropic.MessageParam {
 	var out []anthropic.MessageParam
 	for _, m := range messages {
 		switch msg := m.(type) {
@@ -644,13 +645,18 @@ func toAnthropicMessages(messages []Message) []anthropic.MessageParam {
 				anthropic.NewToolResultBlock(providerCallID(msg.ToolCallID, msg.ProviderCallID), textOfContent(msg.Content), msg.IsError),
 			))
 		case AssistantMessage:
-			out = append(out, anthropic.NewAssistantMessage(assistantBlocks(msg)...))
+			blocks := assistantBlocks(model, msg)
+			if len(blocks) == 0 {
+				continue
+			}
+			out = append(out, anthropic.NewAssistantMessage(blocks...))
 		}
 	}
 	return out
 }
 
-func assistantBlocks(msg AssistantMessage) []anthropic.ContentBlockParamUnion {
+func assistantBlocks(model Model, msg AssistantMessage) []anthropic.ContentBlockParamUnion {
+	replayThinking := anthropicThinkingReplayable(model, msg)
 	var blocks []anthropic.ContentBlockParamUnion
 	for _, content := range msg.Content {
 		switch block := content.(type) {
@@ -659,6 +665,11 @@ func assistantBlocks(msg AssistantMessage) []anthropic.ContentBlockParamUnion {
 				blocks = append(blocks, anthropic.NewTextBlock(block.Text))
 			}
 		case ThinkingContent:
+			// Signed thinking is only valid for the model that produced it.
+			// Replaying another provider's signature is an invalid request.
+			if !replayThinking {
+				continue
+			}
 			if block.Signature != "" {
 				blocks = append(blocks, anthropic.NewThinkingBlock(block.Signature, block.Thinking))
 			} else if block.Thinking != "" {
@@ -673,6 +684,19 @@ func assistantBlocks(msg AssistantMessage) []anthropic.ContentBlockParamUnion {
 		}
 	}
 	return blocks
+}
+
+func anthropicThinkingReplayable(model Model, msg AssistantMessage) bool {
+	if msg.Provider == "" {
+		return true
+	}
+	if model.Provider != "" && msg.Provider != model.Provider {
+		return false
+	}
+	if model.ID != "" && msg.Model != "" && msg.Model != model.ID {
+		return false
+	}
+	return true
 }
 
 func toAnthropicTools(tools []ToolSchema) []anthropic.ToolUnionParam {

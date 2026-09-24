@@ -86,7 +86,7 @@ func TestAnthropicMessageConversion(t *testing.T) {
 		ToolResultMessage{ToolCallID: "t1", ToolName: "get_weather", Content: []ResultContent{TextContent{Text: "sunny"}}},
 	}
 
-	params := toAnthropicMessages(msgs)
+	params := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, msgs)
 	if len(params) != 3 {
 		t.Fatalf("got %d messages, want 3", len(params))
 	}
@@ -110,6 +110,42 @@ func TestAnthropicMessageConversion(t *testing.T) {
 		if !strings.Contains(s, want) {
 			t.Fatalf("wire payload missing %q\n%s", want, s)
 		}
+	}
+}
+
+func TestAnthropicDropsForeignThinkingSignatures(t *testing.T) {
+	params := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, []Message{
+		AssistantMessage{
+			Provider: "opencode-go", Model: "grok-4.7",
+			Content: []AssistantContent{
+				ThinkingContent{Thinking: "foreign", Signature: "not-anthropic"},
+				TextContent{Text: "visible"},
+				ToolCall{ID: "t1", ProviderCallID: "call-1", Name: "bash", Arguments: []byte(`{"command":"pwd"}`)},
+			},
+		},
+		AssistantMessage{Provider: "anthropic", Model: "claude-opus-5", Content: []AssistantContent{
+			ThinkingContent{Thinking: "other model", Signature: "opus-5-signature"},
+			TextContent{Text: "kept"},
+		}},
+		AssistantMessage{Provider: "anthropic", Model: "claude-opus-5-5", StopReason: StopReasonError},
+	})
+	raw, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := string(raw)
+	for _, unwanted := range []string{"foreign", "not-anthropic", "opus-5-signature", "other model"} {
+		if strings.Contains(s, unwanted) {
+			t.Fatalf("foreign thinking replayed %q\n%s", unwanted, s)
+		}
+	}
+	for _, want := range []string{`"text":"visible"`, `"name":"bash"`, `"text":"kept"`} {
+		if !strings.Contains(s, want) {
+			t.Fatalf("wire payload missing %q\n%s", want, s)
+		}
+	}
+	if len(params) != 2 {
+		t.Fatalf("messages = %d, want 2 (empty error omitted)\n%s", len(params), s)
 	}
 }
 
@@ -290,7 +326,7 @@ func TestAnthropicAdaptiveEffortMapping(t *testing.T) {
 	if got := anthropicBetaFeatures(true, Model{SupportsMidConversationEffort: true}, true); got != "claude-code-20250219,oauth-2025-04-20,"+anthropicFineGrainedToolsBeta+","+anthropicMidConversationOutputConfigBeta+","+anthropicThinkingBindingControlsBeta {
 		t.Fatalf("OAuth beta features = %q", got)
 	}
-	if anthropicClaudeCodeVersion != "2.1.251" {
+	if anthropicClaudeCodeVersion != "2.1.280" {
 		t.Fatalf("Claude Code version = %q", anthropicClaudeCodeVersion)
 	}
 }
