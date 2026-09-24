@@ -31,6 +31,7 @@ struct PaletteCommand: Identifiable {
             .init(id: "Refresh model catalog", name: "refresh-models", description: "Update the provider catalog of models", icon: "square.3.layers.3d", aliases: ["catalog", "models"]),
             .init(id: "Reload session context", name: "reload", description: "Reload session context", icon: "arrow.clockwise", aliases: ["agents", "context", "refresh"]),
             .init(id: "Session details", name: "debug", description: "Show session diagnostics", icon: "chart.bar", aliases: ["details", "usage", "tokens", "cost"]),
+            .init(id: "MCP servers", name: "mcp", description: "Show configured MCP servers", icon: "server.rack", aliases: ["tools", "connections", "status"]),
             .init(id: "Fork session", name: "fork", description: "Fork the current session into a linked child session", icon: "arrow.triangle.branch", aliases: ["branch"]),
             .init(id: "Switch session", name: "sessions", description: "Browse sessions", icon: "rectangle.stack", aliases: ["list", "resume", "switch", "threads"]),
             .init(id: "Dispose temporary session", name: "dispose", description: "Dispose temporary session", icon: "trash", aliases: ["delete", "remove"]),

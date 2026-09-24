@@ -41,8 +41,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-LIFE-005 — Enforce a hard shutdown deadline for provider streams,
   direct tool processes, and subagent runtimes that ignore cooperative
   cancellation, without allowing late cleanup to access closed shared storage.
-- [ ] CORE-LIFE-006 — Attach configured MCP managers to their owning runtimes and
-  close in-flight calls, sessions, and transports within the shutdown deadline.
 - [ ] CORE-SESSION-001 — Let multiple clients observe and control one
   authoritative session without lost updates or client-global active-session
   state. Broadcast follow-up queue changes to attached clients and expose failed
@@ -121,25 +119,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   now gates session and session-owned child tools on the server. Automated
   allow/reject, nested-dialog cancellation, and recovery coverage is in place;
   broader manual lifecycle verification remains.
-
-### MCP and integrations
-
-- [ ] CORE-MCP-001 — Merge supported MCP configuration locations with
-  deterministic precedence and actionable validation errors.
-- [~] CORE-MCP-002 — Complete proxy-first list/search/describe/call behavior and
-  configured stdio/HTTP transports around bounded lazy connections.
-- [ ] CORE-MCP-003 — Persist bounded metadata caches and invalidate them when
-  configuration or authentication changes.
-- [ ] CORE-MCP-004 — Support MCP OAuth, browser timeout/fallback, private
-  credential persistence, one retry after rejected saved auth, and logout.
-- [ ] CORE-MCP-005 — Expose canonical MCP status and diagnostics to attached and
-  headless clients.
-- [~] CORE-VCS-001 — Provide bounded repository status and production-equivalent
-  low-latency refresh without requiring clients to run Git themselves. Loaded
-  runtimes now own a shared ten-second Git/PR observer, with bounded live pushes
-  to clients and generation-owned plugins, fresh initial/reconnect snapshots,
-  cwd invalidation, and cancellation/join on runtime disposal. Filesystem-based
-  lower-latency observation remains deferred; polling cadence is explicit.
 
 ### Headless and release safety
 

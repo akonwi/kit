@@ -32,21 +32,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 - [ ] TUI-AUTH-001 — Present provider login, API-key replacement, logout, and
   actionable failures without exposing credentials. Depends on `CORE-AUTH-001`.
-- [ ] TUI-MCP-001 — Present MCP connection, authentication, failure, and debug
-  state without exposing credentials. Depends on `CORE-MCP-004` and
-  `CORE-MCP-005`.
-- [~] TUI-VCS-001 — Complete footer repository state, production-equivalent
-  refresh behavior, and silent fallback. Depends on `CORE-VCS-001`.
-  The bottom-right location now renders `cwd (branch* · PR #123)` from
-  server-cached GitHub pull request metadata; only the PR label is an
-  underlined, OSC 8-tagged click target that opens only validated absolute
-  credential-free http(s) URLs through the existing external opener. Plugin
-  `LocationHidden` still hides the entire segment. Attachment identity plus a
-  per-attachment delivery sequence gate drop A→B→A callbacks and superseded
-  updates; presentation and staleness tests cover format, unsafe-URL
-  rejection, click, hiding, and ordering. VCS now arrives through one authenticated
-  latest-state stream rather than client polling, with bounded transient retry,
-  terminal protocol/auth handling, and fresh-state reconnects.
 - [~] TUI-TERM-001 — Complete clipboard, terminal title, notifications, image
   capabilities, attention/progress state, and clean restoration on every exit.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear

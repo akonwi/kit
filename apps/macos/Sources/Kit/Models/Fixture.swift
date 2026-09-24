@@ -53,6 +53,35 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var annotations: [FileAnnotation]? = nil
     var pendingInteractions: [WireInteractionRequest]? = nil
     var scratchpad: ScratchpadRecord? = nil
+    var mcpServers: [MCPServerStatus]? = nil
+    var mcpWarnings: [String]? = nil
+}
+
+struct MCPServerStatus: Decodable, Sendable, Equatable, Identifiable {
+    var id: String { name }
+    let name: String
+    let state: String
+    let transport: String
+    let toolCount: Int
+    let oauthSaved: Bool
+    let description: String
+    let source: String
+    let configPath: String
+    let lastError: String
+
+    init(_ wire: WireMCPServerStatus) throws {
+        guard !wire.name.isEmpty, wire.name.count <= 128, wire.toolCount >= 0,
+              ["stdio", "http"].contains(wire.transport),
+              ["kit-user", "shared-project", "kit-project"].contains(wire.source),
+              ["disabled", "configured", "connecting", "authorizing", "connected", "error"].contains(wire.state),
+              (wire.description?.utf8.count ?? 0) <= 512, (wire.configPath?.utf8.count ?? 0) <= 1024,
+              (wire.lastError?.utf8.count ?? 0) <= 512 else {
+            throw ClientError.invalidPayload
+        }
+        name = wire.name; state = wire.state; transport = wire.transport; toolCount = wire.toolCount
+        oauthSaved = wire.oauthSaved; description = wire.description ?? ""; source = wire.source
+        configPath = wire.configPath ?? ""; lastError = wire.lastError ?? ""
+    }
 }
 
 struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {

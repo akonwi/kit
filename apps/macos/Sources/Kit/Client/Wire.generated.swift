@@ -257,6 +257,18 @@ struct WireFollowUpQueue: Codable, Sendable {
     let `annotationIds`: [UInt64]?
 }
 
+struct WireMCPServerStatus: Codable, Sendable {
+    let `name`: String
+    let `state`: String
+    let `transport`: String
+    let `toolCount`: Int
+    let `oauthSaved`: Bool
+    let `description`: String?
+    let `source`: String
+    let `configPath`: String?
+    let `lastError`: String?
+}
+
 struct WireSubagentSource: Codable, Sendable {
     let `kind`: String
     let `path`: String
@@ -419,6 +431,8 @@ struct WireSessionSnapshot: Codable, Sendable {
     let `promptCommands`: [WirePromptCommand]?
     let `followUps`: WireFollowUpQueue
     let `warnings`: [String]?
+    let `mcpServers`: [WireMCPServerStatus]?
+    let `mcpWarnings`: [String]?
     let `subagentDefinitions`: [WireSubagentDefinition]?
     let `subagentDiagnostics`: [WireSubagentDiagnostic]?
     let `subagentConversations`: [WireSubagentConversation]?
@@ -1053,4 +1067,4 @@ struct WireDiffError: Codable, Sendable {
     let `details`: [String: String]?
 }
 
-let kitWireVersion = 38
+let kitWireVersion = 39

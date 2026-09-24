@@ -744,12 +744,21 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			Count: snapshot.FollowUps.Count, Previews: append([]string(nil), snapshot.FollowUps.Previews...), AnnotationIDs: append([]uint64(nil), snapshot.FollowUps.AnnotationIDs...),
 		},
 		Warnings:              append([]string(nil), snapshot.Warnings...),
+		MCPWarnings:           append([]string(nil), snapshot.MCPWarnings...),
+		MCPServers:            make([]protocol.MCPServerStatus, 0, len(snapshot.MCPServers)),
 		SubagentDefinitions:   make([]protocol.SubagentDefinition, 0, len(snapshot.SubagentDefinitions)),
 		SubagentDiagnostics:   make([]protocol.SubagentDiagnostic, 0, len(snapshot.SubagentDiagnostics)),
 		SubagentConversations: make([]protocol.SubagentConversation, 0, len(snapshot.SubagentConversations)),
 		SubagentMailbox:       make([]protocol.SubagentMailboxItem, 0, len(snapshot.SubagentMailbox)),
 		PendingInteractions:   make([]protocol.InteractionRequest, 0, len(snapshot.PendingInteractions)),
 		Annotations:           annotations,
+	}
+	for _, server := range snapshot.MCPServers {
+		result.MCPServers = append(result.MCPServers, protocol.MCPServerStatus{
+			Name: server.Name, State: server.State, Transport: server.Transport, ToolCount: server.ToolCount,
+			OAuthSaved: server.OAuthSaved, Description: server.Description, Source: server.Source,
+			ConfigPath: server.ConfigPath, LastError: server.LastError,
+		})
 	}
 	if snapshot.Scratchpad != nil {
 		projectedScratchpad := projectScratchpad(*snapshot.Scratchpad)

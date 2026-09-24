@@ -3,6 +3,10 @@
 		"everything": {
 			"command": "npx",
 			"args": ["-y", "@modelcontextprotocol/server-everything"]
+		},
+		"granola": {
+			"url": "https://mcp.granola.ai/mcp",
+			"auth": "oauth"
 		}
 	}
 }

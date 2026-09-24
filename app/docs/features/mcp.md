@@ -6,17 +6,15 @@ Kit includes an MCP feature plugin that can discover configured MCP servers and 
 
 The current MCP integration is **proxy-first**.
 
-Instead of registering every MCP tool directly into the model tool list, Kit exposes a single proxy tool:
+Instead of registering every remote tool directly into the model tool list, Kit exposes one namespace proxy per configured server, such as `mcp_github`.
 
-- `mcp`
+A namespace proxy can:
 
-That tool can be used to:
-
-- inspect configured servers
 - list tools
 - search tools
 - describe a tool
 - call a tool
+- clear managed OAuth credentials
 
 This keeps tool prompt size under control when MCP servers expose many tools.
 
@@ -24,10 +22,9 @@ This keeps tool prompt size under control when MCP servers expose many tools.
 
 Kit reads and merges MCP configuration from these locations:
 
-1. `~/.config/mcp/mcp.json`
-2. `~/.kit/mcp.json`
-3. `.mcp.json`
-4. `.agents/mcp.json`
+1. `~/.kit-v2/mcp.json` (or `$KIT_HOME/mcp.json`)
+2. `.mcp.json`
+3. `.agents/mcp.json`
 
 Later files override earlier ones by server name.
 
@@ -38,15 +35,10 @@ The current MCP feature is focused on:
 - tools
 - stdio and HTTP transports
 - lazy connection
-- persistent tool metadata cache
 - automatic OAuth handling for auth-required HTTP servers
 - retained MCP status workspace pane and lightweight debug UI
 
 It does not yet aim to provide full MCP coverage for prompts, resources, or broader MCP management UI.
-
-## Metadata cache
-
-Kit persists discovered MCP tool metadata to a Kit-owned cache file so search, list, and describe can still work after restart without immediately reconnecting every server.
 
 ## OAuth
 
@@ -61,16 +53,10 @@ Current behavior includes:
 - error toasts when auth fails
 - automatic clear-and-reauthorize retry once when saved auth has expired or is rejected
 
-If you want to clear saved MCP OAuth state manually, use:
-
-- `/mcp-logout <server>`
+To clear saved MCP OAuth state, ask Kit to use the `logout` action on that server's MCP namespace. The active connection is closed and the next use authorizes again.
 
 ## Status and debugging
 
 The MCP plugin currently provides:
 
-- `/mcp-status` — opens the retained MCP workspace pane showing configured servers, statuses, tool counts, saved OAuth state, warnings, and last errors
-- `/mcp-logout <server>` — clears saved MCP OAuth state for one server
-- `/debug` — shows the MCP debug section with config files, warnings, and server state
-
-Use the app-level `/reload` command if you need to fully reload plugins and refresh MCP state.
+Canonical MCP status and debugging surfaces are tracked separately for the terminal and browser clients.

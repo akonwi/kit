@@ -26,8 +26,7 @@ interaction, security, and accessibility.
 - [ ] WEB-AUTH-001 — Present provider credential setup, replacement, logout, and
   actionable failures without exposing secrets. Depends on `CORE-AUTH-001`.
 - [ ] WEB-MCP-001 — Present MCP status, authentication, logout, and bounded debug
-  detail without exposing credentials. Depends on `CORE-MCP-004` and
-  `CORE-MCP-005`.
+  detail without exposing credentials.
 - [ ] WEB-INT-001 — Present confirm, input, select, and guided-question flows
   with reconnect-safe pending state. Depends on `CORE-INT-001` and
   `CORE-INT-002`.

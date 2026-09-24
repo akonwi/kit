@@ -22,6 +22,8 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/githubpr"
+	"github.com/akonwi/kit/internal/mcpconfig"
+	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
@@ -212,6 +214,16 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	peerTools := &peer.ToolService{}
 	sessionTools := &sessiontool.ToolService{}
+	mcpLoader, err := mcpconfig.NewLoader(paths)
+	if err != nil {
+		return fmt.Errorf("create MCP configuration loader: %w", err)
+	}
+	// Server processes are bound to the daemon lifetime, so shutdown terminates
+	// every process group even when a graceful close does not complete.
+	mcpLauncher, err := mcpruntime.NewLauncher(ctx, mcpruntime.WithMCPAuthStore(auth.NewStore(paths.MCPAuth)))
+	if err != nil {
+		return fmt.Errorf("create MCP launcher: %w", err)
+	}
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools, SessionToolFactory: sessionTools,
@@ -220,7 +232,9 @@ func Run(ctx context.Context, options RunOptions) error {
 			model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
 			return resolveErr == nil && kitsession.ModelSupportsImageAttachment(model)
 		},
-		Context: &systemprompt.ContextBuilderOptions{Paths: paths},
+		Context:     &systemprompt.ContextBuilderOptions{Paths: paths},
+		MCPLoader:   mcpLoader,
+		MCPLauncher: mcpLauncher,
 	})
 	if err != nil {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
@@ -249,6 +263,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("create session manager: %w", err)
 	}
 	childFactory.PluginInterceptors = sessionManager.PluginInterceptors
+	childFactory.MCPTools = sessionManager.MCPTools
 	annotationService.SetObserver(sessionManager)
 	peerTools.Service = sessionManager
 	sessionTools.Service = modelSessionService{

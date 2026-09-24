@@ -248,6 +248,11 @@ type appState struct {
 	compactPending                   bool
 	compactOperationID               string
 	sessionDetailsOpen               bool
+	mcpStatusOpen                    bool
+	mcpServers                       []protocol.MCPServerStatus
+	mcpWarnings                      []string
+	mcpStatusCancel                  context.CancelFunc
+	mcpStatusGeneration              uint64
 	sessionRename                    currentSessionRenameController
 	annotationPicker                 annotationPickerController
 	sessionExplorer                  sessionExplorerController
@@ -970,6 +975,12 @@ func scrollControllerPinnedToEnd(controller *ui.ScrollController) bool {
 }
 
 func (s *appState) resetAttachmentContext() {
+	if s.mcpStatusCancel != nil {
+		s.mcpStatusCancel()
+		s.mcpStatusCancel = nil
+	}
+	s.mcpStatusOpen = false
+	s.mcpStatusGeneration++
 	if s.pluginToastWatchCancel != nil {
 		s.pluginToastWatchCancel()
 		s.pluginToastWatchCancel = nil
@@ -1094,6 +1105,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ThemePicker:                  s.themePicker.Snapshot(),
 		ConfigurationPicker:          s.configurationPicker.Snapshot(),
 		SessionDetailsOpen:           s.sessionDetailsOpen,
+		MCPStatusOpen:                s.mcpStatusOpen,
+		MCPServers:                   append([]protocol.MCPServerStatus(nil), s.mcpServers...),
+		MCPWarnings:                  append([]string(nil), s.mcpWarnings...),
 		SessionRename:                s.sessionRename.Snapshot(),
 		AnnotationPicker:             annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
 		SessionExplorer:              s.sessionExplorer.Snapshot(),
@@ -2283,6 +2297,8 @@ func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapsho
 		s.pluginFooter = snapshot.PluginFooter
 	}
 	s.palette.SetContributions(s.sessionPaletteCommands(snapshot), s.hasActiveWork())
+	s.mcpServers = append([]protocol.MCPServerStatus(nil), snapshot.MCPServers...)
+	s.mcpWarnings = append([]string(nil), snapshot.MCPWarnings...)
 	s.subagentDefinitions = append([]protocol.SubagentDefinition(nil), snapshot.SubagentDefinitions...)
 	s.applySubagentDiagnostics(snapshot.Session.ID, snapshot.SubagentDiagnostics)
 	s.reconcileScratchpad(snapshot.Scratchpad)
@@ -2308,6 +2324,8 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.pluginFooter = snapshot.PluginFooter
 	}
 	s.palette.SetContributions(s.sessionPaletteCommands(snapshot), s.hasActiveWork())
+	s.mcpServers = append([]protocol.MCPServerStatus(nil), snapshot.MCPServers...)
+	s.mcpWarnings = append([]string(nil), snapshot.MCPWarnings...)
 	s.reconcileScratchpad(snapshot.Scratchpad)
 	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
@@ -3995,6 +4013,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.reloadSession()
 	case paletteCommandDebug:
 		s.SetState(func() { s.sessionDetailsOpen = true })
+	case paletteCommandMCP:
+		s.openMCPStatus()
 	case paletteCommandDiff:
 		s.openWorkingTreeDiff()
 	case paletteCommandFork:
@@ -4014,6 +4034,60 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	case paletteCommandThinking:
 		s.openConfigurationPicker(configurationPickerThinking)
 	}
+}
+
+func (s *appState) openMCPStatus() {
+	if s.bound == nil {
+		return
+	}
+	if s.mcpStatusCancel != nil {
+		s.mcpStatusCancel()
+	}
+	parent := s.attachmentCtx
+	if parent == nil {
+		parent = s.ctx
+	}
+	if parent == nil {
+		parent = context.Background()
+	}
+	pollContext, cancel := context.WithCancel(parent)
+	s.mcpStatusCancel = cancel
+	s.mcpStatusGeneration++
+	generation := s.mcpStatusGeneration
+	bound, operation := s.bound, s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() { s.mcpStatusOpen = true })
+	go func() {
+		for pollContext.Err() == nil {
+			snapshot, err := bound.Snapshot(pollContext)
+			if err == nil {
+				runtime.Dispatch(func() {
+					if s.mcpStatusOpen && generation == s.mcpStatusGeneration && operation == s.operation && bound == s.bound {
+						s.SetState(func() {
+							s.mcpServers = append([]protocol.MCPServerStatus(nil), snapshot.MCPServers...)
+							s.mcpWarnings = append([]string(nil), snapshot.MCPWarnings...)
+						})
+					}
+				})
+			}
+			timer := time.NewTimer(time.Second)
+			select {
+			case <-pollContext.Done():
+				timer.Stop()
+				return
+			case <-timer.C:
+			}
+		}
+	}()
+}
+
+func (s *appState) closeMCPStatus() {
+	if s.mcpStatusCancel != nil {
+		s.mcpStatusCancel()
+		s.mcpStatusCancel = nil
+	}
+	s.mcpStatusGeneration++
+	s.SetState(func() { s.mcpStatusOpen = false })
 }
 
 func (s *appState) openWorkingTreeDiff() {
@@ -6495,6 +6569,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 	}
 	if owner == inputSessionDetails {
 		s.SetState(func() { s.sessionDetailsOpen = false })
+		return
+	}
+	if owner == inputMCPStatus {
+		s.closeMCPStatus()
 		return
 	}
 	if owner.root() == inputSessions {

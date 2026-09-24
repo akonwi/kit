@@ -33,6 +33,9 @@ type shellSnapshot struct {
 	ThemePicker                  themePickerSnapshot
 	ConfigurationPicker          configurationPickerSnapshot
 	SessionDetailsOpen           bool
+	MCPStatusOpen                bool
+	MCPServers                   []protocol.MCPServerStatus
+	MCPWarnings                  []string
 	SessionRename                sessionRenameSnapshot
 	AnnotationPicker             annotationPickerSnapshot
 	SessionExplorer              sessionExplorerSnapshot
@@ -352,6 +355,11 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		overlays = append(overlays, modalDialogEntry(sessionDetailsSurface{
 			Session: w.Snapshot.Session, ContextTokens: w.Snapshot.ContextTokens,
 			ContextWindow: w.Snapshot.ContextWindow, Usage: w.Snapshot.SessionUsage,
+		}))
+	}
+	if w.Snapshot.Phase == phaseReady && owner == inputMCPStatus {
+		overlays = append(overlays, modalDialogEntry(mcpStatusSurface{
+			Servers: w.Snapshot.MCPServers, Warnings: w.Snapshot.MCPWarnings,
 		}))
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputAnnotations {

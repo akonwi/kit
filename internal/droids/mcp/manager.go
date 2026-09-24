@@ -11,6 +11,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 	"unicode"
 
 	"github.com/akonwi/kit/internal/droids"
@@ -36,9 +37,15 @@ type Server struct {
 	// Description tells the model when this namespace is useful. It should be
 	// application-authored rather than copied from an untrusted remote server.
 	Description string
+	// OAuthSaved reports whether Kit currently has managed credentials. It must
+	// never return credential contents.
+	OAuthSaved func(context.Context) (bool, error)
 	// Transport creates a fresh transport when the namespace is first used.
 	// Configure HTTP authentication, including an OAuthHandler, here.
 	Transport TransportFactory
+	// Logout clears Kit-owned credentials for this namespace. It is nil when
+	// authentication is unmanaged or logout is unsupported.
+	Logout func(context.Context) error
 	// Filter optionally limits the remote tools visible and callable through
 	// this namespace.
 	Filter func(*sdkmcp.Tool) bool
@@ -67,6 +74,8 @@ type namespace struct {
 	toolName string
 
 	mu              sync.Mutex
+	state           string
+	lastError       string
 	connectMu       sync.Mutex
 	listMu          sync.Mutex
 	closed          bool
@@ -121,12 +130,53 @@ func NewManager(servers ...Server) (*Manager, error) {
 		m.namespaces = append(m.namespaces, &namespace{
 			config:         server,
 			toolName:       toolName,
+			state:          "configured",
 			lifetime:       lifetime,
 			cancel:         cancel,
 			toolGeneration: 1,
 		})
 	}
 	return m, nil
+}
+
+// Status is the safe runtime state of one configured namespace.
+type Status struct {
+	Name       string
+	State      string
+	ToolCount  int
+	OAuthSaved bool
+	LastError  string
+}
+
+// Statuses returns a point-in-time status snapshot without exposing transport
+// configuration or credentials.
+func (m *Manager) Statuses(ctx context.Context) []Status {
+	m.mu.Lock()
+	namespaces := append([]*namespace(nil), m.namespaces...)
+	m.mu.Unlock()
+	out := make([]Status, 0, len(namespaces))
+	for _, ns := range namespaces {
+		ns.mu.Lock()
+		status := Status{Name: ns.config.Name, State: ns.state, ToolCount: len(ns.tools), LastError: ns.lastError}
+		saved := ns.config.OAuthSaved
+		ns.mu.Unlock()
+		if saved != nil {
+			status.OAuthSaved, _ = saved(ctx)
+		}
+		out = append(out, status)
+	}
+	return out
+}
+
+func (ns *namespace) setStatus(state string, err error) {
+	ns.mu.Lock()
+	ns.state = state
+	if err == nil {
+		ns.lastError = ""
+	} else {
+		ns.lastError = err.Error()
+	}
+	ns.mu.Unlock()
 }
 
 // Tools returns one local proxy tool per configured MCP server. It performs no
@@ -141,14 +191,40 @@ func (m *Manager) Tools() []droids.AnyTool {
 		out = append(out, droids.MustTool(droids.Tool[namespaceRequest]{
 			Name:        ns.toolName,
 			Description: namespaceDescription(ns.config),
-			Parameters:  namespaceSchema(),
+			Parameters:  namespaceSchema(ns.config.Logout != nil),
 			Mode:        ns.config.ExecutionMode,
-			Execute: func(ctx context.Context, _ droids.ToolContext, request namespaceRequest, _ droids.ToolUpdate) (droids.ToolResult, error) {
+			Execute: func(ctx context.Context, _ droids.ToolContext, request namespaceRequest, update droids.ToolUpdate) (droids.ToolResult, error) {
+				ctx = context.WithValue(ctx, progressContextKey{}, update)
 				return ns.execute(ctx, request)
 			},
 		}))
 	}
 	return out
+}
+
+// Logout closes one namespace's active session and clears its saved credentials.
+// The namespace remains available and will authorize again on its next use.
+func (m *Manager) Logout(ctx context.Context, name string) error {
+	m.mu.Lock()
+	if m.closed {
+		m.mu.Unlock()
+		return errors.New("droids/mcp: manager is closed")
+	}
+	var selected *namespace
+	for _, ns := range m.namespaces {
+		if ns.config.Name == name {
+			selected = ns
+			break
+		}
+	}
+	m.mu.Unlock()
+	if selected == nil {
+		return fmt.Errorf("droids/mcp: unknown namespace %q", name)
+	}
+	if selected.config.Logout == nil {
+		return fmt.Errorf("droids/mcp: namespace %q does not use managed authentication", name)
+	}
+	return selected.logout(ctx)
 }
 
 // Close closes all connected MCP sessions. It is safe to call more than once.
@@ -162,13 +238,50 @@ func (m *Manager) Close() error {
 	namespaces := append([]*namespace(nil), m.namespaces...)
 	m.mu.Unlock()
 
-	var errs []error
-	for _, ns := range namespaces {
-		if err := ns.close(); err != nil {
-			errs = append(errs, fmt.Errorf("%s: %w", ns.config.Name, err))
-		}
+	// Namespaces own independent transports. Close them concurrently so one
+	// unresponsive server cannot consume the runtime's entire shutdown budget
+	// before the remaining connections even begin teardown.
+	errs := make([]error, len(namespaces))
+	var closing sync.WaitGroup
+	closing.Add(len(namespaces))
+	for index, ns := range namespaces {
+		index, ns := index, ns
+		go func() {
+			defer closing.Done()
+			if err := ns.close(); err != nil {
+				errs[index] = fmt.Errorf("%s: %w", ns.config.Name, err)
+			}
+		}()
 	}
+	closing.Wait()
 	return errors.Join(errs...)
+}
+
+// ErrAuthenticationChanged asks the manager to discard a session whose saved
+// credential generation changed concurrently.
+var ErrAuthenticationChanged = errors.New("MCP authentication generation changed")
+
+type progressContextKey struct{}
+type authorizationContextKey struct{}
+
+// PublishAuthorizationProgress marks the active namespace as authorizing and
+// emits the user-facing progress message when an interactive call owns it.
+func PublishAuthorizationProgress(ctx context.Context, message string) bool {
+	if mark, ok := ctx.Value(authorizationContextKey{}).(func()); ok && mark != nil {
+		mark()
+	}
+	return PublishProgress(ctx, message)
+}
+
+// PublishProgress emits transport-owned progress through the active namespace
+// tool call. It returns false when no interactive call owns the context.
+func PublishProgress(ctx context.Context, message string) bool {
+	update, ok := ctx.Value(progressContextKey{}).(droids.ToolUpdate)
+	if !ok || update == nil || message == "" {
+		return false
+	}
+	update(droids.ToolResultDelta{Content: []droids.ResultContent{droids.TextContent{Text: message}}})
+	return true
 }
 
 type namespaceRequest struct {
@@ -178,15 +291,21 @@ type namespaceRequest struct {
 	Arguments map[string]any `json:"arguments,omitempty"`
 }
 
-func namespaceSchema() map[string]any {
+func namespaceSchema(managedAuth bool) map[string]any {
+	actions := []string{"list", "search", "describe", "call"}
+	actionDescription := "List tools, search tools, inspect one tool's schema, or call one tool."
+	if managedAuth {
+		actions = append(actions, "logout")
+		actionDescription = "List tools, search tools, inspect or call one tool, or clear this namespace's managed login."
+	}
 	return map[string]any{
 		"type":                 "object",
 		"additionalProperties": false,
 		"properties": map[string]any{
 			"action": map[string]any{
 				"type":        "string",
-				"enum":        []string{"list", "search", "describe", "call"},
-				"description": "List tools, search tools, inspect one tool's schema, or call one tool.",
+				"enum":        actions,
+				"description": actionDescription,
 			},
 			"query": map[string]any{
 				"type":        "string",
@@ -211,7 +330,11 @@ func namespaceDescription(server Server) string {
 	if strings.TrimSpace(server.Description) != "" {
 		description += " " + strings.TrimSpace(server.Description) + "."
 	}
-	return description + " Use list or search to discover tools, describe to inspect a tool's input schema, and call to run it."
+	actions := " Use list or search to discover tools, describe to inspect a tool's input schema, and call to run it."
+	if server.Logout != nil {
+		actions = " Use list or search to discover tools, describe to inspect a tool's input schema, call to run it, and logout to clear managed authentication."
+	}
+	return description + actions
 }
 
 func namespaceToolName(name string) (string, error) {
@@ -239,7 +362,28 @@ func namespaceToolName(name string) (string, error) {
 	return toolName, nil
 }
 
-func (ns *namespace) execute(ctx context.Context, req namespaceRequest) (droids.ToolResult, error) {
+func (ns *namespace) execute(ctx context.Context, req namespaceRequest) (result droids.ToolResult, resultErr error) {
+	defer func() {
+		if resultErr == nil {
+			return
+		}
+		ns.mu.Lock()
+		connectionFailed := ns.session == nil && (ns.state == "connecting" || ns.state == "authorizing" || ns.state == "connected")
+		ns.mu.Unlock()
+		if connectionFailed {
+			ns.setStatus("error", resultErr)
+		}
+	}()
+	if req.Action == "logout" {
+		if ns.config.Logout == nil {
+			return droids.ToolResult{}, fmt.Errorf("MCP namespace %q does not use managed authentication", ns.config.Name)
+		}
+		if err := ns.logout(ctx); err != nil {
+			return droids.ToolResult{}, err
+		}
+		ns.setStatus("configured", nil)
+		return droids.ToolText(fmt.Sprintf("Logged out of the %s MCP namespace.", ns.config.Name)), nil
+	}
 	ctx, cancel := ns.operationContext(ctx)
 	defer cancel()
 	switch req.Action {
@@ -261,7 +405,7 @@ func (ns *namespace) execute(ctx context.Context, req namespaceRequest) (droids.
 		}
 		return ns.call(ctx, req.Tool, req.Arguments)
 	default:
-		return droids.ToolResult{}, fmt.Errorf("unknown action %q; use list, search, describe, or call", req.Action)
+		return droids.ToolResult{}, fmt.Errorf("unknown action %q; use list, search, describe, call, or logout", req.Action)
 	}
 }
 
@@ -281,6 +425,8 @@ func (ns *namespace) connect(ctx context.Context) (*sdkmcp.ClientSession, error)
 	}
 	ns.mu.Unlock()
 
+	ns.setStatus("connecting", nil)
+	ctx = context.WithValue(ctx, authorizationContextKey{}, func() { ns.setStatus("authorizing", nil) })
 	transport, err := ns.config.Transport(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("create transport for MCP namespace %q: %w", ns.config.Name, err)
@@ -308,10 +454,17 @@ func (ns *namespace) connect(ctx context.Context) (*sdkmcp.ClientSession, error)
 		return nil, fmt.Errorf("MCP namespace %q is closed", ns.config.Name)
 	}
 	ns.session = session
+	ns.state = "connected"
+	ns.lastError = ""
 	ns.mu.Unlock()
 	go func() {
-		_ = session.Wait()
-		ns.invalidateSession(session)
+		waitErr := session.Wait()
+		if ns.invalidateSession(session) {
+			if waitErr == nil {
+				waitErr = errors.New("MCP connection closed")
+			}
+			ns.setStatus("error", waitErr)
+		}
 	}()
 	return session, nil
 }
@@ -340,8 +493,8 @@ func (ns *namespace) loadTools(ctx context.Context) (map[string]*sdkmcp.Tool, er
 	tools := make(map[string]*sdkmcp.Tool)
 	for tool, err := range session.Tools(ctx, nil) {
 		if err != nil {
-			if isConnectionError(err) {
-				ns.invalidateSession(session)
+			if isConnectionError(err) && ns.invalidateSession(session) && errors.Is(err, ErrAuthenticationChanged) {
+				_ = closeSessionBounded(context.Background(), session)
 			}
 			return nil, fmt.Errorf("list tools for MCP namespace %q: %w", ns.config.Name, err)
 		}
@@ -367,6 +520,8 @@ func (ns *namespace) loadTools(ctx context.Context) (map[string]*sdkmcp.Tool, er
 	if ns.toolGeneration == generation {
 		ns.tools = tools
 		ns.cacheGeneration = generation
+		ns.state = "connected"
+		ns.lastError = ""
 	}
 	ns.mu.Unlock()
 	return copyTools(tools), nil
@@ -488,12 +643,47 @@ func (ns *namespace) call(ctx context.Context, name string, arguments map[string
 	}
 	result, err := session.CallTool(ctx, &sdkmcp.CallToolParams{Name: name, Arguments: arguments})
 	if err != nil {
-		if isConnectionError(err) {
-			ns.invalidateSession(session)
+		if isConnectionError(err) && ns.invalidateSession(session) && errors.Is(err, ErrAuthenticationChanged) {
+			_ = closeSessionBounded(context.Background(), session)
 		}
 		return droids.ToolResult{}, fmt.Errorf("call MCP tool %s.%s: %w", ns.config.Name, name, err)
 	}
 	return convertCallResult(ns.config.Name, name, result, ns.config.MaxResultBytes)
+}
+
+func (ns *namespace) logout(ctx context.Context) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	ns.connectMu.Lock()
+	defer ns.connectMu.Unlock()
+	ns.mu.Lock()
+	if ns.closed {
+		ns.mu.Unlock()
+		return fmt.Errorf("MCP namespace %q is closed", ns.config.Name)
+	}
+	// Cancel operations from the old credential generation, then install a new
+	// lifetime so the namespace remains usable after logout.
+	ns.cancel()
+	ns.lifetime, ns.cancel = context.WithCancel(context.Background())
+	session := ns.session
+	ns.session = nil
+	ns.tools = nil
+	ns.toolGeneration++
+	ns.mu.Unlock()
+
+	// Tombstone credentials before waiting for graceful session close. An
+	// independent in-flight refresh then fails its generation check instead of
+	// resurrecting the logged-out credential.
+	logoutErr := ns.config.Logout(ctx)
+	var closeErr error
+	if session != nil {
+		closeErr = closeSessionBounded(ctx, session)
+		if closeErr != nil {
+			closeErr = fmt.Errorf("close MCP namespace %q during logout: %w", ns.config.Name, closeErr)
+		}
+	}
+	return errors.Join(logoutErr, closeErr)
 }
 
 func (ns *namespace) close() error {
@@ -526,8 +716,11 @@ func (ns *namespace) operationContext(parent context.Context) (context.Context, 
 	if parent == nil {
 		parent = context.Background()
 	}
+	ns.mu.Lock()
+	lifetime := ns.lifetime
+	ns.mu.Unlock()
 	ctx, cancel := context.WithCancel(parent)
-	stop := context.AfterFunc(ns.lifetime, cancel)
+	stop := context.AfterFunc(lifetime, cancel)
 	return ctx, func() {
 		stop()
 		cancel()
@@ -535,18 +728,41 @@ func (ns *namespace) operationContext(parent context.Context) (context.Context, 
 }
 
 func isConnectionError(err error) bool {
-	return errors.Is(err, sdkmcp.ErrConnectionClosed) || errors.Is(err, sdkmcp.ErrSessionMissing)
+	return errors.Is(err, sdkmcp.ErrConnectionClosed) || errors.Is(err, sdkmcp.ErrSessionMissing) || errors.Is(err, ErrAuthenticationChanged)
 }
 
-func (ns *namespace) invalidateSession(session *sdkmcp.ClientSession) {
+func (ns *namespace) invalidateSession(session *sdkmcp.ClientSession) bool {
 	ns.mu.Lock()
 	defer ns.mu.Unlock()
 	if ns.session != session {
-		return
+		return false
 	}
 	ns.session = nil
 	ns.tools = nil
 	ns.toolGeneration++
+	return true
+}
+
+func closeSessionBounded(ctx context.Context, session *sdkmcp.ClientSession) error {
+	if session == nil {
+		return nil
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if _, bounded := ctx.Deadline(); !bounded {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, 5*time.Second)
+		defer cancel()
+	}
+	settled := make(chan error, 1)
+	go func() { settled <- session.Close() }()
+	select {
+	case err := <-settled:
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 }
 
 func formatToolSummary(tool *sdkmcp.Tool) string {

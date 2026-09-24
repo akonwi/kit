@@ -33,6 +33,10 @@ enum SessionProjection {
         session.subagentDiagnostics = snapshot.subagentDiagnostics ?? []
         session.pendingInteractions = snapshot.pendingInteractions ?? []
         session.scratchpad = try snapshot.scratchpad.map(ScratchpadRecord.init)
+        session.mcpServers = try (snapshot.mcpServers ?? []).map(MCPServerStatus.init)
+        guard session.mcpServers!.count <= 256, Set(session.mcpServers!.map(\.name)).count == session.mcpServers!.count else { throw ClientError.invalidPayload }
+        session.mcpWarnings = snapshot.mcpWarnings ?? []
+        guard session.mcpWarnings!.count <= 8, session.mcpWarnings!.allSatisfy({ $0.utf8.count <= 512 }) else { throw ClientError.invalidPayload }
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId
         session.activeRunID = snapshot.activeRunId

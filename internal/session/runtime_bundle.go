@@ -3,6 +3,7 @@ package session
 import (
 	"context"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"reflect"
 	"strings"
@@ -10,6 +11,8 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/droids/mcp"
+	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	"github.com/akonwi/kit/internal/sessiontool"
@@ -19,6 +22,14 @@ import (
 	"github.com/akonwi/kit/internal/systemprompt"
 )
 
+// MCPServerInfo is the credential-free MCP configuration retained for status presentation.
+type MCPServerInfo struct {
+	Name, Description, Source, Path string
+	Transport                       string
+	Disabled, ManagedOAuth          bool
+	OAuthSaved                      func(context.Context) (bool, error)
+}
+
 // RuntimeBundle is one atomic prompt and tool configuration for a session
 // runtime. Prompt provenance remains server-owned and is not conversation data.
 type RuntimeBundle struct {
@@ -26,6 +37,12 @@ type RuntimeBundle struct {
 	Tools          []droids.AnyTool
 	PromptCommands *promptcommands.Registry
 	Subagents      subagent.LoadResult
+	MCPServers     []MCPServerInfo
+	MCPWarnings    []string
+	// MCP is the session's configured MCP namespaces, or nil when none are
+	// configured. The owning session runtime closes it; subagents of that session
+	// borrow its tools and must not close it.
+	MCP *mcp.Manager
 }
 
 // RuntimeBundleBuilder resolves the prompt and tools applicable to a session
@@ -40,6 +57,10 @@ func cloneRuntimeBundle(bundle RuntimeBundle) RuntimeBundle {
 	bundle.Prompt.Sources = append([]systemprompt.Source(nil), bundle.Prompt.Sources...)
 	bundle.Prompt.Diagnostics = append([]systemprompt.Diagnostic(nil), bundle.Prompt.Diagnostics...)
 	bundle.Tools = append([]droids.AnyTool(nil), bundle.Tools...)
+	bundle.MCPServers = append([]MCPServerInfo(nil), bundle.MCPServers...)
+	bundle.MCPWarnings = append([]string(nil), bundle.MCPWarnings...)
+	// MCP is deliberately shared rather than copied. It owns processes and
+	// connections, so duplicating the reference would double-close it.
 	catalog, err := subagent.NewCatalog(bundle.Subagents.Catalog.Definitions()...)
 	if err == nil {
 		bundle.Subagents.Catalog = catalog
@@ -61,6 +82,22 @@ type RuntimeBundleOptions struct {
 	SessionToolFactory  sessiontool.ToolFactory
 	AttachmentStore     attachment.Store
 	ShowImageEnabled    func(SessionRecord) bool
+	// MCPLoader and MCPLauncher must be configured together and only for
+	// session-owning builders. A child builder omits them and borrows its owner's
+	// namespaces instead of starting duplicate server processes.
+	MCPLoader   MCPConfigLoader
+	MCPLauncher MCPLauncher
+}
+
+// MCPConfigLoader resolves the MCP servers applicable to one session cwd.
+type MCPConfigLoader interface {
+	Load(context.Context, string) (mcpconfig.Result, error)
+}
+
+// MCPLauncher projects validated servers into agent-core namespaces.
+type MCPLauncher interface {
+	Servers(string, []mcpconfig.Server) ([]mcp.Server, error)
+	OAuthSaved(context.Context, string, string) (bool, error)
 }
 
 type defaultRuntimeBundleBuilder struct {
@@ -75,6 +112,8 @@ type defaultRuntimeBundleBuilder struct {
 	sessionToolFactory  sessiontool.ToolFactory
 	attachmentStore     attachment.Store
 	showImageEnabled    func(SessionRecord) bool
+	mcpLoader           MCPConfigLoader
+	mcpLauncher         MCPLauncher
 }
 
 // NewRuntimeBundleBuilder constructs Kit's standard atomic prompt/tool builder.
@@ -90,6 +129,9 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 	if (options.AttachmentStore == nil) != (options.ShowImageEnabled == nil) {
 		return nil, errors.New("session attachment store and show-image capability must be configured together")
 	}
+	if (options.MCPLoader == nil) != (options.MCPLauncher == nil) {
+		return nil, errors.New("session MCP loader and launcher must be configured together")
+	}
 	composer, err := systemprompt.New(options.Core)
 	if err != nil {
 		return nil, err
@@ -102,6 +144,8 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		sessionToolFactory: options.SessionToolFactory,
 		attachmentStore:    options.AttachmentStore,
 		showImageEnabled:   options.ShowImageEnabled,
+		mcpLoader:          options.MCPLoader,
+		mcpLauncher:        options.MCPLauncher,
 	}
 	if options.Context != nil {
 		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
@@ -204,14 +248,88 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			tools = append(tools, tool)
 		}
 	}
+	manager, mcpServers, mcpWarnings, diagnostics, err := b.buildMCP(ctx, record.CWD)
+	if err != nil {
+		return RuntimeBundle{}, err
+	}
+	if manager != nil {
+		tools = append(tools, manager.Tools()...)
+	}
 	return RuntimeBundle{
 		Prompt: systemprompt.Result{
 			Prompt:      result.Prompt,
 			Sources:     append([]systemprompt.Source(nil), result.Sources...),
-			Diagnostics: append([]systemprompt.Diagnostic(nil), result.Diagnostics...),
+			Diagnostics: append(append([]systemprompt.Diagnostic(nil), result.Diagnostics...), diagnostics...),
 		},
-		Tools: tools, PromptCommands: commands, Subagents: subagents,
+		Tools: tools, PromptCommands: commands, Subagents: subagents, MCP: manager,
+		MCPServers: mcpServers, MCPWarnings: mcpWarnings,
 	}, nil
+}
+
+// buildMCP resolves configured MCP servers for one session cwd. Configuration
+// problems are reported as prompt diagnostics rather than failing the session,
+// so one malformed file cannot make a session unusable.
+func (b *defaultRuntimeBundleBuilder) buildMCP(ctx context.Context, cwd string) (*mcp.Manager, []MCPServerInfo, []string, []systemprompt.Diagnostic, error) {
+	if b.mcpLoader == nil || b.mcpLauncher == nil {
+		return nil, nil, nil, nil, nil
+	}
+	resolved, err := b.mcpLoader.Load(ctx, cwd)
+	if err != nil {
+		return nil, nil, nil, nil, fmt.Errorf("load MCP configuration: %w", err)
+	}
+	servers := make([]MCPServerInfo, 0, len(resolved.Servers))
+	for _, server := range resolved.Servers {
+		managedOAuth := server.Auth != nil && server.Auth.Kind == mcpconfig.AuthOAuth
+		var saved func(context.Context) (bool, error)
+		if managedOAuth {
+			name, endpoint := server.Name, server.URL
+			saved = func(statusCtx context.Context) (bool, error) {
+				return b.mcpLauncher.OAuthSaved(statusCtx, name, endpoint)
+			}
+		}
+		servers = append(servers, MCPServerInfo{Name: server.Name, Description: server.Description,
+			Source: string(server.Source), Path: server.Path, Transport: string(server.Transport), Disabled: server.Disabled,
+			ManagedOAuth: managedOAuth, OAuthSaved: saved})
+	}
+	diagnostics := make([]systemprompt.Diagnostic, 0, len(resolved.Diagnostics))
+	warnings := make([]string, 0, len(resolved.Diagnostics))
+	for _, diagnostic := range resolved.Diagnostics {
+		warnings = append(warnings, safeMCPDiagnostic(diagnostic))
+		diagnostics = append(diagnostics, systemprompt.Diagnostic{
+			Severity: systemprompt.DiagnosticWarning, Code: "mcp.configuration", Message: diagnostic.Error(),
+		})
+	}
+	enabled := resolved.Enabled()
+	if len(enabled) == 0 {
+		return nil, servers, warnings, diagnostics, nil
+	}
+	launched, err := b.mcpLauncher.Servers(cwd, enabled)
+	if err != nil {
+		return nil, servers, append(warnings, "MCP server setup failed."), append(diagnostics, systemprompt.Diagnostic{
+			Severity: systemprompt.DiagnosticWarning, Code: "mcp.configuration", Message: err.Error(),
+		}), nil
+	}
+	manager, err := mcp.NewManager(launched...)
+	if err != nil {
+		return nil, servers, append(warnings, "MCP server setup failed."), append(diagnostics, systemprompt.Diagnostic{
+			Severity: systemprompt.DiagnosticWarning, Code: "mcp.configuration", Message: err.Error(),
+		}), nil
+	}
+	return manager, servers, warnings, diagnostics, nil
+}
+
+func safeMCPDiagnostic(diagnostic mcpconfig.Diagnostic) string {
+	location := diagnostic.Path
+	if location == "" {
+		location = string(diagnostic.Source)
+	}
+	if diagnostic.Server != "" && diagnostic.Field != "" {
+		return fmt.Sprintf("%s: server %q has invalid %s configuration", location, diagnostic.Server, diagnostic.Field)
+	}
+	if diagnostic.Server != "" {
+		return fmt.Sprintf("%s: server %q has invalid configuration", location, diagnostic.Server)
+	}
+	return location + ": invalid MCP configuration"
 }
 
 // SubagentDefinitions returns the immutable definition snapshot applied to a

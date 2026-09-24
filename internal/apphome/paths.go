@@ -23,6 +23,7 @@ type Paths struct {
 
 	Database  string
 	Auth      string
+	MCPAuth   string
 	Settings  string
 	MCPConfig string
 
@@ -77,6 +78,7 @@ func FromHome(home string) Paths {
 
 		Database:  filepath.Join(home, "kit.db"),
 		Auth:      filepath.Join(home, "auth.json"),
+		MCPAuth:   filepath.Join(home, "mcp-auth.json"),
 		Settings:  filepath.Join(home, "settings.json"),
 		MCPConfig: filepath.Join(home, "mcp.json"),
 

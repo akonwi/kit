@@ -9,6 +9,7 @@ struct CommandPalette: View {
     @State private var deleting = true
     @State private var reloading = false
     @State private var showingDetails = false
+    @State private var showingMCP = false
     @State private var changingDirectory = false
     @State private var browsing = false
     @State private var forking = false
@@ -35,6 +36,8 @@ struct CommandPalette: View {
                 SessionReloadView(state: state) { reloading = false }
             } else if showingDetails {
                 SessionDetailsView(state: state) { showingDetails = false }
+            } else if showingMCP {
+                MCPStatusView(state: state) { showingMCP = false }
             } else if changingDirectory {
                 ChangeDirectoryView(state: state) { changingDirectory = false }
             } else if browsing {
@@ -186,6 +189,11 @@ struct CommandPalette: View {
         if name == "Session details" {
             focused = false
             showingDetails = true
+            return
+        }
+        if name == "MCP servers" {
+            focused = false
+            showingMCP = true
             return
         }
         if name == "Change working directory" {

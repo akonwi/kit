@@ -12,18 +12,26 @@ actor BashWatchProjection {
     private let receive: @Sendable (SessionExcerpt) async -> Void
     init(receive: @escaping @Sendable (SessionExcerpt) async -> Void) { self.receive = receive }
     func stream(_ session: SessionExcerpt) async {
+        var session = session
+        if hasPoll {
+            session.mcpServers = latest?.mcpServers
+            session.mcpWarnings = latest?.mcpWarnings
+        }
         latest = session
         for row in session.messages { if let bash = row.bash { upsert(bash) } }
         await publish()
     }
     func poll(_ session: SessionExcerpt, active: BashExecution?, settled: [BashExecution]) async {
         let previous = executions, previousID = hasPoll ? activeID : latest?.activeBashID
+        let mcpChanged = latest?.mcpServers != session.mcpServers || latest?.mcpWarnings != session.mcpWarnings
+        latest?.mcpServers = session.mcpServers
+        latest?.mcpWarnings = session.mcpWarnings
         hasPoll = true
         activeID = active?.running == true ? active?.id : nil
         for row in session.messages { if let bash = row.bash { upsert(bash) } }
         for value in settled { upsert(value) }
         if let active { upsert(active) }
-        if previous != executions || previousID != activeID { await publish() }
+        if previous != executions || previousID != activeID || mcpChanged { await publish() }
     }
     func runningIDs() -> [String] { executions.filter(\.running).map(\.id) }
     private func upsert(_ value: BashExecution) {

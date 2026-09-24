@@ -62,10 +62,10 @@ A→B→A switches, and restart the stream when authoritative cwd metadata chang
 Unavailable Git or absent PR metadata clears its corresponding footer content;
 transient transport failures retain the last accepted state until reconnection.
 
-Production's TypeScript client also uses filesystem watchers for lower-latency
-external worktree, index, and ref changes. Matching that refresh behavior is
-tracked by `CORE-VCS-001` in the [core backlog](../../backlog/core.md) unless
-polling latency is accepted as an intentional difference.
+Kit intentionally uses the shared ten-second daemon observer instead of
+filesystem watchers for external worktree, index, and ref changes. This keeps
+observation portable and bounded while accepting up to one polling interval of
+latency for changes made outside Kit.
 
 ## GitHub pull requests
 

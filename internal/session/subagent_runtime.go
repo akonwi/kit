@@ -22,6 +22,10 @@ type ChildRuntimeFactory struct {
 	// PluginInterceptors must be set before the supervisor starts. Child tools
 	// use their owning session policy rather than bypassing it.
 	PluginInterceptors func(context.Context, string) (PluginInterceptorHost, error)
+	// MCPTools must be set before the supervisor starts. A child borrows its
+	// owning session's MCP namespaces instead of starting duplicate server
+	// processes, and never closes them.
+	MCPTools           func(context.Context, string) ([]droids.AnyTool, error)
 	providers          droids.Providers
 	bundleBuilder      RuntimeBundleBuilder
 	directory          string
@@ -88,6 +92,17 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	if len(bundle.Subagents.Catalog.Definitions()) != 0 {
 		return nil, errors.New("child runtime bundle includes nested subagents")
 	}
+	if bundle.MCP != nil {
+		return nil, errors.New("child runtime bundle owns MCP namespaces")
+	}
+	tools := bundle.Tools
+	if f.MCPTools != nil {
+		borrowed, err := f.MCPTools(ctx, conversation.OwnerSessionID)
+		if err != nil {
+			return nil, fmt.Errorf("borrow owner MCP tools: %w", err)
+		}
+		tools = append(append([]droids.AnyTool(nil), tools...), borrowed...)
+	}
 	systemPrompt := strings.TrimSpace(bundle.Prompt.Prompt) + "\n\n" + childInstructions(conversation.Agent)
 	path := filepath.Join(f.directory, string(conversation.ID)+".db")
 	if conversation.DroidInitializedAt != nil {
@@ -126,7 +141,7 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 	}
 	config := droids.Config{
 		Store: store, Model: model,
-		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: bundle.Tools,
+		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: tools,
 	}
 	if interception != nil {
 		config.BeforeToolCall = interception.before

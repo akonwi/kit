@@ -199,7 +199,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 18 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 19 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}
@@ -545,7 +545,7 @@ func TestCommandPaletteResolvesRapidKeyboardInputFromControllerState(t *testing.
 	application.Pump(width, height)
 	application.Send(vaxis.Key{Text: "p", Keycode: 'p', Modifiers: vaxis.ModCtrl})
 	application.Pump(width, height)
-	for range 8 {
+	for range 9 {
 		application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	}
 	application.Enter()

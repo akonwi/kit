@@ -21,6 +21,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/subagent"
@@ -91,6 +92,11 @@ const (
 	ProviderErrorTransport      ProviderErrorKind = "transport"
 	ProviderErrorProtocol       ProviderErrorKind = "protocol"
 )
+
+// mcpCloseDeadline bounds graceful MCP shutdown during runtime teardown. A
+// remote server that never answers the shutdown handshake must not stall the
+// session; supervised server processes still end with the runtime lifetime.
+const mcpCloseDeadline = 5 * time.Second
 
 // PromptResult is the terminal projection of one droid turn.
 type PromptResult struct {
@@ -2586,6 +2592,14 @@ func (r *runtime) finishClose(interactionReason string) {
 	}
 	if r.plugins != nil {
 		cleanupErr = errors.Join(cleanupErr, r.plugins.Close(context.Background()))
+	}
+	// Close MCP after plugins, so plugin-driven tool calls have already stopped,
+	// and before the droid shuts down, so in-flight namespace calls are cancelled
+	// while the loop that owns them still exists.
+	if r.bundle.MCP != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), mcpCloseDeadline)
+		cleanupErr = errors.Join(cleanupErr, mcpruntime.CloseManager(ctx, r.bundle.MCP))
+		cancel()
 	}
 	if r.closePluginSubagentCatalog != nil {
 		r.closePluginSubagentCatalog()

@@ -449,6 +449,19 @@ type ActiveCompaction struct {
 	RunID string `json:"runId"`
 }
 
+// MCPServerStatus is a sanitized MCP server presentation record.
+type MCPServerStatus struct {
+	Name        string `json:"name"`
+	State       string `json:"state"`
+	Transport   string `json:"transport"`
+	ToolCount   int    `json:"toolCount"`
+	OAuthSaved  bool   `json:"oauthSaved"`
+	Description string `json:"description,omitempty"`
+	Source      string `json:"source"`
+	ConfigPath  string `json:"configPath,omitempty"`
+	LastError   string `json:"lastError,omitempty"`
+}
+
 // SessionSnapshot is an authoritative point-in-time session presentation.
 type SessionSnapshot struct {
 	Session               SessionInfo            `json:"session"`
@@ -473,6 +486,8 @@ type SessionSnapshot struct {
 	PromptCommands        []PromptCommand        `json:"promptCommands,omitempty"`
 	FollowUps             FollowUpQueue          `json:"followUps"`
 	Warnings              []string               `json:"warnings,omitempty"`
+	MCPServers            []MCPServerStatus      `json:"mcpServers,omitempty"`
+	MCPWarnings           []string               `json:"mcpWarnings,omitempty"`
 	SubagentDefinitions   []SubagentDefinition   `json:"subagentDefinitions,omitempty"`
 	SubagentDiagnostics   []SubagentDiagnostic   `json:"subagentDiagnostics,omitempty"`
 	SubagentConversations []SubagentConversation `json:"subagentConversations,omitempty"`

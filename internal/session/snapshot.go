@@ -9,8 +9,10 @@ import (
 	"io"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/droids"
+	droidsmcp "github.com/akonwi/kit/internal/droids/mcp"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/subagent"
@@ -158,6 +160,12 @@ type ProviderRetry struct {
 }
 
 // ActiveCompaction is an authoritative automatic compaction in progress.
+type MCPServerStatus struct {
+	Name, State, Transport, Description, Source, ConfigPath, LastError string
+	ToolCount                                                          int
+	OAuthSaved                                                         bool
+}
+
 type ActiveCompaction struct {
 	ID    string
 	RunID string
@@ -185,6 +193,8 @@ type Snapshot struct {
 	PromptCommands        []PromptCommand
 	FollowUps             FollowUpQueue
 	Warnings              []string
+	MCPServers            []MCPServerStatus
+	MCPWarnings           []string
 	SubagentDefinitions   []SubagentDefinition
 	SubagentDiagnostics   []SubagentDiagnostic
 	SubagentConversations []SubagentConversation
@@ -322,6 +332,25 @@ func (m *Manager) TranscriptPage(ctx context.Context, sessionID string, before u
 	return projectTranscriptPage(ctx, loaded.droid, before, "", false)
 }
 
+func safeMCPError(errText string) string {
+	if strings.TrimSpace(errText) == "" {
+		return ""
+	}
+	return "Connection failed."
+}
+
+func boundedMCPText(value string, limit int) string {
+	value = strings.ToValidUTF8(strings.TrimSpace(value), "�")
+	if len(value) <= limit {
+		return value
+	}
+	value = value[:limit-3]
+	for !utf8.ValidString(value) {
+		value = value[:len(value)-1]
+	}
+	return value + "..."
+}
+
 func projectProviderRetry(activeRunID string, active *droids.ExecutionSnapshot) *ProviderRetry {
 	if activeRunID == "" || active == nil || string(active.TurnID) != activeRunID || active.Retry == nil ||
 		(active.Status != droids.ExecutionRetrying && active.Status != droids.ExecutionInterrupted) {
@@ -354,6 +383,43 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		FollowUps:            projectFollowUpQueue(loaded.followUps),
 		Warnings:             runtimeWarnings(loaded),
 		PendingInteractions:  pendingInteractions,
+	}
+	const maxMCPWarnings = 8
+	for _, warning := range loaded.bundle.MCPWarnings {
+		if len(result.MCPWarnings) == maxMCPWarnings {
+			break
+		}
+		result.MCPWarnings = append(result.MCPWarnings, boundedMCPText(warning, 512))
+	}
+	runtimeStatus := map[string]droidsmcp.Status{}
+	if loaded.bundle.MCP != nil {
+		for _, status := range loaded.bundle.MCP.Statuses(ctx) {
+			runtimeStatus[status.Name] = status
+		}
+	}
+	for _, configured := range loaded.bundle.MCPServers {
+		state := "configured"
+		if configured.Disabled {
+			state = "disabled"
+		}
+		status := runtimeStatus[configured.Name]
+		if status.State != "" {
+			state = status.State
+		}
+		lastError := safeMCPError(status.LastError)
+		oauthSaved := false
+		if configured.OAuthSaved != nil {
+			oauthSaved, _ = configured.OAuthSaved(ctx)
+		}
+		if status.Name != "" {
+			oauthSaved = status.OAuthSaved
+		}
+		result.MCPServers = append(result.MCPServers, MCPServerStatus{
+			Name: configured.Name, State: state, Transport: configured.Transport,
+			ToolCount: status.ToolCount, OAuthSaved: oauthSaved,
+			Description: boundedMCPText(configured.Description, 512), Source: configured.Source,
+			ConfigPath: boundedMCPText(configured.Path, 1024), LastError: lastError,
+		})
 	}
 	result.ProviderRetry = projectProviderRetry(activeRunID, droidSnapshot.Active)
 	result.ActiveCompaction = projectActiveCompaction(activeRunID, droidSnapshot.Active)

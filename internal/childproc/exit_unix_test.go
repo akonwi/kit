@@ -1,6 +1,6 @@
 //go:build darwin || linux
 
-package plugin
+package childproc
 
 import (
 	"context"
@@ -18,7 +18,7 @@ func TestObserveExitPreservesWaitableLeader(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	command := exec.Command(executable, "-test.run=^TestPluginProcessHelper$", "--", "exit")
+	command := exec.Command(executable, "-test.run=^TestChildProcessHelper$", "--", "exit")
 	if err := command.Start(); err != nil {
 		t.Fatal(err)
 	}

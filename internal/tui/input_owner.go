@@ -19,6 +19,7 @@ const (
 	inputBashHistory
 	inputConfiguration
 	inputSessionDetails
+	inputMCPStatus
 	inputAnnotations
 	inputRename
 	inputSessions
@@ -79,6 +80,8 @@ func (w shellSnapshot) inputOwner() inputOwner {
 		return inputRename
 	case w.AnnotationPicker.Open:
 		return inputAnnotations
+	case w.MCPStatusOpen:
+		return inputMCPStatus
 	case w.SessionDetailsOpen:
 		return inputSessionDetails
 	case w.ConfigurationPicker.Mode != configurationPickerClosed:
@@ -105,7 +108,7 @@ func (s *appState) inputOwner() inputOwner {
 		WorkspacePickerOpen: s.workspacePickerOpen, WorkspaceFilePicker: s.workspaceFilePicker,
 		SessionExplorer: s.sessionExplorer.Snapshot(), SessionRename: s.sessionRename.Snapshot(),
 		AnnotationPicker:   annotationPickerSnapshot{Open: s.annotationPicker.Open},
-		SessionDetailsOpen: s.sessionDetailsOpen, ConfigurationPicker: s.configurationPicker.Snapshot(),
+		SessionDetailsOpen: s.sessionDetailsOpen, MCPStatusOpen: s.mcpStatusOpen, ConfigurationPicker: s.configurationPicker.Snapshot(),
 		BashHistory: s.bashHistory, SessionMention: s.sessionMention, FileMention: s.fileMention,
 		PendingInteractions: s.pendingInteractions,
 	}).inputOwner()
@@ -117,7 +120,7 @@ func (s *appState) canOpenRootModal() bool {
 
 func (o inputOwner) acceptsText() bool {
 	switch o {
-	case inputAnnotations, inputSubagentDismiss, inputSessionDelete, inputSessionDetails, inputTheme:
+	case inputAnnotations, inputSubagentDismiss, inputSessionDelete, inputSessionDetails, inputMCPStatus, inputTheme:
 		return false
 	default:
 		return true

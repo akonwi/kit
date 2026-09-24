@@ -9,6 +9,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/identifier"
 )
@@ -203,9 +204,20 @@ func (snapshot SessionSnapshot) Validate() error {
 	} else if snapshot.PreviousMessageCursor != "" {
 		return fmt.Errorf("snapshot previous-message cursor requires older messages")
 	}
-	if len(snapshot.PluginCommands) > 256 || len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions || len(snapshot.Annotations) > MaxLiveAnnotationsPerSession ||
+	if len(snapshot.PluginCommands) > 256 || len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.MCPWarnings) > 8 || len(snapshot.MCPServers) > 256 || len(snapshot.PendingInteractions) > MaxPendingInteractions || len(snapshot.Annotations) > MaxLiveAnnotationsPerSession ||
 		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {
 		return fmt.Errorf("snapshot has too many commands, warnings, or subagent records")
+	}
+	seenMCP := make(map[string]struct{}, len(snapshot.MCPServers))
+	for index, server := range snapshot.MCPServers {
+		_, duplicate := seenMCP[server.Name]
+		if server.Name == "" || duplicate || server.ToolCount < 0 || utf8.RuneCountInString(server.Name) > 128 || len(server.Description) > 512 || len(server.ConfigPath) > 1024 || len(server.LastError) > 512 ||
+			(server.Transport != "stdio" && server.Transport != "http") ||
+			(server.Source != "kit-user" && server.Source != "shared-project" && server.Source != "kit-project") ||
+			(server.State != "disabled" && server.State != "configured" && server.State != "connecting" && server.State != "authorizing" && server.State != "connected" && server.State != "error") {
+			return fmt.Errorf("snapshot MCP server %d is invalid", index)
+		}
+		seenMCP[server.Name] = struct{}{}
 	}
 	if err := validateSubagentSnapshot(snapshot); err != nil {
 		return err

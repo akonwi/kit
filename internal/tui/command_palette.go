@@ -23,6 +23,7 @@ const (
 	paletteCommandQuit          paletteCommandID = "quit"
 	paletteCommandReload        paletteCommandID = "reload"
 	paletteCommandDebug         paletteCommandID = "debug"
+	paletteCommandMCP           paletteCommandID = "mcp"
 	paletteCommandDiff          paletteCommandID = "diff"
 	paletteCommandFork          paletteCommandID = "fork"
 	paletteCommandFiles         paletteCommandID = "files"
@@ -405,6 +406,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
 		{ID: paletteCommandReload, Name: "reload", Description: "Reload session context", Aliases: []string{"agents", "context", "refresh"}},
 		{ID: paletteCommandDebug, Name: "debug", Description: "Show session diagnostics", Aliases: []string{"details", "usage"}},
+		{ID: paletteCommandMCP, Name: "mcp", Description: "Show configured MCP servers", Aliases: []string{"tools", "connections", "status"}},
 		{ID: paletteCommandDiff, Name: "diff", Description: "Review working-tree changes", Aliases: []string{"changes", "working tree"}},
 		{ID: paletteCommandFork, Name: "fork", Description: "Fork the current session into a linked child session", Aliases: []string{"branch"}},
 		{ID: paletteCommandFiles, Name: "files", Description: "Open a workspace file", Aliases: []string{"file", "open", "browse"}},
