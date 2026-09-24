@@ -112,6 +112,9 @@ type shellSnapshot struct {
 	BrowserInstructions          auth.AnthropicLoginInstructions
 	Remaining                    time.Duration
 	Location                     string
+	LocationURL                  string
+	LocationLinkText             string
+	PluginFooter                 *protocol.PluginFooter
 	Toasts                       []toastRecord
 }
 
@@ -1311,7 +1314,7 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 		CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
 			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Style: leftStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-			ui.ExpandedWidget{Flex: 2, Child: ui.Text{Value: w.Snapshot.Location, Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1, Align: ui.TextAlignRight}},
+			ui.ExpandedWidget{Flex: 2, Child: pluginFooterView{Location: w.Snapshot.Location, LocationURL: w.Snapshot.LocationURL, LocationLinkText: w.Snapshot.LocationLinkText, Footer: w.Snapshot.PluginFooter, OpenURL: w.Callbacks.OpenURL}},
 		},
 	})}
 }

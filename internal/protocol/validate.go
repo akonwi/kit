@@ -4,6 +4,7 @@ import (
 	"encoding/hex"
 	"fmt"
 	"math"
+	"net/url"
 	"path/filepath"
 	"strings"
 	"time"
@@ -332,6 +333,20 @@ func (result SessionVCSStatus) Validate() error {
 		return nil
 	}
 	status := result.Status
+	if pr := status.PullRequest; pr != nil {
+		if status.Head.Kind != VCSHeadBranch || pr.Number <= 0 || int64(pr.Number) > 9007199254740991 || !validRendererText(pr.URL, 4096) || strings.ContainsAny(pr.URL, "\\ \t\r\n") {
+			return fmt.Errorf("VCS pull request is invalid")
+		}
+		for _, r := range pr.URL {
+			if unicode.IsSpace(r) {
+				return fmt.Errorf("VCS pull request URL contains whitespace")
+			}
+		}
+		target, err := url.Parse(pr.URL)
+		if err != nil || (target.Scheme != "https" && target.Scheme != "http") || target.Hostname() == "" || target.User != nil || target.Opaque != "" {
+			return fmt.Errorf("VCS pull request URL is invalid")
+		}
+	}
 	if !filepath.IsAbs(status.Root) || !validPathText(status.Root) {
 		return fmt.Errorf("VCS repository root is not a safe bounded absolute path")
 	}

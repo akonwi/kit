@@ -202,6 +202,9 @@ func (m *Manager) changeRuntimeCWD(ctx context.Context, sessionID string, loaded
 		mutation = applied
 	}
 	loaded.workspace.publish(record.CWD)
+	if loaded.plugins != nil {
+		loaded.plugins.ChangeCWD(record.CWD)
+	}
 	if mutation.Changed {
 		if err := loaded.events.append([]NewEvent{{SessionID: sessionID, Kind: EventSessionCWDChanged, CWD: record.CWD}}); err != nil {
 			loaded.events.invalidate()
@@ -230,6 +233,9 @@ func (m *Manager) persistedCWDMutationResult(
 		return ChangeCWDResult{}, false, err
 	}
 	loaded.workspace.publish(record.CWD)
+	if loaded.plugins != nil {
+		loaded.plugins.ChangeCWD(record.CWD)
+	}
 	return ChangeCWDResult{
 		Session: record, PreviousCWD: persisted.PreviousCWD,
 		CWD: persisted.CWD, Changed: persisted.Changed,

@@ -27,25 +27,15 @@ final class SessionReplica {
     private var attachmentGeneration = UUID()
     private var titleRevision = 0
     @ObservationIgnored private var vcsTask: Task<Void, Never>?
-    private var vcsRefreshPending = false
-    private var vcsActivity: VCSActivity?
-
-    private struct VCSActivity: Equatable {
-        let cwd: String?
-        let watch: String?
-        let run: String?
-        let bash: String?
-        let message: String?
-        let tools: [String]
-        init(_ snapshot: SessionExcerpt) {
-            watch = snapshot.watchGeneration
-            cwd = snapshot.cwd; run = snapshot.activeRunID; bash = snapshot.activeBashID
-            message = snapshot.messages.last?.id
-            tools = snapshot.messages.suffix(2).flatMap(\.tools).map {
-                $0.id + ":" + ($0.status ?? "") + ($0.failed ? ":failed" : "")
-            }
-        }
-    }
+    /// Identity of the current repository stream. Bumped on every observed cwd
+    /// transition and detach so deliveries from a previous stream — including
+    /// one held across A→B→A — can never apply after the cwd merely looks
+    /// right again.
+    private var vcsGeneration = UUID()
+    /// Reconnect backoff floor for the repository stream. Injectable for tests.
+    @ObservationIgnored var vcsReconnectDelay: Duration = .seconds(1)
+    /// Whether the current stream connection delivered at least one frame.
+    private var vcsStreamDelivered = false
 
     init(sessions: [SessionExcerpt], client: any SessionClient) {
         self.sessions = sessions
@@ -118,42 +108,62 @@ final class SessionReplica {
         let paths = try await files
         guard selectedID == id, snapshot?.cwd == fresh.cwd else { throw CancellationError() }
         workspaceFiles = paths
-        requestVCSRefresh()
     }
 
-    /// Coalesce invalidations without starving updates during an active run.
-    private func requestVCSRefresh() {
+    /// One attachment-owned server-pushed repository stream replaces polling.
+    /// Reconnects with bounded backoff on transient failures, stops on terminal
+    /// auth/not-found/protocol failures. The last accepted snapshot remains
+    /// visible during a transient outage; reconnect supplies a fresh snapshot.
+    private func startVCSStream() {
+        vcsTask?.cancel(); vcsTask = nil
         guard let client = client as? any SessionVCSClient, let cwd = snapshot?.cwd else { return }
-        vcsRefreshPending = true
-        guard vcsTask == nil else { return }
-        let id = selectedID, generation = attachmentGeneration
+        let id = selectedID, generation = attachmentGeneration, read = vcsGeneration
+        let floorDelay = vcsReconnectDelay
         vcsTask = Task { [weak self] in
+            var delay = floorDelay
             while !Task.isCancelled {
-                do { try await Task.sleep(for: .milliseconds(200)) } catch { return }
-                guard let self, self.attachmentGeneration == generation else { return }
-                self.vcsRefreshPending = false
-                let result = try? await client.vcs(id)
-                guard !Task.isCancelled, self.attachmentGeneration == generation,
-                      self.selectedID == id else { return }
-                if self.snapshot?.cwd == cwd {
-                    let status = result?.sessionId == id && result?.cwd == cwd ? result?.status : nil
-                    self.snapshot?.gitHead = status?.head.name ?? status?.head.oid.map { String($0.prefix(8)) }
-                    self.snapshot?.gitHeadKind = status?.head.kind.rawValue
-                    self.snapshot?.gitDirty = status?.dirty
-                    if let snapshot = self.snapshot { self.onReceive?(snapshot) }
-                }
-                if !self.vcsRefreshPending {
-                    self.vcsTask = nil
+                self?.vcsStreamDelivered = false
+                do {
+                    try await client.watchVCS(id) { [weak self] status in
+                        await self?.applyVCSStream(status, id: id, cwd: cwd, generation: generation, read: read)
+                    }
+                } catch is CancellationError {
                     return
-                }
-                // A directory change invalidates the captured cwd as well as its result.
-                if self.snapshot?.cwd != cwd {
-                    self.vcsTask = nil
-                    self.requestVCSRefresh()
+                } catch ClientError.http(let code) where code == 401 || code == 403 || code == 404 || code == 410 {
+                    return // Terminal: reconnecting cannot repair authentication or a missing session.
+                } catch is DecodingError {
                     return
+                } catch ClientError.invalidPayload, ClientError.oversized, ClientError.incompatible {
+                    return // Terminal protocol violation; a misbehaving server is not retried.
+                } catch {
+                    // Transient (including ClientError.disconnected): reconnect fresh.
                 }
+                guard !Task.isCancelled, let self, self.attachmentGeneration == generation,
+                      self.vcsGeneration == read else { return }
+                if self.vcsStreamDelivered { delay = floorDelay }
+                do { try await Task.sleep(for: delay) } catch { return }
+                delay = min(delay * 2, .seconds(15))
             }
         }
+    }
+
+    /// Applies one stream delivery. Attachment generation, stream generation,
+    /// session identity, and the authoritative snapshot cwd all gate mutation
+    /// so stale streams or old-cwd deliveries can never restore removed state.
+    private func applyVCSStream(_ result: WireSessionVCSStatus, id: String, cwd: String, generation: UUID, read: UUID) {
+        guard attachmentGeneration == generation, vcsGeneration == read, selectedID == id,
+              snapshot?.cwd == cwd, result.sessionId == id, result.cwd == cwd else { return }
+        vcsStreamDelivered = true
+        let status = result.status
+        snapshot?.gitHead = status?.head.name ?? status?.head.oid.map { String($0.prefix(8)) }
+        snapshot?.gitHeadKind = status?.head.kind.rawValue
+        snapshot?.gitDirty = status?.dirty
+        // Pull requests exist only for a named branch head; detachment or a
+        // lost repository clears the footer affordance.
+        let pull = status?.head.kind == .value0 ? status?.pullRequest : nil
+        snapshot?.pullRequestNumber = pull?.number
+        snapshot?.pullRequestURL = pull?.url
+        if let snapshot { onReceive?(snapshot) }
     }
 
     func rename(_ name: String) async throws {
@@ -233,8 +243,7 @@ final class SessionReplica {
 
     func detach() {
         vcsTask?.cancel(); vcsTask = nil
-        vcsRefreshPending = false
-        vcsActivity = nil
+        vcsGeneration = UUID()
         cancelHistory()
         attachmentGeneration = UUID()
         watchTask?.cancel(); watchTask = nil
@@ -328,15 +337,24 @@ final class SessionReplica {
             titlesReceivedDuringRefresh[snapshot.id] = snapshot.title
         }
         if let index = sessions.firstIndex(where: { $0.id == snapshot.id }) { sessions[index] = snapshot }
-        let activity = VCSActivity(snapshot)
-        let refreshVCS = connectionState != .connected || vcsActivity != activity
-        vcsActivity = activity
+        let refreshVCS = vcsTask == nil || self.snapshot?.cwd != snapshot.cwd
         var merged = snapshot
         if self.snapshot?.cwd == snapshot.cwd {
             merged.gitHead = self.snapshot?.gitHead
             merged.gitDirty = self.snapshot?.gitDirty
             merged.gitHeadKind = self.snapshot?.gitHeadKind
-        } else { workspaceFiles = [] }
+            // Repository state is owned by the VCS stream; unrelated snapshot
+            // deliveries must not erase the presented pull request.
+            merged.pullRequestNumber = self.snapshot?.pullRequestNumber
+            merged.pullRequestURL = self.snapshot?.pullRequestURL
+        } else {
+            workspaceFiles = []
+            // A cwd transition obsoletes any in-flight repository read. Cancel
+            // and re-identify so a held response for the old cwd cannot apply
+            // later, even if the session returns to that cwd (A→B→A).
+            vcsGeneration = UUID()
+            vcsTask?.cancel(); vcsTask = nil
+            }
         if resetHistoryOnReceive || historyBoundary != snapshot.historyStart {
             cancelHistory()
             // A fresh bounded snapshot can move the recent-history boundary.
@@ -360,7 +378,7 @@ final class SessionReplica {
         unavailable = false
         onReceive?(merged)
         connectionState = .connected
-        if refreshVCS { requestVCSRefresh() }
+        if refreshVCS { startVCSStream() }
     }
 
 }

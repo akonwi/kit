@@ -12,6 +12,23 @@ struct SessionEventProjectionTests {
         json.merge(fields) { _, new in new }
         return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
     }
+    @Test func pluginDialogsSurviveModelRunBoundariesAndAreAnswerableWhileIdle() throws {
+        var state = try SessionEventProjection(snapshot())
+        let request: [String: Any] = ["id": "interaction_plugin", "sessionId": "s", "plugin": ["pluginId": "demo", "instance": "host:1"],
+            "kind": "input", "title": "Plugin note", "initialValue": "hello", "createdAt": "2026-09-21T00:00:00Z"]
+        try state.apply(event("interaction.requested", ["runId": "", "turnId": "", "interaction": request]))
+        #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
+        #expect(state.session.tabStatus == .awaitingResponse)
+        try state.apply(event("run.started"))
+        #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
+        try state.apply(event("run.finished"))
+        #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
+        #expect(state.session.tabStatus == .awaitingResponse)
+        try state.apply(event("interaction.resolved", ["runId": "", "turnId": "", "interactionId": "interaction_plugin"]))
+        #expect(state.session.pendingInteractions?.count == 0)
+        #expect(state.session.tabStatus == .idle)
+    }
+
     @Test func cumulativeUsageReplacesTotalsWithoutDependingOnLoadedMessages() throws {
         var state = try SessionEventProjection(snapshot())
         #expect(state.session.usage?.formattedCost == "$0.00")

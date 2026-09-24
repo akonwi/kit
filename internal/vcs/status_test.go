@@ -3,6 +3,7 @@ package vcs
 import (
 	"context"
 	"errors"
+	"io"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -254,5 +255,15 @@ func runGitTest(t *testing.T, directory string, arguments ...string) {
 	command := exec.Command("git", append([]string{"-C", directory}, arguments...)...)
 	if output, err := command.CombinedOutput(); err != nil {
 		t.Fatalf("git %v: %v: %s", arguments, err, output)
+	}
+}
+
+func TestCappedBufferCopyCannotBypassLimit(t *testing.T) {
+	buffer := cappedBuffer{limit: 3}
+	// Hide strings.Reader.WriteTo so io.Copy exercises destination fast paths.
+	source := struct{ io.Reader }{strings.NewReader("abcdef")}
+	n, err := io.Copy(&buffer, source)
+	if err != nil || n != 6 || buffer.String() != "abc" || !buffer.overflow {
+		t.Fatalf("copy=%d,%v buffer=%q overflow=%t", n, err, buffer.String(), buffer.overflow)
 	}
 }

@@ -33,6 +33,7 @@ final class InteractionFlow: Identifiable {
         return options?.first(where: { $0.id == id })?.detail
     }
     var canContinue: Bool {
+        if request?.plugin != nil && request?.kind.rawValue == "input" { return true }
         if !question.required { return true }
         return question.kind == .text ? !answers[step].text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty : !answers[step].choices.isEmpty
     }
@@ -104,7 +105,7 @@ extension InteractionFlow {
         switch request.kind.rawValue {
         case "confirm":
             questions = [.init(prompt: request.title, detail: request.detail ?? "", kind: .boolean,
-                options: ["true", "false"], optionLabels: ["true": "Allow", "false": "Deny"])]
+                options: ["true", "false"], optionLabels: ["true": request.confirmLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "Allow", "false": request.cancelLabel.flatMap { $0.isEmpty ? nil : $0 } ?? "Deny"])]
         case "input": questions = [.init(prompt: request.title, detail: request.detail ?? "")]
         case "select":
             let (ids, labels) = try choices(request.options ?? [])
@@ -130,6 +131,10 @@ extension InteractionFlow {
         guard !questions.isEmpty else { throw ClientError.invalidPayload }
         self.init(title: request.title, confirmation: request.kind.rawValue == "confirm", questions: questions)
         self.request = request
+        if request.plugin != nil {
+            if request.kind.rawValue == "input" { answers[0].text = request.initialValue ?? "" }
+            if request.kind.rawValue == "confirm" { answers[0].choices = [request.defaultValue == true ? "true" : "false"] }
+        }
     }
 
     func response(cancelled: Bool) -> WireInteractionResponse? {

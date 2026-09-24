@@ -24,6 +24,8 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var gitHead: String? = nil
     var gitDirty: Bool? = nil
     var gitHeadKind: String? = nil
+    var pullRequestNumber: Int? = nil
+    var pullRequestURL: String? = nil
     /// Local attachment identity, renewed when the event stream resynchronizes.
     var watchGeneration: String? = nil
     let date: String
@@ -36,6 +38,8 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var subagents: SubagentRoster? = nil
     var subagentDiagnostics: [WireSubagentDiagnostic]? = nil
     var promptCommands: [PromptCommand]? = nil
+    var pluginCommands: [PluginCommand]? = nil
+    var pluginFooter: WirePluginFooter? = nil
     var activeCompactionID: String? = nil
     var compactionOutcome: CompactionOutcome? = nil
     var activeBashID: String? = nil

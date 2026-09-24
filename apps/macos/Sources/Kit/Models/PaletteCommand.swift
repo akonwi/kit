@@ -8,6 +8,7 @@ struct PaletteCommand: Identifiable {
     let icon: String
     var aliases: [String] = []
     var demoOnly = false
+    var plugin: PluginCommand? = nil
 
     func matches(_ query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -15,6 +16,11 @@ struct PaletteCommand: Identifiable {
         return query.split(whereSeparator: { $0.isWhitespace }).allSatisfy {
             text.localizedCaseInsensitiveContains(String($0))
         }
+    }
+
+    static func pluginCatalog(_ commands: [PluginCommand]) -> [Self] {
+        commands.map { .init(id: $0.selectionID, name: $0.name, description: $0.description,
+                             icon: "puzzlepiece.extension", plugin: $0) }
     }
 
     static func catalog(dark: Bool) -> [Self] {

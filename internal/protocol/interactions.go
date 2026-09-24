@@ -58,18 +58,31 @@ type InteractionQuestion struct {
 	Options  []InteractionOption     `json:"options,omitempty"`
 }
 
+// PluginInteractionOwner identifies one session-local plugin generation.
+type PluginInteractionOwner struct {
+	PluginID string `json:"pluginId"`
+	Instance string `json:"instance"`
+}
+
 // InteractionRequest is one pending request projected by a session.
 type InteractionRequest struct {
-	ID         string                `json:"id"`
-	SessionID  string                `json:"sessionId"`
-	RunID      string                `json:"runId"`
-	ToolCallID string                `json:"toolCallId"`
-	Kind       InteractionKind       `json:"kind"`
-	Title      string                `json:"title"`
-	Detail     string                `json:"detail,omitempty"`
-	Options    []InteractionOption   `json:"options,omitempty"`
-	Questions  []InteractionQuestion `json:"questions,omitempty"`
-	CreatedAt  string                `json:"createdAt"`
+	Plugin       *PluginInteractionOwner `json:"plugin,omitempty"`
+	ConfirmLabel string                  `json:"confirmLabel,omitempty"`
+	CancelLabel  string                  `json:"cancelLabel,omitempty"`
+	DefaultValue *bool                   `json:"defaultValue,omitempty"`
+	Placeholder  string                  `json:"placeholder,omitempty"`
+	InitialValue string                  `json:"initialValue,omitempty"`
+	Filterable   *bool                   `json:"filterable,omitempty"`
+	ID           string                  `json:"id"`
+	SessionID    string                  `json:"sessionId"`
+	RunID        string                  `json:"runId,omitempty"`
+	ToolCallID   string                  `json:"toolCallId,omitempty"`
+	Kind         InteractionKind         `json:"kind"`
+	Title        string                  `json:"title"`
+	Detail       string                  `json:"detail,omitempty"`
+	Options      []InteractionOption     `json:"options,omitempty"`
+	Questions    []InteractionQuestion   `json:"questions,omitempty"`
+	CreatedAt    string                  `json:"createdAt"`
 }
 
 // InteractionAnswer is one guided-question answer submitted by a client.
@@ -91,8 +104,18 @@ type InteractionResponse struct {
 }
 
 func (request InteractionRequest) Validate() error {
-	if !identifier.Valid(request.ID, "interaction_") || request.SessionID == "" || request.RunID == "" || request.ToolCallID == "" {
+	if !identifier.Valid(request.ID, "interaction_") || request.SessionID == "" {
 		return fmt.Errorf("interaction identities are required")
+	}
+	if request.Plugin == nil {
+		if request.RunID == "" || request.ToolCallID == "" {
+			return fmt.Errorf("interaction model ownership is required")
+		}
+	} else if request.RunID != "" || request.ToolCallID != "" || !validPluginInteractionOwner(*request.Plugin) || request.Kind == InteractionGuided {
+		return fmt.Errorf("invalid plugin interaction ownership")
+	}
+	if err := validateInteractionPresentation(request); err != nil {
+		return err
 	}
 	if _, err := time.Parse(time.RFC3339Nano, request.CreatedAt); err != nil {
 		return fmt.Errorf("interaction createdAt is invalid")
@@ -182,7 +205,7 @@ func (response InteractionResponse) Validate() error {
 	if responseShapes != 1 {
 		return fmt.Errorf("interaction response must carry exactly one answer shape")
 	}
-	if response.Value != nil && !validInteractionText(*response.Value, MaxInteractionAnswerBytes, true) {
+	if response.Value != nil && !validInteractionText(*response.Value, MaxInteractionAnswerBytes, false) {
 		return fmt.Errorf("interaction value is invalid")
 	}
 	if response.SelectedOptionID != "" && !identifier.Valid(response.SelectedOptionID, "option_") {

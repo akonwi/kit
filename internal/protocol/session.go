@@ -264,11 +264,18 @@ type VCSHead struct {
 	OID  string      `json:"oid,omitempty"`
 }
 
+// GitHubPullRequest is optional, cached metadata for the current named branch.
+type GitHubPullRequest struct {
+	Number int    `json:"number"`
+	URL    string `json:"url"`
+}
+
 // VCSStatus is volatile repository status for a session workspace.
 type VCSStatus struct {
-	Root  string  `json:"root"`
-	Head  VCSHead `json:"head"`
-	Dirty bool    `json:"dirty"`
+	PullRequest *GitHubPullRequest `json:"pullRequest,omitempty"`
+	Root        string             `json:"root"`
+	Head        VCSHead            `json:"head"`
+	Dirty       bool               `json:"dirty"`
 }
 
 // SessionVCSStatus binds volatile VCS status to the session and cwd that were
@@ -461,6 +468,8 @@ type SessionSnapshot struct {
 	ContextTokens         int                    `json:"contextTokens,omitempty"`
 	ContextWindow         int                    `json:"contextWindow,omitempty"`
 	Usage                 SessionUsage           `json:"usage"`
+	PluginFooter          *PluginFooter          `json:"pluginFooter,omitempty"`
+	PluginCommands        []PluginCommand        `json:"pluginCommands,omitempty"`
 	PromptCommands        []PromptCommand        `json:"promptCommands,omitempty"`
 	FollowUps             FollowUpQueue          `json:"followUps"`
 	Warnings              []string               `json:"warnings,omitempty"`

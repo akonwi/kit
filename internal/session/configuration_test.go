@@ -506,7 +506,16 @@ func TestConfigureSessionReconcilesCommittedWriteAndRetainsRuntimeOnPrecommitFai
 	t.Cleanup(func() { _ = store.Close() })
 	repository := &controlledConfigurationRepository{Repository: store}
 	providers := &configurationProviders{}
-	manager, err := session.NewManager(repository, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")))
+	var pluginMu sync.Mutex
+	var pluginHosts []*mockPluginHost
+	pluginFactory := func(context.Context, session.PluginSession, func()) session.PluginHost {
+		host := &mockPluginHost{}
+		pluginMu.Lock()
+		pluginHosts = append(pluginHosts, host)
+		pluginMu.Unlock()
+		return host
+	}
+	manager, err := session.NewManager(repository, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithPluginHostFactory(pluginFactory))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -572,6 +581,68 @@ func TestConfigureSessionReconcilesCommittedWriteAndRetainsRuntimeOnPrecommitFai
 	}
 	if call := providers.lastCall(); call.model != "small" || call.reasoning != "high" {
 		t.Fatalf("provider after unknown-outcome resync = %+v", call)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		pluginMu.Lock()
+		var quarantined *mockPluginHost
+		if len(pluginHosts) >= 2 {
+			quarantined = pluginHosts[0]
+		}
+		pluginMu.Unlock()
+		if quarantined != nil {
+			quarantined.mu.Lock()
+			closed := quarantined.closed
+			quarantined.mu.Unlock()
+			if closed == 1 {
+				break
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("quarantined plugin runtime was not closed")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestQuarantineRegistersCleanupBeforeManagerShutdown(t *testing.T) {
+	base := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer store.Close()
+	repository := &controlledConfigurationRepository{Repository: store}
+	providers := &configurationProviders{}
+	var host *mockPluginHost
+	manager, err := session.NewManager(repository, providers, staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(base, "droids")),
+		session.WithPluginHostFactory(func(context.Context, session.PluginSession, func()) session.PluginHost {
+			host = &mockPluginHost{}
+			return host
+		}),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/large"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	repository.setFailure(false, true, true)
+	high := "high"
+	if _, err := manager.ConfigureSession(t.Context(), record.ID, session.ConfigureSessionInput{ExpectedRevision: 1, Model: "test/large", ThinkingLevel: &high}); err == nil {
+		t.Fatal("ConfigureSession() resolved an intentionally unreadable write outcome")
+	}
+	manager.Close()
+	if host == nil {
+		t.Fatal("plugin host was not created")
+	}
+	host.mu.Lock()
+	closed := host.closed
+	host.mu.Unlock()
+	if closed != 1 {
+		t.Fatalf("quarantined plugin close count after manager shutdown = %d", closed)
 	}
 }
 

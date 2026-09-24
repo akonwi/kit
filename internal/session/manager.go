@@ -113,6 +113,10 @@ type Manager struct {
 	scratchpads           scratchpad.Repository
 	providers             droids.Providers
 	bundleBuilder         RuntimeBundleBuilder
+	pluginFactory         PluginHostFactory
+	pluginSubagents       PluginSubagentCatalogRegistry
+	pluginContext         context.Context
+	cancelPlugins         context.CancelFunc
 	modelContextWindow    func(string) int
 	attachments           attachment.Store
 	annotations           *kitannotation.Service
@@ -165,9 +169,10 @@ type mailboxReactionWorker struct {
 }
 
 type runtimeLoad struct {
-	done    chan struct{}
-	runtime *runtime
-	err     error
+	pluginName *string // Latest rename accepted while this runtime is loading.
+	done       chan struct{}
+	runtime    *runtime
+	err        error
 }
 
 type sessionCreation struct {
@@ -181,16 +186,29 @@ type temporaryDisposal struct {
 }
 
 type runtime struct {
-	droid             *droids.Droid
-	model             droids.Model
-	store             droids.Store
-	closeStore        func() error
-	bundle            RuntimeBundle
-	workspace         *workspaceScope
-	events            *eventLog
-	eventCursor       droids.EventSequence
-	eventChanged      chan struct{}
-	scratchpadOwnerID string
+	closeMu      sync.Mutex
+	closeStarted bool
+	closeDone    chan struct{}
+	closeErr     error
+	cleanupOwner *sync.WaitGroup
+
+	pluginToolState            pluginToolState
+	pluginContributions        pluginContributionState
+	interception               *pluginInterceptorBridge
+	turnEvents                 *pluginTurnEventBridge
+	plugins                    PluginHost
+	closePluginSubagentCatalog func()
+	pluginNotifications        pluginNotificationHub
+	droid                      *droids.Droid
+	model                      droids.Model
+	store                      droids.Store
+	closeStore                 func() error
+	bundle                     RuntimeBundle
+	workspace                  *workspaceScope
+	events                     *eventLog
+	eventCursor                droids.EventSequence
+	eventChanged               chan struct{}
+	scratchpadOwnerID          string
 
 	subagentEventMu       sync.Mutex
 	subagentEventPending  *NewEvent
@@ -262,10 +280,24 @@ type liveRun struct {
 
 type ManagerOption func(*managerOptions) error
 type managerOptions struct {
+	pluginFactory      PluginHostFactory
+	pluginSubagents    PluginSubagentCatalogRegistry
 	droidDirectory     string
 	attachments        attachment.Store
 	annotations        *kitannotation.Service
 	modelContextWindow func(string) int
+}
+
+// WithPluginSubagentCatalogRegistry connects live applied definitions to the
+// existing parent subagent tool.
+func WithPluginSubagentCatalogRegistry(registry PluginSubagentCatalogRegistry) ManagerOption {
+	return func(options *managerOptions) error {
+		if registry == nil {
+			return fmt.Errorf("plugin subagent catalog registry is required")
+		}
+		options.pluginSubagents = registry
+		return nil
+	}
 }
 
 // WithModelContextWindow supplies a context-window override for an exact model selector.
@@ -351,9 +383,11 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 	}
 	bashContext, cancelBash := context.WithCancelCause(context.Background())
 	mailboxContext, cancelMailbox := context.WithCancel(context.Background())
+	pluginContext, cancelPlugins := context.WithCancel(context.Background())
 	manager := &Manager{
 		store: store, providers: providers, bundleBuilder: bundleBuilder, modelContextWindow: options.modelContextWindow, attachments: options.attachments, annotations: options.annotations,
 		droidDirectory: options.droidDirectory, temporaryDroids: temporary,
+		pluginFactory: options.pluginFactory, pluginSubagents: options.pluginSubagents, pluginContext: pluginContext, cancelPlugins: cancelPlugins,
 		bashContext: bashContext, cancelBash: cancelBash,
 		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
@@ -816,6 +850,12 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 		record.UpdatedAt = updatedAt
 		m.temporary[sessionID] = record
 		loaded := m.runtimes[sessionID]
+		if loaded == nil {
+			if pending := m.loading[sessionID]; pending != nil {
+				latest := name
+				pending.pluginName = &latest
+			}
+		}
 		m.mu.Unlock()
 		m.publishSessionRenamed(loaded, record)
 		return record, nil
@@ -826,6 +866,12 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 	}
 	m.mu.Lock()
 	loaded := m.runtimes[sessionID]
+	if loaded == nil {
+		if pending := m.loading[sessionID]; pending != nil {
+			latest := name
+			pending.pluginName = &latest
+		}
+	}
 	deleting := m.deleting[sessionID]
 	m.mu.Unlock()
 	if !deleting {
@@ -837,6 +883,9 @@ func (m *Manager) Rename(ctx context.Context, sessionID, name string) (SessionRe
 func (m *Manager) publishSessionRenamed(loaded *runtime, record SessionRecord) {
 	if loaded == nil {
 		return
+	}
+	if loaded.plugins != nil {
+		loaded.plugins.Rename(record.Name)
 	}
 	if err := loaded.events.append([]NewEvent{{
 		SessionID: record.ID, Kind: EventSessionRenamed, SessionName: record.Name,
@@ -1714,8 +1763,8 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		_ = prepared.Commit()
 		defer prepared.Release()
 		if identityErr != nil {
-			_ = loaded.droid.Abort(context.Background())
 			subscription.Close()
+			abortAbandonedPluginTurn(loaded, string(handle.TurnID()))
 			release()
 			return RunReservation{}, identityErr
 		}
@@ -1760,8 +1809,8 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 	}
 	turnID := string(handle.TurnID())
 	if err := loaded.events.reset(); err != nil {
-		_ = loaded.droid.Abort(context.Background())
 		subscription.Close()
+		abortAbandonedPluginTurn(loaded, turnID)
 		release()
 		return RunReservation{}, err
 	}
@@ -1772,8 +1821,8 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 	loaded.activeRun = turnID
 	loaded.runs[turnID] = run
 	if err := loaded.events.append(initialEvents); err != nil {
-		_ = loaded.droid.Abort(context.Background())
 		subscription.Close()
+		abortAbandonedPluginTurn(loaded, turnID)
 		release()
 		return RunReservation{}, err
 	}
@@ -1782,8 +1831,8 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()
-		_ = loaded.droid.Abort(context.Background())
 		subscription.Close()
+		abortAbandonedPluginTurn(loaded, turnID)
 		loaded.admissionMu.Unlock()
 		return RunReservation{}, ErrClosed
 	}
@@ -1791,6 +1840,10 @@ func (m *Manager) launchAdmittedRunLocked(loaded *runtime, sessionID string, han
 	m.mu.Unlock()
 	go m.executePrompt(loaded, run, handle, subscription, sessionID)
 	return RunReservation{SessionID: sessionID, TurnID: turnID, RunID: turnID}, nil
+}
+
+func abortAbandonedPluginTurn(loaded *runtime, _ string) {
+	_ = loaded.droid.Abort(context.Background())
 }
 
 func (m *Manager) RunPrompt(ctx context.Context, sessionID, prompt string) (PromptResult, error) {
@@ -1905,6 +1958,9 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 		loaded.signalEventChangedLocked()
 	}
 	loaded.mu.Unlock()
+	if loaded.turnEvents != nil {
+		loaded.turnEvents.waitCompleted(turnID)
+	}
 	loaded.admissionMu.Unlock()
 	m.startQueuedFollowUps(loaded, sessionID)
 	loaded.mu.Lock()
@@ -2055,6 +2111,7 @@ func (m *Manager) Shutdown(ctx context.Context) error {
 		m.runtimes = nil
 		m.cancelBash(errBashShutdown)
 		m.cancelMailbox()
+		m.cancelPlugins()
 		go m.finishShutdown(runtimes)
 	}
 	done := m.shutdownDone
@@ -2150,6 +2207,9 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 		}
 	} else if err == nil {
 		m.runtimes[sessionID] = loaded
+		if pending.pluginName != nil && loaded.plugins != nil {
+			loaded.plugins.Rename(*pending.pluginName)
+		}
 		startRecovery = loaded.recovery != nil
 		if startRecovery {
 			loaded.admissionMu.Lock()
@@ -2159,6 +2219,9 @@ func (m *Manager) runtime(ctx context.Context, sessionID string) (*runtime, erro
 	pending.runtime, pending.err = loaded, err
 	close(pending.done)
 	m.mu.Unlock()
+	if err == nil && loaded.plugins != nil {
+		loaded.plugins.Start()
+	}
 	if startRecovery {
 		go m.resumeRuntimeWithLimits(loaded, sessionID)
 	}
@@ -2247,13 +2310,30 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	} else {
 		store = droids.NewMemoryStore()
 	}
-	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle)
+	var interception *pluginInterceptorBridge
+	var turnEvents *pluginTurnEventBridge
+	if m.pluginFactory != nil {
+		identity, err := identifier.New("interception_")
+		if err != nil {
+			_ = closeStore()
+			return nil, err
+		}
+		interception = &pluginInterceptorBridge{bootstrap: identity}
+		turnEvents = newPluginTurnEventBridge(m.pluginContext)
+	}
+	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle, interception, turnEvents)
 	if err != nil {
+		if turnEvents != nil {
+			closePluginTurnEventBridge(turnEvents)
+		}
 		_ = closeStore()
 		return nil, fmt.Errorf("open runtime for session %q: %w", record.ID, err)
 	}
 	if record.Persistent && record.DroidInitializedAt == nil {
 		if err := m.store.MarkDroidInitialized(ctx, record.ID, time.Now().UTC()); err != nil {
+			if turnEvents != nil {
+				closePluginTurnEventBridge(turnEvents)
+			}
 			_ = droid.Close()
 			_ = closeStore()
 			return nil, err
@@ -2261,16 +2341,24 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 	}
 	events, err := newEventLog()
 	if err != nil {
+		if turnEvents != nil {
+			closePluginTurnEventBridge(turnEvents)
+		}
 		_ = droid.Close()
 		_ = closeStore()
 		return nil, err
 	}
+	if turnEvents != nil {
+		turnEvents.droid.Store(droid)
+	}
 	loaded = &runtime{
-		droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
+		cleanupOwner: &m.cleanups,
+		interception: interception, turnEvents: turnEvents, droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
 		scratchpadOwnerID: record.ScratchpadOwnerID,
 		runs:              make(map[string]*liveRun), interactions: interactions,
 	}
+	loaded.pluginContributions.initialize(bundle.Subagents, droid)
 	interactions.authority = &loaded.mu
 	quiescent, err := droid.WaitQuiescent(ctx)
 	if err != nil {
@@ -2287,6 +2375,33 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		_ = loaded.events.append([]NewEvent{{SessionID: record.ID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning}})
 		loaded.events.invalidate()
 	}
+	if m.pluginFactory != nil {
+		loaded.plugins = m.pluginFactory(m.pluginContext, PluginSession{ID: record.ID, Name: record.Name, CWD: record.CWD, SubagentNames: pluginSubagentNames(bundle.Subagents)}, func() { loaded.refreshPluginContributions(); loaded.events.invalidate() })
+		if loaded.plugins != nil {
+			turnEvents.binding.Store(&pluginTurnEventBinding{host: loaded.plugins})
+		}
+		var policy PluginInterceptorHost = emptyPluginInterception{identity: interception.bootstrap}
+		if host, ok := loaded.plugins.(PluginInterceptorHost); ok {
+			policy = host
+		}
+		interception.binding.Store(&pluginInterceptorBinding{host: policy})
+		if host, ok := loaded.plugins.(PluginToastHost); ok {
+			host.SetToastObserver(loaded.pluginNotifications.publish)
+		}
+		if host, ok := loaded.plugins.(PluginInteractionHost); ok {
+			host.SetInteractionObserver(func(ctx context.Context, input PluginInteractionInput, available func() bool) (PluginInteractionResult, error) {
+				return loaded.interactions.requestPlugin(ctx, record.ID, input, available)
+			})
+		}
+	}
+	if m.pluginSubagents != nil && loaded.plugins != nil {
+		cleanup, err := m.pluginSubagents.RegisterPluginCatalogProvider(record.ID, loaded.appliedPluginSubagentCatalog)
+		if err != nil {
+			_ = loaded.close(context.Background(), "unavailable")
+			return nil, fmt.Errorf("register plugin subagent catalog: %w", err)
+		}
+		loaded.closePluginSubagentCatalog = cleanup
+	}
 	return loaded, nil
 }
 
@@ -2299,7 +2414,7 @@ func (m *Manager) applyModelContextWindow(selector string, model droids.Model) d
 	return model
 }
 
-func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle) (*droids.Droid, droids.Snapshot, droids.Model, error) {
+func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store droids.Store, bundle RuntimeBundle, interception *pluginInterceptorBridge, turnEvents *pluginTurnEventBridge) (*droids.Droid, droids.Snapshot, droids.Model, error) {
 	selector := record.ModelProvider + "/" + record.ModelID
 	model, err := m.resolveExactModel(selector)
 	if err != nil {
@@ -2309,11 +2424,20 @@ func (m *Manager) openDroid(ctx context.Context, record SessionRecord, store dro
 		return nil, droids.Snapshot{}, droids.Model{}, fmt.Errorf("resolved model %q as %q", selector, canonical)
 	}
 	model = m.applyModelContextWindow(selector, model)
-	droid, err := droids.Spawn(ctx, droids.ConversationID(record.ID), droids.Config{
+	config := droids.Config{
 		Store: store, Model: model,
 		Reasoning: record.ThinkingLevel, SystemPrompt: bundle.Prompt.Prompt,
 		Tools: bundle.Tools,
-	})
+	}
+	if turnEvents != nil {
+		config.TurnStarted = turnEvents.started
+		config.TurnSettled = turnEvents.turnSettled
+	}
+	if interception != nil {
+		config.BeforeToolCall = interception.before
+		config.BeforeToolCallIdentity = interception.identity
+	}
+	droid, err := droids.Spawn(ctx, droids.ConversationID(record.ID), config)
 	if err != nil {
 		return nil, droids.Snapshot{}, droids.Model{}, err
 	}
@@ -2398,10 +2522,65 @@ func (m *Manager) resumeRuntime(loaded *runtime, sessionID string) {
 }
 
 func (r *runtime) close(ctx context.Context, interactionReason string) error {
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	done := r.startClose(interactionReason)
+	select {
+	case <-done:
+		r.closeMu.Lock()
+		err := r.closeErr
+		r.closeMu.Unlock()
+		return err
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
+// startClose establishes cleanup ownership synchronously but never waits. It is
+// safe for quarantine paths that still hold runtime transition locks.
+func (r *runtime) startClose(interactionReason string) <-chan struct{} {
+	r.closeMu.Lock()
+	defer r.closeMu.Unlock()
+	if !r.closeStarted {
+		r.closeStarted = true
+		r.closeDone = make(chan struct{})
+		if r.cleanupOwner != nil {
+			r.cleanupOwner.Add(1)
+		}
+		go r.finishClose(interactionReason)
+	}
+	return r.closeDone
+}
+
+func (r *runtime) finishClose(interactionReason string) {
+	defer func() {
+		if r.cleanupOwner != nil {
+			r.cleanupOwner.Done()
+		}
+	}()
+	var cleanupErr error
+	if r.turnEvents != nil {
+		cleanupErr = r.turnEvents.close(context.Background())
+	}
 	if r.interactions != nil {
 		r.interactions.cancelAll(interactionReason)
 	}
-	return errors.Join(r.droid.Shutdown(ctx), r.closeStore())
+	if r.plugins != nil {
+		cleanupErr = errors.Join(cleanupErr, r.plugins.Close(context.Background()))
+	}
+	if r.closePluginSubagentCatalog != nil {
+		r.closePluginSubagentCatalog()
+	}
+	// Keep notification subscribers available through plugin cleanup so a final
+	// shutdown failure can still reach attached clients. No plugin callback can
+	// publish after Close returns.
+	r.pluginNotifications.close()
+	cleanupErr = errors.Join(cleanupErr, r.droid.Shutdown(context.Background()), r.closeStore())
+	r.closeMu.Lock()
+	r.closeErr = cleanupErr
+	close(r.closeDone)
+	r.closeMu.Unlock()
 }
 
 func pruneRuns(runs map[string]*liveRun, limit int) {

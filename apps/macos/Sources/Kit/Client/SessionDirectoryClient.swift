@@ -3,6 +3,9 @@ import Observation
 
 protocol SessionVCSClient: SessionClient {
     func vcs(_ session: String) async throws -> WireSessionVCSStatus
+    /// Blocks on the server-pushed repository stream until cancellation or
+    /// failure. Reconnection starts fresh; there is no cursor or replay.
+    func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws
 }
 
 protocol SessionDirectoryClient: SessionVCSClient {
@@ -18,6 +21,9 @@ extension LocalClient: SessionDirectoryClient {
     }
     func vcs(_ session: String) async throws -> WireSessionVCSStatus {
         try await HTTPClient.local().vcs(session)
+    }
+    func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {
+        try await HTTPClient.local().watchVCS(session, receive: receive)
     }
 }
 

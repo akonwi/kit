@@ -26,6 +26,11 @@ type Session interface {
 	ID() string
 	Snapshot(context.Context) (protocol.SessionSnapshot, error)
 	VCSStatus(context.Context) (protocol.SessionVCSStatus, error)
+	// WatchVCS blocks on the server-pushed repository-status stream, invoking
+	// receive for every validated update until the context is canceled or the
+	// stream fails. Reconnection starts fresh; there is no cursor or replay.
+	// Terminal failures are wrapped in *VCSWatchTerminalError.
+	WatchVCS(context.Context, func(protocol.SessionVCSStatus)) error
 	FileIndex(context.Context) (protocol.SessionFileIndex, error)
 	ChangeCWD(context.Context, string) (protocol.SessionInfo, error)
 	Reload(context.Context) (protocol.ReloadSessionResult, error)
@@ -48,6 +53,14 @@ type ScratchpadSession interface {
 	Scratchpad(context.Context) (protocol.Scratchpad, error)
 	UpdateScratchpad(context.Context, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
 }
+
+// VCSWatchTerminalError marks repository-stream failures that must stop the
+// watcher instead of reconnecting: authentication, missing sessions, and
+// protocol violations such as oversized or malformed frames.
+type VCSWatchTerminalError struct{ Err error }
+
+func (e *VCSWatchTerminalError) Error() string { return e.Err.Error() }
+func (e *VCSWatchTerminalError) Unwrap() error { return e.Err }
 
 // FileIndexRefreshSession is the optional bound-session forced index-refresh facet.
 type FileIndexRefreshSession interface {
@@ -161,5 +174,24 @@ type BashExecution interface {
 // Updates closes; cancellation of the stream does not abort the run.
 type EventStream interface {
 	Updates() <-chan []protocol.SessionEvent
+	Err() error
+}
+
+// PluginCommandSession is the optional executable-plugin contribution capability.
+// Callers retain the catalog instance token and must never replay failed commands.
+type PluginCommandSession interface {
+	ExecutePluginCommand(context.Context, protocol.PluginCommandInput) error
+}
+
+// PluginToastSession observes live notifications only. Reconnection starts fresh;
+// persistent plugin notices are also represented by session diagnostics.
+type PluginToastSession interface {
+	WatchPluginToasts(context.Context) (PluginToastStream, error)
+}
+
+// PluginToastStream is owned by the watch context and closes on detach. Err is
+// available after Updates closes. No cursor, history, or offline replay exists.
+type PluginToastStream interface {
+	Updates() <-chan protocol.PluginToast
 	Err() error
 }

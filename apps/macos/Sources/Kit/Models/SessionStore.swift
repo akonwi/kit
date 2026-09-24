@@ -3,6 +3,60 @@ import Observation
 
 @MainActor @Observable
 final class SessionStore {
+    @ObservationIgnored private let pluginNotifications = PluginNotificationWatch()
+    var pluginCommands: [PluginCommand] { selected?.pluginCommands ?? [] }
+    private(set) var pluginCommandRunning = false
+    @ObservationIgnored private var pluginCommandTask: Task<Void, Error>?
+    @ObservationIgnored private var pluginCommandToken = UUID()
+    var pluginCommandUnavailableReason: String? {
+        if !(catalogClient is any PluginCommandClient) { return "Unavailable for this connection" }
+        if unavailable { return "Session unavailable" }
+        if connectionState != .connected { return "Connect to execute" }
+        if pluginCommandRunning { return "Command running" }
+        return nil
+    }
+    func runPluginCommand(_ command: PluginCommand, args: String) async {
+        guard let client = catalogClient as? any PluginCommandClient else { return }
+        guard pluginCommandUnavailableReason == nil else { return }
+        guard pluginCommands.contains(where: { $0.id == command.id && $0.instance == command.instance }) else {
+            feedback.show(title: "Plugin command changed", detail: "Reselect it from the refreshed catalog.", tone: .warning)
+            return
+        }
+        guard args.utf8.count <= 64 * 1024, !args.contains("\0") else {
+            feedback.show(title: "Invalid plugin command arguments", detail: "Arguments must fit within 64 KiB and contain no NUL.", tone: .error)
+            return
+        }
+        let session = selectedID, token = UUID()
+        pluginCommandToken = token
+        pluginCommandRunning = true
+        let task = Task { try await client.executePluginCommand(session, input: .init(id: command.id, instance: command.instance, args: args)) }
+        pluginCommandTask = task
+        let key = "plugin-command-progress"
+        feedback.clear(key: key)
+        feedback.show(key: key, title: "Running /" + command.name, detail: "Session reload interrupts this command.", persistent: true)
+        do {
+            try await withTaskCancellationHandler { try await task.value } onCancel: { task.cancel() }
+            guard pluginCommandToken == token, selectedID == session else { return }
+            feedback.clear(key: key)
+        } catch {
+            guard pluginCommandToken == token, selectedID == session else { return }
+            feedback.clear(key: key)
+            let detail = (error as? PluginCommandFailure)?.errorDescription
+                ?? "The command did not complete. Effects may have partially completed; it was not retried."
+            feedback.show(title: "Plugin command failed", detail: detail, tone: .error, persistent: true)
+        }
+        guard pluginCommandToken == token else { return }
+        pluginCommandTask = nil
+        pluginCommandRunning = false
+    }
+    private func cancelPluginCommandWait() {
+        pluginCommandToken = UUID()
+        pluginCommandTask?.cancel()
+        pluginCommandTask = nil
+        pluginCommandRunning = false
+        feedback.clear(key: "plugin-command-progress")
+    }
+
     @ObservationIgnored private var feedbackBySession: [String: SessionFeedback] = [:]
     var feedback: SessionFeedback { feedback(for: selectedID) }
     private func feedback(for id: String) -> SessionFeedback {
@@ -336,6 +390,9 @@ final class SessionStore {
 
     func select(_ id: String) {
         guard id != selectedID else { return }
+        cancelPluginCommandWait()
+        pluginNotifications.stop()
+        feedback.clearTransientPluginNotifications()
         ui.switchSession(from: SessionIdentity(server: replica.client.serverID, session: selectedID),
                          to: SessionIdentity(server: replica.client.serverID, session: id), demo: isDemo)
         if operationsBySession[id] == nil { operationsBySession[id] = SessionOperations() }
@@ -368,10 +425,20 @@ final class SessionStore {
 
     func refreshSessions() async { await replica.refreshSessions() }
     func attach() {
+        let id = selectedID
+        pluginNotifications.start(session: id, client: catalogClient as? any PluginNotificationClient) { [weak self] notification in
+            guard let self, self.selectedID == id, !self.unavailable else { return }
+            self.feedback.showPluginNotification(notification)
+        }
         if operations.uncertain { recoverSubmission() }
         else { replica.attach() }
     }
-    func detach() { replica.detach() }
+    func detach() {
+        cancelPluginCommandWait()
+        pluginNotifications.stop()
+        feedback.clearTransientPluginNotifications()
+        replica.detach()
+    }
     func stop() { demo?.stop() }
     func replay() { ui.notice = ""; demo?.replay() }
     func previewModel(_ value: String) { demo?.model = value }

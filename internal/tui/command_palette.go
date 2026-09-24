@@ -36,11 +36,13 @@ const (
 type paletteCommandID string
 
 type paletteCommand struct {
-	ArgumentHint string
-	ID           paletteCommandID
-	Name         string
-	Description  string
-	Aliases      []string
+	DisabledReason string
+	Plugin         *protocol.PluginCommand
+	ArgumentHint   string
+	ID             paletteCommandID
+	Name           string
+	Description    string
+	Aliases        []string
 }
 
 type paletteSnapshot struct {
@@ -107,7 +109,7 @@ func (s *commandPaletteSurfaceState) build(ctx ui.BuildContext, w commandPalette
 	catalog := paletteCommands(w.Snapshot.Contributions)
 	nameWidth := paletteNameWidth(catalog)
 	for _, command := range catalog {
-		if paletteCommandDisabledReason(command.ID, w.Snapshot.Running) != "" {
+		if paletteCommandDisabledReason(command.ID, w.Snapshot.Running, w.Snapshot.Contributions) != "" {
 			nameWidth = min(nameWidth, 16)
 			break
 		}
@@ -121,7 +123,7 @@ func (s *commandPaletteSurfaceState) build(ctx ui.BuildContext, w commandPalette
 			Builder: func(_ ui.BuildContext, index int) ui.Widget {
 				command := commands[index]
 				return paletteOptionRow{
-					Command: command, NameWidth: nameWidth, DisabledReason: paletteCommandDisabledReason(command.ID, w.Snapshot.Running),
+					Command: command, NameWidth: nameWidth, DisabledReason: paletteCommandDisabledReason(command.ID, w.Snapshot.Running, w.Snapshot.Contributions),
 					Selected: hasSelection && index == selection,
 					OnPressed: func(event ui.EventContext) {
 						if w.Callbacks.RunCommand != nil {
@@ -234,7 +236,7 @@ func (p *paletteController) Close() {
 
 func (p *paletteController) SetContributions(commands []paletteCommand, running bool) {
 	p.Contributions = append([]paletteCommand(nil), commands...)
-	if p.Open && !paletteCommandExists(p.Selection, p.Contributions) {
+	if p.Open && !paletteCommandExists(p.Selection, p.Contributions) && !strings.HasPrefix(string(p.Selection), "plugin:") {
 		p.Selection = firstEnabledPaletteCommandID(filteredPaletteCommands(running, p.Query, p.Contributions), running)
 	}
 }
@@ -292,6 +294,9 @@ func (p *paletteController) HandleKey(running bool, key ui.Key) (paletteCommand,
 		return paletteCommand{}, false, true
 	case key.MatchString("Enter"):
 		command, ok := p.Selected(running, p.Query)
+		if !ok && strings.HasPrefix(string(p.Selection), "plugin:") {
+			return paletteCommand{ID: p.Selection}, true, true
+		}
 		return command, ok, true
 	default:
 		return paletteCommand{}, false, false
@@ -380,7 +385,7 @@ func firstPaletteCommandID(commands []paletteCommand) paletteCommandID {
 
 func firstEnabledPaletteCommandID(commands []paletteCommand, running bool) paletteCommandID {
 	for _, command := range commands {
-		if paletteCommandDisabledReason(command.ID, running) == "" {
+		if paletteCommandDisabledReason(command.ID, running, commands) == "" {
 			return command.ID
 		}
 	}
@@ -430,10 +435,17 @@ func paletteCommandExists(commandID paletteCommandID, contributions ...[]palette
 }
 
 func paletteCommandAvailable(commandID paletteCommandID, running bool, contributions ...[]paletteCommand) bool {
-	return paletteCommandExists(commandID, contributions...) && paletteCommandDisabledReason(commandID, running) == ""
+	return paletteCommandExists(commandID, contributions...) && paletteCommandDisabledReason(commandID, running, contributions...) == ""
 }
 
-func paletteCommandDisabledReason(commandID paletteCommandID, running bool) string {
+func paletteCommandDisabledReason(commandID paletteCommandID, running bool, contributions ...[]paletteCommand) string {
+	if len(contributions) > 0 {
+		for _, command := range contributions[0] {
+			if command.ID == commandID && command.DisabledReason != "" {
+				return command.DisabledReason
+			}
+		}
+	}
 	if !running {
 		return ""
 	}
@@ -536,4 +548,25 @@ func paletteCommandNameSpans(command paletteCommand, primary, secondary ui.Style
 		spans = append(spans, ui.TextSpan{Text: " " + command.ArgumentHint, Style: secondary})
 	}
 	return spans
+}
+
+func pluginPaletteCommands(commands []protocol.PluginCommand) []paletteCommand {
+	result := make([]paletteCommand, 0, len(commands))
+	for _, command := range commands {
+		hint := ""
+		if command.ArgName != "" {
+			hint = "<" + command.ArgName + ">"
+		}
+		result = append(result, paletteCommand{ID: paletteCommandID("plugin:" + command.Instance + ":" + command.ID), Name: command.ID, Description: command.Description, ArgumentHint: hint, Aliases: []string{command.LocalID, command.PluginID, command.Category}, Plugin: &command})
+	}
+	return result
+}
+
+// Plugin arguments are literal: remove the command and one separator only.
+func pluginPaletteArgs(query string) string {
+	query = strings.TrimLeft(query, " \t")
+	if index := strings.IndexAny(query, " \t"); index >= 0 {
+		return query[index+1:]
+	}
+	return ""
 }

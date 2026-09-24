@@ -37,6 +37,16 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   `CORE-MCP-005`.
 - [~] TUI-VCS-001 — Complete footer repository state, production-equivalent
   refresh behavior, and silent fallback. Depends on `CORE-VCS-001`.
+  The bottom-right location now renders `cwd (branch* · PR #123)` from
+  server-cached GitHub pull request metadata; only the PR label is an
+  underlined, OSC 8-tagged click target that opens only validated absolute
+  credential-free http(s) URLs through the existing external opener. Plugin
+  `LocationHidden` still hides the entire segment. Attachment identity plus a
+  per-attachment delivery sequence gate drop A→B→A callbacks and superseded
+  updates; presentation and staleness tests cover format, unsafe-URL
+  rejection, click, hiding, and ordering. VCS now arrives through one authenticated
+  latest-state stream rather than client polling, with bounded transient retry,
+  terminal protocol/auth handling, and fresh-state reconnects.
 - [~] TUI-TERM-001 — Complete clipboard, terminal title, notifications, image
   capabilities, attention/progress state, and clean restoration on every exit.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
@@ -103,9 +113,23 @@ resolving this decision.
   the [focused optimization note](hidden-workspace-pane-suspension.md).
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
   when their owning Post-R1 capabilities are implemented.
-- [ ] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
-  click-through URL. Depends on `CORE-GH-001`.
-- [ ] TUI-PLUGIN-001 — Present plugin header/footer contributions, theme tokens,
-  hide claims, activation, failure, cleanup, reload, and restart. Depends on
-  `CORE-PLUGIN-004`, `CORE-PLUGIN-005`, and `CORE-PLUGIN-006`.
+- [x] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
+  click-through URL. The built-in location displays the server-cached PR number
+  and opens its validated URL; renderer, interaction, and stale-response tests
+  cover the behavior. Manual desktop/terminal verification remains. Depends on
+  `CORE-GH-001`.
+- [x] TUI-PLUGIN-001 — Present plugin contributions only in the bottom-right
+  footer, supporting composition and replacement of default cwd/Git content
+  through scoped hide claims. Preserve theme tokens, bounded layout,
+  failure, cleanup, and reload; keep header and bottom-left status
+  protected. Depends on `CORE-PLUGIN-004`, `CORE-PLUGIN-005`, and
+  `CORE-PLUGIN-006`. See
+  [ADR 0026](../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md).
+  Static set/update/clear, aggregate hide/show, generation revocation, semantic
+  text styling, and labeled bounded overflow are now projected through the
+  session snapshot. Host, protocol, daemon, and presentation tests cover this
+  slice. The user manually verified rendering, overflow, and lifecycle behavior.
+  Plugin click dispatch and URL
+  routing are outside native scope, not deferred work; built-in PR links remain.
+
 - [ ] TUI-SET-003 — Expose Post-R1 pager defaults when that workflow exists.

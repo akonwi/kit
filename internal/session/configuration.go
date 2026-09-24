@@ -172,7 +172,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 			return ConfigureSessionResult{}, err
 		}
 		loaded.configurationWarnings = nil
-		return ConfigureSessionResult{Session: applied, EventStreamID: loaded.events.streamID}, nil
+		return ConfigureSessionResult{Session: applied, EventStreamID: loaded.events.identity()}, nil
 	}
 	targetRecord.ConfigurationRevision = record.ConfigurationRevision + 1
 	targetSelector := targetModel.Provider + "/" + targetModel.ID
@@ -212,7 +212,7 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 
 	transitionContext, cancelTransition := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
 	defer cancelTransition()
-	replacementDroid, snapshot, effectiveModel, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement)
+	replacementDroid, snapshot, effectiveModel, err := m.openDroid(transitionContext, targetRecord, loaded.store, replacement, loaded.interception, loaded.turnEvents)
 	if err != nil {
 		return ConfigureSessionResult{}, fmt.Errorf("open replacement droid: %w", err)
 	}
@@ -235,8 +235,19 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
 	loaded.droid = replacementDroid
+	loaded.pluginContributions.setDroid(replacementDroid)
+	if loaded.turnEvents != nil {
+		loaded.turnEvents.droid.Store(replacementDroid)
+	}
 	loaded.model = effectiveModel
 	loaded.bundle = cloneRuntimeBundle(replacement)
+	loaded.pluginContributions.setBase(replacement.Subagents)
+	if loaded.plugins != nil {
+		if host, ok := loaded.plugins.(PluginSubagentBaseHost); ok {
+			host.SetSubagentBase(pluginSubagentNames(replacement.Subagents))
+		}
+		loaded.refreshPluginContributions()
+	}
 	loaded.eventCursor = snapshot.LastEvent
 	loaded.events.replace(nextEvents)
 	loaded.configurationWarnings = append([]string(nil), warnings...)
@@ -293,7 +304,7 @@ func (m *Manager) configureLiveThinking(ctx context.Context, sessionID string, l
 	}
 	loaded.configurationWarnings = append([]string(nil), warnings...)
 	return ConfigureSessionResult{
-		Session: applied, EventStreamID: loaded.events.streamID, Warnings: append([]string(nil), warnings...),
+		Session: applied, EventStreamID: loaded.events.identity(), Warnings: append([]string(nil), warnings...),
 	}, nil
 }
 
@@ -367,7 +378,7 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	}
 	return CompactSessionResult{
 		OperationID: result.OperationID, Compacted: result.Compacted,
-		CheckpointID: string(result.CheckpointID), EventStreamID: loaded.events.streamID,
+		CheckpointID: string(result.CheckpointID), EventStreamID: loaded.events.identity(),
 	}, nil
 }
 
@@ -502,13 +513,19 @@ func (m *Manager) quarantineRuntime(sessionID string, loaded *runtime, replaceme
 	}
 	m.mu.Unlock()
 	loaded.events.invalidate()
+	// Remove the dynamic provider synchronously so a quarantined runtime cannot
+	// admit new children while full cleanup waits for configuration locks.
+	if loaded.closePluginSubagentCatalog != nil {
+		loaded.closePluginSubagentCatalog()
+		loaded.closePluginSubagentCatalog = nil
+	}
 	if replacement != nil {
 		_ = replacement.Close()
 	}
-	closeContext, cancel := context.WithTimeout(context.Background(), runtimeTransitionTimeout)
-	defer cancel()
-	_ = loaded.droid.Shutdown(closeContext)
-	_ = loaded.closeStore()
+	// Configuration callers still hold runtime transition locks here. Establish
+	// cleanup ownership without waiting so plugins, interactions, notifications,
+	// turn events, the droid, and the store all follow the single close path.
+	loaded.startClose("unavailable")
 }
 
 func (m *Manager) persistSessionConfigurationReconciled(ctx context.Context, previous SessionRecord, update ConfigurationUpdate) (SessionRecord, error) {

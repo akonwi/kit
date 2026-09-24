@@ -25,6 +25,8 @@ enum SessionProjection {
         guard session.annotations!.count <= 128, Set(session.annotations!.map(\.id)).count == session.annotations!.count else { throw ClientError.invalidPayload }
         session.usage = SessionUsage(snapshot.usage)
         session.promptCommands = try PromptCommand.project(snapshot.promptCommands ?? [])
+        session.pluginCommands = try PluginCommand.project(snapshot.pluginCommands ?? [])
+        session.pluginFooter = try PluginFooterProjection.validate(snapshot.pluginFooter)
         session.contextTokens = snapshot.contextTokens
         session.contextWindow = snapshot.contextWindow
         session.subagents = try SubagentRoster(snapshot)

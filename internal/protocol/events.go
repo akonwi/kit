@@ -151,6 +151,13 @@ func (event SessionEvent) Validate() error {
 			}
 			seen[id] = struct{}{}
 		}
+	} else if (event.Kind == SessionEventInteractionRequested || event.Kind == SessionEventInteractionResolved) && event.RunID == "" {
+		if event.TurnID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
+			return fmt.Errorf("invalid session interaction identity")
+		}
+		if event.Kind == SessionEventInteractionRequested && (event.Interaction == nil || event.Interaction.Plugin == nil) {
+			return fmt.Errorf("session interaction requires plugin ownership")
+		}
 	} else {
 		if event.TurnID == "" || event.RunID == "" {
 			return fmt.Errorf("event turn and run ids are required")

@@ -124,16 +124,19 @@ const (
 )
 
 type durableTool struct {
-	ID                 ToolCallID   `json:"id"`
-	AdmissionAttemptID AttemptID    `json:"admission_attempt_id"`
-	Call               wireContent  `json:"call"`
-	Phase              toolPhase    `json:"phase"`
-	InterruptedPhase   toolPhase    `json:"interrupted_phase,omitempty"`
-	RequiresBeforeHook bool         `json:"requires_before_hook,omitempty"`
-	RequiresAfterHook  bool         `json:"requires_after_hook,omitempty"`
-	ValidationError    string       `json:"validation_error,omitempty"`
-	RawResult          *wireMessage `json:"raw_result,omitempty"`
-	Final              *wireMessage `json:"final_result,omitempty"`
+	BeforeHookIdentity string        `json:"before_hook_identity,omitempty"`
+	ExecutionMode      ExecutionMode `json:"execution_mode,omitempty"`
+	RegistrationID     string        `json:"registration_id,omitempty"`
+	ID                 ToolCallID    `json:"id"`
+	AdmissionAttemptID AttemptID     `json:"admission_attempt_id"`
+	Call               wireContent   `json:"call"`
+	Phase              toolPhase     `json:"phase"`
+	InterruptedPhase   toolPhase     `json:"interrupted_phase,omitempty"`
+	RequiresBeforeHook bool          `json:"requires_before_hook,omitempty"`
+	RequiresAfterHook  bool          `json:"requires_after_hook,omitempty"`
+	ValidationError    string        `json:"validation_error,omitempty"`
+	RawResult          *wireMessage  `json:"raw_result,omitempty"`
+	Final              *wireMessage  `json:"final_result,omitempty"`
 }
 
 type durableLifecycleEvent struct {
@@ -362,6 +365,9 @@ func validateOpenedRuntime(state durableRuntime) error {
 	for providerID, tool := range state.Tools {
 		if providerID == "" || tool.ID == "" || tool.Call.Type != "tool_call" || tool.Call.ID != providerID || tool.AdmissionAttemptID == "" {
 			return fmt.Errorf("droids: persisted tool state is invalid")
+		}
+		if tool.ExecutionMode != ModeDefault && tool.ExecutionMode != ModeSequential && tool.ExecutionMode != ModeParallel {
+			return fmt.Errorf("droids: persisted tool %q has invalid execution mode", tool.ID)
 		}
 		switch tool.Phase {
 		case toolPhaseBeforeHook, toolPhaseReady:

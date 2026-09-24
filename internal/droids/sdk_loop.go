@@ -8,6 +8,7 @@ import (
 	"reflect"
 	"sync"
 	"time"
+	"unicode/utf8"
 )
 
 func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64) {
@@ -490,6 +491,7 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	messages, err := runtimeMessageEnvelopes(rt.state)
 	attemptID := rt.state.AttemptID
 	configuration := rt.currentRequestConfiguration()
+	rt.modelRequestConfig = configuration
 	rt.mu.Unlock()
 	if err != nil {
 		return MessageEnvelope{}, err
@@ -996,7 +998,19 @@ func (rt *sdkRuntime) persistSyntheticToolResults(ctx context.Context, turnID Tu
 	return nil
 }
 
+func (rt *sdkRuntime) beforeHookIdentity() (string, bool) {
+	if rt.config.BeforeToolCallIdentity == nil {
+		return "", true
+	}
+	identity := rt.config.BeforeToolCallIdentity()
+	return identity, identity != "" && len(identity) <= 256 && utf8.ValidString(identity)
+}
+
 func (rt *sdkRuntime) admitToolBatch(ctx context.Context, turnID TurnID, calls []ToolCall) error {
+	identity, validIdentity := rt.beforeHookIdentity()
+	if !validIdentity {
+		identity = ""
+	}
 	rt.mu.Lock()
 	defer rt.mu.Unlock()
 	before, err := cloneDurableRuntime(rt.state)
@@ -1005,6 +1019,17 @@ func (rt *sdkRuntime) admitToolBatch(ctx context.Context, turnID TurnID, calls [
 	}
 	var mutations []EncodedMutation
 	var events []EncodedDurableEvent
+	// Persist the effective batch policy on every member, including members
+	// whose callbacks may be unavailable after recovery.
+	batchMode := ModeParallel
+	if rt.modelRequestConfig == nil || rt.config.Execution.ToolExecution == ModeSequential {
+		batchMode = ModeSequential
+	}
+	for _, call := range calls {
+		if definition, ok := rt.toolDefinitionLocked(call.Name); ok && definition.mode() == ModeSequential {
+			batchMode = ModeSequential
+		}
+	}
 	for _, call := range calls {
 		if _, exists := rt.state.Tools[call.ID]; exists {
 			continue
@@ -1014,16 +1039,26 @@ func (rt *sdkRuntime) admitToolBatch(ctx context.Context, turnID TurnID, calls [
 			Name: call.Name, Arguments: append([]byte(nil), call.Arguments...), Signature: call.Signature,
 		}
 		tool := durableTool{
-			ID: call.ID, AdmissionAttemptID: rt.state.AttemptID,
+			ExecutionMode: batchMode,
+			ID:            call.ID, AdmissionAttemptID: rt.state.AttemptID,
 			Call: wire, Phase: toolPhaseBeforeHook,
 			RequiresBeforeHook: rt.config.BeforeToolCall != nil,
 			RequiresAfterHook:  rt.config.AfterToolCall != nil,
 		}
-		definition, exists := rt.currentRequestConfiguration().toolsByName[call.Name]
+		tool.BeforeHookIdentity = identity
+		definition, exists := rt.toolDefinitionLocked(call.Name)
 		if !exists {
 			tool.ValidationError = fmt.Sprintf("Tool %q not found", call.Name)
+		} else if rt.modelRequestConfig == nil && definition.registrationID() != "" {
+			tool.ValidationError = "Dynamic tool registration cannot be recovered from an uncaptured model response"
 		} else if validationErr := definition.validate(call.Arguments); validationErr != nil {
 			tool.ValidationError = boundedErrorText(validationErr)
+		}
+		if !validIdentity {
+			tool.ValidationError = "Invalid tool interception policy identity; execution blocked"
+		}
+		if exists {
+			tool.RegistrationID = definition.registrationID()
 		}
 		rt.state.Tools[call.ID] = tool
 		payload, err := json.Marshal(tool)
@@ -1079,12 +1114,15 @@ func unresolvedToolCalls(state durableRuntime) ([]ToolCall, error) {
 }
 
 func (rt *sdkRuntime) executeToolBatch(ctx context.Context, turnID TurnID, calls []ToolCall) ([]ToolResultMessage, bool, error) {
-	sequential := rt.config.Execution.ToolExecution == ModeSequential
+	sequential := false
+	rt.mu.Lock()
 	for _, call := range calls {
-		if tool, ok := rt.currentRequestConfiguration().toolsByName[call.Name]; ok && tool.mode() == ModeSequential {
+		// Old records with no recorded policy recover conservatively.
+		if rt.state.Tools[call.ID].ExecutionMode != ModeParallel {
 			sequential = true
 		}
 	}
+	rt.mu.Unlock()
 	results := make([]ToolResultMessage, len(calls))
 	var firstErr error
 	if sequential || len(calls) < 2 {
@@ -1246,8 +1284,16 @@ func (rt *sdkRuntime) prepareTool(ctx context.Context, turnID TurnID, call ToolC
 			return false, nil, fmt.Errorf("droids: tool call %q is not admitted", call.ID)
 		}
 		toolContext := ToolContext{
-			ConversationID: rt.conversation, TurnID: turnID,
+			BeforeHookIdentity: tool.BeforeHookIdentity,
+			ConversationID:     rt.conversation, TurnID: turnID,
 			AttemptID: tool.AdmissionAttemptID, ToolCallID: tool.ID,
+		}
+		if tool.Phase == toolPhaseBeforeHook || tool.Phase == toolPhaseReady {
+			identity, valid := rt.beforeHookIdentity()
+			if !valid || identity != tool.BeforeHookIdentity {
+				result, err := rt.completeToolWithoutExecution(ctx, call, toolErrorText("Tool interception policy changed; execution blocked. Do not replay without a new tool call."))
+				return false, &result, err
+			}
 		}
 		switch tool.Phase {
 		case toolPhaseBeforeHook:
@@ -1327,7 +1373,8 @@ func (rt *sdkRuntime) finishPreparedTool(ctx context.Context, turnID TurnID, cal
 		tool := rt.state.Tools[call.ID]
 		rt.mu.Unlock()
 		toolContext := ToolContext{
-			ConversationID: rt.conversation, TurnID: turnID,
+			BeforeHookIdentity: tool.BeforeHookIdentity,
+			ConversationID:     rt.conversation, TurnID: turnID,
 			AttemptID: tool.AdmissionAttemptID, ToolCallID: tool.ID,
 		}
 		result := rt.invokeTool(ctx, toolContext, call)
@@ -1351,7 +1398,8 @@ func (rt *sdkRuntime) finishPreparedTool(ctx context.Context, turnID TurnID, cal
 			return ToolResultMessage{}, fmt.Errorf("droids: tool call %q is not admitted", call.ID)
 		}
 		toolContext := ToolContext{
-			ConversationID: rt.conversation, TurnID: turnID,
+			BeforeHookIdentity: tool.BeforeHookIdentity,
+			ConversationID:     rt.conversation, TurnID: turnID,
 			AttemptID: tool.AdmissionAttemptID, ToolCallID: tool.ID,
 		}
 		switch tool.Phase {
@@ -1518,7 +1566,19 @@ func (rt *sdkRuntime) updateToolPhase(
 }
 
 func (rt *sdkRuntime) invokeTool(ctx context.Context, toolContext ToolContext, call ToolCall) ToolResult {
-	tool, ok := rt.currentRequestConfiguration().toolsByName[call.Name]
+	rt.mu.Lock()
+	tool, ok := rt.toolDefinitionLocked(call.Name)
+	registration := rt.state.Tools[call.ID].RegistrationID
+	rt.mu.Unlock()
+	// Final policy admission happens immediately before invoking user tool code,
+	// including parallel members prepared before a later hook awaited input.
+	identity, valid := rt.beforeHookIdentity()
+	if !valid || identity != toolContext.BeforeHookIdentity {
+		return toolErrorText("Tool interception policy changed; execution blocked")
+	}
+	if ok && tool.registrationID() != registration {
+		return toolErrorText("Tool registration changed; execution was not replayed")
+	}
 	if !ok {
 		return toolErrorText(fmt.Sprintf("Tool %q not found", call.Name))
 	}
@@ -1722,4 +1782,15 @@ func isTerminalStatus(status ExecutionStatus) bool {
 	default:
 		return false
 	}
+}
+
+// Caller holds runtime authority. A live response keeps the exact callbacks
+// advertised to its request; recovered calls additionally check durable identity.
+func (rt *sdkRuntime) toolDefinitionLocked(name string) (AnyTool, bool) {
+	config := rt.modelRequestConfig
+	if config == nil {
+		config = rt.currentRequestConfiguration()
+	}
+	tool, ok := config.toolsByName[name]
+	return tool, ok
 }

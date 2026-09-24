@@ -180,6 +180,8 @@ type Snapshot struct {
 	ContextTokens         int
 	ContextWindow         int
 	Usage                 SessionUsage
+	PluginFooter          *PluginFooter
+	PluginCommands        []PluginCommand
 	PromptCommands        []PromptCommand
 	FollowUps             FollowUpQueue
 	Warnings              []string
@@ -350,17 +352,18 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		ContextWindow:        droidSnapshot.Context.Usage.ContextWindow,
 		Usage:                projectSessionUsage(droidSnapshot.Usage),
 		FollowUps:            projectFollowUpQueue(loaded.followUps),
-		Warnings:             append([]string(nil), loaded.configurationWarnings...),
+		Warnings:             runtimeWarnings(loaded),
 		PendingInteractions:  pendingInteractions,
 	}
 	result.ProviderRetry = projectProviderRetry(activeRunID, droidSnapshot.Active)
 	result.ActiveCompaction = projectActiveCompaction(activeRunID, droidSnapshot.Active)
-	for _, definition := range loaded.bundle.Subagents.Catalog.Definitions() {
+	subagents := loaded.pluginContributions.snapshot()
+	for _, definition := range subagents.Catalog.Definitions() {
 		result.SubagentDefinitions = append(result.SubagentDefinitions, SubagentDefinition{
 			Name: definition.Name, Description: definition.Description, Model: definition.Model, Source: definition.Source,
 		})
 	}
-	for _, diagnostic := range loaded.bundle.Subagents.Diagnostics {
+	for _, diagnostic := range subagents.Diagnostics {
 		result.SubagentDiagnostics = append(result.SubagentDiagnostics, SubagentDiagnostic{
 			Severity: string(diagnostic.Severity), Code: diagnostic.Code, Message: diagnostic.Message, Source: diagnostic.Source,
 		})
@@ -405,6 +408,13 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 			}
 			result.SubagentConversations = append(result.SubagentConversations, projected)
 		}
+	}
+	if host, ok := loaded.plugins.(PluginFooterHost); ok {
+		footer := host.Footer()
+		result.PluginFooter = &footer
+	}
+	if host, ok := loaded.plugins.(PluginCommandHost); ok {
+		result.PluginCommands = host.Commands()
 	}
 	if loaded.bundle.PromptCommands != nil {
 		for _, command := range loaded.bundle.PromptCommands.Commands() {

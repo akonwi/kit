@@ -89,10 +89,18 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 	}
 	loaded.model = model
 	loaded.bundle = cloneRuntimeBundle(replacement)
+	loaded.pluginContributions.setBase(replacement.Subagents)
+	if loaded.plugins != nil {
+		if host, ok := loaded.plugins.(PluginSubagentBaseHost); ok {
+			host.SetSubagentBase(pluginSubagentNames(replacement.Subagents))
+		}
+		loaded.plugins.Reload()
+		loaded.refreshPluginContributions()
+	}
 	return ReloadResult{
 		Sources:       append([]systemprompt.Source(nil), loaded.bundle.Prompt.Sources...),
 		Diagnostics:   append([]systemprompt.Diagnostic(nil), loaded.bundle.Prompt.Diagnostics...),
-		EventStreamID: loaded.events.streamID,
+		EventStreamID: loaded.events.identity(),
 	}, nil
 }
 

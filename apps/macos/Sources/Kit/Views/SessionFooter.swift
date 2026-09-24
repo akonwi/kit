@@ -13,7 +13,7 @@ struct SessionFooter: View {
                     .frame(maxWidth: .infinity, alignment: .leading)
                 SessionFooterControls(state: state)
                     .fixedSize()
-                WorkspaceLocation(session: state.selected)
+                PluginFooterView(session: state.selected)
                     .frame(maxWidth: .infinity, alignment: .trailing)
             }
             .font(.kit(size: 12))

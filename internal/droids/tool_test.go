@@ -1,7 +1,9 @@
 package droids
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"testing"
 )
 
@@ -123,4 +125,28 @@ func TestToolExecutionStrictlyDecodesOneObject(t *testing.T) {
 
 func testNoopTool[Args any](context.Context, ToolContext, Args, ToolUpdate) (ToolResult, error) {
 	return ToolText("ok"), nil
+}
+
+func TestToolSchemaRetainsExactLargeNumbersInValidationAndProviderEncoding(t *testing.T) {
+	tool := MustTool(Tool[json.RawMessage]{Name: "exact", Parameters: map[string]any{"type": "object", "properties": map[string]any{"value": map[string]any{"type": "integer", "const": json.Number("9007199254740993")}}, "required": []string{"value"}}, Execute: testNoopTool[json.RawMessage]})
+	if err := tool.validate([]byte(`{"value":9007199254740993}`)); err != nil {
+		t.Fatal(err)
+	}
+	if err := tool.validate([]byte(`{"value":9007199254740992}`)); err == nil {
+		t.Fatal("rounded number passed validation")
+	}
+	encoded, err := json.Marshal(toOpenAITools([]ToolSchema{tool.schema()}))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !bytes.Contains(encoded, []byte(`"const":9007199254740993`)) {
+		t.Fatalf("provider changed numeric constant: %s", encoded)
+	}
+}
+
+func TestToolValidationRejectsUnboundedExponentBeforeSchemaArithmetic(t *testing.T) {
+	tool := MustTool(Tool[json.RawMessage]{Name: "bounded", Parameters: map[string]any{"type": "object", "properties": map[string]any{"n": map[string]any{"type": "integer"}}}, Execute: testNoopTool[json.RawMessage]})
+	if err := tool.validate([]byte(`{"n":1e1000000000}`)); err == nil {
+		t.Fatal("unbounded exponent accepted")
+	}
 }

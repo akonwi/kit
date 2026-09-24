@@ -1,0 +1,6 @@
+{
+  "manifestVersion": 1,
+  "id": "footer-demo",
+  "name": "Footer Demo",
+  "transport": { "type": "stdio", "command": "python3", "args": ["-u", "plugin.py"] }
+}

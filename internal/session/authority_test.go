@@ -995,6 +995,7 @@ type authorityProviders struct {
 	block    chan struct{}
 	started  chan struct{}
 	requests []droids.Request
+	failure  bool
 }
 
 func (p *authorityProviders) ID() string             { return "test" }
@@ -1019,6 +1020,7 @@ func (p *authorityProviders) Stream(ctx context.Context, _ droids.Model, request
 	p.requests = append(p.requests, request)
 	call := p.calls
 	block := p.block
+	failure := p.failure
 	p.mu.Unlock()
 	if block != nil {
 		if p.started != nil {
@@ -1032,6 +1034,9 @@ func (p *authorityProviders) Stream(ctx context.Context, _ droids.Model, request
 		case <-block:
 		case <-ctx.Done():
 		}
+	}
+	if failure {
+		return &authorityStream{message: droids.AssistantMessage{Provider: "test", Model: "echo", StopReason: droids.StopReasonError, ErrorKind: droids.ProviderAuthentication, ErrorMessage: "provider failed"}}
 	}
 	return &authorityStream{message: droids.AssistantMessage{
 		Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
@@ -1047,7 +1052,11 @@ type authorityStream struct{ message droids.AssistantMessage }
 func (s *authorityStream) Events() <-chan droids.StreamEvent {
 	events := make(chan droids.StreamEvent, 2)
 	events <- droids.StreamStart{Partial: droids.AssistantMessage{Provider: "test", Model: "echo"}}
-	events <- droids.StreamDone{Message: s.message}
+	if s.message.StopReason == droids.StopReasonError {
+		events <- droids.StreamError{Message: s.message}
+	} else {
+		events <- droids.StreamDone{Message: s.message}
+	}
 	close(events)
 	return events
 }

@@ -24,12 +24,13 @@ const maxSessionResponseBytes = 8 << 20
 
 // APIError is a non-success response from the local session protocol.
 type APIError struct {
-	StatusCode        int
-	Code              string
-	Message           string
-	Details           map[string]string
-	CurrentScratchpad *protocol.Scratchpad
-	scratchpadError   *protocol.ScratchpadError
+	StatusCode         int
+	Code               string
+	Message            string
+	Details            map[string]string
+	CurrentScratchpad  *protocol.Scratchpad
+	scratchpadError    *protocol.ScratchpadError
+	pluginCommandError *protocol.PluginCommandError
 }
 
 func (e *APIError) Error() string {
@@ -44,7 +45,13 @@ func (e *APIError) Unwrap() error {
 	if e == nil {
 		return nil
 	}
-	return e.scratchpadError
+	if e.pluginCommandError != nil {
+		return e.pluginCommandError
+	}
+	if e.scratchpadError != nil {
+		return e.scratchpadError
+	}
+	return nil
 }
 
 // CreateSession creates a persisted or temporary session through the local daemon.
@@ -781,10 +788,15 @@ func decodeAPIError(statusCode int, body []byte) error {
 			scratchpadErrorValid := decodeStrictJSONObject(typed.Details, &scratchpadDetails) == nil
 			typedScratchpadError := &protocol.ScratchpadError{Code: scratchpadCode, Message: typed.Message, Current: scratchpadDetails.Scratchpad}
 			scratchpadErrorValid = scratchpadErrorValid && typedScratchpadError.Validate() == nil && scratchpadStatusMatches(scratchpadCode, statusCode)
-			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid && !scratchpadErrorValid {
+			pluginError := protocol.PluginCommandError{Code: typed.Code, Message: typed.Message}
+			pluginErrorValid := pluginError.Validate() == nil && (len(typed.Details) == 0 || bytes.Equal(bytes.TrimSpace(typed.Details), []byte("{}"))) && ((typed.Code == protocol.PluginCommandUnavailable && statusCode == http.StatusConflict) || (typed.Code == protocol.PluginCommandFailed && statusCode == http.StatusUnprocessableEntity))
+			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid && !scratchpadErrorValid && !pluginErrorValid {
 				return fmt.Errorf("daemon returned malformed typed error")
 			}
 			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, stringDetails
+			if pluginErrorValid {
+				apiError.pluginCommandError = &pluginError
+			}
 			if scratchpadErrorValid {
 				apiError.CurrentScratchpad = scratchpadDetails.Scratchpad
 				apiError.scratchpadError = typedScratchpadError
@@ -1100,4 +1112,18 @@ func (c *Client) sessionJSON(
 		return fmt.Errorf("decode daemon session response: %w", err)
 	}
 	return nil
+}
+
+// ExecutePluginCommand dispatches a selected command without starting a model run.
+// Failed requests are never retried automatically because effects may have occurred.
+func (c *Client) ExecutePluginCommand(ctx context.Context, sessionID string, input protocol.PluginCommandInput) error {
+	if err := input.Validate(); err != nil {
+		return fmt.Errorf("validate plugin command request: %w", err)
+	}
+	err := c.sessionJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/plugin-commands", input, http.StatusNoContent, nil)
+	var apiError *APIError
+	if err != nil && !errors.As(err, &apiError) {
+		return fmt.Errorf("plugin command did not complete (effects may have partially completed): %w", err)
+	}
+	return err
 }

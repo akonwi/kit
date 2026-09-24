@@ -70,8 +70,61 @@ func (d *Droid) Reconfigure(config RequestConfiguration) error {
 	if rt.closed || rt.shutdownStarted {
 		return ErrClosed
 	}
+	combined, err := mergeAdditionalTools(next, rt.additionalTools, rt.additionalPrompt)
+	if err != nil {
+		return err
+	}
+	rt.baseRequestConfig = next
+	rt.requestConfig.Store(combined)
+	return nil
+}
+
+// SetAdditionalTools atomically replaces independently owned tool contributions.
+// Base reconfiguration preserves them; in-flight requests retain their captured
+// schema and callbacks. Revocation must also be enforced by each callback owner.
+func (d *Droid) SetAdditionalTools(tools []AnyTool, prompt string) error {
+	if d == nil || d.sdk == nil {
+		return fmt.Errorf("droids: additional tools require a spawned droid")
+	}
+	rt := d.sdk
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.closed || rt.shutdownStarted {
+		return ErrClosed
+	}
+	next, err := mergeAdditionalTools(rt.baseRequestConfig, tools, prompt)
+	if err != nil {
+		return err
+	}
+	rt.additionalTools = append([]AnyTool(nil), tools...)
+	rt.additionalPrompt = prompt
 	rt.requestConfig.Store(next)
 	return nil
+}
+
+func mergeAdditionalTools(base *runtimeRequestConfiguration, tools []AnyTool, prompt string) (*runtimeRequestConfiguration, error) {
+	next := *base
+	next.systemPrompt += prompt
+	next.toolSchemas = append([]ToolSchema(nil), base.toolSchemas...)
+	next.toolsByName = make(map[string]AnyTool, len(base.toolsByName)+len(tools))
+	for name, tool := range base.toolsByName {
+		next.toolsByName[name] = tool
+	}
+	for _, tool := range tools {
+		if tool == nil {
+			return nil, fmt.Errorf("droids: nil additional tool")
+		}
+		schema := tool.schema()
+		if schema.Name == "" {
+			return nil, fmt.Errorf("droids: tool name is required")
+		}
+		if _, exists := next.toolsByName[schema.Name]; exists {
+			return nil, fmt.Errorf("droids: duplicate tool name %q", schema.Name)
+		}
+		next.toolsByName[schema.Name] = tool
+		next.toolSchemas = append(next.toolSchemas, schema)
+	}
+	return &next, nil
 }
 
 func (rt *sdkRuntime) currentRequestConfiguration() *runtimeRequestConfiguration {

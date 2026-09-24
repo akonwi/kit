@@ -171,10 +171,12 @@ type CompactionConfig struct {
 
 // ToolContext identifies the durable call being processed.
 type ToolContext struct {
-	ConversationID ConversationID
-	TurnID         TurnID
-	AttemptID      AttemptID
-	ToolCallID     ToolCallID
+	// BeforeHookIdentity is the durable policy identity captured at admission.
+	BeforeHookIdentity string
+	ConversationID     ConversationID
+	TurnID             TurnID
+	AttemptID          AttemptID
+	ToolCallID         ToolCallID
 }
 
 // BeforeToolCallHook runs from a durable pre-execution hook phase.
@@ -195,8 +197,18 @@ type Config struct {
 	Execution  *ExecutionPolicy
 	Compaction CompactionConfig
 
-	BeforeToolCall BeforeToolCallHook
-	AfterToolCall  AfterToolCallHook
+	// BeforeToolCallIdentity optionally fences a before-hook policy across admission
+	// and recovery. It must return nonempty UTF-8 of at most 256 bytes, be quick,
+	// and support concurrent calls. Runtime authority is not held during lookup.
+	BeforeToolCallIdentity func() string
+	BeforeToolCall         BeforeToolCallHook
+	AfterToolCall          AfterToolCallHook
+
+	// TurnStarted runs after durable admission and before model or tool activity.
+	// TurnSettled runs after a terminal state is durable and before handle completion.
+	// Both must be quick, nonblocking, and safe for concurrent runtime ownership.
+	TurnStarted func(TurnID)
+	TurnSettled func(TurnID)
 }
 
 // ForkOptions configures the independent Store used by a forked conversation.

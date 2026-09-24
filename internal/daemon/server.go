@@ -21,6 +21,7 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
 	kitsession "github.com/akonwi/kit/internal/session"
@@ -68,6 +69,7 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 
 	var (
+		pullRequests      *githubpr.Cache
 		store             *storage.Store
 		sessionManager    *kitsession.Manager
 		subagents         *subagent.Supervisor
@@ -93,6 +95,9 @@ func Run(ctx context.Context, options RunOptions) error {
 				logger.Error("stop session runtimes", "error", err)
 			}
 			cancel()
+		}
+		if pullRequests != nil {
+			pullRequests.Close()
 		}
 		if store != nil {
 			if err := store.Close(); err != nil {
@@ -229,16 +234,20 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("configure annotation service: %w", err)
 	}
+	pullRequests = githubpr.NewCache(ctx)
 	sessionManager, err = kitsession.NewManager(
 		store, providers, bundleBuilder,
 		kitsession.WithDroidStoreDirectory(paths.Droids),
 		kitsession.WithAttachmentStore(attachmentStore),
 		kitsession.WithAnnotationService(annotationService),
 		kitsession.WithModelContextWindow(modelContextWindow),
+		kitsession.WithPluginHostFactory(pluginHostFactory(paths, pullRequests, logger)),
+		kitsession.WithPluginSubagentCatalogRegistry(subagentTools),
 	)
 	if err != nil {
 		return fmt.Errorf("create session manager: %w", err)
 	}
+	childFactory.PluginInterceptors = sessionManager.PluginInterceptors
 	annotationService.SetObserver(sessionManager)
 	peerTools.Service = sessionManager
 	sessionTools.Service = modelSessionService{

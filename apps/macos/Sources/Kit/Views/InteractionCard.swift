@@ -15,6 +15,7 @@ struct InteractionCard: View {
                     .foregroundStyle(theme.accent)
                 Text(flow.title).font(.kit(size: 13, weight: .semibold))
                 Spacer()
+                if let plugin = flow.request?.plugin { Text(plugin.pluginId).font(.kit(size: 11)).foregroundStyle(theme.muted) }
                 if pendingCount > 1 { Text("1 of \(pendingCount) requests").font(.kit(size: 11)).foregroundStyle(theme.muted) }
                 Button { finish(true) } label: { Image(systemName: "xmark").frame(width: 24, height: 24) }
                     .buttonStyle(.plain).focusable().focused($focused, equals: .cancel).accessibilityLabel("Cancel request")
@@ -26,11 +27,11 @@ struct InteractionCard: View {
                     }
                     Text(flow.question.prompt).font(.kit(size: 16, weight: .medium))
                     if !flow.question.detail.isEmpty {
-                        if flow.confirmation { HighlightedCodeText(language: "bash", source: flow.question.detail) }
+                        if flow.confirmation && flow.request?.plugin == nil { HighlightedCodeText(language: "bash", source: flow.question.detail) }
                         else { Text(flow.question.detail).font(.kit(size: 12)).foregroundStyle(theme.muted) }
                     }
                     if flow.question.kind == .text {
-                        InteractionTextInput(text: $flow.answers[flow.step].text, prompt: flow.question.prompt,
+                        InteractionTextInput(text: $flow.answers[flow.step].text, prompt: flow.request?.placeholder ?? flow.question.prompt,
                             submit: { submitStep() }, previous: { flow.step = max(0, flow.step - 1) }, cancel: { finish(true) })
                             .frame(height: 64).padding(12)
                             .background(theme.surface, in: RoundedRectangle(cornerRadius: 10))
@@ -93,6 +94,12 @@ struct InteractionCard: View {
             focused = flow.question.kind == .text ? .answer : (flow.question.options.first { flow.answers[flow.step].choices.contains($0) } ?? flow.question.options.first).map(Field.option)
         }
         .onKeyPress(.tab, phases: .down) { press in
+            if flow.request?.plugin != nil {
+                guard flow.confirmation else { return .ignored }
+                let next = focused == .option("true") ? "false" : "true"
+                focused = .option(next)
+                return .handled
+            }
             if press.modifiers.contains(.shift) { flow.step = max(0, flow.step - 1) }
             else { submitStep(selectBoolean: false) }
             return .handled

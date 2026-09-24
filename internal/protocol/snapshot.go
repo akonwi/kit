@@ -203,7 +203,7 @@ func (snapshot SessionSnapshot) Validate() error {
 	} else if snapshot.PreviousMessageCursor != "" {
 		return fmt.Errorf("snapshot previous-message cursor requires older messages")
 	}
-	if len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions || len(snapshot.Annotations) > MaxLiveAnnotationsPerSession ||
+	if len(snapshot.PluginCommands) > 256 || len(snapshot.PromptCommands) > 128 || len(snapshot.Warnings) > 8 || len(snapshot.PendingInteractions) > MaxPendingInteractions || len(snapshot.Annotations) > MaxLiveAnnotationsPerSession ||
 		len(snapshot.SubagentDefinitions) > 128 || len(snapshot.SubagentDiagnostics) > 128 || len(snapshot.SubagentConversations) > 128 || len(snapshot.SubagentMailbox) > 64 {
 		return fmt.Errorf("snapshot has too many commands, warnings, or subagent records")
 	}
@@ -237,6 +237,21 @@ func (snapshot SessionSnapshot) Validate() error {
 		if !validRendererText(warning, 4096) || strings.TrimSpace(warning) == "" {
 			return fmt.Errorf("snapshot warning %d is invalid", index)
 		}
+	}
+	if snapshot.PluginFooter != nil {
+		if err := snapshot.PluginFooter.Validate(); err != nil {
+			return err
+		}
+	}
+	seenPlugins := make(map[string]bool, len(snapshot.PluginCommands))
+	for index, command := range snapshot.PluginCommands {
+		if err := command.Validate(); err != nil {
+			return fmt.Errorf("snapshot plugin command %d: %w", index, err)
+		}
+		if seenPlugins[command.ID] {
+			return fmt.Errorf("snapshot plugin command %d duplicates %q", index, command.ID)
+		}
+		seenPlugins[command.ID] = true
 	}
 	seenCommands := make(map[string]struct{}, len(snapshot.PromptCommands))
 	for index, command := range snapshot.PromptCommands {

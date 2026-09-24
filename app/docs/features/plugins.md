@@ -9,6 +9,10 @@ contract. The adjacent
 [manifest](../plugin-protocol/manifest.schema.json) and
 [protocol](../plugin-protocol/protocol.schema.json) JSON Schemas are normative.
 
+For the native Go rewrite, start with the
+[native v2 implementation profile](../plugin-protocol/native-v2.md): it documents
+implemented methods, `~/.kit-v2` discovery, limits, and outstanding functionality.
+
 ## Installation layout
 
 Kit discovers one `plugin.json` manifest in each immediate child directory:

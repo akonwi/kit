@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"strconv"
+	"strings"
 
 	"github.com/invopop/jsonschema"
 	validator "github.com/santhosh-tekuri/jsonschema/v6"
@@ -67,8 +69,11 @@ func EncodeDetails(value any) (json.RawMessage, error) {
 
 // Tool is a typed tool definition.
 type Tool[Args any] struct {
-	Name        string
-	Description string
+	// RegistrationID fences dynamically owned callbacks across recovery. Owners
+	// must change it whenever a registration is replaced; empty is for static tools.
+	RegistrationID string
+	Name           string
+	Description    string
 	// Parameters is the JSON Schema for Args. If nil, it is derived from Args
 	// via reflection (json / jsonschema struct tags). Set it explicitly to
 	// override derivation.
@@ -95,6 +100,7 @@ const (
 type AnyTool interface {
 	schema() ToolSchema
 	mode() ExecutionMode
+	registrationID() string
 	validate(raw []byte) error
 	// execute decodes raw JSON args and runs the tool.
 	execute(ctx context.Context, call ToolContext, raw []byte, update ToolUpdate) (ToolResult, error)
@@ -185,7 +191,8 @@ func emptyObjectSchema() map[string]any {
 	return map[string]any{"type": "object", "properties": map[string]any{}}
 }
 
-func (b boundTool[Args]) mode() ExecutionMode { return b.t.Mode }
+func (b boundTool[Args]) mode() ExecutionMode    { return b.t.Mode }
+func (b boundTool[Args]) registrationID() string { return b.t.RegistrationID }
 
 func (b boundTool[Args]) validate(raw []byte) error {
 	return validateToolArguments(raw, b.validator)
@@ -197,12 +204,16 @@ func compileToolSchema(name string, parameters map[string]any) (map[string]any, 
 		return nil, nil, fmt.Errorf("droids: encode tool %q schema: %w", name, err)
 	}
 	decoder := json.NewDecoder(bytes.NewReader(raw))
+	decoder.UseNumber()
 	var canonical map[string]any
 	if err := decoder.Decode(&canonical); err != nil {
 		return nil, nil, fmt.Errorf("droids: decode tool %q schema: %w", name, err)
 	}
 	if canonical["type"] != "object" {
 		return nil, nil, fmt.Errorf("droids: tool %q parameters must be a JSON object schema", name)
+	}
+	if err := validateToolNumbers(canonical); err != nil {
+		return nil, nil, err
 	}
 	compiler := validator.NewCompiler()
 	const location = "urn:droids:tool-schema"
@@ -213,7 +224,66 @@ func compileToolSchema(name string, parameters map[string]any) (map[string]any, 
 	if err != nil {
 		return nil, nil, fmt.Errorf("droids: compile tool %q schema: %w", name, err)
 	}
-	return canonical, compiled, nil
+	return providerSchemaValue(canonical).(map[string]any), compiled, nil
+}
+
+// Provider SDKs can encode json.Number as a string. Use ordinary floats when
+// their JSON spelling is lossless, and raw JSON numbers otherwise.
+func providerSchemaValue(value any) any {
+	switch value := value.(type) {
+	case json.Number:
+		number, err := value.Float64()
+		encoded, encodeErr := json.Marshal(number)
+		if err == nil && encodeErr == nil && string(encoded) == string(value) {
+			return number
+		}
+		return json.RawMessage(value)
+	case map[string]any:
+		result := make(map[string]any, len(value))
+		for key, child := range value {
+			result[key] = providerSchemaValue(child)
+		}
+		return result
+	case []any:
+		result := make([]any, len(value))
+		for index, child := range value {
+			result[index] = providerSchemaValue(child)
+		}
+		return result
+	default:
+		return value
+	}
+}
+
+// Bound arbitrary-precision arithmetic before the schema validator sees model
+// numbers. A tiny exponent token must not trigger an enormous allocation.
+func validateToolNumbers(value any) error {
+	switch value := value.(type) {
+	case json.Number:
+		text := string(value)
+		if len(text) > 1024 {
+			return fmt.Errorf("tool JSON number exceeds precision budget")
+		}
+		if index := strings.IndexAny(text, "eE"); index >= 0 {
+			exponent, err := strconv.Atoi(text[index+1:])
+			if err != nil || exponent < -1024 || exponent > 1024 {
+				return fmt.Errorf("tool JSON exponent exceeds precision budget")
+			}
+		}
+	case map[string]any:
+		for _, child := range value {
+			if err := validateToolNumbers(child); err != nil {
+				return err
+			}
+		}
+	case []any:
+		for _, child := range value {
+			if err := validateToolNumbers(child); err != nil {
+				return err
+			}
+		}
+	}
+	return nil
 }
 
 func validateToolArguments(raw []byte, schema *validator.Schema) error {
@@ -231,6 +301,9 @@ func validateToolArguments(raw []byte, schema *validator.Schema) error {
 			return fmt.Errorf("tool arguments contain multiple JSON values")
 		}
 		return fmt.Errorf("tool arguments are invalid JSON: %w", err)
+	}
+	if err := validateToolNumbers(value); err != nil {
+		return err
 	}
 	if err := schema.Validate(value); err != nil {
 		return fmt.Errorf("tool arguments do not match schema: %w", err)

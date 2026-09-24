@@ -24,7 +24,6 @@ import (
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
-	kitvcs "github.com/akonwi/kit/internal/vcs"
 	kitworkingdiff "github.com/akonwi/kit/internal/workingdiff"
 	kitworkspace "github.com/akonwi/kit/internal/workspace"
 )
@@ -100,6 +99,7 @@ const (
 var errInvalidSessionRequest = errors.New("invalid session request")
 
 type sessionService interface {
+	SubscribePluginToasts(context.Context, string) (pluginToastSource, error)
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
 	Fork(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error)
 	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.ChangeWorkspaceCWDResult, error)
@@ -111,6 +111,7 @@ type sessionService interface {
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
+	SubscribeVCS(context.Context, string) (vcsSource, error)
 	FileIndex(context.Context, string, bool) (protocol.SessionFileIndex, error)
 	Workspace(context.Context, string) (protocol.WorkspaceRef, error)
 	ListDirectory(context.Context, string, protocol.ListDirectoryInput) (protocol.DirectoryPage, error)
@@ -134,6 +135,7 @@ type sessionService interface {
 	SubmitPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
+	ExecutePluginCommand(context.Context, string, protocol.PluginCommandInput) error
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
 	Run(context.Context, string, string) (protocol.RunInfo, error)
 	RunPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
@@ -151,7 +153,6 @@ type runtimeSessionService struct {
 	manager             *kitsession.Manager
 	availableProviders  func(context.Context) []string
 	modelContextWindow  func(string) int
-	probeVCS            func(context.Context, string) (*kitvcs.Status, error)
 	fileIndexes         *sessionFileIndexCache
 	workspaces          *kitworkspace.Service
 	diffs               *kitworkingdiff.Service
@@ -677,32 +678,12 @@ func (s runtimeSessionService) FileIndex(ctx context.Context, sessionID string, 
 }
 
 func (s runtimeSessionService) VCS(ctx context.Context, sessionID string) (protocol.SessionVCSStatus, error) {
-	record, err := s.manager.Get(ctx, sessionID)
+	update, err := s.manager.VCS(ctx, sessionID)
 	if err != nil {
 		return protocol.SessionVCSStatus{}, err
 	}
-	result := protocol.SessionVCSStatus{SessionID: sessionID, CWD: record.CWD}
-	probe := s.probeVCS
-	if probe == nil {
-		probe = kitvcs.Probe
-	}
-	status, err := probe(ctx, record.CWD)
-	if err != nil {
-		if ctx.Err() != nil {
-			return protocol.SessionVCSStatus{}, ctx.Err()
-		}
-		return result, nil
-	}
-	if status != nil {
-		result.Status = &protocol.VCSStatus{
-			Root: status.Root, Dirty: status.Dirty,
-			Head: protocol.VCSHead{Kind: protocol.VCSHeadKind(status.Head.Kind), Name: status.Head.Name, OID: status.Head.OID},
-		}
-		if err := result.Validate(); err != nil {
-			result.Status = nil
-		}
-	}
-	return result, nil
+	result := projectVCSStatus(sessionID, update)
+	return result, result.Validate()
 }
 
 func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
@@ -821,6 +802,20 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			projected.Tasks = append(projected.Tasks, projectedTask)
 		}
 		result.SubagentConversations = append(result.SubagentConversations, projected)
+	}
+	if source := snapshot.PluginFooter; source != nil {
+		footer := &protocol.PluginFooter{LocationHidden: source.LocationHidden}
+		for _, item := range source.Items {
+			target := protocol.PluginFooterItem{ID: item.ID, PluginID: item.PluginID, Instance: item.Instance}
+			for _, segment := range item.Content {
+				target.Content = append(target.Content, protocol.PluginFooterSegment{Text: segment.Text, Style: protocol.PluginFooterStyle(segment.Style)})
+			}
+			footer.Items = append(footer.Items, target)
+		}
+		result.PluginFooter = footer
+	}
+	for _, command := range snapshot.PluginCommands {
+		result.PluginCommands = append(result.PluginCommands, protocol.PluginCommand{ID: command.ID, LocalID: command.LocalID, PluginID: command.PluginID, Instance: command.Instance, Description: command.Description, ArgName: command.ArgName, Category: command.Category})
 	}
 	for _, command := range snapshot.PromptCommands {
 		result.PromptCommands = append(result.PromptCommands, protocol.PromptCommand{
@@ -1185,6 +1180,19 @@ func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, stream
 
 func projectInteractionRequest(request kitsession.InteractionRequest) protocol.InteractionRequest {
 	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, RunID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
+	if request.Plugin != nil {
+		result.Plugin = &protocol.PluginInteractionOwner{PluginID: request.Plugin.PluginID, Instance: request.Plugin.Instance}
+	}
+	result.ConfirmLabel, result.CancelLabel = request.ConfirmLabel, request.CancelLabel
+	result.Placeholder, result.InitialValue = request.Placeholder, request.InitialValue
+	if request.DefaultValue != nil {
+		value := *request.DefaultValue
+		result.DefaultValue = &value
+	}
+	if request.Filterable != nil {
+		value := *request.Filterable
+		result.Filterable = &value
+	}
 	for _, option := range request.Options {
 		result.Options = append(result.Options, protocol.InteractionOption{ID: option.ID, Label: option.Label, Detail: option.Detail})
 	}
@@ -1445,6 +1453,10 @@ func (s runtimeSessionService) PromoteFollowUps(ctx context.Context, sessionID s
 	return protocol.PromoteFollowUpsResult{Promoted: result.Promoted, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}, err
 }
 
+func (s runtimeSessionService) ExecutePluginCommand(ctx context.Context, sessionID string, input protocol.PluginCommandInput) error {
+	return s.manager.ExecutePluginCommand(ctx, sessionID, input.Instance, input.ID, input.Args)
+}
+
 func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
 	reservation, err := s.manager.StartPromptCommand(ctx, sessionID, input.Name, input.Args)
 	if err != nil {
@@ -1546,6 +1558,7 @@ func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecu
 }
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/plugin-toasts", func(w http.ResponseWriter, r *http.Request) { servePluginToasts(w, r, service) })
 	mux.HandleFunc("GET /v1/models", func(writer http.ResponseWriter, request *http.Request) {
 		catalog, err := service.Models(request.Context())
 		if err != nil {
@@ -1863,6 +1876,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeJSON(writer, http.StatusOK, result)
 	})
 
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs/events", func(w http.ResponseWriter, r *http.Request) { serveVCS(w, r, service) })
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.VCS(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
@@ -2220,6 +2234,22 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/plugin-commands", func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.PluginCommandInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			return
+		}
+		if err := service.ExecutePluginCommand(request.Context(), request.PathValue("sessionID"), input); err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		writer.WriteHeader(http.StatusNoContent)
+	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptCommandInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
@@ -2494,13 +2524,19 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	status := http.StatusInternalServerError
 	message := "internal server error"
 	switch {
+	case errors.Is(err, kitsession.ErrPluginCommandUnavailable):
+		writeJSON(writer, http.StatusConflict, map[string]any{"error": map[string]string{"code": protocol.PluginCommandUnavailable, "message": kitsession.ErrPluginCommandUnavailable.Error()}})
+		return
+	case errors.Is(err, kitsession.ErrPluginCommandFailed):
+		writeJSON(writer, http.StatusUnprocessableEntity, map[string]any{"error": map[string]string{"code": protocol.PluginCommandFailed, "message": kitsession.ErrPluginCommandFailed.Error()}})
+		return
 	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound), errors.Is(err, subagent.ErrNotFound), errors.Is(err, kitannotation.ErrNotFound):
 		status = http.StatusNotFound
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrTranscriptCursorUnavailable), errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrConfigurationConflict), errors.Is(err, kitsession.ErrDeleteBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrBashBusy), errors.Is(err, kitsession.ErrBashNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled), errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed), errors.Is(err, kitannotation.ErrStale):
 		status = http.StatusConflict
 		message = err.Error()
-	case errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull), errors.Is(err, kitannotation.ErrCapacity):
+	case errors.Is(err, kitsession.ErrPluginNotificationCapacity), errors.Is(err, kitsession.ErrInteractionCapacity), errors.Is(err, subagent.ErrQueueFull), errors.Is(err, kitannotation.ErrCapacity):
 		status = http.StatusTooManyRequests
 		message = err.Error()
 	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):

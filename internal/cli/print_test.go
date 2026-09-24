@@ -287,6 +287,11 @@ func (c *fakeBoundSession) VCSStatus(context.Context) (protocol.SessionVCSStatus
 	return protocol.SessionVCSStatus{}, nil
 }
 
+func (c *fakeBoundSession) WatchVCS(ctx context.Context, _ func(protocol.SessionVCSStatus)) error {
+	<-ctx.Done()
+	return ctx.Err()
+}
+
 func (c *fakeBoundSession) ChangeCWD(context.Context, string) (protocol.SessionInfo, error) {
 	return protocol.SessionInfo{}, errors.New("unexpected cwd change")
 }

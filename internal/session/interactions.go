@@ -36,7 +36,7 @@ var (
 	ErrInteractionCapacity = errors.New("session has too many pending interactions")
 )
 
-// InteractionKind identifies one server-owned model-user request.
+// InteractionKind identifies one server-owned user interaction.
 type InteractionKind string
 
 const (
@@ -75,18 +75,31 @@ type InteractionQuestion struct {
 	Options  []InteractionOption
 }
 
+// PluginInteractionOwner identifies one session-local plugin generation.
+type PluginInteractionOwner struct {
+	PluginID string
+	Instance string
+}
+
 // InteractionRequest is the canonical pending request projected to clients.
 type InteractionRequest struct {
-	ID         string
-	SessionID  string
-	RunID      string
-	ToolCallID string
-	Kind       InteractionKind
-	Title      string
-	Detail     string
-	Options    []InteractionOption
-	Questions  []InteractionQuestion
-	CreatedAt  time.Time
+	Plugin       *PluginInteractionOwner
+	ConfirmLabel string
+	CancelLabel  string
+	DefaultValue *bool
+	Placeholder  string
+	InitialValue string
+	Filterable   *bool
+	ID           string
+	SessionID    string
+	RunID        string
+	ToolCallID   string
+	Kind         InteractionKind
+	Title        string
+	Detail       string
+	Options      []InteractionOption
+	Questions    []InteractionQuestion
+	CreatedAt    time.Time
 }
 
 // InteractionAnswer is one renderer response to a guided question.
@@ -114,11 +127,14 @@ type interactionSettlement struct {
 }
 
 type pendingInteraction struct {
-	request InteractionRequest
-	result  chan interactionSettlement
+	ctx       context.Context
+	available func() bool
+	request   InteractionRequest
+	result    chan interactionSettlement
 }
 
 type interactionBroker struct {
+	closed    bool
 	mu        sync.Mutex
 	pending   []*pendingInteraction
 	settled   []string
@@ -135,18 +151,34 @@ func (b *interactionBroker) snapshot() []InteractionRequest {
 	defer b.mu.Unlock()
 	requests := make([]InteractionRequest, 0, len(b.pending))
 	for _, pending := range b.pending {
-		requests = append(requests, cloneInteractionRequest(pending.request))
+		if pending.active() {
+			requests = append(requests, cloneInteractionRequest(pending.request))
+		}
 	}
 	return requests
 }
 
 func (b *interactionBroker) request(ctx context.Context, request InteractionRequest) (interactionSettlement, error) {
+	return b.requestOwned(ctx, request, nil)
+}
+
+func (b *interactionBroker) requestOwned(ctx context.Context, request InteractionRequest, available func() bool) (interactionSettlement, error) {
 	if err := validateInteractionRequest(request); err != nil {
 		return interactionSettlement{}, err
 	}
-	pending := &pendingInteraction{request: cloneInteractionRequest(request), result: make(chan interactionSettlement, 1)}
-	b.lockAuthority()
+	pending := &pendingInteraction{ctx: ctx, available: available, request: cloneInteractionRequest(request), result: make(chan interactionSettlement, 1)}
+	if err := b.lockRequestAuthority(ctx); err != nil {
+		return interactionSettlement{}, err
+	}
 	b.mu.Lock()
+	if b.closed || !pending.active() {
+		b.mu.Unlock()
+		b.unlockAuthority()
+		if ctx.Err() != nil {
+			return interactionSettlement{}, ctx.Err()
+		}
+		return interactionSettlement{}, ErrClosed
+	}
 	if len(b.pending) >= maxPendingInteractions {
 		b.mu.Unlock()
 		b.unlockAuthority()
@@ -161,11 +193,11 @@ func (b *interactionBroker) request(ctx context.Context, request InteractionRequ
 	case settlement := <-pending.result:
 		return settlement, nil
 	case <-ctx.Done():
-		settlement, won := b.settle(request.ID, InteractionResponse{RequestID: request.ID, Cancelled: true}, "run_abort")
-		if won {
-			return settlement, nil
+		reason := "run_abort"
+		if request.Plugin != nil {
+			reason = "unavailable"
 		}
-		return <-pending.result, nil
+		return b.cancelPending(pending, reason), nil
 	}
 }
 
@@ -175,6 +207,11 @@ func (b *interactionBroker) respond(response InteractionResponse) error {
 	index := -1
 	for i, pending := range b.pending {
 		if pending.request.ID == response.RequestID {
+			if !pending.active() {
+				b.mu.Unlock()
+				b.unlockAuthority()
+				return ErrInteractionSettled
+			}
 			index = i
 			if err := validateInteractionResponse(pending.request, response); err != nil {
 				b.mu.Unlock()
@@ -207,8 +244,7 @@ func (b *interactionBroker) respond(response InteractionResponse) error {
 	return nil
 }
 
-func (b *interactionBroker) settle(requestID string, response InteractionResponse, reason string) (interactionSettlement, bool) {
-	b.lockAuthority()
+func (b *interactionBroker) settleUnderAuthority(requestID string, response InteractionResponse, reason string) (interactionSettlement, bool) {
 	b.mu.Lock()
 	index := -1
 	for i, pending := range b.pending {
@@ -219,7 +255,6 @@ func (b *interactionBroker) settle(requestID string, response InteractionRespons
 	}
 	if index < 0 {
 		b.mu.Unlock()
-		b.unlockAuthority()
 		return interactionSettlement{}, false
 	}
 	pending := b.pending[index]
@@ -228,7 +263,6 @@ func (b *interactionBroker) settle(requestID string, response InteractionRespons
 	b.mu.Unlock()
 	settlement := interactionSettlement{response: cloneInteractionResponse(response), reason: reason}
 	b.emit(NewEvent{SessionID: pending.request.SessionID, TurnID: pending.request.RunID, RunID: pending.request.RunID, Kind: EventInteractionResolved, InteractionID: pending.request.ID, InteractionResolution: reason})
-	b.unlockAuthority()
 	pending.result <- settlement
 	return settlement, true
 }
@@ -236,6 +270,7 @@ func (b *interactionBroker) settle(requestID string, response InteractionRespons
 // cancelAll is called while the runtime authority lock is held.
 func (b *interactionBroker) cancelAll(reason string) {
 	b.mu.Lock()
+	b.closed = true
 	pending := b.pending
 	b.pending = nil
 	b.mu.Unlock()
@@ -278,6 +313,18 @@ func ptrInteractionRequest(request InteractionRequest) *InteractionRequest {
 }
 
 func cloneInteractionRequest(request InteractionRequest) InteractionRequest {
+	if request.Plugin != nil {
+		owner := *request.Plugin
+		request.Plugin = &owner
+	}
+	if request.DefaultValue != nil {
+		value := *request.DefaultValue
+		request.DefaultValue = &value
+	}
+	if request.Filterable != nil {
+		value := *request.Filterable
+		request.Filterable = &value
+	}
 	request.Options = append([]InteractionOption(nil), request.Options...)
 	request.Questions = append([]InteractionQuestion(nil), request.Questions...)
 	for i := range request.Questions {
@@ -287,9 +334,25 @@ func cloneInteractionRequest(request InteractionRequest) InteractionRequest {
 }
 
 func cloneInteractionResponse(response InteractionResponse) InteractionResponse {
+	if response.Confirmed != nil {
+		value := *response.Confirmed
+		response.Confirmed = &value
+	}
+	if response.Value != nil {
+		value := *response.Value
+		response.Value = &value
+	}
 	if response.Answers != nil {
 		answers := make(map[string]InteractionAnswer, len(response.Answers))
 		for id, answer := range response.Answers {
+			if answer.Text != nil {
+				value := *answer.Text
+				answer.Text = &value
+			}
+			if answer.Boolean != nil {
+				value := *answer.Boolean
+				answer.Boolean = &value
+			}
 			answer.OptionIDs = append([]string(nil), answer.OptionIDs...)
 			answers[id] = answer
 		}
@@ -309,8 +372,18 @@ func responseReason(response InteractionResponse) string {
 }
 
 func validateInteractionRequest(request InteractionRequest) error {
-	if !identifier.Valid(request.ID, "interaction_") || request.SessionID == "" || request.RunID == "" || request.ToolCallID == "" || request.CreatedAt.IsZero() {
+	if !identifier.Valid(request.ID, "interaction_") || request.SessionID == "" || request.CreatedAt.IsZero() {
 		return fmt.Errorf("%w: interaction identities and creation time are required", ErrInvalidInput)
+	}
+	if request.Plugin == nil {
+		if request.RunID == "" || request.ToolCallID == "" {
+			return fmt.Errorf("%w: interaction model ownership is required", ErrInvalidInput)
+		}
+	} else if request.RunID != "" || request.ToolCallID != "" || !validPluginInteractionOwner(*request.Plugin) || request.Kind == InteractionGuided {
+		return fmt.Errorf("%w: invalid plugin interaction ownership", ErrInvalidInput)
+	}
+	if err := validateInteractionPresentation(request); err != nil {
+		return err
 	}
 	if !boundedInteractionText(request.Title, maxInteractionTitleBytes, true) || !boundedInteractionText(request.Detail, maxInteractionDetailBytes, false) {
 		return fmt.Errorf("%w: interaction title or detail is invalid", ErrInvalidInput)
@@ -395,7 +468,7 @@ func validateInteractionResponse(request InteractionRequest, response Interactio
 			return fmt.Errorf("%w: confirmation answer is invalid", ErrInvalidInput)
 		}
 	case InteractionInput:
-		if response.Value == nil || !boundedInteractionText(*response.Value, maxInteractionAnswerBytes, true) || response.Confirmed != nil || response.SelectedOptionID != "" || len(response.Answers) != 0 {
+		if response.Value == nil || !boundedInteractionText(*response.Value, maxInteractionAnswerBytes, request.Plugin == nil) || response.Confirmed != nil || response.SelectedOptionID != "" || len(response.Answers) != 0 {
 			return fmt.Errorf("%w: input answer is invalid", ErrInvalidInput)
 		}
 	case InteractionSelect:
@@ -720,4 +793,57 @@ func modelOptionsSchema() map[string]any {
 }
 func guidedQuestionsSchema() map[string]any {
 	return map[string]any{"type": "array", "minItems": 1, "maxItems": maxGuidedQuestions, "items": map[string]any{"type": "object", "properties": map[string]any{"id": map[string]any{"type": "string", "minLength": 1, "maxLength": 128}, "prompt": map[string]any{"type": "string", "minLength": 1, "maxLength": maxInteractionTitleBytes}, "detail": map[string]any{"type": "string", "maxLength": maxInteractionDetailBytes}, "kind": map[string]any{"type": "string", "enum": []string{"text", "select", "multiselect", "boolean"}}, "required": map[string]any{"type": "boolean"}, "options": modelOptionsSchema()}, "required": []string{"id", "prompt", "kind"}, "additionalProperties": false}}
+}
+
+func (p *pendingInteraction) active() bool {
+	return (p.ctx == nil || p.ctx.Err() == nil) && (p.available == nil || p.available())
+}
+
+// A plugin handler must remain cancellable while runtime shutdown owns authority.
+// Keep the short authority mutex; bounded polling avoids spawning lock waiters
+// that can outlive the RPC or deadlock plugin cleanup under runtime shutdown.
+func (b *interactionBroker) lockRequestAuthority(ctx context.Context) error {
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if b.authority == nil {
+		return nil
+	}
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		if b.authority.TryLock() {
+			return nil
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-ticker.C:
+		}
+	}
+}
+
+func (b *interactionBroker) cancelPending(pending *pendingInteraction, reason string) interactionSettlement {
+	ticker := time.NewTicker(time.Millisecond)
+	defer ticker.Stop()
+	for {
+		select {
+		case result := <-pending.result:
+			return result
+		default:
+		}
+		if b.authority == nil || b.authority.TryLock() {
+			result, won := b.settleUnderAuthority(pending.request.ID, InteractionResponse{RequestID: pending.request.ID, Cancelled: true}, reason)
+			b.unlockAuthority()
+			if won {
+				return result
+			}
+			return <-pending.result
+		}
+		select {
+		case result := <-pending.result:
+			return result
+		case <-ticker.C:
+		}
+	}
 }

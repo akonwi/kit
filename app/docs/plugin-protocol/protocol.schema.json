@@ -89,6 +89,30 @@
 				},
 				"dirty": {
 					"type": "boolean"
+				},
+				"pullRequest": {
+					"oneOf": [{ "$ref": "#/$defs/GitPullRequest" }, { "type": "null" }]
+				}
+			},
+			"additionalProperties": false
+		},
+		"GitPullRequest": {
+			"type": "object",
+			"required": [
+				"number",
+				"url"
+			],
+			"properties": {
+				"number": {
+					"type": "integer",
+					"minimum": 1,
+					"maximum": 9007199254740991
+				},
+				"url": {
+					"type": "string",
+					"minLength": 1,
+					"maxLength": 4096,
+					"pattern": "^https?://"
 				}
 			},
 			"additionalProperties": false

@@ -147,16 +147,20 @@ func blockedGitEnvironmentKey(key string) bool {
 }
 
 type cappedBuffer struct {
-	bytes.Buffer
+	buffer   bytes.Buffer
 	limit    int
 	overflow bool
 }
 
+// Keep bytes.Buffer unexported: promoting ReadFrom would bypass Write
+// limits when os/exec copies subprocess output with io.Copy.
+func (b *cappedBuffer) String() string { return b.buffer.String() }
+
 func (b *cappedBuffer) Write(value []byte) (int, error) {
 	length := len(value)
-	remaining := b.limit - b.Len()
+	remaining := b.limit - b.buffer.Len()
 	if remaining > 0 {
-		_, _ = b.Buffer.Write(value[:min(remaining, length)])
+		_, _ = b.buffer.Write(value[:min(remaining, length)])
 	}
 	if length > remaining {
 		b.overflow = true

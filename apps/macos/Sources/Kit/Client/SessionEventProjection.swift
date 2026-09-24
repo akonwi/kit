@@ -19,7 +19,7 @@ struct SessionEventProjection {
     init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
             activeRunID: snapshot.activeRunId, replayAvailable: snapshot.eventReplayAvailable == true,
-            pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.runId == snapshot.activeRunId }.map(\.id)))
+            pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.runId == snapshot.activeRunId }.map(\.id)))
         if snapshot.activeRunId == nil && session.terminalError == nil { session.terminalError = terminalError }
     }
 
@@ -88,13 +88,13 @@ struct SessionEventProjection {
             session.annotations?.removeAll { ids.contains($0.id) }
         case "run.started":
             session.activeCompactionID = nil
-            if activeRunID != event.runId { pendingInteractions.removeAll(); session.pendingInteractions = [] }
+            if activeRunID != event.runId { retainPluginInteractions() }
             activeRunID = event.runId
             session.terminalError = nil
             session.activity = "Working…"
         case "interaction.requested":
             guard let interaction = event.interaction else { throw ClientError.invalidPayload }
-            if interaction.runId == activeRunID {
+            if interaction.plugin != nil || interaction.runId == activeRunID {
                 pendingInteractions.insert(interaction.id)
                 var requests = session.pendingInteractions ?? []
                 requests.removeAll { $0.id == interaction.id }
@@ -199,8 +199,7 @@ struct SessionEventProjection {
             session.providerRetryAt = nil
             session.providerRetryCount = nil
             activeRunID = nil
-            pendingInteractions.removeAll()
-            session.pendingInteractions = []
+            retainPluginInteractions()
             session.activity = nil
             text.removeAll(); thinking.removeAll(); thinkingTools.removeAll(); activeAssistant = nil
         case "compaction.started":
@@ -226,7 +225,13 @@ struct SessionEventProjection {
         session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
     }
 
+    private mutating func retainPluginInteractions() {
+        session.pendingInteractions = (session.pendingInteractions ?? []).filter { $0.plugin != nil }
+        pendingInteractions = Set((session.pendingInteractions ?? []).map(\.id))
+    }
+
     private static func status(runID: String?, pending: Set<String>) -> SessionTabStatus {
+        if !pending.isEmpty { return .awaitingResponse }
         guard runID != nil else { return .idle }
         return pending.isEmpty ? .running : .awaitingResponse
     }

@@ -27,7 +27,7 @@ private final class StalledResponse: URLProtocol, @unchecked Sendable {
         Self.counts.record(url.port!, stopped: false)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url,
             statusCode: url.port == 18001 ? 503 : 200, httpVersion: nil,
-            headerFields: ["Content-Type": "application/json"])!, cacheStoragePolicy: .notAllowed)
+            headerFields: ["Content-Type": url.port == 18003 ? "application/x-ndjson" : "application/json"])!, cacheStoragePolicy: .notAllowed)
         client?.urlProtocol(self, didLoad: Data("{".utf8))
     }
     override func stopLoading() {
@@ -59,6 +59,17 @@ struct HTTPResourceTests {
         try await waitFor { StalledResponse.counts.value(18001).stopped == 20 }
         #expect(StalledResponse.counts.value(18001).started == 20)
         #expect(StalledResponse.counts.value(18001).stopped == 20)
+        withExtendedLifetime(client) {}
+    }
+
+    @Test func cancellationClosesIdlePluginNotificationsWhileClientIsRetained() async throws {
+        let client = try client(18003)
+        let task = Task { try await client.watchPluginNotifications("session_one") { _ in Issue.record("Partial frame delivered") } }
+        try await waitFor { StalledResponse.counts.value(18003).started == 1 }
+        task.cancel()
+        try await waitFor { StalledResponse.counts.value(18003).stopped == 1 }
+        _ = await task.result
+        #expect(StalledResponse.counts.value(18003).stopped == 1)
         withExtendedLifetime(client) {}
     }
 

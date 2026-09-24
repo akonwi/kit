@@ -292,11 +292,25 @@ JSON-RPC 2.0 over newline-delimited stdio, a language-neutral manifest, schemas
 as normative wire artifacts, stderr for diagnostics, and no shell wrapping of
 launch commands.
 
-Each running session initially owns its plugin process instances. Process
-identity is effectively `(session ID, plugin ID)`. This preserves v1's
-single-session context and keeps tool and UI operations unambiguous. A future
-protocol may multiplex explicit session contexts through daemon-wide plugin
-processes.
+Each loaded session runtime owns its plugin process instances. Process identity
+is effectively `(session ID, plugin ID)`, including user-installed plugins.
+Plugin instance state and contributions are session-local, not application-wide.
+Client session switches do not retarget plugin instances. The initial protocol
+keeps a single-session context; application-wide instances and daemon-wide
+multiplexing are deferred.
+
+Plugin processes continue running while their session runtime remains loaded,
+even when no clients are attached and the session is idle. Client detachment
+is not plugin shutdown. This preserves tools, policies, and background plugin
+work independently of client lifetime; it does not guarantee persistence of
+plugin memory across runtime disposal, process restart, or daemon restart.
+
+On a session cwd change, its user-plugin processes remain alive and receive a
+project-change event. Kit removes the old project plugins' contributions and
+shuts down those processes, then discovers and initializes project plugins for
+the new cwd. Other sessions' plugin instances are unaffected. Automatic loading,
+nonblocking startup, headless behavior, and client routing are specified in
+[ADR 0026](0026-scope-plugin-processes-and-route-plugin-ui.md).
 
 Plugin resilience initially means isolation and graceful degradation:
 

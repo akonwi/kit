@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
@@ -180,6 +181,112 @@ func (c *localSession) SubagentEvents(ctx context.Context, conversationID, strea
 
 func (c *localSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
 	return c.transport.GetSessionVCSStatus(ctx, c.id)
+}
+
+const vcsStreamIdleLimit = 45 * time.Second
+
+// WatchVCS consumes one fresh server-pushed VCS stream. Reconnection policy is
+// owned by the attachment; this adapter only classifies terminal failures.
+func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.SessionVCSStatus)) error {
+	body, err := c.transport.StreamSessionVCS(ctx, c.id)
+	if err != nil {
+		return classifyVCSWatchError(err)
+	}
+	watched, stop := watchVCSStreamIdle(ctx, body, vcsStreamIdleLimit)
+	defer stop()
+	err = readBoundVCS(ctx, watched, c.id, receive)
+	if ctx.Err() != nil {
+		return ctx.Err()
+	}
+	if err == nil {
+		return nil
+	}
+	var terminal *sessionclient.VCSWatchTerminalError
+	if errors.As(err, &terminal) {
+		return err
+	}
+	var frame *daemon.VCSFrameError
+	if errors.As(err, &frame) {
+		return &sessionclient.VCSWatchTerminalError{Err: err}
+	}
+	return err
+}
+
+func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive func(protocol.SessionVCSStatus)) error {
+	return daemon.ReadSessionVCS(body, func(status protocol.SessionVCSStatus) error {
+		if status.SessionID != sessionID {
+			return &sessionclient.VCSWatchTerminalError{Err: fmt.Errorf("daemon session VCS stream identity mismatch")}
+		}
+		if ctx.Err() != nil {
+			return ctx.Err()
+		}
+		receive(status)
+		return nil
+	})
+}
+
+func classifyVCSWatchError(err error) error {
+	if errors.Is(err, daemon.ErrIncompatibleDaemon) {
+		return &sessionclient.VCSWatchTerminalError{Err: err}
+	}
+	var frame *daemon.VCSFrameError
+	if errors.As(err, &frame) {
+		return &sessionclient.VCSWatchTerminalError{Err: err}
+	}
+	var apiError *daemon.APIError
+	if errors.As(err, &apiError) {
+		switch apiError.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+			return &sessionclient.VCSWatchTerminalError{Err: err}
+		}
+	}
+	return err
+}
+
+// watchVCSStreamIdle closes a connection after three missed server heartbeats.
+func watchVCSStreamIdle(ctx context.Context, body io.ReadCloser, limit time.Duration) (io.Reader, func()) {
+	activity := &vcsActivityReader{source: body}
+	activity.last.Store(time.Now().UnixNano())
+	done := make(chan struct{})
+	var stopped atomic.Bool
+	stop := func() {
+		if stopped.CompareAndSwap(false, true) {
+			close(done)
+		}
+		_ = body.Close()
+	}
+	go func() {
+		ticker := time.NewTicker(limit / 4)
+		defer ticker.Stop()
+		for {
+			select {
+			case <-ctx.Done():
+				_ = body.Close()
+				return
+			case <-done:
+				return
+			case <-ticker.C:
+				if time.Since(time.Unix(0, activity.last.Load())) > limit {
+					_ = body.Close()
+					return
+				}
+			}
+		}
+	}()
+	return activity, stop
+}
+
+type vcsActivityReader struct {
+	source io.Reader
+	last   atomic.Int64
+}
+
+func (r *vcsActivityReader) Read(p []byte) (int, error) {
+	n, err := r.source.Read(p)
+	if n > 0 {
+		r.last.Store(time.Now().UnixNano())
+	}
+	return n, err
 }
 
 func (c *localSession) FileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
@@ -1111,4 +1218,10 @@ func reduceAssistantMessageID(current string, event protocol.SessionEvent) (stri
 		}
 	}
 	return current, nil
+}
+
+var _ sessionclient.PluginCommandSession = (*localSession)(nil)
+
+func (c *localSession) ExecutePluginCommand(ctx context.Context, input protocol.PluginCommandInput) error {
+	return c.transport.ExecutePluginCommand(ctx, c.id, input)
 }

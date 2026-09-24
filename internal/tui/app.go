@@ -204,6 +204,12 @@ type appState struct {
 	cancel                  context.CancelFunc
 	attachmentCtx           context.Context
 	attachmentCancel        context.CancelFunc
+	pluginCommandCancel     context.CancelFunc
+	pluginCommandGeneration uint64
+	pluginCommandID         string
+	pluginCommandToastID    uint64
+	pluginToastWatchCancel  context.CancelFunc
+	pluginToastIDs          map[uint64]bool
 	runWatchCancel          context.CancelFunc
 	runWatchID              string
 	runWatchGeneration      uint64
@@ -254,10 +260,10 @@ type appState struct {
 	session                          protocol.SessionInfo
 	bound                            sessionclient.Session
 	location                         string
+	pluginFooter                     *protocol.PluginFooter
 	locationBase                     string
 	vcsStatus                        *protocol.VCSStatus
-	vcsContext                       context.Context
-	vcsCancel                        context.CancelFunc
+	vcs                              *vcsMonitor
 	sessionDrafts                    map[string]string
 	sessionDraftAttachments          map[string][]stagedAttachment
 	sessionDraftAttachmentIDs        map[string][]string
@@ -963,6 +969,21 @@ func scrollControllerPinnedToEnd(controller *ui.ScrollController) bool {
 }
 
 func (s *appState) resetAttachmentContext() {
+	if s.pluginToastWatchCancel != nil {
+		s.pluginToastWatchCancel()
+		s.pluginToastWatchCancel = nil
+	}
+	s.clearPluginToasts()
+	if s.pluginCommandToastID != 0 {
+		s.dismissToast(s.pluginCommandToastID)
+		s.pluginCommandToastID = 0
+	}
+	if s.pluginCommandCancel != nil {
+		s.pluginCommandCancel()
+		s.pluginCommandCancel = nil
+	}
+	s.pluginCommandGeneration++
+	s.setPluginCommandPending("")
 	if s.runWatchCancel != nil {
 		s.runWatchCancel()
 		s.runWatchCancel = nil
@@ -1150,6 +1171,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BrowserInstructions:          s.browserInstructions,
 		Remaining:                    s.remaining,
 		Location:                     s.location,
+		LocationURL:                  footerPullRequestURL(s.vcsStatus),
+		LocationLinkText:             footerPullRequestText(s.vcsStatus),
+		PluginFooter:                 s.pluginFooter,
 		Toasts:                       s.toasts.Snapshot(),
 	}
 	callbacks := shellCallbacks{
@@ -2186,7 +2210,10 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 		s.session = snapshot.Session
 		s.session.Name, s.session.CWD = name, cwd
 	}
-	s.palette.SetContributions(promptPaletteCommands(snapshot.PromptCommands), s.hasActiveWork())
+	if !s.snapshotMetadataStale(snapshot) {
+		s.pluginFooter = snapshot.PluginFooter
+	}
+	s.palette.SetContributions(s.sessionPaletteCommands(snapshot), s.hasActiveWork())
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
@@ -2194,7 +2221,7 @@ func (s *appState) applySessionMetadataSnapshot(snapshot protocol.SessionSnapsho
 	if !staleMetadata {
 		s.annotations = append([]protocol.AnnotationSummary(nil), snapshot.Annotations...)
 	}
-	if s.liveSequence == 0 || (snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor >= s.liveSequence) {
+	if !staleMetadata && (s.liveSequence == 0 || (snapshot.EventStreamID == s.metadataStreamID && snapshot.EventCursor >= s.liveSequence)) {
 		s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
 		s.reconcileInputOwner()
 		s.agentFeedbackPending = len(s.pendingInteractions) > 0
@@ -2245,6 +2272,18 @@ func (s *appState) applySessionMetadataBaseline(snapshot protocol.SessionSnapsho
 	s.session.CWD = snapshot.Session.CWD
 	s.metadataStreamID = snapshot.EventStreamID
 	s.metadataSequence = snapshot.EventCursor
+	if s.liveSequence == 0 || snapshot.EventStreamID != s.liveStreamID || snapshot.EventCursor >= s.liveSequence {
+		s.pendingInteractions = append([]protocol.InteractionRequest(nil), snapshot.PendingInteractions...)
+		s.agentFeedbackPending = len(s.pendingInteractions) > 0
+		s.reconcileInputOwner()
+	}
+	// Contributions are live metadata even while transcript/run snapshots defer.
+	if !s.snapshotMetadataStale(snapshot) {
+		s.pluginFooter = snapshot.PluginFooter
+	}
+	s.palette.SetContributions(s.sessionPaletteCommands(snapshot), s.hasActiveWork())
+	s.subagentDefinitions = append([]protocol.SubagentDefinition(nil), snapshot.SubagentDefinitions...)
+	s.applySubagentDiagnostics(snapshot.Session.ID, snapshot.SubagentDiagnostics)
 	s.reconcileScratchpad(snapshot.Scratchpad)
 	s.sessionExplorer.ApplyExternalRename(snapshot.Session.ID, snapshot.Session.Name)
 }
@@ -2264,12 +2303,10 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		messages = append(messages, s.liveMessages...)
 		previousActivitySource, _ = transcriptActivitySource(presentTranscript(messages).Items, s.activitySourceID)
 	}
-	commands := make([]paletteCommand, 0, len(snapshot.PromptCommands)+1)
-	if _, ok := s.bound.(sessionclient.ScratchpadSession); ok {
-		commands = append(commands, scratchpadPaletteCommand())
+	if !s.snapshotMetadataStale(snapshot) {
+		s.pluginFooter = snapshot.PluginFooter
 	}
-	commands = append(commands, promptPaletteCommands(snapshot.PromptCommands)...)
-	s.palette.SetContributions(commands, s.hasActiveWork())
+	s.palette.SetContributions(s.sessionPaletteCommands(snapshot), s.hasActiveWork())
 	s.reconcileScratchpad(snapshot.Scratchpad)
 	s.applySubagentSnapshot(snapshot)
 	if snapshot.Session.ID != "" {
@@ -2806,7 +2843,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				}
 			}
 		case protocol.SessionEventInteractionRequested:
-			if event.Interaction != nil {
+			if event.Interaction != nil && event.Interaction.Plugin == nil {
 				found := false
 				for _, pending := range s.pendingInteractions {
 					if pending.ID == event.Interaction.ID {
@@ -2822,6 +2859,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				s.setTurnActivity("Waiting for feedback…")
 			}
 		case protocol.SessionEventInteractionResolved:
+			if event.RunID == "" {
+				continue
+			}
 			for index := range s.pendingInteractions {
 				if s.pendingInteractions[index].ID == event.InteractionID {
 					s.pendingInteractions = append(s.pendingInteractions[:index], s.pendingInteractions[index+1:]...)
@@ -3143,6 +3183,13 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		case protocol.SessionEventSessionRenamed:
 			s.session.Name = event.SessionName
 			s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
+		case protocol.SessionEventInteractionRequested, protocol.SessionEventInteractionResolved:
+			// Model interactions are applied by the run watcher. Giving each
+			// ownership domain one event writer prevents delayed replay from
+			// reopening a dialog already resolved by the other watcher.
+			if event.RunID == "" {
+				s.applyInteractionMetadataEvent(event)
+			}
 		case protocol.SessionEventScratchpadChanged:
 			s.reconcileScratchpad(event.Scratchpad)
 		case protocol.SessionEventSessionCWDChanged:
@@ -3163,7 +3210,7 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 
 func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
 	switch kind {
-	case protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged, protocol.SessionEventScratchpadChanged,
+	case protocol.SessionEventInteractionRequested, protocol.SessionEventInteractionResolved, protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged, protocol.SessionEventScratchpadChanged,
 		protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
 		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
 		return true
@@ -3193,6 +3240,7 @@ func shouldApplyAttachedSnapshot(runPending bool, activeRunID, snapshotRunID str
 }
 
 func (s *appState) watchAttachedSession(bound sessionclient.Session, operation uint64) {
+	s.watchPluginToasts(bound, operation)
 	watcher, ok := bound.(sessionclient.SessionEventWatcher)
 	if !ok {
 		return
@@ -3409,8 +3457,6 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							s.refreshLocation(changedCWD)
 							s.startVCSMonitoring()
 							s.refreshFileIndex(runtime)
-						} else if vcsRefreshNeeded(batch) {
-							s.refreshVCSStatus()
 						}
 					}
 				})
@@ -3887,14 +3933,29 @@ func (s *appState) movePaletteSelection(delta int) {
 func (s *appState) runPaletteQuery(ctx ui.EventContext, query string) {
 	command, ok := s.palette.Selected(s.hasActiveWork(), query)
 	if !ok {
+		if strings.HasPrefix(string(s.palette.Selection), "plugin:") {
+			s.showToast(stalePluginCommandToast())
+		}
 		return
 	}
 	s.runPaletteCommand(ctx, command.ID)
 }
 
 func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteCommandID) {
-	if !s.palette.Open || !paletteCommandExists(commandID, s.palette.Contributions) {
+	if !s.palette.Open {
 		return
+	}
+	if !paletteCommandExists(commandID, s.palette.Contributions) {
+		if strings.HasPrefix(string(commandID), "plugin:") {
+			s.showToast(stalePluginCommandToast())
+		}
+		return
+	}
+	for _, command := range s.palette.Contributions {
+		if command.ID == commandID && command.Plugin != nil {
+			s.runPluginPaletteCommand(*command.Plugin, pluginPaletteArgs(s.palette.Query))
+			return
+		}
 	}
 	if toast, disabled := paletteCommandDisabledToast(commandID, s.hasActiveWork()); disabled {
 		s.showToast(toast)
@@ -5264,6 +5325,7 @@ func (s *appState) reloadSession() {
 	}
 	bound := s.bound
 	operation := s.operation
+	metadataStream := s.metadataStreamID
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.reloadPending = true
@@ -5290,7 +5352,7 @@ func (s *appState) reloadSession() {
 				s.reloadPending = false
 				s.status = ""
 				if snapshotErr == nil {
-					s.applySessionMetadataSnapshot(snapshot)
+					s.applyPostReloadSnapshot(snapshot, metadataStream)
 				}
 				if s.runPending {
 					s.status = "esc abort · ctrl+c detach"
@@ -5299,6 +5361,16 @@ func (s *appState) reloadSession() {
 			s.showToast(reloadToast(result, reloadErr, snapshotErr))
 		})
 	}()
+}
+
+// A reload result may rotate metadata identity before the watcher catches up.
+// Adopt that authoritative baseline only if another stream has not superseded
+// the attachment's pre-reload baseline while the snapshot callback was queued.
+func (s *appState) applyPostReloadSnapshot(snapshot protocol.SessionSnapshot, previousStream string) {
+	if s.metadataStreamID == previousStream || s.metadataStreamID == snapshot.EventStreamID {
+		s.applySessionMetadataBaseline(snapshot)
+	}
+	s.applySessionMetadataSnapshot(snapshot)
 }
 
 func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr error) toastInput {
@@ -6518,4 +6590,28 @@ func cloneProviders(input map[string]bool) map[string]bool {
 		output[provider] = available
 	}
 	return output
+}
+
+func (s *appState) applyInteractionMetadataEvent(event protocol.SessionEvent) {
+	switch event.Kind {
+	case protocol.SessionEventInteractionRequested:
+		if event.Interaction == nil {
+			return
+		}
+		for _, pending := range s.pendingInteractions {
+			if pending.ID == event.Interaction.ID {
+				return
+			}
+		}
+		s.pendingInteractions = append(s.pendingInteractions, *event.Interaction)
+	case protocol.SessionEventInteractionResolved:
+		for index, pending := range s.pendingInteractions {
+			if pending.ID == event.InteractionID {
+				s.pendingInteractions = append(s.pendingInteractions[:index], s.pendingInteractions[index+1:]...)
+				break
+			}
+		}
+	}
+	s.agentFeedbackPending = len(s.pendingInteractions) > 0
+	s.reconcileInputOwner()
 }

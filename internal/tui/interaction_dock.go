@@ -41,6 +41,7 @@ func (interactionDock) CreateState() ui.State { return &interactionDockState{} }
 type interactionDockState struct {
 	ui.StateBase
 	requestID    string
+	detailScroll ui.ScrollController
 	value        string
 	step         int
 	answers      map[string]protocol.InteractionAnswer
@@ -53,7 +54,8 @@ type interactionDockState struct {
 func (s *interactionDockState) DidUpdateWidget(ui.Widget) {
 	request := s.Widget().(interactionDock).Request
 	if request.ID != s.requestID {
-		s.requestID, s.value, s.step, s.optionOffset, s.optionCursor, s.submitting = request.ID, "", 0, 0, 0, false
+		s.requestID, s.value, s.step, s.optionOffset, s.optionCursor, s.submitting = request.ID, request.InitialValue, 0, 0, 0, false
+		s.detailScroll = ui.ScrollController{}
 		s.answers = nil
 		s.selected = make(map[string]bool)
 	}
@@ -64,12 +66,17 @@ func (s *interactionDockState) Build(ctx ui.BuildContext) ui.Widget {
 	request := widget.Request
 	if s.requestID != request.ID {
 		s.requestID = request.ID
+		s.value = request.InitialValue
 		s.selected = make(map[string]bool)
 	}
 	theme := ui.MustDepend[ui.Theme](ctx)
 	children := []ui.Widget{s.header(theme, request, widget.QueueLength)}
 	if request.Detail != "" {
-		children = append(children, ui.Text{Value: request.Detail, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true, MaxLines: 2})
+		if request.Plugin != nil {
+			children = append(children, ui.SizedBox{Height: 3, Child: ui.Scrollbar{Child: ui.ScrollView{Controller: &s.detailScroll, Child: markdownView{ID: request.ID, Source: request.Detail, BaseStyle: ui.Style{Foreground: theme.MutedForeground}}}}})
+		} else {
+			children = append(children, ui.Text{Value: request.Detail, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true, MaxLines: 2})
+		}
 	}
 	children = append(children, ui.SizedBox{Height: 1}, s.body(theme, request, widget.OnRespond), ui.SizedBox{Height: 1})
 	cancel := func(event ui.EventContext) {
@@ -92,10 +99,14 @@ func (s *interactionDockState) Build(ctx ui.BuildContext) ui.Widget {
 			hint = "↑↓ move · space toggle · enter continue · esc cancel"
 		}
 	}
-	children = append(children, ui.Flex{Axis: ui.Horizontal, MainAxisAlignment: ui.MainAxisEnd, Children: []ui.Widget{
-		ui.Text{Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.SizedBox{Width: 2}, plainButton{Label: "Cancel", OnPressed: cancel},
-	}})
+	if request.Plugin != nil && request.Kind == protocol.InteractionConfirm {
+		hint = "y confirm · n cancel · tab switch · enter choose · esc cancel"
+	}
+	footer := []ui.Widget{ui.Text{Value: hint, Style: ui.Style{Foreground: theme.MutedForeground}}}
+	if request.Plugin == nil || request.Kind != protocol.InteractionConfirm {
+		footer = append(footer, ui.SizedBox{Width: 2}, plainButton{Label: "Cancel", OnPressed: cancel})
+	}
+	children = append(children, ui.Flex{Axis: ui.Horizontal, MainAxisAlignment: ui.MainAxisEnd, Children: footer})
 	actions := map[ui.IntentType]ui.ActionFunc{
 		inputTargetIntent{}.IntentType(): inputTargetAction(inputInteraction),
 		insertPasteIntent{}.IntentType(): func(event ui.EventContext, intent ui.Intent) ui.EventResult {
@@ -164,8 +175,14 @@ func (s *interactionDockState) Build(ctx ui.BuildContext) ui.Widget {
 
 func (s *interactionDockState) header(theme ui.Theme, request protocol.InteractionRequest, queueLength int) ui.Widget {
 	meta := ""
+	if request.Plugin != nil {
+		meta = request.Plugin.PluginID
+	}
 	if queueLength > 1 {
-		meta = fmt.Sprintf("1 of %d", queueLength)
+		if meta != "" {
+			meta += " " + glyphMiddleDot + " "
+		}
+		meta += fmt.Sprintf("1 of %d", queueLength)
 	}
 	return ui.Flex{Axis: ui.Horizontal, MainAxisAlignment: ui.MainAxisSpaceBetween, Children: []ui.Widget{
 		ui.Text{Value: request.Title, Style: ui.Style{Foreground: theme.Foreground, Attribute: ui.AttrBold}},
@@ -179,21 +196,25 @@ func (s *interactionDockState) body(theme ui.Theme, request protocol.Interaction
 		choose := func(event ui.EventContext, value bool) {
 			s.respond(event, respond, protocol.InteractionResponse{RequestID: request.ID, Confirmed: &value})
 		}
+		if request.Plugin != nil {
+			return pluginConfirmationChoices(request, s.Widget().(interactionDock).Suspended, choose)
+		}
 		return booleanChoices(choose)
 	case protocol.InteractionInput:
-		return ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: "Type a response", AutoFocus: !s.Widget().(interactionDock).Suspended,
+		return ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{textInput(theme, textInputConfig{Value: s.value, Placeholder: interactionPlaceholder(request, "Type a response"), AutoFocus: !s.Widget().(interactionDock).Suspended,
 			OnChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.value = value }) },
 			OnSubmitted: func(event ui.EventContext, value string) {
-				if strings.TrimSpace(value) == "" {
+				if request.Plugin == nil && strings.TrimSpace(value) == "" {
 					return
 				}
 				s.respond(event, respond, protocol.InteractionResponse{RequestID: request.ID, Value: &value})
 			},
 		})}}
 	case protocol.InteractionSelect:
-		return s.optionButtons(theme, request.Options, func(event ui.EventContext, value string) {
+		choose := func(event ui.EventContext, value string) {
 			s.respond(event, respond, protocol.InteractionResponse{RequestID: request.ID, SelectedOptionID: value})
-		})
+		}
+		return s.optionButtons(theme, request.Options, choose)
 	case protocol.InteractionGuided:
 		return s.guidedBody(theme, request, respond)
 	default:
@@ -587,4 +608,40 @@ func (s *interactionDockState) HandleEvent(ctx ui.EventContext, event ui.Event) 
 		return ui.EventHandled
 	}
 	return ui.EventIgnored
+}
+
+func interactionPlaceholder(request protocol.InteractionRequest, fallback string) string {
+	if request.Placeholder != "" {
+		return request.Placeholder
+	}
+	return fallback
+}
+
+type interactionConfirmButton struct {
+	ID, Label string
+	Default   bool
+	OnPressed ui.VoidCallback
+}
+
+func (w interactionConfirmButton) WidgetKey() ui.KeyValue { return ui.KeyValue(w.ID) }
+func (w interactionConfirmButton) Build(ui.BuildContext) ui.Widget {
+	return ui.FocusScope{AutoFocus: w.Default, Child: plainButton{Label: w.Label, OnPressed: w.OnPressed}}
+}
+
+func pluginConfirmationChoices(request protocol.InteractionRequest, suspended bool, choose func(ui.EventContext, bool)) ui.Widget {
+	yes, no := "Confirm", "Cancel"
+	if request.ConfirmLabel != "" {
+		yes = request.ConfirmLabel
+	}
+	if request.CancelLabel != "" {
+		no = request.CancelLabel
+	}
+	defaultYes := request.DefaultValue != nil && *request.DefaultValue
+	return ui.Actions{Bindings: map[ui.IntentType]ui.ActionFunc{chooseInteractionBooleanIntent{}.IntentType(): func(event ui.EventContext, intent ui.Intent) ui.EventResult {
+		choose(event, intent.(chooseInteractionBooleanIntent).Value)
+		return ui.EventHandled
+	}}, Child: keyShortcuts{Bindings: ui.ShortcutMap{"y": chooseInteractionBooleanIntent{Value: true}, "Y": chooseInteractionBooleanIntent{Value: true}, "n": chooseInteractionBooleanIntent{Value: false}, "N": chooseInteractionBooleanIntent{Value: false}}, Child: ui.Row(
+		interactionConfirmButton{ID: request.ID + ":confirm", Label: yes, Default: defaultYes && !suspended, OnPressed: func(event ui.EventContext) { choose(event, true) }}, ui.SizedBox{Width: 1},
+		interactionConfirmButton{ID: request.ID + ":cancel", Label: no, Default: !defaultYes && !suspended, OnPressed: func(event ui.EventContext) { choose(event, false) }},
+	)}}
 }

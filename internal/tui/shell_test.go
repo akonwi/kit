@@ -463,7 +463,7 @@ func TestInteractionEventsDriveFeedbackState(t *testing.T) {
 	if !state.agentFeedbackPending || state.turnActivity != "Waiting for feedback…" {
 		t.Fatalf("requested interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, Kind: protocol.SessionEventInteractionResolved, InteractionID: request.ID, InteractionResolution: "answered"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, RunID: "run_one", Kind: protocol.SessionEventInteractionResolved, InteractionID: request.ID, InteractionResolution: "answered"}})
 	if state.agentFeedbackPending || state.turnActivity != "Working…" {
 		t.Fatalf("resolved interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
 	}

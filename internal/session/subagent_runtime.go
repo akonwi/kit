@@ -19,6 +19,9 @@ import (
 
 // ChildRuntimeFactory constructs isolated persistent droids for subagent conversations.
 type ChildRuntimeFactory struct {
+	// PluginInterceptors must be set before the supervisor starts. Child tools
+	// use their owning session policy rather than bypassing it.
+	PluginInterceptors func(context.Context, string) (PluginInterceptorHost, error)
 	providers          droids.Providers
 	bundleBuilder      RuntimeBundleBuilder
 	directory          string
@@ -109,10 +112,27 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 		_ = store.Close()
 		return nil, fmt.Errorf("resolve child model: %w", err)
 	}
-	droid, err := droids.Spawn(ctx, droids.ConversationID(conversation.ID), droids.Config{
+	var interception *pluginInterceptorBridge
+	if f.PluginInterceptors != nil {
+		host, err := f.PluginInterceptors(ctx, conversation.OwnerSessionID)
+		if err != nil {
+			_ = store.Close()
+			return nil, err
+		}
+		if host != nil {
+			interception = &pluginInterceptorBridge{}
+			interception.binding.Store(&pluginInterceptorBinding{host: host})
+		}
+	}
+	config := droids.Config{
 		Store: store, Model: model,
 		Reasoning: conversation.ThinkingLevel, SystemPrompt: systemPrompt, Tools: bundle.Tools,
-	})
+	}
+	if interception != nil {
+		config.BeforeToolCall = interception.before
+		config.BeforeToolCallIdentity = interception.identity
+	}
+	droid, err := droids.Spawn(ctx, droids.ConversationID(conversation.ID), config)
 	if err != nil {
 		_ = store.Close()
 		return nil, fmt.Errorf("open child droid: %w", err)

@@ -14,6 +14,10 @@ private actor DirectoryClient: SessionDirectoryClient {
     func vcs(_ session: String) async throws -> WireSessionVCSStatus {
         WireSessionVCSStatus(sessionId: session, cwd: "/tmp", status: nil)
     }
+    func watchVCS(_ session: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {
+        await receive(try await vcs(session))
+        try await Task.sleep(for: .seconds(60))
+    }
     func changeDirectory(_ session: String, input: WireChangeCWDInput) async throws -> SessionExcerpt {
         inputs.append(input)
         if loseFirst && inputs.count == 1 { throw ClientError.disconnected }

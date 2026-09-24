@@ -190,6 +190,13 @@ func (event NewEvent) Validate() error {
 			}
 			seen[id] = struct{}{}
 		}
+	} else if (event.Kind == EventInteractionRequested || event.Kind == EventInteractionResolved) && event.RunID == "" {
+		if event.TurnID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
+			return fmt.Errorf("invalid session interaction identity")
+		}
+		if event.Kind == EventInteractionRequested && (event.Interaction == nil || event.Interaction.Plugin == nil) {
+			return fmt.Errorf("session interaction requires plugin ownership")
+		}
 	} else {
 		if event.TurnID == "" || event.RunID == "" {
 			return fmt.Errorf("turn and run ids are required")
@@ -1077,4 +1084,12 @@ func assistantPresentation(message droids.AssistantMessage) (string, string) {
 		}
 	}
 	return strings.Join(textParts, "\n"), strings.Join(thinkingParts, "\n")
+}
+
+// identity reads the current stream under event-log authority. Plugin changes
+// may invalidate the stream independently of runtime mutation locks.
+func (log *eventLog) identity() string {
+	log.mu.Lock()
+	defer log.mu.Unlock()
+	return log.streamID
 }

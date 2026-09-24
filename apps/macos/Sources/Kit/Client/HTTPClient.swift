@@ -9,7 +9,7 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
-final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -392,6 +392,98 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard reply.aborting else { throw ClientError.invalidPayload }
     }
 
+    /// Blocks on the server-pushed repository-status stream: latest snapshot
+    /// first, then deduplicated latest-only updates, with blank heartbeats.
+    /// Reconnection is the caller's policy; every frame is re-validated and
+    /// sanitized at this boundary before delivery.
+    func watchVCS(_ id: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {
+        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
+        let (bytes, response) = try await session.bytes(for: request("v1/sessions/" + id + "/vcs/events"))
+        defer { bytes.task.cancel() }
+        try await withTaskCancellationHandler {
+            try check(response)
+            guard response.mimeType == "application/x-ndjson" else { throw ClientError.invalidPayload }
+            var frame = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                if byte == 10 {
+                    if frame.last == 13 { frame.removeLast() }
+                    if !frame.isEmpty {
+                        await receive(try VCSStreamFrame.decode(frame, session: id))
+                    }
+                    frame.removeAll(keepingCapacity: true)
+                } else {
+                    // Contract bounds one frame to 64KiB.
+                    guard frame.count < 64 * 1024 - 1 else { throw ClientError.oversized }
+                    frame.append(byte)
+                }
+            }
+            // A truncated frame is not an update; never deliver partial data.
+            if !frame.isEmpty { throw ClientError.invalidPayload }
+            throw ClientError.disconnected
+        } onCancel: { bytes.task.cancel() }
+    }
+
+    func watchPluginNotifications(_ id: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws {
+        guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
+        let (bytes, response) = try await session.bytes(for: request("v1/sessions/" + id + "/plugin-toasts"))
+        defer { bytes.task.cancel() }
+        try await withTaskCancellationHandler {
+            try check(response)
+            guard response.mimeType == "application/x-ndjson" else { throw ClientError.invalidPayload }
+            var frame = Data()
+            for try await byte in bytes {
+                try Task.checkCancellation()
+                if byte == 10 {
+                    if frame.last == 13 { frame.removeLast() }
+                    if !frame.isEmpty { await receive(try PluginNotification.decode(frame)) }
+                    frame.removeAll(keepingCapacity: true)
+                } else {
+                    guard frame.count < 32 * 1024 - 1 else { throw ClientError.oversized }
+                    frame.append(byte)
+                }
+            }
+            // A truncated frame is not an event; never deliver partial data.
+            if !frame.isEmpty { throw ClientError.invalidPayload }
+            throw ClientError.disconnected
+        } onCancel: { bytes.task.cancel() }
+    }
+
+    func executePluginCommand(_ id: String, input: WirePluginCommandInput) async throws {
+        guard !id.isEmpty, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
+              PluginCommand.validSelection(id: input.id, instance: input.instance), input.args.utf8.count <= 64 * 1024,
+              !input.args.contains("\0") else { throw MutationNotSent(reason: "Invalid plugin command or arguments.") }
+        var request = try request("v1/sessions/" + id + "/plugin-commands")
+        request.httpMethod = "POST"
+        request.timeoutInterval = 120
+        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        request.httpBody = try JSONEncoder().encode(input)
+        let (bytes, response) = try await session.bytes(for: request)
+        defer { bytes.task.cancel() }
+        try await withTaskCancellationHandler {
+            guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
+            var data = Data()
+            for try await byte in bytes {
+                guard data.count < 16 * 1024 else { throw ClientError.oversized }
+                data.append(byte)
+            }
+            if response.statusCode == 204 {
+                guard data.isEmpty else { throw ClientError.invalidPayload }
+                return
+            }
+            if response.statusCode == 409 || response.statusCode == 422 {
+                guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
+                      Set(envelope.keys) == ["error"], let error = envelope["error"] as? [String: Any],
+                      Set(error.keys) == ["code", "message"], let code = error["code"] as? String,
+                      let message = error["message"] as? String, !message.isEmpty,
+                      code == (response.statusCode == 409 ? "plugin_command_unavailable" : "plugin_command_failed"),
+                      PluginCommand.safeText(message, limit: 1024) else { throw ClientError.invalidPayload }
+                throw PluginCommandFailure(unavailable: response.statusCode == 409)
+            }
+            throw ClientError.http(response.statusCode)
+        } onCancel: { bytes.task.cancel() }
+    }
+
     func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireRunReservation {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               PromptCommand.validName(input.name), (input.args?.utf8.count ?? 0) <= 128 * 1024,
@@ -464,7 +556,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
         let result: WireSessionVCSStatus = try await get("v1/sessions/" + id + "/vcs")
         guard result.sessionId == id, result.cwd.hasPrefix("/") else { throw ClientError.invalidPayload }
-        return result
+        return PullRequestLink.sanitized(result)
     }
 
     func models() async throws -> [WireModelCapability] {

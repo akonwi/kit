@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
@@ -25,6 +26,10 @@ type ToolService struct {
 	Supervisor           *Supervisor
 	Owners               OwnerResolver
 	ResolveConfiguration func(context.Context, string, string) (string, string, error)
+
+	catalogMu              sync.RWMutex
+	pluginCatalogNext      uint64
+	pluginCatalogProviders map[string]pluginCatalogProvider
 }
 
 // Tool creates one owner-bound tool over an immutable definition catalog.
@@ -42,9 +47,58 @@ func (s *ToolService) Tool(ownerSessionID string, catalog Catalog) (droids.AnyTo
 		Parameters:  modelToolParameters(),
 		Mode:        droids.ModeSequential,
 		Execute: func(ctx context.Context, _ droids.ToolContext, arguments toolArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
-			return s.execute(ctx, ownerSessionID, copied, arguments), nil
+			catalog, err := s.effectiveCatalog(ownerSessionID, copied)
+			if err != nil {
+				result := droids.ToolText(err.Error())
+				result.IsError = true
+				return result, nil
+			}
+			return s.execute(ctx, ownerSessionID, catalog, arguments), nil
 		},
 	})
+}
+
+type pluginCatalogProvider struct {
+	generation uint64
+	read       func() (Catalog, error)
+}
+
+// RegisterPluginCatalogProvider installs one session runtime's authoritative
+// applied contribution source. Cleanup cannot remove a replacement generation.
+func (s *ToolService) RegisterPluginCatalogProvider(sessionID string, provider func() (Catalog, error)) (func(), error) {
+	if s == nil || strings.TrimSpace(sessionID) == "" || provider == nil {
+		return nil, errors.New("plugin subagent catalog provider is required")
+	}
+	s.catalogMu.Lock()
+	if s.pluginCatalogProviders == nil {
+		s.pluginCatalogProviders = make(map[string]pluginCatalogProvider)
+	}
+	s.pluginCatalogNext++
+	generation := s.pluginCatalogNext
+	s.pluginCatalogProviders[sessionID] = pluginCatalogProvider{generation: generation, read: provider}
+	s.catalogMu.Unlock()
+	return func() {
+		s.catalogMu.Lock()
+		defer s.catalogMu.Unlock()
+		if current, ok := s.pluginCatalogProviders[sessionID]; ok && current.generation == generation {
+			delete(s.pluginCatalogProviders, sessionID)
+		}
+	}, nil
+}
+
+func (s *ToolService) effectiveCatalog(sessionID string, base Catalog) (Catalog, error) {
+	s.catalogMu.RLock()
+	provider := s.pluginCatalogProviders[sessionID]
+	s.catalogMu.RUnlock()
+	definitions := base.Definitions()
+	if provider.read != nil {
+		pluginCatalog, err := provider.read()
+		if err != nil {
+			return Catalog{}, err
+		}
+		definitions = append(definitions, pluginCatalog.Definitions()...)
+	}
+	return NewCatalog(definitions...)
 }
 
 func modelToolParameters() map[string]any {

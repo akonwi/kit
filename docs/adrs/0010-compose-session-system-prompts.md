@@ -73,12 +73,10 @@ The effective prompt is assembled from named sections in this order:
 1. the core prompt;
 2. guidance registered by available built-in features;
 3. the available-skill catalog and its activation guidance;
-4. stable prompt slots owned by active session plugins, when plugin support is
-   available; and
-5. session context files.
+4. session context files.
 
 Empty sections are omitted. Sections are separated by two newlines. Feature and
-plugin contributions have stable identities and deterministic order; prompt
+tool-owned contributions have stable identities and deterministic order; prompt
 ordering must not depend on goroutine completion or map iteration. The composer
 is immutable after construction: a bundle build supplies one complete set of
 request-scoped sections rather than mutating a shared section registry. Removing

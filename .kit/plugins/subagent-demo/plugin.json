@@ -1,0 +1,6 @@
+{
+  "manifestVersion": 1,
+  "id": "subagent-demo",
+  "name": "Subagent Demo",
+  "transport": { "type": "stdio", "command": "python3", "args": ["-u", "plugin.py"] }
+}

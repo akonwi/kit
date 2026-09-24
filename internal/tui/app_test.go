@@ -87,9 +87,10 @@ func TestSessionMetadataBaselineReplacesEventStreamAuthority(t *testing.T) {
 	}
 	state.applySessionMetadataBaseline(protocol.SessionSnapshot{
 		Session: protocol.SessionInfo{ID: "session_1", Name: "Authoritative"}, EventStreamID: "stream_new", EventCursor: 0,
+		SubagentDefinitions: []protocol.SubagentDefinition{{Name: "demo.reviewer", Description: "Reviews"}},
 	})
-	if state.session.Name != "Authoritative" || state.metadataStreamID != "stream_new" || state.metadataSequence != 0 {
-		t.Fatalf("metadata baseline = session:%+v stream:%q sequence:%d", state.session, state.metadataStreamID, state.metadataSequence)
+	if state.session.Name != "Authoritative" || state.metadataStreamID != "stream_new" || state.metadataSequence != 0 || len(state.subagentDefinitions) != 1 || state.subagentDefinitions[0].Name != "demo.reviewer" {
+		t.Fatalf("metadata baseline = session:%+v stream:%q sequence:%d subagents:%+v", state.session, state.metadataStreamID, state.metadataSequence, state.subagentDefinitions)
 	}
 }
 
@@ -1501,6 +1502,7 @@ type fakeSession struct {
 	snapshot   protocol.SessionSnapshot
 	snapshotFn func() protocol.SessionSnapshot
 	vcsStatus  func(context.Context) (protocol.SessionVCSStatus, error)
+	watchVCS   func(context.Context, func(protocol.SessionVCSStatus)) error
 	reload     func(context.Context) (protocol.ReloadSessionResult, error)
 	configure  func(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	compact    func(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
@@ -1532,6 +1534,14 @@ func (s fakeSession) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, 
 		return s.vcsStatus(ctx)
 	}
 	return protocol.SessionVCSStatus{SessionID: s.id, CWD: s.snapshot.Session.CWD}, nil
+}
+
+func (s fakeSession) WatchVCS(ctx context.Context, receive func(protocol.SessionVCSStatus)) error {
+	if s.watchVCS != nil {
+		return s.watchVCS(ctx, receive)
+	}
+	<-ctx.Done()
+	return ctx.Err()
 }
 
 func (s fakeSession) ChangeCWD(_ context.Context, target string) (protocol.SessionInfo, error) {

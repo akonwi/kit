@@ -15,10 +15,12 @@ struct CommandPalette: View {
     @State private var renaming = false
     @State private var query = ""
     @State private var selection = 0
+    @State private var selectedIdentity: String?
+    @State private var pluginSelection: PluginCommand?
     @FocusState private var focused: Bool
 
     private var actions: [PaletteCommand] {
-        PaletteCommand.catalog(dark: theme.dark)
+        (PaletteCommand.catalog(dark: theme.dark) + PaletteCommand.pluginCatalog(state.pluginCommands))
             .filter { state.isDemo || !$0.demoOnly }
             .filter { $0.id != "Open Scratchpad" || state.canOpenScratchpad }
             .filter { $0.id != "Dispose temporary session" || state.isTemporary }
@@ -27,7 +29,9 @@ struct CommandPalette: View {
 
     var body: some View {
         Group {
-            if reloading {
+            if let command = pluginSelection {
+                PluginCommandArguments(state: state, command: command) { pluginSelection = nil }
+            } else if reloading {
                 SessionReloadView(state: state) { reloading = false }
             } else if showingDetails {
                 SessionDetailsView(state: state) { showingDetails = false }
@@ -69,11 +73,14 @@ struct CommandPalette: View {
             }
             ScrollViewReader { proxy in
             ScrollView { VStack(spacing: 0) { ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
-                Button { selection = index; performSelected() } label: {
+                Button { selection = index; selectedIdentity = action.id; performSelected() } label: {
                     HStack(spacing: 12) {
                         Image(systemName: action.icon).frame(width: 18)
                         VStack(alignment: .leading, spacing: 3) {
-                            Text(action.name).font(.kit(size: 13, weight: .medium))
+                            HStack {
+                                Text(action.name).font(.kit(size: 13, weight: .medium))
+                                if let hint = action.plugin?.argName { Text("<" + hint + ">").font(.kit(size: 12)).foregroundStyle(theme.muted) }
+                            }
                             Text(action.description).font(.kit(size: 12)).foregroundStyle(theme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
                         }
@@ -107,14 +114,25 @@ struct CommandPalette: View {
                 do { try await Task.sleep(for: .milliseconds(100)) } catch { return }
                 focused = true
             }
-        .onChange(of: query) { selection = 0 }
-        .onKeyPress(.downArrow) { selection = min(selection + 1, max(0, actions.count - 1)); return .handled }
-        .onKeyPress(.upArrow) { selection = max(0, selection - 1); return .handled }
+        .onChange(of: query) { selection = 0; selectedIdentity = actions.first?.id }
+        .onAppear {
+            if let selectedIdentity { selection = actions.firstIndex { $0.id == selectedIdentity } ?? -1 }
+            else if actions.indices.contains(selection) { selectedIdentity = actions[selection].id }
+        }
+        .onChange(of: actions.map(\.id)) {
+            // Keep the selected generation, not its previous numeric row. A
+            // removed generation requires a fresh pointer or arrow selection.
+            if let selectedIdentity, let index = actions.firstIndex(where: { $0.id == selectedIdentity }) { selection = index }
+            else { selection = -1; selectedIdentity = nil }
+        }
+        .onKeyPress(.downArrow) { selection = min(selection + 1, max(0, actions.count - 1)); selectedIdentity = actions.indices.contains(selection) ? actions[selection].id : nil; return .handled }
+        .onKeyPress(.upArrow) { selection = max(0, selection - 1); selectedIdentity = actions.indices.contains(selection) ? actions[selection].id : nil; return .handled }
         .onExitCommand { state.ui.palette = false }
     }
 
     private func unavailableReason(_ name: String) -> String? {
-        switch name {
+        if name.hasPrefix("plugin:") { return state.pluginCommandUnavailableReason }
+        return switch name {
         case "compact": state.compactionUnavailableReason
         case "Reload session context": state.reloadUnavailableReason
         case "Change working directory": state.directoryUnavailableReason
@@ -126,7 +144,15 @@ struct CommandPalette: View {
 
     private func performSelected() {
         guard actions.indices.contains(selection) else { return }
-        let name = actions[selection].id
+        let action = actions[selection]
+        guard selectedIdentity == action.id else { return }
+        if let command = action.plugin {
+            guard state.pluginCommandUnavailableReason == nil else { return }
+            focused = false
+            pluginSelection = command
+            return
+        }
+        let name = action.id
         if name == "compact" {
             guard state.compactionUnavailableReason == nil else { return }
             state.compactionOperation.beginNewIfResolved()

@@ -35,6 +35,15 @@ clients show each newly encountered diagnostic as a persistent warning toast;
 the roster also retains the current warning count. Reload the session context
 to apply changed definitions to an already loaded parent.
 
+Session plugins may also register live definitions. Their canonical names are
+`<plugin-id>.<local-id>` and their roster source identifies the owning plugin.
+Filesystem definitions take precedence over a conflicting canonical name.
+Registration and removal update the next model request and subsequent subagent
+dispatch without requiring reload. Removing or losing a plugin definition stops
+new child creation but does not abort or rewrite an existing durable conversation,
+which retains its snapshotted definition and normal inspect, message, wait,
+cancel, and dismiss operations.
+
 ## Model tool
 
 The parent receives one `subagent` tool with these actions:

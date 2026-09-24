@@ -25,12 +25,16 @@ const (
 )
 
 type sdkRuntime struct {
-	droid         *Droid
-	config        Config
-	store         Store
-	provider      Provider
-	conversation  ConversationID
-	requestConfig atomic.Pointer[runtimeRequestConfiguration]
+	droid              *Droid
+	config             Config
+	store              Store
+	provider           Provider
+	conversation       ConversationID
+	requestConfig      atomic.Pointer[runtimeRequestConfiguration]
+	baseRequestConfig  *runtimeRequestConfiguration
+	modelRequestConfig *runtimeRequestConfiguration
+	additionalTools    []AnyTool
+	additionalPrompt   string
 
 	mu                    sync.Mutex
 	abortMu               sync.Mutex
@@ -264,6 +268,7 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 		subs: make(map[*sdkSubscription]struct{}),
 	}
 	d.sdk = rt
+	rt.baseRequestConfig = requestConfig
 	rt.requestConfig.Store(requestConfig)
 
 	rt.mu.Lock()
@@ -621,6 +626,9 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	}
 	handle := newSDKExecution(rt, turnID)
 	rt.handle = handle
+	if rt.config.TurnStarted != nil {
+		rt.config.TurnStarted(turnID)
+	}
 	rt.startRunLocked()
 	return handle, nil
 }
@@ -1754,6 +1762,9 @@ func (rt *sdkRuntime) settleLocked(ctx context.Context, status ExecutionStatus, 
 		return err
 	}
 	rt.releaseRunLocked()
+	if rt.config.TurnSettled != nil {
+		rt.config.TurnSettled(rt.state.TurnID)
+	}
 	if rt.handle != nil {
 		rt.handle.complete(outcomeFromState(rt.conversation, rt.state))
 	}

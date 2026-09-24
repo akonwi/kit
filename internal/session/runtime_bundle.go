@@ -227,13 +227,7 @@ func (m *Manager) SubagentDefinitions(ctx context.Context, sessionID string) (su
 	}
 	loaded.mu.Lock()
 	defer loaded.mu.Unlock()
-	catalog, err := subagent.NewCatalog(loaded.bundle.Subagents.Catalog.Definitions()...)
-	if err != nil {
-		return subagent.LoadResult{}, err
-	}
-	return subagent.LoadResult{
-		Catalog: catalog, Diagnostics: append([]subagent.Diagnostic(nil), loaded.bundle.Subagents.Diagnostics...),
-	}, nil
+	return loaded.pluginContributions.snapshot(), nil
 }
 
 // PromptMetadata is the provenance and non-fatal diagnostics for the prompt
