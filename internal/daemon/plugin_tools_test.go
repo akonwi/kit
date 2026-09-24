@@ -34,6 +34,14 @@ func (p *pluginToolProviders) Resolve(id string) (droids.Model, error) {
 	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
 func (p *pluginToolProviders) Stream(_ context.Context, _ droids.Model, request droids.Request) droids.Stream {
+	// Background naming requests have no tools and must not consume a pending
+	// plugin call or overwrite observations from the session's tool requests.
+	if len(request.Tools) == 0 {
+		return &daemonEchoStream{final: droids.AssistantMessage{
+			Provider: "test", Model: "echo", StopReason: droids.StopReasonStop,
+			Content: []droids.AssistantContent{droids.TextContent{Text: "Plugin echo test"}},
+		}}
+	}
 	p.toolMu.Lock()
 	defer p.toolMu.Unlock()
 	p.ready = false
@@ -60,6 +68,21 @@ func (p *pluginToolProviders) Stream(_ context.Context, _ droids.Model, request 
 	}
 	return &daemonEchoStream{final: response}
 }
+func TestPluginToolProviderIgnoresToollessRequests(t *testing.T) {
+	providers := &pluginToolProviders{
+		ready: true, execute: true,
+		received: "previous result", guidance: "plugin guidance",
+	}
+	stream := providers.Stream(t.Context(), droids.Model{}, droids.Request{SystemPrompt: "Generate a title"})
+	if response := stream.(*daemonEchoStream).final; response.StopReason != droids.StopReasonStop {
+		t.Fatalf("tool-free request response = %#v", response)
+	}
+	if !providers.ready || !providers.execute || providers.received != "previous result" || providers.guidance != "plugin guidance" {
+		t.Fatalf("tool-free request changed plugin observations: ready=%v execute=%v received=%q guidance=%q",
+			providers.ready, providers.execute, providers.received, providers.guidance)
+	}
+}
+
 func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("Python fixture requires python3")

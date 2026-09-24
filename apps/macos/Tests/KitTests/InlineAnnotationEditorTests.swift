@@ -39,7 +39,7 @@ private struct InlineAnnotationClient: AnnotationClient {
             if let input = input(in: host), window.firstResponder === input { return input }
             try await Task.sleep(for: .milliseconds(20))
         }
-        let input = try #require(input(in: host), sourceLocation: sourceLocation)
+        let input = try #require(Self.input(in: host), sourceLocation: sourceLocation)
         try #require(window.firstResponder === input, sourceLocation: sourceLocation)
         return input
     }

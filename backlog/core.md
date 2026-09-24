@@ -128,14 +128,12 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-HEAD-001 — Define headless-safe behavior for built-ins, MCP, and
   unavailable user interactions.
 - [ ] CORE-HEAD-002 — Verify SIGINT/SIGTERM cleanup and documented exit codes.
-- [ ] CORE-TEST-001 — Pass the full Go build, vet, test, and race-detector gates
-  required by `AGENTS.md`. The default-home switch validation passes build, vet,
-  and ordinary tests. A full race rerun also passes, but earlier race validation
-  reproduced an intermittent failure in
-  `TestPluginToolFixtureReachesModelAndDurableTranscript`: the shared fake provider
-  observes the title-generation request and returns `tool-demo__echo` not found.
-  The fixture uses an explicit temporary home; isolate naming requests from its
-  tool-execution state and rerun the race gate.
+- [~] CORE-TEST-001 — Pass the full Go build, vet, test, and race-detector gates
+  required by `AGENTS.md`. Native CI runs these gates on Linux and macOS, plus
+  the terminal-input smoke test. The plugin-tool fixture now isolates tool-free
+  naming requests from its tool-execution state, with regression coverage.
+  Local build, vet, full tests, and race tests pass, including 20 repeated
+  race-enabled plugin-tool tests. Confirm the corrected fixtures pass in CI.
 - [ ] CORE-TEST-002 — Cover malformed and adversarial protocol records with fuzz
   or property tests.
 - [~] CORE-TEST-003 — Use isolated production-shaped fixtures to verify in-place
