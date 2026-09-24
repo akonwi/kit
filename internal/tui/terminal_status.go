@@ -31,7 +31,7 @@ const (
 const (
 	terminalStatusFeedbackMarker     = "?"
 	terminalStringTerminator         = "\x1b\\"
-	terminalTitleFrameDuration       = 400 * time.Millisecond
+	terminalTitleFrameDuration       = 160 * time.Millisecond
 	terminalMultiplexerFrameDuration = time.Second
 )
 

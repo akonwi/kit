@@ -12,7 +12,7 @@ feedback   ? kit - <session name> - <cwd basename>
 
 An unnamed session omits the session-name segment. Status markers remain at the
 start so narrow terminal tabs preserve the most important state. While running,
-the leading marker cycles through `⠋ ⠹ ⠼ ⠦ ⠇` every 400 ms. Entering or
+the leading marker cycles through `⠋ ⠹ ⠼ ⠦ ⠇` every 160 ms. Entering or
 resuming running starts from the first frame; feedback stays static so motion
 always means active work.
 

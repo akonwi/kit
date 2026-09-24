@@ -67,9 +67,9 @@ func TestTerminalStatusReporterAnimatesRunningTitleAtBoundedCadence(t *testing.T
 	setTitle := func(title string) { titles = append(titles, title) }
 	started := time.Unix(10, 0)
 	reporter.Update(started, "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(399*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(800*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(159*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(160*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(320*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
 	reporter.Update(started.Add(time.Second), "Animate", "/work/kit", "run_1", terminalStatusFeedback, setTitle)
 	reporter.Update(started.Add(2*time.Second), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
 
@@ -98,8 +98,8 @@ func TestTerminalStatusReporterRestartsAnimationForReplacementRun(t *testing.T) 
 	setTitle := func(title string) { titles = append(titles, title) }
 	started := time.Unix(10, 0)
 	reporter.Update(started, "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(401*time.Millisecond), "Animate", "/work/kit", "run_2", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(160*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(161*time.Millisecond), "Animate", "/work/kit", "run_2", terminalStatusRunning, setTitle)
 
 	want := []string{
 		"⠋ kit - Animate - kit",
@@ -124,9 +124,9 @@ func TestTerminalStatusReporterKeepsAnimationPhaseWhenAdmissionGetsID(t *testing
 	setTitle := func(title string) { titles = append(titles, title) }
 	started := time.Unix(10, 0)
 	reporter.Update(started, "Animate", "/work/kit", "", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(400*time.Millisecond), "Animate", "/work/kit", "", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(401*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
-	reporter.Update(started.Add(800*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(160*time.Millisecond), "Animate", "/work/kit", "", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(161*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
+	reporter.Update(started.Add(320*time.Millisecond), "Animate", "/work/kit", "run_1", terminalStatusRunning, setTitle)
 
 	want := []string{
 		"⠋ kit - Animate - kit",
