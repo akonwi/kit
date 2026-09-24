@@ -1,4 +1,4 @@
-name: Native Go
+name: Unit tests
 
 on:
   pull_request:
@@ -10,12 +10,12 @@ permissions:
   contents: read
 
 concurrency:
-  group: native-go-${{ github.ref }}
+  group: go-tests-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   test:
-    name: Native tests / ${{ matrix.os }}
+    name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 30
     strategy:
