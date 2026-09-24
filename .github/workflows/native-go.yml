@@ -1,0 +1,66 @@
+name: Native Go
+
+on:
+  pull_request:
+  push:
+    branches: [main, kit-v2]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-go-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    name: Native tests / ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest]
+    env:
+      # Native Tree-sitter and the race detector require a C toolchain.
+      CGO_ENABLED: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.x"
+
+      - name: Isolate Kit test state
+        shell: bash
+        run: echo "KIT_HOME=$(mktemp -d "$RUNNER_TEMP/kit-test-home.XXXXXX")" >> "$GITHUB_ENV"
+
+      - name: Check Go formatting
+        shell: bash
+        run: |
+          unformatted=$(git ls-files -z '*.go' | xargs -0 gofmt -l)
+          if [ -n "$unformatted" ]; then
+            printf 'Go files need formatting:\n%s\n' "$unformatted"
+            exit 1
+          fi
+
+      - name: Build
+        run: go build ./...
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test TUI, daemon, and supporting packages
+        run: go test -count=1 ./...
+
+      - name: Test for data races
+        run: go test -race -count=1 ./...
+
+      - name: Test terminal input ownership
+        run: python3 scripts/test-tui-input-ownership.py
