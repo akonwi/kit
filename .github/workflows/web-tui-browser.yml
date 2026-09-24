@@ -3,7 +3,7 @@ name: Browser TUI smoke
 on:
   pull_request:
     paths:
-      - "app/**"
+      - "apps/web/**"
       - "packages/**"
       - "package.json"
       - "bun.lock"
@@ -11,7 +11,7 @@ on:
   push:
     branches: [main]
     paths:
-      - "app/**"
+      - "apps/web/**"
       - "packages/**"
       - "package.json"
       - "bun.lock"
@@ -54,15 +54,15 @@ jobs:
         run: bun run typecheck && bun test packages
 
       - name: Install browser
-        working-directory: app
+        working-directory: apps/web
         run: bunx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Build binary
-        working-directory: app
+        working-directory: apps/web
         run: bun run build
 
       - name: Test browser TUI
-        working-directory: app
+        working-directory: apps/web
         run: bunx playwright test --project=${{ matrix.browser }}
 
       - name: Upload browser artifacts
@@ -70,5 +70,5 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: web-tui-${{ matrix.os }}-${{ matrix.browser }}-results
-          path: app/test-results/web-tui
+          path: apps/web/test-results/web-tui
           if-no-files-found: ignore

@@ -36,7 +36,7 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Verify tag matches package version
-        working-directory: app
+        working-directory: apps/web
         run: |
           PKG_VERSION=$(bun -e "console.log(require('./package.json').version)")
           TAG_VERSION="${GITHUB_REF_NAME#v}"
@@ -46,16 +46,16 @@ jobs:
           fi
 
       - name: Build binary
-        working-directory: app
+        working-directory: apps/web
         run: bun run build
 
       - name: Smoke test
-        working-directory: app
+        working-directory: apps/web
         run: ./dist/kit version
 
       - name: Package tarball
         run: |
-          tar -czf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C app/dist kit runtime
+          tar -czf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C apps/web/dist kit runtime
 
       - uses: actions/upload-artifact@v4
         with:
@@ -88,15 +88,15 @@ jobs:
         run: bun install --frozen-lockfile
 
       - name: Install browser
-        working-directory: app
+        working-directory: apps/web
         run: bunx playwright install --with-deps ${{ matrix.browser }}
 
       - name: Build binary
-        working-directory: app
+        working-directory: apps/web
         run: bun run build
 
       - name: Test browser TUI
-        working-directory: app
+        working-directory: apps/web
         run: bunx playwright test --project=${{ matrix.browser }}
 
       - name: Upload browser artifacts
@@ -104,7 +104,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: release-web-tui-${{ matrix.os }}-${{ matrix.browser }}-results
-          path: app/test-results/web-tui
+          path: apps/web/test-results/web-tui
           if-no-files-found: ignore
 
   release:
@@ -119,9 +119,9 @@ jobs:
           bun-version: latest
 
       - name: Export bundled release notes
-        working-directory: app
+        working-directory: apps/web
         run: |
-          bun -e 'import { CURRENT_RELEASE_NOTES } from "./src/features/releases/current-release.ts"; const notes = CURRENT_RELEASE_NOTES.trim(); if (!notes) throw new Error("Release notes are empty"); await Bun.write("../release-notes.md", `${notes}\n`);'
+          bun -e 'import { CURRENT_RELEASE_NOTES } from "./src/features/releases/current-release.ts"; const notes = CURRENT_RELEASE_NOTES.trim(); if (!notes) throw new Error("Release notes are empty"); await Bun.write("../../release-notes.md", `${notes}\n`);'
 
       - uses: actions/download-artifact@v4
         with:

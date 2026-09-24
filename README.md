@@ -88,5 +88,5 @@ go vet ./...
 go test ./...
 ```
 
-Historical TypeScript application code remains temporarily in `app/` and
+Historical TypeScript application code remains temporarily in `apps/web/` and
 `packages/` as a behavioral reference while native replacements are built.

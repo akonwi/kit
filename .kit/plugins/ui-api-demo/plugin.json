@@ -1,5 +1,5 @@
 {
-  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/manifest.schema.json",
+  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/apps/web/docs/plugin-protocol/manifest.schema.json",
   "manifestVersion": 1,
   "id": "ui-api-demo",
   "name": "Plugin UI Demo",

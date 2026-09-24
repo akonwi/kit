@@ -36,7 +36,7 @@
 		"test:web-tui-browser": "bun run build && playwright test",
 		"pack:dry": "npm pack --dry-run",
 		"prepack": "bun run build",
-		"prepublishOnly": "bun run --cwd .. typecheck && bun run --cwd .. test",
+		"prepublishOnly": "bun run --cwd ../.. typecheck && bun run --cwd ../.. test",
 		"test": "bun test",
 		"typecheck": "tsc --noEmit"
 	},

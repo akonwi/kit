@@ -157,7 +157,7 @@ func TestFooterResourceBoundsAndIdempotentClaims(t *testing.T) {
 }
 
 func TestFooterThemeTokensMatchPublicSchema(t *testing.T) {
-	data, err := os.ReadFile("../../app/docs/plugin-protocol/protocol.schema.json")
+	data, err := os.ReadFile("../../apps/web/docs/plugin-protocol/protocol.schema.json")
 	if err != nil {
 		t.Fatal(err)
 	}

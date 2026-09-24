@@ -89,7 +89,7 @@ If they confirm:
 1. Fix each issue, keeping changes focused
 2. Run pre-commit checks:
    - `bun run typecheck` — zero TypeScript errors
-   - `bun run check` — auto-fix formatting and safe lint fixes (run from the `app/` directory)
+   - `bun run check` — auto-fix formatting and safe lint fixes (run from the `apps/web/` directory)
    - Address remaining Biome warnings (suppress with `// biome-ignore <rule>: <reason>`)
    - Re-run `bun run typecheck` after Biome changes
    - For print mode/headless changes: `bun run smoke:print-mode` from repo root

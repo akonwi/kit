@@ -351,7 +351,7 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   Include the host's eight pending plugin interactions, 64 KiB encoded request
   cap, bounded dialog text/option metadata and raw JSON values, and structured
   interactivity-unavailable errors in the profile before claiming UI conformance.
-  The [native implementation profile](../app/docs/plugin-protocol/native-v2.md)
+  The [native implementation profile](../apps/web/docs/plugin-protocol/native-v2.md)
   now publishes implemented methods, resource bounds, ownership and cancellation,
   live-only toast delivery, unsupported chrome, and explicit conformance gaps.
   The UI fixture documents its native workflow; real daemon tests also cover

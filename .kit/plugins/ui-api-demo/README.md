@@ -24,7 +24,7 @@ failure revokes it. Temporary client absence is not noninteractive mode.
 The automated daemon suite runs this flow, including cancellation, concurrent
 answers, reload, and deletion. The user also confirmed the dialog flow
 works in the TUI on macOS.
-The [native profile](../../../app/docs/plugin-protocol/native-v2.md) describes
+The [native profile](../../../apps/web/docs/plugin-protocol/native-v2.md) describes
 supported methods, bounds, and remaining conformance work.
 
 The macOS app now lists plugin commands in its command palette, with a separate

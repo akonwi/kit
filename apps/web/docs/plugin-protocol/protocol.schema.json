@@ -1,6 +1,6 @@
 {
 	"$schema": "https://json-schema.org/draft/2020-12/schema",
-	"$id": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/protocol.schema.json",
+	"$id": "https://raw.githubusercontent.com/akonwi/kit/main/apps/web/docs/plugin-protocol/protocol.schema.json",
 	"title": "Kit external plugin protocol v1",
 	"description": "Known JSON-RPC messages and reusable payloads for Kit external plugin protocol v1.",
 	"oneOf": [

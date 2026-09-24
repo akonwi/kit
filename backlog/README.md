@@ -19,7 +19,7 @@ to production `main` after that commit must enter the rolling-delta table and be
 assigned to the initial release, a later milestone, or an accepted decision.
 They do not become release requirements implicitly.
 
-Historical documentation in `app/docs/features/` is a behavioral reference,
+Historical documentation in `apps/web/docs/features/` is a behavioral reference,
 not an architectural constraint. The v2 architecture is defined by
 [`docs/adrs/0001-native-go-architecture.md`](../docs/adrs/0001-native-go-architecture.md).
 

@@ -32,9 +32,9 @@ Use this skill to publish a new Kit package release.
    - If the release type is ambiguous, ask the user to choose minor or patch.
 
 4. Update the release notes and `package.json`.
-   - Summarize the user-facing changes being published in `app/src/features/releases/current-release.ts`.
+   - Summarize the user-facing changes being published in `apps/web/src/features/releases/current-release.ts`.
    - These notes are the single source for both the release notes bundled into Kit and the GitHub release body. Write them as standalone GitHub-flavored Markdown without a top-level version heading.
-   - Increment the version in `app/package.json` based on the chosen release type.
+   - Increment the version in `apps/web/package.json` based on the chosen release type.
    - Do not use prerelease versions unless explicitly requested.
 
 5. Run required validation before publishing.
@@ -53,7 +53,7 @@ Use this skill to publish a new Kit package release.
    - If publishing fails, fix the issue when appropriate and retry only after explaining the failure.
 
 7. Commit the version bump and bundled notes.
-   - Stage only `app/package.json` and `app/src/features/releases/current-release.ts`.
+   - Stage only `apps/web/package.json` and `apps/web/src/features/releases/current-release.ts`.
    - Verify the working tree is clean after committing and before tagging so npm, GitHub, and Homebrew builds contain identical notes.
    - Use this exact commit subject format:
      ```text

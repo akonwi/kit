@@ -42,7 +42,7 @@ loaded. Kit does not install dependencies or bundle plugin source.
 
 ```json
 {
-  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/app/docs/plugin-protocol/manifest.schema.json",
+  "$schema": "https://raw.githubusercontent.com/akonwi/kit/main/apps/web/docs/plugin-protocol/manifest.schema.json",
   "manifestVersion": 1,
   "id": "speech",
   "name": "Speech",

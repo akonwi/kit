@@ -5,7 +5,7 @@
     "": {
       "name": "kit-workspace",
     },
-    "app": {
+    "apps/web": {
       "name": "@akonwi/kit",
       "version": "0.33.1",
       "bin": {
@@ -68,7 +68,7 @@
     },
   },
   "packages": {
-    "@akonwi/kit": ["@akonwi/kit@workspace:app"],
+    "@akonwi/kit": ["@akonwi/kit@workspace:apps/web"],
 
     "@akonwi/kit-protocol": ["@akonwi/kit-protocol@workspace:packages/protocol"],
 

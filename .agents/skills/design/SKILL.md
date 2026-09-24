@@ -7,7 +7,7 @@ description: Kit's UI design language and visual standards. Use when building or
 
 Kit's UI is **utilitarian, pleasant, and intuitive**. It should communicate state and available actions clearly without drawing attention to decoration. Every visual choice should improve comprehension, navigation, or feedback.
 
-The legacy reference UI lives in `app/src/`; the native v2 TUI implements the same semantic language with `vaxis/ui`. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
+The legacy reference UI lives in `apps/web/src/`; the native v2 TUI implements the same semantic language with `vaxis/ui`. Browser-specific presentations may reuse the principles while using renderer-appropriate primitives.
 
 ## Root Shell Boundary
 
@@ -66,9 +66,9 @@ Kit does not have a fixed application palette. The system theme is derived at ru
 
 The relevant sources are:
 
-- `app/src/shell/themes/types.ts` — `ThemeTokens`, `SyntaxPalette`, and user-theme shapes
-- `app/src/shell/themes/system.ts` — terminal-derived system theme and fallback palette
-- `app/src/shell/theme.ts` — reactive `theme` store, `syntaxStyle()`, and `scrollbarStyle()`
+- `apps/web/src/shell/themes/types.ts` — `ThemeTokens`, `SyntaxPalette`, and user-theme shapes
+- `apps/web/src/shell/themes/system.ts` — terminal-derived system theme and fallback palette
+- `apps/web/src/shell/theme.ts` — reactive `theme` store, `syntaxStyle()`, and `scrollbarStyle()`
 
 ### Semantic token roles
 
@@ -224,7 +224,7 @@ tmux, or another native terminal workflow.
 
 Native v2 workspace architecture is documented in
 `docs/adrs/0018-retained-native-workspace-shell.md`. The main-worktree
-`app/docs/features/workspace-panes.md` remains a feature reference, not the v2
+`apps/web/docs/features/workspace-panes.md` remains a feature reference, not the v2
 host-layout contract.
 
 ### Registry contract
@@ -416,7 +416,7 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 
 ## Glyphs
 
-All reusable UI glyphs live in `app/src/shell/glyphs.ts`. Import named constants rather than scattering inline Unicode literals. The source file is the complete inventory; this list records important semantics, not every available glyph.
+All reusable UI glyphs live in `apps/web/src/shell/glyphs.ts`. Import named constants rather than scattering inline Unicode literals. The source file is the complete inventory; this list records important semantics, not every available glyph.
 
 - `CHECK` — success or current selection
 - `CROSS` — error or failure

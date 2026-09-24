@@ -4,7 +4,7 @@ Kit exposes release notes in a workspace panel opened from `/release-notes` or t
 
 ## Data sources
 
-The installed version and its notes are bundled in `app/src/features/releases/current-release.ts`, so they remain available offline. Kit checks GitHub's latest-release endpoint at startup. The response body supplies the notes shown for an available update instead of reusing the installed version's bundled notes.
+The installed version and its notes are bundled in `apps/web/src/features/releases/current-release.ts`, so they remain available offline. Kit checks GitHub's latest-release endpoint at startup. The response body supplies the notes shown for an available update instead of reusing the installed version's bundled notes.
 
 Release history is fetched lazily from GitHub when the panel is first opened. Kit fetches and renders three releases at a time; users explicitly load each additional page. Stable, published releases are included, while drafts and prereleases are omitted. Network and API failures are advisory and never interrupt startup. If history cannot be loaded, the installed release remains visible with its bundled notes.
 

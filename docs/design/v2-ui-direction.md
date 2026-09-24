@@ -20,17 +20,17 @@ main-branch source and feature documentation. Captured states included:
 
 Primary source references:
 
-- `app/src/shell/AppShell.tsx`
-- `app/src/shell/HeaderBar.tsx`
-- `app/src/shell/BottomStatusBar.tsx`
-- `app/src/shell/ComposerDock.tsx`
-- `app/src/shell/transcript/`
-- `app/src/shell/WorkspacePaneHost.tsx`
-- `app/src/shell/Dialog.tsx`
-- `app/src/shell/Picker.tsx`
-- `app/src/shell/themes/`
-- `app/src/keymap/`
-- `app/docs/features/`
+- `apps/web/src/shell/AppShell.tsx`
+- `apps/web/src/shell/HeaderBar.tsx`
+- `apps/web/src/shell/BottomStatusBar.tsx`
+- `apps/web/src/shell/ComposerDock.tsx`
+- `apps/web/src/shell/transcript/`
+- `apps/web/src/shell/WorkspacePaneHost.tsx`
+- `apps/web/src/shell/Dialog.tsx`
+- `apps/web/src/shell/Picker.tsx`
+- `apps/web/src/shell/themes/`
+- `apps/web/src/keymap/`
+- `apps/web/docs/features/`
 
 ## Direction workshop 1
 

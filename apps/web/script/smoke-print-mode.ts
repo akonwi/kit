@@ -1,5 +1,5 @@
 // Manual authenticated end-to-end verification for `kit -p`. Keep this matrix
-// aligned with the lifecycle and output guarantees in app/src/app/print-mode.ts.
+// aligned with the lifecycle and output guarantees in apps/web/src/app/print-mode.ts.
 import { existsSync } from "node:fs";
 import {
 	mkdir,
@@ -19,7 +19,7 @@ import {
 	writeSession,
 } from "../src/session";
 
-const repoRoot = path.resolve(import.meta.dir, "../..");
+const repoRoot = path.resolve(import.meta.dir, "../../..");
 const pluginRoot = path.join(
 	repoRoot,
 	".kit",
@@ -41,7 +41,7 @@ const appPreload = path.join(
 	repoRoot,
 	"node_modules/@opentui/solid/scripts/preload.js",
 );
-const appMain = path.join(repoRoot, "app/src/app/main.tsx");
+const appMain = path.join(repoRoot, "apps/web/src/app/main.tsx");
 
 for (const fixturePath of [pluginRoot, subagentPath]) {
 	if (existsSync(fixturePath)) {

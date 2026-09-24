@@ -83,7 +83,7 @@ macOS right-hand slot uses its full allocated width, and its overflow button ope
 a scrollable popover containing the full styled content and visible location. Click
 dispatch and declarative URL actions are explicitly rejected as unsupported
 rather than silently ignored; they are not planned native capabilities. See
-[ADR 0026](../../../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md)
+[ADR 0026](../../../../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md)
 for the supported scope.
 
 Persistent plugin-authored notices remain in host diagnostics. A completed
@@ -293,7 +293,7 @@ lifetime. Hosts without an interaction adapter return `-32000` with
 
 The native daemon installs the shared session interaction adapter for every
 client, including print. There is no separate noninteractive plugin mode and
-none is planned: [ADR 0027](../../../docs/adrs/0027-treat-print-as-an-ordinary-session-client.md)
+none is planned: [ADR 0027](../../../../docs/adrs/0027-treat-print-as-an-ordinary-session-client.md)
 treats print as an ordinary session client. A dialog may remain pending until a
 capable client answers or normal request/instance/runtime cancellation ends it.
 Print mode and temporary absence of clients do not cause automatic rejection or
@@ -346,7 +346,7 @@ gate; portable behavior remains covered by the Go test suite on the platforms
 where that suite runs.
 
 Future extensions beyond this implemented native profile are tracked in
-[the core backlog](../../../backlog/core.md), not implied by the examples.
+[the core backlog](../../../../backlog/core.md), not implied by the examples.
 
 ## Tool-call interception
 

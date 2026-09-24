@@ -8,7 +8,7 @@
  * application produces genuine terminal frames (alternate screen, repaints)
  * rather than static output.
  *
- * Run from app/: bun run script/smoke-web-tui.ts
+ * Run from apps/web/: bun run script/smoke-web-tui.ts
  * Against the compiled binary: KIT_WEB_TUI_SMOKE_BIN=dist/kit bun run script/smoke-web-tui.ts
  */
 
