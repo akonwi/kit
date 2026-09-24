@@ -71,11 +71,15 @@ When adding a requirement:
 
 ## Initial production release contract
 
-The first v2 release replaces the existing installation and production
-`~/.kit` state. It is a local, terminal-first coding agent for macOS and Linux.
-It must provide:
+The first v2 release replaces the existing application installation with native
+Kit. It is a local, terminal-first coding agent for macOS and Linux. The release
+keeps `~/.kit` and reuses compatible configuration in place. Native Kit starts
+with fresh sessions and runtime data; legacy history is left untouched, not
+imported or resumed. Users reauthenticate through the login UX rather than
+running a credential importer. It must provide:
 
-- safe backup and idempotent migration before using production data;
+- configuration reuse, migration documentation and a built-in guidance skill,
+  with legacy runtime data isolated from native storage;
 - one self-contained native executable per supported OS/architecture, with
   reliable local daemon, TUI, and headless modes;
 - durable sessions, transcripts, configuration, concurrent isolation, semantic
@@ -114,6 +118,14 @@ ship in the initial release. It must be resolved before a release candidate.
 - [-] In-process TypeScript plugins are not restored; future custom plugins use
   subprocess RPC.
 - [-] Windows is unsupported.
+- [-] Legacy runtime-data import and session continuation are excluded, not
+  deferred.
+- [-] No `kit migrate` command, automated compatibility scanner, configuration
+  conversion framework, or credential importer is required. Existing users reuse
+  compatible configuration and reauthenticate; a guide and built-in skill cover
+  manual configuration adjustments.
+- [-] npm distribution is discontinued; native Kit supports Homebrew and manual
+  binary installation only.
 - [-] The semantic web client is Post-R1.
 - [-] `CLAUDE.md` context discovery is not restored; Kit uses `AGENTS.md`.
 - [-] Native Tree-sitter highlighting permits CGO under ADR 0021; published
@@ -124,8 +136,10 @@ ship in the initial release. It must be resolved before a release candidate.
 - [~] ROAD-R1-001 — Publish self-contained macOS and Linux arm64/amd64 artifacts
   through a pinned native CGO toolchain matrix with an explicit Linux libc and
   macOS deployment-target policy.
-- [ ] ROAD-R1-002 — Provide a supported install and upgrade path for existing
-  npm-installed users.
+- [ ] ROAD-R1-002 — Provide Homebrew and manual binary installation and upgrade
+  paths for existing npm-installed users. Document npm removal, PATH/version
+  verification, configuration reuse, fresh sessions, and provider/MCP
+  reauthentication; npm is not a native Kit distribution channel.
 - [ ] ROAD-R1-003 — Provide update checks, bounded paginated release history,
   and native release packaging without delaying startup.
 - [ ] ROAD-R1-004 — Verify installed artifacts, upgrades, and local-daemon

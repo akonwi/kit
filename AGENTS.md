@@ -8,8 +8,8 @@ current rewrite architecture is canonical in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
 and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
-During rewrite development, Kit must use `~/.kit-v2` by default. Never read or
-mutate current `~/.kit` state without an explicit migration operation.
+Kit uses `~/.kit` by default. Set `KIT_HOME` to an explicit isolated directory
+for development and tests when production state must not be read or mutated.
 
 ## Design language
 
@@ -30,8 +30,7 @@ uses Solid and Mica at build time and is embedded in the Go executable.
   repository at the commit recorded in its README. There is no implicit
   upstream sync; reconcile changes deliberately.
 - `internal/auth` owns machine-managed provider credentials. Keep auth files
-  private, locked, atomically replaced, and generation-checked; never treat
-  `~/.kit` as the v2 auth source without explicit migration.
+  private, locked, atomically replaced, and generation-checked.
 - Runtime, persistence, protocol, client, and renderer types have distinct
   owners and are projected explicitly.
 - Do not introduce process-global cwd or active-session state.

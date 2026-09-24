@@ -56,8 +56,9 @@ User and project plugins load automatically from their configured discovery
 locations. There is no additional project approval workflow. Plugins execute as
 the same OS user and inherit the launch environment; opening a project with
 plugin manifests authorizes execution of trusted local code, not sandboxed code.
-V2 user discovery uses the resolved v2 home, defaulting to `~/.kit-v2`, and does
-not inspect `~/.kit` without explicit migration.
+User discovery uses the resolved Kit home, defaulting to `~/.kit`. Set
+`KIT_HOME` to an explicit isolated directory when development or tests must not
+use the default home.
 
 Plugin initialization runs in the background without a readiness barrier before
 turns. Model and tool work can begin before plugin initialization and registration

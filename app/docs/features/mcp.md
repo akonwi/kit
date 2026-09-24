@@ -24,7 +24,7 @@ This keeps tool prompt size under control when MCP servers expose many tools.
 
 Kit reads and merges MCP configuration from these locations:
 
-1. `~/.kit-v2/mcp.json` (or `$KIT_HOME/mcp.json`)
+1. `~/.kit/mcp.json` (or `$KIT_HOME/mcp.json`)
 2. `.mcp.json`
 3. `.agents/mcp.json`
 

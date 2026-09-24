@@ -11,7 +11,7 @@ contract. The adjacent
 
 For the native Go rewrite, start with the
 [native v2 implementation profile](../plugin-protocol/native-v2.md): it documents
-implemented methods, `~/.kit-v2` discovery, limits, and outstanding functionality.
+implemented methods, `~/.kit` discovery, limits, and outstanding functionality.
 
 ## Installation layout
 

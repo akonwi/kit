@@ -18,8 +18,8 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 - SQLite for authoritative session/runtime state
 - JSON-RPC child processes for custom plugins written in any language
 
-During rewrite development, Kit stores data under `~/.kit-v2`. Set `KIT_HOME`
-to use another isolated location.
+Kit stores data under `~/.kit` by default. Set `KIT_HOME` to an explicit
+isolated location when developing or testing the rewrite.
 
 ## CLI
 
@@ -70,7 +70,7 @@ managed Claude subscription access token. `OPENCODE_API_KEY` enables the
 `opencode-go/*` model catalog through `https://opencode.ai/zen/go/v1`; models are
 routed to Responses, Chat Completions, or Anthropic Messages according to their
 models.dev metadata. Without explicit provider environment credentials, the
-daemon uses the locked, atomic `~/.kit-v2/auth.json` store and
+daemon uses the locked, atomic `~/.kit/auth.json` store and
 persists refresh-token rotations. Provider environment is read only at daemon
 startup, takes precedence over the file store, and refreshes only in memory, so
 restart the daemon after changing it. Stored login/logout generations are

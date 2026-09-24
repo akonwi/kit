@@ -125,7 +125,7 @@ The scratchpad error contract is:
 - `scratchpad_too_large` (HTTP 413);
 - `scratchpad_revision_conflict` (HTTP 409 with the current record);
 - `scratchpad_revision_exhausted` (HTTP 409);
-- `scratchpad_migration_required` (HTTP 409);
+- `scratchpad_migration_required` (HTTP 409, reserved; no legacy import workflow);
 - `scratchpad_unsupported` (HTTP 409); and
 - `scratchpad_unavailable` (HTTP 503 with no unsanitized storage detail).
 
@@ -335,40 +335,17 @@ and text selection.
 Other renderers use the same scratchpad operations, event semantics, conflict
 language, and local-draft rules while owning renderer-appropriate controls.
 
-### Migration
+### Schema upgrades and legacy isolation
 
-Production migration is the only operation allowed to read scratchpad sidecars
-from `~/.kit`. Before import it creates the required immutable production backup
-under the explicit migration workflow. That backup, not the live v2 scratchpad
-table, preserves legacy source bytes that cannot be consolidated.
+Native SQLite schema upgrades backfill existing native persistent sessions in
+one transaction. Because parent provenance cannot prove semantic-fork lineage,
+each existing row initially points to itself and receives one empty revision-one
+scratchpad. Sharing is not inferred from `ParentSessionID`.
 
-The v2 schema migration backfills existing persistent sessions in one
-transaction. Because parent provenance cannot prove semantic-fork lineage, each
-existing row initially points to itself and receives one empty revision-one
-scratchpad. An explicit migration may merge owners only after verifying canonical
-droid `ForkedFrom` metadata; it never infers sharing from `ParentSessionID`.
-Missing parents, cycles, or inconsistent verified lineage fail reconciliation
-rather than manufacturing ownership.
-
-Production import groups sidecars by migrated root family, canonicalizes and
-validates content, and deduplicates byte-identical values. A family with zero
-non-empty sources retains its empty row; a family with exactly one distinct
-valid non-empty value imports it with a revision increment. Multiple distinct
-non-empty values, unreadable files, invalid content, and oversized content do
-not cause one source to be chosen silently. The family is marked `migration_required`, the
-migration journal records bounded paths, hashes, and diagnostics pointing into
-the backup, and the migration reports that explicit reconciliation is required.
-While marked, reads and writes return `scratchpad_migration_required`; clients
-cannot treat the empty row as authoritative or edit it. Explicit reconciliation
-selects or supplies one valid bounded value, compares against the still-empty
-revision-one row, commits revision two, and clears the marker atomically. It
-never stores unbounded conflicting copies in normal scratchpad rows.
-
-Import, conflict reporting, and reconciliation are idempotent. Re-running with
-the same backup and resolution cannot increment revisions repeatedly, duplicate
-diagnostics, or overwrite content committed after the marker was cleared.
-Normal v2 startup and scratchpad operations use only the configured v2
-`KIT_HOME` database and never inspect `~/.kit`.
+Legacy scratchpad sidecars are not imported or reconciled. Native scratchpad
+operations use only the configured `KIT_HOME` database and leave legacy files
+untouched, including when the release defaults to `~/.kit`. Native sessions start
+with empty scratchpads. Runtime-data import is excluded under ADR 0001.
 
 ### Non-goals
 
@@ -408,8 +385,8 @@ Tests must establish:
 - the native panes are retained singleton editors without redundant title,
   context, preview, or byte-usage chrome, with correct focus, keyboard, mouse,
   hidden-tab, split-group, and event behavior; and
-- migration never reads production state implicitly and preserves every
-  divergent legacy source for explicit reconciliation.
+- schema upgrades preserve native data and scratchpad operations never read or
+  mutate legacy sidecars.
 
 ## Consequences
 

@@ -24,7 +24,7 @@ func newHarness(t *testing.T) *harness {
 	h := &harness{
 		t:       t,
 		home:    filepath.Join(root, "home"),
-		kitHome: filepath.Join(root, "home", ".kit-v2"),
+		kitHome: filepath.Join(root, "home", ".kit"),
 		cwd:     filepath.Join(root, "project"),
 		env:     map[string]string{},
 	}

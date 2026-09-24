@@ -15,10 +15,10 @@ The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 resource generation. The development bundle is ad-hoc signed; distribution,
 notarization, and bundled-daemon work remain on the backlog.
 
-Start a compatible Kit v2 daemon separately. The app discovers it through
-`~/.kit-v2/run` and checks identity and protocol compatibility. It never starts
-a daemon or reads legacy `~/.kit` data. There is no demo launch mode or packaged
-private transcript data.
+Start a compatible Kit daemon separately. The app discovers it through
+`$KIT_HOME/run`, defaulting to `~/.kit/run`, and checks identity and protocol
+compatibility. It never starts a daemon or reads a separate legacy home. There is
+no demo launch mode or packaged private transcript data.
 
 ## Navigation
 
@@ -108,10 +108,10 @@ inputs used by `ThemeTests`, not app resources.
 
 The Settings window separates app-local Appearance preferences (themes and
 interface/code typography) from Models defaults shared with the TUI. Models
-reads `$KIT_HOME/settings.json`, defaulting to `~/.kit-v2/settings.json`, and
+reads `$KIT_HOME/settings.json`, defaulting to `~/.kit/settings.json`, and
 edits `defaultModel` and per-provider/model `modelOverrides.contextWindow` values.
 Local daemon discovery uses the same home. Appearance discovers custom themes in
-`$KIT_HOME/themes` (defaulting to `~/.kit-v2/themes`), the same directory used by
+`$KIT_HOME/themes` (defaulting to `~/.kit/themes`), the same directory used by
 the TUI. Theme files are managed directly in that directory; light and dark
 assignments remain app-local. New sessions prefer the configured default when it is available;
 changing it does not reconfigure existing sessions.

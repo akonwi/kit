@@ -12,7 +12,9 @@ For each session Kit loads, in order:
 2. when the cwd is inside a Git worktree, `AGENTS.md` in each directory from the worktree root through the cwd; or
 3. outside a Git worktree, only `AGENTS.md` in the cwd.
 
-The global location honors `KIT_HOME`. During v2 development the default Kit home is `~/.kit-v2`, so the default global file is `~/.kit-v2/AGENTS.md`.
+The global location honors `KIT_HOME`. The default Kit home is `~/.kit`, so the
+default global file is `~/.kit/AGENTS.md`. Set `KIT_HOME` to an explicit isolated
+directory when developing or testing without production guidance.
 
 A nested file applies automatically only when the session cwd is inside that file's directory. Repository guidance can point the model to other files that should be read on demand.
 

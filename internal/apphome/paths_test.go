@@ -7,6 +7,24 @@ import (
 )
 
 func TestResolvePrecedence(t *testing.T) {
+	t.Run("default uses kit without creating files", func(t *testing.T) {
+		home := t.TempDir()
+		t.Setenv("HOME", home)
+		t.Setenv(EnvHome, "")
+
+		paths, err := Resolve("")
+		if err != nil {
+			t.Fatalf("Resolve() error = %v", err)
+		}
+		want := filepath.Join(home, ".kit")
+		if paths.Home != want {
+			t.Fatalf("Home = %q, want %q", paths.Home, want)
+		}
+		if _, err := os.Stat(want); !os.IsNotExist(err) {
+			t.Fatalf("Resolve must not create the home: stat error = %v", err)
+		}
+	})
+
 	t.Run("explicit home wins", func(t *testing.T) {
 		environmentHome := filepath.Join(t.TempDir(), "environment")
 		t.Setenv(EnvHome, environmentHome)

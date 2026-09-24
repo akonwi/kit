@@ -10,7 +10,9 @@ For each session runtime, Kit discovers skills in this order:
 2. user-global skill directories under the resolved Kit home's `skills/` directory; and
 3. project skill directories under `<session-cwd>/.agents/skills/`.
 
-During v2 development the default global directory is `~/.kit-v2/skills/`. `KIT_HOME` changes that location. Project discovery uses the session's explicit cwd and never process-global cwd.
+The default global directory is `~/.kit/skills/`. `KIT_HOME` changes that
+location; set it to an explicit isolated directory for development and tests.
+Project discovery uses the session's explicit cwd and never process-global cwd.
 
 The first definition of a name wins. A project skill cannot override a global skill, and no filesystem skill can override `kit-customization`. Omitted collisions produce reload diagnostics.
 

@@ -13,8 +13,8 @@ import (
 const (
 	// EnvHome overrides Kit's data directory.
 	EnvHome = "KIT_HOME"
-	// DevelopmentDirectory isolates the rewrite from the current Kit release.
-	DevelopmentDirectory = ".kit-v2"
+	// DefaultDirectory is Kit's directory beneath the user home.
+	DefaultDirectory = ".kit"
 )
 
 // Paths contains every application-owned path derived from one Kit home.
@@ -47,7 +47,7 @@ type Paths struct {
 	ServerLock       string
 }
 
-// Resolve selects an explicit home, then KIT_HOME, then ~/.kit-v2.
+// Resolve selects an explicit home, then KIT_HOME, then ~/.kit.
 func Resolve(explicit string) (Paths, error) {
 	home := explicit
 	if home == "" {
@@ -58,7 +58,7 @@ func Resolve(explicit string) (Paths, error) {
 		if err != nil {
 			return Paths{}, fmt.Errorf("resolve user home: %w", err)
 		}
-		home = filepath.Join(userHome, DevelopmentDirectory)
+		home = filepath.Join(userHome, DefaultDirectory)
 	}
 
 	absolute, err := filepath.Abs(home)

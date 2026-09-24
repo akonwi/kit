@@ -12,20 +12,23 @@ provider-specific refresh protocol operations, but it must not choose Kit's
 storage location, mutate a shared JSON document without coordination, or own
 login/logout presentation.
 
-The previous Kit release used `~/.kit/auth.json`, keyed by provider ID. During
-the rewrite, Kit must not read or modify that file implicitly. Concurrent daemon
-refreshes and future login/logout clients also create a stale-write risk: an old
+Provider credentials live in `~/.kit/auth.json`, keyed by provider ID. Concurrent
+daemon refreshes and login/logout clients create a stale-write risk: an old
 refresh result must never overwrite a newer same-account login or recreate a
 credential deleted by logout.
 
 ## Decision
 
-During rewrite development, Kit stores provider credentials in
-`~/.kit-v2/auth.json` (or `KIT_HOME/auth.json`). `internal/auth` owns this file.
+Kit stores provider credentials in
+`~/.kit/auth.json` (or `KIT_HOME/auth.json`). `internal/auth` owns this file.
 It is machine-managed secret state, not a general settings surface.
 
-The document remains a provider-keyed JSON object so existing credential shapes
-can be migrated deliberately later. The OpenAI Codex entry uses the established
+The document is a provider-keyed JSON object. Existing installations
+reauthenticate through the login UX; no credential importer is required. When
+reusing an existing `~/.kit`, legacy provider and MCP auth formats
+must not block reauthentication or require manual file deletion. Explicit login
+may replace the selected legacy credential while preserving unrelated entries;
+malformed storage still fails closed. The OpenAI Codex entry uses the established
 field names plus optional Kit metadata:
 
 ```json
@@ -113,7 +116,7 @@ Positive:
 - unrelated provider credentials survive Codex updates;
 - malformed or adversarial filesystem state fails closed;
 - the agent core remains independent of Kit's concrete file format;
-- the rewrite remains isolated from current `~/.kit` state.
+- `KIT_HOME` keeps development and tests isolated from real credentials.
 
 Trade-offs:
 
@@ -121,7 +124,8 @@ Trade-offs:
 - advisory locks coordinate Kit processes but are not a defense against
   arbitrary same-user processes;
 - auth writes replace formatting and top-level key order;
-- a later migration must explicitly import supported entries from `~/.kit`;
+- existing users may need to reauthenticate providers and MCP servers rather
+  than import their saved credentials;
 - browser-client auth presentation and headless Anthropic OAuth remain separate
   work.
 

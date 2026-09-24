@@ -17,10 +17,10 @@ Kit discovers themes from:
 $KIT_HOME/themes/*.json
 ```
 
-`KIT_HOME` defaults to `~/.kit-v2` during rewrite development. A theme's name is
-its filename without `.json`; for example, `~/.kit-v2/themes/nord.json` appears
-as `nord`. The selected TUI name is stored in the `theme` field of
-`$KIT_HOME/settings.json`.
+`KIT_HOME` defaults to `~/.kit`. A theme's name is its filename without `.json`;
+for example, `~/.kit/themes/nord.json` appears as `nord`. The selected TUI name
+is stored in the `theme` field of `$KIT_HOME/settings.json`. Set `KIT_HOME` to an
+explicit isolated directory when developing or testing.
 
 The macOS app reads the same directory and lists compatible files in Settings →
 Appearance for separate light and dark assignments. Add or edit theme files in
@@ -72,54 +72,24 @@ Syntax roles include `text`, `heading`, `bold`, `italic`, `link`, `comment`,
 `string`, `number`, `keyword`, `keywordType`, `function`, `operator`, `variable`,
 `member`, `builtin`, `type`, `punctuation`, `tag`, and `attribute`.
 
-## Migrating themes from an older Kit installation
+## Using themes from another Kit home
 
-Migration is an explicit, user-managed operation. Normal Kit startup does not
-read or modify `~/.kit`.
+Kit uses `$KIT_HOME/themes` directly; with the default home this is
+`~/.kit/themes`. There is no automatic theme migration. Existing themes in the
+default home are reused in place, and startup does not inspect another home.
 
-Before migrating, quit Kit and back up both homes. Then copy theme files from the
-old home into the current home without overwriting themes you have already
-created:
-
-```sh
-old_home="$HOME/.kit"
-new_home="${KIT_HOME:-$HOME/.kit-v2}"
-
-mkdir -p "$new_home/themes"
-chmod 700 "$new_home" "$new_home/themes"
-find "$old_home/themes" -maxdepth 1 -type f -name '*.json' \
-  -exec cp -n '{}' "$new_home/themes/" ';'
-chmod 600 "$new_home/themes/"*.json 2>/dev/null || true
-```
-
-To carry over the selected theme while preserving all other current settings,
-use `jq` to merge only the legacy `theme` field:
+When an explicitly isolated development home contains themes you want to copy,
+copy them deliberately into the active home. For example:
 
 ```sh
-old_home="$HOME/.kit"
-new_home="${KIT_HOME:-$HOME/.kit-v2}"
-old_settings="$old_home/settings.json"
-new_settings="$new_home/settings.json"
-
-mkdir -p "$new_home"
-chmod 700 "$new_home"
-selected=$(jq -r 'if (.theme | type) == "string" then .theme else "system" end' \
-  "$old_settings")
-
-if [ -f "$new_settings" ]; then
-  tmp=$(mktemp "$new_home/settings.json.XXXXXX")
-  jq --arg theme "$selected" '.theme = $theme' "$new_settings" >"$tmp"
-  chmod 600 "$tmp"
-  mv "$tmp" "$new_settings"
-else
-  jq -n --arg theme "$selected" '{theme: $theme}' >"$new_settings"
-  chmod 600 "$new_settings"
+source_home="$HOME/.kit-v2"
+active_home="${KIT_HOME:-$HOME/.kit}"
+if [ "$source_home" != "$active_home" ]; then
+  mkdir -p "$active_home/themes"
+  find "$source_home/themes" -maxdepth 1 -type f -name '*.json' \
+    -exec cp -n '{}' "$active_home/themes/" ';'
 fi
 ```
-
-Alternatively, copy only the theme files, start Kit, and select the desired theme
-through `/theme`. This avoids editing `settings.json` manually and is the
-recommended approach when the old settings file contains unrelated options.
 
 If a selected theme is missing or malformed, Kit starts with `system` colors and
 reports the problem instead of failing startup.

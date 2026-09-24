@@ -7,8 +7,8 @@ method is not necessarily implemented by this host.
 
 ## Installation and ownership
 
-During rewrite development, the default user directory is
-`~/.kit-v2/plugins/*/plugin.json`, **not** `~/.kit/plugins`. Project discovery
+The default user discovery path is `~/.kit/plugins/*/plugin.json`;
+`KIT_HOME` overrides the home directory. Project discovery
 continues to use `<session-cwd>/.kit/plugins/*/plugin.json`. The manifest-v1
 format and shell-free launch rules in v1 apply. Python fixtures require Python
 in `PATH`; Kit does not install it.
@@ -93,7 +93,7 @@ clients and writes its bounded summary and retained stderr tail to the private
 occur without an attached client are recovered from the log and session warning
 projection rather than replayed as notifications. The log is private to the user
 but may contain sensitive text written by a plugin to stderr; its default path is
-`~/.kit-v2/logs/server.log`. Session reload is the recovery mechanism; dedicated
+`~/.kit/logs/server.log`. Session reload is the recovery mechanism; dedicated
 diagnostics and per-plugin restart UI are outside native scope.
 
 ## Transport and resource limits

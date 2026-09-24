@@ -37,8 +37,9 @@ The rewrite has these hard constraints:
 
 ### Product and distribution
 
-Kit ships as one Go executable for macOS and Linux. Windows is not a supported
-target. The target executable contains the CLI, local daemon, remote server,
+Kit ships as one Go executable for macOS and Linux, installed through Homebrew
+or manual release binaries. npm is not a distribution channel. Windows is not a
+supported target. The target executable contains the CLI, local daemon, remote server,
 session runtime, plugin supervisor, native TUI, and embedded web assets. The initial
 production release may omit Post-R1 remote, plugin, and web capabilities without
 changing their eventual ownership or process boundaries.
@@ -247,14 +248,24 @@ Human-editable configuration remains file-based:
 - plugin manifests;
 - MCP configuration and other deliberate user-owned surfaces.
 
-During rewrite development, all paths default to `~/.kit-v2`. Tests use an
-isolated temporary home, and `KIT_HOME` can override the root. The rewrite must
-not silently read or mutate `~/.kit` while under development.
+All paths default to `~/.kit`. `KIT_HOME` overrides the root for isolated
+development and custom installations. Tests use temporary homes and must never
+read or mutate the developer's real Kit state.
 
-Before replacement of the current implementation, Kit will provide an
-idempotent migration from `~/.kit` with a backup and explicit version marker.
-The migration never rewrites the only copy of old data in place. After migration
-and R1 migration validation, the production default can return to `~/.kit`.
+The production release defaults to `~/.kit` and reuses compatible user-owned
+configuration in place. A short migration guide and built-in skill explain actual
+configuration differences and assist with user-directed adjustments. There is no
+migration command, automatic configuration conversion, compatibility scanner,
+or migration-marker startup gate. Users reauthenticate providers and MCP servers
+through the supported login UX; credential import is not required. Existing auth
+files must not prevent reauthentication or require manual deletion.
+
+Native Kit starts with fresh sessions and runtime data. Legacy sessions, turns,
+attachments, scratchpads, subagent records, and runtime metadata are not imported
+or resumed. Legacy runtime data remains untouched and isolated from native
+storage; runtime-data import is excluded rather than deferred. Release
+verification covers configuration reuse, reauthentication, and legacy-data
+isolation without a user-run migration operation.
 
 ### Native TUI
 
@@ -342,8 +353,8 @@ validation remain active.
 
 Development proceeds through end-to-end slices that prove risky boundaries
 without making every target client or integration an initial-release dependency.
-The first production release is a local, terminal-first replacement with safe
-migration; later milestones add the semantic web client, remote attach, and
+The first production release is a local, terminal-first replacement with in-place
+configuration reuse and fresh native sessions; later milestones add the semantic web client, remote attach, and
 external plugins.
 
 The release gate is the R1 scope in the backlog, not complete behavioral parity
@@ -355,7 +366,7 @@ Recorded replacement decisions include:
 - remove `web-tui`;
 - replace OpenTUI with vaxis/ui;
 - replace the TypeScript/Pi agent core with the Kit-local Go/droids core;
-- replace runtime storage with SQLite plus migration;
+- use SQLite for fresh native runtime storage without importing legacy history;
 - run subagents concurrently under the runtime;
 - preserve custom plugins only through the subprocess protocol.
 
@@ -405,8 +416,8 @@ to hold shared types.
   some shapes.
 - Per-session plugin processes can duplicate resource use.
 - Browser development still needs Bun even though users do not.
-- Existing session data needs an explicit semantic migration into droids- and
-  Kit-owned records.
+- Legacy history cannot be opened or continued in native Kit; users retain the
+  old data separately while starting fresh native sessions.
 - Internalizing droids increases Kit's source and test surface; the ownership
   decision is tracked by `CORE-DROIDS-001` in the
   [core backlog](../../backlog/core.md).

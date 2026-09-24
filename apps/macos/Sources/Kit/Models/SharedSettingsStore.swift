@@ -9,7 +9,7 @@ actor SharedSettingsStore {
         if let value = ProcessInfo.processInfo.environment["KIT_HOME"], !value.isEmpty {
             return URL(fileURLWithPath: value, isDirectory: true).standardizedFileURL
         }
-        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit-v2")
+        return FileManager.default.homeDirectoryForCurrentUser.appendingPathComponent(".kit")
     }
     struct Snapshot: Equatable, Sendable {
         var defaultModel = ""

@@ -7,22 +7,25 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Production data and configuration
 
-- [ ] CORE-MIG-001 — Inventory production `~/.kit`, create a backup, and perform
-  an idempotent migration before v2 reads or mutates production state.
-- [ ] CORE-MIG-002 — Migrate sessions, turns, model/thinking selections,
-  attachments needed for history, scratchpads, subagent records, and metadata;
-  migrated sessions must open and continue through droids.
-- [ ] CORE-MIG-003 — Preserve records that cannot be migrated and report each
-  failure clearly without corrupting old or newly migrated state.
-- [ ] CORE-MIG-004 — Preserve supported user settings, agent definitions, prompt
-  templates, MCP configuration, and plugin manifests with documented precedence;
-  deferred surfaces remain untouched and discoverable Post-R1. Theme migration
-  is a documented user-managed workflow.
-- [ ] CORE-MIG-005 — Switch the production default from `~/.kit-v2` to `~/.kit`
-  only through the explicit migration and release process.
+- [-] CORE-MIG-001 — No migration command, automatic configuration conversion,
+  compatibility scanner, or migration-marker startup gate is required. Compatible
+  configuration is reused in place.
+- [-] CORE-MIG-002 — Legacy runtime-data import and session continuation are
+  intentionally excluded, not deferred. Native Kit starts with fresh sessions;
+  legacy sessions, turns, attachments, scratchpads, subagent records, and runtime
+  metadata are not imported.
+- [ ] CORE-MIG-003 — Leave legacy runtime data untouched and keep native storage
+  isolated from it when reusing `~/.kit`.
+- [ ] CORE-MIG-004 — Publish a short migration guide and embedded, version-matched
+  skill covering actual configuration differences and user-directed adjustments.
+  Explain unchanged paths/formats, unsupported settings and plugin methods,
+  discovery/validation differences, fresh sessions, and provider/MCP reauthentication.
+  Do not require automated compatibility reporting or credential conversion.
 - [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
-  management, credential migration, and consistent private, locked, atomic,
-  generation-checked storage for every supported provider.
+  management and consistent private, locked, atomic, generation-checked storage
+  for every supported provider. Credential import is not required; verify that
+  legacy provider and MCP auth files do not block reauthentication through the
+  supported login UX or require users to manually delete files.
 - [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
   immediately where safe, and return actionable save errors.
 - [ ] CORE-SET-002 — Persist and resolve R1 defaults for model/thinking
@@ -126,15 +129,22 @@ IDs but must not redefine server, persistence, or protocol semantics.
   unavailable user interactions.
 - [ ] CORE-HEAD-002 — Verify SIGINT/SIGTERM cleanup and documented exit codes.
 - [ ] CORE-TEST-001 — Pass the full Go build, vet, test, and race-detector gates
-  required by `AGENTS.md`.
+  required by `AGENTS.md`. The default-home switch validation passes build, vet,
+  and ordinary tests. A full race rerun also passes, but earlier race validation
+  reproduced an intermittent failure in
+  `TestPluginToolFixtureReachesModelAndDurableTranscript`: the shared fake provider
+  observes the title-generation request and returns `tool-demo__echo` not found.
+  The fixture uses an explicit temporary home; isolate naming requests from its
+  tool-execution state and rerun the race gate.
 - [ ] CORE-TEST-002 — Cover malformed and adversarial protocol records with fuzz
   or property tests.
-- [~] CORE-TEST-003 — Extend migration tests to imported data, repetition,
-  partial failure, and recovery, and prove current user data is untouched before
-  explicit migration.
+- [~] CORE-TEST-003 — Use isolated production-shaped fixtures to verify in-place
+  configuration reuse, fresh native sessions, and provider/MCP reauthentication.
+  Prove isolated development/tests leave real `~/.kit` untouched and upgrade
+  leaves legacy runtime data untouched and unimported.
 - [ ] CORE-TEST-004 — Complete authenticated R1 smoke coverage for model and
   thinking selection, coding tools, attachments/images, MCP, interactions,
-  signals, and migration.
+  signals, and the existing-installation upgrade workflow.
 
 ## Post-R1
 
