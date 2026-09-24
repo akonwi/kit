@@ -110,8 +110,11 @@ The Settings window separates app-local Appearance preferences (themes and
 interface/code typography) from Models defaults shared with the TUI. Models
 reads `$KIT_HOME/settings.json`, defaulting to `~/.kit-v2/settings.json`, and
 edits `defaultModel` and per-provider/model `modelOverrides.contextWindow` values.
-Local daemon discovery uses the same home. New sessions prefer the configured
-default when it is available; changing it does not reconfigure existing sessions.
+Local daemon discovery uses the same home. Appearance discovers custom themes in
+`$KIT_HOME/themes` (defaulting to `~/.kit-v2/themes`), the same directory used by
+the TUI. Theme files are managed directly in that directory; light and dark
+assignments remain app-local. New sessions prefer the configured default when it is available;
+changing it does not reconfigure existing sessions.
 
 Settings writes re-read the latest document, preserve unrelated JSON fields,
 and replace the file atomically. Reads and writes are limited to 1 MB. Invalid

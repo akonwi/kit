@@ -44,17 +44,25 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 @main
 struct KitApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
+    @State private var themeLibrary: NativeThemeLibrary
     private var windows: SessionWindowRegistry { delegate.sessionWindows }
 
     init() {
         EditorAccessibility.install()
         Typography.registerFonts()
         ThemeConfiguration.migrate(in: .standard)
+        let library = NativeThemeLibrary()
+        var configuration = ThemeConfiguration.decode(UserDefaults.standard.string(forKey: "themeConfiguration") ?? "")
+        if configuration.normalize(installed: library.themes) {
+            UserDefaults.standard.set(configuration.json, forKey: "themeConfiguration")
+        }
+        _themeLibrary = State(initialValue: library)
     }
 
     var body: some Scene {
         WindowGroup("Kit", id: "session", for: SessionWindowRequest.self) { $request in
             SessionWindowRoot(request: $request, windows: windows)
+                .environment(\.installedThemes, themeLibrary.themes)
         }
         defaultValue: { windows.defaultRequest() }
 
@@ -62,7 +70,10 @@ struct KitApp: App {
         .windowResizability(.contentMinSize)
         .windowToolbarStyle(.unified)
         .commands { SessionCommands(windows: windows) }
-        Settings { SettingsView() }
+        Settings {
+            SettingsView(themeLibrary: themeLibrary)
+                .environment(\.installedThemes, themeLibrary.themes)
+        }
     }
 }
 

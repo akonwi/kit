@@ -1,9 +1,9 @@
 # Themes
 
-Kit supports partial custom themes in the native TUI. The built-in `system`
-theme follows the terminal's colors. Custom themes override selected semantic
-roles and inherit every omitted role from `system`, so a theme does not need to
-define every color.
+Kit supports partial custom themes in the native TUI and macOS app. The built-in
+TUI `system` theme follows the terminal's colors. Custom themes override selected
+semantic roles and inherit every omitted role from the active client fallback, so
+a theme does not need to define every color.
 
 ## Selecting a theme
 
@@ -19,8 +19,13 @@ $KIT_HOME/themes/*.json
 
 `KIT_HOME` defaults to `~/.kit-v2` during rewrite development. A theme's name is
 its filename without `.json`; for example, `~/.kit-v2/themes/nord.json` appears
-as `nord`. The selected name is stored in the `theme` field of
+as `nord`. The selected TUI name is stored in the `theme` field of
 `$KIT_HOME/settings.json`.
+
+The macOS app reads the same directory and lists compatible files in Settings →
+Appearance for separate light and dark assignments. Add or edit theme files in
+the shared directory directly; the macOS light/dark selections remain app-local
+and do not change the TUI selection.
 
 ## Theme format
 

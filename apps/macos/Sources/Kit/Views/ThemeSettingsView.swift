@@ -1,12 +1,9 @@
-import AppKit
 import SwiftUI
-import UniformTypeIdentifiers
 
 struct ThemeSettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
-    @State private var importError: String?
-    @State private var notice = ""
+    let library: NativeThemeLibrary
 
     private var configuration: ThemeConfiguration { .decode(storedConfiguration) }
     private var activeDark: Bool { SystemAppearance.shared.resolve(appearance) == .dark }
@@ -30,26 +27,12 @@ struct ThemeSettingsView: View {
                  ? "Follows macOS, switching between your light and dark themes automatically."
                  : "Always uses your \(appearance) theme. Choose System to follow macOS.")
                 .font(.kit(size: 12)).foregroundStyle(.secondary)
-            Divider()
-            HStack {
-                VStack(alignment: .leading, spacing: 4) {
-                    Text("Your Kit themes").fontWeight(.medium)
-                    Text("Import light and dark files together or separately.").font(.kit(size: 12)).foregroundStyle(.secondary)
-                }
-                Spacer()
-                Button("Import themes…", systemImage: "square.and.arrow.down") { importThemes() }
-            }
-            if !notice.isEmpty {
-                Text(notice).font(.kit(size: 12)).foregroundStyle(.secondary)
-            }
         }
-        .alert("Themes could not be imported", isPresented: Binding(get: { importError != nil }, set: { if !$0 { importError = nil } })) {
-            Button("OK") { importError = nil }
-        } message: { Text(importError ?? "") }
+        .onAppear { reloadThemes() }
     }
 
     private func themeCard(dark: Bool) -> some View {
-        let theme = configuration.theme(dark: dark)
+        let theme = configuration.theme(dark: dark, installed: library.themes)
         return VStack(alignment: .leading, spacing: 14) {
             HStack {
                 Label(dark ? "Dark theme" : "Light theme", systemImage: dark ? "moon" : "sun.max")
@@ -64,10 +47,8 @@ struct ThemeSettingsView: View {
                     if dark { updated.dark = id } else { updated.light = id }
                     storedConfiguration = updated.json
                 })) {
-                Text("Mica").tag("mica")
-                Text("Slate").tag("slate")
-                Text("Sand").tag("sand")
-                ForEach(configuration.imported.filter { $0.definition.preferredColorScheme == nil || $0.definition.preferredColorScheme == (dark ? .dark : .light) }) { item in
+                Text("Kit").tag("mica")
+                ForEach(library.themes.filter { $0.definition.preferredColorScheme == nil || $0.definition.preferredColorScheme == (dark ? .dark : .light) }) { item in
                     Text(item.name).tag(item.id)
                 }
             }.labelsHidden().frame(maxWidth: .infinity)
@@ -86,26 +67,10 @@ struct ThemeSettingsView: View {
         }
     }
 
-    private func importThemes() {
-        let panel = NSOpenPanel()
-        panel.allowedContentTypes = [.json]
-        panel.canChooseDirectories = false
-        panel.allowsMultipleSelection = true
-        panel.prompt = "Import themes"
-        panel.begin { response in
-            guard response == .OK else { return }
-            do {
-                var updated = configuration
-                for url in panel.urls {
-                    let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
-                    guard size <= 262_144 else { throw NativeThemeDefinition.ThemeError.invalid("\(url.lastPathComponent) exceeds 256 KB.") }
-                    let definition = try NativeThemeDefinition.parse(Data(contentsOf: url))
-                    updated.add(name: url.deletingPathExtension().lastPathComponent,
-                                definition: definition, fallbackDark: activeDark)
-                }
-                storedConfiguration = updated.json
-                notice = "Imported \(panel.urls.count) theme\(panel.urls.count == 1 ? "" : "s") and assigned matching appearances."
-            } catch { importError = error.localizedDescription }
-        }
+    private func reloadThemes() {
+        library.reload()
+        var updated = configuration
+        if updated.normalize(installed: library.themes) { storedConfiguration = updated.json }
     }
+
 }

@@ -16,10 +16,24 @@ struct ThemeTests {
         #expect(theme.syntax("keyword", fallback: theme.text) == NativeThemeDefinition.hexColor("#aabbcc"))
     }
 
-    @Test func invalidColorsRejectTheWholeImport() {
-        for json in [##"{"tokens":{"bg":"red"}}"##, ##"{"tokens":{"text":"#fff"},"syntaxPalette":{"text":"invalid"}}"##, ##"{}"##] {
+    @Test func invalidOverridesAreOmittedWithoutDiscardingTheTheme() throws {
+        let definition = try NativeThemeDefinition.parse(Data(##"{"tokens":{"bg":"red","textPrimary":"transparent","future":"transparent","borderAccent":"#abc"},"syntaxPalette":{"text":"#0000","keyword":"#123456","comment":12}}"##.utf8))
+        #expect(definition.tokens == ["future": "transparent", "borderAccent": "#abc"])
+        #expect(definition.syntaxPalette == ["keyword": "#123456"])
+        let empty = try NativeThemeDefinition.parse(Data("{}".utf8))
+        #expect(empty.tokens == nil && empty.syntaxPalette == nil)
+        for json in ["{", "[]"] {
             #expect(throws: (any Error).self) { try NativeThemeDefinition.parse(Data(json.utf8)) }
         }
+    }
+
+    @Test func duplicateKeysMatchRendererNeutralParsingRules() throws {
+        #expect(throws: (any Error).self) {
+            try NativeThemeDefinition.parse(Data(##"{"tokens":{},"tokens":{"bg":"#123456"}}"##.utf8))
+        }
+        let duplicateRole = try NativeThemeDefinition.parse(Data(##"{"tokens":{"bg":"#123456","bg":"#abcdef"},"syntaxPalette":{"keyword":"#fedcba"}}"##.utf8))
+        #expect(duplicateRole.tokens?.isEmpty == true)
+        #expect(duplicateRole.syntaxPalette == ["keyword": "#fedcba"])
     }
 
     @Test func originalFlexokiThemesImportWithoutConversion() throws {
@@ -50,12 +64,10 @@ struct ThemeTests {
         #expect(NativeThemeDefinition.windowScheme(appearance: "dark", palette: "mica", customJSON: "") == .dark)
     }
 
-    @Test func builtInPalettesHaveDistinctAppearances() {
-        for palette in ["mica", "slate", "sand"] {
-            let light = MicaTheme(dark: false, palette: palette, customJSON: "")
-            let dark = MicaTheme(dark: true, palette: palette, customJSON: "")
-            #expect(light.surface != dark.surface)
-            #expect(light.text != dark.text)
-        }
+    @Test func kitThemeHasDistinctLightAndDarkAppearances() {
+        let light = MicaTheme(dark: false)
+        let dark = MicaTheme(dark: true)
+        #expect(light.surface != dark.surface)
+        #expect(light.text != dark.text)
     }
 }

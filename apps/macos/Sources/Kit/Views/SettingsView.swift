@@ -3,12 +3,14 @@ import SwiftUI
 struct SettingsView: View {
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var storedConfiguration = ""
+    @Environment(\.installedThemes) private var installedThemes
     @State private var selection = "appearance"
+    let themeLibrary: NativeThemeLibrary
 
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
-        let theme = ThemeConfiguration.decode(storedConfiguration).theme(dark: dark)
+        let theme = ThemeConfiguration.decode(storedConfiguration).theme(dark: dark, installed: installedThemes)
         HStack(spacing: 0) {
             VStack(spacing: 6) {
                 section("Appearance", icon: "circle.lefthalf.filled", id: "appearance", theme: theme)
@@ -23,7 +25,7 @@ struct SettingsView: View {
                             Text("Appearance").font(.kit(size: 23, weight: .semibold))
                             Text("These preferences apply to this app.").foregroundStyle(theme.muted)
                         }
-                        ThemeSettingsView()
+                        ThemeSettingsView(library: themeLibrary)
                         Divider()
                         TypographySettingsView()
                     } else {

@@ -1,52 +1,49 @@
 import Foundation
 import SwiftUI
 
+/// App-local light and dark selections. Theme definitions only come from the shared themes directory.
 struct ThemeConfiguration: Codable {
-    struct Imported: Codable, Identifiable {
-        var id: String
-        var name: String
-        var definition: NativeThemeDefinition
-        var json: String { String(decoding: (try? JSONEncoder().encode(definition)) ?? Data(), as: UTF8.self) }
-    }
     var light = "mica"
     var dark = "mica"
-    var imported: [Imported] = []
 
     static func decode(_ json: String) -> Self {
         (try? JSONDecoder().decode(Self.self, from: Data(json.utf8))) ?? Self()
     }
     var json: String { String(decoding: (try? JSONEncoder().encode(self)) ?? Data(), as: UTF8.self) }
 
-    func theme(dark isDark: Bool) -> MicaTheme {
+    func theme(dark isDark: Bool, installed: [InstalledTheme] = []) -> MicaTheme {
         let id = isDark ? dark : light
-        if let item = imported.first(where: { $0.id == id }) {
-            return MicaTheme(dark: isDark, palette: "custom", customJSON: item.json)
+        if let item = installed.first(where: { $0.id == id }) {
+            return MicaTheme(dark: isDark, palette: "custom", customJSON: item.definition.json)
         }
         return MicaTheme(dark: isDark, palette: id, customJSON: "")
     }
 
-    mutating func add(name: String, definition: NativeThemeDefinition, fallbackDark: Bool) {
-        let id = imported.first(where: { $0.name == name })?.id ?? UUID().uuidString
-        imported.removeAll { $0.id == id }
-        imported.append(Imported(id: id, name: name, definition: definition))
-        let isDark = definition.preferredColorScheme.map { $0 == .dark } ?? fallbackDark
-        if isDark { dark = id } else { light = id }
-        // Reimporting a changed file must not leave it assigned to the wrong mode.
-        if isDark && light == id { light = "mica" }
-        if !isDark && dark == id { dark = "mica" }
+    mutating func assign(_ item: InstalledTheme, fallbackDark: Bool) {
+        let isDark = item.definition.preferredColorScheme.map { $0 == .dark } ?? fallbackDark
+        if isDark { dark = item.id } else { light = item.id }
+        if isDark && light == item.id { light = "mica" }
+        if !isDark && dark == item.id { dark = "mica" }
     }
 
+    /// Drops obsolete preference-backed IDs while retaining shared-file selections
+    /// that may be temporarily unavailable or malformed.
+    @discardableResult
+    mutating func normalize(installed: [InstalledTheme]) -> Bool {
+        let valid = Set(["mica"] + installed.map(\.id))
+        let previous = self
+        if !valid.contains(light), !light.hasPrefix("global:") { light = "mica" }
+        if !valid.contains(dark), !dark.hasPrefix("global:") { dark = "mica" }
+        return light != previous.light || dark != previous.dark
+    }
+
+    /// Removes obsolete embedded theme data while retaining built-in palette choices.
     static func migrate(in defaults: UserDefaults) {
-        guard defaults.string(forKey: "themeConfiguration") == nil else { return }
-        var value = Self()
-        let oldPalette = defaults.string(forKey: "themePalette") ?? "mica"
-        if ["mica", "slate", "sand"].contains(oldPalette) { value.light = oldPalette; value.dark = oldPalette }
-        if let oldJSON = defaults.string(forKey: "customThemeJSON"),
-           let definition = try? NativeThemeDefinition.parse(Data(oldJSON.utf8)) {
-            value.add(name: defaults.string(forKey: "customThemeName") ?? "Imported theme",
-                      definition: definition, fallbackDark: defaults.string(forKey: "appearance") == "dark")
-            if oldPalette != "custom" { value.light = oldPalette; value.dark = oldPalette }
-        }
+        let value = defaults.string(forKey: "themeConfiguration").map(Self.decode) ?? Self()
+        // Re-encoding strips the removed `imported` field from older configurations.
         defaults.set(value.json, forKey: "themeConfiguration")
+        defaults.removeObject(forKey: "customThemeJSON")
+        defaults.removeObject(forKey: "customThemeName")
+        defaults.removeObject(forKey: "themePalette")
     }
 }

@@ -6,6 +6,7 @@ struct SessionLauncherView: View {
     let open: (SessionExcerpt) -> Void
     @AppStorage("appearance") private var appearance = "system"
     @AppStorage("themeConfiguration") private var themeConfiguration = ""
+    @Environment(\.installedThemes) private var installedThemes
 
     @State private var refreshRequest = 0
     @State private var creating = false
@@ -15,7 +16,7 @@ struct SessionLauncherView: View {
     var body: some View {
         let scheme = SystemAppearance.shared.resolve(appearance)
         let dark = scheme == .dark
-        let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: dark)
+        let theme = ThemeConfiguration.decode(themeConfiguration).theme(dark: dark, installed: installedThemes)
         SessionLauncherContent(sessions: app.sessions, connecting: app.connecting,
                                connected: app.client != nil, error: app.error, open: open, refresh: { refreshRequest += 1 },
                                create: { creating = true }, focusRequest: target == nil,
