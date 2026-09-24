@@ -21,6 +21,11 @@ type Server interface {
 	Attach(context.Context, string) (Session, error)
 }
 
+// ModelCatalogRefresher is the optional server capability for refreshing models.dev.
+type ModelCatalogRefresher interface {
+	RefreshModels(context.Context) (protocol.ModelCatalog, error)
+}
+
 // Session is immutably bound to one authoritative session for its lifetime.
 type Session interface {
 	ID() string

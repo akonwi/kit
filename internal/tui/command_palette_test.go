@@ -59,16 +59,16 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 		t.Fatalf("directory matches = %#v, want cd", commands)
 	}
 	commands = filteredPaletteCommands(false, "provider")
-	if len(commands) != 1 || commands[0].ID != paletteCommandLogin {
-		t.Fatalf("provider matches = %#v, want login", commands)
+	if len(commands) != 2 || commands[0].ID != paletteCommandLogin || commands[1].ID != paletteCommandModelsRefresh {
+		t.Fatalf("provider matches = %#v, want login and refresh models", commands)
 	}
 	commands = filteredPaletteCommands(false, "threads")
 	if len(commands) == 0 || commands[0].ID != paletteCommandSessions {
 		t.Fatalf("threads matches = %#v, want sessions first", commands)
 	}
 	commands = filteredPaletteCommands(false, "refresh")
-	if len(commands) != 1 || commands[0].ID != paletteCommandReload {
-		t.Fatalf("refresh matches = %#v, want reload", commands)
+	if len(commands) != 2 || commands[0].ID != paletteCommandReload || commands[1].ID != paletteCommandModelsRefresh {
+		t.Fatalf("refresh matches = %#v, want reload and models", commands)
 	}
 	commands = filteredPaletteCommands(true, "debug")
 	if len(commands) != 1 || commands[0].ID != paletteCommandDebug {
@@ -199,7 +199,7 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if paletteCommandAvailable(command.ID, true, contributions) {
 		t.Fatal("prompt command remained available during active work")
 	}
-	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 17 {
+	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 18 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
 	}
 	state := &paletteHarnessState{}

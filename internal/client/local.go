@@ -130,6 +130,10 @@ func (c *localServer) Models(ctx context.Context) (protocol.ModelCatalog, error)
 	return c.transport.ListModels(ctx)
 }
 
+func (c *localServer) RefreshModels(ctx context.Context) (protocol.ModelCatalog, error) {
+	return c.transport.RefreshModels(ctx)
+}
+
 func (c *localServer) Attach(ctx context.Context, sessionID string) (sessionclient.Session, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err

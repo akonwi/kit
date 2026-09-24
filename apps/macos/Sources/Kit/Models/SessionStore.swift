@@ -245,6 +245,7 @@ final class SessionStore {
     var composerClient: (any ComposerClient)? { replica.client as? any ComposerClient }
     @ObservationIgnored private var configurations: [String: ComposerConfiguration] = [:]
     private let emptyConfiguration = ComposerConfiguration()
+    private(set) var modelCatalogRefreshPending = false
     var configuration: ComposerConfiguration { configurations[selectedID] ?? emptyConfiguration }
     var thinkingLevels: [String] {
         configuration.models.first(where: { $0.id == model })?.thinkingLevels?.map(\.rawValue) ?? [thinking]
@@ -252,6 +253,21 @@ final class SessionStore {
     func loadComposer() async {
         guard let client = composerClient else { return }
         await configuration.load(client: client)
+    }
+    func refreshModelCatalog() async {
+        guard !modelCatalogRefreshPending,
+              let client = catalogClient as? any ModelCatalogRefreshClient else { return }
+        modelCatalogRefreshPending = true
+        defer { modelCatalogRefreshPending = false }
+        do {
+            let models = try await client.refreshModels()
+            emptyConfiguration.replaceCatalog(models)
+            for configuration in configurations.values { configuration.replaceCatalog(models) }
+            feedback.show(title: "Model catalog refreshed", detail: "\(models.count) models available")
+        } catch is CancellationError {
+        } catch {
+            feedback.show(title: "Model refresh failed", detail: error.localizedDescription, tone: .error)
+        }
     }
     func configure(model: String? = nil, thinking: String? = nil) async {
         guard !unavailable, let client = composerClient, let selected else { return }

@@ -14,9 +14,10 @@ struct PaletteCommandTests {
 
     @Test func sharedCommandsUseTUILabelsAndSearchTerms() {
         let commands = PaletteCommand.catalog(dark: true)
+        #expect(commands.filter { $0.matches("refresh") }.map(\.name) == ["refresh-models", "reload"])
         for (query, name, description) in [
             ("rename", "name", "Rename session"),
-            ("refresh", "reload", "Reload session context"),
+            ("provider catalog", "refresh-models", "Update the provider catalog of models"),
             ("usage", "debug", "Show session diagnostics"),
             ("branch", "fork", "Fork the current session into a linked child session"),
             ("threads", "sessions", "Browse sessions")

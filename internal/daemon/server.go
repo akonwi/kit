@@ -442,7 +442,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			http.Error(writer, "daemon instance mismatch", http.StatusConflict)
 			return
 		}
-		if strings.HasPrefix(request.URL.Path, "/v1/sessions") &&
+		if (strings.HasPrefix(request.URL.Path, "/v1/sessions") || strings.HasPrefix(request.URL.Path, "/v1/models")) &&
 			request.Header.Get(protocolHeader) != strconv.Itoa(version.SessionProtocolVersion) {
 			http.Error(writer, "session protocol mismatch", http.StatusUpgradeRequired)
 			return

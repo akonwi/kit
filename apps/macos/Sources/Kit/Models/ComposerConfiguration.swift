@@ -8,6 +8,10 @@ final class ComposerConfiguration {
     var changing = false
     var error: String?
 
+    func replaceCatalog(_ models: [WireModelCapability]) {
+        self.models = models
+    }
+
     func load(client: any ComposerClient) async {
         guard !loading else { return }
         loading = true

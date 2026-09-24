@@ -31,6 +31,18 @@ type ModelCapability struct {
 	Inputs          []string
 }
 
+// RefreshModelCatalog fetches and atomically applies the latest models.dev entries.
+func (m *Manager) RefreshModelCatalog(ctx context.Context) error {
+	if err := m.beginOperation(); err != nil {
+		return err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	return m.providers.RefreshModels(ctx)
+}
+
 // ModelCapabilities returns a stable snapshot of the configured provider catalog.
 func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, error) {
 	if err := m.beginOperation(); err != nil {

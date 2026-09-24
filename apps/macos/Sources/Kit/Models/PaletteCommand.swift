@@ -28,6 +28,7 @@ struct PaletteCommand: Identifiable {
             .init(id: "Change working directory", name: "cd", description: "Change working directory", icon: "folder", aliases: ["cwd", "directory", "folder"]),
             .init(id: "compact", name: "compact", description: "Compact session context", icon: "arrow.down.right.and.arrow.up.left", aliases: ["summarize", "shrink"]),
             .init(id: "Rename session", name: "name", description: "Rename session", icon: "pencil", aliases: ["rename", "title"]),
+            .init(id: "Refresh model catalog", name: "refresh-models", description: "Update the provider catalog of models", icon: "square.3.layers.3d", aliases: ["catalog", "models"]),
             .init(id: "Reload session context", name: "reload", description: "Reload session context", icon: "arrow.clockwise", aliases: ["agents", "context", "refresh"]),
             .init(id: "Session details", name: "debug", description: "Show session diagnostics", icon: "chart.bar", aliases: ["details", "usage", "tokens", "cost"]),
             .init(id: "Fork session", name: "fork", description: "Fork the current session into a linked child session", icon: "arrow.triangle.branch", aliases: ["branch"]),

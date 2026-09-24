@@ -134,12 +134,21 @@ struct CommandPalette: View {
         if name.hasPrefix("plugin:") { return state.pluginCommandUnavailableReason }
         return switch name {
         case "compact": state.compactionUnavailableReason
+        case "Refresh model catalog": modelRefreshUnavailableReason
         case "Reload session context": state.reloadUnavailableReason
         case "Change working directory": state.directoryUnavailableReason
         case "Rename session": state.renameUnavailableReason
         case "Fork session": state.forkUnavailableReason
         default: nil
         }
+    }
+
+    private var modelRefreshUnavailableReason: String? {
+        if !(state.catalogClient is any ModelCatalogRefreshClient) { return "Unavailable for this connection" }
+        if state.unavailable { return "Session unavailable" }
+        if state.connectionState != .connected { return "Connect to refresh" }
+        if state.modelCatalogRefreshPending { return "Refreshing model catalog" }
+        return nil
     }
 
     private func performSelected() {
@@ -159,6 +168,13 @@ struct CommandPalette: View {
             focused = false
             state.ui.palette = false
             Task { await state.compactSession() }
+            return
+        }
+        if name == "Refresh model catalog" {
+            guard modelRefreshUnavailableReason == nil else { return }
+            focused = false
+            state.ui.palette = false
+            Task { await state.refreshModelCatalog() }
             return
         }
         if name == "Reload session context" {

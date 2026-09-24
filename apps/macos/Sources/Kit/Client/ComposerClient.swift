@@ -1,6 +1,10 @@
 import Foundation
 
 /// Composer operations against the session host; presentation never reads its filesystem.
+protocol ModelCatalogRefreshClient: SessionClient {
+    func refreshModels() async throws -> [WireModelCapability]
+}
+
 protocol ComposerClient: SessionClient {
     func fileIndex(_ session: String, refresh: Bool) async throws -> FileIndex
     func models() async throws -> [WireModelCapability]
@@ -17,6 +21,10 @@ extension ComposerClient {
         FileIndex(paths: try await files(session, refresh: refresh))
     }
     func files(_ session: String, refresh: Bool) async throws -> [String] { try await files(session) }
+}
+
+extension LocalClient: ModelCatalogRefreshClient {
+    func refreshModels() async throws -> [WireModelCapability] { try await HTTPClient.local().refreshModels() }
 }
 
 extension LocalClient: ComposerClient {

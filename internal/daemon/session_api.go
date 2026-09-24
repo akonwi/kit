@@ -108,6 +108,7 @@ type sessionService interface {
 	DisposeTemporary(context.Context, string) error
 	List(context.Context, string) ([]protocol.SessionInfo, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
+	RefreshModels(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
@@ -274,6 +275,13 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 		result = append(result, projectSession(record))
 	}
 	return result, nil
+}
+
+func (s runtimeSessionService) RefreshModels(ctx context.Context) (protocol.ModelCatalog, error) {
+	if err := s.manager.RefreshModelCatalog(ctx); err != nil {
+		return protocol.ModelCatalog{}, err
+	}
+	return s.Models(ctx)
 }
 
 func (s runtimeSessionService) Models(ctx context.Context) (protocol.ModelCatalog, error) {
@@ -1559,6 +1567,18 @@ func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecu
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/plugin-toasts", func(w http.ResponseWriter, r *http.Request) { servePluginToasts(w, r, service) })
+	mux.HandleFunc("POST /v1/models/refresh", func(writer http.ResponseWriter, request *http.Request) {
+		catalog, err := service.RefreshModels(request.Context())
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := catalog.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid refreshed model catalog: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, catalog)
+	})
 	mux.HandleFunc("GET /v1/models", func(writer http.ResponseWriter, request *http.Request) {
 		catalog, err := service.Models(request.Context())
 		if err != nil {

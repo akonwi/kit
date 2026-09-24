@@ -1,4 +1,6 @@
 import Foundation
+
+private struct EmptyInput: Encodable {}
 import CryptoKit
 
 /// Refuse redirects rather than forwarding a bearer token to another endpoint.
@@ -561,6 +563,15 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     func models() async throws -> [WireModelCapability] {
         let catalog: WireModelCatalog = try await get("v1/models")
+        return try validatedModels(catalog)
+    }
+
+    func refreshModels() async throws -> [WireModelCapability] {
+        let catalog: WireModelCatalog = try await post("v1/models/refresh", input: EmptyInput())
+        return try validatedModels(catalog)
+    }
+
+    private func validatedModels(_ catalog: WireModelCatalog) throws -> [WireModelCapability] {
         let models = catalog.models ?? []
         guard Set(models.map(\.id)).count == models.count,
               models.allSatisfy({ $0.id.contains("/") && !$0.name.isEmpty && !($0.thinkingLevels ?? []).isEmpty }) else { throw ClientError.invalidPayload }

@@ -411,6 +411,7 @@ type appState struct {
 	terminalSettledRunID             string
 	agentFeedbackPending             bool
 	reloadPending                    bool
+	modelRefreshPending              bool
 	cwdPending                       bool
 	prompt                           *promptAdmission
 	activeBash                       sessionclient.BashExecution
@@ -3912,7 +3913,7 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
+	return s.runPending || s.reloadPending || s.modelRefreshPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -3979,6 +3980,8 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 		s.enterAuthSelect(true)
 	case paletteCommandModel:
 		s.openConfigurationPicker(configurationPickerModel)
+	case paletteCommandModelsRefresh:
+		s.refreshModels()
 	case paletteCommandName:
 		s.openCurrentSessionRename()
 		if args != "" {
@@ -5319,6 +5322,45 @@ func (s *appState) refreshLocation(cwd string) {
 	}()
 }
 
+func (s *appState) refreshModels() {
+	if s.phase != phaseReady || s.hasActiveWork() {
+		return
+	}
+	server, ok := s.Widget().(app).Options.Server.(sessionclient.ModelCatalogRefresher)
+	if !ok {
+		s.showToast(toastInput{Title: "Model refresh unavailable", Subtitle: "This server does not support catalog refresh.", Variant: toastWarning})
+		return
+	}
+	operation := s.operation
+	runtime := s.Context().Runtime()
+	s.SetState(func() {
+		s.modelRefreshPending = true
+		s.status = "Refreshing model catalog…"
+	})
+	go func() {
+		refreshContext, cancel := context.WithTimeout(s.ctx, 30*time.Second)
+		catalog, err := server.RefreshModels(refreshContext)
+		cancel()
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation {
+				return
+			}
+			s.SetState(func() {
+				s.modelRefreshPending = false
+				s.status = ""
+			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Model refresh failed", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			s.showToast(toastInput{Title: "Model catalog refreshed", Subtitle: fmt.Sprintf("%d models available", len(catalog.Models)), Variant: toastInfo})
+		})
+	}()
+}
+
 func (s *appState) reloadSession() {
 	if s.phase != phaseReady || s.bound == nil || s.reloadPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending {
 		return
@@ -5852,6 +5894,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.annotationPicker = annotationPickerController{}
 	s.cwdPending = false
 	s.reloadPending = false
+	s.modelRefreshPending = false
 	s.compactPending = false
 	s.compactOperationID = ""
 	s.followUpMutationPending = false

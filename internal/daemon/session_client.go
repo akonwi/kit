@@ -160,6 +160,18 @@ func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) 
 	return output, nil
 }
 
+// RefreshModels fetches and returns the latest selectable model catalog.
+func (c *Client) RefreshModels(ctx context.Context) (protocol.ModelCatalog, error) {
+	var output protocol.ModelCatalog
+	if err := c.sessionJSON(ctx, http.MethodPost, "/v1/models/refresh", nil, http.StatusOK, &output); err != nil {
+		return protocol.ModelCatalog{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.ModelCatalog{}, fmt.Errorf("validate refreshed daemon model catalog: %w", err)
+	}
+	return output, nil
+}
+
 // GetWorkspace returns the current logical workspace for a session.
 func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.WorkspaceRef, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace"

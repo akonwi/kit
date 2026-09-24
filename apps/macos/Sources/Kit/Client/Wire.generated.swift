@@ -1053,4 +1053,4 @@ struct WireDiffError: Codable, Sendable {
     let `details`: [String: String]?
 }
 
-let kitWireVersion = 37
+let kitWireVersion = 38

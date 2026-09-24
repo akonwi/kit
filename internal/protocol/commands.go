@@ -4,5 +4,5 @@ package protocol
 // plugin IDs cannot claim these domains even before any commands register.
 // Keep renderer command inventories covered by this server/client contract.
 func ReservedCommandDomains() []string {
-	return []string{"cd", "compact", "debug", "diff", "files", "fork", "login", "model", "name", "new", "quit", "reload", "scratchpad", "sessions", "subagents", "tabs", "theme", "thinking"}
+	return []string{"cd", "compact", "debug", "diff", "files", "fork", "login", "model", "refresh-models", "name", "new", "quit", "reload", "scratchpad", "sessions", "subagents", "tabs", "theme", "thinking"}
 }

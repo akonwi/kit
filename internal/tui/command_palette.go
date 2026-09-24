@@ -13,24 +13,25 @@ import (
 const (
 	paletteMaxNameWidth = 32
 
-	paletteCommandCD         paletteCommandID = "cd"
-	paletteCommandCompact    paletteCommandID = "compact"
-	paletteCommandLogin      paletteCommandID = "login"
-	paletteCommandModel      paletteCommandID = "model"
-	paletteCommandName       paletteCommandID = "name"
-	paletteCommandNew        paletteCommandID = "new"
-	paletteCommandQuit       paletteCommandID = "quit"
-	paletteCommandReload     paletteCommandID = "reload"
-	paletteCommandDebug      paletteCommandID = "debug"
-	paletteCommandDiff       paletteCommandID = "diff"
-	paletteCommandFork       paletteCommandID = "fork"
-	paletteCommandFiles      paletteCommandID = "files"
-	paletteCommandSessions   paletteCommandID = "sessions"
-	paletteCommandScratchpad paletteCommandID = "scratchpad"
-	paletteCommandSubagents  paletteCommandID = "subagents"
-	paletteCommandTabs       paletteCommandID = "tabs"
-	paletteCommandTheme      paletteCommandID = "theme"
-	paletteCommandThinking   paletteCommandID = "thinking"
+	paletteCommandCD            paletteCommandID = "cd"
+	paletteCommandCompact       paletteCommandID = "compact"
+	paletteCommandLogin         paletteCommandID = "login"
+	paletteCommandModel         paletteCommandID = "model"
+	paletteCommandModelsRefresh paletteCommandID = "refresh-models"
+	paletteCommandName          paletteCommandID = "name"
+	paletteCommandNew           paletteCommandID = "new"
+	paletteCommandQuit          paletteCommandID = "quit"
+	paletteCommandReload        paletteCommandID = "reload"
+	paletteCommandDebug         paletteCommandID = "debug"
+	paletteCommandDiff          paletteCommandID = "diff"
+	paletteCommandFork          paletteCommandID = "fork"
+	paletteCommandFiles         paletteCommandID = "files"
+	paletteCommandSessions      paletteCommandID = "sessions"
+	paletteCommandScratchpad    paletteCommandID = "scratchpad"
+	paletteCommandSubagents     paletteCommandID = "subagents"
+	paletteCommandTabs          paletteCommandID = "tabs"
+	paletteCommandTheme         paletteCommandID = "theme"
+	paletteCommandThinking      paletteCommandID = "thinking"
 )
 
 type paletteCommandID string
@@ -398,6 +399,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandCompact, Name: "compact", Description: "Compact session context", Aliases: []string{"summarize", "shrink"}},
 		{ID: paletteCommandLogin, Name: "login", Description: "Connect another provider", Aliases: []string{"auth", "connect", "provider"}},
 		{ID: paletteCommandModel, Name: "model", Description: "Change session model", Aliases: []string{"engine"}},
+		{ID: paletteCommandModelsRefresh, Name: "refresh-models", Description: "Update the provider catalog of models", Aliases: []string{"catalog", "models"}},
 		{ID: paletteCommandName, Name: "name", Description: "Rename session", Aliases: []string{"rename", "title"}},
 		{ID: paletteCommandNew, Name: "new", Description: "Start a new session"},
 		{ID: paletteCommandQuit, Name: "quit", Description: "Exit Kit", Aliases: []string{"close", "exit"}},
@@ -412,7 +414,7 @@ func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
 		{ID: paletteCommandTheme, Name: "theme", Description: "Choose UI colors", Aliases: []string{"appearance", "colors"}},
 		{ID: paletteCommandThinking, Name: "thinking", Description: "Change reasoning effort", Aliases: []string{"reasoning", "effort"}},
 	}
-	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "diff": true, "files": true, "fork": true, "login": true, "model": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "tabs": true, "theme": true, "thinking": true}
+	seen := map[string]bool{"cd": true, "compact": true, "debug": true, "diff": true, "files": true, "fork": true, "login": true, "model": true, "refresh-models": true, "name": true, "new": true, "quit": true, "reload": true, "sessions": true, "subagents": true, "tabs": true, "theme": true, "thinking": true}
 	if len(contributions) > 0 {
 		for _, command := range contributions[0] {
 			if !seen[command.Name] {
