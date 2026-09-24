@@ -177,7 +177,7 @@ func renderMarkdownGap(theme ui.Theme, base ui.Style, previous, current kitmarkd
 		switch container.Kind {
 		case kitmarkdown.ContainerQuote:
 			if quoteLayers < maxMarkdownQuoteDepth {
-				child = wrapMarkdownQuote(theme, child)
+				child = wrapMarkdownQuote(theme, base, child)
 			}
 			quoteLayers++
 		case kitmarkdown.ContainerListItem:
@@ -246,7 +246,7 @@ func renderMarkdownBlock(
 		switch container.Kind {
 		case kitmarkdown.ContainerQuote:
 			if quoteLayers < maxMarkdownQuoteDepth {
-				child = wrapMarkdownQuote(theme, child)
+				child = wrapMarkdownQuote(theme, base, child)
 			}
 			quoteLayers++
 		case kitmarkdown.ContainerListItem:
@@ -469,9 +469,12 @@ func markdownRunSpan(theme ui.Theme, base ui.Style, run kitmarkdown.Run) ui.Text
 	return ui.TextSpan{Text: run.Text, Style: style}
 }
 
-func wrapMarkdownQuote(theme ui.Theme, child ui.Widget) ui.Widget {
+func wrapMarkdownQuote(theme ui.Theme, base ui.Style, child ui.Widget) ui.Widget {
 	return ui.DecoratedBox(
-		ui.Decoration{Border: ui.Border{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}, Left: true}},
+		ui.Decoration{
+			Style:  ui.Style{Background: base.Background},
+			Border: ui.Border{Style: ui.Style{Foreground: theme.Border, Background: base.Background}, Left: true},
+		},
 		ui.Padding(ui.Insets{Left: 2}, child),
 	)
 }

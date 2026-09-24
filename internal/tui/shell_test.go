@@ -1948,3 +1948,32 @@ func TestLiveToolIdentitySurvivesMultipleAssistantMessages(t *testing.T) {
 		t.Fatalf("expected two tool calls:\n%s", strings.Join(rows, "\n"))
 	}
 }
+
+func TestTranscriptUserQuoteInheritsAccentWash(t *testing.T) {
+	t.Parallel()
+
+	theme := ui.DefaultTheme()
+	fill := userMessageBackground(theme)
+	const width, height = 48, 12
+	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
+		ID: "quoted-user",
+		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText,
+			Text: "nice.\n\n> first paragraph\n>\n> second paragraph\n>\n> > nested quote\n\ncan you do this?"}},
+	}, nil, false, nil))
+	app.Pump(width, height)
+	_, first := findPaintedCellSequence(t, app, width, height, "nice.")
+	_, last := findPaintedCellSequence(t, app, width, height, "can you do this?")
+	for row := first; row <= last; row++ {
+		for col := 0; col < width; col++ {
+			if got := app.Cell(col, row).Background; got != fill {
+				t.Fatalf("cell (%d,%d) background = %#v, want user accent wash %#v", col, row, got, fill)
+			}
+		}
+	}
+	for _, text := range []string{"│ first paragraph", "│ second paragraph", "│ │ nested quote"} {
+		col, row := findPaintedCellSequence(t, app, width, height, text)
+		if got := app.Cell(col, row).Foreground; got != theme.Border {
+			t.Fatalf("quote gutter foreground = %#v, want %#v", got, theme.Border)
+		}
+	}
+}
