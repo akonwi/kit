@@ -218,7 +218,7 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		Reasoning:                     source.Reasoning,
 		ReasoningMode:                 reasoningMode,
 		ReasoningLevels:               reasoningLevels,
-		SupportsMidConversationEffort: catalogID == "anthropic" && source.ID == "claude-fable-5-1",
+		SupportsMidConversationEffort: catalogID == "anthropic" && anthropicSupportsMidConversationEffort(source.ID),
 		Input:                         input,
 		ContextWindow:                 contextWindow,
 		MaxInputTokens:                source.Limit.Input,
@@ -230,6 +230,18 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 			CacheWrite: source.Cost.CacheWrite,
 		},
 	}, true
+}
+
+// models.dev does not expose Anthropic's request-compatibility flags. Keep this
+// reviewed allowlist aligned with pi-ai's anthropic provider catalog:
+// providers/data/anthropic.json -> compat.supportsMidConvoEffort.
+func anthropicSupportsMidConversationEffort(modelID string) bool {
+	switch modelID {
+	case "claude-fable-5-1", "claude-opus-5-5":
+		return true
+	default:
+		return false
+	}
 }
 
 func openAIResponsesCatalogModel(source modelsDevModel) bool {

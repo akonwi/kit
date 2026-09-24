@@ -368,6 +368,14 @@ func TestCatalogReasoningCapabilities(t *testing.T) {
 		t.Fatalf("Fable reasoning capabilities = %#v", fable)
 	}
 
+	opus, ok := AnthropicModel("claude-opus-5-5")
+	if !ok {
+		t.Fatal("claude-opus-5-5 missing")
+	}
+	if opus.ReasoningMode != ReasoningModeAdaptive || !opus.SupportsMidConversationEffort || !containsString(opus.ReasoningLevels, "xhigh") {
+		t.Fatalf("Opus 5.5 reasoning capabilities = %#v", opus)
+	}
+
 	budgetTokens, ok := AnthropicModel("claude-haiku-4-5")
 	if !ok {
 		t.Fatal("claude-haiku-4-5 missing")

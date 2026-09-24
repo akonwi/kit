@@ -190,7 +190,15 @@ func TestAnthropicDoesNotRaiseMaxTokensForReasoning(t *testing.T) {
 	}
 }
 
-func TestAnthropicFableUsesManagedEffortRequest(t *testing.T) {
+func TestAnthropicManagedEffortModelsUseManagedRequest(t *testing.T) {
+	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5-5"} {
+		t.Run(modelID, func(t *testing.T) {
+			testAnthropicManagedEffortRequest(t, modelID)
+		})
+	}
+}
+
+func testAnthropicManagedEffortRequest(t *testing.T, modelID string) {
 	type capturedRequest struct {
 		body map[string]any
 		beta string
@@ -214,22 +222,27 @@ func TestAnthropicFableUsesManagedEffortRequest(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	model, ok := providers.Model("claude-fable-5-1")
+	model, ok := providers.Model(modelID)
 	if !ok {
-		t.Fatal("claude-fable-5-1 missing")
+		t.Fatalf("%s missing", modelID)
 	}
+	temperature := 0.5
 	stream := providers.Stream(context.Background(), model, Request{
 		Messages: []Message{
 			UserMessage{Content: []InputContent{TextInput{Text: "hello"}}},
-			AssistantMessage{Provider: "anthropic", Model: "claude-fable-5-1", Content: []AssistantContent{TextContent{Text: "hello"}}},
+			AssistantMessage{Provider: "anthropic", Model: modelID, Content: []AssistantContent{TextContent{Text: "hello"}}},
 			UserMessage{Content: []InputContent{TextInput{Text: "continue"}}},
 		},
-		Reasoning: "medium",
+		Reasoning:   "medium",
+		Temperature: &temperature,
 	})
 	for range stream.Events() {
 	}
 
 	request := <-captured
+	if _, ok := request.body["temperature"]; ok {
+		t.Fatalf("managed effort request included temperature: %#v", request.body)
+	}
 	thinking, _ := request.body["thinking"].(map[string]any)
 	binding, _ := thinking["block_binding"].(map[string]any)
 	if thinking["type"] != "adaptive" || thinking["display"] != "summarized" || binding["prefix_mismatch_behavior"] != "drop_block" {
