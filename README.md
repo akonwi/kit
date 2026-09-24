@@ -1,10 +1,10 @@
 # Kit
 
-Kit is a fast, native coding-agent CLI with a terminal UI, semantic web client,
-remote sessions, concurrent subagents, and language-neutral process plugins.
+Kit is a native coding agent for macOS and Linux with a terminal UI, headless
+commands, durable sessions, concurrent subagents, and language-neutral process
+plugins. Windows is not supported.
 
-The `kit-v2` branch is a ground-up Go rewrite for macOS and Linux. Windows is
-not a supported target. Its architecture is recorded in
+Kit is implemented in Go. Its architecture is recorded in
 [`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
 and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
@@ -14,42 +14,41 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 - a Kit-private [`internal/droids`](./internal/droids) agent core, seeded from
   [`github.com/akonwi/droids`](https://github.com/akonwi/droids)
 - `vaxis/ui` for the native terminal client
-- Solid and Mica for build-time browser assets embedded in the executable
 - SQLite for authoritative session/runtime state
 - JSON-RPC child processes for custom plugins written in any language
 
 Kit stores data under `~/.kit` by default. Set `KIT_HOME` to an explicit
-isolated location when developing or testing the rewrite.
+isolated location when developing or testing.
 
 ## CLI
 
 ```sh
 # Start the native TUI, resuming this directory's latest usable session:
-go run ./cmd/kit
+kit
 
 # Choose an exact session, force a new saved session, or work temporarily:
-go run ./cmd/kit --session <long-or-short-id>
-go run ./cmd/kit new --name "Focused work"
-go run ./cmd/kit --temp
-go run ./cmd/kit sessions
+kit --session <long-or-short-id>
+kit new --name "Focused work"
+kit --temp
+kit sessions
 
 # Run one headless turn. Piped stdin is prepended to the prompt:
-go run ./cmd/kit print "Continue the latest session for this directory"
-go run ./cmd/kit print --model openai/gpt-4o-mini "Say hello"
-cat changes.diff | go run ./cmd/kit print --temp "Review this diff"
+kit print "Continue the latest session for this directory"
+kit print --model openai/gpt-4o-mini "Say hello"
+cat changes.diff | kit print --temp "Review this diff"
 
 # Inspect the complete command tree and operate the local daemon:
-go run ./cmd/kit --help
-go run ./cmd/kit daemon status
-go run ./cmd/kit daemon restart
+kit --help
+kit daemon status
+kit daemon restart
 
 # Persist OpenAI Codex OAuth credentials with a headless device flow:
-go run ./cmd/kit auth login openai-codex
-go run ./cmd/kit auth status
-go run ./cmd/kit auth logout openai-codex
+kit auth login openai-codex
+kit auth status
+kit auth logout openai-codex
 ```
 
-A normal `go run ./cmd/kit` invocation starts the viewport-native vaxis TUI. It
+A normal `kit` invocation starts the viewport-native vaxis TUI. It
 starts or discovers the daemon, offers OpenAI, Anthropic, and OpenCode Go API-key
 login plus OpenAI Codex and Claude Pro/Max subscription login when credentials are
 missing, resumes the latest usable session
@@ -78,8 +77,8 @@ observed without restarting the daemon.
 
 ## Development
 
-Kit requires Go 1.26 or newer. Browser development will additionally require
-Bun, but released users will not need a JavaScript runtime.
+Kit requires Go 1.26 or newer. The Go CLI and daemon do not require a JavaScript
+runtime.
 
 ```sh
 gofmt -l .
@@ -88,5 +87,6 @@ go vet ./...
 go test ./...
 ```
 
-Historical TypeScript application code remains temporarily in `apps/web/` and
-`packages/` as a behavioral reference while native replacements are built.
+The macOS client lives in [`apps/macos/`](apps/macos/). TypeScript application
+code in `apps/web/` and shared packages in `packages/` use Bun for development.
+The web client is not yet integrated with the Go daemon.
