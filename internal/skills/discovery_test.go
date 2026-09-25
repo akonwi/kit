@@ -187,24 +187,26 @@ func TestFilesystemLoaderBoundsDirectoryEntries(t *testing.T) {
 	}
 }
 
-func TestFilesystemLoaderDoesNotFollowEscapingSkillRoots(t *testing.T) {
+func TestFilesystemLoaderFollowsSymlinkedSkillRoot(t *testing.T) {
 	base := t.TempDir()
 	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
 	cwd := filepath.Join(base, "project")
 	outside := filepath.Join(base, "outside")
-	writeSkill(t, outside, "escaped", "Escaped skill", "outside", false)
+	writeSkill(t, outside, "shared", "Shared skill", "outside", false)
 	if err := os.MkdirAll(paths.Home, 0o700); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.Symlink(outside, paths.Skills); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	canonicalHome, err := filepath.EvalSymlinks(paths.Home)
+	if err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(filepath.Join(cwd, ".agents"), 0o700); err != nil {
-		t.Fatal(err)
-	}
-	if err := os.Symlink(outside, filepath.Join(cwd, ".agents", "skills")); err != nil {
-		t.Fatal(err)
-	}
+	skillPath := filepath.Join(canonicalHome, "skills", "shared", "SKILL.md")
 	loader, err := NewFilesystemLoader(paths)
 	if err != nil {
 		t.Fatal(err)
@@ -213,11 +215,61 @@ func TestFilesystemLoaderDoesNotFollowEscapingSkillRoots(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := result.Registry.Lookup("escaped"); ok {
-		t.Fatal("loaded a skill through an escaping root symlink")
+	skill, ok := result.Registry.Lookup("shared")
+	if !ok || skill.Location != skillPath || !strings.Contains(skill.Content, "outside") {
+		t.Fatalf("symlinked-root skill = %#v, found=%v diagnostics=%#v", skill, ok, result.Diagnostics)
 	}
-	if len(result.Diagnostics) < 2 {
-		t.Fatalf("escaping-root diagnostics = %#v", result.Diagnostics)
+}
+
+func TestFilesystemLoaderFollowsSymlinkedSkillDirectoryAndFile(t *testing.T) {
+	base := t.TempDir()
+	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
+	cwd := filepath.Join(base, "project")
+	root := filepath.Join(cwd, ".agents", "skills")
+	outside := filepath.Join(base, "outside")
+	originalDirectoryTarget := filepath.Join(outside, "linked-directory")
+	writeSkill(t, outside, "linked-directory", "Linked directory", "directory body", false)
+	directoryTarget := filepath.Join(outside, "physical-target")
+	if err := os.Rename(originalDirectoryTarget, directoryTarget); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(root, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	directoryLink := filepath.Join(root, "linked-directory")
+	if err := os.Symlink(directoryTarget, directoryLink); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	canonicalCWD, err := filepath.EvalSymlinks(cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	directorySkillPath := filepath.Join(canonicalCWD, ".agents", "skills", "linked-directory", "SKILL.md")
+	fileDirectory := filepath.Join(root, "linked-file")
+	if err := os.MkdirAll(fileDirectory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	fileTarget := writeSkill(t, outside, "linked-file", "Linked file", "file body", false)
+	if err := os.Symlink(fileTarget, filepath.Join(fileDirectory, "SKILL.md")); err != nil {
+		t.Fatal(err)
+	}
+
+	loader, err := NewFilesystemLoader(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	result, err := loader.Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, content := range map[string]string{"linked-directory": "directory body", "linked-file": "file body"} {
+		skill, ok := result.Registry.Lookup(name)
+		if !ok || !strings.Contains(skill.Content, content) {
+			t.Fatalf("skill %q = %#v, found=%v diagnostics=%#v", name, skill, ok, result.Diagnostics)
+		}
+	}
+	if skill, _ := result.Registry.Lookup("linked-directory"); skill.Location != directorySkillPath {
+		t.Fatalf("linked directory location = %q, want %q", skill.Location, directorySkillPath)
 	}
 }
 

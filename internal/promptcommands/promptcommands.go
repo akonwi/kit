@@ -157,27 +157,38 @@ func (l *FilesystemLoader) scanRoot(ctx context.Context, rootPath string, expect
 	if ctx.Err() != nil || len(commands) >= maxCommands {
 		return commands
 	}
-	root, err := os.OpenRoot(rootPath)
+	searchPath := filepath.Join(rootPath, relative)
+	var anchor *os.Root
+	if expected != nil {
+		var err error
+		anchor, err = os.OpenRoot(rootPath)
+		if err != nil {
+			return commands
+		}
+		defer anchor.Close()
+		openedInfo, statErr := anchor.Stat(".")
+		if statErr != nil || !os.SameFile(expected, openedInfo) {
+			return commands
+		}
+	}
+	root, err := openResolvedPromptDirectory(searchPath)
 	if err != nil {
 		return commands
 	}
 	defer root.Close()
 	if expected != nil {
-		openedInfo, statErr := root.Stat(".")
-		if statErr != nil || !os.SameFile(expected, openedInfo) {
+		current, statErr := os.Stat(rootPath)
+		if statErr != nil || !os.SameFile(expected, current) {
 			return commands
 		}
 	}
-	info, err := root.Lstat(relative)
-	if err != nil || !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		return commands
-	}
-	directory, err := root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	directory, err := root.OpenFile(".", os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
 		return commands
 	}
 	openedInfo, statErr := directory.Stat()
-	if statErr != nil || !openedInfo.IsDir() {
+	selectedInfo, selectedErr := root.Stat(".")
+	if statErr != nil || selectedErr != nil || !openedInfo.IsDir() || !os.SameFile(selectedInfo, openedInfo) {
 		_ = directory.Close()
 		return commands
 	}
@@ -191,14 +202,14 @@ func (l *FilesystemLoader) scanRoot(ctx context.Context, rootPath string, expect
 		if ctx.Err() != nil || len(commands) >= maxCommands {
 			break
 		}
-		if entry.Mode()&os.ModeSymlink != 0 || !entry.Mode().IsRegular() || filepath.Ext(entry.Name()) != ".md" {
+		if filepath.Ext(entry.Name()) != ".md" || (!entry.Mode().IsRegular() && entry.Mode()&os.ModeSymlink == 0) {
 			continue
 		}
 		name := strings.TrimSuffix(entry.Name(), ".md")
 		if _, exists := seen[name]; exists {
 			continue
 		}
-		command, ok := loadCommand(root, filepath.Join(relative, entry.Name()), source)
+		command, ok := loadCommand(root, entry.Name(), filepath.Join(searchPath, entry.Name()), source)
 		if !ok {
 			continue
 		}
@@ -208,21 +219,51 @@ func (l *FilesystemLoader) scanRoot(ctx context.Context, rootPath string, expect
 	return commands
 }
 
-func loadCommand(root *os.Root, relative string, source Source) (Command, bool) {
-	path := filepath.Join(root.Name(), relative)
+func openResolvedPromptDirectory(path string) (*os.Root, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := os.Stat(resolved)
+	if err != nil || !selected.IsDir() {
+		return nil, errors.New("prompt path does not resolve to a directory")
+	}
+	root, err := os.OpenRoot(resolved)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !opened.IsDir() || !os.SameFile(selected, opened) {
+		_ = root.Close()
+		return nil, errors.New("prompt directory changed while opening")
+	}
+	return root, nil
+}
+
+func loadCommand(root *os.Root, relative, path string, source Source) (Command, bool) {
 	if len(path) > maxLocationBytes || !utf8.ValidString(path) {
 		return Command{}, false
 	}
 	info, err := root.Lstat(relative)
-	if err != nil || !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
+	if err != nil || (!info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0) {
 		return Command{}, false
 	}
-	file, err := root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	physicalPath := filepath.Join(root.Name(), relative)
+	selectedInfo, err := os.Stat(physicalPath)
+	if err != nil || !selectedInfo.Mode().IsRegular() {
+		return Command{}, false
+	}
+	var file *os.File
+	if info.Mode()&os.ModeSymlink != 0 {
+		file, err = os.OpenFile(physicalPath, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	} else {
+		file, err = root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		return Command{}, false
 	}
 	openedInfo, statErr := file.Stat()
-	if statErr != nil || !openedInfo.Mode().IsRegular() {
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(selectedInfo, openedInfo) {
 		_ = file.Close()
 		return Command{}, false
 	}

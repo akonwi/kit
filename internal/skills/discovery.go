@@ -85,7 +85,10 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 		return LoadResult{}, errors.New("skill loader is not initialized")
 	}
 
-	state := discoveryState{seenNames: map[string]string{KitCustomizationName: "built-in"}}
+	state := discoveryState{
+		seenNames:       map[string]string{KitCustomizationName: "built-in"},
+		seenDirectories: make(map[string]struct{}),
+	}
 	state.scanRoot(ctx, l.userHome, l.userHomeInfo, "skills", SourceUser)
 	state.scanRoot(ctx, canonicalCWD, info, projectSkillsPath, SourceProject)
 	if err := ctx.Err(); err != nil {
@@ -99,50 +102,105 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (LoadResult, er
 }
 
 type discoveryState struct {
-	directories   int
-	skills        []Skill
-	diagnostics   []systemprompt.Diagnostic
-	seenNames     map[string]string
-	skillLimitHit bool
+	directories     int
+	skills          []Skill
+	diagnostics     []systemprompt.Diagnostic
+	seenNames       map[string]string
+	seenDirectories map[string]struct{}
+	skillLimitHit   bool
 }
 
 func (s *discoveryState) scanRoot(ctx context.Context, rootPath string, expected os.FileInfo, relative string, source Source) {
-	root, err := os.OpenRoot(rootPath)
+	searchPath := filepath.Join(rootPath, relative)
+	var anchor *os.Root
+	if expected != nil {
+		var err error
+		anchor, err = os.OpenRoot(rootPath)
+		if err != nil {
+			s.warn("skills.root_replaced", "Skill search root changed during discovery and was omitted", searchPath)
+			return
+		}
+		defer anchor.Close()
+		openedInfo, statErr := anchor.Stat(".")
+		if statErr != nil || !os.SameFile(expected, openedInfo) {
+			s.warn("skills.root_replaced", "Skill search root changed during discovery and was omitted", searchPath)
+			return
+		}
+	}
+	root, err := openResolvedSkillDirectory(searchPath)
 	if errors.Is(err, os.ErrNotExist) {
 		return
 	}
 	if err != nil {
-		s.warn("skills.unreadable_root", "Could not open skill search root: "+err.Error(), filepath.Join(rootPath, relative))
+		s.warn("skills.unreadable_directory", "Could not open skill directory: "+err.Error(), searchPath)
 		return
 	}
 	defer root.Close()
 	if expected != nil {
-		openedInfo, statErr := root.Stat(".")
-		if statErr != nil || !os.SameFile(expected, openedInfo) {
-			s.warn("skills.root_replaced", "Skill search root changed during discovery and was omitted", filepath.Join(rootPath, relative))
+		current, statErr := os.Stat(rootPath)
+		if statErr != nil || !os.SameFile(expected, current) {
+			s.warn("skills.root_replaced", "Skill search root changed during discovery and was omitted", searchPath)
 			return
 		}
 	}
-	s.scan(ctx, root, filepath.Clean(relative), source, 0)
+	s.scan(ctx, root, ".", searchPath, source, 0)
 }
 
-func (s *discoveryState) scan(ctx context.Context, root *os.Root, directory string, source Source, depth int) {
+func openResolvedSkillDirectory(path string) (*os.Root, error) {
+	resolved, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		return nil, err
+	}
+	selected, err := os.Stat(resolved)
+	if err != nil {
+		return nil, err
+	}
+	if !selected.IsDir() {
+		return nil, fmt.Errorf("%q does not resolve to a directory", path)
+	}
+	root, err := os.OpenRoot(resolved)
+	if err != nil {
+		return nil, err
+	}
+	opened, err := root.Stat(".")
+	if err != nil || !opened.IsDir() || !os.SameFile(selected, opened) {
+		_ = root.Close()
+		return nil, fmt.Errorf("%q changed while opening", path)
+	}
+	return root, nil
+}
+
+func (s *discoveryState) scanLinkedDirectory(ctx context.Context, physicalPath, displayPath string, source Source, depth int) {
+	root, err := openResolvedSkillDirectory(physicalPath)
+	if errors.Is(err, os.ErrNotExist) {
+		s.warn("skills.unreadable_directory", "Could not resolve skill directory: "+err.Error(), displayPath)
+		return
+	}
+	if err != nil {
+		s.warn("skills.non_directory", "Skill search path does not resolve to a directory: "+err.Error(), displayPath)
+		return
+	}
+	defer root.Close()
+	s.scan(ctx, root, ".", displayPath, source, depth)
+}
+
+func (s *discoveryState) scan(ctx context.Context, root *os.Root, directory, displayDirectory string, source Source, depth int) {
 	if ctx.Err() != nil {
 		return
 	}
 	if len(s.skills)+1 >= maxSkillsPerRegistry {
 		if !s.skillLimitHit {
 			s.skillLimitHit = true
-			s.warn("skills.skill_limit", "Additional skills were omitted because the registry limit was reached", rootedPath(root, directory))
+			s.warn("skills.skill_limit", "Additional skills were omitted because the registry limit was reached", displayDirectory)
 		}
 		return
 	}
 	if depth > maxDiscoveryDepth {
-		s.warn("skills.depth_limit", "Skill directory omitted because the discovery depth limit was reached", rootedPath(root, directory))
+		s.warn("skills.depth_limit", "Skill directory omitted because the discovery depth limit was reached", displayDirectory)
 		return
 	}
 	if s.directories >= maxDiscoveryDirectories {
-		s.warn("skills.directory_limit", "Skill directory omitted because the discovery directory limit was reached", rootedPath(root, directory))
+		s.warn("skills.directory_limit", "Skill directory omitted because the discovery directory limit was reached", displayDirectory)
 		return
 	}
 	info, err := root.Lstat(directory)
@@ -150,43 +208,56 @@ func (s *discoveryState) scan(ctx context.Context, root *os.Root, directory stri
 		return
 	}
 	if err != nil {
-		s.warn("skills.unreadable_directory", "Could not inspect skill directory: "+err.Error(), rootedPath(root, directory))
+		s.warn("skills.unreadable_directory", "Could not inspect skill directory: "+err.Error(), displayDirectory)
 		return
 	}
-	if !info.IsDir() || info.Mode()&os.ModeSymlink != 0 {
-		s.warn("skills.non_directory", "Skill search path is not a regular non-symlink directory", rootedPath(root, directory))
+	if info.Mode()&os.ModeSymlink != 0 {
+		s.scanLinkedDirectory(ctx, rootedPath(root, directory), displayDirectory, source, depth)
 		return
 	}
+	if !info.IsDir() {
+		s.warn("skills.non_directory", "Skill search path does not resolve to a directory", displayDirectory)
+		return
+	}
+	canonicalDirectory, err := filepath.EvalSymlinks(rootedPath(root, directory))
+	if err != nil {
+		s.warn("skills.unreadable_directory", "Could not resolve skill directory: "+err.Error(), displayDirectory)
+		return
+	}
+	if _, seen := s.seenDirectories[canonicalDirectory]; seen {
+		return
+	}
+	s.seenDirectories[canonicalDirectory] = struct{}{}
 	opened, err := root.OpenFile(directory, os.O_RDONLY|unix.O_NONBLOCK, 0)
 	if err != nil {
-		s.warn("skills.unreadable_directory", "Could not open skill directory: "+err.Error(), rootedPath(root, directory))
+		s.warn("skills.unreadable_directory", "Could not open skill directory: "+err.Error(), displayDirectory)
 		return
 	}
 	openedInfo, statErr := opened.Stat()
-	if statErr != nil || !openedInfo.IsDir() {
+	if statErr != nil || !openedInfo.IsDir() || !os.SameFile(info, openedInfo) {
 		_ = opened.Close()
-		s.warn("skills.non_directory", "Opened skill search path is not a directory", rootedPath(root, directory))
+		s.warn("skills.non_directory", "Opened skill search path is not the selected directory", displayDirectory)
 		return
 	}
 	entries, readErr := opened.Readdir(maxDirectoryEntries + 1)
 	closeErr := opened.Close()
 	if readErr != nil && !errors.Is(readErr, io.EOF) {
-		s.warn("skills.unreadable_directory", "Could not read skill directory: "+readErr.Error(), rootedPath(root, directory))
+		s.warn("skills.unreadable_directory", "Could not read skill directory: "+readErr.Error(), displayDirectory)
 		return
 	}
 	if closeErr != nil {
-		s.warn("skills.unreadable_directory", "Could not close skill directory: "+closeErr.Error(), rootedPath(root, directory))
+		s.warn("skills.unreadable_directory", "Could not close skill directory: "+closeErr.Error(), displayDirectory)
 		return
 	}
 	if len(entries) > maxDirectoryEntries {
-		s.warn("skills.entry_limit", "Skill directory omitted because its entry limit was exceeded", rootedPath(root, directory))
+		s.warn("skills.entry_limit", "Skill directory omitted because its entry limit was exceeded", displayDirectory)
 		return
 	}
 	s.directories++
 	sort.Slice(entries, func(i, j int) bool { return entries[i].Name() < entries[j].Name() })
 	for _, entry := range entries {
 		if entry.Name() == "SKILL.md" {
-			s.loadFile(root, filepath.Join(directory, entry.Name()), source)
+			s.loadFile(root, filepath.Join(directory, entry.Name()), filepath.Join(displayDirectory, entry.Name()), source)
 			return
 		}
 	}
@@ -195,33 +266,53 @@ func (s *discoveryState) scan(ctx context.Context, root *os.Root, directory stri
 			return
 		}
 		name := entry.Name()
-		if strings.HasPrefix(name, ".") || name == "node_modules" || entry.Mode()&os.ModeSymlink != 0 || !entry.IsDir() {
+		if strings.HasPrefix(name, ".") || name == "node_modules" {
 			continue
 		}
-		s.scan(ctx, root, filepath.Join(directory, name), source, depth+1)
+		if entry.Mode()&os.ModeSymlink != 0 {
+			s.scanLinkedDirectory(ctx, rootedPath(root, filepath.Join(directory, name)), filepath.Join(displayDirectory, name), source, depth+1)
+			continue
+		}
+		if entry.IsDir() {
+			s.scan(ctx, root, filepath.Join(directory, name), filepath.Join(displayDirectory, name), source, depth+1)
+		}
 	}
 }
 
-func (s *discoveryState) loadFile(root *os.Root, relative string, source Source) {
-	path := rootedPath(root, relative)
+func (s *discoveryState) loadFile(root *os.Root, relative, path string, source Source) {
+	physicalPath := rootedPath(root, relative)
 	info, err := root.Lstat(relative)
 	if err != nil {
 		s.warn("skills.unreadable", "Could not inspect skill file: "+err.Error(), path)
 		return
 	}
-	if !info.Mode().IsRegular() || info.Mode()&os.ModeSymlink != 0 {
-		s.warn("skills.non_regular", "Skill definition is not a regular non-symlink file", path)
+	if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
+		s.warn("skills.non_regular", "Skill definition is not a regular file or readable file symlink", path)
 		return
 	}
-	opened, err := root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	resolvedInfo, err := os.Stat(physicalPath)
+	if err != nil {
+		s.warn("skills.unreadable", "Could not resolve skill file: "+err.Error(), path)
+		return
+	}
+	if !resolvedInfo.Mode().IsRegular() {
+		s.warn("skills.non_regular", "Skill definition does not resolve to a regular file", path)
+		return
+	}
+	var opened *os.File
+	if info.Mode()&os.ModeSymlink != 0 {
+		opened, err = os.OpenFile(physicalPath, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	} else {
+		opened, err = root.OpenFile(relative, os.O_RDONLY|unix.O_NONBLOCK, 0)
+	}
 	if err != nil {
 		s.warn("skills.unreadable", "Could not open skill file: "+err.Error(), path)
 		return
 	}
 	openedInfo, statErr := opened.Stat()
-	if statErr != nil || !openedInfo.Mode().IsRegular() {
+	if statErr != nil || !openedInfo.Mode().IsRegular() || !os.SameFile(resolvedInfo, openedInfo) {
 		_ = opened.Close()
-		s.warn("skills.non_regular", "Opened skill definition is not a regular file", path)
+		s.warn("skills.non_regular", "Opened skill definition is not the selected regular file", path)
 		return
 	}
 	content, readErr := io.ReadAll(io.LimitReader(opened, int64(maxSkillContentBytes)+1))

@@ -184,6 +184,8 @@ func (b *ContextBuilder) BuildWith(ctx context.Context, request Request, request
 type contextCandidate struct {
 	path      string
 	canonical string
+	openPath  string
+	identity  os.FileInfo
 	order     int
 }
 
@@ -374,16 +376,38 @@ func loadContextCandidates(ctx context.Context, paths []contextCandidate, limits
 			))
 			continue
 		}
-		if !info.Mode().IsRegular() {
+		if !info.Mode().IsRegular() && info.Mode()&os.ModeSymlink == 0 {
 			diagnostics = append(diagnostics, contextDiagnostic(
 				DiagnosticWarning,
 				"context.non_regular",
-				"Context candidate is not a regular non-symlink file",
+				"Context candidate is not a regular file or readable file symlink",
 				candidate.path,
 			))
 			continue
 		}
-		candidate.canonical = filepath.Clean(candidate.path)
+		resolved, err := filepath.EvalSymlinks(candidate.path)
+		if err != nil {
+			diagnostics = append(diagnostics, contextDiagnostic(
+				DiagnosticWarning,
+				"context.unreadable",
+				fmt.Sprintf("Could not resolve context file: %v", err),
+				candidate.path,
+			))
+			continue
+		}
+		resolvedInfo, err := os.Stat(resolved)
+		if err != nil || !resolvedInfo.Mode().IsRegular() {
+			diagnostics = append(diagnostics, contextDiagnostic(
+				DiagnosticWarning,
+				"context.non_regular",
+				"Context candidate does not resolve to a regular file",
+				candidate.path,
+			))
+			continue
+		}
+		candidate.canonical = filepath.Clean(resolved)
+		candidate.openPath = candidate.canonical
+		candidate.identity = resolvedInfo
 		if _, duplicate := seen[candidate.canonical]; duplicate {
 			diagnostics = append(diagnostics, contextDiagnostic(
 				DiagnosticInfo,
@@ -412,7 +436,7 @@ func loadContextCandidates(ctx context.Context, paths []contextCandidate, limits
 }
 
 func readContextCandidate(ctx context.Context, candidate contextCandidate, maximum int64) (string, *Diagnostic, error) {
-	file, err := openContextFile(candidate.path)
+	file, err := openContextFile(candidate.openPath)
 	if err != nil {
 		diagnostic := contextDiagnostic(
 			DiagnosticWarning,
@@ -433,11 +457,11 @@ func readContextCandidate(ctx context.Context, candidate contextCandidate, maxim
 		)
 		return "", &diagnostic, nil
 	}
-	if !info.Mode().IsRegular() {
+	if !info.Mode().IsRegular() || candidate.identity == nil || !os.SameFile(candidate.identity, info) {
 		diagnostic := contextDiagnostic(
 			DiagnosticWarning,
 			"context.non_regular",
-			"Context candidate is not a regular non-symlink file",
+			"Opened context candidate is not the selected regular file",
 			candidate.path,
 		)
 		return "", &diagnostic, nil

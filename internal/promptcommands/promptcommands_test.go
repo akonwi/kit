@@ -139,17 +139,17 @@ func TestFilesystemLoaderRefreshesAddChangeAndRemove(t *testing.T) {
 	}
 }
 
-func TestFilesystemLoaderHonorsCancellationAndRejectsEscapingRoots(t *testing.T) {
+func TestFilesystemLoaderFollowsSymlinkedPromptRootsAndHonorsCancellation(t *testing.T) {
 	base := t.TempDir()
 	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
 	cwd := filepath.Join(base, "project")
 	outside := filepath.Join(base, "outside")
-	writeTemplate(t, outside, "escaped.md", "Escape")
+	writeTemplate(t, outside, "shared.md", "Shared prompt")
 	if err := os.MkdirAll(paths.Home, 0o700); err != nil {
 		t.Fatal(err)
 	}
 	if err := os.Symlink(outside, paths.Prompts); err != nil {
-		t.Fatal(err)
+		t.Skipf("symlinks unavailable: %v", err)
 	}
 	if err := os.MkdirAll(filepath.Join(cwd, ".agents"), 0o700); err != nil {
 		t.Fatal(err)
@@ -162,13 +162,46 @@ func TestFilesystemLoaderHonorsCancellationAndRejectsEscapingRoots(t *testing.T)
 		t.Fatal(err)
 	}
 	registry, err := loader.Load(t.Context(), cwd)
-	if err != nil || len(registry.Commands()) != 0 {
-		t.Fatalf("escaped Load() = %#v, %v", registry.Commands(), err)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, ok := registry.Lookup("shared")
+	if !ok || command.Source != SourceUser || command.Content != "Shared prompt" {
+		t.Fatalf("symlinked prompt = %#v, found=%v", command, ok)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	if _, err := loader.Load(ctx, cwd); !errors.Is(err, context.Canceled) {
 		t.Fatalf("canceled Load() = %v", err)
+	}
+}
+
+func TestFilesystemLoaderFollowsSymlinkedPromptFile(t *testing.T) {
+	base := t.TempDir()
+	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
+	cwd := filepath.Join(base, "project")
+	target := writeTemplate(t, filepath.Join(base, "shared"), "target.md", "Linked prompt")
+	if err := os.MkdirAll(paths.Prompts, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(paths.Prompts, "linked.md")
+	if err := os.Symlink(target, link); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if err := os.MkdirAll(cwd, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	loader, err := NewFilesystemLoader(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	registry, err := loader.Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	command, ok := registry.Lookup("linked")
+	if !ok || command.Content != "Linked prompt" || !strings.HasSuffix(command.Location, "/prompts/linked.md") {
+		t.Fatalf("symlinked prompt file = %#v, found=%v", command, ok)
 	}
 }
 

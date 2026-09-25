@@ -205,11 +205,11 @@ func TestContextBuilderDeduplicatesGlobalAndLocalIdentity(t *testing.T) {
 	}
 }
 
-func TestContextBuilderRejectsContextFileSymlinks(t *testing.T) {
+func TestContextBuilderLoadsContextFileSymlinks(t *testing.T) {
 	home := canonicalTestDirectory(t, t.TempDir())
 	cwd := canonicalTestDirectory(t, t.TempDir())
-	target := filepath.Join(t.TempDir(), "private")
-	writeContextFile(t, target, []byte("must not load"))
+	target := filepath.Join(t.TempDir(), "shared-agents.md")
+	writeContextFile(t, target, []byte("shared guidance"))
 	path := filepath.Join(cwd, agentsFilename)
 	if err := os.Symlink(target, path); err != nil {
 		t.Skipf("symlinks unavailable: %v", err)
@@ -220,11 +220,8 @@ func TestContextBuilderRejectsContextFileSymlinks(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.Prompt != DefaultCore || len(result.Sources) != 1 {
-		t.Fatalf("Result = %#v, want no context", result)
-	}
-	if !hasDiagnostic(result.Diagnostics, "context.non_regular", path) {
-		t.Fatalf("Diagnostics = %#v, want non-regular source", result.Diagnostics)
+	if len(result.Sources) != 2 || result.Sources[1].Path != path || !strings.Contains(result.Prompt, "shared guidance") {
+		t.Fatalf("Result = %#v, want symlinked context", result)
 	}
 }
 
