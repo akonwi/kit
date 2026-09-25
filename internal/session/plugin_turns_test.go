@@ -191,3 +191,63 @@ func TestProjectPluginTurnMessageKeepsOnlyOrderedPublicText(t *testing.T) {
 		t.Fatal("tool result was exposed as a public turn message")
 	}
 }
+
+// completionBlockingHost exposes the interval between claiming and delivering a
+// completion, which must not unblock native turn settlement.
+type completionBlockingHost struct {
+	turnBridgeTestHost
+	entered chan struct{}
+	release chan struct{}
+}
+
+func (h *completionBlockingHost) TurnCompleted(PluginTurn) {
+	close(h.entered)
+	<-h.release
+}
+
+func TestPluginTurnSettlementWaitsForCompletionDelivery(t *testing.T) {
+	for _, superseded := range []bool{false, true} {
+		name := "projected"
+		if superseded {
+			name = "superseded"
+		}
+		t.Run(name, func(t *testing.T) {
+			bridge := newPluginTurnEventBridge(t.Context())
+			defer closePluginTurnEventBridge(bridge)
+			host := &completionBlockingHost{entered: make(chan struct{}), release: make(chan struct{})}
+			bridge.binding.Store(&pluginTurnEventBinding{host: host})
+			bridge.started("first")
+			bridge.mu.Lock()
+			settlement := bridge.settled["first"]
+			bridge.mu.Unlock()
+			finished := make(chan struct{})
+			go func() {
+				defer close(finished)
+				if superseded {
+					bridge.started("second")
+				} else {
+					bridge.deliverCompletion(PluginTurn{ID: "first"})
+				}
+			}()
+			defer func() {
+				close(host.release)
+				<-finished
+				select {
+				case <-settlement.done:
+				default:
+					t.Error("turn did not settle after completion callback returned")
+				}
+			}()
+			select {
+			case <-host.entered:
+			case <-time.After(5 * time.Second):
+				t.Fatal("completion callback did not start")
+			}
+			select {
+			case <-settlement.done:
+				t.Fatal("turn settled before completion callback returned")
+			default:
+			}
+		})
+	}
+}

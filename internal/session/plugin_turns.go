@@ -65,6 +65,7 @@ func (b *pluginTurnEventBridge) started(turnID droids.TurnID) {
 	defer b.deliveryMu.Unlock()
 	b.mu.Lock()
 	previous := b.active
+	previousSettlement := b.settled[previous]
 	previousFinalized := b.finalizeLocked(previous)
 	settlement := b.settled[id]
 	if settlement == nil {
@@ -74,11 +75,14 @@ func (b *pluginTurnEventBridge) started(turnID droids.TurnID) {
 	b.active = id
 	binding := b.binding.Load()
 	b.mu.Unlock()
+	if previousFinalized {
+		if binding != nil && binding.host != nil {
+			binding.host.TurnCompleted(PluginTurn{ID: previous, OmitReason: "completion projection did not settle before the next turn"})
+		}
+		close(previousSettlement.done)
+	}
 	if binding == nil || binding.host == nil {
 		return
-	}
-	if previousFinalized {
-		binding.host.TurnCompleted(PluginTurn{ID: previous, OmitReason: "completion projection did not settle before the next turn"})
 	}
 	eligible := binding.host.TurnStarted(id)
 	b.mu.Lock()
@@ -101,6 +105,7 @@ func (b *pluginTurnEventBridge) turnSettled(turnID droids.TurnID) {
 	}
 	if !settlement.eligible {
 		b.finalizeLocked(id)
+		close(settlement.done)
 		b.mu.Unlock()
 		return
 	}
@@ -165,11 +170,14 @@ func (b *pluginTurnEventBridge) deliverCompletion(turn PluginTurn) {
 		b.mu.Unlock()
 		return
 	}
+	settlement := b.settled[turn.ID]
 	binding := b.binding.Load()
 	b.mu.Unlock()
 	if binding != nil && binding.host != nil {
 		binding.host.TurnCompleted(turn)
 	}
+	// Settlement includes delivery to the host, not just claiming the turn.
+	close(settlement.done)
 }
 
 func (b *pluginTurnEventBridge) finalizeLocked(turnID string) bool {
@@ -181,7 +189,6 @@ func (b *pluginTurnEventBridge) finalizeLocked(turnID string) bool {
 		return false
 	}
 	settlement.finalized = true
-	close(settlement.done)
 	if b.active == turnID {
 		b.active = ""
 	}
