@@ -14,6 +14,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"testing"
@@ -804,6 +805,19 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	commandUser := commandSnapshot.Messages[len(commandSnapshot.Messages)-2]
 	if commandUser.Role != "user" || commandUser.TextContent() != "Summarize auth module with auth module carefully." {
 		t.Fatalf("expanded prompt command message = %+v", commandUser)
+	}
+
+	messagePage, err := client.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 2, Roles: []string{"user"}})
+	if err != nil || len(messagePage.Messages) != 2 || !messagePage.HasMore || messagePage.Messages[0].TextContent() != "Summarize auth module with auth module carefully." {
+		t.Fatalf("GetMessagePage() = %+v, %v", messagePage, err)
+	}
+	if messagePage.NextCursor != strconv.FormatInt(messagePage.Messages[len(messagePage.Messages)-1].Sequence, 10) {
+		t.Fatalf("GetMessagePage() cursor = %q, oldest = %d", messagePage.NextCursor, messagePage.Messages[len(messagePage.Messages)-1].Sequence)
+	}
+	for _, message := range messagePage.Messages {
+		if message.Role != "user" {
+			t.Fatalf("GetMessagePage() role = %q, want user", message.Role)
+		}
 	}
 
 	bashID, err := identifier.New("bash_")

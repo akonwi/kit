@@ -25,6 +25,7 @@ func (s *appState) handleCtrlC(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			s.fileMention.Close()
 			s.closeSessionMention()
 			s.bashHistory.Close()
+			s.messageHistory.Close()
 		})
 		return ui.EventHandled
 	}

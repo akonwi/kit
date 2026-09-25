@@ -17,6 +17,7 @@ const (
 	inputAuth
 	inputPane
 	inputBashHistory
+	inputMessageHistory
 	inputConfiguration
 	inputSessionDetails
 	inputMCPStatus
@@ -89,6 +90,8 @@ func (w shellSnapshot) inputOwner() inputOwner {
 		return inputSessionDetails
 	case w.ConfigurationPicker.Mode != configurationPickerClosed:
 		return inputConfiguration
+	case w.MessageHistory.Open:
+		return inputMessageHistory
 	case w.BashHistory.Open:
 		return inputBashHistory
 	case w.PaneInput.active(w):
@@ -112,7 +115,7 @@ func (s *appState) inputOwner() inputOwner {
 		SessionExplorer: s.sessionExplorer.Snapshot(), SessionRename: s.sessionRename.Snapshot(),
 		AnnotationPicker:   annotationPickerSnapshot{Open: s.annotationPicker.Open},
 		SessionDetailsOpen: s.sessionDetailsOpen, MCPStatusOpen: s.mcpStatusOpen, ConfigurationPicker: s.configurationPicker.Snapshot(),
-		BashHistory: s.bashHistory, SessionMention: s.sessionMention, FileMention: s.fileMention,
+		BashHistory: s.bashHistory, MessageHistory: s.messageHistory, SessionMention: s.sessionMention, FileMention: s.fileMention,
 		PendingInteractions: s.pendingInteractions, ReadingPickerOpen: s.transcriptReadingPickerOpen || s.subagentReadingPickerID != "",
 	}).inputOwner()
 }
@@ -183,6 +186,7 @@ func (s *appState) reconcileInputOwner() {
 			s.closeSessionMention()
 		}
 		s.bashHistory.Close()
+		s.messageHistory.Close()
 	}
 	owner := s.inputOwner()
 	view := shellView{Snapshot: shellSnapshot{Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot()}}

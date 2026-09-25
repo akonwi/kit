@@ -110,6 +110,7 @@ type sessionService interface {
 	Models(context.Context) (protocol.ModelCatalog, error)
 	RefreshModels(context.Context) (protocol.ModelCatalog, error)
 	Snapshot(context.Context, string) (protocol.SessionSnapshot, error)
+	MessagePage(context.Context, string, protocol.MessagePageQuery) (protocol.MessagePage, error)
 	TranscriptPage(context.Context, string, string) (protocol.TranscriptPage, error)
 	VCS(context.Context, string) (protocol.SessionVCSStatus, error)
 	SubscribeVCS(context.Context, string) (vcsSource, error)
@@ -848,6 +849,22 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			Details:    append(json.RawMessage(nil), boundary.Details...),
 			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
 		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) MessagePage(ctx context.Context, sessionID string, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
+	page, err := s.manager.MessagePage(ctx, sessionID, kitsession.MessagePageQuery{
+		Before: query.Before, Limit: query.Limit, Roles: append([]string(nil), query.Roles...),
+	})
+	if err != nil {
+		return protocol.MessagePage{}, err
+	}
+	result := protocol.MessagePage{
+		SessionID: sessionID, Messages: projectTranscriptMessages(page.Messages), HasMore: page.HasMore,
+	}
+	if page.HasMore {
+		result.NextCursor = strconv.FormatUint(page.NextCursor, 10)
 	}
 	return result, nil
 }
@@ -1665,6 +1682,43 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeJSON(writer, http.StatusOK, snapshot)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/messages", func(writer http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		limit := 50
+		if raw := query.Get("limit"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed <= 0 || parsed > 100 {
+				writeSessionError(writer, fmt.Errorf("%w: message limit must be between 1 and 100", errInvalidSessionRequest))
+				return
+			}
+			limit = parsed
+		}
+		var before uint64
+		if raw := query["before"]; len(raw) > 1 || (len(raw) == 1 && (raw[0] == "" || len(raw[0]) > 256 || strings.TrimSpace(raw[0]) != raw[0])) {
+			writeSessionError(writer, fmt.Errorf("%w: message cursor is invalid", errInvalidSessionRequest))
+			return
+		} else if len(raw) == 1 {
+			parsed, err := strconv.ParseUint(raw[0], 10, 64)
+			if err != nil || parsed == 0 {
+				writeSessionError(writer, fmt.Errorf("%w: message cursor is invalid", errInvalidSessionRequest))
+				return
+			}
+			before = parsed
+		}
+		roles := append([]string(nil), query["role"]...)
+		result, err := service.MessagePage(request.Context(), request.PathValue("sessionID"), protocol.MessagePageQuery{
+			Before: before, Limit: limit, Roles: roles,
+		})
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid message page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/transcript", func(writer http.ResponseWriter, request *http.Request) {
 		before := request.URL.Query().Get("before")
 		if before == "" || len(before) > 256 || strings.TrimSpace(before) != before {
 			writeSessionError(writer, fmt.Errorf("%w: before cursor is required", errInvalidSessionRequest))

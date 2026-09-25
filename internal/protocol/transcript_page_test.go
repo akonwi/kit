@@ -30,6 +30,35 @@ func TestTranscriptPageValidatesCursorAndMessages(t *testing.T) {
 	}
 }
 
+func TestMessagePageValidatesNewestFirstFilteredHistory(t *testing.T) {
+	t.Parallel()
+
+	page := MessagePage{
+		SessionID: "session_0123456789abcdef0123456789abcdef",
+		Messages: []TranscriptMessage{
+			{ID: "message_2", TurnID: "turn_2", Sequence: 9, Role: "user", Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "newer"}}, CreatedAt: "2026-01-01T00:00:01Z"},
+			{ID: "message_1", TurnID: "turn_1", Sequence: 2, Role: "user", Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "older"}}, CreatedAt: "2026-01-01T00:00:00Z"},
+		},
+		NextCursor: "2", HasMore: true,
+	}
+	if err := page.ValidateBefore("20"); err != nil {
+		t.Fatalf("ValidateBefore() error = %v", err)
+	}
+	page.Messages[0], page.Messages[1] = page.Messages[1], page.Messages[0]
+	if err := page.Validate(); err == nil {
+		t.Fatal("Validate() accepted ascending messages")
+	}
+	page.Messages[0], page.Messages[1] = page.Messages[1], page.Messages[0]
+	page.NextCursor = "9"
+	if err := page.Validate(); err == nil {
+		t.Fatal("Validate() accepted a cursor that did not match the oldest result")
+	}
+	page.NextCursor = "2"
+	if err := page.ValidateBefore("2"); err == nil {
+		t.Fatal("ValidateBefore() accepted an overlapping cursor")
+	}
+}
+
 func TestTranscriptPageRejectsReopenedTurnsAndOrphanedToolResults(t *testing.T) {
 	t.Parallel()
 

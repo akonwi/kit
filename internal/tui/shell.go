@@ -119,6 +119,7 @@ type shellSnapshot struct {
 	BashCollapsed                 map[string]bool
 	AnnotationsExpanded           map[string]bool
 	BashHistory                   bashHistoryController
+	MessageHistory                messageHistoryController
 	FileMention                   fileMentionController
 	SessionMention                sessionMentionController
 	SessionMentions               sessionMentionSource
@@ -206,6 +207,9 @@ type shellCallbacks struct {
 	OpenBashHistory             func(ui.EventContext, int) bool
 	BashHistoryChanged          ui.TextChangedCallback
 	SelectBashHistory           func(ui.EventContext, string)
+	RecallMessages              ui.VoidCallback
+	MessageHistoryChanged       ui.TextChangedCallback
+	SelectMessageHistory        func(ui.EventContext, string)
 	SelectFileMention           func(ui.EventContext, string)
 	SelectSessionMention        func(ui.EventContext, string)
 	ComposerChanged             ui.TextChangedCallback
@@ -353,17 +357,25 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 			BottomInset: composerHeight + 4, PrimaryPercent: 100, OnSelect: w.Callbacks.SelectSessionMention,
 		}})
 	}
+	if w.Snapshot.Phase == phaseReady && owner == inputMessageHistory {
+		controller := w.Snapshot.MessageHistory
+		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
+		overlays = append(overlays, ui.OverlayEntry{Child: messageHistorySurface{
+			Controller: &controller, Composer: w.Snapshot.Composer,
+			BottomInset: composerHeight + 4, PrimaryPercent: 100,
+			OnQuery:  w.Callbacks.MessageHistoryChanged,
+			OnSelect: w.Callbacks.SelectMessageHistory,
+		}})
+	}
 	if w.Snapshot.Phase == phaseReady && owner == inputBashHistory {
 		controller := w.Snapshot.BashHistory
 		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{
-			Modal: true, Barrier: clearModalBarrier{},
-			Child: bashHistorySurface{
-				Controller: &controller, BottomInset: composerHeight + 4, PrimaryPercent: 100,
-				OnQuery:  w.Callbacks.BashHistoryChanged,
-				OnSelect: w.Callbacks.SelectBashHistory,
-			},
-		})
+		overlays = append(overlays, ui.OverlayEntry{Child: bashHistorySurface{
+			Controller: &controller, Composer: w.Snapshot.Composer,
+			BottomInset: composerHeight + 4, PrimaryPercent: 100,
+			OnQuery:  w.Callbacks.BashHistoryChanged,
+			OnSelect: w.Callbacks.SelectBashHistory,
+		}})
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputConfiguration {
 		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
@@ -1244,6 +1256,7 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 		OpenPalette:         w.Callbacks.OpenPalette,
 		OpenBashHistory:     w.Callbacks.OpenBashHistory,
 		RestoreFollowUps:    restoreFollowUps,
+		RecallMessages:      w.Callbacks.RecallMessages,
 		CursorEndGeneration: w.Snapshot.ComposerCursorEndGeneration,
 		CursorOffset:        w.Snapshot.ComposerCursorOffset,
 		CursorGeneration:    w.Snapshot.ComposerCursorGeneration,

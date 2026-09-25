@@ -497,6 +497,21 @@ type SessionSnapshot struct {
 	Scratchpad            *Scratchpad            `json:"scratchpad,omitempty"`
 }
 
+// MessagePageQuery filters newest-first durable message history.
+type MessagePageQuery struct {
+	Before uint64
+	Limit  int
+	Roles  []string
+}
+
+// MessagePage is one newest-first page of durable session messages.
+type MessagePage struct {
+	SessionID  string
+	Messages   []TranscriptMessage
+	NextCursor string `json:"nextCursor,omitempty"`
+	HasMore    bool
+}
+
 // TranscriptPage is one complete-turn-bounded page preceding a cursor.
 type TranscriptPage struct {
 	SessionID             string              `json:"sessionId"`

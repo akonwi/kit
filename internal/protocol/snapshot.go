@@ -37,6 +37,73 @@ func (usage SessionUsage) Validate() error {
 	return nil
 }
 
+const maxMessagePageItems = 100
+
+// Validate checks a generic newest-first durable message page.
+func (page MessagePage) Validate() error {
+	if !identifier.Valid(page.SessionID, "session_") {
+		return fmt.Errorf("message page session identity is invalid")
+	}
+	if len(page.Messages) > maxMessagePageItems {
+		return fmt.Errorf("message page has too many messages")
+	}
+	if page.HasMore {
+		cursor, err := strconv.ParseUint(page.NextCursor, 10, 64)
+		if err != nil || cursor == 0 || len(page.Messages) == 0 || cursor != uint64(page.Messages[len(page.Messages)-1].Sequence) {
+			return fmt.Errorf("message page next cursor is invalid")
+		}
+	} else if page.NextCursor != "" {
+		return fmt.Errorf("message page next cursor requires older messages")
+	}
+	seen := make(map[string]struct{}, len(page.Messages))
+	for index := range page.Messages {
+		message := &page.Messages[index]
+		if message.ID == "" || message.Sequence < 0 || len(message.Role) == 0 {
+			return fmt.Errorf("message page message %d identity, sequence, or role is invalid", index)
+		}
+		if _, duplicate := seen[message.ID]; duplicate {
+			return fmt.Errorf("message page message %d is duplicated", index)
+		}
+		seen[message.ID] = struct{}{}
+		if index > 0 && message.Sequence >= page.Messages[index-1].Sequence {
+			return fmt.Errorf("message page messages are not newest first")
+		}
+		if err := message.validate(); err != nil {
+			return fmt.Errorf("message page message %d: %w", index, err)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, message.CreatedAt); err != nil {
+			return fmt.Errorf("message page message %d createdAt is invalid: %w", index, err)
+		}
+	}
+	return nil
+}
+
+// ValidateBefore checks a message page against its optional exclusive cursor.
+func (page MessagePage) ValidateBefore(before string) error {
+	if err := page.Validate(); err != nil {
+		return err
+	}
+	if before == "" {
+		return nil
+	}
+	cursor, err := strconv.ParseUint(before, 10, 64)
+	if err != nil || cursor == 0 {
+		return fmt.Errorf("requested message cursor is invalid")
+	}
+	for _, message := range page.Messages {
+		if uint64(message.Sequence) >= cursor {
+			return fmt.Errorf("message page message does not precede requested cursor")
+		}
+	}
+	if page.HasMore {
+		next, _ := strconv.ParseUint(page.NextCursor, 10, 64)
+		if next >= cursor {
+			return fmt.Errorf("message page cursor does not precede requested cursor")
+		}
+	}
+	return nil
+}
+
 // Validate checks a transcript page received across a transport boundary.
 func (page TranscriptPage) Validate() error {
 	if !identifier.Valid(page.SessionID, "session_") {

@@ -401,9 +401,42 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 	return output, nil
 }
 
+// GetMessagePage returns newest-first durable messages matching query.
+func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
+	values := url.Values{}
+	if query.Limit > 0 {
+		values.Set("limit", strconv.Itoa(query.Limit))
+	}
+	if query.Before > 0 {
+		values.Set("before", strconv.FormatUint(query.Before, 10))
+	}
+	for _, role := range query.Roles {
+		values.Add("role", role)
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/messages"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var output protocol.MessagePage
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.MessagePage{}, err
+	}
+	before := ""
+	if query.Before > 0 {
+		before = strconv.FormatUint(query.Before, 10)
+	}
+	if err := output.ValidateBefore(before); err != nil {
+		return protocol.MessagePage{}, fmt.Errorf("validate daemon message page: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.MessagePage{}, fmt.Errorf("daemon message page identity mismatch")
+	}
+	return output, nil
+}
+
 // GetTranscriptPage returns the complete-turn page preceding before.
 func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string) (protocol.TranscriptPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/messages?before=" + url.QueryEscape(before)
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/transcript?before=" + url.QueryEscape(before)
 	var output protocol.TranscriptPage
 	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
 		return protocol.TranscriptPage{}, err

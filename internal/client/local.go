@@ -376,6 +376,10 @@ func projectWorkspaceError(err error) error {
 	return projected
 }
 
+func (c *localSession) MessagePage(ctx context.Context, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
+	return c.transport.GetMessagePage(ctx, c.id, query)
+}
+
 func (c *localSession) TranscriptPage(ctx context.Context, before string) (protocol.TranscriptPage, error) {
 	page, err := c.transport.GetTranscriptPage(ctx, c.id, before)
 	var apiErr *kitserver.APIError

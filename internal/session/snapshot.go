@@ -203,6 +203,21 @@ type Snapshot struct {
 	Scratchpad            *scratchpad.Record
 }
 
+// MessagePageQuery filters newest-first durable message history.
+type MessagePageQuery struct {
+	Before uint64
+	Limit  int
+	Roles  []string
+}
+
+// MessagePage is one newest-first page of durable session messages.
+type MessagePage struct {
+	SessionID  string
+	Messages   []TranscriptMessage
+	NextCursor uint64
+	HasMore    bool
+}
+
 // TranscriptPage is one page of older complete-turn history.
 type TranscriptPage struct {
 	Messages              []TranscriptMessage
@@ -294,6 +309,92 @@ func (m *Manager) Snapshot(ctx context.Context, sessionID string) (Snapshot, err
 		case <-published:
 		}
 		loaded.mu.Lock()
+	}
+}
+
+// MessagePage returns matching durable messages in newest-first order.
+func (m *Manager) MessagePage(ctx context.Context, sessionID string, query MessagePageQuery) (MessagePage, error) {
+	if err := m.beginOperation(); err != nil {
+		return MessagePage{}, err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(sessionID) == "" || query.Limit <= 0 || query.Limit > 100 {
+		return MessagePage{}, fmt.Errorf("%w: session id and message page limit are required", ErrInvalidInput)
+	}
+	roles := make(map[string]struct{}, len(query.Roles))
+	for _, role := range query.Roles {
+		switch role {
+		case "user", "assistant", "tool", "context":
+		default:
+			return MessagePage{}, fmt.Errorf("%w: message role is invalid", ErrInvalidInput)
+		}
+		if _, duplicate := roles[role]; duplicate {
+			return MessagePage{}, fmt.Errorf("%w: message role is duplicated", ErrInvalidInput)
+		}
+		roles[role] = struct{}{}
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return MessagePage{}, err
+	}
+	loaded.mu.Lock()
+	defer loaded.mu.Unlock()
+
+	page := MessagePage{SessionID: sessionID}
+	cursor := query.Before
+	for {
+		history, err := loaded.droid.History(ctx, droids.HistoryQuery{
+			Before: cursor, Limit: transcriptHistoryReadLimit, Descending: true,
+		})
+		if err != nil {
+			return MessagePage{}, err
+		}
+		for _, envelope := range history.Messages {
+			role, err := messageRole(envelope.Message)
+			if err != nil {
+				return MessagePage{}, err
+			}
+			if len(roles) > 0 {
+				if _, include := roles[role]; !include {
+					continue
+				}
+			}
+			if len(page.Messages) == query.Limit {
+				page.HasMore = true
+				page.NextCursor = uint64(page.Messages[len(page.Messages)-1].Sequence)
+				return page, nil
+			}
+			message, err := projectTranscriptMessage(envelope, int64(envelope.Sequence))
+			if err != nil {
+				return MessagePage{}, fmt.Errorf("project message %q: %w", envelope.ID, err)
+			}
+			page.Messages = append(page.Messages, message)
+		}
+		if !history.HasMore {
+			return page, nil
+		}
+		if history.Next == 0 || history.Next >= cursor && cursor != 0 {
+			return MessagePage{}, fmt.Errorf("droid message history pagination did not advance")
+		}
+		cursor = history.Next
+	}
+}
+
+func messageRole(message droids.Message) (string, error) {
+	switch message.(type) {
+	case droids.UserMessage:
+		return "user", nil
+	case droids.AssistantMessage:
+		return "assistant", nil
+	case droids.ToolResultMessage:
+		return "tool", nil
+	case droids.ContextMessage:
+		return "context", nil
+	default:
+		return "", fmt.Errorf("unsupported durable message %T", message)
 	}
 }
 

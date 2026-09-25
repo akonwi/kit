@@ -7,11 +7,15 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Composer, sessions, and commands
 
-- [~] TUI-COMP-001 — Complete durable drafts, composer history, and attachment
-  editing around the existing multiline composer, follow-up queue, abort, paste,
-  and cursor behavior. Mark queued annotations read-only in workspace/picker
-  controls with a restore action; the server already enforces captured queue
-  ownership. Depends on `CORE-ATT-001`.
+- [ ] TUI-COMP-001 — Recall the full session's direct-bash history from the
+  composer. `Up` on a `!` composer currently lists only executions still present
+  in the loaded transcript and live projection. Excluded `!!` commands are not
+  durable, and included `!` commands are not stored as recallable history with
+  their context mode. Persist each settled direct-bash command in the session's
+  ordered history, including whether it was `!` or `!!`, and show that complete
+  newest-first history in the composer-anchored picker. Filtering, navigation,
+  insertion without execution, and dismissal already work for the loaded
+  projection.
 - [ ] TUI-SESSION-001 — Expose session creation, opening, switching, naming,
   deletion, automatic names, and recovery errors through bounded native flows.
 - [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the

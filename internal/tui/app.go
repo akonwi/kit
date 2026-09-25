@@ -437,6 +437,7 @@ type appState struct {
 	bashCollapsed                    map[string]bool
 	transcriptAnnotationsExpanded    map[string]bool
 	bashHistory                      bashHistoryController
+	messageHistory                   messageHistoryController
 
 	instructions        auth.OpenAICodexDeviceInstructions
 	browserInstructions auth.AnthropicLoginInstructions
@@ -1296,6 +1297,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashCollapsed:                 s.bashCollapsed,
 		AnnotationsExpanded:           s.transcriptAnnotationsExpanded,
 		BashHistory:                   s.bashHistory,
+		MessageHistory:                s.messageHistory,
 		FileMention:                   s.fileMention,
 		SessionMention:                s.sessionMention,
 		SessionMentions:               s.sessionMentions,
@@ -1657,6 +1659,15 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		SelectBashHistory: func(ctx ui.EventContext, executionID string) {
 			s.selectBashHistory(ctx, executionID)
+		},
+		RecallMessages: func(ui.EventContext) {
+			s.recallMessageHistory()
+		},
+		MessageHistoryChanged: func(_ ui.EventContext, value string) {
+			s.SetState(func() { s.messageHistory.SetQuery(value) })
+		},
+		SelectMessageHistory: func(ctx ui.EventContext, messageID string) {
+			s.selectMessageHistory(ctx, messageID)
 		},
 		SelectFileMention: func(ctx ui.EventContext, path string) {
 			s.selectFileMention(ctx, path)
@@ -2161,6 +2172,23 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			}
 			return ui.EventHandled
 		}
+	}
+	if owner == inputMessageHistory {
+		var entry messageHistoryEntry
+		var selectEntry, handled bool
+		s.SetState(func() {
+			entry, selectEntry, handled = s.messageHistory.HandleKey(key)
+			if !handled {
+				handled = s.messageHistory.HandleEditorKey(key)
+			}
+		})
+		if !handled {
+			return ui.EventIgnored
+		}
+		if selectEntry {
+			s.selectMessageHistory(ctx, entry.ID)
+		}
+		return ui.EventHandled
 	}
 	if owner == inputBashHistory {
 		var entry bashHistoryEntry
@@ -6234,6 +6262,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.bashCollapsed = make(map[string]bool)
 	s.transcriptAnnotationsExpanded = make(map[string]bool)
 	s.bashHistory = bashHistoryController{}
+	s.messageHistory = messageHistoryController{}
 	s.status = ""
 	s.applySnapshot(snapshot)
 	if snapshot.ActiveRunID != "" {
@@ -6802,6 +6831,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 	}
 	if owner == inputBashHistory {
 		s.SetState(func() { s.bashHistory.Close() })
+		return
+	}
+	if owner == inputMessageHistory {
+		s.SetState(func() { s.messageHistory.Close() })
 		return
 	}
 	if owner == inputPalette {

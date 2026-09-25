@@ -105,7 +105,12 @@ type AnnotationSession interface {
 // ErrTranscriptCursorUnavailable indicates that older history must be restarted from a fresh snapshot.
 var ErrTranscriptCursorUnavailable = errors.New("transcript cursor is unavailable")
 
-// TranscriptPager is the optional older-history pagination surface.
+// MessagePager is the optional generic durable-message history surface.
+type MessagePager interface {
+	MessagePage(context.Context, protocol.MessagePageQuery) (protocol.MessagePage, error)
+}
+
+// TranscriptPager is the optional complete-turn transcript history surface.
 type TranscriptPager interface {
 	TranscriptPage(context.Context, string) (protocol.TranscriptPage, error)
 }

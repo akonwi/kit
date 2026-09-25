@@ -1,46 +1,53 @@
 package tui
 
 import (
+	"context"
+	"strconv"
 	"strings"
 
+	"github.com/akonwi/kit/internal/protocol"
+	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
-const bashHistoryMaxVisible = 10
+const (
+	messageHistoryMaxVisible = 10
+	messageHistoryPageLimit  = 100
+	messageHistoryMaxPages   = 5
+)
 
-type bashHistoryEntry struct {
-	ID                 string
-	Command            string
-	ExcludeFromContext bool
+type messageHistoryEntry struct {
+	ID   string
+	Text string
 }
 
-type bashHistoryController struct {
+type messageHistoryController struct {
 	Open      bool
 	Query     string
 	Selection string
-	Entries   []bashHistoryEntry
+	Entries   []messageHistoryEntry
 }
 
-func (h *bashHistoryController) OpenFor(entries []bashHistoryEntry, composer string) bool {
-	if h.Open || len(entries) == 0 || !strings.HasPrefix(composer, "!") {
+func (h *messageHistoryController) OpenFor(entries []messageHistoryEntry) bool {
+	if h.Open || len(entries) == 0 {
 		return false
 	}
 	h.Open = true
-	h.Query = strings.TrimLeft(strings.TrimLeft(composer, "!"), " \t")
-	h.Entries = append([]bashHistoryEntry(nil), entries...)
-	h.Selection = firstBashHistoryID(h.filtered())
+	h.Query = ""
+	h.Entries = append([]messageHistoryEntry(nil), entries...)
+	h.Selection = firstMessageHistoryID(h.filtered())
 	return true
 }
 
-func (h *bashHistoryController) Close() { *h = bashHistoryController{} }
+func (h *messageHistoryController) Close() { *h = messageHistoryController{} }
 
-func (h *bashHistoryController) SetQuery(query string) {
+func (h *messageHistoryController) SetQuery(query string) {
 	h.Query = query
-	h.Selection = firstBashHistoryID(h.filtered())
+	h.Selection = firstMessageHistoryID(h.filtered())
 }
 
-func (h *bashHistoryController) Move(delta int) {
+func (h *messageHistoryController) Move(delta int) {
 	entries := h.filtered()
 	if !h.Open || len(entries) == 0 {
 		return
@@ -59,41 +66,41 @@ func (h *bashHistoryController) Move(delta int) {
 	h.Selection = entries[index].ID
 }
 
-func (h *bashHistoryController) Selected() (bashHistoryEntry, bool) {
+func (h *messageHistoryController) Selected() (messageHistoryEntry, bool) {
 	for _, entry := range h.filtered() {
 		if entry.ID == h.Selection {
 			return entry, true
 		}
 	}
-	return bashHistoryEntry{}, false
+	return messageHistoryEntry{}, false
 }
 
-func (h *bashHistoryController) filtered() []bashHistoryEntry {
-	return ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry bashHistoryEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: entry.Command}
+func (h *messageHistoryController) filtered() []messageHistoryEntry {
+	return ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry messageHistoryEntry) ui.FuzzySelectItem {
+		return ui.FuzzySelectItem{Title: oneLine(entry.Text)}
 	})
 }
 
-func (h *bashHistoryController) HandleKey(key ui.Key) (bashHistoryEntry, bool, bool) {
+func (h *messageHistoryController) HandleKey(key ui.Key) (messageHistoryEntry, bool, bool) {
 	if !h.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
-		return bashHistoryEntry{}, false, false
+		return messageHistoryEntry{}, false, false
 	}
 	switch {
 	case key.MatchString("Up"):
 		h.Move(-1)
-		return bashHistoryEntry{}, false, true
+		return messageHistoryEntry{}, false, true
 	case key.MatchString("Down"):
 		h.Move(1)
-		return bashHistoryEntry{}, false, true
+		return messageHistoryEntry{}, false, true
 	case key.MatchString("Enter"):
 		entry, ok := h.Selected()
 		return entry, ok, true
 	default:
-		return bashHistoryEntry{}, false, false
+		return messageHistoryEntry{}, false, false
 	}
 }
 
-func (h *bashHistoryController) HandleEditorKey(key ui.Key) bool {
+func (h *messageHistoryController) HandleEditorKey(key ui.Key) bool {
 	if !h.Open || key.EventType == ui.EventRelease {
 		return false
 	}
@@ -122,15 +129,64 @@ func (h *bashHistoryController) HandleEditorKey(key ui.Key) bool {
 	return true
 }
 
-func firstBashHistoryID(entries []bashHistoryEntry) string {
+func firstMessageHistoryID(entries []messageHistoryEntry) string {
 	if len(entries) == 0 {
 		return ""
 	}
 	return entries[0].ID
 }
 
-type bashHistorySurface struct {
-	Controller     *bashHistoryController
+func messageHistoryEntries(messages []protocol.TranscriptMessage) []messageHistoryEntry {
+	entries := make([]messageHistoryEntry, 0, len(messages))
+	seen := make(map[string]struct{}, len(messages))
+	for _, message := range messages {
+		if message.Role != "user" {
+			continue
+		}
+		text := strings.TrimSpace(message.TextContent())
+		if text == "" {
+			continue
+		}
+		if _, duplicate := seen[text]; duplicate {
+			continue
+		}
+		seen[text] = struct{}{}
+		entries = append(entries, messageHistoryEntry{ID: message.ID, Text: text})
+	}
+	return entries
+}
+
+func loadMessageHistory(ctx context.Context, pager sessionclient.MessagePager) ([]messageHistoryEntry, error) {
+	var messages []protocol.TranscriptMessage
+	var before uint64
+	for pageIndex := 0; pageIndex < messageHistoryMaxPages; pageIndex++ {
+		query := protocol.MessagePageQuery{Limit: messageHistoryPageLimit, Roles: []string{"user"}}
+		if before != 0 {
+			query.Before = before
+		}
+		page, err := pager.MessagePage(ctx, query)
+		if err != nil {
+			return nil, err
+		}
+		messages = append(messages, page.Messages...)
+		if !page.HasMore || page.NextCursor == "" {
+			break
+		}
+		cursor, err := strconv.ParseUint(page.NextCursor, 10, 64)
+		if err != nil || cursor == 0 || cursor == before {
+			break
+		}
+		before = cursor
+	}
+	return messageHistoryEntries(messages), nil
+}
+
+func oneLine(value string) string {
+	return strings.Join(strings.Fields(value), " ")
+}
+
+type messageHistorySurface struct {
+	Controller     *messageHistoryController
 	Composer       string
 	BottomInset    int
 	PrimaryPercent int
@@ -138,7 +194,7 @@ type bashHistorySurface struct {
 	OnSelect       func(ui.EventContext, string)
 }
 
-func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
+func (w messageHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	theme := ui.MustDepend[ui.Theme](ctx)
 	rowPresentation := resolvePickerRowPresentation(ctx, theme)
 	entries := w.Controller.filtered()
@@ -149,9 +205,9 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 			break
 		}
 	}
-	if len(entries) > bashHistoryMaxVisible {
-		offset := max(0, min(selection-bashHistoryMaxVisible/2, len(entries)-bashHistoryMaxVisible))
-		entries = entries[offset : offset+bashHistoryMaxVisible]
+	if len(entries) > messageHistoryMaxVisible {
+		offset := max(0, min(selection-messageHistoryMaxVisible/2, len(entries)-messageHistoryMaxVisible))
+		entries = entries[offset : offset+messageHistoryMaxVisible]
 	}
 	rows := make([]ui.Widget, 0, max(1, len(entries)))
 	if len(entries) == 0 {
@@ -159,28 +215,14 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	for _, entry := range entries {
 		entry := entry
-		prefix := "!"
-		description := "included in context"
-		if entry.ExcludeFromContext {
-			prefix = "!!"
-			description = "excluded from context"
-		}
 		selected := entry.ID == w.Controller.Selection
 		style := ui.Style{Foreground: rowPresentation.ItemText}
-		secondary := ui.Style{Foreground: theme.MutedForeground}
 		if selected {
 			style = ui.Style{Foreground: rowPresentation.FocusedText, Background: rowPresentation.FocusedBg}
-			secondary = style
 		}
-		row := ui.DecoratedBox(ui.Decoration{Style: style}, ui.Flex{
-			Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-				ui.SizedBox{Width: 2, Child: ui.Text{Value: prefix, Style: style, MaxLines: 1}},
-				ui.SizedBox{Width: 1},
-				ui.Expanded(ui.Text{Value: entry.Command, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-				ui.SizedBox{Width: 1},
-				ui.SizedBox{Width: 21, Child: ui.Text{Value: description, Style: secondary, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-			},
-		})
+		row := ui.DecoratedBox(ui.Decoration{Style: style}, ui.Padding(ui.Symmetric(1, 0), ui.Text{
+			Value: oneLine(entry.Text), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
+		}))
 		rows = append(rows, mouseActivator{Child: ui.SizedBox{Height: 1, Child: row}, OnPressed: func(event ui.EventContext) {
 			if w.OnSelect != nil {
 				w.OnSelect(event, entry.ID)
@@ -194,11 +236,13 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	content := ui.Padding(ui.All(1), ui.Flex{
 		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
+			ui.Text{Value: "Message history", Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1},
+			ui.SizedBox{Height: 1},
 			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 				ui.Text{Value: ">", Style: ui.Style{Foreground: theme.SuccessText}},
 				ui.SizedBox{Width: 1},
 				textInput(fieldTheme, textInputConfig{
-					Value: w.Controller.Query, Placeholder: "Search bash history…", CursorOffset: &cursor,
+					Value: w.Controller.Query, Placeholder: "Search message history…", CursorOffset: &cursor,
 					OnChanged: w.OnQuery, AutoFocus: true,
 				}),
 			}},
@@ -208,10 +252,7 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 			ui.Text{Value: "↑↓ move · enter insert · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		},
 	})
-	anchor := strings.Index(w.Composer, "!")
-	if anchor < 0 {
-		anchor = 0
-	}
+	anchor := 0
 	return composerOverlayPositioner{
 		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor,
 		Child: proportionalWidth{Percent: 80, Min: 48, Max: composerOverlayMaxWidth, Child: ui.FocusScope{

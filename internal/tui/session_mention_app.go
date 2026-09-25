@@ -103,7 +103,7 @@ func (s *appState) reconcileSessionMention() {
 	if !s.sessionMention.Open {
 		return
 	}
-	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open ||
+	if s.phase != phaseReady || s.palette.Open || s.themePicker.Open || s.bashHistory.Open || s.messageHistory.Open ||
 		s.configurationPicker.Mode != configurationPickerClosed || s.sessionDetailsOpen ||
 		s.annotationPicker.Open || s.sessionRename.Open || s.sessionExplorer.Open ||
 		s.workspaceFilePicker.Open || s.workspacePickerOpen || s.subagentsOpen ||
