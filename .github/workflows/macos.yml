@@ -2,8 +2,6 @@ name: Native macOS
 on:
   pull_request:
     paths: ['apps/macos/**', 'internal/protocol/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
-  push:
-    branches: [main, kit-v2]
 jobs:
   test:
     runs-on: macos-latest
