@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -73,6 +74,7 @@ func (c OpenAI) build() (providerEntry, error) {
 	models := map[string]Model{}
 	for _, model := range catalogModels(builtinModelCatalog, "openai", id) {
 		model.BaseURL = baseURL
+		model.SupportsReasoningConfigurationUpdates = strings.TrimRight(baseURL, "/") == defaultOpenAIBaseURL && standardOpenAIReasoningHistoryModel(model.ID)
 		models[model.ID] = model
 	}
 
@@ -85,6 +87,15 @@ func (c OpenAI) build() (providerEntry, error) {
 		stream:    impl.stream,
 		validateReplay: func(_ context.Context, model Model, messages []Message) error {
 			_, err := toOpenAIInputForModel(messages, model)
+			return err
+		},
+		validateRequestReplay: func(_ context.Context, model Model, request Request) error {
+			if request.ReasoningHistory != nil {
+				if err := validateOpenAIReasoningHistory(model, request); err != nil {
+					return err
+				}
+			}
+			_, err := toOpenAIInputWithReasoningHistory(request.Messages, model, request.ReasoningHistory)
 			return err
 		},
 	}, nil
@@ -129,9 +140,15 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 		s.emit(StreamError{Message: final})
 		return
 	}
-	stream := client.Responses.NewStreaming(ctx, params)
+	var response *http.Response
+	stream := client.Responses.NewStreaming(ctx, params, option.WithResponseInto(&response), option.WithMaxRetries(0))
 	defer stream.Close()
-	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI", classify: classifyOpenAIError})
+	consumeOpenAIResponseStream(ctx, model, stream, s, openAIResponsesProfile{name: "OpenAI", classify: classifyOpenAIError, requestID: func() string {
+		if response != nil {
+			return response.Header.Get("x-request-id")
+		}
+		return ""
+	}})
 }
 
 func (p *openAIProvider) clientForRequest(ctx context.Context) (*openai.Client, error) {
@@ -155,10 +172,38 @@ func emitOpenAIStreamStart(s *pipeStream, model Model) {
 }
 
 func buildOpenAIResponseParams(model Model, req Request) (responses.ResponseNewParams, error) {
+	effective := reasoningEffort(req.Reasoning)
+	if req.ReasoningHistory != nil {
+		if err := validateOpenAIReasoningHistory(model, req); err != nil {
+			return responses.ResponseNewParams{}, err
+		}
+		req.Reasoning = req.ReasoningHistory.Baseline
+	}
+	params, err := buildOpenAIBaseResponseParams(model, req)
+	if err == nil {
+		applyOpenAITemperaturePolicy(model, &params, effective)
+	}
+	return params, err
+}
+
+// applyOpenAITemperaturePolicy runs after endpoint-specific effort normalization.
+// Omission never changes the caller's requested reasoning or temperature.
+func applyOpenAITemperaturePolicy(model Model, params *responses.ResponseNewParams, effective shared.ReasoningEffort) {
+	switch model.TemperaturePolicy {
+	case TemperatureUnsupported:
+		params.Temperature = param.Opt[float64]{}
+	case TemperatureReasoningOff:
+		if effective != shared.ReasoningEffortNone {
+			params.Temperature = param.Opt[float64]{}
+		}
+	}
+}
+
+func buildOpenAIBaseResponseParams(model Model, req Request) (responses.ResponseNewParams, error) {
 	if err := validateReasoning(model, req.Reasoning); err != nil {
 		return responses.ResponseNewParams{}, err
 	}
-	input, err := toOpenAIInputForModel(req.Messages, model)
+	input, err := toOpenAIInputWithReasoningHistory(req.Messages, model, req.ReasoningHistory)
 	if err != nil {
 		return responses.ResponseNewParams{}, err
 	}
@@ -208,6 +253,7 @@ type openAIResponseStream interface {
 
 type openAIResponsesProfile struct {
 	name          string
+	requestID     func() string
 	providerScope string
 	classify      func(status int, code, message string) ErrorKind
 }
@@ -218,6 +264,7 @@ func (p openAIResponsesProfile) errorMessage(model Model, ctx context.Context, s
 	if ctx.Err() == nil && p.classify != nil {
 		final.ErrorKind = p.classify(status, code, message)
 	}
+	p.applyPolicyStop(&final, code)
 	return final
 }
 
@@ -229,6 +276,20 @@ func (p openAIResponsesProfile) classifyResponse(final *AssistantMessage, respon
 	if p.classify != nil {
 		final.ErrorKind = p.classify(0, string(response.Error.Code), final.ErrorMessage)
 	}
+	p.applyPolicyStop(final, string(response.Error.Code))
+}
+
+func (p openAIResponsesProfile) applyPolicyStop(final *AssistantMessage, code string) {
+	if code != MisalignmentPolicyViolation || final.StopReason == StopReasonAborted {
+		return
+	}
+	final.StopReason = StopReasonError
+	final.ErrorKind = ProviderInvalidRequest
+	final.ErrorMessage = "Provider stopped this request (misalignment_policy_violation)"
+	final.Error = &ProviderError{Kind: ProviderInvalidRequest, Code: code, Message: final.ErrorMessage}
+	if p.requestID != nil {
+		final.Error.RequestID = boundedDiagnostic(p.requestID())
+	}
 }
 
 // consumeOpenAIResponseStream translates the shared Responses SSE protocol.
@@ -238,9 +299,21 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 	textStarted := map[int64]bool{}
 	seenTool := map[int64]bool{}
 	completedOutput := map[int64]responses.ResponseOutputItemUnion{}
+	var latestResponse responses.Response
+	retainPolicyOutput := func(final *AssistantMessage) {
+		if !final.IsPolicyStop() {
+			return
+		}
+		observed := assembleResponse(model, responseWithAccumulatedOutput(latestResponse, completedOutput))
+		final.Content = observed.Content
+		final.ResponseID = observed.ResponseID
+	}
 
 	for stream.Next() {
 		event := stream.Current()
+		if event.Response.ID != "" {
+			latestResponse = event.Response
+		}
 		// ChatGPT's Codex dialect also uses response.done. The SDK keeps the
 		// union's common fields even though this event is not in its typed list.
 		if event.Type == "response.done" {
@@ -331,6 +404,7 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 
 		case responses.ResponseErrorEvent:
 			final := profile.errorMessage(model, ctx, 0, e.Code, e.Message)
+			retainPolicyOutput(&final)
 			emitOpenAITerminal(s, final, true)
 			return
 		}
@@ -339,6 +413,7 @@ func consumeOpenAIResponseStream(ctx context.Context, model Model, stream openAI
 	if err := stream.Err(); err != nil {
 		status, code, message, fallbackKind := openAIStreamError(err)
 		final := profile.errorMessage(model, ctx, status, code, message)
+		retainPolicyOutput(&final)
 		if fallbackKind != "" && ctx.Err() == nil {
 			final.ErrorKind = fallbackKind
 		}
@@ -389,6 +464,8 @@ func emitOpenAITerminal(s *pipeStream, final AssistantMessage, forceError bool) 
 func classifyOpenAIError(status int, code, message string) ErrorKind {
 	value := strings.ToLower(code + " " + message)
 	switch {
+	case code == MisalignmentPolicyViolation:
+		return ProviderInvalidRequest
 	case isContextWindowError(code, message):
 		return ProviderContextWindow
 	case status == 401, strings.Contains(value, "invalid api key"), strings.Contains(value, "authentication"):
@@ -598,8 +675,23 @@ func toOpenAIInputForProvider(messages []Message, targetProvider string) (respon
 }
 
 func toOpenAIInputForModel(messages []Message, target Model) (responses.ResponseInputParam, error) {
+	return toOpenAIInputWithReasoningHistory(messages, target, nil)
+}
+
+func toOpenAIInputWithReasoningHistory(messages []Message, target Model, history *ReasoningHistory) (responses.ResponseInputParam, error) {
 	var out responses.ResponseInputParam
-	for _, message := range messages {
+	updateIndex := 0
+	for messageIndex, message := range messages {
+		if history != nil && updateIndex < len(history.Updates) && history.Updates[updateIndex].BeforeMessage == messageIndex {
+			out = append(out, responses.ResponseInputItemUnionParam{
+				OfConfigurationUpdate: &responses.ResponseConfigurationUpdateItemParam{
+					Reasoning: responses.ResponseConfigurationUpdateItemParamReasoning{
+						Effort: shared.ReasoningEffort(history.Updates[updateIndex].Effort),
+					},
+				},
+			})
+			updateIndex++
+		}
 		switch msg := message.(type) {
 		case UserMessage:
 			content, err := openAIUserContent(msg.Content)
@@ -614,11 +706,12 @@ func toOpenAIInputForModel(messages []Message, target Model) (responses.Response
 			if err != nil {
 				return nil, err
 			}
+			output := responses.ResponseInputItemParamOfFunctionCallOutput("")
 			if len(content) > 0 {
-				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(providerCallID(msg.ToolCallID, msg.ProviderCallID), content))
-			} else {
-				out = append(out, responses.ResponseInputItemParamOfFunctionCallOutput(providerCallID(msg.ToolCallID, msg.ProviderCallID), ""))
+				output = responses.ResponseInputItemParamOfFunctionCallOutput(content)
 			}
+			output.OfFunctionCallOutput.CallID = param.NewOpt(providerCallID(msg.ToolCallID, msg.ProviderCallID))
+			out = append(out, output)
 		case ContextMessage:
 			content, err := openAIUserContent(msg.Content)
 			if err != nil {

@@ -74,6 +74,24 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ## Deferred scope
 
+- [ ] TUI-GPT6-001 — Present live steering submissions as queued, applied, or
+  failed using server-owned status; distinguish steering from cancellation and
+  retain recoverable input after transport failures. Test keyboard/composer
+  interactions, status transitions, reconnect, and narrow layouts. Depends on
+  `CORE-GPT6-004` in the [core backlog](core.md).
+- [ ] TUI-GPT6-002 — Present pending asynchronous tools and nonblocking user
+  questions while model output continues. Make result arrival, wait state,
+  dismissal, cancellation, and turn completion understandable without stealing
+  composer focus. Cover deterministic content, focus, and interaction tests.
+  Depends on `CORE-GPT6-005` in the [core backlog](core.md).
+- [ ] TUI-GPT6-003 — Present supported standard/pro mode separately from effort,
+  and show effective effort after cached configuration updates using
+  server-authoritative state. Explain unavailable combinations without exposing
+  provider wire types in the renderer. Test visible settings, persistence errors,
+  and model switching. Depends on `CORE-GPT6-007` in the
+  [core backlog](core.md); effort history is already described in the
+  [feature guide](../docs/features/reasoning-effort-history.md).
+
 - [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
   bounded recorded output and explicit truncated-content and omitted-detail
   evidence, preserving equivalent presentation for live and restored activity.

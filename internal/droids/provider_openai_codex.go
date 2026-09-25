@@ -515,7 +515,10 @@ func (p *openAICodexProvider) run(ctx context.Context, model Model, req Request,
 }
 
 func buildOpenAICodexResponseParams(model Model, req Request) (responses.ResponseNewParams, error) {
-	params, err := buildOpenAIResponseParams(model, req)
+	if req.ReasoningHistory != nil {
+		return responses.ResponseNewParams{}, fmt.Errorf("droids: Codex does not support ordered reasoning history")
+	}
+	params, err := buildOpenAIBaseResponseParams(model, req)
 	if err != nil {
 		return responses.ResponseNewParams{}, err
 	}
@@ -539,6 +542,8 @@ func buildOpenAICodexResponseParams(model Model, req Request) (responses.Respons
 		params.Reasoning.Effort = shared.ReasoningEffortLow
 		params.Reasoning.Summary = shared.ReasoningSummaryAuto
 	}
+	// Codex catalog policies remain unspecified until endpoint support is verified.
+	applyOpenAITemperaturePolicy(model, &params, params.Reasoning.Effort)
 	return params, nil
 }
 

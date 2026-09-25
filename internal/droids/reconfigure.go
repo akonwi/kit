@@ -1,6 +1,9 @@
 package droids
 
-import "fmt"
+import (
+	"context"
+	"fmt"
+)
 
 // RequestConfiguration is the provider-facing configuration sampled before a
 // model request. Reconfiguring it does not interrupt a request already in flight.
@@ -57,6 +60,12 @@ func buildRuntimeRequestConfiguration(model Model, config RequestConfiguration) 
 // request already in flight retains its captured configuration; the next one
 // observes the replacement.
 func (d *Droid) Reconfigure(config RequestConfiguration) error {
+	return d.ReconfigureContext(context.Background(), config)
+}
+
+// ReconfigureContext durably records pending reasoning changes and atomically
+// replaces request configuration without mutating any in-flight request.
+func (d *Droid) ReconfigureContext(ctx context.Context, config RequestConfiguration) error {
 	if d == nil || d.sdk == nil {
 		return fmt.Errorf("droids: Reconfigure requires a droid opened with droids.Spawn")
 	}
@@ -72,6 +81,9 @@ func (d *Droid) Reconfigure(config RequestConfiguration) error {
 	}
 	combined, err := mergeAdditionalTools(next, rt.additionalTools, rt.additionalPrompt)
 	if err != nil {
+		return err
+	}
+	if err := rt.reconcileReasoningLocked(ctx, config.Reasoning, false); err != nil {
 		return err
 	}
 	rt.baseRequestConfig = next

@@ -246,6 +246,10 @@ func (m *Manager) ConfigureSession(ctx context.Context, sessionID string, input 
 		return ConfigureSessionResult{}, err
 	}
 	closeErr := loaded.droid.Shutdown(transitionContext)
+	if err := replacementDroid.ReconcileReasoning(transitionContext, targetRecord.ThinkingLevel, droids.ResetReasoningEpoch); err != nil {
+		m.quarantineRuntime(sessionID, loaded, replacementDroid)
+		return ConfigureSessionResult{}, fmt.Errorf("activate replacement reasoning context: %w", err)
+	}
 	loaded.droid = replacementDroid
 	loaded.pluginContributions.setDroid(replacementDroid)
 	if loaded.turnEvents != nil {
@@ -308,7 +312,7 @@ func (m *Manager) configureLiveThinking(ctx context.Context, sessionID string, l
 		}
 		return ConfigureSessionResult{}, err
 	}
-	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
+	if err := loaded.droid.ReconfigureContext(ctx, droids.RequestConfiguration{
 		SystemPrompt: loaded.bundle.Prompt.Prompt, Reasoning: effectiveThinking, ContextWindow: loaded.model.ContextWindow, Tools: loaded.bundle.Tools,
 	}); err != nil {
 		m.quarantineRuntime(record.ID, loaded, nil)

@@ -52,6 +52,7 @@ type durableCompaction struct {
 }
 
 type durableRuntime struct {
+	ReasoningHistory        *durableReasoningHistory   `json:"reasoning_history,omitempty"`
 	Status                  ExecutionStatus            `json:"status"`
 	CyclePhase              cyclePhase                 `json:"cycle_phase,omitempty"`
 	TurnID                  TurnID                     `json:"turn_id,omitempty"`
@@ -328,6 +329,9 @@ func decodeLifecycleEvent(event StoredEvent, conversationID ConversationID) (Eve
 }
 
 func validateOpenedRuntime(state durableRuntime) error {
+	if err := validateDurableReasoningHistory(state.ReasoningHistory, state.Context); err != nil {
+		return fmt.Errorf("droids: invalid persisted reasoning history: %w", err)
+	}
 	if state.Compaction != nil {
 		encodedID := strings.TrimPrefix(state.Compaction.ID, "compact_")
 		_, idErr := hex.DecodeString(encodedID)

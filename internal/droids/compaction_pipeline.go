@@ -263,20 +263,28 @@ func (rt *sdkRuntime) validateCompactionReplacement(
 		return ContextUsage{}, fmt.Errorf("droids: invalid compacted context: %w", err)
 	}
 	for _, replay := range []struct {
-		provider Provider
-		model    Model
+		provider  Provider
+		model     Model
+		reasoning string
 	}{
-		{target.provider, target.model},
-		{rt.provider, rt.droid.model},
+		{target.provider, target.model, target.public.Reasoning},
+		{rt.provider, rt.droid.model, configuration.reasoning},
 	} {
-		if err := validateContextReplay(ctx, replay.provider, replay.model, messages); err != nil {
+		// A compacted context starts a fresh reasoning epoch, so no dispatched
+		// configuration updates are replayed into it.
+		maxTokens, err := resolveRequestMaxTokens(replay.model, 0, replay.reasoning)
+		if err != nil {
+			return ContextUsage{}, unsuitableCandidate(err)
+		}
+		if err := validateContextReplay(ctx, replay.provider, replay.model,
+			replayRequest(string(rt.conversation), replay.model, configuration, messages, replay.reasoning, maxTokens, nil)); err != nil {
 			if contextError(ctx) != nil || errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 				return ContextUsage{}, err
 			}
 			return ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context is not replayable by %s/%s: %w", replay.model.Provider, replay.model.ID, err))
 		}
 	}
-	after, err := rt.measureContextWithConfiguration(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages, configuration)
+	after, err := rt.measureContextWithConfiguration(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages, configuration, nil)
 	if err != nil {
 		return ContextUsage{}, err
 	}
@@ -286,7 +294,7 @@ func (rt *sdkRuntime) validateCompactionReplacement(
 	if sdkShouldCompact(after) {
 		return ContextUsage{}, unsuitableCandidate(fmt.Errorf("droids: compacted context remains above the target budget"))
 	}
-	currentAfter, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration)
+	currentAfter, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration, nil)
 	if err != nil {
 		return ContextUsage{}, err
 	}

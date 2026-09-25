@@ -158,7 +158,64 @@ IDs but must not redefine server, persistence, or protocol semantics.
   model and thinking selection, coding tools, attachments/images, MCP,
   interactions, signals, and the existing-installation upgrade workflow.
 
-## Deferred scope
+### GPT-6 provider and runtime capabilities
+
+These are optional capabilities to revisit as GPT-6 models mature, not release
+gates. The [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model)
+and linked specifications are the starting point; recheck current compatibility
+before implementation. Public OpenAI API support does not establish Codex OAuth
+endpoint support. Completed temperature compatibility, provider policy-stop
+handling, and effort history are documented in the feature guides linked below.
+
+- [ ] CORE-GPT6-004 — Let users steer an active provider response over Responses
+  WebSockets, retaining boundary-based steering for unsupported providers.
+  Represent accepted, pending, applied, and failed submissions distinctly;
+  acceptance alone must not imply application. Keep provider continuations within
+  the logical droids turn, with bounded connection-owned queues, tool-result and
+  approval handling, durable user input, and disconnect reconciliation that
+  neither loses nor duplicates instructions. Preserve session ownership and
+  cancellation semantics: steering does not undo actions or cancel running tools.
+  Test automatic continuation, required-input waits, late completion, failures,
+  reconnect, and repeated updates. See
+  [effort history](../docs/features/reasoning-effort-history.md) for the
+  supported public endpoint/model gate and
+  [mid-turn steering](https://developers.openai.com/api/docs/guides/steering).
+- [ ] CORE-GPT6-005 — Support explicit opt-in asynchronous tools that allow model
+  progress while calls remain pending across responses. Dispatch only complete
+  call items and return results under their original call IDs. Persist pending
+  call identity, lifecycle, and delivery state; define bounded concurrency, wait
+  semantics, late results, turn settlement, cancellation, restart, model changes,
+  forks, and compaction. Preserve tool policy and approval/interceptor enforcement
+  before execution; initially enable selected read-only tools rather than all
+  tools. Nonblocking user questions must retain their original call until answered
+  or explicitly dismissed/timed out, not complete with a display acknowledgment.
+  Verify per-model/endpoint support and incompatibilities with programmatic tools
+  and provider multi-agent parallel calls. Test result ordering, dependent waits,
+  duplicate delivery, failure/recovery, and concurrent-session isolation.
+  Preserve the existing [provider policy-stop behavior](../docs/features/provider-policy-stops.md);
+  see [async tools](https://developers.openai.com/api/docs/guides/async-tool-calling).
+- [ ] CORE-GPT6-006 — Audit and support current OpenAI prompt-cache controls and
+  usage accounting, including `prompt_cache_options.ttl`, cache boundaries, and
+  cache-write billing. Verify encrypted reasoning continuity and compatible
+  replay across turns/model changes without requiring provider-side transcript
+  storage. Document endpoint-specific behavior and test exact request fields,
+  usage projection, and cost accounting; do not infer advanced support from
+  catalog metadata alone. See
+  [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
+- [ ] CORE-GPT6-007 — Expose supported standard/pro reasoning execution modes
+  independently of reasoning effort and service tier. Validate provider/model
+  capability and incompatible combinations, persist the effective configuration,
+  and accurately report resulting usage. Do not equate `max` effort with pro
+  mode or assume catalog experimental metadata is wired into requests. Cover
+  serialization, reconfiguration, and unsupported endpoint behavior. See
+  [reasoning modes](https://developers.openai.com/api/docs/guides/reasoning).
+- [ ] CORE-GPT6-008 — Evaluate Kit's GPT-6 prompting on representative coding
+  workflows for unnecessary clarification, delegation frequency, instruction
+  conflicts in skills/context, verbosity, and disproportionate testing. Apply
+  evidence-based prompt changes without weakening user authorization, tool policy,
+  or required repository checks. Keep behavior guidance in Kit's prompt assembly
+  rather than baking application policy into droids. Kit's existing subagents do
+  not require adopting OpenAI-hosted multi-agent orchestration.
 
 ### Remote clients and automation
 

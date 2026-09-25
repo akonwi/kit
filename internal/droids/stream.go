@@ -23,7 +23,12 @@ type Request struct {
 	// default); "none"/"off" explicitly disables reasoning; "minimal", "low",
 	// "medium", "high", "xhigh", and "max" request effort. Ignored by
 	// non-reasoning models.
-	Reasoning   string
+	Reasoning string
+	// ReasoningHistory preserves the original optional request setting and ordered
+	// context updates. Only supported public OpenAI models accept this projection.
+	ReasoningHistory *ReasoningHistory
+	// Temperature is an optional sampling preference. Providers may omit it
+	// when incompatible with the model or effective reasoning configuration.
 	Temperature *float64
 	// MaxTokens is omitted for models with provider-controlled output limits.
 	MaxTokens int

@@ -1986,8 +1986,18 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 		loaded.turnEvents.waitCompleted(turnID)
 	}
 	loaded.admissionMu.Unlock()
-	m.startQueuedFollowUps(loaded, sessionID)
-	m.scheduleAutoName(sessionID)
+	// Leave queued inputs available for the ordinary restore/edit flow. A policy
+	// stop ends this turn; it does not install a persistent session lock.
+	policyStop := false
+	if outcome.FinalMessage != nil {
+		if assistant, ok := outcome.FinalMessage.Message.(droids.AssistantMessage); ok {
+			policyStop = assistant.IsPolicyStop()
+		}
+	}
+	if !policyStop {
+		m.startQueuedFollowUps(loaded, sessionID)
+		m.scheduleAutoName(sessionID)
+	}
 	loaded.mu.Lock()
 	close(run.done)
 	loaded.mu.Unlock()
@@ -2350,6 +2360,12 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		turnEvents = newPluginTurnEventBridge(m.pluginContext)
 	}
 	droid, snapshot, model, err := m.openDroid(ctx, record, store, bundle, interception, turnEvents)
+	if err == nil {
+		err = droid.ReconcileReasoning(ctx, record.ThinkingLevel, droids.PreserveReasoningEpoch)
+		if err != nil {
+			_ = droid.Close()
+		}
+	}
 	if err != nil {
 		if turnEvents != nil {
 			closePluginTurnEventBridge(turnEvents)

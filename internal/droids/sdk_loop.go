@@ -22,6 +22,15 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 	}()
 
 	for {
+		// A persisted policy-stop response is terminal even if shutdown occurred
+		// between recording the response and settling its turn. New prompts reset Final.
+		rt.mu.Lock()
+		policyStopped := rt.state.TurnID == turnID && rt.state.Final != nil && rt.state.Final.Message.Error != nil && rt.state.Final.Message.Error.Code == MisalignmentPolicyViolation
+		rt.mu.Unlock()
+		if policyStopped {
+			rt.finishPolicyStop(turnID)
+			return
+		}
 		if err := ctx.Err(); err != nil {
 			rt.finishCanceledRun(turnID, err)
 			return
@@ -133,6 +142,10 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 		case StopReasonError:
 			if err := rt.persistObservedAssistant(ctx, envelope, false); err != nil {
 				rt.finishRunFailure(turnID, DroidErrorPersistence, err)
+				return
+			}
+			if message.IsPolicyStop() {
+				rt.finishPolicyStop(turnID)
 				return
 			}
 			retried, retryErr := rt.scheduleRetry(ctx, turnID, message)
@@ -491,6 +504,10 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	messages, err := runtimeMessageEnvelopes(rt.state)
 	attemptID := rt.state.AttemptID
 	configuration := rt.currentRequestConfiguration()
+	var reasoningHistory *ReasoningHistory
+	if err == nil {
+		reasoningHistory, err = rt.captureReasoningHistoryLocked(ctx, configuration.reasoning)
+	}
 	rt.modelRequestConfig = configuration
 	rt.mu.Unlock()
 	if err != nil {
@@ -507,9 +524,12 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	request := Request{
 		SessionID: string(rt.conversation), SystemPrompt: configuration.systemPrompt, Messages: plain,
 		Tools: append([]ToolSchema(nil), configuration.toolSchemas...), Reasoning: configuration.reasoning,
-		MaxTokens: requestMaxTokens,
+		MaxTokens: requestMaxTokens, ReasoningHistory: reasoningHistory,
 	}
-	if err := rt.provider.ValidateReplay(ctx, rt.droid.model, plain); err != nil {
+	if reasoningHistory != nil {
+		request.Reasoning = reasoningHistory.Effective
+	}
+	if err := validateRequestReplay(ctx, rt.provider, rt.droid.model, request); err != nil {
 		return MessageEnvelope{}, err
 	}
 	messageID, err := newMessageID()
@@ -565,7 +585,17 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 		usageErr = validateUsage(final.Usage)
 	}
 	normalizeProviderError(&final)
-	if usageErr != nil {
+	// Policy stops remain terminal even when their partial output is malformed.
+	// Keep observed action records for diagnostics, never active tool dispatch.
+	if final.IsPolicyStop() {
+		final.Provider, final.Model = rt.droid.model.Provider, rt.droid.model.ID
+		if usageErr != nil {
+			final.Usage = Usage{}
+		}
+		if err := canonicalizeToolCalls(&final); err != nil {
+			return MessageEnvelope{}, err
+		}
+	} else if usageErr != nil {
 		final.Usage = Usage{}
 		setProtocolFailure(&final, rt.droid.model, usageErr)
 	} else if validationErr := validateProviderTerminal(rt.droid.model, final); validationErr != nil {
@@ -673,6 +703,16 @@ func setProtocolFailure(message *AssistantMessage, expected Model, _ error) {
 
 func normalizeProviderError(message *AssistantMessage) {
 	message.ErrorMessage = boundedDiagnostic(message.ErrorMessage)
+	if message.IsPolicyStop() {
+		message.Error.RequestID = boundedDiagnostic(message.Error.RequestID)
+		message.Error.Kind = ProviderInvalidRequest
+		message.Error.Retryable = false
+		message.Error.Message = "Provider stopped this request (misalignment_policy_violation)"
+		message.ErrorKind = ProviderInvalidRequest
+		message.ErrorMessage = message.Error.Message
+		message.StopReason = StopReasonError
+		return
+	}
 	if message.Error != nil {
 		// A malformed response can be transient, even when the adapter did not
 		// classify it as retryable. The session retry policy still bounds retries.
@@ -785,6 +825,14 @@ func (rt *sdkRuntime) persistAssistant(ctx context.Context, envelope MessageEnve
 		}
 	} else {
 		rt.state.CyclePhase = cycleReady
+		if message.IsPolicyStop() {
+			wire, err := messageEnvelopeToWire(envelope)
+			if err != nil {
+				rt.state = before
+				return err
+			}
+			rt.state.Final = &wire
+		}
 	}
 	usageMutation, usageEvent, usageChanged, err := applyUsageContribution(
 		&rt.state, "assistant:"+string(envelope.ID), "assistant", message.Usage, true,
@@ -850,7 +898,7 @@ func (rt *sdkRuntime) startOverflowAttempt(ctx context.Context, turnID TurnID) e
 
 func (rt *sdkRuntime) scheduleRetry(ctx context.Context, turnID TurnID, message AssistantMessage) (bool, error) {
 	policy := *rt.config.Retry
-	if !policy.Enabled || message.Error == nil || !message.Error.Retryable {
+	if message.IsPolicyStop() || !policy.Enabled || message.Error == nil || !message.Error.Retryable {
 		return false, nil
 	}
 	rt.mu.Lock()
@@ -1686,6 +1734,20 @@ func (rt *sdkRuntime) tryFinishRunSuccess(turnID TurnID, final *MessageEnvelope,
 		rt.workerSettlementFailedLocked(err)
 	}
 	return true
+}
+
+// finishPolicyStop settles rather than honoring a concurrent pause request:
+// resuming that pause must never make another request for the stopped turn.
+func (rt *sdkRuntime) finishPolicyStop(turnID TurnID) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.state.TurnID != turnID || isTerminalStatus(rt.state.Status) {
+		return
+	}
+	failure := &DroidError{Kind: DroidErrorProvider, Message: "Provider stopped this request (misalignment_policy_violation)"}
+	if err := rt.settleLocked(context.Background(), ExecutionFailed, failure); err != nil {
+		rt.workerSettlementFailedLocked(err)
+	}
 }
 
 func (rt *sdkRuntime) finishRunFailure(turnID TurnID, kind DroidErrorKind, err error) {

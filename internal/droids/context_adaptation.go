@@ -272,11 +272,15 @@ func (rt *sdkRuntime) assessCapturedContext(ctx context.Context, target resolved
 	if err != nil {
 		return ContextAssessment{}, err
 	}
-	usage, err := rt.measureContextWithConfiguration(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages, configuration)
+	rt.mu.Lock()
+	history := reasoningHistoryForContext(rt.state.ReasoningHistory, target.model, contextWire)
+	rt.mu.Unlock()
+	usage, err := rt.measureContextWithConfiguration(ctx, target.provider, target.model, target.public.Reasoning, target.maxTokens, messages, configuration, history)
 	if err != nil {
 		return ContextAssessment{}, err
 	}
-	replayErr := validateContextReplay(ctx, target.provider, target.model, messages)
+	replayErr := validateContextReplay(ctx, target.provider, target.model,
+		replayRequest(string(rt.conversation), target.model, configuration, messages, target.public.Reasoning, target.maxTokens, history))
 	if errors.Is(replayErr, context.Canceled) || errors.Is(replayErr, context.DeadlineExceeded) {
 		return ContextAssessment{}, replayErr
 	}
@@ -322,14 +326,19 @@ func (rt *sdkRuntime) compactCapturedContext(
 		}
 		return result, nil
 	}
-	if err := validateContextReplay(ctx, rt.provider, rt.droid.model, messages); err != nil {
+	rt.mu.Lock()
+	currentHistory := reasoningHistoryForContext(rt.state.ReasoningHistory, rt.droid.model, contextWire)
+	rt.mu.Unlock()
+	if err := validateContextReplay(ctx, rt.provider, rt.droid.model,
+		replayRequest(string(rt.conversation), rt.droid.model, currentConfiguration, messages,
+			currentConfiguration.reasoning, currentConfiguration.maxTokens, currentHistory)); err != nil {
 		if errors.Is(err, context.Canceled) || errors.Is(err, context.DeadlineExceeded) {
 			return CompactContextResult{}, err
 		}
 		return CompactContextResult{}, errors.Join(ErrUnsafeContinuation, err)
 	}
 	currentBefore, err := rt.measureContextWithConfiguration(
-		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, messages, currentConfiguration,
+		ctx, rt.provider, rt.droid.model, currentConfiguration.reasoning, currentConfiguration.maxTokens, messages, currentConfiguration, currentHistory,
 	)
 	if err != nil {
 		return CompactContextResult{}, err
@@ -437,6 +446,7 @@ func (rt *sdkRuntime) commitCompactionResult(
 			return fmt.Errorf("droids: compacted result is missing its validated replacement")
 		}
 		rt.state.Context = cloneWireContext(replacementContext)
+		rt.state.ReasoningHistory = freshReasoningHistory(rt.droid.model, configuration.reasoning)
 		rt.state.CheckpointID = result.CheckpointID
 		checkpointPayload, err := json.Marshal(map[string]any{
 			"checkpoint_id": result.CheckpointID, "source_checkpoint_id": sourceCheckpoint,
@@ -663,8 +673,8 @@ func compactionSummaryTurnID(contextWire []wireMessageEnvelope) TurnID {
 	return ""
 }
 
-func validateContextReplay(ctx context.Context, provider Provider, model Model, messages []Message) error {
-	err := provider.ValidateReplay(ctx, model, messages)
+func validateContextReplay(ctx context.Context, provider Provider, model Model, request Request) error {
+	err := validateRequestReplay(ctx, provider, model, request)
 	if contextErr := contextError(ctx); contextErr != nil {
 		return contextErr
 	}

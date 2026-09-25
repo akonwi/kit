@@ -20,19 +20,21 @@ type ContextUsage struct {
 	Exact          bool
 }
 
-func (d *Droid) contextUsage(messages []Message) ContextUsage {
+// contextUsage estimates usage for messages plus the dispatched configuration
+// update items projected onto them.
+func (d *Droid) contextUsage(messages []Message, history *ReasoningHistory) ContextUsage {
 	configuration := d.sdk.currentRequestConfiguration()
 	model := configuredContextModel(d.model, configuration)
 	return estimateContextUsage(
 		configuration.systemPrompt, append([]ToolSchema(nil), configuration.toolSchemas...), model,
-		configuration.reasoning, configuration.maxTokens, messages,
+		configuration.reasoning, configuration.maxTokens, messages, history,
 	)
 }
 
-func estimateContextUsage(systemPrompt string, tools []ToolSchema, model Model, reasoning string, reservedOutput int, messages []Message) ContextUsage {
+func estimateContextUsage(systemPrompt string, tools []ToolSchema, model Model, reasoning string, reservedOutput int, messages []Message, history *ReasoningHistory) ContextUsage {
 	request := Request{
 		SystemPrompt: systemPrompt, Messages: messages, Tools: tools,
-		Reasoning: reasoning, MaxTokens: reservedOutput,
+		Reasoning: reasoning, MaxTokens: reservedOutput, ReasoningHistory: history,
 	}
 	input := estimateRequestTokens(request)
 	remaining := 0
@@ -56,7 +58,7 @@ func estimateContextUsage(systemPrompt string, tools []ToolSchema, model Model, 
 
 // estimateRequestTokens is deliberately provider-neutral and approximate.
 func estimateRequestTokens(req Request) int {
-	bytes := len(req.SystemPrompt) + 32 + estimateMessagesBytes(req.Messages)
+	bytes := len(req.SystemPrompt) + 32 + estimateMessagesBytes(req.Messages) + estimateReasoningHistoryBytes(req.ReasoningHistory)
 	for _, tool := range req.Tools {
 		bytes += 32 + len(tool.Name) + len(tool.Description)
 		if encoded, err := json.Marshal(tool.Parameters); err == nil {
@@ -67,6 +69,20 @@ func estimateRequestTokens(req Request) int {
 	// for prose and code. Round upward and retain framing overhead so tiny
 	// requests never estimate to zero. Exact provider counters may replace it.
 	return (bytes + 1) / 2
+}
+
+// estimateReasoningHistoryBytes accounts for the configuration update items Kit
+// inserts into the provider input array. They are separate input items, not
+// canonical messages, so message estimates alone understate a replayed request.
+func estimateReasoningHistoryBytes(history *ReasoningHistory) int {
+	if history == nil {
+		return 0
+	}
+	bytes := 0
+	for _, update := range history.Updates {
+		bytes += len(`{"type":"configuration_update","reasoning":{"effort":""}}`) + len(update.Effort)
+	}
+	return bytes
 }
 
 // EstimateMessagesTokens returns Droids' conservative, provider-neutral token

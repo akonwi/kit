@@ -146,7 +146,9 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 			end = low
 			request = compactionSummaryRequest(string(rt.conversation), prompt, previous, parts[:end], requestMaxTokens)
 		}
-		if err := validateContextReplay(ctx, provider, model, request.Messages); err != nil {
+		// The summary request is an independent request with no dispatched
+		// configuration updates of its own.
+		if err := validateContextReplay(ctx, provider, model, request); err != nil {
 			return "", fmt.Errorf("droids: compaction summary request is not replayable: %w", err)
 		}
 		previous, err = rt.requestCompactionSummary(ctx, provider, model, request, turnID)
@@ -161,7 +163,7 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 }
 
 func compactionRequestFits(model Model, request Request, reservedOutput int) bool {
-	usage := estimateContextUsage(request.SystemPrompt, nil, model, "", reservedOutput, request.Messages)
+	usage := estimateContextUsage(request.SystemPrompt, nil, model, "", reservedOutput, request.Messages, request.ReasoningHistory)
 	return contextCanRun(usage)
 }
 

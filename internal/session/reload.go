@@ -82,7 +82,7 @@ func (m *Manager) ReloadSession(ctx context.Context, sessionID string) (ReloadRe
 		contextWindow = m.modelContextWindow(selector)
 	}
 	model := loaded.model.WithContextWindow(contextWindow)
-	if err := loaded.droid.Reconfigure(droids.RequestConfiguration{
+	if err := loaded.droid.ReconfigureContext(ctx, droids.RequestConfiguration{
 		SystemPrompt: replacement.Prompt.Prompt, Reasoning: record.ThinkingLevel, ContextWindow: model.ContextWindow, Tools: replacement.Tools,
 	}); err != nil {
 		return ReloadResult{}, fmt.Errorf("apply replacement runtime bundle for session %q: %w", sessionID, err)

@@ -49,6 +49,37 @@ type Provider interface {
 	ValidateReplay(context.Context, Model, []Message) error
 }
 
+// RequestReplayValidator optionally assesses replay safety against the exact
+// request projection, including reasoning configuration updates, instead of
+// canonical messages alone. Providers that expand a request into additional
+// provider input items should implement it.
+type RequestReplayValidator interface {
+	ValidateRequestReplay(context.Context, Model, Request) error
+}
+
+// replayRequest builds the same provider-facing fields for replay assessment
+// that dispatch uses. Context candidates may have a different model and epoch.
+func replayRequest(sessionID string, model Model, configuration *runtimeRequestConfiguration, messages []Message, reasoning string, maxTokens int, history *ReasoningHistory) Request {
+	if model.OutputLimitMode == OutputLimitProviderControlled {
+		maxTokens = 0
+	}
+	return Request{
+		SessionID: sessionID, SystemPrompt: configuration.systemPrompt, Messages: messages,
+		Tools:     append([]ToolSchema(nil), configuration.toolSchemas...),
+		Reasoning: effectiveRequestReasoning(history, reasoning),
+		MaxTokens: maxTokens, ReasoningHistory: history,
+	}
+}
+
+// validateRequestReplay assesses a replay through the richest contract the
+// provider implements.
+func validateRequestReplay(ctx context.Context, provider Provider, model Model, request Request) error {
+	if validator, ok := provider.(RequestReplayValidator); ok {
+		return validator.ValidateRequestReplay(ctx, model, request)
+	}
+	return provider.ValidateReplay(ctx, model, request.Messages)
+}
+
 // ContextMeasurer optionally provides exact provider-specific context usage.
 type ContextMeasurer interface {
 	MeasureContext(context.Context, Model, Request) (ContextUsage, error)
@@ -108,7 +139,10 @@ type providerEntry struct {
 	canonicalModels bool
 	stream          streamFn
 	validateReplay  func(context.Context, Model, []Message) error
-	call            callOptions
+	// validateRequestReplay optionally supersedes validateReplay with the exact
+	// request projection.
+	validateRequestReplay func(context.Context, Model, Request) error
+	call                  callOptions
 }
 
 type registry struct {
@@ -356,6 +390,18 @@ func (p *resolvedProvider) ValidateReplay(ctx context.Context, model Model, mess
 		return p.entry.validateReplay(ctx, model, messages)
 	}
 	return nil
+}
+
+// ValidateRequestReplay assesses the exact request projection when the
+// provider implements it, and otherwise falls back to canonical messages.
+func (p *resolvedProvider) ValidateRequestReplay(ctx context.Context, model Model, request Request) error {
+	if model.Provider != p.entry.id {
+		return fmt.Errorf("droids: provider %q does not own model %q", p.entry.id, model.ID)
+	}
+	if p.entry.validateRequestReplay != nil {
+		return p.entry.validateRequestReplay(ctx, model, request)
+	}
+	return p.ValidateReplay(ctx, model, request.Messages)
 }
 
 func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream {

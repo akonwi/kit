@@ -116,6 +116,7 @@ func AnthropicModel(id string) (Model, bool) {
 func setModelBaseURL(models []Model, baseURL string) {
 	for i := range models {
 		models[i].BaseURL = baseURL
+		models[i].SupportsReasoningConfigurationUpdates = models[i].SupportsReasoningConfigurationUpdates && strings.TrimRight(baseURL, "/") == defaultOpenAIBaseURL
 	}
 }
 
@@ -211,18 +212,20 @@ func modelFromCatalog(provider modelsDevProvider, catalogID, providerID string, 
 		name = source.ID
 	}
 	return Model{
-		ID:                            source.ID,
-		Name:                          name,
-		Provider:                      providerID,
-		API:                           api,
-		Reasoning:                     source.Reasoning,
-		ReasoningMode:                 reasoningMode,
-		ReasoningLevels:               reasoningLevels,
-		SupportsMidConversationEffort: catalogID == "anthropic" && anthropicSupportsMidConversationEffort(source.ID),
-		Input:                         input,
-		ContextWindow:                 contextWindow,
-		MaxInputTokens:                source.Limit.Input,
-		MaxOutputTokens:               source.Limit.Output,
+		ID:                                    source.ID,
+		Name:                                  name,
+		Provider:                              providerID,
+		API:                                   api,
+		Reasoning:                             source.Reasoning,
+		TemperaturePolicy:                     catalogTemperaturePolicy(catalogID, source.ID),
+		ReasoningMode:                         reasoningMode,
+		ReasoningLevels:                       reasoningLevels,
+		SupportsReasoningConfigurationUpdates: catalogID == "openai" && standardOpenAIReasoningHistoryModel(source.ID),
+		SupportsMidConversationEffort:         catalogID == "anthropic" && anthropicSupportsMidConversationEffort(source.ID),
+		Input:                                 input,
+		ContextWindow:                         contextWindow,
+		MaxInputTokens:                        source.Limit.Input,
+		MaxOutputTokens:                       source.Limit.Output,
 		Cost: Cost{
 			Input:      source.Cost.Input,
 			Output:     source.Cost.Output,
@@ -251,7 +254,7 @@ func openAIResponsesCatalogModel(source modelsDevModel) bool {
 	allowedFamily := map[string]bool{
 		"gpt": true, "gpt-mini": true, "gpt-nano": true, "gpt-pro": true,
 		"gpt-codex": true, "gpt-codex-spark": true,
-		"gpt-sol": true, "gpt-luna": true, "gpt-terra": true,
+		"gpt-sol": true, "gpt-luna": true, "gpt-terra": true, "gpt-astra": true,
 		"o": true, "o-pro": true, "o-mini": true,
 	}
 	if !allowedFamily[source.Family] {
@@ -364,4 +367,18 @@ func fetchModelCatalogWithClient(ctx context.Context, rawURL string, baseClient 
 		return nil, fmt.Errorf("droids: parse model catalog: %w", err)
 	}
 	return catalog, nil
+}
+
+// catalogTemperaturePolicy applies reviewed public OpenAI compatibility rules.
+// Do not infer ChatGPT/Codex or gateway support from public API documentation.
+func catalogTemperaturePolicy(catalogID, modelID string) TemperaturePolicy {
+	if catalogID == "openai" {
+		switch modelID {
+		case "gpt-6-astra":
+			return TemperatureUnsupported
+		case "gpt-6-sol", "gpt-6-luna":
+			return TemperatureReasoningOff
+		}
+	}
+	return TemperatureUnrestricted
 }

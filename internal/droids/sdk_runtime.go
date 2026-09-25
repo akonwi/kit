@@ -228,6 +228,15 @@ func Spawn(ctx context.Context, id ConversationID, config Config) (*Droid, error
 	if err != nil {
 		return nil, err
 	}
+	// Existing durable effort intent wins over bootstrap configuration. Session
+	// owners explicitly reconcile their authoritative setting after Spawn.
+	if history := state.ReasoningHistory; history != nil && supportsOpenAIReasoningHistory(model) && history.Model == model.Provider+"/"+model.ID {
+		config.Reasoning = history.Requested
+		requestConfig, err = buildRuntimeRequestConfiguration(model, RequestConfiguration{SystemPrompt: config.SystemPrompt, Reasoning: config.Reasoning, Tools: config.Tools})
+		if err != nil {
+			return nil, err
+		}
+	}
 	usageRebuilt := false
 	if !state.SessionUsageInitialized {
 		state.SessionUsage, err = rebuildSessionUsage(ctx, config.Store, id)
@@ -510,6 +519,7 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	}
 	rt.state = newDurableRuntime()
 	rt.state.Context = before.Context
+	rt.state.ReasoningHistory = before.ReasoningHistory
 	rt.state.PendingBoundaries = before.PendingBoundaries
 	rt.state.CheckpointID = before.CheckpointID
 	rt.state.SessionUsage = before.SessionUsage
@@ -942,13 +952,22 @@ func (d *Droid) Resume(ctx context.Context) (returnErr error) {
 	status := rt.state.Status
 	provider := rt.provider
 	model := rt.droid.model
+	configuration := rt.currentRequestConfiguration()
+	resumeHistory := reasoningHistoryForContext(rt.state.ReasoningHistory, model, rt.state.Context)
+	resumeReasoning := configuration.reasoning
+	if resumeHistory != nil {
+		resumeReasoning = resumeHistory.Effective
+	}
 	validationCtx, cancelValidation := context.WithCancel(ctx)
 	flight := &resumeFlight{done: make(chan struct{})}
 	rt.resumeCancel = cancelValidation
 	rt.resumeFlight = flight
 	rt.mu.Unlock()
 
-	validationErr := provider.ValidateReplay(validationCtx, model, plain)
+	// Resume assesses the request Kit would replay now, including dispatched
+	// configuration updates and excluding any pending, undispatched selection.
+	validationErr := validateRequestReplay(validationCtx, provider, model,
+		replayRequest(string(rt.conversation), model, configuration, plain, resumeReasoning, configuration.maxTokens, resumeHistory))
 
 	rt.mu.Lock()
 	cancelValidation()
@@ -1391,7 +1410,7 @@ func (d *Droid) Snapshot(ctx context.Context, options SnapshotOptions) (Snapshot
 	for _, message := range contextMessages {
 		plainContext = append(plainContext, message.Message)
 	}
-	result.Context.Usage = d.contextUsage(plainContext)
+	result.Context.Usage = d.contextUsage(plainContext, reasoningHistoryForContext(rt.state.ReasoningHistory, d.model, rt.state.Context))
 
 	limit := options.RecentMessageLimit
 	if limit == 0 {

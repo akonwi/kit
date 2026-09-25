@@ -173,6 +173,7 @@ func (d *Droid) captureFork(ctx context.Context) (
 		}
 	}
 	config := cloneForkConfig(rt.config)
+	config.Reasoning = rt.currentRequestConfiguration().reasoning
 	return point, state, records, config, nil
 }
 
@@ -201,6 +202,7 @@ func cloneForkConfig(config Config) Config {
 func forkRuntimeState(source durableRuntime, sourceID, destinationID ConversationID, point ForkPoint) (durableRuntime, error) {
 	child := newDurableRuntime()
 	child.Context = append([]wireMessageEnvelope(nil), source.Context...)
+	child.ReasoningHistory = cloneReasoningHistory(source.ReasoningHistory)
 	for index := range child.Context {
 		if err := rewriteForkEnvelope(&child.Context[index], sourceID, destinationID); err != nil {
 			return durableRuntime{}, err
@@ -250,7 +252,7 @@ func forkHistoryRecord(record EncodedRecord, sourceID, destinationID Conversatio
 			return EncodedRecord{}, fmt.Errorf("droids: rewrite fork checkpoint %q: %w", record.ID, err)
 		}
 		forked.Payload = payload
-	case attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind, annotationSubmissionReceiptKind:
+	case reasoningHistoryRecordKind, attemptRecordKind, toolRecordKind, boundaryReceiptKind, boundaryConsumptionKind, compactionIntentKind, compactionReceiptKind, usageContributionKind, annotationSubmissionReceiptKind:
 		if !json.Valid(record.Payload) {
 			return EncodedRecord{}, fmt.Errorf("droids: %s record %q is not valid JSON", record.Kind, record.ID)
 		}

@@ -275,9 +275,19 @@ const (
 	ErrorProtocol       = ProviderProtocol
 )
 
+// MisalignmentPolicyViolation is OpenAI's exact non-retryable policy-stop code.
+const MisalignmentPolicyViolation = "misalignment_policy_violation"
+
+// IsPolicyStop reports a provider policy stop for this response only.
+func (m AssistantMessage) IsPolicyStop() bool {
+	return m.Error != nil && m.Error.Code == MisalignmentPolicyViolation
+}
+
 // ProviderError is stable provider failure metadata.
 type ProviderError struct {
 	Kind       ProviderErrorKind
+	Code       string `json:",omitempty"`
+	RequestID  string `json:",omitempty"`
 	Message    string
 	Retryable  bool
 	RetryAfter time.Duration

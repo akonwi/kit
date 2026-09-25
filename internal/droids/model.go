@@ -32,6 +32,19 @@ const (
 	OutputLimitProviderControlled OutputLimitMode = "provider-controlled"
 )
 
+// TemperaturePolicy describes temperature compatibility for Responses requests.
+// The zero value preserves forwarding behavior; it is not verified support.
+type TemperaturePolicy string
+
+const (
+	// TemperatureUnrestricted preserves the supplied temperature.
+	TemperatureUnrestricted TemperaturePolicy = ""
+	// TemperatureUnsupported omits temperature on every request.
+	TemperatureUnsupported TemperaturePolicy = "unsupported"
+	// TemperatureReasoningOff permits temperature only with explicit effort none.
+	TemperatureReasoningOff TemperaturePolicy = "reasoning-off"
+)
+
 // Model describes a single model exposed by a provider. The registry resolves
 // a user-facing model id string to one of these, tagged with its owning
 // provider.
@@ -49,15 +62,18 @@ type Model struct {
 	catalogContextWindow  int
 	catalogMaxInputTokens int
 
+	TemperaturePolicy             TemperaturePolicy
 	Reasoning                     bool
 	ReasoningMode                 ReasoningMode
 	ReasoningLevels               []string // supported explicit Droids levels
 	SupportsMidConversationEffort bool     // requires managed effort configuration in message history
-	Input                         []string // "text", "image"
-	ContextWindow                 int      // combined input and output capacity
-	MaxInputTokens                int      // optional stricter input-only capability
-	MaxOutputTokens               int      // provider capability, not the per-request allowance
-	OutputLimitMode               OutputLimitMode
+	// SupportsReasoningConfigurationUpdates enables OpenAI standard Responses history updates.
+	SupportsReasoningConfigurationUpdates bool
+	Input                                 []string // "text", "image"
+	ContextWindow                         int      // combined input and output capacity
+	MaxInputTokens                        int      // optional stricter input-only capability
+	MaxOutputTokens                       int      // provider capability, not the per-request allowance
+	OutputLimitMode                       OutputLimitMode
 
 	Cost Cost
 }

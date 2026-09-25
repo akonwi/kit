@@ -15,6 +15,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	}
 	envelopes, err := runtimeMessageEnvelopes(rt.state)
 	contextWire := append([]wireMessageEnvelope(nil), rt.state.Context...)
+	history := reasoningHistoryForContext(rt.state.ReasoningHistory, rt.droid.model, contextWire)
 	attemptID := rt.state.AttemptID
 	sourceCheckpoint := rt.state.CheckpointID
 	rt.mu.Unlock()
@@ -26,7 +27,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		messages = append(messages, envelope.Message)
 	}
 	configuration := rt.currentRequestConfiguration()
-	usage, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration)
+	usage, err := rt.measureContextWithConfiguration(ctx, rt.provider, rt.droid.model, configuration.reasoning, configuration.maxTokens, messages, configuration, history)
 	if err != nil {
 		return rt.recordCompactionFailure(turnID, err)
 	}
@@ -100,6 +101,7 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 		return err
 	}
 	rt.state.Context = compacted.context
+	rt.state.ReasoningHistory = freshReasoningHistory(rt.droid.model, configuration.reasoning)
 	rt.state.CheckpointID = checkpointID
 	checkpointPayload, err := json.Marshal(map[string]any{
 		"checkpoint_id": checkpointID, "source_checkpoint_id": before.CheckpointID,
@@ -134,24 +136,6 @@ func (rt *sdkRuntime) compactIfNeeded(ctx context.Context, turnID TurnID, force 
 	return nil
 }
 
-func (rt *sdkRuntime) measureContext(ctx context.Context, provider Provider, model Model, messages []Message) (ContextUsage, error) {
-	configuration := rt.currentRequestConfiguration()
-	return rt.measureContextWithConfiguration(ctx, provider, model, configuration.reasoning, configuration.maxTokens, messages, configuration)
-}
-
-func (rt *sdkRuntime) measureContextFor(
-	ctx context.Context,
-	provider Provider,
-	model Model,
-	reasoning string,
-	reservedOutput int,
-	messages []Message,
-) (ContextUsage, error) {
-	return rt.measureContextWithConfiguration(
-		ctx, provider, model, reasoning, reservedOutput, messages, rt.currentRequestConfiguration(),
-	)
-}
-
 func configuredContextModel(model Model, configuration *runtimeRequestConfiguration) Model {
 	if configuration != nil && configuration.contextWindow > 0 {
 		model.ContextWindow = configuration.contextWindow
@@ -168,15 +152,19 @@ func (rt *sdkRuntime) measureContextWithConfiguration(
 	reservedOutput int,
 	messages []Message,
 	configuration *runtimeRequestConfiguration,
+	history *ReasoningHistory,
 ) (ContextUsage, error) {
 	if model.Provider == rt.droid.model.Provider && model.ID == rt.droid.model.ID {
 		model = configuredContextModel(model, configuration)
 	}
 	tools := append([]ToolSchema(nil), configuration.toolSchemas...)
+	// Measure the request Kit would send: a projected epoch carries its
+	// dispatched effective effort, not a pending or configured selection.
+	reasoning = effectiveRequestReasoning(history, reasoning)
 	request := Request{
 		SystemPrompt: configuration.systemPrompt, Messages: messages,
 		Tools: tools, Reasoning: reasoning,
-		MaxTokens: reservedOutput,
+		MaxTokens: reservedOutput, ReasoningHistory: history,
 	}
 	if measurer, ok := provider.(ContextMeasurer); ok {
 		usage, err := measurer.MeasureContext(ctx, model, request)
@@ -187,7 +175,7 @@ func (rt *sdkRuntime) measureContextWithConfiguration(
 		return usage, nil
 	}
 	return estimateContextUsage(
-		configuration.systemPrompt, tools, model, reasoning, reservedOutput, messages,
+		configuration.systemPrompt, tools, model, reasoning, reservedOutput, messages, history,
 	), nil
 }
 
