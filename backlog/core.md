@@ -16,11 +16,13 @@ IDs but must not redefine server, persistence, or protocol semantics.
   metadata are not imported.
 - [ ] CORE-MIG-003 — Leave legacy runtime data untouched and keep native storage
   isolated from it when reusing `~/.kit`.
-- [ ] CORE-MIG-004 — Publish a short migration guide and embedded, version-matched
+- [~] CORE-MIG-004 — Publish a short migration guide and embedded, version-matched
   skill covering actual configuration differences and user-directed adjustments.
   Explain unchanged paths/formats, unsupported settings and plugin methods,
   discovery/validation differences, fresh sessions, and provider/MCP reauthentication.
   Do not require automated compatibility reporting or credential conversion.
+  The v0.36.0 guide is drafted in `docs/releases/v0.36.0-migration.md`;
+  the embedded migration skill and published-guide verification remain outstanding.
 - [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
   management and consistent private, locked, atomic, generation-checked storage
   for every supported provider. Credential import is not required; verify that

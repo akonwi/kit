@@ -45,6 +45,7 @@ jobs:
             echo "Expected a stable release tag of the form vX.Y.Z" >&2
             exit 1
           fi
+          test -s "docs/releases/${GITHUB_REF_NAME}.md"
           mkdir -p dist
           go build -trimpath -ldflags "-s -w -X github.com/akonwi/kit/internal/version.Version=${GITHUB_REF_NAME#v} -X github.com/akonwi/kit/internal/version.Commit=$GITHUB_SHA" -o dist/kit ./cmd/kit
 
@@ -87,5 +88,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --generate-notes \
+            --notes-file "docs/releases/${GITHUB_REF_NAME}.md" \
             artifacts/*.tar.gz

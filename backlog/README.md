@@ -132,10 +132,12 @@ Deferred scope sections rather than silently expanding production release scope.
   Go-only archives on all four platforms, targeting macOS 14.0 and Ubuntu 24.04
   (glibc 2.39). Exact C/SDK toolchain pinning and installed-artifact verification
   remain outstanding; runner labels alone do not pin those toolchains.
-- [ ] ROAD-R1-002 — Provide Homebrew and manual binary installation and upgrade
+- [~] ROAD-R1-002 — Provide Homebrew and manual binary installation and upgrade
   paths for existing npm-installed users. Document npm removal, PATH/version
   verification, configuration reuse, fresh sessions, and provider/MCP
-  reauthentication; npm is not a native Kit distribution channel.
+  reauthentication; npm is not a native Kit distribution channel. The v0.36.0
+  release notes and migration guide document these paths; the Homebrew formula
+  update and installed-upgrade verification remain outstanding.
 - [ ] ROAD-R1-003 — Provide update checks, bounded paginated release history,
   and native release packaging without delaying startup.
 - [ ] ROAD-R1-004 — Verify installed artifacts, upgrades, and local-daemon

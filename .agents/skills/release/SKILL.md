@@ -12,7 +12,7 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
 
 1. Inspect `git status --short`, the current branch, and recent release tags.
    Do not include unrelated changes. Release from reviewed, committed `main`.
-   Read the R1 gates in `backlog/README.md` and the core/TUI backlogs; a successful
+   Read the release requirements in `backlog/README.md` and the core/TUI backlogs; a successful
    build alone does not establish release readiness. Report unresolved gates
    before publishing.
 
@@ -23,7 +23,14 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
    `internal/version.Version` and `Commit` keep their development defaults;
    the workflow overrides them with linker flags.
 
-3. Validate before publishing:
+3. Write curated notes in `docs/releases/vX.Y.Z.md` before publishing. Explain
+   user-facing changes, getting started, compatibility changes, platform limits,
+   and installation/upgrade instructions. For runtime or plugin changes, include
+   version-matched migration guidance that users and coding assistants can follow.
+   Review the notes against the shipped code; do not claim outstanding checks
+   have passed. The workflow requires this file and publishes it verbatim.
+
+   Validate before publishing:
    ```sh
    gofmt -l .
    go build ./...
@@ -72,8 +79,8 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
 6. Watch the tag's workflow (`gh run list --workflow=release.yml`, then
    `gh run watch <run-id> --exit-status`). Each job packages only the Go `kit`
    executable and smoke-tests the extracted binary's version and help.
-   The release job uses GitHub-generated release notes, not web-bundled notes.
-   Verify and edit the generated notes for user-facing clarity as needed.
+   The release job publishes `docs/releases/vX.Y.Z.md`, not generated PR summaries
+   or web-bundled notes. Verify the published body matches the curated notes.
    Confirm all four `kit_vX.Y.Z_<platform>.tar.gz` assets exist:
    ```sh
    gh release view vX.Y.Z --json assets,body
