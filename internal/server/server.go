@@ -191,19 +191,9 @@ func Run(ctx context.Context, options RunOptions) error {
 	subagentTools := &subagent.ToolService{
 		Supervisor: subagents, Owners: store,
 		ResolveConfiguration: func(ctx context.Context, selector, thinking string) (string, string, error) {
-			model, err := providers.Resolve(selector)
+			model, err := resolveSubagentModel(providers, selector, providerAvailability(ctx))
 			if err != nil {
 				return "", "", err
-			}
-			available := false
-			for _, providerID := range providerAvailability(ctx) {
-				if providerID == model.Provider {
-					available = true
-					break
-				}
-			}
-			if !available {
-				return "", "", fmt.Errorf("provider %q is unavailable", model.Provider)
 			}
 			effectiveThinking, err := kitsession.ResolveCompatibleThinkingLevel(model, thinking)
 			if err != nil {

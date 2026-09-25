@@ -114,6 +114,7 @@ type providerEntry struct {
 type registry struct {
 	mu      sync.RWMutex
 	entries map[string]providerEntry // by provider id
+	order   []string                 // provider registration order
 	// index maps a bare model id to its owning provider id. Ambiguous ids
 	// (served by multiple providers) are omitted; callers must namespace.
 	index     map[string]string
@@ -139,9 +140,34 @@ func NewProviders(configs ...ProviderConfig) (Providers, error) {
 			return nil, fmt.Errorf("droids: duplicate provider id %q", entry.id)
 		}
 		r.entries[entry.id] = entry
+		r.order = append(r.order, entry.id)
 	}
 	r.rebuildIndex()
 	return r, nil
+}
+
+// ProviderIDs returns provider IDs in registration order for a native registry.
+// Custom Providers may expose ProviderIDs themselves; otherwise their Models
+// order determines the first occurrence of each provider.
+func ProviderIDs(providers Providers) []string {
+	if ordered, ok := providers.(interface{ ProviderIDs() []string }); ok {
+		return append([]string(nil), ordered.ProviderIDs()...)
+	}
+	var ids []string
+	seen := make(map[string]bool)
+	for _, model := range providers.Models() {
+		if !seen[model.Provider] {
+			ids = append(ids, model.Provider)
+			seen[model.Provider] = true
+		}
+	}
+	return ids
+}
+
+func (r *registry) ProviderIDs() []string {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	return append([]string(nil), r.order...)
 }
 
 func (r *registry) Models() []Model {

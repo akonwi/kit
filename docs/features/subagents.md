@@ -16,10 +16,12 @@ wins, so user definitions override project definitions. A definition requires
 frontmatter `name` and `description`, accepts an optional model selector, and
 uses its Markdown body as child instructions. Both canonical `provider/model`
 selectors and production-compatible model IDs are retained during discovery.
-At delegation time Kit canonicalizes selectors known to the v2 provider
-registry. If an explicit selector is unavailable, the child inherits the active
-parent droid's model and thinking configuration and the client shows an
-ephemeral warning toast.
+At delegation time, a bare model ID selects the first matching available provider
+in provider registration order. An explicit `provider/model` selects only that
+provider; it never switches providers to resolve an unavailable model. Kit stores
+the resolved canonical selector for the child. If the requested model cannot be
+resolved, the child inherits the active parent droid's model and thinking
+configuration and the client shows an ephemeral warning toast.
 
 ```markdown
 ---
