@@ -69,6 +69,18 @@ IDs but must not redefine server, persistence, or protocol semantics.
   to clients.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
   checkpoints and expose pending, completed, and failed lifecycle state.
+- [ ] CORE-RUN-006 — Fix multimodal context estimation for image/file content.
+  The provider-neutral estimator currently counts the full inline `data:` URL
+  as text (approximately two encoded bytes per token), so a ~1.8 MB image
+  returned by `show_image` was estimated at ~900K tokens and repeatedly caused
+  automatic compaction to fail before the next model response. Images still
+  consume provider input tokens, but their encoded transport bytes are not text
+  tokens; budget image content using provider/model/detail-aware accounting or
+  a bounded conservative modality estimate, whether supplied as a URL, file ID,
+  or inline data. Cover tool-result images in an unconsumed tool-call tail,
+  compaction trigger/replacement decisions, and manual-versus-automatic
+  compaction with regression tests. Preserve safe limits without treating
+  Base64 length as token count.
 - [x] CORE-SESSION-002 — Automatically assign useful session names without
   overwriting explicit user names.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
