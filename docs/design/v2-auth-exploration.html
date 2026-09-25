@@ -1,0 +1,291 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width,initial-scale=1" />
+<title>Kit v2 — first-run and auth exploration</title>
+<style>
+:root {
+  color-scheme: dark;
+  --page:#090b0e; --surface:#10141a; --raised:#151b22; --line:#2a3440;
+  --strong:#3d4a59; --text:#d9e0e8; --secondary:#a6b0bd; --muted:#74808f;
+  --blue:#7cabff; --green:#73d5a4; --yellow:#e8c86f; --red:#ee8888;
+  --sans:ui-sans-serif,-apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+  --mono:ui-monospace,"SFMono-Regular",Menlo,Monaco,Consolas,monospace;
+}
+*{box-sizing:border-box} body{margin:0;background:var(--page);color:var(--text);font-family:var(--sans)}
+main{max-width:1580px;margin:0 auto;padding:32px 34px 54px}
+header{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:24px;align-items:end;padding-bottom:22px;border-bottom:1px solid var(--line)}
+.kicker{margin:0 0 10px;color:var(--blue);font:600 11px/1 var(--mono);letter-spacing:.11em;text-transform:uppercase}
+h1{margin:0;font-size:clamp(27px,4vw,46px);line-height:1;letter-spacing:-.035em;font-weight:650}
+.lede{max-width:790px;margin:13px 0 0;color:var(--secondary);font-size:15px;line-height:1.55}
+.meta{text-align:right;color:var(--muted);font:11px/1.7 var(--mono)}
+.tags{display:flex;flex-wrap:wrap;gap:7px;margin:18px 0 0}.tag{padding:5px 8px;border:1px solid var(--line);border-radius:999px;color:var(--muted);font:10px/1 var(--mono)}.tag.set{border-color:#275541;color:var(--green)}.tag.open{border-color:#5b4b25;color:var(--yellow)}
+.steps{display:flex;gap:8px;overflow:auto;padding:18px 0;border-bottom:1px solid var(--line)}
+button{border:1px solid var(--line);border-radius:6px;background:transparent;color:var(--muted);padding:8px 11px;font:500 11px/1 var(--mono);cursor:pointer}button:hover{border-color:var(--strong);color:var(--text)}button[aria-selected=true]{background:var(--text);border-color:var(--text);color:var(--page)}
+.stage{display:none;padding-top:24px}.stage.active{display:block}.stage-intro{display:grid;grid-template-columns:1fr minmax(260px,520px);gap:20px;margin-bottom:14px}.stage-intro h2{margin:0;font-size:18px}.stage-intro p{margin:0;color:var(--muted);font-size:13px;line-height:1.55}
+.variants{display:grid;grid-template-columns:1fr 1fr;gap:14px}.variant{min-width:0;border:1px solid var(--line);border-radius:8px;overflow:hidden;background:var(--surface)}
+.variant-head{height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 13px;border-bottom:1px solid var(--line);background:var(--raised);font:11px/1 var(--mono)}.variant-head strong{font-weight:600;color:var(--secondary)}.variant-head span{color:var(--muted)}
+.terminal-area{background:#050607;overflow:auto;padding:18px;min-height:506px;display:flex;align-items:flex-start;justify-content:center}
+.terminal-window{width:max-content;min-width:680px;background:#050607;color:#c8cfd8;font:11.5px/1.43 var(--mono);white-space:pre;padding:0}.terminal-window.viewport{padding:2px 0}.terminal-window.frame{padding:0}.terminal-window.narrow{min-width:480px}.terminal-area.compact{min-height:390px}
+.terminal-window .accent{color:var(--blue)}.terminal-window .good{color:var(--green)}.terminal-window .warn{color:var(--yellow)}.terminal-window .dim{color:#6d7886}.terminal-window .bright{color:#e5ebf1}
+.notes{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:9px;margin-top:12px}.note{padding:12px;border:1px solid var(--line);border-radius:7px;background:var(--surface);min-height:96px}.note b{display:block;margin-bottom:6px;color:var(--secondary);font:600 10px/1 var(--mono);letter-spacing:.06em;text-transform:uppercase}.note p{margin:0;color:var(--muted);font-size:11.5px;line-height:1.5}
+.flow{margin-top:32px;display:grid;grid-template-columns:1fr 1fr;gap:14px}.panel{border:1px solid var(--line);border-radius:8px;background:var(--surface);padding:17px}.panel h2{margin:0 0 13px;font-size:15px}.flowline{font:11px/1.8 var(--mono);color:var(--secondary);white-space:pre-wrap}.copy-list{display:grid;grid-template-columns:max-content 1fr;gap:0}.copy-list dt,.copy-list dd{margin:0;padding:8px 0;border-top:1px solid var(--line);font-size:11.5px;line-height:1.4}.copy-list dt{padding-right:14px;color:var(--muted);font-family:var(--mono)}.copy-list dd{color:var(--secondary)}.copy-list dt:first-of-type,.copy-list dt:first-of-type+dd{border-top:0}
+footer{margin-top:28px;border-top:1px solid var(--line);padding-top:14px;color:var(--muted);font:10.5px/1.6 var(--mono)}
+@media(max-width:1050px){.variants,.flow{grid-template-columns:1fr}.notes{grid-template-columns:1fr 1fr}.terminal-area{justify-content:flex-start}.stage-intro{grid-template-columns:1fr}}
+@media(max-width:650px){main{padding:22px 14px 40px}header{grid-template-columns:1fr}.meta{text-align:left}.notes{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main>
+<header><div><p class="kicker">Interface exploration · first focus</p><h1>First-run & authentication</h1><p class="lede">Implementation-grade states for the first vaxis shell slice. Viewport-native is selected; framed examples remain as decision history. State, copy, focus, and cancellation use the selected boundary.</p><div class="tags"><span class="tag set">set · viewport-native</span><span class="tag set">set · terminal-native multiplexing</span><span class="tag set">set · one ranked palette</span><span class="tag set">set · established shell chrome</span></div></div><div class="meta">research baseline<br>kit 0.34.0<br>v2 auth contracts ready<br>46 / 140 col targets</div></header>
+<nav class="steps" aria-label="Authentication states"><button aria-selected="true" data-target="gate">1 · Gate</button><button aria-selected="false" data-target="provider">2 · Provider</button><button aria-selected="false" data-target="device">3 · Device code</button><button aria-selected="false" data-target="ready">4 · Ready</button><button aria-selected="false" data-target="narrow">5 · Narrow</button></nav>
+
+<section class="stage active" id="gate"><div class="stage-intro"><h2>Unauthenticated gate</h2><p>One action, one exit, and a quiet local-storage explanation. No composer or idle telemetry appears before a provider is usable.</p></div><div class="variants">
+<article class="variant"><div class="variant-head"><strong>Rejected · framed canvas</strong><span>continuity with v0.34</span></div><div class="terminal-area"><div class="terminal-window frame">┌───────────────────────────────────────────────────────────────────────┐
+│ kit                                                                   │
+│───────────────────────────────────────────────────────────────────────│
+│                                                                       │
+│                                                                       │
+│                             <span class="bright">k i t</span>                                     │
+│                          <span class="accent">━━━━━━━━━━━</span>                                  │
+│              Connect an AI provider to get started.                   │
+│                                                                       │
+│              <span class="dim">Credentials are stored on this machine.</span>                  │
+│                                                                       │
+│                       <span class="bright">↵ connect a provider</span>                            │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│───────────────────────────────────────────────────────────────────────│
+│ ↵ connect · ctrl+c quit             ~/Developer/agent/kit-v2 · kit-v2 │
+└───────────────────────────────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport-native</strong><span>more usable terminal area</span></div><div class="terminal-area"><div class="terminal-window viewport"> <span class="bright">kit</span>
+──────────────────────────────────────────────────────────────────
+
+
+
+                             <span class="bright">k i t</span>
+                          <span class="accent">━━━━━━━━━━━</span>
+              Connect an AI provider to get started.
+
+              <span class="dim">Credentials are stored on this machine.</span>
+
+                       <span class="bright">↵ connect a provider</span>
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────
+ ↵ connect · ctrl+c quit        <span class="dim">~/Developer/agent/kit-v2 · kit-v2</span></div></div></article></div><div class="notes"><div class="note"><b>Initial focus</b><p>The gate action owns focus. Enter opens provider selection.</p></div><div class="note"><b>Escape</b><p>Does nothing at root. Ctrl+C is the explicit quit path.</p></div><div class="note"><b>Chrome</b><p>No elapsed timer; context is omitted until meaningful; cwd and Git remain bottom-right.</p></div><div class="note"><b>Neutrality</b><p>Center in the measured content region, not the viewport.</p></div></div></section>
+
+<section class="stage" id="provider"><div class="stage-intro"><h2>Choose a provider</h2><p>A content-hugging task dialog. Authentication method is visible before selection; the background gate preserves orientation.</p></div><div class="variants">
+<article class="variant"><div class="variant-head"><strong>Rejected · framed canvas</strong><span>modal inside app boundary</span></div><div class="terminal-area"><div class="terminal-window frame">┌───────────────────────────────────────────────────────────────────────┐
+│ kit                                                                   │
+│───────────────────────────────────────────────────────────────────────│
+│                                                                       │
+│          ┌ <span class="bright">Connect a provider</span> ────────────────────────────┐           │
+│          │ <span class="bright">▌OpenAI Codex</span>      <span class="dim">ChatGPT · device code</span>       │           │
+│          │  Claude            <span class="dim">Pro/Max · browser</span>           │           │
+│          │  Anthropic         <span class="dim">API key</span>                     │           │
+│          │  OpenAI            <span class="dim">API key</span>                     │           │
+│          ├────────────────────────────────────────────────┤           │
+│          │ ↑↓ choose · ↵ continue · esc back              │           │
+│          └────────────────────────────────────────────────┘           │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│───────────────────────────────────────────────────────────────────────│
+│ ↵ connect · ctrl+c quit             ~/Developer/agent/kit-v2 · kit-v2 │
+└───────────────────────────────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport-native</strong><span>same dialog contract</span></div><div class="terminal-area"><div class="terminal-window viewport"> <span class="bright">kit</span>
+──────────────────────────────────────────────────────────────────
+
+          ┌ <span class="bright">Connect a provider</span> ────────────────────────────┐
+          │ <span class="bright">▌OpenAI Codex</span>      <span class="dim">ChatGPT · device code</span>       │
+          │  Claude            <span class="dim">Pro/Max · browser</span>           │
+          │  Anthropic         <span class="dim">API key</span>                     │
+          │  OpenAI            <span class="dim">API key</span>                     │
+          ├────────────────────────────────────────────────┤
+          │ ↑↓ choose · ↵ continue · esc back              │
+          └────────────────────────────────────────────────┘
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────
+ ↵ connect · ctrl+c quit        <span class="dim">~/Developer/agent/kit-v2 · kit-v2</span></div></div></article></div><div class="notes"><div class="note"><b>Height</b><p>Dialog hugs four options; it grows only to a named maximum.</p></div><div class="note"><b>Method</b><p>Device code, browser, and API key are named before selection.</p></div><div class="note"><b>Focus</b><p>Modal focus scope; Escape returns to the gate action.</p></div><div class="note"><b>Future-safe</b><p>Provider rows are data-driven, not special-case screens.</p></div></div></section>
+
+<section class="stage" id="device"><div class="stage-intro"><h2>OpenAI Codex device approval</h2><p>The Go auth service provides the exact runtime URI, code, expiry, cancellation-aware polling, and guarded save. Values in this mockup are illustrative placeholders.</p></div><div class="variants">
+<article class="variant"><div class="variant-head"><strong>Rejected · framed canvas</strong><span>actionable countdown only</span></div><div class="terminal-area"><div class="terminal-window frame">┌───────────────────────────────────────────────────────────────────────┐
+│ kit                                                                   │
+│───────────────────────────────────────────────────────────────────────│
+│                                                                       │
+│          ┌ <span class="bright">OpenAI Codex</span> ──────────────────────────────────┐           │
+│          │ 1  Visit   <span class="accent">auth.openai.com/codex/device</span>        │           │
+│          │ 2  Enter                                       │           │
+│          │                                                │           │
+│          │                 <span class="bright">FJKP-QRSA</span>                      │           │
+│          │                                                │           │
+│          │ <span class="accent">⠹</span> Waiting for approval — expires in 12:41      │           │
+│          ├────────────────────────────────────────────────┤           │
+│          │ o open browser · c copy code · esc cancel      │           │
+│          └────────────────────────────────────────────────┘           │
+│                                                                       │
+│───────────────────────────────────────────────────────────────────────│
+│                                     ~/Developer/agent/kit-v2 · kit-v2 │
+└───────────────────────────────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport-native</strong><span>same auth state, fewer edges</span></div><div class="terminal-area"><div class="terminal-window viewport"> <span class="bright">kit</span>
+──────────────────────────────────────────────────────────────────
+
+          ┌ <span class="bright">OpenAI Codex</span> ──────────────────────────────────┐
+          │ 1  Visit   <span class="accent">auth.openai.com/codex/device</span>        │
+          │ 2  Enter                                       │
+          │                                                │
+          │                 <span class="bright">FJKP-QRSA</span>                      │
+          │                                                │
+          │ <span class="accent">⠹</span> Waiting for approval — expires in 12:41      │
+          ├────────────────────────────────────────────────┤
+          │ o open browser · c copy code · esc cancel      │
+          └────────────────────────────────────────────────┘
+
+
+
+──────────────────────────────────────────────────────────────────
+                                <span class="dim">~/Developer/agent/kit-v2 · kit-v2</span></div></div></article></div><div class="notes"><div class="note"><b>Exact code</b><p>Visual emphasis never inserts characters that break copy/paste.</p></div><div class="note"><b>Countdown</b><p>Shown because expiry changes the user's next action.</p></div><div class="note"><b>Cancellation</b><p>Escape cancels the poll context and returns to providers.</p></div><div class="note"><b>Fallback</b><p>The URL stays visible for SSH and terminals without browser launch.</p></div></div></section>
+
+<section class="stage" id="ready"><div class="stage-intro"><h2>Credential saved → ready</h2><p>Success is confirmed once, then chrome returns to a calm idle state. Focus moves directly into the composer.</p></div><div class="variants">
+<article class="variant"><div class="variant-head"><strong>Rejected · framed canvas</strong><span>success toast is transient</span></div><div class="terminal-area"><div class="terminal-window frame">┌───────────────────────────────────────────────────────────────────────┐
+│ Unnamed session                                           GPT-5.6 Sol │
+│───────────────────────────────────────────────────────────────────────│
+│ <span class="good">✓ Connected to OpenAI Codex — using GPT-5.6 Sol</span>                       │
+│                                                                       │
+│                             <span class="bright">k i t</span>                                     │
+│                          <span class="accent">━━━━━━━━━━━</span>                                  │
+│                  Ask a question or give a task.                       │
+│                                                                       │
+│                     <span class="dim">ctrl+p to open the palette</span>                        │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│                                                                       │
+│───────────────────────────────────────────────────────────────────────│
+│ <span class="bright">▌</span> Ask kit to do something…                                            │
+│───────────────────────────────────────────────────────────────────────│
+│                                     ~/Developer/agent/kit-v2 · kit-v2 │
+└───────────────────────────────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport-native</strong><span>identity through rhythm + wordmark</span></div><div class="terminal-area"><div class="terminal-window viewport"> <span class="bright">Unnamed session</span>                                      <span class="dim">GPT-5.6 Sol</span>
+──────────────────────────────────────────────────────────────────
+ <span class="good">✓ Connected to OpenAI Codex — using GPT-5.6 Sol</span>
+
+                             <span class="bright">k i t</span>
+                          <span class="accent">━━━━━━━━━━━</span>
+                  Ask a question or give a task.
+
+                     <span class="dim">ctrl+p to open the palette</span>
+
+
+
+
+
+
+──────────────────────────────────────────────────────────────────
+ <span class="bright">▌</span> Ask kit to do something…
+──────────────────────────────────────────────────────────────────
+                                <span class="dim">~/Developer/agent/kit-v2 · kit-v2</span></div></div></article></div><div class="notes"><div class="note"><b>Focus</b><p>The composer owns focus and exposes a visible cursor immediately.</p></div><div class="note"><b>Idle</b><p>No elapsed timer; an empty session omits context rather than showing 0%.</p></div><div class="note"><b>Degraded</b><p>No-model success stays as a persistent gate warning, not a toast.</p></div><div class="note"><b>Shell roles</b><p>Model stays top-right; cwd and Git stay bottom-right.</p></div></div></section>
+
+<section class="stage" id="narrow"><div class="stage-intro"><h2>Narrow gate and ready states</h2><p>The selected viewport-native shell preserves the content hierarchy at 46 columns. Framed examples remain for comparison only. The composer receives focus only after readiness.</p></div><div class="variants">
+<article class="variant"><div class="variant-head"><strong>Rejected · framed · gate</strong><span>46-column target</span></div><div class="terminal-area compact"><div class="terminal-window frame narrow">┌────────────────────────────────────────────┐
+│ kit                                        │
+│────────────────────────────────────────────│
+│                                            │
+│                  <span class="bright">k i t</span>                     │
+│               <span class="accent">━━━━━━━━━━━</span>                  │
+│    Connect an AI provider to get started.  │
+│                                            │
+│          <span class="bright">↵ connect a provider</span>              │
+│                                            │
+│                                            │
+│────────────────────────────────────────────│
+│ ↵ connect · ctrl+c quit  …/kit-v2 · kit-v2 │
+└────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport · gate</strong><span>46-column target</span></div><div class="terminal-area compact"><div class="terminal-window viewport narrow"> <span class="bright">kit</span>
+──────────────────────────────────────────────
+
+                  <span class="bright">k i t</span>
+               <span class="accent">━━━━━━━━━━━</span>
+    Connect an AI provider to get started.
+
+          <span class="bright">↵ connect a provider</span>
+
+
+──────────────────────────────────────────────
+ ↵ connect · ctrl+c quit    <span class="dim">…/kit-v2 · kit-v2</span></div></div></article>
+<article class="variant"><div class="variant-head"><strong>Rejected · framed · ready</strong><span>composer focused</span></div><div class="terminal-area compact"><div class="terminal-window frame narrow">┌────────────────────────────────────────────┐
+│ Unnamed session                GPT-5.6 Sol │
+│────────────────────────────────────────────│
+│ <span class="good">✓ Connected to OpenAI Codex</span>                │
+│                                            │
+│                  <span class="bright">k i t</span>                     │
+│               <span class="accent">━━━━━━━━━━━</span>                  │
+│     Ask a question or give a task.         │
+│                                            │
+│        <span class="dim">ctrl+p to open the palette</span>          │
+│────────────────────────────────────────────│
+│ <span class="bright">▌</span> Ask kit to do something…                 │
+│────────────────────────────────────────────│
+│                          <span class="dim">…/kit-v2 · kit-v2</span> │
+└────────────────────────────────────────────┘</div></div></article>
+<article class="variant"><div class="variant-head"><strong>Selected · viewport · ready</strong><span>composer focused</span></div><div class="terminal-area compact"><div class="terminal-window viewport narrow"> <span class="bright">Unnamed session</span>                  <span class="dim">GPT-5.6 Sol</span>
+──────────────────────────────────────────────
+ <span class="good">✓ Connected to OpenAI Codex</span>
+
+                  <span class="bright">k i t</span>
+               <span class="accent">━━━━━━━━━━━</span>
+     Ask a question or give a task.
+
+        <span class="dim">ctrl+p to open the palette</span>
+──────────────────────────────────────────────
+ <span class="bright">▌</span> Ask kit to do something…
+──────────────────────────────────────────────
+                            <span class="dim">…/kit-v2 · kit-v2</span></div></div></article>
+</div></section>
+
+<section class="flow"><article class="panel"><h2>State contract</h2><div class="flowline">PROBING
+  ├─ credential + model ───────────────► READY
+  ├─ no usable credential ─────────────► GATE
+  └─ daemon failure ───────────────────► RETRY / DIAGNOSTICS
+
+GATE ── enter ──► PROVIDER
+  ├─ device OAuth ─► WAIT ──────────┐
+  ├─ browser OAuth ─► CALLBACK ─────┼─► GUARDED SAVE ─► READY
+  └─ API key ───────► VALIDATE ─────┘
+
+WAIT
+  ├─ esc ─► cancel poll ─► PROVIDER
+  └─ expiry / denial ─────► PROVIDER + reason
+
+GUARDED SAVE
+  ├─ concurrent auth change ─► PROVIDER + retry
+  └─ saved, no model ─────────► DEGRADED GATE
+
+DEGRADED GATE
+  └─ connect another / re-check / quit</div></article><article class="panel"><h2>Candidate copy</h2><dl class="copy-list"><dt>Gate</dt><dd>Connect an AI provider to get started.</dd><dt>Wait</dt><dd>Waiting for approval — expires in {m:ss}</dd><dt>Expired</dt><dd>The code expired before approval. Choose a provider to get a new one.</dd><dt>Conflict</dt><dd>Sign-in changed in another Kit process. Choose a provider to retry.</dd><dt>Success</dt><dd>Connected to {provider} — using {model}</dd></dl></article></section>
+<footer>Exploration, not canonical guidance. Detailed state/copy/focus spec: docs/design/v2-auth-flow.md. Implementation progress remains in backlog/core.md and backlog/tui.md.</footer>
+</main>
+<script>
+const buttons=[...document.querySelectorAll('[data-target]')],stages=[...document.querySelectorAll('.stage')];
+for(const button of buttons)button.addEventListener('click',()=>{for(const item of buttons)item.setAttribute('aria-selected',String(item===button));for(const stage of stages)stage.classList.toggle('active',stage.id===button.dataset.target)});
+</script>
+</body>
+</html>

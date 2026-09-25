@@ -1,11 +1,60 @@
-# Terminal turn status
+# Terminal status
 
-Kit signals agent-turn state at three terminal integration layers:
+Kit reflects the attached session's state in terminal chrome without consuming
+space inside the TUI. The title keeps the session context used by the production
+client while using compact monochrome markers instead of emoji:
 
-1. **Running title** — while a turn is active, the normal session title is prefixed with `⏳`. This keeps the state visible in terminal tab chrome.
-2. **Surface progress** — in Ghostty, Kit emits the OSC 9;4 indeterminate progress report while a turn runs and removes it when the turn completes. Ghostty renders this as an animated bar at the top of the terminal surface.
-3. **Completion attention** — the notifications feature continues to emit BEL and a terminal-mediated notification when a turn completes. With Ghostty's default bell features, an unfocused surface gains a persistent `🔔` title marker and requests application attention until the user returns.
+```text
+idle       kit - <session name> - <cwd basename>
+running    ⠋ kit - <session name> - <cwd basename>
+feedback   ? kit - <session name> - <cwd basename>
+```
 
-The running signals are driven directly by the runtime rather than a reloadable plugin so cwd-driven plugin reloads cannot leave them stale. Disposal always restores the idle title and removes terminal progress.
+An unnamed session omits the session-name segment. Status markers remain at the
+start so narrow terminal tabs preserve the most important state. While running,
+the leading marker cycles through `⠋ ⠹ ⠼ ⠦ ⠇` every 160 ms. Entering or
+resuming running starts from the first frame; feedback stays static so motion
+always means active work.
 
-OSC 9;4 output is currently gated to terminals identified as Ghostty through `TERM_PROGRAM` or `TERM`, and is disabled inside tmux or screen until explicit passthrough wrapping is supported. The title and completion signals remain terminal-independent.
+## State and precedence
+
+The terminal state follows the attached session rather than daemon-global or
+subagent work:
+
+1. **Feedback** has highest precedence. It means the active parent agent turn
+   is blocked on a user response. Agent interaction tools must use this state
+   when those surfaces are implemented. Authentication and ordinary application
+   dialogs do not trigger it.
+2. **Running** means the attached session has an active parent turn, including a
+   turn restored after reconnecting.
+3. **Idle** is used otherwise.
+
+Resolving feedback returns the title to running when the parent turn continues,
+or to idle when no turn remains. Session rename, switching, and cwd changes
+update the contextual title without losing the current state. Delayed events
+from detached sessions cannot update the attached title because title state is
+projected only from the active TUI state.
+
+## Ghostty surface progress
+
+On Ghostty, Kit also emits OSC 9;4 surface progress:
+
+- running uses indeterminate progress;
+- feedback pauses progress; and
+- idle removes progress.
+
+Raw OSC 9;4 output is disabled inside tmux and screen until explicit passthrough
+wrapping is supported. Terminal titles remain available there, with animation
+slowed to one frame per second to reduce multiplexer status-line redraws.
+
+## Attention and cleanup
+
+A completed turn emits BEL and a terminal-mediated notification. This remains
+separate from the title state, allowing terminals such as Ghostty to retain
+their own unfocused-attention marker.
+
+Live title changes use the vaxis terminal backend. Progress, BEL, and final
+cleanup sequences use `/dev/tty` when available, with a TTY stderr fallback.
+Control and Unicode formatting characters are removed from title content.
+Repeated states are coalesced, and TUI shutdown always restores the idle title
+and removes surface progress.

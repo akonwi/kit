@@ -1,0 +1,446 @@
+# 0001: Native Go application architecture
+
+## Status
+
+Accepted
+
+## Context
+
+Kit is being rebuilt from the ground up as a fast, native coding-agent CLI. It
+must retain the current terminal and semantic web workflows, support local and
+remote sessions, continue work after clients disconnect, and allow custom
+plugins written in any technology without allowing a plugin failure to crash
+Kit.
+
+The previous implementation combined a Bun/OpenTUI application, a TypeScript
+agent runtime, browser clients, persistence, and process-hosted plugins. Its
+accepted server/client direction remains useful, but the rewrite is not bound to
+its implementation or ADR history. Historical decisions remain available at
+Git commit `5c6e112` and on the branches that contain the previous
+implementation.
+
+The rewrite has these hard constraints:
+
+- users install one Go executable and do not need Bun or Node;
+- the agent core is the Kit-private `internal/droids` package, initially seeded
+  from `github.com/akonwi/droids`;
+- subagents are concurrent supervised executions, not blocking nested tool
+  calls;
+- Kit retains a native TUI and semantic browser client, but drops `web-tui`;
+- custom plugins are isolated child processes using a language-neutral RPC
+  protocol;
+- the system is always single-user, including remote deployments;
+- the rewrite is releasable only after the initial production-replacement scope
+  in the backlog is complete.
+
+## Decision
+
+### Product and distribution
+
+Kit ships as one Go executable for macOS and Linux, installed through Homebrew
+or manual release binaries. npm is not a distribution channel. Windows is not a
+supported target. The target executable contains the CLI, local daemon, remote server,
+session runtime, plugin supervisor, native TUI, and embedded web assets. The initial
+production release may omit Post-R1 remote, plugin, and web capabilities without
+changing their eventual ownership or process boundaries.
+
+The browser client may use TypeScript, Solid, Mica, and Bun at build time. Its
+compiled static assets are embedded into the Go executable. No JavaScript
+runtime is required on the user's machine.
+
+Custom plugin executables and tool processes are intentionally separate from
+Kit and are not part of the one-executable distribution guarantee.
+
+### System shape
+
+```text
+                       one Kit executable
+
+  native TUI ───────┐
+  print/RPC client ─┼── session protocol ── Kit server
+  semantic web UI ──┤                         ├── session supervisors
+  remote TUI ───────┘                         │    ├── parent droids runtime
+                                              │    ├── subagent supervisor
+                                              │    └── plugin supervisors
+                                              ├── SQLite store
+                                              └── user-editable files
+```
+
+The server is authoritative. Clients render state and submit intent; they do
+not own agent runtimes, read server-side session files directly, or infer
+shared state from local UI state.
+
+Go packages keep renderer, protocol, orchestration, and persistence concerns
+separate. The intended dependency direction is:
+
+```text
+CLI composition root
+  -> daemon/server
+      -> session orchestration
+          -> Kit-local droids core
+          -> subagents
+          -> plugin host
+          -> persistence ports
+  -> client contracts
+      -> native TUI / print / RPC
+
+semantic web client
+  -> versioned wire protocol only
+```
+
+Types belong to the layer that defines their meaning. Droids messages, stored
+records, wire records, client snapshots, and renderer models are projected
+explicitly rather than shared as one universal domain type.
+
+### Executable roles and local daemon
+
+The executable dispatches into several process roles:
+
+```text
+kit                  local client bootstrap + native TUI
+kit -p               print client
+kit --rpc             stdio protocol bridge/client
+kit web               embedded browser client gateway
+kit attach <server>   native TUI attached to a remote server
+kit serve             explicitly exposed remote server
+kit server ...        local daemon lifecycle commands
+kit __server          internal detached daemon role
+```
+
+A normal local invocation discovers or starts one persistent daemon for the
+current user. Starting the daemon means executing the same binary in the
+internal `__server` role; it does not require a separately installed `kitd`.
+Before detaching, the launcher atomically stages a private copy under the run
+directory so development launchers such as `go run` cannot unlink the daemon's
+executable while it is still serving. The daemon owns SQLite, running sessions,
+droids instances, subagents, and plugin processes.
+
+The local daemon:
+
+- binds only to loopback on an ephemeral port;
+- requires a cryptographically random credential even on loopback;
+- publishes atomic process metadata beneath the Kit run directory;
+- is started under an inter-process startup lock;
+- remains alive after clients detach;
+- distinguishes client detach, turn abort, ephemeral-session disposal, and
+  server shutdown;
+- exposes explicit status, start, stop, and restart operations.
+
+Closing a TUI or browser connection never implicitly aborts active agent or
+subagent work.
+
+### Server and session clients
+
+Server-scoped operations and session-scoped operations are separate. A server
+client discovers, creates, and attaches to sessions. A session client binds to
+exactly one session for its lifetime.
+
+```text
+server scope
+  health, capabilities, list sessions, create session, attach session
+
+session scope
+  synchronize, prompt, steer, follow up, abort, transcript, model,
+  interactions, attachments, commands, feature operations, events
+```
+
+A session connection cannot switch its authoritative binding. Switching a UI
+to another session means opening another session client and replacing or adding
+a renderer view.
+
+A client receives a run handle only after its generation is durably reserved.
+Explicit abort names that run generation, so delayed cancellation can neither
+be lost before admission nor cancel a successor run. Stopping a wait on the
+handle remains a detach operation and does not itself abort execution.
+
+Local and remote clients use the same canonical, wire-safe protocol semantics.
+The native local TUI connects through authenticated loopback rather than using
+a privileged direct-runtime path. A transport atomically establishes an event
+subscription and returns a snapshot plus high-water cursor. Ordered events use
+monotonic session stream sequences, with bounded replay and snapshot fallback.
+Command responses are correlated and connection-scoped.
+
+Multiple clients may attach to the same session. Multiple top-level sessions
+may execute concurrently. Each session serializes its own parent-run commands,
+while other sessions, tool batches, and bounded subagents can run in parallel.
+There is no process-global active session or cwd.
+
+### Agent runtime
+
+Kit composes its agent loop through the private `internal/droids` package,
+seeded from the standalone droids repository and allowed to evolve with the
+rewrite. Droids provider, message, stream, tool, and event types remain behind
+Kit's runtime boundary. The server projects droids events into Kit-owned session
+events and persists Kit-owned records. See
+[ADR 0002](./0002-internalize-agent-core.md) for provenance and synchronization
+policy.
+
+Each top-level session has at most one active parent run. Existing steering,
+follow-up, queue, abort, retry, tool, and compaction behavior is rebuilt around
+that invariant. Context cancellation is threaded through provider calls, tools,
+subagents, plugins, and shutdown.
+
+Global and per-session limits bound provider calls, tools, and subagents. These
+limits protect a persistent daemon from one session exhausting all resources.
+
+### Concurrent subagents
+
+A subagent is a supervised child execution with its own droids instance,
+context, transcript, status, and event stream. It runs in a goroutine and does
+not hold a parent tool call open for its lifetime.
+
+The model addresses one durable child session per configured agent name and
+never receives task or conversation storage identities. Starting or messaging
+an idle child admits durable work promptly. Messaging a running child uses the
+same droids steering path as the main session, adding input to the current turn
+at its next safe model boundary. Waiting is agent-scoped and completes when the
+child has no active or queued work. Internal task identities remain authoritative
+for scheduling, recovery, cancellation races, and idempotent result delivery.
+
+Subagent state and completion are durable. Completion is placed in the parent
+session's mailbox and surfaced immediately to attached clients. It is injected
+into an active parent only at a safe boundary between model turns. If the parent
+is idle or unloaded, the session manager starts an autonomous context-only
+reaction turn so the model can decide how to proceed. Mailbox delivery and
+reaction admission are idempotent, pending owners are reconciled after startup,
+and global concurrency plus per-session chain limits bound autonomous reactions.
+
+Client disconnects do not affect subagents. After a daemon crash, in-flight
+work is recorded as interrupted; Kit does not claim that an arbitrary provider
+stream or side-effecting tool resumed exactly. Explicit retry or reconstruction
+may be offered where safe.
+
+### Persistence and migration
+
+SQLite is authoritative for runtime-owned durable data, including:
+
+- sessions and turns;
+- messages and content projections;
+- parent runs and subagent executions;
+- durable parent mailboxes;
+- stream identities, ordered event records, and high-water cursors;
+- schema migration history.
+
+SQLite uses transactional schema migrations and foreign-key enforcement. A
+bounded append-only event journal supports reconnect and diagnostics, but Kit
+is not implemented as a system where every state table must be rebuilt from an
+event log.
+
+On daemon startup, subagent tasks left `running` by a previous process are
+marked `interrupted` transactionally. Tasks that never left `queued` remain
+queued and become schedulable only after recovery commits; they have not crossed
+a provider or tool side-effect boundary. Messages from failed, aborted,
+interrupted, or otherwise incomplete parent turns remain available for diagnostics and UI
+history, but only completed turns are rehydrated into a new droids model
+transcript. A non-completed live runtime is discarded so its in-memory context
+cannot diverge from that replay rule.
+
+Provider credentials remain in a separate private, machine-managed auth file
+with locked atomic writes and generation-checked OAuth rotation; see
+[ADR 0003](./0003-provider-credential-storage.md).
+
+Human-editable configuration remains file-based:
+
+- settings;
+- themes;
+- prompts;
+- skills;
+- plugin manifests;
+- MCP configuration and other deliberate user-owned surfaces.
+
+All paths default to `~/.kit`. `KIT_HOME` overrides the root for isolated
+development and custom installations. Tests use temporary homes and must never
+read or mutate the developer's real Kit state.
+
+The production release defaults to `~/.kit` and reuses compatible user-owned
+configuration in place. A short migration guide and built-in skill explain actual
+configuration differences and assist with user-directed adjustments. There is no
+migration command, automatic configuration conversion, compatibility scanner,
+or migration-marker startup gate. Users reauthenticate providers and MCP servers
+through the supported login UX; credential import is not required. Existing auth
+files must not prevent reauthentication or require manual deletion.
+
+Native Kit starts with fresh sessions and runtime data. Legacy sessions, turns,
+attachments, scratchpads, subagent records, and runtime metadata are not imported
+or resumed. Legacy runtime data remains untouched and isolated from native
+storage; runtime-data import is excluded rather than deferred. Release
+verification covers configuration reuse, reauthentication, and legacy-data
+isolation without a user-run migration operation.
+
+### Native TUI
+
+The terminal client is rebuilt in Go with `go.rockorager.dev/vaxis/ui`. It
+preserves Kit's visual language and workflows rather than mechanically
+translating TypeScript components.
+
+The TUI consumes only session-client and platform contracts. Focus, overlays,
+composer drafts, workspace tabs, scroll positions, terminal dimensions, theme,
+and keybindings remain renderer-owned state. Runtime updates from goroutines
+enter the vaxis event loop through its dispatch mechanism.
+
+The TUI must not import SQLite implementations, droids runtime types, concrete
+server internals, or plugin process implementations.
+
+### Semantic web client
+
+The semantic browser client retains Solid and Mica. Transport, protocol
+reduction, and service layers remain independent of Solid where practical. The
+Go build embeds the compiled HTML, JavaScript, and CSS and serves them from the
+same authenticated server as the HTTP request and SSE APIs.
+
+Remote and persisted content is rendered as untrusted text unless it crosses an
+explicit sanitization boundary. Production assets are same-origin and require
+no CDN. The browser remains semantic and accessible; terminal-byte `web-tui` is
+removed.
+
+### Custom plugins
+
+Built-in features are compiled Go packages using internal interfaces. Only
+custom user and project plugins use the public subprocess boundary.
+
+External plugin protocol v1 remains the initial compatibility contract:
+JSON-RPC 2.0 over newline-delimited stdio, a language-neutral manifest, schemas
+as normative wire artifacts, stderr for diagnostics, and no shell wrapping of
+launch commands.
+
+Each loaded session runtime owns its plugin process instances. Process identity
+is effectively `(session ID, plugin ID)`, including user-installed plugins.
+Plugin instance state and contributions are session-local, not application-wide.
+Client session switches do not retarget plugin instances. The initial protocol
+keeps a single-session context; application-wide instances and daemon-wide
+multiplexing are deferred.
+
+Plugin processes continue running while their session runtime remains loaded,
+even when no clients are attached and the session is idle. Client detachment
+is not plugin shutdown. This preserves tools, policies, and background plugin
+work independently of client lifetime; it does not guarantee persistence of
+plugin memory across runtime disposal, process restart, or daemon restart.
+
+On a session cwd change, its user-plugin processes remain alive and receive a
+project-change event. Kit removes the old project plugins' contributions and
+shuts down those processes, then discovers and initializes project plugins for
+the new cwd. Other sessions' plugin instances are unaffected. Automatic loading,
+nonblocking startup, headless behavior, and client routing are specified in
+[ADR 0026](0026-scope-plugin-processes-and-route-plugin-ui.md).
+
+Plugin resilience initially means isolation and graceful degradation:
+
+- invalid output, initialization failure, timeout, or process exit cannot crash
+  Kit;
+- owned contributions are removed atomically;
+- active requests fail with typed errors;
+- bounded diagnostics and exit information are retained;
+- restart/reload is explicit.
+
+Automatic restart policy is outside this decision and is not a committed
+capability. The process boundary is a reliability and API boundary, not a
+security sandbox. Plugins run as the same OS user and must
+be treated as trusted code.
+
+### Single-user remote access
+
+Kit is always single-user. It will not add accounts, organizations, tenant
+routing, or a cloud control plane.
+
+The private daemon listener remains loopback-only. Explicit remote serving uses
+a separate listener and token authentication. CLI clients use bearer
+credentials; a browser may exchange a token for a secure HTTP-only cookie.
+Non-loopback deployments require TLS from a trusted tunnel or reverse proxy
+unless the user makes an explicit insecure development choice. Host and Origin
+validation remain active.
+
+### Delivery and backlog
+
+Development proceeds through end-to-end slices that prove risky boundaries
+without making every target client or integration an initial-release dependency.
+The first production release is a local, terminal-first replacement with in-place
+configuration reuse and fresh native sessions; later milestones add the semantic web client, remote attach, and
+external plugins.
+
+The release gate is the R1 scope in the backlog, not complete behavioral parity
+with a historical baseline. Relevant changes made on production `main` during
+the rewrite are triaged explicitly as R1, Post-R1, or superseded work.
+
+Recorded replacement decisions include:
+
+- remove `web-tui`;
+- replace OpenTUI with vaxis/ui;
+- replace the TypeScript/Pi agent core with the Kit-local Go/droids core;
+- use SQLite for fresh native runtime storage without importing legacy history;
+- run subagents concurrently under the runtime;
+- preserve custom plugins only through the subprocess protocol.
+
+## Initial repository direction
+
+The exact package set should grow with real consumers, but the intended shape is:
+
+```text
+cmd/kit/                 executable composition root
+internal/apphome/        paths and filesystem ownership
+internal/server/         discovery, lifecycle, authoritative server and session directory
+internal/session/        parent runtime orchestration
+internal/subagent/       supervised child execution
+internal/plugin/         manifests, RPC, process supervision
+internal/storage/        SQLite and migrations
+internal/protocol/       canonical Go wire records and validation
+internal/client/         shared Go server/session clients
+internal/tui/            vaxis presentation
+web/                     Solid/Mica browser source
+docs/adrs/               current architecture decisions
+docs/plugin-protocol/    public plugin wire contract
+```
+
+Packages are introduced to enforce ownership or dependency boundaries, not just
+to hold shared types.
+
+## Consequences
+
+### Positive
+
+- Users on macOS and Linux install one native executable.
+- Agent and subagent work survives client detachment.
+- Local use continuously exercises the same semantics required for remote use.
+- Multiple sessions and subagents can make bounded progress concurrently.
+- Plugin crashes are isolated and plugins remain language-neutral.
+- SQLite provides transactional migrations and concurrency suitable for a
+  persistent daemon.
+- TUI and web clients cannot accidentally depend on server-local state.
+
+### Trade-offs
+
+- Rebuilding the OpenTUI client in vaxis/ui is substantial product work.
+- The daemon adds process discovery, authentication, upgrade, logging, and
+  lifecycle responsibilities.
+- Runtime, storage, protocol, and client projections intentionally duplicate
+  some shapes.
+- Per-session plugin processes can duplicate resource use.
+- Browser development still needs Bun even though users do not.
+- Legacy history cannot be opened or continued in native Kit; users retain the
+  old data separately while starting fresh native sessions.
+- Internalizing droids increases Kit's source and test surface; the ownership
+  decision is tracked by `CORE-DROIDS-001` in the
+  [core backlog](../../backlog/core.md).
+
+## Scope boundaries
+
+The architecture does not commit Kit to the following capabilities unless they
+are added to the backlog:
+
+- daemon-wide multiplexed external plugins;
+- automatic plugin restart policies;
+- accounts or multi-user hosting;
+- a Kit-managed TLS certificate authority or public cloud control plane;
+- exact resumption of interrupted provider streams or side-effecting tools;
+- multiplexing several session bindings over one live event connection;
+- native session tabs beyond the initial backlog scope;
+- idle session and daemon eviction policy, tracked by `CORE-LIFE-007` in the
+  [core backlog](../../backlog/core.md).
+
+## Related
+
+- [`../../backlog/README.md`](../../backlog/README.md)
+- [0002: Internalize the droids agent core](./0002-internalize-agent-core.md)
+- [0003: Provider credential storage](./0003-provider-credential-storage.md)
+- Historical implementation and ADRs at Git commit `5c6e112`
+- External plugin v1 specification at
+  [`../../apps/web/docs/plugin-protocol/v1.md`](../../apps/web/docs/plugin-protocol/v1.md)

@@ -5,9 +5,9 @@
     "": {
       "name": "kit-workspace",
     },
-    "app": {
+    "apps/web": {
       "name": "@akonwi/kit",
-      "version": "0.34.0",
+      "version": "0.35.1",
       "bin": {
         "kit": "dist/kit",
       },
@@ -51,9 +51,6 @@
         "typescript": "^5.9.0",
       },
     },
-    "packages/host": {
-      "name": "@akonwi/kit-host",
-    },
     "packages/protocol": {
       "name": "@akonwi/kit-protocol",
       "devDependencies": {
@@ -71,9 +68,7 @@
     },
   },
   "packages": {
-    "@akonwi/kit": ["@akonwi/kit@workspace:app"],
-
-    "@akonwi/kit-host": ["@akonwi/kit-host@workspace:packages/host"],
+    "@akonwi/kit": ["@akonwi/kit@workspace:apps/web"],
 
     "@akonwi/kit-protocol": ["@akonwi/kit-protocol@workspace:packages/protocol"],
 

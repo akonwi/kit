@@ -1,11 +1,11 @@
 ---
 name: commit
-description: Review staged/uncommitted changes, validate them, and create a git commit following Conventional Commits format
+description: Assess staged/uncommitted changes, validate them, and create a git commit following Conventional Commits format
 ---
 
 # Commit Skill
 
-Review the current git changes and prepare a commit following the project's standards.
+Assess the current git changes and prepare a commit following the project's standards.
 
 ## When to Activate
 
@@ -25,17 +25,14 @@ Provide a clear summary of the changes in the working tree.
 
 ### 3. Update Backlog if Needed
 
-If the changes complete or substantially address an item from `backlog/backlog.md`, update that backlog file before committing.
+If the changes complete or substantially address an item from `backlog/README.md`, update that backlog file before committing.
 
 ### 4. Run Validation Checks
 
-Run the required checks for this repo:
-
-- `bun run typecheck` — zero TypeScript errors required
-- `bun run check` — auto-fix formatting and safe lint fixes
-- Address remaining Biome warnings (fix or suppress with `// biome-ignore <rule>: <reason>`)
-- Re-run `bun run typecheck` after Biome changes to confirm nothing broke
-- For print mode/headless changes: `bun run smoke:print-mode` from repo root
+- Read the repository guidance and run every validation required for the changed areas
+- Prefer targeted checks while iterating, then run the full required checks before committing
+- Verify formatting, static analysis, builds, and tests according to the project's documented commands
+- Run `git diff --check` before staging the final commit
 
 ### 5. Fix Issues
 
@@ -56,5 +53,5 @@ Commit the changes with the prepared message.
 
 ## References
 
-- Pre-commit checklist: `AGENTS.md` Pre-commit checklist section
+- Validation requirements: `AGENTS.md` Validation section
 - Commit conventions: `AGENTS.md` Commit conventions section

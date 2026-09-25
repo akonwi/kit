@@ -1,85 +1,92 @@
-# kit
+# Kit
 
-Kit is a TUI coding agent heavily inspired by [Pi](https://pi.dev) and built on top of [`pi-agent-core`](https://github.com/earendil-works/pi-mono/tree/main/packages/agent) with [OpenTUI](https://opentui.com/).
+Kit is a native coding agent for macOS and Linux with a terminal UI, headless
+commands, durable sessions, concurrent subagents, and language-neutral process
+plugins. Windows is not supported.
 
-[akonwi.io/kit](https://akonwi.io/kit)
+Kit is implemented in Go. Its architecture is recorded in
+[`docs/adrs/0001-native-go-architecture.md`](docs/adrs/0001-native-go-architecture.md),
+and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 
-## Requirements
+## Architecture
 
-- [Bun](https://bun.sh) `>= 1.3.0`
+- one Go executable for the CLI, daemon/server, agent orchestration, and TUI
+- a Kit-private [`internal/droids`](./internal/droids) agent core, seeded from
+  [`github.com/akonwi/droids`](https://github.com/akonwi/droids)
+- `vaxis/ui` for the native terminal client
+- SQLite for authoritative session/runtime state
+- JSON-RPC child processes for custom plugins written in any language
 
-## Install
+Kit stores data under `~/.kit` by default. Set `KIT_HOME` to an explicit
+isolated location when developing or testing.
 
-From npm:
+## CLI
 
-```bash
-bun install --global @akonwi/kit
+```sh
+# Start the native TUI, resuming this directory's latest usable session:
+kit
+
+# Choose an exact session, force a new saved session, or work temporarily:
+kit --session <long-or-short-id>
+kit new --name "Focused work"
+kit --temp
+kit sessions
+
+# Run one headless turn. Piped stdin is prepended to the prompt:
+kit print "Continue the latest session for this directory"
+kit print --model openai/gpt-4o-mini "Say hello"
+cat changes.diff | kit print --temp "Review this diff"
+
+# Inspect the complete command tree and operate the local daemon:
+kit --help
+kit server status
+kit server restart
+
+# Persist OpenAI Codex OAuth credentials with a headless device flow:
+kit auth login openai-codex
+kit auth status
+kit auth logout openai-codex
 ```
 
-From a checkout:
+A normal `kit` invocation starts the viewport-native vaxis TUI. It
+starts or discovers the daemon, offers OpenAI, Anthropic, and OpenCode Go API-key
+login plus OpenAI Codex and Claude Pro/Max subscription login when credentials are
+missing, resumes the latest usable session
+for the selected working directory, and restores its persisted transcript snapshot. `kit sessions` opens a bounded
+primary-screen session manager before transitioning to the normal TUI for an
+opened session. `--temp` uses an in-memory session that is disposed when its
+foreground command exits. Claude subscription login uses a localhost callback;
+if that callback cannot complete, the login dialog accepts the final redirect
+URL or authorization code.
 
-```bash
-bun install
-bun run build
-(cd app && bun link)
-```
-
-The packaged CLI uses the compiled binary as its non-development entry point.
-
-## Usage
-
-```bash
-kit                  # resumes the most recent session for the current directory or starts a new one
-kit --no-session     # runs the interactive TUI with in-memory session state
-kit -p "review this" # runs without the TUI and resumes the current directory's latest session
-kit -p --no-session "review this" # runs in memory without persisting a session
-kit -p --model openai/gpt-5.5 "review this" # selects an exact provider/model
-kit -p --session abc123 "continue this" # continues and persists a specific session
-kit --rpc            # runs as a headless JSONL subprocess
-kit --rpc --no-session # runs the RPC conversation in memory
-kit --web            # serves the current directory's latest session in the semantic browser UI
-kit --web --no-session # serves an in-memory browser session
-kit --web-tui        # serves the real interactive TUI in a desktop browser (experimental)
-kit --web-tui --model openai/gpt-5.5 # starts the browser TUI with an exact provider/model
-kit -s abc123        # opens a specific session by ID (long or short id)
-kit threads          # launches a session picker
-```
-
-## What Kit includes
-
-- terminal-first coding agent workflow
-- session restore and persistence
-- slash commands, prompt commands, and skills
-- settings UI and app-owned settings
-- code review tools and diff browser
-
-For feature details, including the [RPC mode protocol](docs/features/rpc-mode.md),
-see [`docs/features/`](docs/features/).
+Print mode creates and resumes droids sessions through the local session-client
+boundary, writes only final assistant prose to stdout, and keeps diagnostics on
+stderr. Codex can derive account and expiry metadata from
+its access token; `OPENAI_CODEX_ACCOUNT_ID`, `OPENAI_CODEX_ID_TOKEN`,
+`OPENAI_CODEX_FEDRAMP`, and Unix-millisecond `OPENAI_CODEX_EXPIRES_AT` are
+available when explicit metadata is needed. `ANTHROPIC_OAUTH_TOKEN` supplies a
+managed Claude subscription access token. `OPENCODE_API_KEY` enables the
+`opencode-go/*` model catalog through `https://opencode.ai/zen/go/v1`; models are
+routed to Responses, Chat Completions, or Anthropic Messages according to their
+models.dev metadata. Without explicit provider environment credentials, the
+daemon uses the locked, atomic `~/.kit/auth.json` store and
+persists refresh-token rotations. Provider environment is read only at daemon
+startup, takes precedence over the file store, and refreshes only in memory, so
+restart the daemon after changing it. Stored login/logout generations are
+observed without restarting the daemon.
 
 ## Development
 
-Commit messages in this repo should use [Conventional Commits](https://www.conventionalcommits.org/), preferably in the form `type(scope): summary`.
+Kit requires Go 1.26 or newer. The Go CLI and daemon do not require a JavaScript
+runtime.
 
-Run from source:
-
-```bash
-bun run dev
+```sh
+gofmt -l .
+go build ./...
+go vet ./...
+go test ./...
 ```
 
-Build the distributed binary:
-
-```bash
-bun run build
-```
-
-Preview the npm package contents:
-
-```bash
-bun run pack:dry
-```
-
-## More documentation
-
-- feature docs: [`docs/features/`](docs/features/)
-- ADRs: [`docs/adrs/`](docs/adrs/)
-- project guidance: [`AGENTS.md`](AGENTS.md)
+The macOS client lives in [`apps/macos/`](apps/macos/). TypeScript application
+code in `apps/web/` and shared packages in `packages/` use Bun for development.
+The web client is not yet integrated with the Go daemon.

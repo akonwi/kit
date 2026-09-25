@@ -1,0 +1,33 @@
+import type { PickerContext } from "../../state/picker";
+import type { Command } from "./types";
+
+export const nameCommand: Command = {
+	name: "name",
+	argName: "name",
+	description: "Set session display name",
+	sessionBinding: "preserves",
+	execute({ runtime, picker, args }) {
+		const trimmed = args.trim();
+		if (trimmed) {
+			void runtime.setSessionName(trimmed);
+			return;
+		}
+
+		const currentName = runtime.getSession().name ?? "";
+		picker.show({
+			label: "Session name",
+			inputValue: currentName,
+			onSubmit: (value: string, ctx: PickerContext) => {
+				void runtime.setSessionName(value.trim());
+				ctx.dismiss();
+			},
+		});
+	},
+	async executeTransportNeutral({ runtime, args, signal }) {
+		const name = args.trim();
+		if (!name) throw new Error("Session name is required");
+		signal?.throwIfAborted();
+		await runtime.setSessionName(name);
+		signal?.throwIfAborted();
+	},
+};

@@ -4,6 +4,7 @@
 import json
 import platform
 import re
+from collections import deque
 import subprocess
 import sys
 import threading
@@ -17,12 +18,15 @@ class Endpoint:
     def __init__(self):
         self.write_lock = threading.Lock()
         self.state_lock = threading.Lock()
+        self.toggle_lock = threading.Lock()
         self.pending = {}
         self.sequence = 0
         self.stopping = threading.Event()
         self.enabled = False
+        self.state_generation = 0
         self.children = set()
-        self.last_spoken = {}
+        self.spoken_turns = set()
+        self.spoken_turn_order = deque()
 
     def send(self, message):
         data = json.dumps(message, separators=(",", ":"))
@@ -50,35 +54,45 @@ class Endpoint:
     def notify(self, method, params):
         self.send({"jsonrpc": "2.0", "method": method, "params": params})
 
-    def render(self):
+    def render(self, enabled):
         self.request(
-            "kit/header/set",
+            "kit/footer/set",
             {
                 "id": "status",
                 "content": [
                     {"text": "speech ", "style": {"fg": "textMuted"}},
                     {
-                        "text": "on" if self.enabled else "off",
+                        "text": "on" if enabled else "off",
                         "style": {
-                            "fg": "toolText" if self.enabled else "textMuted",
-                            "bold": self.enabled,
+                            "fg": "toolText" if enabled else "textMuted",
+                            "bold": enabled,
                         },
                     },
                 ],
-                "side": "right",
-                "clickable": True,
             },
         )
 
     def toggle(self):
-        self.enabled = not self.enabled
-        if not self.enabled:
-            self.stop_speaking()
-        self.render()
-        return self.enabled
+        with self.toggle_lock:
+            with self.state_lock:
+                self.enabled = not self.enabled
+                self.state_generation += 1
+                enabled = self.enabled
+                children = list(self.children) if not enabled else []
+                if not enabled:
+                    self.children.clear()
+            for child in children:
+                try:
+                    child.terminate()
+                except OSError:
+                    pass
+            self.render(enabled)
+            return enabled
 
     def stop_speaking(self):
         with self.state_lock:
+            self.enabled = False
+            self.state_generation += 1
             children = list(self.children)
             self.children.clear()
         for child in children:
@@ -107,8 +121,19 @@ class Endpoint:
             self.children.discard(child)
 
     def completed(self, params):
-        if not self.enabled or platform.system() != "Darwin":
+        if platform.system() != "Darwin":
             return
+        turn_id = params.get("turn", {}).get("id")
+        if not isinstance(turn_id, str) or not turn_id:
+            return
+        with self.state_lock:
+            if not self.enabled or turn_id in self.spoken_turns:
+                return
+            generation = self.state_generation
+            if len(self.spoken_turn_order) == 1024:
+                self.spoken_turns.discard(self.spoken_turn_order.popleft())
+            self.spoken_turns.add(turn_id)
+            self.spoken_turn_order.append(turn_id)
         text = None
         for message in reversed(params.get("turn", {}).get("messages", [])):
             if message.get("role") != "assistant":
@@ -124,18 +149,21 @@ class Endpoint:
             break
 
         speech = self.shorten(text or "")
-        session_id = params.get("sessionId")
-        if not speech or self.last_spoken.get(session_id) == speech:
+        if not speech:
             return
-        self.last_spoken[session_id] = speech
         try:
             args = ["say"] + (["-v", VOICE] if VOICE else []) + [speech]
-            child = subprocess.Popen(
-                args,
-                stdout=subprocess.DEVNULL,
-                stderr=subprocess.DEVNULL,
-            )
+            # Order the external side effect against disable and shutdown. Once
+            # launch is admitted under this lock, either it remains enabled or
+            # the state transition observes and terminates the registered child.
             with self.state_lock:
+                if not self.enabled or generation != self.state_generation:
+                    return
+                child = subprocess.Popen(
+                    args,
+                    stdout=subprocess.DEVNULL,
+                    stderr=subprocess.DEVNULL,
+                )
                 self.children.add(child)
             threading.Thread(
                 target=self.forget_child,
@@ -143,8 +171,24 @@ class Endpoint:
                 daemon=True,
             ).start()
         except OSError as error:
-            self.last_spoken.pop(session_id, None)
+            with self.state_lock:
+                self.spoken_turns.discard(turn_id)
+                try:
+                    self.spoken_turn_order.remove(turn_id)
+                except ValueError:
+                    pass
             print(f"Could not launch macOS speech: {error}", file=sys.stderr)
+
+    def bootstrap(self):
+        self.render(False)
+        self.request(
+            "kit/commands/register",
+            {
+                "id": "toggle-speech",
+                "description": "Toggle spoken assistant responses",
+                "category": "plugins",
+            },
+        )
 
     def handle(self, message):
         if "method" not in message:
@@ -162,11 +206,13 @@ class Endpoint:
                 self.completed(params)
             return
 
+        bootstrap = False
         try:
             if method == "initialize":
                 if params.get("protocolVersion") != 1:
                     raise ValueError("Unsupported protocol version")
                 result = {"protocolVersion": 1}
+                bootstrap = platform.system() == "Darwin"
             elif method == "shutdown":
                 self.stop_speaking()
                 result = None
@@ -181,23 +227,10 @@ class Endpoint:
                     },
                 )
                 result = None
-            elif method == "kit/header/click" and params.get("id") == "status":
-                self.toggle()
-                result = None
             else:
                 raise KeyError("Method not found")
 
             self.send({"jsonrpc": "2.0", "id": message["id"], "result": result})
-            if method == "initialize" and platform.system() == "Darwin":
-                self.request(
-                    "kit/commands/register",
-                    {
-                        "id": "toggle-speech",
-                        "description": "Toggle spoken assistant responses",
-                        "category": "plugins",
-                    },
-                )
-                self.render()
         except KeyError as error:
             self.send(
                 {
@@ -206,6 +239,7 @@ class Endpoint:
                     "error": {"code": -32601, "message": str(error)},
                 }
             )
+            return
         except Exception as error:
             print(error, file=sys.stderr)
             self.send(
@@ -215,6 +249,15 @@ class Endpoint:
                     "error": {"code": -32000, "message": str(error)},
                 }
             )
+            return
+
+        if bootstrap:
+            try:
+                self.bootstrap()
+            except Exception as error:
+                # The initialize request is already settled. Report bootstrap
+                # failure only on stderr; a second response would violate JSON-RPC.
+                print(f"Could not register speech contributions: {error}", file=sys.stderr)
 
     def run(self):
         for line in sys.stdin:

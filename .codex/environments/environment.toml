@@ -1,0 +1,10 @@
+version = 1
+name = "Kit for macOS"
+
+[setup]
+script = ""
+
+[[actions]]
+name = "Run"
+icon = "run"
+command = "./apps/macos/script/build_and_run.sh"

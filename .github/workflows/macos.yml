@@ -1,0 +1,16 @@
+name: macOS
+on:
+  pull_request:
+    paths: ['apps/macos/**', 'internal/protocol/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
+jobs:
+  test:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Verify generated protocol
+        run: python3 apps/macos/script/generate_wire.py --check
+      - name: Build clean app without private fixtures
+        run: apps/macos/script/build_and_run.sh --build
+      - name: Test
+        working-directory: apps/macos
+        run: xcodebuild -scheme Kit -destination 'platform=macOS' -derivedDataPath .build/xcode -skipPackagePluginValidation test

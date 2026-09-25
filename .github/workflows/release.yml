@@ -12,6 +12,10 @@ jobs:
   build:
     name: Build ${{ matrix.platform }}
     runs-on: ${{ matrix.os }}
+    env:
+      # Tree-sitter and its curated grammars are compiled into the executable.
+      CGO_ENABLED: "1"
+      MACOSX_DEPLOYMENT_TARGET: "14.0"
     strategy:
       matrix:
         include:
@@ -23,39 +27,40 @@ jobs:
             platform: darwin_amd64
           - os: ubuntu-24.04-arm
             platform: linux_arm64
-          - os: ubuntu-latest
+          - os: ubuntu-24.04
             platform: linux_amd64
     steps:
       - uses: actions/checkout@v4
 
-      - uses: oven-sh/setup-bun@v2
+      - uses: actions/setup-go@v5
         with:
-          bun-version: latest
+          go-version-file: go.mod
+          cache: true
 
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Verify tag matches package version
-        working-directory: app
+      - name: Build release binary
+        shell: bash
         run: |
-          PKG_VERSION=$(bun -e "console.log(require('./package.json').version)")
-          TAG_VERSION="${GITHUB_REF_NAME#v}"
-          if [ "$PKG_VERSION" != "$TAG_VERSION" ]; then
-            echo "Tag $GITHUB_REF_NAME does not match package.json version $PKG_VERSION" >&2
+          set -euo pipefail
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "Expected a stable release tag of the form vX.Y.Z" >&2
             exit 1
           fi
+          mkdir -p dist
+          go build -trimpath -ldflags "-s -w -X github.com/akonwi/kit/internal/version.Version=${GITHUB_REF_NAME#v} -X github.com/akonwi/kit/internal/version.Commit=$GITHUB_SHA" -o dist/kit ./cmd/kit
 
-      - name: Build binary
-        working-directory: app
-        run: bun run build
-
-      - name: Smoke test
-        working-directory: app
-        run: ./dist/kit version
-
-      - name: Package tarball
+      - name: Smoke test packaged executable
+        shell: bash
         run: |
-          tar -czf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C app/dist kit runtime
+          set -euo pipefail
+          tar -czf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C dist kit
+          smoke_dir=$(mktemp -d)
+          trap 'rm -rf "$smoke_dir"' EXIT
+          tar -xzf "kit_${GITHUB_REF_NAME}_${{ matrix.platform }}.tar.gz" -C "$smoke_dir"
+          export KIT_HOME="$smoke_dir/home"
+          actual=$("$smoke_dir/kit" version)
+          expected="kit ${GITHUB_REF_NAME#v} ($GITHUB_SHA)"
+          [[ "$actual" == "$expected" ]] || { printf 'Expected %s; got %s\n' "$expected" "$actual" >&2; exit 1; }
+          "$smoke_dir/kit" --help
 
       - uses: actions/upload-artifact@v4
         with:
@@ -63,65 +68,12 @@ jobs:
           path: kit_*.tar.gz
           if-no-files-found: error
 
-  browser-tui:
-    name: Browser TUI / ${{ matrix.os }} / ${{ matrix.browser }}
-    runs-on: ${{ matrix.os }}
-    timeout-minutes: 25
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - os: ubuntu-latest
-            browser: chromium
-          - os: ubuntu-latest
-            browser: firefox
-          - os: macos-15
-            browser: webkit
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Install dependencies
-        run: bun install --frozen-lockfile
-
-      - name: Install browser
-        working-directory: app
-        run: bunx playwright install --with-deps ${{ matrix.browser }}
-
-      - name: Build binary
-        working-directory: app
-        run: bun run build
-
-      - name: Test browser TUI
-        working-directory: app
-        run: bunx playwright test --project=${{ matrix.browser }}
-
-      - name: Upload browser artifacts
-        if: failure()
-        uses: actions/upload-artifact@v4
-        with:
-          name: release-web-tui-${{ matrix.os }}-${{ matrix.browser }}-results
-          path: app/test-results/web-tui
-          if-no-files-found: ignore
-
   release:
     name: Create GitHub release
-    needs: [build, browser-tui]
+    needs: [build]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-
-      - uses: oven-sh/setup-bun@v2
-        with:
-          bun-version: latest
-
-      - name: Export bundled release notes
-        working-directory: app
-        run: |
-          bun -e 'import { CURRENT_RELEASE_NOTES } from "./src/features/releases/current-release.ts"; const notes = CURRENT_RELEASE_NOTES.trim(); if (!notes) throw new Error("Release notes are empty"); await Bun.write("../release-notes.md", `${notes}\n`);'
 
       - uses: actions/download-artifact@v4
         with:
@@ -135,5 +87,5 @@ jobs:
           gh release create "$GITHUB_REF_NAME" \
             --repo "$GITHUB_REPOSITORY" \
             --title "$GITHUB_REF_NAME" \
-            --notes-file release-notes.md \
+            --generate-notes \
             artifacts/*.tar.gz

@@ -5,104 +5,94 @@ description: Prepare and publish a Kit release. Use when asked to release Kit, c
 
 # Release skill
 
-Use this skill to publish a new Kit package release.
+Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
+`apps/web`, change its package version or release notes, or publish to npm.
 
 ## Steps
 
-1. Inspect the working tree.
-   - Run `git status --short`.
-   - Do not include unrelated local changes or generated artifacts.
-   - If unrelated changes are present, ask before continuing.
+1. Inspect `git status --short`, the current branch, and recent release tags.
+   Do not include unrelated changes. Release from reviewed, committed `main`.
+   Read the R1 gates in `backlog/README.md` and the core/TUI backlogs; a successful
+   build alone does not establish release readiness. Report unresolved gates
+   before publishing.
 
-2. Find the last release bump commit.
-   - Use a commit whose subject is exactly `bump: x.x.x`, for example:
-     ```sh
-     git log --grep='^bump: [0-9]\+\.[0-9]\+\.[0-9]\+$' --format='%H %s' -n 1
-     ```
+2. Review commits since the last published release (`gh release list` and
+   `git log <previous-tag>..HEAD`). Choose a patch for fixes and maintenance,
+   minor for new capabilities; ask if ambiguous. Use a stable `vX.Y.Z` tag.
+   The tag is the release version: there is no package.json version bump.
+   `internal/version.Version` and `Commit` keep their development defaults;
+   the workflow overrides them with linker flags.
 
-3. Review changes since that bump.
-   - Inspect commits and relevant diffs, for example:
-     ```sh
-     git log <last-bump-sha>..HEAD --oneline --no-merges
-     git diff --stat <last-bump-sha>..HEAD
-     ```
-   - Choose the release type:
-     - `minor` for user-facing features or meaningful new capabilities.
-     - `patch` for fixes, documentation, refactors, chores, and small internal improvements.
-   - If the release type is ambiguous, ask the user to choose minor or patch.
+3. Validate before publishing:
+   ```sh
+   gofmt -l .
+   go build ./...
+   go vet ./...
+   go test ./...
+   go test -race ./...
+   go run github.com/rhysd/actionlint/cmd/actionlint@latest .github/workflows/*.yml
+   git diff --check
+   ```
+   Formatting must produce no filenames. Use an isolated `KIT_HOME` for tests.
+   CGO and a C/C++ toolchain are required for Tree-sitter (ADR 0021).
 
-4. Update the release notes and `package.json`.
-   - Summarize the user-facing changes being published in `app/src/features/releases/current-release.ts`.
-   - These notes are the single source for both the release notes bundled into Kit and the GitHub release body. Write them as standalone GitHub-flavored Markdown without a top-level version heading.
-   - Increment the version in `app/package.json` based on the chosen release type.
-   - Do not use prerelease versions unless explicitly requested.
+4. Dry-run the release build on the local platform before tagging. Substitute
+   the intended version below. Use a temporary output directory, not tracked
+   build artifacts:
+   ```sh
+   version=1.2.3
+   commit=$(git rev-parse HEAD)
+   out=$(mktemp -d)
+   # On macOS, also export MACOSX_DEPLOYMENT_TARGET=14.0.
+   CGO_ENABLED=1 go build -trimpath -ldflags "-s -w -X github.com/akonwi/kit/internal/version.Version=$version -X github.com/akonwi/kit/internal/version.Commit=$commit" -o "$out/kit" ./cmd/kit
+   tar -czf "$out/kit.tar.gz" -C "$out" kit
+   mkdir "$out/extracted"
+   tar -xzf "$out/kit.tar.gz" -C "$out/extracted"
+   KIT_HOME="$out/home" "$out/extracted/kit" version
+   KIT_HOME="$out/home" "$out/extracted/kit" --help
+   ```
+   Assert version output is exactly `kit X.Y.Z (<full commit SHA>)` and the
+   tarball contains only `kit`. Remove the temporary directory when done.
+   This validates only the host platform, not all four release targets.
 
-5. Run required validation before publishing.
-   - `bun run typecheck`
-   - `bun run check`
-   - Address any remaining Biome warnings.
-   - Re-run `bun run typecheck` after `bun run check`.
-   - Run `bun test` before publishing.
+5. Commit any intended release preparation with a Conventional Commit and push
+   `main`. No empty version-bump commit is needed. Ensure the working tree is
+   clean and the intended commit is on `origin/main`. Only with authorization
+   to publish, tag that commit and push the tag:
+   ```sh
+   git tag vX.Y.Z
+   git push origin vX.Y.Z
+   ```
+   `.github/workflows/release.yml` builds on native macOS/Linux arm64/amd64
+   runners using Go from `go.mod`, with CGO enabled. macOS targets 14.0 or newer;
+   Linux builds use Ubuntu 24.04 (glibc 2.39 baseline). Tree-sitter is compiled
+   in; system libraries remain platform dependencies. Do not claim fully
+   static Linux binaries or compatibility with older libc versions.
 
-6. Publish to npm.
-   - Run:
-     ```sh
-     npm publish --access public
-     ```
-   - This command requires user approval in this project.
-   - If publishing fails, fix the issue when appropriate and retry only after explaining the failure.
+6. Watch the tag's workflow (`gh run list --workflow=release.yml`, then
+   `gh run watch <run-id> --exit-status`). Each job packages only the Go `kit`
+   executable and smoke-tests the extracted binary's version and help.
+   The release job uses GitHub-generated release notes, not web-bundled notes.
+   Verify and edit the generated notes for user-facing clarity as needed.
+   Confirm all four `kit_vX.Y.Z_<platform>.tar.gz` assets exist:
+   ```sh
+   gh release view vX.Y.Z --json assets,body
+   ```
+   Platforms: `darwin_arm64`, `darwin_amd64`, `linux_arm64`, `linux_amd64`.
 
-7. Commit the version bump and bundled notes.
-   - Stage only `app/package.json` and `app/src/features/releases/current-release.ts`.
-   - Verify the working tree is clean after committing and before tagging so npm, GitHub, and Homebrew builds contain identical notes.
-   - Use this exact commit subject format:
-     ```text
-     bump: x.x.x
-     ```
-   - Replace `x.x.x` with the version that was published.
-   - Push the bump commit to `origin/main`.
+7. Update `../homebrew-tap/Formula/kit.rb` using downloaded release assets and
+   their SHA-256 hashes. Update version, all four URLs/hashes, install logic
+   (the archive now contains only `kit`, no `runtime`), OS requirements, and
+   the version test. Inspect the formula before editing. Commit with subject
+   `kit X.Y.Z` and push with release authorization. Verify:
+   ```sh
+   brew update && brew upgrade akonwi/tap/kit && brew test kit
+   ```
+   Verify manual extraction/install too. Existing npm users must remove their
+   npm installation and verify PATH resolves to the new binary; do not publish
+   an npm update. Follow the migration guidance and outstanding distribution
+   verification gates in the backlog.
 
-8. Tag the release to trigger the binary build.
-   - Tag the bump commit and push the tag:
-     ```sh
-     git tag vx.x.x
-     git push origin vx.x.x
-     ```
-   - The tag push triggers `.github/workflows/release.yml`, which builds
-     the compiled binary on four platforms (darwin/linux × arm64/amd64),
-     creates the GitHub release using the bundled release notes, and attaches
-     `kit_vx.x.x_<platform>.tar.gz` tarballs.
-   - Wait for the workflow to finish, for example:
-     ```sh
-     gh run list --workflow=release.yml --limit 1
-     gh run watch <run-id> --exit-status
-     ```
-   - Verify all four assets exist:
-     ```sh
-     gh release view vx.x.x --json assets -q '.assets[].name'
-     ```
-   - Verify the GitHub release body contains the bundled notes:
-     ```sh
-     gh release view vx.x.x --json body -q .body
-     ```
-
-9. Update the Homebrew formula in `../homebrew-tap`.
-   - Compute the sha256 of each release tarball:
-     ```sh
-     for p in darwin_arm64 darwin_amd64 linux_arm64 linux_amd64; do
-       curl -sL "https://github.com/akonwi/kit/releases/download/vx.x.x/kit_vx.x.x_${p}.tar.gz" | shasum -a 256
-     done
-     ```
-   - In `../homebrew-tap/Formula/kit.rb`, update the `version`, the four
-     `url` values, the four `sha256` values, and the version asserted in
-     the `test` block.
-   - Commit in the tap repo with the subject `kit x.x.x` and push.
-   - Verify the install:
-     ```sh
-     brew update && brew upgrade akonwi/tap/kit && brew test kit
-     ```
-
-10. Report the result.
-    - Include the published version, release type, validation commands,
-      bump commit hash, release tag, and the tap commit updating the
-      formula.
+8. Report the version, validation results and platform limits, release commit,
+   tag, GitHub release URL, and Homebrew tap commit. Never imply a local dry run
+   published a release or verified other platforms.
