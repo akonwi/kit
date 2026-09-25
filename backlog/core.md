@@ -371,6 +371,18 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   generation cleanup, and behavior across detach, reload, and runtime disposal
   before adding a public protocol method.
 
+- [ ] CORE-PLUGIN-010 — Let plugins submit messages to their owning session to
+  start or queue model turns, enabling workflows such as autoresearch kickoff and
+  automatic continuation after a settled turn. This is distinct from the passive
+  information channel in CORE-PLUGIN-009. Define the supported replacement for
+  the currently unsupported `kit/session/submit-message` call used by dot-kit's
+  autoresearch plugin. Preserve plugin provenance rather than impersonating user
+  speech; enforce session/generation ownership, normal tool policy, bounded queues
+  and autonomous-loop limits. Specify busy-session admission, cancellation,
+  duplicate/retry handling, and detach/reload/restart behavior. Cover kickoff,
+  post-settlement continuation, stale-generation rejection, and concurrent-session
+  isolation with real subprocess tests and document the public RPC contract.
+
 ### Deferred workflows and compatibility
 
 - [ ] CORE-BASH-001 — Let clients discover direct shell executions started and
