@@ -3,8 +3,8 @@ package client
 import (
 	"context"
 
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -27,7 +27,7 @@ func (c *localSession) WatchPluginToasts(ctx context.Context) (sessionclient.Plu
 	go func() {
 		defer close(stream.updates)
 		defer body.Close()
-		stream.err = daemon.ReadPluginToasts(body, func(toast protocol.PluginToast) error {
+		stream.err = kitserver.ReadPluginToasts(body, func(toast protocol.PluginToast) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

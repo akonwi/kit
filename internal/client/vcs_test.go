@@ -7,8 +7,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -36,10 +36,10 @@ func TestReadBoundVCSDeliversValidatedUpdate(t *testing.T) {
 
 func TestClassifyVCSWatchErrorStopsOnlyTerminalOpenFailures(t *testing.T) {
 	for _, err := range []error{
-		daemon.ErrIncompatibleDaemon,
-		&daemon.VCSFrameError{Err: errors.New("bad content type")},
-		&daemon.APIError{StatusCode: http.StatusUnauthorized},
-		&daemon.APIError{StatusCode: http.StatusNotFound},
+		kitserver.ErrIncompatibleDaemon,
+		&kitserver.VCSFrameError{Err: errors.New("bad content type")},
+		&kitserver.APIError{StatusCode: http.StatusUnauthorized},
+		&kitserver.APIError{StatusCode: http.StatusNotFound},
 	} {
 		var terminal *sessionclient.VCSWatchTerminalError
 		if !errors.As(classifyVCSWatchError(err), &terminal) {

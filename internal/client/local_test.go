@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 )
 
 func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t *testing.T) {
@@ -46,7 +46,7 @@ func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t
 	if session.snapshot.Session.Model != "test/newer" || session.snapshot.Session.ConfigurationRevision != 3 || session.snapshot.EventStreamID != "stream_newer" {
 		t.Fatalf("ambiguous configuration did not resynchronize cache: %+v", session.snapshot)
 	}
-	transport.configureErr = &daemon.APIError{StatusCode: 409, Message: "configuration revision conflict"}
+	transport.configureErr = &kitserver.APIError{StatusCode: 409, Message: "configuration revision conflict"}
 	configured.Session.Model = "test/other-client"
 	configured.Session.ConfigurationRevision = 4
 	configured.EventStreamID = "stream_other"

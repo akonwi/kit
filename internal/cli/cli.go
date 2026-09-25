@@ -16,9 +16,9 @@ import (
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	kitclient "github.com/akonwi/kit/internal/client"
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
@@ -56,12 +56,12 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 			return 1
 		}
 	}
-	manager := daemon.NewManager(paths)
+	manager := kitserver.NewManager(paths)
 	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
 	_, err = manager.Ensure(startContext)
 	cancel()
 	if err != nil {
-		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
+		fmt.Fprintf(stderr, "kit: start local server: %v\n", err)
 		return 1
 	}
 	server := kitclient.NewLocalServer(paths)
@@ -78,7 +78,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	registry, health, err := daemon.NewClient(paths).Probe(probeContext)
+	registry, health, err := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
@@ -93,7 +93,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 			return 1
 		}
 		probeContext, probeCancel = context.WithTimeout(ctx, 3*time.Second)
-		_, health, err = daemon.NewClient(paths).Probe(probeContext)
+		_, health, err = kitserver.NewClient(paths).Probe(probeContext)
 		probeCancel()
 		if err != nil {
 			fmt.Fprintf(stderr, "kit: inspect reloaded daemon providers: %v\n", err)
@@ -240,14 +240,14 @@ func cleanupTemporarySession(ctx context.Context, server sessionclient.Server, s
 		return nil
 	}
 	err := server.DisposeTemporarySession(ctx, sessionID)
-	var apiError *daemon.APIError
+	var apiError *kitserver.APIError
 	if errors.As(err, &apiError) && apiError.StatusCode == 404 {
 		return nil
 	}
 	return err
 }
 
-func supportsInteractiveAPIKeyLogin(registry daemon.Registry) bool {
+func supportsInteractiveAPIKeyLogin(registry kitserver.Registry) bool {
 	return registry.CredentialSources[auth.OpenAIProviderID] != "" &&
 		registry.CredentialSources[auth.AnthropicProviderID] != ""
 }
@@ -288,10 +288,10 @@ func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr
 		return 1
 	}
 	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
-	_, err = daemon.NewManager(paths).Ensure(startContext)
+	_, err = kitserver.NewManager(paths).Ensure(startContext)
 	cancel()
 	if err != nil {
-		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
+		fmt.Fprintf(stderr, "kit: start local server: %v\n", err)
 		return 1
 	}
 	selected, err := tui.RunSessionPicker(tui.SessionPickerOptions{
@@ -327,14 +327,14 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 		return 1
 	}
 	startContext, cancel := context.WithTimeout(ctx, 12*time.Second)
-	_, err = daemon.NewManager(paths).Ensure(startContext)
+	_, err = kitserver.NewManager(paths).Ensure(startContext)
 	cancel()
 	if err != nil {
-		fmt.Fprintf(stderr, "kit: start local daemon: %v\n", err)
+		fmt.Fprintf(stderr, "kit: start local server: %v\n", err)
 		return 1
 	}
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, probeErr := daemon.NewClient(paths).Probe(probeContext)
+	_, health, probeErr := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()
 	if probeErr != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", probeErr)
@@ -467,7 +467,7 @@ func executePrint(
 			abortContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			abortErr := run.Abort(abortContext)
 			cancel()
-			var apiError *daemon.APIError
+			var apiError *kitserver.APIError
 			if abortErr != nil && (!errors.As(abortErr, &apiError) || apiError.StatusCode != 409) {
 				fmt.Fprintf(stderr, "kit: abort session after interruption: %v\n", abortErr)
 			}
@@ -493,15 +493,15 @@ func executePrint(
 	return 0
 }
 
-func runInternalDaemon(ctx context.Context, args []string, stderr io.Writer) int {
-	flags := flag.NewFlagSet("__daemon", flag.ContinueOnError)
+func runInternalServer(ctx context.Context, args []string, stderr io.Writer) int {
+	flags := flag.NewFlagSet("__server", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	home := flags.String("home", "", "Kit home directory")
 	if err := flags.Parse(args); err != nil {
 		return 2
 	}
 	if flags.NArg() != 0 {
-		fmt.Fprintln(stderr, "kit: __daemon accepts no positional arguments")
+		fmt.Fprintln(stderr, "kit: __server accepts no positional arguments")
 		return 2
 	}
 	paths, err := apphome.Resolve(*home)
@@ -510,8 +510,8 @@ func runInternalDaemon(ctx context.Context, args []string, stderr io.Writer) int
 		return 1
 	}
 	logger := slog.New(slog.NewTextHandler(stderr, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	if err := daemon.Run(ctx, daemon.RunOptions{Paths: paths, Logger: logger}); err != nil {
-		if errors.Is(err, daemon.ErrAlreadyRunning) {
+	if err := kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Logger: logger}); err != nil {
+		if errors.Is(err, kitserver.ErrAlreadyRunning) {
 			fmt.Fprintln(stderr, "kit: local daemon is already running")
 			return 2
 		}
@@ -521,9 +521,9 @@ func runInternalDaemon(ctx context.Context, args []string, stderr io.Writer) int
 	return 0
 }
 
-func runDaemonCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
+func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writer) int {
 	if len(args) == 0 {
-		fmt.Fprintln(stderr, "usage: kit daemon <start|status|stop|restart>")
+		fmt.Fprintln(stderr, "usage: kit server <start|status|stop|restart>")
 		return 2
 	}
 	paths, err := apphome.Resolve("")
@@ -531,70 +531,70 @@ func runDaemonCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	manager := daemon.NewManager(paths)
+	manager := kitserver.NewManager(paths)
 
 	switch args[0] {
 	case "start":
 		if len(args) != 1 {
-			return daemonUsage(stderr)
+			return serverUsage(stderr)
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 12*time.Second)
 		defer cancel()
 		registry, err := manager.Ensure(operationContext)
 		if err != nil {
-			fmt.Fprintf(stderr, "kit: start daemon: %v\n", err)
+			fmt.Fprintf(stderr, "kit: start server: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "daemon running: pid %d, %s\n", registry.PID, registry.URL)
+		fmt.Fprintf(stdout, "server running: pid %d, %s\n", registry.PID, registry.URL)
 		return 0
 	case "status":
 		if len(args) != 1 {
-			return daemonUsage(stderr)
+			return serverUsage(stderr)
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
 		registry, _, err := manager.Status(operationContext)
 		if err != nil {
-			fmt.Fprintf(stderr, "daemon unavailable: %v\n", err)
+			fmt.Fprintf(stderr, "server unavailable: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "daemon running: pid %d, %s, version %s\n", registry.PID, registry.URL, registry.KitVersion)
+		fmt.Fprintf(stdout, "server running: pid %d, %s, version %s\n", registry.PID, registry.URL, registry.KitVersion)
 		return 0
 	case "stop":
 		if len(args) != 1 {
-			return daemonUsage(stderr)
+			return serverUsage(stderr)
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
 		if err := manager.Stop(operationContext); err != nil {
-			fmt.Fprintf(stderr, "kit: stop daemon: %v\n", err)
+			fmt.Fprintf(stderr, "kit: stop server: %v\n", err)
 			return 1
 		}
-		fmt.Fprintln(stdout, "daemon stopped")
+		fmt.Fprintln(stdout, "server stopped")
 		return 0
 	case "restart":
 		if len(args) != 1 {
-			return daemonUsage(stderr)
+			return serverUsage(stderr)
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 20*time.Second)
 		defer cancel()
 		if err := manager.Stop(operationContext); err != nil {
-			fmt.Fprintf(stderr, "kit: stop daemon: %v\n", err)
+			fmt.Fprintf(stderr, "kit: stop server: %v\n", err)
 			return 1
 		}
 		registry, err := manager.Ensure(operationContext)
 		if err != nil {
-			fmt.Fprintf(stderr, "kit: restart daemon: %v\n", err)
+			fmt.Fprintf(stderr, "kit: restart server: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "daemon restarted: pid %d, %s\n", registry.PID, registry.URL)
+		fmt.Fprintf(stdout, "server restarted: pid %d, %s\n", registry.PID, registry.URL)
 		return 0
 	default:
-		return daemonUsage(stderr)
+		return serverUsage(stderr)
 	}
 }
 
-func daemonUsage(output io.Writer) int {
-	fmt.Fprintln(output, "usage: kit daemon <start|status|stop|restart>")
+func serverUsage(output io.Writer) int {
+	fmt.Fprintln(output, "usage: kit server <start|status|stop|restart>")
 	return 2
 }

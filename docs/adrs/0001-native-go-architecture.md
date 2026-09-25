@@ -103,13 +103,13 @@ kit --rpc             stdio protocol bridge/client
 kit web               embedded browser client gateway
 kit attach <server>   native TUI attached to a remote server
 kit serve             explicitly exposed remote server
-kit daemon ...        local daemon lifecycle commands
-kit __daemon          internal detached daemon role
+kit server ...        local daemon lifecycle commands
+kit __server          internal detached daemon role
 ```
 
 A normal local invocation discovers or starts one persistent daemon for the
 current user. Starting the daemon means executing the same binary in the
-internal `__daemon` role; it does not require a separately installed `kitd`.
+internal `__server` role; it does not require a separately installed `kitd`.
 Before detaching, the launcher atomically stages a private copy under the run
 directory so development launchers such as `go run` cannot unlink the daemon's
 executable while it is still serving. The daemon owns SQLite, running sessions,
@@ -377,8 +377,7 @@ The exact package set should grow with real consumers, but the intended shape is
 ```text
 cmd/kit/                 executable composition root
 internal/apphome/        paths and filesystem ownership
-internal/daemon/         discovery, startup, lifecycle
-internal/server/         authoritative server and session directory
+internal/server/         discovery, lifecycle, authoritative server and session directory
 internal/session/        parent runtime orchestration
 internal/subagent/       supervised child execution
 internal/plugin/         manifests, RPC, process supervision

@@ -22,9 +22,9 @@ type commandDependencies struct {
 	interactive     func(context.Context, interactiveOptions, io.Writer, io.Writer) int
 	print           func(context.Context, printOptions, io.Writer, io.Writer) int
 	sessions        func(context.Context, interactiveOptions, io.Writer, io.Writer) int
-	internalDaemon  func(context.Context, []string, io.Writer) int
+	internalServer  func(context.Context, []string, io.Writer) int
 	auth            func(context.Context, []string, io.Writer, io.Writer) int
-	daemon          func(context.Context, []string, io.Writer, io.Writer) int
+	server          func(context.Context, []string, io.Writer, io.Writer) int
 }
 
 func defaultCommandDependencies() commandDependencies {
@@ -34,9 +34,9 @@ func defaultCommandDependencies() commandDependencies {
 		interactive:     runInteractive,
 		print:           runPrintOptions,
 		sessions:        runSessions,
-		internalDaemon:  runInternalDaemon,
+		internalServer:  runInternalServer,
 		auth:            runAuthCommand,
-		daemon:          runDaemonCommand,
+		server:          runServerCommand,
 	}
 }
 
@@ -152,9 +152,9 @@ func newRootCommand(deps commandDependencies) *cobra.Command {
 		newSessionsCommand(deps),
 		newPrintCommand(deps),
 		newAuthCommand(deps),
-		newDaemonCommand(deps),
+		newServerCommand(deps),
 		newVersionCommand(),
-		newInternalDaemonCommand(deps),
+		newInternalServerCommand(deps),
 	)
 	root.SetHelpCommand(newHelpCommand(root))
 	root.InitDefaultHelpFlag()
@@ -350,24 +350,24 @@ func newAuthCommand(deps commandDependencies) *cobra.Command {
 	return command
 }
 
-func newDaemonCommand(deps commandDependencies) *cobra.Command {
+func newServerCommand(deps commandDependencies) *cobra.Command {
 	command := &cobra.Command{
-		Use: "daemon", Short: "Manage the local Kit daemon", Args: cobra.NoArgs,
+		Use: "server", Short: "Manage the local Kit server", Args: cobra.NoArgs,
 		RunE: func(command *cobra.Command, _ []string) error { return command.Help() },
 	}
 	for _, action := range []struct {
 		name, description string
 	}{
-		{name: "start", description: "Start or discover the daemon"},
-		{name: "status", description: "Inspect daemon status"},
-		{name: "stop", description: "Stop the daemon"},
-		{name: "restart", description: "Restart the daemon"},
+		{name: "start", description: "Start or discover the server"},
+		{name: "status", description: "Inspect server status"},
+		{name: "stop", description: "Stop the server"},
+		{name: "restart", description: "Restart the server"},
 	} {
 		action := action
 		command.AddCommand(&cobra.Command{
 			Use: action.name, Short: action.description, Args: cobra.NoArgs,
 			RunE: func(command *cobra.Command, _ []string) error {
-				return resultForCode(deps.daemon(command.Context(), []string{action.name}, command.OutOrStdout(), command.ErrOrStderr()))
+				return resultForCode(deps.server(command.Context(), []string{action.name}, command.OutOrStdout(), command.ErrOrStderr()))
 			},
 		})
 	}
@@ -401,14 +401,14 @@ func newVersionCommand() *cobra.Command {
 	}
 }
 
-func newInternalDaemonCommand(deps commandDependencies) *cobra.Command {
+func newInternalServerCommand(deps commandDependencies) *cobra.Command {
 	return &cobra.Command{
-		Use:                "__daemon",
+		Use:                "__server",
 		Hidden:             true,
 		DisableFlagParsing: true,
 		Args:               cobra.ArbitraryArgs,
 		RunE: func(command *cobra.Command, arguments []string) error {
-			return resultForCode(deps.internalDaemon(command.Context(), arguments, command.ErrOrStderr()))
+			return resultForCode(deps.internalServer(command.Context(), arguments, command.ErrOrStderr()))
 		},
 	}
 }

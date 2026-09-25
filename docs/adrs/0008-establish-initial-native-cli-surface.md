@@ -39,7 +39,7 @@ kit
 │   ├── status
 │   ├── login
 │   └── logout
-├── daemon
+├── server
 │   ├── start
 │   ├── status
 │   ├── stop
@@ -56,9 +56,9 @@ session, daemon, runtime, or TUI state and do not call `os.Exit`.
 The executable invokes the tree with `ExecuteContext`. Its signal-aware outer
 boundary maps returned typed errors to process exit status. Shared execution
 flags are registered through command-local helpers rather than inherited by
-unrelated commands such as `auth` and `daemon`.
+unrelated commands such as `auth` and `server`.
 
-The internal `__daemon` process role remains hidden and undocumented. Cobra's
+The internal `__server` process role remains hidden and undocumented. Cobra's
 generated completion command is disabled until shell completion enters scope.
 
 ### Interactive startup
@@ -179,10 +179,10 @@ kit auth status
 kit auth login openai-codex
 kit auth logout openai-codex
 
-kit daemon start
-kit daemon status
-kit daemon stop
-kit daemon restart
+kit server start
+kit server status
+kit server stop
+kit server restart
 ```
 
 They preserve the credential-store and daemon-manager ownership boundaries and

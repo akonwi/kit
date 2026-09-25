@@ -39,8 +39,8 @@ cat changes.diff | kit print --temp "Review this diff"
 
 # Inspect the complete command tree and operate the local daemon:
 kit --help
-kit daemon status
-kit daemon restart
+kit server status
+kit server restart
 
 # Persist OpenAI Codex OAuth credentials with a headless device flow:
 kit auth login openai-codex

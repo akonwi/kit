@@ -11,7 +11,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/daemon"
+	kitserver "github.com/akonwi/kit/internal/server"
 )
 
 func TestRunVersion(t *testing.T) {
@@ -45,10 +45,10 @@ Usage:
 
 Available Commands:
   auth        Manage provider credentials
-  daemon      Manage the local Kit daemon
   help        Help about any command
   new         Create a persisted session and launch the TUI
   print       Run one headless turn
+  server      Manage the local Kit server
   sessions    Manage and open saved sessions
   version     Print version information
 
@@ -278,7 +278,25 @@ func TestThreadsAliasRunsSessionPicker(t *testing.T) {
 	}
 }
 
-func TestAuthAndDaemonCommandTreesExposeHelp(t *testing.T) {
+func TestServerCommandsDispatchLifecycleActions(t *testing.T) {
+	t.Parallel()
+	for _, action := range []string{"start", "status", "stop", "restart"} {
+		t.Run(action, func(t *testing.T) {
+			var got []string
+			deps := commandDependencies{server: func(_ context.Context, args []string, _, _ io.Writer) int {
+				got = args
+				return 0
+			}}
+			var stdout, stderr bytes.Buffer
+			code := executeCommand(context.Background(), []string{"server", action}, &stdout, &stderr, deps)
+			if code != 0 || len(got) != 1 || got[0] != action {
+				t.Fatalf("server %s: exit = %d, dispatched = %q, stderr = %q", action, code, got, stderr.String())
+			}
+		})
+	}
+}
+
+func TestAuthAndServerCommandTreesExposeHelp(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		arguments []string
@@ -286,8 +304,8 @@ func TestAuthAndDaemonCommandTreesExposeHelp(t *testing.T) {
 	}{
 		{arguments: []string{"auth", "--help"}, contains: []string{"login", "logout", "status"}},
 		{arguments: []string{"auth", "login", "--help"}, contains: []string{"openai-codex"}},
-		{arguments: []string{"daemon", "--help"}, contains: []string{"start", "status", "stop", "restart"}},
-		{arguments: []string{"daemon", "restart", "--help"}, contains: []string{"Restart the daemon"}},
+		{arguments: []string{"server", "--help"}, contains: []string{"start", "status", "stop", "restart"}},
+		{arguments: []string{"server", "restart", "--help"}, contains: []string{"Restart the server"}},
 	} {
 		var stdout, stderr bytes.Buffer
 		if code := executeCommand(context.Background(), test.arguments, &stdout, &stderr, commandDependencies{}); code != 0 {
@@ -301,10 +319,10 @@ func TestAuthAndDaemonCommandTreesExposeHelp(t *testing.T) {
 	}
 }
 
-func TestHiddenDaemonHasNoPublicHelpTopic(t *testing.T) {
+func TestHiddenServerHasNoPublicHelpTopic(t *testing.T) {
 	t.Parallel()
 	var stdout, stderr bytes.Buffer
-	if code := Run(context.Background(), []string{"help", "__daemon"}, &stdout, &stderr); code != 2 {
+	if code := Run(context.Background(), []string{"help", "__server"}, &stdout, &stderr); code != 2 {
 		t.Fatalf("hidden help exit = %d, stdout = %q stderr = %q", code, stdout.String(), stderr.String())
 	}
 	if stdout.Len() != 0 || strings.Contains(stderr.String(), "Usage:") {
@@ -331,13 +349,13 @@ func TestRunNewHelpAndArgumentValidation(t *testing.T) {
 
 func TestSupportsInteractiveAPIKeyLoginRequiresBothProviderSources(t *testing.T) {
 	t.Parallel()
-	registry := daemon.Registry{CredentialSources: map[string]daemon.CredentialSource{
-		auth.OpenAIProviderID: daemon.CredentialSourceStore,
+	registry := kitserver.Registry{CredentialSources: map[string]kitserver.CredentialSource{
+		auth.OpenAIProviderID: kitserver.CredentialSourceStore,
 	}}
 	if supportsInteractiveAPIKeyLogin(registry) {
 		t.Fatal("partial API-key credential metadata was accepted")
 	}
-	registry.CredentialSources[auth.AnthropicProviderID] = daemon.CredentialSourceEnvironment
+	registry.CredentialSources[auth.AnthropicProviderID] = kitserver.CredentialSourceEnvironment
 	if !supportsInteractiveAPIKeyLogin(registry) {
 		t.Fatal("complete API-key credential metadata was rejected")
 	}
@@ -362,16 +380,16 @@ func TestInteractiveLocationLeavesGitPresentationToSessionStatus(t *testing.T) {
 	}
 }
 
-func TestDaemonStatusWhenUnavailable(t *testing.T) {
+func TestServerStatusWhenUnavailable(t *testing.T) {
 	t.Setenv(apphome.EnvHome, filepath.Join(t.TempDir(), "kit"))
 
 	var stdout bytes.Buffer
 	var stderr bytes.Buffer
-	code := Run(context.Background(), []string{"daemon", "status"}, &stdout, &stderr)
+	code := Run(context.Background(), []string{"server", "status"}, &stdout, &stderr)
 	if code != 1 {
 		t.Fatalf("exit code = %d, want 1", code)
 	}
-	if !strings.Contains(stderr.String(), "daemon unavailable") {
+	if !strings.Contains(stderr.String(), "server unavailable") {
 		t.Fatalf("stderr = %q, want unavailable message", stderr.String())
 	}
 }

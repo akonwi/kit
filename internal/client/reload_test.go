@@ -11,9 +11,9 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -22,7 +22,7 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 	serverContext, stopServer := context.WithCancel(context.Background())
 	serverDone := make(chan error, 1)
 	go func() {
-		serverDone <- daemon.Run(serverContext, daemon.RunOptions{
+		serverDone <- kitserver.Run(serverContext, kitserver.RunOptions{
 			Paths: paths, Providers: reloadProviders{},
 			Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
@@ -38,7 +38,7 @@ func TestBoundLocalAndHTTPClientsShareReloadSemantics(t *testing.T) {
 			t.Error("daemon did not stop")
 		}
 	})
-	transport := daemon.NewClient(paths)
+	transport := kitserver.NewClient(paths)
 	probeContext, cancelProbe := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelProbe()
 	for {

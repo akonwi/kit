@@ -15,14 +15,14 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 type localServer struct {
-	transport *daemon.Client
+	transport *kitserver.Client
 }
 
 type sessionMutationTransport interface {
@@ -37,7 +37,7 @@ type scratchpadTransport interface {
 }
 
 type localSession struct {
-	transport          *daemon.Client
+	transport          *kitserver.Client
 	mutations          sessionMutationTransport
 	scratchpads        scratchpadTransport
 	id                 string
@@ -58,14 +58,14 @@ type scratchpadLocalSession struct{ *localSession }
 var _ sessionclient.ScratchpadSession = (*scratchpadLocalSession)(nil)
 
 type localRun struct {
-	transport *daemon.Client
+	transport *kitserver.Client
 	sessionID string
 	turnID    string
 	id        string
 }
 
 type localBashExecution struct {
-	transport *daemon.Client
+	transport *kitserver.Client
 	sessionID string
 	mu        sync.RWMutex
 	state     protocol.BashExecution
@@ -96,7 +96,7 @@ var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
 // NewLocalServer creates an authenticated loopback server client.
 func NewLocalServer(paths apphome.Paths) sessionclient.Server {
-	return &localServer{transport: daemon.NewClient(paths)}
+	return &localServer{transport: kitserver.NewClient(paths)}
 }
 
 func (c *localServer) CreateSession(
@@ -209,7 +209,7 @@ func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.Sessi
 	if errors.As(err, &terminal) {
 		return err
 	}
-	var frame *daemon.VCSFrameError
+	var frame *kitserver.VCSFrameError
 	if errors.As(err, &frame) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}
@@ -217,7 +217,7 @@ func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.Sessi
 }
 
 func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive func(protocol.SessionVCSStatus)) error {
-	return daemon.ReadSessionVCS(body, func(status protocol.SessionVCSStatus) error {
+	return kitserver.ReadSessionVCS(body, func(status protocol.SessionVCSStatus) error {
 		if status.SessionID != sessionID {
 			return &sessionclient.VCSWatchTerminalError{Err: fmt.Errorf("daemon session VCS stream identity mismatch")}
 		}
@@ -230,14 +230,14 @@ func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive
 }
 
 func classifyVCSWatchError(err error) error {
-	if errors.Is(err, daemon.ErrIncompatibleDaemon) {
+	if errors.Is(err, kitserver.ErrIncompatibleDaemon) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}
-	var frame *daemon.VCSFrameError
+	var frame *kitserver.VCSFrameError
 	if errors.As(err, &frame) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}
-	var apiError *daemon.APIError
+	var apiError *kitserver.APIError
 	if errors.As(err, &apiError) {
 		switch apiError.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
@@ -337,7 +337,7 @@ func (c *localSession) ReadFileDiff(ctx context.Context, input protocol.ReadFile
 	return result, projectDiffError(err)
 }
 func projectDiffError(err error) error {
-	var apiError *daemon.APIError
+	var apiError *kitserver.APIError
 	if !errors.As(err, &apiError) || apiError.Code == "" {
 		return err
 	}
@@ -365,7 +365,7 @@ func (c *localSession) DeleteAnnotation(ctx context.Context, input protocol.Dele
 }
 
 func projectWorkspaceError(err error) error {
-	var apiError *daemon.APIError
+	var apiError *kitserver.APIError
 	if !errors.As(err, &apiError) || apiError.Code == "" {
 		return err
 	}
@@ -378,7 +378,7 @@ func projectWorkspaceError(err error) error {
 
 func (c *localSession) TranscriptPage(ctx context.Context, before string) (protocol.TranscriptPage, error) {
 	page, err := c.transport.GetTranscriptPage(ctx, c.id, before)
-	var apiErr *daemon.APIError
+	var apiErr *kitserver.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
 		return protocol.TranscriptPage{}, sessionclient.ErrTranscriptCursorUnavailable
 	}
@@ -461,7 +461,7 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 	}
 	result, err := c.transport.ChangeSessionWorkspaceCWDWithID(ctx, c.id, mutationID, target)
 	if err != nil {
-		var apiError *daemon.APIError
+		var apiError *kitserver.APIError
 		if errors.As(err, &apiError) && apiError.StatusCode < 500 {
 			c.clearPendingCWD(mutationID)
 			return protocol.SessionInfo{}, err
@@ -474,7 +474,7 @@ func (c *localSession) ChangeCWD(ctx context.Context, target string) (protocol.S
 		result, retryErr = c.transport.ChangeSessionWorkspaceCWDWithID(retryContext, c.id, mutationID, target)
 		cancel()
 		if retryErr != nil {
-			var retryAPIError *daemon.APIError
+			var retryAPIError *kitserver.APIError
 			if errors.As(retryErr, &retryAPIError) {
 				if retryAPIError.StatusCode < 500 {
 					c.clearPendingCWD(mutationID)
@@ -515,7 +515,7 @@ func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult
 	}
 	result, err := c.transport.ReloadSession(ctx, c.id)
 	if err != nil {
-		var apiError *daemon.APIError
+		var apiError *kitserver.APIError
 		if !errors.As(err, &apiError) {
 			// A transport failure may detach after the server committed reload.
 			// Reconcile the cache through an independent bounded snapshot attempt.
@@ -558,7 +558,7 @@ func (c *localSession) Configure(ctx context.Context, input protocol.ConfigureSe
 	}
 	result, err := transport.ConfigureSession(ctx, c.id, input)
 	if err != nil {
-		var apiError *daemon.APIError
+		var apiError *kitserver.APIError
 		if !errors.As(err, &apiError) || apiError.StatusCode == 409 || apiError.StatusCode >= 500 {
 			inspectContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 3*time.Second)
 			snapshot, inspectErr := transport.GetSessionSnapshot(inspectContext, c.id)
@@ -944,10 +944,10 @@ func (r *localRun) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 }
 
 func retryablePollingError(err error) bool {
-	if err == nil || errors.Is(err, daemon.ErrIncompatibleDaemon) {
+	if err == nil || errors.Is(err, kitserver.ErrIncompatibleDaemon) {
 		return false
 	}
-	var apiError *daemon.APIError
+	var apiError *kitserver.APIError
 	if errors.As(err, &apiError) {
 		return apiError.StatusCode >= 500
 	}

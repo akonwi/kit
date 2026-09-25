@@ -14,7 +14,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
-	kitdaemon "github.com/akonwi/kit/internal/daemon"
+	kitserver "github.com/akonwi/kit/internal/server"
 )
 
 func TestExecuteOpenAICodexLoginPrintsInstructionsAndSuccess(t *testing.T) {
@@ -118,11 +118,11 @@ func TestLoginAndLogoutRejectEnvironmentBackedDaemon(t *testing.T) {
 	defer cancel()
 	result := make(chan error, 1)
 	go func() {
-		result <- kitdaemon.Run(ctx, kitdaemon.RunOptions{
+		result <- kitserver.Run(ctx, kitserver.RunOptions{
 			Paths: paths, Logger: slog.New(slog.NewTextHandler(io.Discard, nil)),
 		})
 	}()
-	manager := kitdaemon.NewManager(paths)
+	manager := kitserver.NewManager(paths)
 	probeContext, probeCancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer probeCancel()
 	for {

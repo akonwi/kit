@@ -12,8 +12,8 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/daemon"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -38,7 +38,7 @@ func TestBoundPluginToastStreamExecutesRealFixtureAndCancels(t *testing.T) {
 	ctx, stop := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- daemon.Run(ctx, daemon.RunOptions{Paths: paths, Providers: reloadProviders{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		done <- kitserver.Run(ctx, kitserver.RunOptions{Paths: paths, Providers: reloadProviders{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	}()
 	defer func() {
 		stop()
@@ -51,7 +51,7 @@ func TestBoundPluginToastStreamExecutesRealFixtureAndCancels(t *testing.T) {
 			t.Error("daemon did not stop")
 		}
 	}()
-	transport := daemon.NewClient(paths)
+	transport := kitserver.NewClient(paths)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, err := transport.Probe(t.Context()); err == nil {

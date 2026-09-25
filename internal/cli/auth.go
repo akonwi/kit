@@ -8,7 +8,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/daemon"
+	kitserver "github.com/akonwi/kit/internal/server"
 )
 
 const openAICodexDisplayName = "OpenAI Codex"
@@ -26,7 +26,7 @@ func runLogin(ctx context.Context, args []string, stdout, stderr io.Writer) int 
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	manager := daemon.NewManager(paths)
+	manager := kitserver.NewManager(paths)
 	// Fail before starting a potentially long browser interaction when a live
 	// daemon would ignore the resulting stored credential.
 	release, err := manager.AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
@@ -78,7 +78,7 @@ func runLogout(ctx context.Context, args []string, stdout, stderr io.Writer) int
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	release, err := daemon.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
+	release, err := kitserver.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
 	if err != nil {
 		return writeAuthFailure(ctx, stderr, "prepare OpenAI Codex logout", err)
 	}
@@ -140,8 +140,8 @@ func runAuthCommand(ctx context.Context, args []string, stdout, stderr io.Writer
 }
 
 func openAICodexEnvironmentActive(ctx context.Context, paths apphome.Paths) (bool, error) {
-	release, err := daemon.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
-	if errors.Is(err, daemon.ErrEnvironmentCredentialsActive) {
+	release, err := kitserver.NewManager(paths).AcquireCredentialStoreMutation(ctx, auth.OpenAICodexProviderID)
+	if errors.Is(err, kitserver.ErrEnvironmentCredentialsActive) {
 		return true, nil
 	}
 	if err != nil {
