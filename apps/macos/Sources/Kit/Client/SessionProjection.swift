@@ -56,7 +56,7 @@ enum SessionProjection {
         var results: [String: WireTranscriptMessage] = [:]
         for message in source {
             guard !message.id.isEmpty, seen.insert(message.id).inserted,
-                  ["user", "assistant", "tool", "context", "bash"].contains(message.role) else { throw ClientError.invalidPayload }
+                  ["user", "assistant", "tool", "context"].contains(message.role) else { throw ClientError.invalidPayload }
             for block in message.content ?? [] where block.kind.rawValue == "toolCall" {
                 guard let id = block.toolCallId, block.toolName != nil else { throw ClientError.invalidPayload }
                 calls.insert(id)
@@ -86,9 +86,6 @@ enum SessionProjection {
             } else if let bash = try BashExecution.boundary(message) {
                 flush()
                 messages.append(bash.message)
-            } else if let bash = message.bash {
-                flush()
-                messages.append(try BashExecution(bash, session: bash.sessionId).message)
             } else {
                 if message.role != "assistant" { flush() }
                 var visible: [WireTranscriptContent] = []

@@ -51,6 +51,13 @@ type BashExecution struct {
 	CompletedAt        *time.Time
 }
 
+// BashHistoryEntry is the durable session-owned representation of a settled
+// direct shell execution. It is independent of whether the execution was
+// informed to the droid as model context.
+type BashHistoryEntry struct {
+	Execution BashExecution
+}
+
 type activeBashExecution struct {
 	id      string
 	cancel  context.CancelCauseFunc
@@ -86,12 +93,42 @@ func (m *Manager) StartBash(ctx context.Context, sessionID, executionID, command
 	cwd := loaded.workspace.CWD()
 	m.bashMu.Lock()
 	defer m.bashMu.Unlock()
+	if m.bashHistoryRepository != nil && m.bashNextSequence[sessionID] == 0 {
+		persisted, err := m.bashHistoryRepository.ListBashHistory(ctx, sessionID)
+		if err != nil {
+			return BashExecution{}, err
+		}
+		for _, execution := range persisted {
+			if execution.Sequence >= m.bashNextSequence[sessionID] {
+				m.bashNextSequence[sessionID] = execution.Sequence + 1
+			}
+		}
+	}
 	if history := m.bashHistory[sessionID]; history != nil {
 		if existing, ok := history[executionID]; ok {
 			if existing.Command != command || existing.ExcludeFromContext != exclude {
 				return BashExecution{}, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
 			}
 			return existing, nil
+		}
+	}
+	if m.bashHistoryRepository != nil {
+		persisted, err := m.bashHistoryRepository.ListBashHistory(ctx, sessionID)
+		if err != nil {
+			return BashExecution{}, err
+		}
+		for _, execution := range persisted {
+			if execution.ID != executionID {
+				continue
+			}
+			if execution.Command != command || execution.ExcludeFromContext != exclude {
+				return BashExecution{}, fmt.Errorf("%w: bash execution id was reused", ErrInvalidInput)
+			}
+			if m.bashHistory[sessionID] == nil {
+				m.bashHistory[sessionID] = make(map[string]BashExecution)
+			}
+			m.bashHistory[sessionID][executionID] = execution
+			return execution, nil
 		}
 	}
 	received, err := loaded.droid.BoundaryReceived(ctx, executionID)
@@ -164,8 +201,20 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 		settled.Status, settled.ErrorMessage = BashExecutionFailed, runErr.Error()
 	}
 
+	m.mu.Lock()
+	_, temporary := m.temporary[execution.SessionID]
+	m.mu.Unlock()
+	historyPersisted := temporary || m.bashHistoryRepository == nil
+	if !historyPersisted {
+		if err := m.bashHistoryRepository.AppendBashHistory(context.Background(), BashHistoryEntry{Execution: settled}); err != nil {
+			settled.Status = BashExecutionInterrupted
+			settled.ErrorMessage = "persist bash history: " + err.Error()
+		} else {
+			historyPersisted = true
+		}
+	}
 	informErr := error(nil)
-	if !settled.ExcludeFromContext && settled.Status != BashExecutionInterrupted {
+	if historyPersisted && !settled.ExcludeFromContext && settled.Status != BashExecutionInterrupted {
 		details, err := encodeBashDetails(settled)
 		if err != nil {
 			informErr = err
@@ -186,8 +235,9 @@ func (m *Manager) executeBash(ctx context.Context, execution BashExecution, acti
 			}
 		}
 	}
-	if informErr != nil {
-		settled.Status = BashExecutionInterrupted
+	if informErr != nil && historyPersisted {
+		// The session record remains authoritative even if model-context delivery
+		// is interrupted; do not rewrite the durable terminal payload here.
 		settled.ErrorMessage = "persist bash boundary: " + informErr.Error()
 	}
 	m.bashMu.Lock()
@@ -208,7 +258,46 @@ func (m *Manager) GetBash(ctx context.Context, sessionID, executionID string) (B
 	if execution, ok := m.bashHistory[sessionID][executionID]; ok {
 		return execution, nil
 	}
+	if m.bashHistoryRepository != nil {
+		persisted, err := m.bashHistoryRepository.ListBashHistory(ctx, sessionID)
+		if err != nil {
+			return BashExecution{}, err
+		}
+		for _, execution := range persisted {
+			if execution.ID == executionID {
+				return execution, nil
+			}
+		}
+	}
 	return BashExecution{}, fmt.Errorf("bash execution %q: %w", executionID, ErrNotFound)
+}
+
+// BashHistory returns one newest-first page of durable direct shell history. It
+// does not require the session runtime to be loaded and does not fall back to
+// the in-memory projection, so recall reflects persisted state across restarts.
+func (m *Manager) BashHistory(ctx context.Context, sessionID string, before uint64, limit int) (BashHistoryPage, error) {
+	if err := m.beginOperation(); err != nil {
+		return BashHistoryPage{}, err
+	}
+	defer m.ops.Done()
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return BashHistoryPage{}, fmt.Errorf("%w: session id is required", ErrInvalidInput)
+	}
+	if m.bashHistoryRepository == nil {
+		return BashHistoryPage{}, nil
+	}
+	executions, hasMore, err := m.bashHistoryRepository.BashHistoryPage(ctx, sessionID, before, limit)
+	if err != nil {
+		return BashHistoryPage{}, err
+	}
+	page := BashHistoryPage{Entries: executions, HasMore: hasMore}
+	if hasMore && len(executions) > 0 {
+		page.Cursor = uint64(executions[len(executions)-1].Sequence)
+	}
+	return page, nil
 }
 
 func (m *Manager) AbortBash(ctx context.Context, sessionID, executionID string) error {

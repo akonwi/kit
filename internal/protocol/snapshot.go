@@ -39,6 +39,60 @@ func (usage SessionUsage) Validate() error {
 
 const maxMessagePageItems = 100
 
+const (
+	// DefaultBashHistoryPageSize bounds a direct-bash history read that the
+	// composer issues without paging.
+	DefaultBashHistoryPageSize = 50
+	// MaxBashHistoryPageSize is the largest accepted bash history page.
+	MaxBashHistoryPageSize = 200
+	// MaxBashHistoryCommandBytes bounds one recalled command.
+	MaxBashHistoryCommandBytes = 64 << 10
+)
+
+// Validate checks a newest-first page of direct shell history.
+func (page BashHistoryPage) Validate() error {
+	if !identifier.Valid(page.SessionID, "session_") {
+		return fmt.Errorf("bash history page session identity is invalid")
+	}
+	if len(page.Entries) > MaxBashHistoryPageSize {
+		return fmt.Errorf("bash history page has too many entries")
+	}
+	var previous int64
+	for index := range page.Entries {
+		entry := &page.Entries[index]
+		if !identifier.Valid(entry.ID, "bash_") {
+			return fmt.Errorf("bash history entry %d identity is invalid", index)
+		}
+		if entry.Command == "" || len(entry.Command) > MaxBashHistoryCommandBytes || !utf8.ValidString(entry.Command) {
+			return fmt.Errorf("bash history entry %d command is invalid", index)
+		}
+		if _, err := time.Parse(time.RFC3339Nano, entry.StartedAt); err != nil {
+			return fmt.Errorf("bash history entry %d startedAt is invalid: %w", index, err)
+		}
+		if entry.CompletedAt != "" {
+			if _, err := time.Parse(time.RFC3339Nano, entry.CompletedAt); err != nil {
+				return fmt.Errorf("bash history entry %d completedAt is invalid: %w", index, err)
+			}
+		}
+		if index > 0 && entry.Sequence >= previous {
+			return fmt.Errorf("bash history entries are not newest first")
+		}
+		previous = entry.Sequence
+	}
+	if page.HasMore {
+		if len(page.Entries) == 0 || page.NextCursor == "" {
+			return fmt.Errorf("bash history page cursor is required for more entries")
+		}
+		cursor, err := strconv.ParseUint(page.NextCursor, 10, 64)
+		if err != nil || cursor == 0 || cursor != uint64(previous) {
+			return fmt.Errorf("bash history page next cursor is invalid")
+		}
+	} else if page.NextCursor != "" {
+		return fmt.Errorf("bash history page next cursor requires older entries")
+	}
+	return nil
+}
+
 // Validate checks a generic newest-first durable message page.
 func (page MessagePage) Validate() error {
 	if !identifier.Valid(page.SessionID, "session_") {
@@ -124,14 +178,14 @@ func (page TranscriptPage) Validate() error {
 	toolCallsByTurn := make(map[string]map[string]string)
 	toolResultsByTurn := make(map[string]map[string]struct{})
 	for index, message := range page.Messages {
-		if message.ID == "" || message.Role != "bash" && message.TurnID == "" || message.Sequence <= previous {
+		if message.ID == "" || message.TurnID == "" || message.Sequence <= previous {
 			return fmt.Errorf("transcript page message %d identity or sequence is invalid", index)
 		}
 		if _, duplicate := seen[message.ID]; duplicate {
 			return fmt.Errorf("transcript page message %d is duplicated", index)
 		}
 		seen[message.ID] = struct{}{}
-		if message.Role != "bash" && message.TurnID != currentTurn {
+		if message.TurnID != currentTurn {
 			if _, reused := closedTurns[message.TurnID]; reused {
 				return fmt.Errorf("transcript page message %d reopens noncontiguous turn %q", index, message.TurnID)
 			}
@@ -141,15 +195,12 @@ func (page TranscriptPage) Validate() error {
 			currentTurn = message.TurnID
 		}
 		switch message.Role {
-		case "user", "assistant", "tool", "context", "bash":
+		case "user", "assistant", "tool", "context":
 		default:
 			return fmt.Errorf("transcript page message %d role %q is invalid", index, message.Role)
 		}
 		if err := message.validate(); err != nil {
 			return fmt.Errorf("transcript page message %d: %w", index, err)
-		}
-		if message.Role == "bash" && (message.Bash.ID != message.ID || message.Bash.SessionID != page.SessionID || message.Bash.Sequence != message.Sequence) {
-			return fmt.Errorf("transcript page message %d bash identity mismatch", index)
 		}
 		if message.Role == "assistant" {
 			calls := toolCallsByTurn[message.TurnID]
@@ -350,7 +401,6 @@ func (snapshot SessionSnapshot) Validate() error {
 	currentTurn := ""
 	toolCallsByTurn := make(map[string]map[string]string)
 	toolResultsByTurn := make(map[string]map[string]struct{})
-	activeBashID := ""
 	for index, boundary := range snapshot.PendingBoundaries {
 		if boundary.ID == "" || boundary.Kind == "" || len(boundary.Content) == 0 {
 			return fmt.Errorf("pending boundary %d requires identity, kind, and content", index)
@@ -368,14 +418,14 @@ func (snapshot SessionSnapshot) Validate() error {
 		}
 	}
 	for index, message := range snapshot.Messages {
-		if message.ID == "" || message.Role != "bash" && message.TurnID == "" {
+		if message.ID == "" || message.TurnID == "" {
 			return fmt.Errorf("snapshot message %d requires its message and turn identities", index)
 		}
 		if _, duplicate := messageIDs[message.ID]; duplicate {
 			return fmt.Errorf("snapshot message %d duplicates message id %q", index, message.ID)
 		}
 		messageIDs[message.ID] = struct{}{}
-		if message.Role != "bash" && message.TurnID != currentTurn {
+		if message.TurnID != currentTurn {
 			if _, reused := closedTurns[message.TurnID]; reused {
 				return fmt.Errorf("snapshot message %d reopens noncontiguous turn %q", index, message.TurnID)
 			}
@@ -389,23 +439,12 @@ func (snapshot SessionSnapshot) Validate() error {
 		}
 		previousSequence = message.Sequence
 		switch message.Role {
-		case "user", "assistant", "tool", "context", "bash":
+		case "user", "assistant", "tool", "context":
 		default:
 			return fmt.Errorf("snapshot message %d role %q is invalid", index, message.Role)
 		}
 		if err := message.validate(); err != nil {
 			return fmt.Errorf("snapshot message %d: %w", index, err)
-		}
-		if message.Role == "bash" {
-			if message.Bash.ID != message.ID || message.Bash.SessionID != snapshot.Session.ID || message.Bash.Sequence != message.Sequence {
-				return fmt.Errorf("snapshot message %d bash identity mismatch", index)
-			}
-			if message.Bash.Status == BashExecutionRunning {
-				if activeBashID != "" {
-					return fmt.Errorf("snapshot has multiple running bash executions")
-				}
-				activeBashID = message.Bash.ID
-			}
 		}
 		if message.Role == "assistant" {
 			calls := toolCallsByTurn[message.TurnID]
@@ -444,9 +483,6 @@ func (snapshot SessionSnapshot) Validate() error {
 		if _, err := time.Parse(time.RFC3339Nano, message.CreatedAt); err != nil {
 			return fmt.Errorf("snapshot message %d createdAt is invalid: %w", index, err)
 		}
-	}
-	if activeBashID != "" && snapshot.ActiveBashExecutionID != activeBashID {
-		return fmt.Errorf("snapshot active bash execution does not match included bash message")
 	}
 	return nil
 }
@@ -580,13 +616,10 @@ func (message TranscriptMessage) validate() error {
 	}
 	switch message.Role {
 	case "user":
-		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil || message.IsError {
-			return fmt.Errorf("user message carries assistant, bash, or tool metadata")
+		if message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil || message.IsError {
+			return fmt.Errorf("user message carries assistant or tool metadata")
 		}
 	case "assistant":
-		if message.Bash != nil {
-			return fmt.Errorf("assistant message carries bash metadata")
-		}
 		switch message.StopReason {
 		case "", "stop", "length", "toolUse", "contextWindow", "error", "aborted":
 		default:
@@ -600,7 +633,7 @@ func (message TranscriptMessage) validate() error {
 			return fmt.Errorf("assistant error state does not match stop reason")
 		}
 	case "context":
-		if message.Bash != nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.IsError {
+		if message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.IsError {
 			return fmt.Errorf("context message carries unrelated metadata")
 		}
 		if message.BoundaryKind == "" || message.BoundaryKind != "summary" && message.BoundaryID == "" {
@@ -610,21 +643,11 @@ func (message TranscriptMessage) validate() error {
 			return err
 		}
 	case "tool":
-		if message.Bash != nil {
-			return fmt.Errorf("tool result carries bash metadata")
-		}
 		if message.ToolCallID == "" || message.ToolName == "" {
 			return fmt.Errorf("tool result requires call id and name")
 		}
 		if message.StopReason != "" || message.ErrorMessage != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" {
 			return fmt.Errorf("tool result carries assistant metadata")
-		}
-	case "bash":
-		if message.TurnID != "" || len(message.Content) != 0 || message.Bash == nil || message.StopReason != "" || message.ErrorMessage != "" || message.ToolCallID != "" || message.ToolName != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" || message.Details != nil || message.IsError {
-			return fmt.Errorf("bash message has invalid transcript fields")
-		}
-		if err := message.Bash.Validate(); err != nil {
-			return fmt.Errorf("bash execution: %w", err)
 		}
 	}
 	return nil

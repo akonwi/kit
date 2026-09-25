@@ -2706,17 +2706,6 @@ func projectTranscriptContent(content []protocol.TranscriptContent) []protocol.T
 func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessage {
 	result := make([]transcriptMessage, 0, len(messages))
 	for _, message := range messages {
-		if message.Role == "bash" {
-			if message.Bash == nil {
-				continue
-			}
-			execution := cloneBashExecution(*message.Bash)
-			result = append(result, transcriptMessage{
-				ID: message.ID, Sequence: message.Sequence, Role: "bash", Bash: &execution,
-				Pending: execution.Status == protocol.BashExecutionRunning,
-			})
-			continue
-		}
 		var textParts, thinkingParts []string
 		calls := make([]transcriptToolCall, 0)
 		for _, block := range message.Content {

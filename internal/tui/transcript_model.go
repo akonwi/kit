@@ -28,10 +28,14 @@ type transcriptToolCall struct {
 }
 
 type turnTranscriptItem struct {
-	Kind        transcriptItemKind
-	ID          string
-	TurnID      string
-	Message     protocol.TranscriptMessage
+	Kind    transcriptItemKind
+	ID      string
+	TurnID  string
+	Message protocol.TranscriptMessage
+	// Bash carries the direct shell execution for a bash row. Direct shell work
+	// is session history rather than transcript content, so the execution is
+	// projected here instead of on the wire message.
+	Bash        *protocol.BashExecution
 	ToolResults map[string]protocol.TranscriptMessage
 	Aborted     bool
 	Pending     bool
@@ -53,7 +57,7 @@ type transcriptDisplayItem struct {
 	Items  []turnTranscriptItem
 }
 
-func buildTurnTranscriptItems(messages []protocol.TranscriptMessage) []turnTranscriptItem {
+func buildTurnTranscriptItems(messages []protocol.TranscriptMessage, bashByID map[string]protocol.BashExecution) []turnTranscriptItem {
 	resultsByTurn := make(map[string]map[string]protocol.TranscriptMessage)
 	abortedTurns := make(map[string]bool)
 	for _, message := range messages {
@@ -84,11 +88,19 @@ func buildTurnTranscriptItems(messages []protocol.TranscriptMessage) []turnTrans
 			continue
 		}
 		items = append(items, turnTranscriptItem{
-			Kind: kind, ID: message.ID, TurnID: message.TurnID, Message: message,
+			Kind: kind, ID: message.ID, TurnID: message.TurnID, Message: message, Bash: bashFor(message.ID, bashByID),
 			ToolResults: resultsByTurn[message.TurnID], Aborted: abortedTurns[message.TurnID],
 		})
 	}
 	return items
+}
+
+func bashFor(id string, executions map[string]protocol.BashExecution) *protocol.BashExecution {
+	execution, ok := executions[id]
+	if !ok {
+		return nil
+	}
+	return &execution
 }
 
 func assistantToolCalls(message protocol.TranscriptMessage) []transcriptToolCall {
@@ -404,11 +416,15 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 	pendingMessages := make(map[string]bool)
 	orderedMessages := make(map[string]bool)
 	failedTurns := make(map[string]bool)
+	bashByID := make(map[string]protocol.BashExecution)
 	currentTurnID := ""
 	for index, message := range messages {
 		turnID := message.TurnID
 		if message.Role == "bash" {
 			turnID = "bash:" + message.ID
+			if message.Bash != nil {
+				bashByID[message.ID] = *message.Bash
+			}
 		} else if turnID == "" {
 			if message.Role == "user" || currentTurnID == "" {
 				turnID = "local-turn:" + strconv.Itoa(index)
@@ -455,7 +471,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		projected := protocol.TranscriptMessage{
 			ID: messageID, TurnID: turnID, Sequence: int64(index), Role: role, Content: content,
-			Bash: message.Bash, StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
+			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
 			ToolCallID: message.ToolCallID, ToolName: message.ToolName, Details: message.ToolDetails,
 			IsError: message.IsError,
 		}
@@ -481,7 +497,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 		}
 		structured = append(structured, projected)
 	}
-	items := buildTurnTranscriptItems(expandOrderedAssistantContent(structured, orderedMessages))
+	items := buildTurnTranscriptItems(expandOrderedAssistantContent(structured, orderedMessages), bashByID)
 	for index := range items {
 		items[index].Pending = pendingMessages[items[index].ID]
 		if !failedTurns[items[index].TurnID] {

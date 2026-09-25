@@ -434,6 +434,78 @@ func TestInitializedSessionFailsClosedWhenDroidStoreIsMissing(t *testing.T) {
 	}
 }
 
+func TestBashHistoryPagesNewestFirstWithContextMode(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	manager, err := session.NewManager(store, &authorityProviders{}, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(root, "droids")))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	created, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	commands := []struct {
+		id      string
+		command string
+		exclude bool
+	}{
+		{"bash_11111111111111111111111111111111", "printf first", true},
+		{"bash_22222222222222222222222222222222", "printf second", false},
+		{"bash_33333333333333333333333333333333", "printf third", true},
+	}
+	for _, item := range commands {
+		execution, err := manager.StartBash(t.Context(), created.ID, item.id, item.command, item.exclude)
+		if err != nil {
+			t.Fatal(err)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for execution.Status == session.BashExecutionRunning {
+			execution, err = manager.GetBash(t.Context(), created.ID, execution.ID)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("bash %s did not settle", item.id)
+			}
+			time.Sleep(10 * time.Millisecond)
+		}
+	}
+	page, err := manager.BashHistory(t.Context(), created.ID, 0, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Entries) != 2 || !page.HasMore {
+		t.Fatalf("first page = %+v", page)
+	}
+	if page.Entries[0].ID != commands[2].id || page.Entries[0].Command != "printf third" || !page.Entries[0].ExcludeFromContext {
+		t.Fatalf("newest entry = %+v", page.Entries[0])
+	}
+	if page.Entries[1].ID != commands[1].id || page.Entries[1].ExcludeFromContext {
+		t.Fatalf("second entry = %+v", page.Entries[1])
+	}
+	if page.Cursor != uint64(page.Entries[1].Sequence) {
+		t.Fatalf("cursor = %d, oldest = %d", page.Cursor, page.Entries[1].Sequence)
+	}
+	older, err := manager.BashHistory(t.Context(), created.ID, page.Cursor, 2)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(older.Entries) != 1 || older.HasMore || older.Entries[0].ID != commands[0].id || !older.Entries[0].ExcludeFromContext {
+		t.Fatalf("older page = %+v", older)
+	}
+	for _, entry := range append(append([]session.BashExecution(nil), page.Entries...), older.Entries...) {
+		if entry.CompletedAt == nil || entry.CWD == "" {
+			t.Fatalf("history entry lacks durable metadata: %+v", entry)
+		}
+	}
+}
+
 func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
@@ -500,7 +572,7 @@ func TestCompletedBashBecomesPendingThenConsumedDroidBoundary(t *testing.T) {
 	}
 }
 
-func TestExcludedBashRemainsTransient(t *testing.T) {
+func TestExcludedBashIsDurableWithoutEnteringDroidHistory(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
 	if err != nil {
@@ -541,8 +613,29 @@ func TestExcludedBashRemainsTransient(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(reopened.Close)
-	if _, err := reopened.GetBash(t.Context(), created.ID, bash.ID); !errors.Is(err, session.ErrNotFound) {
-		t.Fatalf("reopened excluded bash = %v, want transient not found", err)
+	if restored, err := reopened.GetBash(t.Context(), created.ID, bash.ID); err != nil || restored.Command != bash.Command || !restored.ExcludeFromContext {
+		t.Fatalf("reopened excluded bash = %+v, %v; want durable excluded execution", restored, err)
+	}
+	restoredSnapshot, err := reopened.Snapshot(t.Context(), created.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Direct shell work is durable session history, not transcript content. Its
+	// sequences are in a different space from droid history, so splicing it into
+	// the paginated transcript would break the previous-message cursor.
+	if len(restoredSnapshot.Messages) != 0 {
+		t.Fatalf("reopened excluded transcript = %+v", restoredSnapshot.Messages)
+	}
+	restoredHistory, err := reopened.BashHistory(t.Context(), created.ID, 0, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(restoredHistory.Entries) != 1 || restoredHistory.Entries[0].ID != bash.ID ||
+		restoredHistory.Entries[0].Command != "printf private" || !restoredHistory.Entries[0].ExcludeFromContext {
+		t.Fatalf("reopened excluded bash history = %+v", restoredHistory.Entries)
+	}
+	if len(restoredSnapshot.Boundaries) != 0 {
+		t.Fatalf("reopened excluded bash reached droid: %+v", restoredSnapshot.Boundaries)
 	}
 }
 

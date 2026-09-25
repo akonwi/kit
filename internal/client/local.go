@@ -91,6 +91,7 @@ var _ sessionclient.WorkingTreeDiffSession = (*localSession)(nil)
 var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
+var _ sessionclient.BashHistorySession = (*localSession)(nil)
 var _ sessionclient.Run = (*localRun)(nil)
 var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
@@ -756,6 +757,10 @@ func (c *localSession) StartBash(ctx context.Context, executionID, command strin
 
 func (c *localSession) AbortBash(ctx context.Context, executionID string) error {
 	return c.transport.AbortBash(ctx, c.id, executionID)
+}
+
+func (c *localSession) BashHistory(ctx context.Context, before uint64, limit int) (protocol.BashHistoryPage, error) {
+	return c.transport.GetBashHistory(ctx, c.id, before, limit)
 }
 
 // Watch returns an exact baseline and all subsequent attachment-scoped events.

@@ -848,6 +848,17 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil || len(bashSnapshot.PendingBoundaries) != 1 || bashSnapshot.PendingBoundaries[0].ID != bashID {
 		t.Fatalf("bash snapshot = %+v, %v", bashSnapshot, err)
 	}
+	bashHistory, err := client.GetBashHistory(context.Background(), created.ID, 0, 10)
+	if err != nil {
+		t.Fatalf("GetBashHistory() error = %v", err)
+	}
+	if len(bashHistory.Entries) != 1 || bashHistory.Entries[0].ID != bashID ||
+		bashHistory.Entries[0].Command != "printf api-bash" || bashHistory.Entries[0].ExcludeFromContext || bashHistory.HasMore {
+		t.Fatalf("bash history = %+v", bashHistory)
+	}
+	if _, err := client.GetBashHistory(context.Background(), created.ID, 0, protocol.MaxBashHistoryPageSize+1); err == nil {
+		t.Fatal("GetBashHistory() accepted an oversized page limit")
+	}
 	sessions, err := client.ListSessions(context.Background(), workspace)
 	if err != nil {
 		t.Fatalf("ListSessions() error = %v", err)

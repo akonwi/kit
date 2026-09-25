@@ -863,8 +863,8 @@ func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresent
 func (w shellView) transcriptRow(theme ui.Theme, presentation transcriptPresentation, item transcriptDisplayItem, interactiveWork bool) ui.Widget {
 	switch item.Kind {
 	case transcriptDisplaySingle:
-		if item.Item.Kind == transcriptItemBash && item.Item.Message.Bash != nil {
-			execution := *item.Item.Message.Bash
+		if item.Item.Kind == transcriptItemBash && item.Item.Bash != nil {
+			execution := *item.Item.Bash
 			return transcriptBashEntry(theme, execution, w.Snapshot.BashCollapsed[execution.ID], func(ctx ui.EventContext) {
 				if w.Callbacks.ToggleBashOutput != nil {
 					w.Callbacks.ToggleBashOutput(ctx, execution.ID)

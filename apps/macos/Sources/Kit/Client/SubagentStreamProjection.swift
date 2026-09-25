@@ -88,7 +88,7 @@ struct SubagentStreamProjection {
                 arguments: $0.arguments, argumentsTruncated: $0.argumentsTruncated, filename: $0.filename, mediaType: $0.mediaType, attachmentId: $0.attachmentId, annotations: $0.annotations)
         }
         return WireTranscriptMessage(id: message.id, turnId: message.turnId, sequence: message.sequence,
-            role: message.role, content: content, bash: message.bash, stopReason: message.stopReason,
+            role: message.role, content: content, stopReason: message.stopReason,
             errorMessage: message.errorMessage, toolCallId: id(message.toolCallId), toolName: message.toolName,
             boundaryId: message.boundaryId, boundaryKind: message.boundaryKind, boundarySource: message.boundarySource,
             details: message.details, isError: message.isError, createdAt: message.createdAt)

@@ -7,15 +7,34 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Composer, sessions, and commands
 
-- [ ] TUI-COMP-001 — Recall the full session's direct-bash history from the
-  composer. `Up` on a `!` composer currently lists only executions still present
-  in the loaded transcript and live projection. Excluded `!!` commands are not
-  durable, and included `!` commands are not stored as recallable history with
-  their context mode. Persist each settled direct-bash command in the session's
-  ordered history, including whether it was `!` or `!!`, and show that complete
-  newest-first history in the composer-anchored picker. Filtering, navigation,
-  insertion without execution, and dismissal already work for the loaded
-  projection.
+- [x] TUI-COMP-001 — Recall the full session's direct-bash history from the
+  composer. This item is complete when every subitem below is complete.
+  - [x] TUI-COMP-001a — Persist every settled direct-bash execution in the
+    authoritative session history, including its command, execution status,
+    output metadata, and `!`/`!!` context mode. Done in
+    `internal/storage/migrations/0010_direct_bash_history.sql` and
+    `internal/session/bash.go`; tracked by
+    [ADR 0006](../docs/adrs/0006-droids-as-session-data-authority.md).
+  - [x] TUI-COMP-001b — Persist excluded `!!` executions as durable session
+    history without projecting them into the transcript. Direct shell work has
+    its own sequence space, separate from droid history, so it is recalled
+    through the bash-history projection rather than spliced into the paginated
+    transcript. Included `!` executions already appear once, as droid context
+    boundaries.
+  - [x] TUI-COMP-001c — Read the complete durable history in the
+    composer-anchored picker rather than only the loaded transcript and live
+    projection, and show it newest-first with each entry's `!`/`!!` context
+    mode. `GET /v1/sessions/{id}/bash-history` serves a bounded newest-first
+    page; the TUI opens with one ten-entry page and loads older entries on
+    demand when navigation reaches the oldest loaded row, within bounded depth.
+    Filtering, navigation, insertion without execution, and dismissal continue
+    to work for that complete history.
+  - [x] TUI-COMP-001d — Present recalled history after reload and restart
+    through the same picker, including `!!` executions that never enter droid
+    history, and assert the exact expected rows. Durable history, not the loaded
+    transcript, admits the picker, so recall works when the projection holds no
+    direct shell rows. An empty picker presents an in-flight read until the
+    durable page answers.
 - [ ] TUI-SESSION-001 — Expose session creation, opening, switching, naming,
   deletion, automatic names, and recovery errors through bounded native flows.
 - [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the

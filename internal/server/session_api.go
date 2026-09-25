@@ -146,6 +146,7 @@ type sessionService interface {
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
 	Bash(context.Context, string, string) (protocol.BashExecution, error)
 	AbortBash(context.Context, string, string) error
+	BashHistory(context.Context, string, uint64, int) (protocol.BashHistoryPage, error)
 	Subagent(context.Context, string, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
 	SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error)
 	SubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
@@ -849,6 +850,32 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 			Details:    append(json.RawMessage(nil), boundary.Details...),
 			AcceptedAt: boundary.AcceptedAt.Format(time.RFC3339Nano),
 		})
+	}
+	return result, nil
+}
+
+func (s runtimeSessionService) BashHistory(ctx context.Context, sessionID string, before uint64, limit int) (protocol.BashHistoryPage, error) {
+	page, err := s.manager.BashHistory(ctx, sessionID, before, limit)
+	if err != nil {
+		return protocol.BashHistoryPage{}, err
+	}
+	result := protocol.BashHistoryPage{
+		SessionID: sessionID, Entries: make([]protocol.BashHistoryEntry, 0, len(page.Entries)),
+		HasMore: page.HasMore,
+	}
+	for _, execution := range page.Entries {
+		entry := protocol.BashHistoryEntry{
+			ID: execution.ID, Sequence: execution.Sequence, Command: execution.Command,
+			Status: string(execution.Status), ExcludeFromContext: execution.ExcludeFromContext,
+			StartedAt: execution.StartedAt.UTC().Format(time.RFC3339Nano),
+		}
+		if execution.CompletedAt != nil {
+			entry.CompletedAt = execution.CompletedAt.UTC().Format(time.RFC3339Nano)
+		}
+		result.Entries = append(result.Entries, entry)
+	}
+	if page.HasMore {
+		result.NextCursor = strconv.FormatUint(page.Cursor, 10)
 	}
 	return result, nil
 }
@@ -1680,6 +1707,40 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusOK, snapshot)
+	})
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-history", func(writer http.ResponseWriter, request *http.Request) {
+		query := request.URL.Query()
+		limit := protocol.DefaultBashHistoryPageSize
+		if raw := query.Get("limit"); raw != "" {
+			parsed, err := strconv.Atoi(raw)
+			if err != nil || parsed <= 0 || parsed > protocol.MaxBashHistoryPageSize {
+				writeSessionError(writer, fmt.Errorf("%w: bash history limit must be between 1 and %d", errInvalidSessionRequest, protocol.MaxBashHistoryPageSize))
+				return
+			}
+			limit = parsed
+		}
+		var before uint64
+		if raw := query["before"]; len(raw) > 1 || (len(raw) == 1 && (raw[0] == "" || len(raw[0]) > 256 || strings.TrimSpace(raw[0]) != raw[0])) {
+			writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
+			return
+		} else if len(raw) == 1 {
+			parsed, err := strconv.ParseUint(raw[0], 10, 64)
+			if err != nil || parsed == 0 {
+				writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
+				return
+			}
+			before = parsed
+		}
+		result, err := service.BashHistory(request.Context(), request.PathValue("sessionID"), before, limit)
+		if err != nil {
+			writeSessionError(writer, err)
+			return
+		}
+		if err := result.Validate(); err != nil {
+			writeSessionError(writer, fmt.Errorf("invalid bash history page: %w", err))
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/messages", func(writer http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()

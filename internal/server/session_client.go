@@ -401,6 +401,32 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 	return output, nil
 }
 
+// GetBashHistory returns one newest-first page of direct shell history.
+func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before uint64, limit int) (protocol.BashHistoryPage, error) {
+	values := url.Values{}
+	if limit > 0 {
+		values.Set("limit", strconv.Itoa(limit))
+	}
+	if before > 0 {
+		values.Set("before", strconv.FormatUint(before, 10))
+	}
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-history"
+	if encoded := values.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
+	var output protocol.BashHistoryPage
+	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+		return protocol.BashHistoryPage{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.BashHistoryPage{}, fmt.Errorf("validate daemon bash history page: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.BashHistoryPage{}, fmt.Errorf("daemon bash history page identity mismatch")
+	}
+	return output, nil
+}
+
 // GetMessagePage returns newest-first durable messages matching query.
 func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
 	values := url.Values{}

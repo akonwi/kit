@@ -45,7 +45,7 @@ func TestBuildTurnTranscriptItemsPairsResultsAndMarksAbortedTurns(t *testing.T) 
 		},
 	}
 
-	items := buildTurnTranscriptItems(messages)
+	items := buildTurnTranscriptItems(messages, nil)
 	if len(items) != 3 {
 		t.Fatalf("item count = %d, want 3: %+v", len(items), items)
 	}
@@ -71,7 +71,7 @@ func TestGroupTranscriptDisplayItemsKeepsProseAndConsolidatesTurnWork(t *testing
 		transcriptMessageWithContent("assistant_3", "turn_1", "assistant", textBlock("Done.")),
 	}
 
-	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages))
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages, nil))
 	gotKinds := make([]transcriptDisplayKind, len(display))
 	for index := range display {
 		gotKinds[index] = display[index].Kind
@@ -107,7 +107,7 @@ func TestGroupTranscriptDisplayItemsSplitsToolBatchesAroundProse(t *testing.T) {
 		transcriptMessageWithContent("assistant_3", "turn_1", "assistant", textBlock("Done.")),
 	}
 
-	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages))
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems(messages, nil))
 	if len(display) != 4 {
 		t.Fatalf("display = %+v, want work, prose, work, prose", display)
 	}
@@ -126,7 +126,7 @@ func TestGroupTranscriptDisplayItemsKeepsPendingProseToolBatchIdentityStable(t *
 		toolCallBlock("call_1", "read", `{"path":"README.md"}`))
 	second := transcriptMessageWithContent("assistant_2", "turn_1", "assistant",
 		textBlock("I need to search next."), toolCallBlock("call_2", "grep", `{"pattern":"TODO"}`))
-	items := buildTurnTranscriptItems([]protocol.TranscriptMessage{first, second})
+	items := buildTurnTranscriptItems([]protocol.TranscriptMessage{first, second}, nil)
 	items[1].Pending = true
 	pending := groupTranscriptDisplayItems(items)
 	items[1].Pending = false
@@ -280,7 +280,7 @@ func TestThinkingWithoutToolsDoesNotCreateActivityWork(t *testing.T) {
 		"assistant_1", "turn_1", "assistant",
 		thinkingBlock("## Plan\n\n- inspect"), textBlock("Done."),
 	)
-	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}))
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}, nil))
 	if len(display) != 1 || display[0].Kind != transcriptDisplayAssistantProse || assistantProse(display[0].Item.Message) != "Done." {
 		t.Fatalf("thinking-only display = %+v, want assistant prose without a work drawer", display)
 	}
@@ -305,7 +305,7 @@ func TestToolArrivalCreatesActivityWorkWithThinkingEvidence(t *testing.T) {
 		"assistant_1", "turn_1", "assistant",
 		thinkingBlock("considering"), toolCallBlock("call_1", "read", `{"path":"README.md"}`),
 	)
-	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}))
+	display := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{message}, nil))
 	if len(display) != 1 || display[0].Kind != transcriptDisplayTurnWork || display[0].ID != "turn-work:turn_1:assistant_1" {
 		t.Fatalf("tool-backed work = %+v", display)
 	}
@@ -321,12 +321,12 @@ func TestGroupTranscriptDisplayItemsKeepsWorkIdentityStableAcrossCompletion(t *t
 	assistant := transcriptMessageWithContent(
 		"assistant_1", "turn_1", "assistant", toolCallBlock("call_1", "read", `{"path":"README.md"}`),
 	)
-	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant}))
+	before := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant}, nil))
 	result := protocol.TranscriptMessage{
 		ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read",
 		Content: []protocol.TranscriptContent{textBlock("contents")},
 	}
-	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant, result}))
+	after := groupTranscriptDisplayItems(buildTurnTranscriptItems([]protocol.TranscriptMessage{assistant, result}, nil))
 	if len(before) != 1 || len(after) != 1 || before[0].ID != after[0].ID {
 		t.Fatalf("display identity changed: before=%+v after=%+v", before, after)
 	}
@@ -560,5 +560,28 @@ func TestToolPresentationHelpersMatchMainRules(t *testing.T) {
 	skill := transcriptToolCall{ID: "skill_1", Name: "activate_skill", Arguments: json.RawMessage(`{"name":"vaxis-ui"}`)}
 	if got := formatToolArguments(skill, false); got != "vaxis-ui" {
 		t.Fatalf("skill argument = %q", got)
+	}
+}
+
+// TestPresentTranscriptCarriesBashExecutionOutsideWireMessage pins that a bash
+// row keeps its execution through presentation. Direct shell work is session
+// history rather than transcript content, so the execution rides on the
+// presentation item instead of the wire message.
+func TestPresentTranscriptCarriesBashExecutionOutsideWireMessage(t *testing.T) {
+	execution := bashExecution("bash_1", "git status", false, "clean")
+	presentation := presentTranscript([]transcriptMessage{
+		{ID: "user_1", TurnID: "turn_1", Role: "user", Text: "run it"},
+		{ID: "bash_1", Role: "bash", Bash: execution},
+	})
+	rows := presentation.Items
+	if len(rows) != 2 {
+		t.Fatalf("display rows = %d, want 2: %+v", len(rows), rows)
+	}
+	bash := rows[1]
+	if bash.Kind != transcriptDisplaySingle || bash.Item.Kind != transcriptItemBash {
+		t.Fatalf("bash row = %+v", bash)
+	}
+	if bash.Item.Bash == nil || bash.Item.Bash.ID != "bash_1" || bash.Item.Bash.Command != "git status" {
+		t.Fatalf("bash row execution = %+v", bash.Item.Bash)
 	}
 }

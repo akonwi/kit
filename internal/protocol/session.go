@@ -233,6 +233,27 @@ type BashExecution struct {
 	CompletedAt        string              `json:"completedAt,omitempty"`
 }
 
+// BashHistoryEntry is one recallable direct shell command in session history.
+// It is a bounded projection: command, context mode, and timing, without the
+// full output payload the transcript carries.
+type BashHistoryEntry struct {
+	ID                 string `json:"id"`
+	Sequence           int64  `json:"sequence"`
+	Command            string `json:"command"`
+	Status             string `json:"status"`
+	ExcludeFromContext bool   `json:"excludeFromContext,omitempty"`
+	StartedAt          string `json:"startedAt"`
+	CompletedAt        string `json:"completedAt,omitempty"`
+}
+
+// BashHistoryPage is one newest-first page of direct shell history.
+type BashHistoryPage struct {
+	SessionID  string             `json:"sessionId"`
+	Entries    []BashHistoryEntry `json:"entries"`
+	NextCursor string             `json:"nextCursor,omitempty"`
+	HasMore    bool               `json:"hasMore"`
+}
+
 // SessionInfo is the client-facing projection of authoritative session metadata.
 type SessionInfo struct {
 	ID                    string `json:"id"`
@@ -319,7 +340,6 @@ type TranscriptMessage struct {
 	Sequence       int64               `json:"sequence"`
 	Role           string              `json:"role"`
 	Content        []TranscriptContent `json:"content"`
-	Bash           *BashExecution      `json:"bash,omitempty"`
 	StopReason     string              `json:"stopReason,omitempty"`
 	ErrorMessage   string              `json:"errorMessage,omitempty"`
 	ToolCallID     string              `json:"toolCallId,omitempty"`

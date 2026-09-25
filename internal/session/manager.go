@@ -116,6 +116,7 @@ type PromptResult struct {
 // Registry lookups should otherwise release Manager.mu before touching a runtime.
 type Manager struct {
 	store                 Repository
+	bashHistoryRepository BashHistoryRepository
 	scratchpads           scratchpad.Repository
 	providers             droids.Providers
 	bundleBuilder         RuntimeBundleBuilder
@@ -417,6 +418,9 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
+	}
+	if history, ok := store.(BashHistoryRepository); ok {
+		manager.bashHistoryRepository = history
 	}
 	if mailbox, ok := store.(subagent.Repository); ok {
 		manager.mailbox = mailbox

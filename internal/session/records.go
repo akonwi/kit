@@ -99,6 +99,20 @@ type CWDMutation struct {
 	Changed     bool
 }
 
+// BashHistoryPage is one newest-first page of session-owned direct shell history.
+type BashHistoryPage struct {
+	Entries []BashExecution
+	Cursor  uint64
+	HasMore bool
+}
+
+// BashHistoryRepository is the optional session-owned persistence port for direct shell history.
+type BashHistoryRepository interface {
+	AppendBashHistory(context.Context, BashHistoryEntry) error
+	ListBashHistory(context.Context, string) ([]BashExecution, error)
+	BashHistoryPage(context.Context, string, uint64, int) ([]BashExecution, bool, error)
+}
+
 // Repository is the persistence port for Kit's session registry. Conversation
 // turns, executions, messages, and events belong to each session's droid Store.
 type Repository interface {

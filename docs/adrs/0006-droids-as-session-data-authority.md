@@ -123,21 +123,34 @@ its operation ID does not compact again.
 
 Direct composer bash remains a Kit-supervised process while it is running. Live
 process output is transient harness state delivered to attached clients. When
-the execution settles, Kit submits its command, output, status, and relevant
-metadata through `Droid.Inform` using the bash execution ID as the stable
-boundary and receipt identity.
+the execution settles, Kit persists the complete terminal execution in the
+session registry independently of model context. For included executions, Kit
+also submits the command, output, status, and relevant metadata through
+`Droid.Inform` using the bash execution ID as the stable boundary and receipt
+identity.
 
-Droids therefore owns the durable conversation record and decides when the
-boundary becomes active model context. `ExcludeFromContext` means Kit does not
-inform the droid; such an execution is transient and is not durable after the
-client or daemon loses it.
+Droids therefore owns the durable conversation record for included bash and
+decides when that boundary becomes active model context. `ExcludeFromContext`
+means Kit does not inform the droid; it does not remove the execution from
+session-owned history or composer recall.
 
-Kit does not acknowledge a terminal bash result to clients until `Inform`
-succeeds. It retains the completed payload in the supervising goroutine and may
-retry an ambiguous failure while the daemon remains alive. A daemon interruption
-may discard an unacknowledged in-flight or just-completed direct bash execution.
-This initial simplification does not introduce another durable Kit execution
-model solely to represent interrupted shell work.
+Kit keeps the session-owned execution in its own bounded bash-history
+projection rather than splicing it into the transcript. Bash executions carry
+sequences from a space separate from droid history, so merging the two would
+make transcript sequence order and the previous-message cursor disagree. Recall
+reads the bash-history projection, and an included execution already appears in
+the transcript as its droid context boundary.
+
+A transcript message therefore never carries a direct shell execution. The wire
+has no `bash` transcript role, and every transcript message belongs to a turn.
+Clients reconstruct bash presentation from pending boundaries, included droid
+context boundaries, and the bash-history projection.
+
+Kit acknowledges a terminal included bash result only after both session-history
+persistence and `Inform` succeed. It retains the completed payload in the
+supervising goroutine and may retry an ambiguous delivery failure while the
+daemon remains alive. The execution ID provides the same idempotency identity
+across Kit history and droid boundary receipt.
 
 Bash boundary content includes a versioned structured metadata object containing
 command, status, exit code, truncation, timeout, and timestamps rather than
@@ -295,8 +308,8 @@ The implementation must demonstrate:
   revision;
 - live text and tool events require no writes to `kit.db`;
 - every client-acknowledged terminal included bash result is durably admitted
-  through `Inform` exactly once;
-- excluded bash work does not enter droid history;
+  through session history and `Inform` exactly once;
+- excluded bash work does not enter droid history but remains in session history;
 - runtime and daemon restart recovery uses droid state only; and
 - multiple sessions continue to execute concurrently.
 
@@ -317,7 +330,7 @@ The implementation must demonstrate:
 - A daemon restart requires snapshot resynchronization instead of replaying a
   Kit event journal.
 - Ambiguous prompt delivery is not automatically replayed.
-- In-flight and excluded direct bash executions are not durable.
+- In-flight direct bash executions are not durable.
 - Protocol and client code must stop assuming a separately persisted Kit run.
 - Droids snapshots expose more boundary detail to support presentation choices.
 

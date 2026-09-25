@@ -27,7 +27,7 @@ extension TranscriptHistoryPage {
             guard !message.id.isEmpty, ids.insert(message.id).inserted,
                   message.sequence > previous, message.sequence >= 0,
                   UInt64(message.sequence) < boundary else { throw ClientError.invalidPayload }
-            if message.role != "bash", message.turnId != turn {
+            if message.turnId != turn {
                 guard !message.turnId.isEmpty, !closedTurns.contains(message.turnId) else { throw ClientError.invalidPayload }
                 if let turn { closedTurns.insert(turn) }
                 turn = message.turnId

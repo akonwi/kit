@@ -9,6 +9,17 @@ import (
 
 const bashHistoryMaxVisible = 10
 
+const (
+	// bashHistoryInitialLimit bounds the first durable history read so opening
+	// the picker costs one bounded request.
+	bashHistoryInitialLimit = bashHistoryMaxVisible
+	// bashHistoryPageLimit bounds each subsequent older-entry read.
+	bashHistoryPageLimit = 100
+	// bashHistoryMaxPages bounds total older-entry loads while the picker is
+	// open so navigation cannot page indefinitely.
+	bashHistoryMaxPages = 5
+)
+
 type bashHistoryEntry struct {
 	ID                 string
 	Command            string
@@ -20,20 +31,76 @@ type bashHistoryController struct {
 	Query     string
 	Selection string
 	Entries   []bashHistoryEntry
+	// HasMore reports that durable history holds older entries beyond Entries.
+	HasMore bool
+	// OlderBefore is the exclusive cursor for the next older read, or zero
+	// when no further read is available.
+	OlderBefore uint64
+	// PagesLoaded counts older-entry reads performed while open.
+	PagesLoaded int
+	// Loading reports that an older-entry read is in flight.
+	Loading bool
+	// OnExhausted requests the next older page when navigation reaches the
+	// oldest loaded entry.
+	OnExhausted func()
 }
 
+// OpenFor admits the picker on the composer alone. Durable history is the
+// source of truth for entries, so an empty loaded projection must not prevent
+// the picker from opening: after a reload or restart, remembered executions
+// exist only in session history, never in the loaded transcript.
 func (h *bashHistoryController) OpenFor(entries []bashHistoryEntry, composer string) bool {
-	if h.Open || len(entries) == 0 || !strings.HasPrefix(composer, "!") {
+	if h.Open || !strings.HasPrefix(composer, "!") {
 		return false
 	}
 	h.Open = true
 	h.Query = strings.TrimLeft(strings.TrimLeft(composer, "!"), " \t")
 	h.Entries = append([]bashHistoryEntry(nil), entries...)
 	h.Selection = firstBashHistoryID(h.filtered())
+	// The first durable page is in flight, so an empty list is not yet an
+	// answer and must not be presented as one.
+	h.Loading = true
+	h.OnExhausted = nil
 	return true
 }
 
 func (h *bashHistoryController) Close() { *h = bashHistoryController{} }
+
+// Exhausted reports whether navigation reached the oldest loaded entry while
+// older durable history remains.
+func (h *bashHistoryController) Exhausted() bool {
+	if !h.Open || h.Loading || !h.HasMore || h.OnExhausted == nil {
+		return false
+	}
+	if h.PagesLoaded >= bashHistoryMaxPages {
+		return false
+	}
+	entries := h.filtered()
+	if len(entries) == 0 {
+		return false
+	}
+	return entries[len(entries)-1].ID == h.Selection
+}
+
+// MergeOlder appends an older page while preserving the current query and
+// selection. The older page is older, so the selection does not move.
+func (h *bashHistoryController) MergeOlder(entries []bashHistoryEntry, before uint64, hasMore bool) {
+	if !h.Open {
+		return
+	}
+	known := make(map[string]struct{}, len(h.Entries))
+	for _, entry := range h.Entries {
+		known[entry.ID] = struct{}{}
+	}
+	for _, entry := range entries {
+		if _, ok := known[entry.ID]; ok {
+			continue
+		}
+		h.Entries = append(h.Entries, entry)
+		known[entry.ID] = struct{}{}
+	}
+	h.HasMore, h.OlderBefore, h.PagesLoaded, h.Loading = hasMore, before, h.PagesLoaded+1, false
+}
 
 func (h *bashHistoryController) SetQuery(query string) {
 	h.Query = query
@@ -43,6 +110,13 @@ func (h *bashHistoryController) SetQuery(query string) {
 func (h *bashHistoryController) Move(delta int) {
 	entries := h.filtered()
 	if !h.Open || len(entries) == 0 {
+		return
+	}
+	// Older entries load before the selection wraps back to the newest row.
+	if h.Exhausted() && delta < 0 {
+		if request := h.OnExhausted; request != nil {
+			request()
+		}
 		return
 	}
 	index := 0
@@ -155,7 +229,11 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	rows := make([]ui.Widget, 0, max(1, len(entries)))
 	if len(entries) == 0 {
-		rows = append(rows, ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}})
+		label := "No results"
+		if w.Controller.Loading {
+			label = "Loading history…"
+		}
+		rows = append(rows, ui.Text{Value: label, Style: ui.Style{Foreground: theme.MutedForeground}})
 	}
 	for _, entry := range entries {
 		entry := entry

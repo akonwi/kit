@@ -53,6 +53,13 @@ type Session interface {
 	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
 }
 
+// BashHistorySession is the optional bound-session durable direct-bash history
+// capability. It is distinct from the transcript projection: recall must read
+// persisted session history, not the loaded messages.
+type BashHistorySession interface {
+	BashHistory(context.Context, uint64, int) (protocol.BashHistoryPage, error)
+}
+
 // ScratchpadSession is the optional bound-session shared scratchpad capability.
 type ScratchpadSession interface {
 	Scratchpad(context.Context) (protocol.Scratchpad, error)

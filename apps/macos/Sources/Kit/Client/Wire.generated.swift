@@ -126,37 +126,12 @@ struct WireTranscriptContent: Codable, Sendable {
     let `annotations`: [WireSubmittedAnnotation]?
 }
 
-enum WireBashExecutionStatus: String, Codable, Sendable {
-    case value0 = "running"
-    case value1 = "completed"
-    case value2 = "failed"
-    case value3 = "aborted"
-    case value4 = "interrupted"
-}
-
-struct WireBashExecution: Codable, Sendable {
-    let `id`: String
-    let `sessionId`: String
-    let `sequence`: Int64
-    let `command`: String
-    let `status`: WireBashExecutionStatus
-    let `output`: String?
-    let `exitCode`: Int?
-    let `excludeFromContext`: Bool?
-    let `truncated`: Bool?
-    let `timedOut`: Bool?
-    let `errorMessage`: String?
-    let `startedAt`: String
-    let `completedAt`: String?
-}
-
 struct WireTranscriptMessage: Codable, Sendable {
     let `id`: String
     let `turnId`: String
     let `sequence`: Int64
     let `role`: String
     let `content`: [WireTranscriptContent]?
-    let `bash`: WireBashExecution?
     let `stopReason`: String?
     let `errorMessage`: String?
     let `toolCallId`: String?
@@ -674,6 +649,30 @@ struct WireBashExecutionInput: Codable, Sendable {
     let `excludeFromContext`: Bool?
 }
 
+enum WireBashExecutionStatus: String, Codable, Sendable {
+    case value0 = "running"
+    case value1 = "completed"
+    case value2 = "failed"
+    case value3 = "aborted"
+    case value4 = "interrupted"
+}
+
+struct WireBashExecution: Codable, Sendable {
+    let `id`: String
+    let `sessionId`: String
+    let `sequence`: Int64
+    let `command`: String
+    let `status`: WireBashExecutionStatus
+    let `output`: String?
+    let `exitCode`: Int?
+    let `excludeFromContext`: Bool?
+    let `truncated`: Bool?
+    let `timedOut`: Bool?
+    let `errorMessage`: String?
+    let `startedAt`: String
+    let `completedAt`: String?
+}
+
 struct WireRunReservation: Codable, Sendable {
     let `sessionId`: String
     let `turnId`: String
@@ -1067,4 +1066,4 @@ struct WireDiffError: Codable, Sendable {
     let `details`: [String: String]?
 }
 
-let kitWireVersion = 39
+let kitWireVersion = 40
