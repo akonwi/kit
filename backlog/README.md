@@ -3,9 +3,8 @@
 ## Purpose
 
 Kit v2 is a production replacement for the current Kit release, not an attempt
-to reproduce every historical feature before shipping. This backlog defines the
-first releasable v2 scope, records deliberate deferrals, and tracks later client
-and platform work.
+to reproduce every historical feature. This backlog tracks open production
+work, deliberate deferrals, and later client and platform work.
 
 `backlog/` is the sole source of outstanding work. Documents under `docs/`
 describe accepted architecture, behavior, design, and research; they must link
@@ -16,8 +15,8 @@ ledger requirement remains the canonical status and must not be duplicated.
 The fixed comparison baseline is Git commit
 [`5c6e112`](https://github.com/akonwi/kit/tree/5c6e112). Relevant changes added
 to production `main` after that commit must enter the rolling-delta table and be
-assigned to the initial release, a later milestone, or an accepted decision.
-They do not become release requirements implicitly.
+assigned to release scope, deferred scope, or an accepted decision. They do not
+become release requirements implicitly.
 
 Historical documentation in `apps/web/docs/features/` is a behavioral reference,
 not an architectural constraint. The v2 architecture is defined by
@@ -34,7 +33,7 @@ core requirement IDs instead of repeating the server requirement.
 - [Semantic web](web.md): browser presentation, synchronization,
   accessibility, and browser-specific security.
 - [Native macOS](macos.md): desktop foundation and native client work.
-  This client is not part of the initial v2 release.
+  This client is not in production release scope.
 
 Focused implementation and design notes:
 
@@ -51,9 +50,10 @@ Focused implementation and design notes:
 - `[x]` complete; retained only as a dependency tombstone
 - `[-]` rejected or superseded by an accepted decision
 
-Stable IDs are never reused. An initial-release decision must be resolved into
-**R1 required** or **Post-R1** before a release candidate. Do not leave a broad
-requirement partial after its completed and outstanding scope can be identified.
+Stable IDs are never reused. A release-scope decision must be resolved into
+**release scope** or **deferred scope** before a release candidate. Do not leave
+a broad requirement partial after its completed and outstanding scope can be
+identified.
 Remove the completed scope and replace the remainder with concrete, observable
 `[ ]` requirements using new stable IDs. Completed checklist items are removed
 after implementation, persistence and migration implications, and automated or
@@ -69,9 +69,9 @@ When adding a requirement:
 4. Identify how completion will be verified when that is not self-evident.
 5. Add production changes to the rolling delta until they are triaged.
 
-## Initial production release contract
+## Production release scope
 
-The first v2 release replaces the existing application installation with native
+The production release replaces the existing application installation with native
 Kit. It is a local, terminal-first coding agent for macOS and Linux. The release
 keeps `~/.kit` and reuses compatible configuration in place. Native Kit starts
 with fresh sessions and runtime data; legacy history is left untouched, not
@@ -100,14 +100,7 @@ running a credential importer. It must provide:
 The release does not require the semantic web client, a desktop client, remote
 serving or attach, external plugins, code-review workspaces, scratchpad, pager,
 or complete historical feature parity. Those features remain visible in the
-Post-R1 backlog rather than silently expanding the release gate.
-
-## R1 decision
-
-R1 has one unresolved scope decision:
-[`TUI-KEY-001`](tui.md#r1-decision), which determines whether
-user-configurable keybindings and current keybinding configuration compatibility
-ship in the initial release. It must be resolved before a release candidate.
+Deferred scope sections rather than silently expanding production release scope.
 
 ## Accepted decisions
 
@@ -126,12 +119,12 @@ ship in the initial release. It must be resolved before a release candidate.
   manual configuration adjustments.
 - [-] npm distribution is discontinued; native Kit supports Homebrew and manual
   binary installation only.
-- [-] The semantic web client is Post-R1.
+- [-] The semantic web client is deferred.
 - [-] `CLAUDE.md` context discovery is not restored; Kit uses `AGENTS.md`.
 - [-] Native Tree-sitter highlighting permits CGO under ADR 0021; published
   artifacts statically include the curated grammars.
 
-## Initial-release distribution and verification
+## Release distribution and verification
 
 - [~] ROAD-R1-001 — Publish self-contained macOS and Linux arm64/amd64 artifacts
   through a pinned native CGO toolchain matrix with an explicit Linux libc and
@@ -148,11 +141,7 @@ ship in the initial release. It must be resolved before a release candidate.
 - [ ] ROAD-R1-004 — Verify installed artifacts, upgrades, and local-daemon
   lifecycle on macOS and Linux after `CORE-TEST-004` and `TUI-TEST-001` pass.
 - [~] ROAD-R1-005 — Reconcile user documentation, CLI help, ADRs, and backlog
-  links with the shipped R1 surface.
-
-R1 is releasable only when every R1 requirement in this index and the core/TUI
-backlogs is complete, `TUI-KEY-001` is resolved, Post-R1 work is not on the
-critical path, and production `main` has received a final rolling-delta audit.
+  links with the production release surface.
 
 ## Rolling production delta
 
@@ -163,7 +152,7 @@ requirement or accepted decision and has been verified.
 Last audited against production `main` at `c9abdf2` (Kit v0.35.1). Version-only
 commits are omitted.
 
-| Change | R1 decision | Tracking |
+| Change | Release decision | Tracking |
 | --- | --- | --- |
-| Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Post-R1 | `CORE-REVIEW-001`, `TUI-REVIEW-001` |
+| Submit structured code-review feedback without a generic prompt preamble (`0fc9f94`) | Deferred | `CORE-REVIEW-001`, `TUI-REVIEW-001` |
 | Upgrade the TypeScript Pi runtime to 0.85 (`1971d71`) | Superseded | Native droids decision; ADRs 0001 and 0006 |

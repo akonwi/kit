@@ -3,7 +3,7 @@
 This ledger owns terminal presentation and interaction. Server behavior belongs
 in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
-## R1 required
+## Release scope
 
 ### Composer, sessions, and commands
 
@@ -20,12 +20,12 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   `CORE-FORK-001`.
 - [~] TUI-CMD-001 — Complete palette filtering, completion, arguments, nested
   pickers, keyboard/mouse behavior, and required command sources.
-- [ ] TUI-CMD-002 — Add the R1 command surfaces for settings, MCP, logout, and
-  release/update information with clear availability rules.
+- [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
+  MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
   persistence failures. Depends on `CORE-SET-001`.
-- [ ] TUI-SET-002 — Expose R1 settings for default model/thinking, retry
-  behavior, guided questions, and preferred diff layout. Depends on
+- [ ] TUI-SET-002 — Expose production settings for default model/thinking,
+  retry behavior, guided questions, and preferred diff layout. Depends on
   `CORE-SET-002`.
 
 ### User interaction and integrations
@@ -40,18 +40,16 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   directory/file/diff, attachment/image, interaction, reconnect, and narrow/wide
   layout suites.
 
-## R1 decision
+## Scope decisions
 
-- [ ] TUI-KEY-001 — Decide whether configurable keybindings and current
-  keybinding configuration compatibility are required for R1.
+- [-] `TUI-KEY-001` — User-configurable keybindings and compatibility with
+  current keybinding configuration are not part of the production release.
+  Documented defaults, deterministic focus and overlay precedence,
+  conflict-free built-in bindings, conventional composer editing, and
+  keyboard access to every essential action remain required. Any future
+  configurable-keybinding work requires a new stable `TUI-KEY-*` requirement.
 
-Regardless of that decision, R1 requires documented defaults, deterministic
-focus and overlay precedence, conflict-free built-in bindings, conventional
-composer editing, and keyboard access to every essential action. If configuration
-is required, split implementation into follow-up `TUI-KEY-*` requirements before
-resolving this decision.
-
-## Post-R1
+## Deferred scope
 
 - [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
   bounded recorded output and explicit truncated-content and omitted-detail
@@ -97,7 +95,7 @@ resolving this decision.
   when measurements show material cost, while preserving retained state. See
   the [focused optimization note](hidden-workspace-pane-suspension.md).
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
-  when their owning Post-R1 capabilities are implemented.
+  when their owning deferred capabilities are implemented.
 - [x] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
   click-through URL. The built-in location displays the server-cached PR number
   and opens its validated URL; renderer, interaction, and stale-response tests
@@ -117,4 +115,4 @@ resolving this decision.
   Plugin click dispatch and URL
   routing are outside native scope, not deferred work; built-in PR links remain.
 
-- [ ] TUI-SET-003 — Expose Post-R1 pager defaults when that workflow exists.
+- [ ] TUI-SET-003 — Expose deferred pager defaults when that workflow exists.

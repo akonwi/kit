@@ -3,7 +3,7 @@
 This ledger owns client-neutral behavior. A client backlog may depend on these
 IDs but must not redefine server, persistence, or protocol semantics.
 
-## R1 required
+## Release scope
 
 ### Production data and configuration
 
@@ -28,7 +28,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   supported login UX or require users to manually delete files.
 - [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
   immediately where safe, and return actionable save errors.
-- [ ] CORE-SET-002 — Persist and resolve R1 defaults for model/thinking
+- [ ] CORE-SET-002 — Persist and resolve production defaults for model/thinking
   selection, retry behavior, guided questions, and diff layout without
   client-local drift. Renderer-specific workspace layout is client state, not a
   shared setting.
@@ -97,7 +97,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-PROTO-006 — Bound client queues and disconnect clients that cannot
   keep up without blocking authoritative session work.
 - [~] CORE-PROTO-007 — Share conformance tests across server and session client
-  implementations used by R1.
+  implementations used by the production release.
 
 ### Workspace data, tools, attachments, and interactions
 
@@ -140,11 +140,11 @@ IDs but must not redefine server, persistence, or protocol semantics.
   configuration reuse, fresh native sessions, and provider/MCP reauthentication.
   Prove isolated development/tests leave real `~/.kit` untouched and upgrade
   leaves legacy runtime data untouched and unimported.
-- [ ] CORE-TEST-004 — Complete authenticated R1 smoke coverage for model and
-  thinking selection, coding tools, attachments/images, MCP, interactions,
-  signals, and the existing-installation upgrade workflow.
+- [ ] CORE-TEST-004 — Complete authenticated production smoke coverage for
+  model and thinking selection, coding tools, attachments/images, MCP,
+  interactions, signals, and the existing-installation upgrade workflow.
 
-## Post-R1
+## Deferred scope
 
 ### Remote clients and automation
 
@@ -376,8 +376,8 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   Expose replayable lifecycle events or a bounded execution listing with a cursor
   so short executions cannot be missed between polls. Define retention and
   reconnect/gap recovery without adding excluded output to model context.
-- [-] CORE-HANDOFF-001 — Superseded by the renamed R1 `/fork` workflow tracked
-  by `CORE-FORK-001`.
+- [-] CORE-HANDOFF-001 — Superseded by the renamed production-release `/fork`
+  workflow tracked by `CORE-FORK-001`.
 - [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an
   independent fork, or extract selected changes after the rewrite stabilizes.
 - [ ] CORE-LIFE-007 — Add bounded idle session and daemon eviction policies.

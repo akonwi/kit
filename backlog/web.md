@@ -1,11 +1,10 @@
 # Semantic web backlog
 
-The semantic browser client is an approved Post-R1 client. None of this file is
-part of the initial production replacement gate. Core behavior remains owned by
-the [core backlog](core.md); this file owns browser transport, presentation,
+The semantic browser client is in deferred scope. Core behavior remains owned
+by the [core backlog](core.md); this file owns browser transport, presentation,
 interaction, security, and accessibility.
 
-## Post-R1 foundation and security
+## Deferred scope
 
 - [ ] WEB-BUILD-001 — Build Solid/Mica assets and embed production output in the
   Go executable without requiring Bun or Node at user runtime.
@@ -18,7 +17,7 @@ interaction, security, and accessibility.
   reconnect, replay, snapshot fallback, and stale asynchronous-result guards.
   Depends on `CORE-PROTO-003` and `CORE-PROTO-006`.
 
-## Post-R1 product experience
+### Product experience
 
 - [ ] WEB-SHELL-001 — Present transcript, streaming activity, tool state,
   composer, follow-up queue, abort, model/thinking selection, session naming,
