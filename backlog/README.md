@@ -135,7 +135,10 @@ ship in the initial release. It must be resolved before a release candidate.
 
 - [~] ROAD-R1-001 — Publish self-contained macOS and Linux arm64/amd64 artifacts
   through a pinned native CGO toolchain matrix with an explicit Linux libc and
-  macOS deployment-target policy.
+  macOS deployment-target policy. The release workflow builds and smoke-tests
+  Go-only archives on all four platforms, targeting macOS 14.0 and Ubuntu 24.04
+  (glibc 2.39). Exact C/SDK toolchain pinning and installed-artifact verification
+  remain outstanding; runner labels alone do not pin those toolchains.
 - [ ] ROAD-R1-002 — Provide Homebrew and manual binary installation and upgrade
   paths for existing npm-installed users. Document npm removal, PATH/version
   verification, configuration reuse, fresh sessions, and provider/MCP
