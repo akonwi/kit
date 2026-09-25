@@ -1,6 +1,30 @@
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Regular.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Medium.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: "JetBrains Mono";
+  src: url("./assets/kit/fonts/JetBrainsMono-Bold.ttf") format("truetype");
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+}
+
 /* Kit's product theme on top of Mica. */
 :root {
-  --font-body: "Geist", system-ui, sans-serif;
+  --font-body: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
   --font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, monospace;
 }
 
@@ -27,16 +51,25 @@ a {
   min-block-size: 2.5rem;
 }
 
-.wordmark,
-.footer-wordmark {
-  color: var(--color-text);
-  font-family: var(--font-mono);
-  font-weight: 500;
-  text-decoration: none;
+.wordmark {
+  display: inline-flex;
 }
 
-.wordmark {
-  font-size: 1.05rem;
+.brand-logo {
+  display: block;
+  inline-size: 4.5rem;
+  block-size: 3.375rem;
+}
+
+.brand-logo img {
+  display: block;
+  inline-size: 100%;
+  block-size: 100%;
+}
+
+.footer-credit .brand-logo {
+  inline-size: 3rem;
+  block-size: 2.25rem;
 }
 
 .site-header nav a,
@@ -127,29 +160,26 @@ h3 {
   background: var(--color-surface-raised);
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-  font-size: clamp(0.72rem, 1.3vw, 0.85rem);
+  font-size: clamp(0.8rem, 1.3vw, 0.85rem);
 }
 
 .terminal-header,
 .terminal-composer,
 .terminal-status {
   position: relative;
-  border: 1px solid var(--color-border);
+  border-block-start: 1px solid var(--color-border);
   padding: 0.55rem 0.75rem;
   color: var(--color-text-muted);
   font-size: 0.75rem;
 }
 
-.terminal-header {
-  overflow: hidden;
+.terminal-header > m-hstack {
+  flex-wrap: wrap;
+  gap: 0.35rem 1rem;
 }
 
-.terminal-progress {
-  position: absolute;
-  inset-block-start: -1px;
-  inset-inline-start: 0;
-  inline-size: 28%;
-  border-block-start: 1px solid var(--color-accent);
+.terminal-model {
+  margin-inline-start: auto;
 }
 
 .terminal-transcript {
@@ -159,8 +189,8 @@ h3 {
 
 .terminal-user {
   margin-block: 0 1.5rem;
-  padding-inline-start: 0.75rem;
-  border-inline-start: 1px solid var(--color-accent);
+  padding: 0.65rem 0.75rem;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
   color: var(--color-text);
 }
 
@@ -191,7 +221,7 @@ h3 {
 
 .terminal-tool-names {
   color: var(--color-text-muted);
-  opacity: 0.65;
+
 }
 
 .terminal-composer {
@@ -259,7 +289,7 @@ h3 {
 .feature-card {
   display: flex;
   flex-direction: column;
-  justify-content: flex-end;
+  justify-content: flex-start;
   grid-column: span 2;
   min-block-size: 14rem;
   padding: var(--space-lg);
@@ -370,6 +400,7 @@ h3 {
 
 .footer-credit {
   display: flex;
+  align-items: center;
   gap: var(--space-sm);
 }
 

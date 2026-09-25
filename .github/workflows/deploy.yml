@@ -5,6 +5,7 @@ on:
     branches: [main]
     paths:
       - "website/**"
+      - "assets/kit/**"
       - ".github/workflows/deploy.yml"
   workflow_dispatch:
 
@@ -29,10 +30,13 @@ jobs:
       - name: Setup Pages
         uses: actions/configure-pages@v5
 
+      - name: Assemble site
+        run: sh website/script/build.sh "$RUNNER_TEMP/kit-website"
+
       - name: Upload site
         uses: actions/upload-pages-artifact@v3
         with:
-          path: website/
+          path: ${{ runner.temp }}/kit-website
 
       - name: Deploy
         id: deploy

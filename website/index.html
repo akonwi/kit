@@ -8,12 +8,7 @@
       content="Kit is a terminal-first coding agent that stays focused on your code and gets out of your way."
     />
     <title>Kit — a terminal-first coding agent</title>
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Geist:wght@400;500;600&amp;family=JetBrains+Mono:wght@400;500&amp;display=swap"
-      rel="stylesheet"
-    />
+    <link rel="icon" href="./assets/kit/app-icon.svg" type="image/svg+xml" />
     <link
       rel="stylesheet"
       href="https://cdn.jsdelivr.net/npm/@akonwi/mica@0.1.1/mica.css"
@@ -24,7 +19,10 @@
     <m-center class="site-shell" max="xl" gutter="lg">
       <header class="site-header">
         <m-hstack justify="between" wrap>
-          <a class="wordmark" href="./" aria-label="Kit home">k&nbsp;&nbsp;i&nbsp;&nbsp;t</a>
+          <a class="wordmark" href="./" aria-label="Kit home"><picture class="brand-logo">
+              <source srcset="./assets/kit/logo-dark.svg" media="(prefers-color-scheme: dark)" />
+              <img src="./assets/kit/logo-light.svg" alt="Kit" width="1024" height="768" />
+            </picture></a>
           <nav aria-label="Primary navigation">
             <m-hstack gap="lg" wrap>
               <a href="https://github.com/akonwi/kit">GitHub</a>
@@ -51,10 +49,9 @@
 
             <div class="terminal" aria-label="An example of Kit's session interface">
               <header class="terminal-header">
-                <span class="terminal-progress" aria-hidden="true"></span>
                 <m-hstack justify="between">
-                  <span>→ Refresh the Kit website with Mica</span>
-                  <span>Claude Sonnet 4 (medium)</span>
+                  <span>Refresh the Kit website</span>
+                  <span class="terminal-model">Sonnet · medium · 41%</span>
                 </m-hstack>
               </header>
               <div class="terminal-transcript">
@@ -74,14 +71,14 @@
                 <div class="terminal-user">Make the preview match Kit’s actual session UI.</div>
                 <div class="terminal-assistant">
                   <p>
-                    Updated the shell anatomy: session header, transcript rails, tool drawer,
+                    Updated the shell anatomy: session header, message cards, tool activity,
                     composer, and repository status.
                   </p>
                 </div>
               </div>
               <div class="terminal-composer">
                 <span class="terminal-cursor" aria-hidden="true"></span>
-                <span>Ask kit to do something...</span>
+                <span>Ask Kit to do something…</span>
               </div>
               <m-hstack class="terminal-status" justify="between">
                 <span></span>
@@ -101,7 +98,7 @@
             <ul class="check-list">
               <li>Keyboard-driven with thoughtful mouse support</li>
               <li>Persistent, project-aware sessions</li>
-              <li>Full-screen diff browsing and code review</li>
+              <li>Diff browsing and inline code review</li>
               <li>Headless print mode for scripts and pipelines</li>
             </ul>
           </m-vstack>
@@ -131,23 +128,23 @@
               <article class="feature-card">
                 <h3>A shared scratchpad</h3>
                 <p>
-                  Keep autosaved notes beside the conversation. The agent sees them as
-                  read-only context, so your working notes stay useful and remain yours.
+                  Keep autosaved notes beside the conversation. Share working context with the agent and subagents without losing it in
+                  the transcript.
                 </p>
               </article>
               <article class="feature-card">
-                <h3>An ergonomic pager</h3>
+                <h3>Long responses, made readable</h3>
                 <p>
-                  Read long agent responses section by section. Leave notes as you go, then
-                  attach the collected feedback to your next message.
+                  Navigate long agent responses section by section, and jump back to the
+                  latest message when you’re ready to continue.
                 </p>
               </article>
               <article class="feature-card">
                 <h3>Extensible with plugins</h3>
                 <p>
-                  Add user or project TypeScript plugins that register commands and agent
+                  Add user or project plugins in any language that register commands and agent
                   tools, react to runtime events, enforce tool policies, and contribute to
-                  Kit’s interface.
+                  Kit’s interface over JSON-RPC.
                 </p>
               </article>
             </m-grid>
@@ -189,21 +186,21 @@
               <div class="command-row">
                 <div class="command-invocation">
                   <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit threads</span>
+                  <span class="command-text">kit sessions</span>
                 </div>
                 <span class="command-description">Open the session picker</span>
               </div>
               <div class="command-row">
                 <div class="command-invocation">
                   <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit -s abc123</span>
+                  <span class="command-text">kit --session abc123</span>
                 </div>
                 <span class="command-description">Open a specific session</span>
               </div>
               <div class="command-row">
                 <div class="command-invocation">
                   <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit -p "review this"</span>
+                  <span class="command-text">kit print "review this"</span>
                 </div>
                 <span class="command-description">Run once without the TUI</span>
               </div>
@@ -215,14 +212,16 @@
       <footer class="site-footer">
         <m-hstack justify="between" wrap>
           <p class="footer-credit">
-            <span class="footer-wordmark">k&nbsp; i&nbsp; t</span>
+            <picture class="brand-logo">
+              <source srcset="./assets/kit/logo-dark.svg" media="(prefers-color-scheme: dark)" />
+              <img src="./assets/kit/logo-light.svg" alt="Kit" width="1024" height="768" />
+            </picture>
             <span>built by <a href="https://github.com/akonwi">Akonwi</a></span>
           </p>
           <nav aria-label="Project links">
             <m-hstack gap="lg" wrap>
               <a href="https://github.com/akonwi/kit">GitHub</a>
-              <a href="https://www.npmjs.com/package/@akonwi/kit">npm</a>
-              <a href="https://opentui.com">OpenTUI</a>
+              <a href="https://github.com/akonwi/kit/releases">Releases</a>
             </m-hstack>
           </nav>
         </m-hstack>
