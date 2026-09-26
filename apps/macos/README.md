@@ -31,7 +31,7 @@ optional name, model, and thinking level.
 Within a session, Agent, files, and subagents occupy retained workspace tabs.
 Use a tab's context menu to split, move, join, or close panes.
 The shared composer always addresses the parent session. Enter submits;
-Cmd+Enter inserts a newline. Cmd+K opens commands; Cmd+, opens settings.
+Cmd+Enter inserts a newline. Cmd+P opens commands; Cmd+, opens settings.
 Session workspace controls (Diff, Scratchpad, Subagents, Open file, and Commands)
 are centered in the footer, with status on the left and cwd/Git information on the
 right. They remain available when an interaction replaces the composer.

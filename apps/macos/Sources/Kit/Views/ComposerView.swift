@@ -6,7 +6,6 @@ import ImageIO
 struct ComposerView: View {
     @Environment(\.mica) private var theme
     @Bindable var state: SessionStore
-    @State private var commands = ComposerCommandState()
     @State private var mentions = ComposerMentionState()
     @State private var history = ComposerHistoryState()
     @State private var pickerAnchor = ComposerPickerAnchor()
@@ -66,7 +65,8 @@ struct ComposerView: View {
                                   focusAtEndRequest: state.ui.composerFocusAtEndRequest,
                                   foreground: theme.text, placeholderColor: theme.muted,
                                   attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
-                                  submit: { state.send() }, exitShell: exitShell, commands: commands, promptCommands: state.selected?.promptCommands ?? [], mentions: mentions,
+                                  submit: { state.send() }, exitShell: exitShell,
+                                  openPalette: { state.ui.palette = true }, mentions: mentions,
                                   history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
                                   recallQueued: {
                                       guard (state.operations.queue?.count ?? 0) > 0 else { return false }

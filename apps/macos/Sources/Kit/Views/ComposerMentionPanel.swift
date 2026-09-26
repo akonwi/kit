@@ -68,15 +68,6 @@ private struct ComposerPickerHost: View {
                 content: AnyView(ComposerMentionList(state: state, select: select, retry: retry)))
     }
 
-    func showCommands(editor: ComposerTextView, state: ComposerCommandState, theme: MicaTheme,
-                      select: @escaping (String) -> Void) {
-        present(editor: editor, open: state.isOpen,
-                height: CGFloat(state.visibleMatches.count * 46 + 34), label: "Prompt commands", theme: theme,
-                footer: "↑↓ move · enter/tab insert · esc close",
-                close: { [weak state] in state?.close() },
-                content: AnyView(ComposerCommandList(state: state, select: select)))
-    }
-
     func showHistory(editor: ComposerTextView, state: ComposerHistoryState, theme: MicaTheme,
                      select: @escaping (ComposerHistoryState.Entry) -> Void, retry: @escaping () -> Void) {
         let generation = historyGeometryGeneration
@@ -202,31 +193,6 @@ private struct ComposerMentionList: View {
             if state.error != nil { Button("Retry", action: retry).buttonStyle(.plain).padding(8) }
         }.font(.kit(size: 12)).foregroundStyle(theme.text).padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    }
-}
-
-private struct ComposerCommandList: View {
-    @Environment(\.mica) private var theme
-    @Bindable var state: ComposerCommandState
-    let select: (String) -> Void
-    var body: some View {
-        VStack(alignment: .leading, spacing: 0) {
-            ForEach(state.visibleMatches) { command in
-                Button { select(command.name) } label: {
-                    VStack(alignment: .leading, spacing: 3) {
-                        HStack(spacing: 6) {
-                            Text("/" + command.name).font(.kit(size: 13, weight: .medium))
-                                .lineLimit(1)
-                            Text("[args]").font(.kit(size: 13)).foregroundStyle(theme.muted)
-                                .fixedSize()
-                        }
-                        Text(command.description).font(.kit(size: 12)).foregroundStyle(theme.muted).lineLimit(1)
-                    }.frame(maxWidth: .infinity, alignment: .leading).frame(height: 46).padding(.horizontal, 10)
-                        .background(state.selected?.name == command.name ? theme.hover : Color.clear)
-                        .contentShape(Rectangle())
-                }.buttonStyle(.plain)
-            }
-        }.foregroundStyle(theme.text).padding(.top, 4)
     }
 }
 

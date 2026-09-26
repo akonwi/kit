@@ -99,31 +99,32 @@ struct SessionScreen: View {
         .accessibilityHidden(state.ui.palette || state.ui.filePicker)
         .overlay {
             if state.ui.palette || state.ui.filePicker {
-                GeometryReader { geometry in
-                    ZStack(alignment: .top) {
+                GeometryReader { _ in
+                    ZStack {
                         Color.clear.contentShape(Rectangle()).onTapGesture {
                             state.ui.palette = false; state.ui.filePicker = false; state.ui.composerFocus += 1
                         }
-                        Group {
-                            if state.ui.palette { CommandPalette(state: state) { id in
-                                windows.openSession(id, serverID: state.serverID) { openWindow(id: "session", value: $0) }
-                            } }
-                            else { FileMentionPicker(state: state) }
+                        SessionPickerOverlayLayout(palette: state.ui.palette) {
+                            Group {
+                                if state.ui.palette { CommandPalette(state: state) { id in
+                                    windows.openSession(id, serverID: state.serverID) { openWindow(id: "session", value: $0) }
+                                } }
+                                else { FileMentionPicker(state: state) }
+                            }
+                            .environment(\.mica, theme)
+                            .font(.kit(size: 13))
+                            .preferredColorScheme(windowScheme)
+                            .clipShape(RoundedRectangle(cornerRadius: 12))
+                            .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border, lineWidth: 1))
+                            .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
                         }
-                        .environment(\.mica, theme)
-        .font(.kit(size: 13))
-                        .preferredColorScheme(windowScheme)
-                        .clipShape(RoundedRectangle(cornerRadius: 12))
-                        .overlay(RoundedRectangle(cornerRadius: 12).strokeBorder(theme.border, lineWidth: 1))
-                        .shadow(color: .black.opacity(0.18), radius: 20, y: 8)
-                        .padding(.top, min(100, geometry.size.height * 0.14))
                     }
                 }
             }
         }
         .background {
             Button("Open command palette") { state.ui.palette = true }
-                .keyboardShortcut("k", modifiers: .command).hidden()
+                .keyboardShortcut("p", modifiers: .command).hidden()
         }
         .background {
             SessionWindowBridge(registry: windows, serverID: state.serverID, sessionID: state.selectedID,
@@ -134,5 +135,29 @@ struct SessionScreen: View {
         }
         .onDisappear { state.stop() }
     }
+}
 
+// Position the measured picker synchronously, including when the palette changes
+// to a taller nested screen at the minimum window height.
+struct SessionPickerOverlayLayout: Layout {
+    let palette: Bool
+
+    func sizeThatFits(proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) -> CGSize {
+        CGSize(width: proposal.width ?? 0, height: proposal.height ?? 0)
+    }
+
+    func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+        guard let child = subviews.first else { return }
+        let size = child.sizeThatFits(.unspecified)
+        let top = Self.topOffset(availableHeight: bounds.height, pickerHeight: size.height, palette: palette)
+        child.place(at: CGPoint(x: bounds.minX + max(0, (bounds.width - size.width) / 2), y: bounds.minY + top),
+                    proposal: ProposedViewSize(size))
+    }
+
+    static func topOffset(availableHeight: CGFloat, pickerHeight: CGFloat, palette: Bool) -> CGFloat {
+        if !palette { return min(100, availableHeight * 0.14) }
+        let preferred = availableHeight * 0.30
+        // Leave room for the panel's downward shadow as well as its content.
+        return min(preferred, max(0, availableHeight - pickerHeight - 32))
+    }
 }

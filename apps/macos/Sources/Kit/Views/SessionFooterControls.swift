@@ -24,7 +24,7 @@ struct SessionFooterControls: View {
             }
             control("Open file", symbol: "doc") { state.showFiles(intent: "open") }
                 .disabled(state.unavailable)
-            control("Open command palette", symbol: "command", help: "Commands (⌘K)") {
+            control("Open command palette", symbol: "command", help: "Commands (⌘P)") {
                 state.ui.palette = true
             }
         }

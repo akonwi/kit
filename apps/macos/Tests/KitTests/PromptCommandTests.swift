@@ -90,32 +90,13 @@ private actor PalettePromptClient: PromptCommandClient {
         #expect(destination.submission == .idle)
     }
 
-    @Test func completionInsertsBeforeSubmittingAndPreservesQuotedArguments() throws {
-        let state = ComposerCommandState()
-        state.catalog = [.init(name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")]
-        state.observe(text: "/rev", caret: NSRange(location: 4, length: 0), pasted: false)
-        #expect(state.selected?.name == "review")
-        let editor = ComposerTextView(frame: NSRect(x: 0, y: 0, width: 400, height: 100))
-        editor.commands = state; editor.string = "/rev"
-        editor.setSelectedRange(NSRange(location: 4, length: 0))
-        var submissions = 0
-        editor.submit = { submissions += 1 }
-        let enter = try #require(NSEvent.keyEvent(with: .keyDown, location: .zero, modifierFlags: [], timestamp: 0,
-            windowNumber: 0, context: nil, characters: "\r", charactersIgnoringModifiers: "\r", isARepeat: false, keyCode: 36))
-        editor.keyDown(with: enter)
-        #expect(editor.string == "/review ")
-        #expect(editor.selectedRange().location == 8)
-        #expect(submissions == 0)
-        editor.keyDown(with: enter)
-        #expect(submissions == 1)
+    @Test func directInvocationPreservesQuotedArguments() throws {
         let invocation = try #require(PromptCommand.invocation("/review \"auth module\" carefully\nnext line"))
         #expect(invocation.name == "review")
         #expect(invocation.args == "\"auth module\" carefully\nnext line")
-        state.observe(text: "/review args", caret: NSRange(location: 12, length: 0), pasted: false)
-        #expect(state.isOpen == false)
     }
 
-    @Test func discoveryRejectsAmbiguousNamesAndCompletionRespectsCaretAndPaste() throws {
+    @Test func discoveryRejectsAmbiguousNamesAndUnsafeHints() throws {
         let wire = WirePromptCommand(argumentHint: nil, name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")
         #expect(try PromptCommand.project([wire]).map(\.name) == ["review"])
         let hinted = WirePromptCommand(argumentHint: "<scope>", name: "review", description: "Review changes",
@@ -127,12 +108,6 @@ private actor PalettePromptClient: PromptCommandClient {
             #expect(throws: ClientError.self) { try PromptCommand.project([wire]) }
         }
         #expect(throws: ClientError.self) { try PromptCommand.project([wire, wire]) }
-        let state = ComposerCommandState()
-        state.catalog = try PromptCommand.project([wire])
-        state.observe(text: "/", caret: NSRange(location: 1, length: 0), pasted: false)
-        #expect(state.visibleMatches.map(\.name) == ["review"])
-        state.observe(text: "/review", caret: NSRange(location: 7, length: 0), pasted: true)
-        #expect(!state.isOpen)
     }
 
     @Test func commandAcknowledgementUsesSharedDraftAndUncertaintyRecovery() async throws {
