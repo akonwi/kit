@@ -1122,7 +1122,7 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	if len(state.messages) != 1 || state.messages[0].ID != "target-message" || state.location != "~/other/repo" {
 		t.Fatalf("target presentation messages=%+v location=%q", state.messages, state.location)
 	}
-	if !state.runPending || state.activeRunID != "run_target" || state.status != "esc abort · ctrl+c detach" {
+	if !state.runPending || state.activeRunID != "run_target" || state.status != "" {
 		t.Fatalf("active target run pending=%t id=%q status=%q", state.runPending, state.activeRunID, state.status)
 	}
 	if state.cwdPending || state.reloadPending {

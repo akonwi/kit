@@ -342,7 +342,6 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	const width, height = 80, 24
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase:         phaseReady,
-		Status:        "esc abort · ctrl+c detach",
 		TurnActivity:  "Working…",
 		Location:      "~/Developer/agent/kit-v2 (kit-v2*)",
 		ContextTokens: 112,
@@ -372,11 +371,55 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	if got := strings.TrimSpace(rows[height-5]); got != "⠋ Working…" {
 		t.Fatalf("turn slot = %q, want running activity", got)
 	}
-	if !strings.Contains(rows[height-1], "esc abort · ctrl+c detach") {
-		t.Fatalf("footer left = %q, want run guidance", rows[height-1])
+	if got := strings.TrimSpace(rows[height-1]); got != "~/Developer/agent/kit-v2 (kit-v2*)" {
+		t.Fatalf("footer = %q, want cwd and git only during an active turn", got)
 	}
-	if !strings.HasSuffix(strings.TrimSpace(rows[height-1]), "~/Developer/agent/kit-v2 (kit-v2*)") {
-		t.Fatalf("footer right = %q, want cwd and git", rows[height-1])
+}
+
+func TestActiveTurnFooterKeepsTransientStatusWithoutShortcutHints(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"Reconnecting activity…", "Reconnecting…", "Run in progress"} {
+		t.Run(status, func(t *testing.T) {
+			const width, height = 80, 24
+			app := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, AgentRunning: true, TurnActivity: "Working…",
+				Status: status, Location: "~/repo (main)",
+				Session: protocol.SessionInfo{ID: "session_1", Name: "Session", Model: "test/model"},
+			}})
+			app.Pump(width, height)
+			footer := strings.TrimSpace(paintedRows(app, width, height)[height-1])
+			const location = "~/repo (main)"
+			spaces := width - 2 - utf8.RuneCountInString(status) - utf8.RuneCountInString(location)
+			if want := status + strings.Repeat(" ", spaces) + location; footer != want {
+				t.Fatalf("footer = %q, want %q", footer, want)
+			}
+		})
+	}
+}
+
+func TestBashFooterGuidanceDependsOnAgentTurn(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name, status string
+		agent        bool
+	}{
+		{name: "bash and agent", status: "running bash " + glyphMiddleDot + " agent running", agent: true},
+		{name: "bash only", status: "running bash " + glyphMiddleDot + " esc cancel"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			const width, height = 120, 24
+			const location = "~/repo (main)"
+			app := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, BashRunning: true, AgentRunning: test.agent,
+				Location: location, Session: protocol.SessionInfo{ID: "session_1", Name: "Session", Model: "test/model"},
+			}})
+			app.Pump(width, height)
+			footer := strings.TrimSpace(paintedRows(app, width, height)[height-1])
+			spaces := width - 2 - utf8.RuneCountInString(test.status) - utf8.RuneCountInString(location)
+			if want := test.status + strings.Repeat(" ", spaces) + location; footer != want {
+				t.Fatalf("footer = %q, want %q", footer, want)
+			}
+		})
 	}
 }
 

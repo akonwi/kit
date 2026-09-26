@@ -1368,9 +1368,11 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 	} else if w.Snapshot.BashStarting {
 		left = "starting bash…"
 	} else if w.Snapshot.BashRunning {
-		left = "running bash " + glyphMiddleDot + " esc cancel"
+		left = "running bash"
 		if w.Snapshot.AgentRunning {
 			left += " " + glyphMiddleDot + " agent running"
+		} else {
+			left += " " + glyphMiddleDot + " esc cancel"
 		}
 	}
 	if !w.Snapshot.AuthReturnReady && (w.Snapshot.Phase == phaseAuthGate || w.Snapshot.Phase == phaseAuthSelect) {

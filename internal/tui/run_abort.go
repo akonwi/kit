@@ -21,7 +21,7 @@ func (s *appState) abortRunWithDispatch(dispatch func(func()), timeout time.Dura
 		s.runStopping = true
 		s.turnActivity = "Stopping…"
 		s.turnThinking = ""
-		s.status = "esc abort · ctrl+c detach"
+		s.status = ""
 	})
 	s.requestRunAbort(dispatch, timeout)
 }
@@ -109,7 +109,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 					}
 				}
 				if s.runPending {
-					s.status = "esc abort · ctrl+c detach"
+					s.status = ""
 				}
 			})
 			if fresh && nextRunID == "" {

@@ -192,11 +192,7 @@ func (s *appState) watchBash(execution sessionclient.BashExecution, operation ui
 				s.activeBash = nil
 				s.activeBashID = ""
 				s.upsertBashExecution(outcome)
-				if s.runPending {
-					s.status = "esc abort · ctrl+c detach"
-				} else {
-					s.status = ""
-				}
+				s.status = ""
 			})
 		})
 	}()

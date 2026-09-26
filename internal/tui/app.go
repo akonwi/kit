@@ -2283,7 +2283,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				s.vcsStatus = nil
 				s.applySnapshot(snapshot)
 				if running {
-					s.status = "esc abort · ctrl+c detach"
+					s.status = ""
 				}
 			})
 			for _, warning := range snapshot.Warnings {
@@ -3462,7 +3462,7 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				if nextRunID != "" {
 					s.activeRun = nil
 					s.prompt = nil
-					s.status = "esc abort · ctrl+c detach"
+					s.status = ""
 				} else {
 					s.activeRun = nil
 					s.prompt = nil
@@ -3620,7 +3620,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						}
 						runtime.Dispatch(func() {
 							if operation == s.operation && watchGeneration == s.runWatchGeneration {
-								s.SetState(func() { s.status = "Reconnecting activity… · esc abort · ctrl+c detach" })
+								s.SetState(func() { s.status = "Reconnecting activity…" })
 							}
 						})
 					}
@@ -3662,7 +3662,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
 							if operation == s.operation && watchGeneration == s.runWatchGeneration {
-								s.SetState(func() { s.status = "Reconnecting… · esc abort · ctrl+c detach" })
+								s.SetState(func() { s.status = "Reconnecting…" })
 							}
 						})
 					}
@@ -3697,7 +3697,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					runtime.Dispatch(func() {
 						if operation == s.operation && watchGeneration == s.runWatchGeneration {
-							s.SetState(func() { s.status = "Run finished · reconnecting transcript… · ctrl+c detach" })
+							s.SetState(func() { s.status = "Run finished · reconnecting transcript…" })
 						}
 					})
 					delay := 100 * time.Millisecond * time.Duration(1<<min(snapshotFailures-1, 4))
@@ -3734,7 +3734,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						}
 						if nextRunID != "" {
 							s.runWatchID = nextRunID
-							s.status = "esc abort · ctrl+c detach"
+							s.status = ""
 						}
 					})
 					s.notifyTurnSettledOnce(info.RunID, info.Status)
@@ -5413,9 +5413,6 @@ func (s *appState) applyConfigurationSelection() {
 			}
 			s.SetState(func() {
 				s.status = ""
-				if s.runPending {
-					s.status = "esc abort · ctrl+c detach"
-				}
 				s.configurationPicker.ResolveApply(generation, finalErr)
 			})
 			if configureErr != nil {
@@ -5675,9 +5672,7 @@ func (s *appState) reloadSession() {
 				if snapshotErr == nil {
 					s.applyPostReloadSnapshot(snapshot, metadataStream)
 				}
-				if s.runPending {
-					s.status = "esc abort · ctrl+c detach"
-				}
+				s.status = ""
 			})
 			s.showToast(reloadToast(result, reloadErr, snapshotErr))
 		})
@@ -6254,9 +6249,6 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.messageHistory = messageHistoryController{}
 	s.status = ""
 	s.applySnapshot(snapshot)
-	if snapshot.ActiveRunID != "" {
-		s.status = "esc abort · ctrl+c detach"
-	}
 }
 
 func (s *appState) cancelSessionSwitch() {
@@ -6397,7 +6389,7 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 					s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
 					s.liveHasUser = true
 					s.runPending = true
-					s.status = "esc abort · ctrl+c detach"
+					s.status = ""
 					s.markTerminalRunStarted(result.Run.ID())
 				}
 				s.activeRun = result.Run
@@ -6544,7 +6536,7 @@ func (err promptQueuedError) Error() string { return "prompt queued behind activ
 
 func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
 	if s.runPending {
-		s.SetState(func() { s.status = "Run in progress · esc abort · ctrl+c detach" })
+		s.SetState(func() { s.status = "Run in progress" })
 		return
 	}
 	admission := &promptAdmission{}
@@ -6557,7 +6549,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 		s.composer = ""
 		s.composerAttachmentIDs = nil
 		s.composerAttachments = nil
-		s.status = "esc abort · ctrl+c detach"
+		s.status = ""
 		s.resetLiveRun()
 		s.turnActivity = "Working…"
 		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display, Content: attachmentTranscriptContent(display, submittedRows)})
