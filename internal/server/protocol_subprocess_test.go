@@ -50,7 +50,7 @@ func TestProtocol40TaggedReleaseMatrix(t *testing.T) {
 		t.Skip("skipping subprocess builds in short mode")
 	}
 	if baseline == "" || candidate == "" || baseline == candidate ||
-		!regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(candidate) ||
+		!regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`).MatchString(candidate) ||
 		(candidateTag != "" && candidateTag != candidate) || (candidateTag == "") == (candidateCommit == "") {
 		t.Fatal("set a tagged baseline, distinct semver candidate, and exactly one matching candidate tag or full commit")
 	}
@@ -83,7 +83,7 @@ func protocolTestRoot(t *testing.T) string {
 
 func archiveProtocolTag(t *testing.T, root, tag string) string {
 	t.Helper()
-	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+$`).MatchString(tag) {
+	if !regexp.MustCompile(`^v[0-9]+\.[0-9]+\.[0-9]+(-rc\.[0-9]+)?$`).MatchString(tag) {
 		t.Fatalf("protocol matrix requires a release tag, got %q", tag)
 	}
 	return archiveProtocolRevision(t, root, "refs/tags/"+tag, tag)
@@ -149,9 +149,10 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 	binDir := t.TempDir()
 	for index, label := range labels {
 		root := roots[index]
-		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), label)
+		buildVersion := strings.TrimPrefix(label, "v")
+		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), buildVersion)
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+label,
+		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+buildVersion,
 			"-o", filepath.Join(binDir, "client-"+label), "./internal/server")
 		cmd.Dir = root
 		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=auto", apphome.EnvHome+"="+t.TempDir())
@@ -235,7 +236,7 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 				}
 			})
 			before, err := LoadRegistry(paths)
-			if err != nil || before.KitVersion != daemonLabel || before.ProtocolVersion != version.SessionProtocolVersion {
+			if err != nil || before.KitVersion != strings.TrimPrefix(daemonLabel, "v") || before.ProtocolVersion != version.SessionProtocolVersion {
 				t.Fatalf("daemon registry = %+v, %v", before, err)
 			}
 			other := labels[1-index]
