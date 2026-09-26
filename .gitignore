@@ -6,6 +6,9 @@ playwright-report/
 .DS_Store
 keymap-keybindings-progress.local.md
 
+# Root build cache
+/.build/
+
 # Go development artifacts
 /kit
 /kit.exe
