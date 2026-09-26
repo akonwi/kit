@@ -29,16 +29,28 @@ func TestSubprocessProtocol40ReleaseGate(t *testing.T) {
 		t.Skip("skipping subprocess builds in short mode")
 	}
 	root := protocolTestRoot(t)
-	runProtocolBinaryMatrix(t, [2]string{"release-a", "release-b"}, [2]string{root, root}, true)
+	runProtocolBinaryMatrix(t, [2]string{"release-a", "release-b"}, [2]string{root, root}, true, false)
 }
 
-// TestProtocol40TaggedReleaseMatrix is a bidirectional protocol smoke test
-// against the first tagged protocol-40 baseline and an intended next release.
-// Set KIT_PROTOCOL40_BASELINE_TAG, KIT_PROTOCOL40_CANDIDATE_VERSION, and either
-// KIT_PROTOCOL40_CANDIDATE_TAG or KIT_PROTOCOL40_CANDIDATE_COMMIT (a full SHA).
-// A commit candidate is provisional until the exact tested commit is released.
-// This smoke test alone does not cover every protocol endpoint or semantic.
+// TestProtocol40TaggedReleaseMatrix checks bidirectional attachment with real
+// release labels. It must never use the development-version bypass.
 func TestProtocol40TaggedReleaseMatrix(t *testing.T) {
+	runProtocol40TaggedMatrix(t, false)
+}
+
+// TestProtocol40TaggedWireSmoke uses dev-labeled *test clients* built from
+// pinned revisions to inspect wire interoperability behind the current release
+// gate. This is not a release compatibility pass and cannot replace the
+// release-labeled matrix. Neither smoke test covers every protocol semantic.
+func TestProtocol40TaggedWireSmoke(t *testing.T) {
+	runProtocol40TaggedMatrix(t, true)
+}
+
+// Run with KIT_PROTOCOL40_BASELINE_TAG, KIT_PROTOCOL40_CANDIDATE_VERSION, and
+// either KIT_PROTOCOL40_CANDIDATE_TAG or KIT_PROTOCOL40_CANDIDATE_COMMIT (a full
+// SHA). A commit candidate remains provisional until that commit is released.
+func runProtocol40TaggedMatrix(t *testing.T, wireOnly bool) {
+	t.Helper()
 	baseline := os.Getenv("KIT_PROTOCOL40_BASELINE_TAG")
 	candidate := os.Getenv("KIT_PROTOCOL40_CANDIDATE_VERSION")
 	candidateTag := os.Getenv("KIT_PROTOCOL40_CANDIDATE_TAG")
@@ -69,7 +81,25 @@ func TestProtocol40TaggedReleaseMatrix(t *testing.T) {
 	} else {
 		candidateRoot = archiveProtocolCommit(t, root, candidateCommit)
 	}
-	runProtocolBinaryMatrix(t, [2]string{baseline, candidate}, [2]string{baselineRoot, candidateRoot}, false)
+	if wireOnly {
+		t.Log("WIRE-ONLY SMOKE: dev-labeled test clients bypass the release-string gate; not a release compatibility pass")
+	}
+	runProtocolBinaryMatrix(t, [2]string{baseline, candidate}, [2]string{baselineRoot, candidateRoot}, false, wireOnly)
+}
+
+// protocolSubprocessEnv prevents ambient matrix/helper controls from leaking
+// into daemon and client subprocesses. The isolated home and dummy credential
+// are always provided explicitly by callers.
+func protocolSubprocessEnv(extra ...string) []string {
+	env := make([]string, 0, len(os.Environ())+len(extra))
+	for _, entry := range os.Environ() {
+		key, _, _ := strings.Cut(entry, "=")
+		if strings.HasPrefix(key, "KIT_PROTOCOL") || key == apphome.EnvHome || key == "OPENAI_API_KEY" {
+			continue
+		}
+		env = append(env, entry)
+	}
+	return append(env, extra...)
 }
 
 func protocolTestRoot(t *testing.T) string {
@@ -144,18 +174,24 @@ func archiveProtocolRevision(t *testing.T, root, ref, label string) string {
 	return sourceRoot
 }
 
-func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, expectSkew bool) {
+func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, expectSkew, wireOnly bool) {
 	t.Helper()
 	binDir := t.TempDir()
 	for index, label := range labels {
 		root := roots[index]
 		buildVersion := strings.TrimPrefix(label, "v")
 		buildKitBinary(t, root, filepath.Join(binDir, "kit-"+label), buildVersion)
+		clientVersion := buildVersion
+		if wireOnly {
+			// The pinned daemon binaries retain their real release labels. Only
+			// the test clients exercise the existing development bypass.
+			clientVersion = "dev"
+		}
 		ctx, cancel := context.WithTimeout(t.Context(), 90*time.Second)
-		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+buildVersion,
+		cmd := exec.CommandContext(ctx, "go", "test", "-c", "-ldflags", "-X github.com/akonwi/kit/internal/version.Version="+clientVersion,
 			"-o", filepath.Join(binDir, "client-"+label), "./internal/server")
 		cmd.Dir = root
-		cmd.Env = append(os.Environ(), "GOTOOLCHAIN=auto", apphome.EnvHome+"="+t.TempDir())
+		cmd.Env = protocolSubprocessEnv("GOTOOLCHAIN=auto", apphome.EnvHome+"="+t.TempDir())
 		out, err := cmd.CombinedOutput()
 		cancel()
 		if err != nil {
@@ -169,7 +205,7 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 			workspace := t.TempDir()
 			// The dummy credential exposes a local model catalog; this test never
 			// sends a model request or connects to a remote provider.
-			env := append(os.Environ(), apphome.EnvHome+"="+paths.Home, "OPENAI_API_KEY=protocol-test-only")
+			env := protocolSubprocessEnv(apphome.EnvHome+"="+paths.Home, "OPENAI_API_KEY=protocol-test-only")
 			daemon := filepath.Join(binDir, "kit-"+daemonLabel)
 			run := func(binary string, args ...string) (string, error) {
 				t.Helper()
@@ -242,7 +278,8 @@ func runProtocolBinaryMatrix(t *testing.T, labels [2]string, roots [2]string, ex
 			other := labels[1-index]
 			for _, clientLabel := range []string{daemonLabel, other} {
 				client := filepath.Join(binDir, "client-"+clientLabel)
-				clientEnv := append(append([]string{}, env...), "KIT_PROTOCOL_CLIENT_HELPER=1", "KIT_PROTOCOL_TEST_WORKSPACE="+workspace)
+				clientEnv := append(append([]string{}, env...), "KIT_PROTOCOL_CLIENT_HELPER=1",
+					"KIT_PROTOCOL_TEST_HOME="+paths.Home, "KIT_PROTOCOL_TEST_WORKSPACE="+workspace)
 				if expectSkew && clientLabel != daemonLabel {
 					clientEnv = append(clientEnv, "KIT_PROTOCOL_EXPECT_RELEASE_MISMATCH=1")
 				} else if clientLabel == daemonLabel {
@@ -276,7 +313,11 @@ func TestProtocolClientHelper(t *testing.T) {
 	if os.Getenv("KIT_PROTOCOL_CLIENT_HELPER") != "1" {
 		t.Skip("subprocess helper")
 	}
-	paths := apphome.FromHome(os.Getenv(apphome.EnvHome))
+	home := os.Getenv(apphome.EnvHome)
+	if home == "" || home != os.Getenv("KIT_PROTOCOL_TEST_HOME") {
+		t.Fatal("protocol subprocess requires an explicit isolated KIT_HOME")
+	}
+	paths := apphome.FromHome(home)
 	ctx, cancel := context.WithTimeout(t.Context(), 15*time.Second)
 	defer cancel()
 	registry, err := NewManager(paths).Ensure(ctx)
@@ -350,8 +391,9 @@ func TestProtocolClientHelper(t *testing.T) {
 	}
 	if observer := os.Getenv("KIT_PROTOCOL_OBSERVER_BIN"); observer != "" {
 		cmd := exec.CommandContext(ctx, observer, "-test.run=^TestProtocolClientHelper$", "-test.v")
-		cmd.Env = append(os.Environ(), "KIT_PROTOCOL_CLIENT_HELPER=1", "KIT_PROTOCOL_OBSERVE_SESSION="+created.ID,
-			"KIT_PROTOCOL_OBSERVE_BASH="+bashID, "KIT_PROTOCOL_OBSERVER_BIN=")
+		cmd.Env = protocolSubprocessEnv(apphome.EnvHome+"="+paths.Home, "KIT_PROTOCOL_CLIENT_HELPER=1",
+			"KIT_PROTOCOL_TEST_HOME="+paths.Home, "KIT_PROTOCOL_OBSERVE_SESSION="+created.ID,
+			"KIT_PROTOCOL_OBSERVE_BASH="+bashID)
 		if out, err := cmd.CombinedOutput(); err != nil {
 			t.Fatalf("attach while daemon has active work: %v\n%s", err, out)
 		}
