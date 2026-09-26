@@ -70,17 +70,28 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
   checkpoints and expose pending, completed, and failed lifecycle state.
 - [ ] CORE-RUN-006 — Fix multimodal context estimation for image/file content.
-  The provider-neutral estimator currently counts the full inline `data:` URL
-  as text (approximately two encoded bytes per token), so a ~1.8 MB image
-  returned by `show_image` was estimated at ~900K tokens and repeatedly caused
-  automatic compaction to fail before the next model response. Images still
-  consume provider input tokens, but their encoded transport bytes are not text
-  tokens; budget image content using provider/model/detail-aware accounting or
-  a bounded conservative modality estimate, whether supplied as a URL, file ID,
-  or inline data. Cover tool-result images in an unconsumed tool-call tail,
-  compaction trigger/replacement decisions, and manual-versus-automatic
-  compaction with regression tests. Preserve safe limits without treating
-  Base64 length as token count.
+  The provider-neutral estimator counts inline `data:` URLs as text
+  (approximately two encoded bytes per token), so a ~1.8 MB image returned by
+  `show_image` was estimated at ~900K tokens and repeatedly caused automatic
+  compaction to fail before the next model response. Images explicitly supplied
+  for model inspection still consume provider input tokens, but their encoded
+  transport bytes are not text tokens. Budget image content using provider/model/
+  detail-aware accounting or a bounded conservative modality estimate, whether
+  supplied as a URL, file ID, or inline data. Cover images in an unconsumed
+  tool-call tail, compaction trigger/replacement decisions, and manual-versus-
+  automatic compaction with regression tests. Preserve safe limits without
+  treating Base64 length as token count.
+- [ ] CORE-RUN-007 — Separate image presentation from model inspection.
+  `show_image` currently returns persisted image bytes as a model-facing image
+  tool-result block as well as displaying them in the transcript. Change it to
+  return only bounded text/metadata to the model while retaining the validated
+  attachment and presentation marker for clients, live events, restored history,
+  and workspace previews. Provide a separate explicit image-inspection tool
+  that returns a standard model-visible image block, subject to normal image
+  context accounting, using the same bounded validation and attachment path as
+  user image inputs. Do not let a presentation-only tool silently add image
+  tokens to model context. Update ADR 0031 and test provider payloads, replay,
+  projection, compaction, and terminal/macOS/web presentation independently.
 - [x] CORE-SESSION-002 — Automatically assign useful session names without
   overwriting explicit user names.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
