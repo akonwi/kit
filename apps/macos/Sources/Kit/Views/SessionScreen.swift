@@ -64,6 +64,7 @@ struct SessionScreen: View {
         .background(SelectionActions(theme: theme, enabled: !state.ui.palette && !state.ui.filePicker) { text in
             state.ui.draft = MessageText.quote(text, draft: state.ui.draft)
             state.ui.composerFocus += 1
+            state.ui.composerFocusAtEndRequest = state.ui.composerFocus
         })
         .onReceive(NotificationCenter.default.publisher(for: .kitSessionDeleted)) { notification in
             if let identity = notification.object as? SessionIdentity { state.sessionDeleted(identity) }

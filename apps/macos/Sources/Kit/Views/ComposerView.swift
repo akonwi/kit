@@ -63,6 +63,7 @@ struct ComposerView: View {
             if !state.isDemo { ComposerAttachmentStrip(state: state) }
             GrowingComposerEditor(text: $ui.draft, focused: $focused,
                                   focusRequest: state.ui.composerFocus,
+                                  focusAtEndRequest: state.ui.composerFocusAtEndRequest,
                                   foreground: theme.text, placeholderColor: theme.muted,
                                   attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
                                   submit: { state.send() }, exitShell: exitShell, commands: commands, promptCommands: state.selected?.promptCommands ?? [], mentions: mentions,

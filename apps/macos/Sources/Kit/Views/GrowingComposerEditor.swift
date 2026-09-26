@@ -7,6 +7,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
     @Binding var text: String
     @Binding var focused: Bool
     var focusRequest: Int
+    var focusAtEndRequest: Int? = nil
     var foreground: Color
     var placeholderColor: Color
     var attachmentDrop: ([NSItemProvider]) -> Bool
@@ -107,6 +108,10 @@ struct GrowingComposerEditor: NSViewRepresentable {
         context.coordinator.renderMentions(view)
         if focusEnabled && context.coordinator.lastFocusRequest != focusRequest {
             context.coordinator.lastFocusRequest = focusRequest
+            if focusAtEndRequest == focusRequest {
+                view.setSelectedRange(NSRange(location: view.string.utf16.count, length: 0))
+                scroll.revealSelectionAfterLayout = true
+            }
             view.requestFocusWhenAttached()
         }
     }
@@ -136,10 +141,10 @@ struct GrowingComposerEditor: NSViewRepresentable {
         var highlightedTheme: MicaTheme?
         var previousText: String
         var identity: String
-        var lastFocusRequest: Int
+        var lastFocusRequest: Int?
         init(_ parent: GrowingComposerEditor) {
             self.parent = parent
-            lastFocusRequest = parent.focusRequest
+            lastFocusRequest = parent.focusAtEndRequest == parent.focusRequest ? nil : parent.focusRequest
             previousText = parent.text; identity = parent.mentionIdentity
         }
         deinit { highlightTask?.cancel() }

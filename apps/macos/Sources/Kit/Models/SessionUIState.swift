@@ -13,6 +13,7 @@ final class SessionUIState {
     var filePickerIntent = "mention"
     var mentionQuery = ""
     var composerFocus = 0
+    var composerFocusAtEndRequest: Int?
     var transcript = TranscriptPresentationState()
     var workspace: WorkspaceState
     var notice = ""
@@ -44,6 +45,7 @@ final class SessionUIState {
     func switchSession(from old: SessionIdentity, to new: SessionIdentity, demo: Bool) {
         drafts[old] = DraftState(uploads: uploads, text: draft, serverAttachmentIDs: serverAttachmentIDs, attachments: attachments, previews: attachmentPreviews, workspace: workspace, transcript: transcript)
         subagentsPresented = false
+        composerFocusAtEndRequest = nil
         let saved = drafts[new]
         uploads = saved?.uploads ?? ComposerAttachments()
         draft = saved?.text ?? ""
