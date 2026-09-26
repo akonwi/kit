@@ -32,6 +32,17 @@ func TestSubprocessProtocol40ReleaseGate(t *testing.T) {
 	runProtocolBinaryMatrix(t, [2]string{"release-a", "release-b"}, [2]string{root, root}, true, false)
 }
 
+// TestSubprocessProtocol40StableSkew checks two release-labeled binaries built
+// from the same source in both directions, including attachment during work.
+// The pinned-revision matrix separately checks source-level skew.
+func TestSubprocessProtocol40StableSkew(t *testing.T) {
+	if testing.Short() {
+		t.Skip("skipping subprocess builds in short mode")
+	}
+	root := protocolTestRoot(t)
+	runProtocolBinaryMatrix(t, [2]string{"0.37.0", "0.37.1"}, [2]string{root, root}, false, false)
+}
+
 // TestProtocol40TaggedReleaseMatrix checks bidirectional attachment with real
 // release labels. It must never use the development-version bypass.
 func TestProtocol40TaggedReleaseMatrix(t *testing.T) {
