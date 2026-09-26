@@ -15,14 +15,12 @@ import (
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/modelimage"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
 )
 
-const (
-	maxAttachmentRequestBytes = protocol.MaxImageAttachmentBytes + 64<<10
-	maxImagePixels            = 12_000_000
-)
+const maxAttachmentRequestBytes = protocol.MaxImageAttachmentBytes + 64<<10
 
 type attachmentService interface {
 	Put(context.Context, string, attachment.PutInput) (protocol.AttachmentInfo, error)
@@ -214,9 +212,7 @@ func inspectAttachment(filename string, content io.Reader) (attachment.PutInput,
 		return attachment.PutInput{}, fmt.Errorf("%w: unsupported attachment type %q", attachment.ErrInvalidInput, mediaType)
 	}
 
-	return attachment.InspectImage(filename, reader, attachment.ImageLimits{
-		MaxBytes: protocol.MaxImageAttachmentBytes, MaxWidth: 8192, MaxHeight: 8192, MaxPixels: maxImagePixels,
-	})
+	return attachment.InspectImage(filename, reader, modelimage.Limits())
 }
 
 func writeAttachmentError(writer http.ResponseWriter, err error) {

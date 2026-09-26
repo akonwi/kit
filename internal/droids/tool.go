@@ -98,6 +98,8 @@ const (
 
 // AnyTool is the type-erased tool the runtime works with.
 type AnyTool interface {
+	// Name returns the canonical model-facing tool name.
+	Name() string
 	schema() ToolSchema
 	mode() ExecutionMode
 	registrationID() string
@@ -146,6 +148,8 @@ type boundTool[Args any] struct {
 	validator        *validator.Schema
 	forbidAdditional bool
 }
+
+func (b boundTool[Args]) Name() string { return b.t.Name }
 
 func (b boundTool[Args]) schema() ToolSchema {
 	params := b.t.Parameters

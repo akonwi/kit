@@ -931,3 +931,25 @@ func newCodexResponsesServer(t *testing.T, requests chan<- map[string]any, event
 		_, _ = fmt.Fprint(w, "data: [DONE]\n\n")
 	}))
 }
+
+func TestOpenAICodexSerializesToolResultImages(t *testing.T) {
+	t.Parallel()
+	model, _ := OpenAICodexModel("gpt-5.6-sol")
+	params, err := buildOpenAICodexResponseParams(model, Request{Messages: []Message{
+		ToolResultMessage{ToolCallID: "call_image", ToolName: "inspect_image", Content: []ResultContent{
+			TextContent{Text: "Image loaded for inspection."},
+			NewImageData("image/png", []byte("image")),
+		}},
+	}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(params)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body := string(encoded)
+	if !strings.Contains(body, `"type":"input_image"`) || !strings.Contains(body, `"image_url":"data:image/png;base64,aW1hZ2U="`) {
+		t.Fatalf("Codex request omitted tool-result image: %s", body)
+	}
+}

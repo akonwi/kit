@@ -20,8 +20,9 @@ The tool:
 - resolves relative paths against the active session working directory
 - reads and validates PNG, JPEG, WebP, or GIF bytes
 - enforces encoded-byte and decoded-pixel limits
-- returns the validated bytes as a standard image tool-result block
-- marks its typed details as an explicit transcript-image presentation
+- persists the validated bytes as a durable session attachment
+- returns only a bounded success or error message as model-facing tool content
+- marks typed, non-model-facing details as an explicit transcript-image presentation referencing the attachment
 
 The terminal transcript promotes successful `show_image` results out of the consolidated Activity drawer and renders them below the drawer entry. The newest completed call begins expanded and replaces any previously expanded preview. Restored history begins collapsed so opening an image-heavy session does not eagerly decode every image.
 
@@ -29,9 +30,13 @@ At most one preview is expanded at a time. Expanded previews reserve a fixed-hei
 
 User image-attachment rows use the same image workspace pane when opened from the main transcript.
 
-Other tools may continue returning standard image blocks. They are not promoted into the main transcript unless they opt into a future explicit presentation contract.
+Transcript projection derives the presented image from validated `show_image` details rather than from model-facing tool content.
 
-`show_image` is available only when Kit owns an interactive transcript. Headless print and RPC hosts exclude it until their clients have a bounded media retrieval and presentation contract.
+Kit separately provides `inspect_image` for cases where the agent must reason about a local image. It accepts a local path, applies the same byte, dimension, pixel, format, and structural validation as user image inputs, persists the validated attachment, and returns a standard model-visible image tool-result block. It does not set the transcript-image presentation marker and is advertised only when the selected model supports image input.
+
+Provider-neutral context estimation assigns each model-visible image a bounded conservative modality allowance instead of treating Base64 transport length as text. Exact provider measurement may replace that fallback. Other tools may continue returning standard image blocks; they are not promoted into the main transcript without an explicit presentation contract.
+
+`show_image` is available when Kit owns the attachment-backed session transcript. Clients consume its durable presentation marker independently of whether the selected model supports image input.
 
 Kit does not parse assistant prose for image-looking file paths. Mentioned paths may become explicit references in a separate feature, but they do not trigger image rendering or filesystem access.
 
@@ -39,11 +44,12 @@ Kit does not parse assistant prose for image-looking file paths. Mentioned paths
 
 - agents can intentionally present screenshots and generated raster images
 - image bytes are persisted with the tool result, so transcript and workspace previews do not depend on the source file remaining available
-- image inspection stays inside Kit by default while retaining an explicit external-open action
-- model-facing tool calls remain small because `show_image` accepts paths only
+- agents opt into image context only by calling `inspect_image` or receiving a user image input
+- presenting an image does not silently add image content to model context
+- model-facing tool calls and results remain bounded because `show_image` accepts paths and returns text only
 - terminal rendering degrades through OpenTUI's portable block protocol when native graphics are unavailable
-- headless hosts do not advertise `show_image`, avoiding large inline image records and a presentation capability they cannot fulfill
-- BMP, SVG, and malformed or oversized files are rejected by `show_image`
+- `inspect_image` uses the stricter model-input limits while `show_image` retains display-oriented limits
+- BMP, SVG, and malformed or oversized files are rejected by both image tools
 
 ## Related
 

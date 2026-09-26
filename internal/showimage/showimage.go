@@ -6,9 +6,6 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"io"
-	"os"
-	"path/filepath"
 	"strings"
 	"unicode/utf8"
 
@@ -16,6 +13,7 @@ import (
 	"github.com/akonwi/kit/internal/attachmentmeta"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/localimage"
 )
 
 const (
@@ -59,7 +57,7 @@ func New(options Options) (droids.AnyTool, error) {
 	}
 	return droids.NewTool(droids.Tool[arguments]{
 		Name:        ToolName,
-		Description: "Display a local PNG, JPEG, GIF, or WebP image in the transcript. Provide a filesystem path, not base64 data.",
+		Description: "Present a local PNG, JPEG, GIF, or WebP image to the user.",
 		Parameters: map[string]any{
 			"type": "object", "additionalProperties": false,
 			"properties": map[string]any{
@@ -81,87 +79,26 @@ func execute(ctx context.Context, options Options, args arguments) (droids.ToolR
 	if utf8.RuneCountInString(args.Caption) > maxCaptionRunes {
 		return failure(fmt.Sprintf("caption exceeds %d characters", maxCaptionRunes)), nil
 	}
-	path := args.Path
-	if !filepath.IsAbs(path) {
-		path = filepath.Join(options.CWD(), path)
-	}
-	path = filepath.Clean(path)
-	file, err := os.Open(path)
-	if err != nil {
-		return failure(err.Error()), nil
-	}
-	initial, err := file.Stat()
-	if err != nil {
-		_ = file.Close()
-		return failure(err.Error()), nil
-	}
-	if !initial.Mode().IsRegular() {
-		_ = file.Close()
-		return failure("path is not a regular file"), nil
-	}
-	input, err := attachment.InspectImage(filepath.Base(path), file, attachment.ImageLimits{
-		MaxBytes: maxImageBytes, MaxPixels: maxImagePixels,
-	})
-	if err != nil {
-		_ = file.Close()
-		return failure(err.Error()), nil
-	}
-	input.SessionID = options.SessionID
-	record, err := options.Store.Put(ctx, input)
-	final, statErr := file.Stat()
-	current, pathStatErr := os.Stat(path)
-	closeErr := file.Close()
+	record, err := localimage.Persist(ctx, localimage.Options{
+		SessionID: options.SessionID, CWD: localimage.CWDProvider(options.CWD), Store: options.Store,
+		Limits: attachment.ImageLimits{MaxBytes: maxImageBytes, MaxPixels: maxImagePixels},
+	}, args.Path)
 	if err != nil {
 		if ctxErr := ctx.Err(); ctxErr != nil {
 			return droids.ToolResult{}, ctxErr
 		}
 		return failure(err.Error()), nil
-	}
-	if ctxErr := ctx.Err(); ctxErr != nil {
-		_ = options.Store.Remove(context.WithoutCancel(ctx), options.SessionID, record.ID)
-		return droids.ToolResult{}, ctxErr
-	}
-	if statErr != nil || pathStatErr != nil || closeErr != nil || !os.SameFile(initial, current) ||
-		final.Size() != initial.Size() || !final.ModTime().Equal(initial.ModTime()) {
-		_ = options.Store.Remove(context.WithoutCancel(ctx), options.SessionID, record.ID)
-		return failure("image changed while it was being read"), nil
-	}
-	stored, reader, err := options.Store.Open(ctx, options.SessionID, record.ID)
-	if err != nil {
-		_ = options.Store.Remove(context.WithoutCancel(ctx), options.SessionID, record.ID)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return droids.ToolResult{}, ctxErr
-		}
-		return droids.ToolResult{}, fmt.Errorf("open persisted image: %w", err)
-	}
-	data, readErr := io.ReadAll(reader)
-	closeErr = reader.Close()
-	if readErr != nil || closeErr != nil {
-		_ = options.Store.Remove(context.WithoutCancel(ctx), options.SessionID, record.ID)
-		if ctxErr := ctx.Err(); ctxErr != nil {
-			return droids.ToolResult{}, ctxErr
-		}
-		if readErr != nil {
-			return droids.ToolResult{}, fmt.Errorf("read persisted image: %w", readErr)
-		}
-		return droids.ToolResult{}, fmt.Errorf("close persisted image: %w", closeErr)
 	}
 	details := Details{
-		Presentation: Presentation, AttachmentID: stored.ID, Filename: stored.Filename,
-		MediaType: stored.MediaType, Width: stored.Width, Height: stored.Height, Caption: args.Caption,
+		Presentation: Presentation, AttachmentID: record.ID, Filename: record.Filename,
+		MediaType: record.MediaType, Width: record.Width, Height: record.Height, Caption: args.Caption,
 	}
 	encoded, err := droids.EncodeDetails(details)
 	if err != nil {
 		return droids.ToolResult{}, err
 	}
-	text := fmt.Sprintf("Displayed %s (%dx%d).", stored.Filename, stored.Width, stored.Height)
-	if args.Caption != "" {
-		text += " " + args.Caption
-	}
-	fileContent := droids.NewFileData(stored.Filename, stored.MediaType, data)
-	fileContent.AttachmentID = stored.ID
 	return droids.ToolResult{
-		Content: []droids.ResultContent{droids.TextContent{Text: text}, fileContent},
+		Content: []droids.ResultContent{droids.TextContent{Text: "Image displayed successfully."}},
 		Details: encoded,
 	}, nil
 }

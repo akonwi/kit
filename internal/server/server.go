@@ -217,10 +217,11 @@ func Run(ctx context.Context, options RunOptions) error {
 	bundleBuilder, err := kitsession.NewRuntimeBundleBuilder(kitsession.RuntimeBundleOptions{
 		Core: systemPrompt, SkillLoader: skillLoader, PromptCommandLoader: promptCommandLoader,
 		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools, SessionToolFactory: sessionTools,
-		AttachmentStore: attachmentStore,
-		ShowImageEnabled: func(record kitsession.SessionRecord) bool {
+		AttachmentStore:     attachmentStore,
+		PresentImageEnabled: func(kitsession.SessionRecord) bool { return true },
+		InspectImageEnabled: func(record kitsession.SessionRecord) bool {
 			model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
-			return resolveErr == nil && kitsession.ModelSupportsImageAttachment(model)
+			return resolveErr == nil && kitsession.ModelSupportsToolResultImage(model)
 		},
 		Context:     &systemprompt.ContextBuilderOptions{Paths: paths},
 		MCPLoader:   mcpLoader,

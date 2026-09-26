@@ -6,7 +6,12 @@ import (
 	"strings"
 )
 
-const defaultCompactionTriggerFraction = 0.8
+const (
+	defaultCompactionTriggerFraction = 0.8
+	// A bounded 12K-token allowance avoids treating encoded transport bytes as
+	// text while conservatively accounting for provider-specific image tokens.
+	estimatedImageContentBytes = 24 << 10
+)
 
 // ContextUsage describes the estimated context budget for a provider request.
 // Exact is false when Droids used its approximate provider-neutral estimator.
@@ -126,18 +131,26 @@ func estimateContentBytes[T any](content []T) int {
 				bytes += len(annotation.Kind) + len(annotation.WorkspaceID) + len(annotation.Path) + len(annotation.FileRevision) + len(annotation.Preview) + len(annotation.Body) + 64
 			}
 		case FileInput:
-			bytes += len(value.Filename) + len(value.MediaType) + len(value.URL)
+			bytes += estimateFileBytes(value.Filename, value.MediaType, value.URL)
 		case TextContent:
 			bytes += len(value.Text) + len(value.Signature)
 		case ThinkingContent:
 			bytes += len(value.Thinking) + len(value.Signature)
 		case FileContent:
-			bytes += len(value.Filename) + len(value.MediaType) + len(value.URL)
+			bytes += estimateFileBytes(value.Filename, value.MediaType, value.URL)
 		case ToolCall:
 			bytes += len(value.ID) + len(value.Name) + len(value.Arguments) + len(value.Signature)
 		}
 	}
 	return bytes
+}
+
+func estimateFileBytes(filename, mediaType, source string) int {
+	bytes := len(filename) + len(mediaType)
+	if strings.HasPrefix(strings.ToLower(mediaType), "image/") {
+		return bytes + estimatedImageContentBytes
+	}
+	return bytes + len(source)
 }
 
 func cloneMessages(messages []Message) []Message {

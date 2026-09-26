@@ -12,6 +12,7 @@ import (
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/droids/mcp"
+	"github.com/akonwi/kit/internal/inspectimage"
 	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/peer"
 	"github.com/akonwi/kit/internal/promptcommands"
@@ -81,7 +82,8 @@ type RuntimeBundleOptions struct {
 	PeerToolFactory     peer.ToolFactory
 	SessionToolFactory  sessiontool.ToolFactory
 	AttachmentStore     attachment.Store
-	ShowImageEnabled    func(SessionRecord) bool
+	PresentImageEnabled func(SessionRecord) bool
+	InspectImageEnabled func(SessionRecord) bool
 	// MCPLoader and MCPLauncher must be configured together and only for
 	// session-owning builders. A child builder omits them and borrows its owner's
 	// namespaces instead of starting duplicate server processes.
@@ -111,7 +113,8 @@ type defaultRuntimeBundleBuilder struct {
 	peerToolFactory     peer.ToolFactory
 	sessionToolFactory  sessiontool.ToolFactory
 	attachmentStore     attachment.Store
-	showImageEnabled    func(SessionRecord) bool
+	presentImageEnabled func(SessionRecord) bool
+	inspectImageEnabled func(SessionRecord) bool
 	mcpLoader           MCPConfigLoader
 	mcpLauncher         MCPLauncher
 }
@@ -126,8 +129,9 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 	if (options.SubagentLoader == nil) != (options.SubagentToolFactory == nil) {
 		return nil, errors.New("session subagent loader and tool factory must be configured together")
 	}
-	if (options.AttachmentStore == nil) != (options.ShowImageEnabled == nil) {
-		return nil, errors.New("session attachment store and show-image capability must be configured together")
+	if options.AttachmentStore == nil && (options.PresentImageEnabled != nil || options.InspectImageEnabled != nil) ||
+		options.AttachmentStore != nil && (options.PresentImageEnabled == nil || options.InspectImageEnabled == nil) {
+		return nil, errors.New("session attachment store and image capability gates must be configured together")
 	}
 	if (options.MCPLoader == nil) != (options.MCPLauncher == nil) {
 		return nil, errors.New("session MCP loader and launcher must be configured together")
@@ -140,12 +144,13 @@ func NewRuntimeBundleBuilder(options RuntimeBundleOptions) (RuntimeBundleBuilder
 		composer: composer, registry: options.Registry, skillLoader: options.SkillLoader,
 		promptCommandLoader: options.PromptCommandLoader,
 		subagentLoader:      options.SubagentLoader, subagentToolFactory: options.SubagentToolFactory,
-		peerToolFactory:    options.PeerToolFactory,
-		sessionToolFactory: options.SessionToolFactory,
-		attachmentStore:    options.AttachmentStore,
-		showImageEnabled:   options.ShowImageEnabled,
-		mcpLoader:          options.MCPLoader,
-		mcpLauncher:        options.MCPLauncher,
+		peerToolFactory:     options.PeerToolFactory,
+		sessionToolFactory:  options.SessionToolFactory,
+		attachmentStore:     options.AttachmentStore,
+		presentImageEnabled: options.PresentImageEnabled,
+		inspectImageEnabled: options.InspectImageEnabled,
+		mcpLoader:           options.MCPLoader,
+		mcpLauncher:         options.MCPLauncher,
 	}
 	if options.Context != nil {
 		builder.context, err = systemprompt.NewContextBuilder(composer, *options.Context)
@@ -217,8 +222,15 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		}
 	}
 	tools := codingtools.NewDynamic(currentCWD)
-	if b.attachmentStore != nil && b.showImageEnabled(record) {
+	if b.attachmentStore != nil && b.presentImageEnabled(record) {
 		tool, toolErr := showimage.New(showimage.Options{SessionID: record.ID, CWD: showimage.CWDProvider(currentCWD), Store: b.attachmentStore})
+		if toolErr != nil {
+			return RuntimeBundle{}, toolErr
+		}
+		tools = append(tools, tool)
+	}
+	if b.attachmentStore != nil && b.inspectImageEnabled(record) {
+		tool, toolErr := inspectimage.New(inspectimage.Options{SessionID: record.ID, CWD: inspectimage.CWDProvider(currentCWD), Store: b.attachmentStore})
 		if toolErr != nil {
 			return RuntimeBundle{}, toolErr
 		}

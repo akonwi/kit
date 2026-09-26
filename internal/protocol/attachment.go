@@ -7,12 +7,13 @@ import (
 
 	"github.com/akonwi/kit/internal/attachmentmeta"
 	"github.com/akonwi/kit/internal/identifier"
+	"github.com/akonwi/kit/internal/modelimage"
 )
 
 const (
 	MaxAttachmentsPerPrompt  = 8
 	MaxPromptAttachmentBytes = 20 << 20
-	MaxImageAttachmentBytes  = 10 << 20
+	MaxImageAttachmentBytes  = modelimage.MaxBytes
 	MaxTextAttachmentBytes   = 1 << 20
 	MaxAttachmentResolution  = 512
 )

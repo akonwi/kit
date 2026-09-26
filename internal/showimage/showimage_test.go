@@ -18,7 +18,7 @@ import (
 	"github.com/akonwi/kit/internal/droids"
 )
 
-func TestExecutePersistsRelativeImageAndReturnsTypedPresentation(t *testing.T) {
+func TestExecutePersistsRelativeImageAndReturnsTextOnlyPresentation(t *testing.T) {
 	t.Parallel()
 	cwd := t.TempDir()
 	path := filepath.Join(cwd, "sample.png")
@@ -36,12 +36,12 @@ func TestExecutePersistsRelativeImageAndReturnsTypedPresentation(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if result.IsError || len(result.Content) != 2 {
-		t.Fatalf("result = %#v, want successful text and image content", result)
+	if result.IsError || len(result.Content) != 1 {
+		t.Fatalf("result = %#v, want successful text-only content", result)
 	}
-	file, ok := result.Content[1].(droids.FileContent)
-	if !ok || file.Filename != "sample.png" || file.MediaType != "image/png" || file.AttachmentID == "" || !strings.HasPrefix(file.URL, "data:image/png;base64,") {
-		t.Fatalf("image content = %#v", result.Content[1])
+	text, ok := result.Content[0].(droids.TextContent)
+	if !ok || text.Text != "Image displayed successfully." {
+		t.Fatalf("result content = %#v", result.Content)
 	}
 	var details Details
 	if err := json.Unmarshal(result.Details, &details); err != nil {

@@ -755,7 +755,7 @@ func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (
 		projected.ToolName = typed.ToolName
 		projected.Details = append(json.RawMessage(nil), typed.Details...)
 		projected.IsError = typed.IsError
-		projectToolImagePresentation(projected.Content, typed.ToolName, typed.IsError, typed.Details)
+		projected.Content = projectToolImagePresentation(projected.Content, typed.ToolName, typed.IsError, typed.Details)
 	case droids.ContextMessage:
 		projected.Role = "context"
 		projected.BoundaryID = typed.BoundaryID
@@ -768,7 +768,7 @@ func projectTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (
 	return projected, nil
 }
 
-func projectToolImagePresentation(content []TranscriptContent, toolName string, isError bool, raw json.RawMessage) {
+func projectToolImagePresentation(content []TranscriptContent, toolName string, isError bool, raw json.RawMessage) []TranscriptContent {
 	details, marked := showimage.ParseDetails(raw)
 	marked = marked && !isError && toolName == showimage.ToolName
 	promoted := false
@@ -782,6 +782,13 @@ func projectToolImagePresentation(content []TranscriptContent, toolName string, 
 			promoted = true
 		}
 	}
+	if marked && !promoted {
+		content = append(content, TranscriptContent{
+			Kind: TranscriptContentImage, Filename: details.Filename,
+			MediaType: details.MediaType, AttachmentID: details.AttachmentID,
+		})
+	}
+	return content
 }
 
 func projectTranscriptContent(message droids.Message) ([]TranscriptContent, error) {

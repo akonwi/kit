@@ -1585,7 +1585,7 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 	return content, nil
 }
 
-// ModelSupportsImageAttachment reports whether Kit can send image content to a model.
+// ModelSupportsImageAttachment reports whether Kit can send image content in a user message.
 func ModelSupportsImageAttachment(model droids.Model) bool {
 	if model.API == droids.ModelAPIAnthropicMessages {
 		return false
@@ -1596,6 +1596,14 @@ func ModelSupportsImageAttachment(model droids.Model) bool {
 		}
 	}
 	return false
+}
+
+// ModelSupportsToolResultImage reports whether Kit can send image content in a tool result.
+func ModelSupportsToolResultImage(model droids.Model) bool {
+	if !ModelSupportsImageAttachment(model) {
+		return false
+	}
+	return model.API == droids.ModelAPIOpenAIResponses || model.API == droids.ModelAPIOpenAICodexResponses
 }
 
 func validatePromptText(prompt string) error {

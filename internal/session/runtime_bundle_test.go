@@ -9,7 +9,9 @@ import (
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/inspectimage"
 	"github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/skills"
 	"github.com/akonwi/kit/internal/storage"
 	"github.com/akonwi/kit/internal/subagent"
@@ -50,7 +52,7 @@ func TestRuntimeBundleBuilderOwnsMatchingSkillCatalogAndTool(t *testing.T) {
 	}
 }
 
-func TestRuntimeBundleBuilderAddsShowImageOnlyWithAnAttachmentStore(t *testing.T) {
+func TestRuntimeBundleBuilderAddsImageToolsWithIndependentCapabilityGates(t *testing.T) {
 	registry, err := skills.NewRegistry()
 	if err != nil {
 		t.Fatal(err)
@@ -61,7 +63,8 @@ func TestRuntimeBundleBuilderAddsShowImageOnlyWithAnAttachmentStore(t *testing.T
 	}
 	builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
 		Core: "core", Registry: registry, AttachmentStore: store,
-		ShowImageEnabled: func(session.SessionRecord) bool { return true },
+		PresentImageEnabled: func(session.SessionRecord) bool { return true },
+		InspectImageEnabled: func(session.SessionRecord) bool { return true },
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -72,8 +75,71 @@ func TestRuntimeBundleBuilderAddsShowImageOnlyWithAnAttachmentStore(t *testing.T
 	if err != nil {
 		t.Fatal(err)
 	}
+	if len(bundle.Tools) != 10 {
+		t.Fatalf("bundle tools = %d, want 10 including show_image and inspect_image", len(bundle.Tools))
+	}
+	assertImageTools(t, bundle, true, true)
+
+	builder, err = session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: "core", Registry: registry, AttachmentStore: store,
+		PresentImageEnabled: func(session.SessionRecord) bool { return true },
+		InspectImageEnabled: func(session.SessionRecord) bool { return false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err = builder.Build(t.Context(), session.SessionRecord{ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(bundle.Tools) != 9 {
-		t.Fatalf("bundle tools = %d, want 9 including show_image", len(bundle.Tools))
+		t.Fatalf("bundle tools = %d, want presentation tool only", len(bundle.Tools))
+	}
+	assertImageTools(t, bundle, true, false)
+
+	builder, err = session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: "core", Registry: registry, AttachmentStore: store,
+		PresentImageEnabled: func(session.SessionRecord) bool { return false },
+		InspectImageEnabled: func(session.SessionRecord) bool { return true },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err = builder.Build(t.Context(), session.SessionRecord{ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Tools) != 9 {
+		t.Fatalf("bundle tools = %d, want inspection tool only", len(bundle.Tools))
+	}
+	assertImageTools(t, bundle, false, true)
+
+	builder, err = session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: "core", Registry: registry, AttachmentStore: store,
+		PresentImageEnabled: func(session.SessionRecord) bool { return false },
+		InspectImageEnabled: func(session.SessionRecord) bool { return false },
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err = builder.Build(t.Context(), session.SessionRecord{ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir()}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(bundle.Tools) != 8 {
+		t.Fatalf("bundle tools = %d, want neither image tool", len(bundle.Tools))
+	}
+	assertImageTools(t, bundle, false, false)
+}
+
+func assertImageTools(t *testing.T, bundle session.RuntimeBundle, wantShow, wantInspect bool) {
+	t.Helper()
+	names := make(map[string]bool, len(bundle.Tools))
+	for _, tool := range bundle.Tools {
+		names[tool.Name()] = true
+	}
+	if names[showimage.ToolName] != wantShow || names[inspectimage.ToolName] != wantInspect {
+		t.Fatalf("image tools = show:%v inspect:%v, want show:%v inspect:%v", names[showimage.ToolName], names[inspectimage.ToolName], wantShow, wantInspect)
 	}
 }
 

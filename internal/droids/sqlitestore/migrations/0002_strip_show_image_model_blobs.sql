@@ -1,0 +1,3 @@
+-- The data rewrite for this migration is implemented in Go so every durable
+-- representation of a tool-result message can be traversed safely. See
+-- stripShowImageModelBlobs in store.go.

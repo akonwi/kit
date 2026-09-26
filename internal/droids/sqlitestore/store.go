@@ -2,11 +2,13 @@
 package sqlitestore
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"database/sql"
 	"embed"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/url"
@@ -15,6 +17,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/showimage"
 	"modernc.org/sqlite"
 )
 
@@ -22,10 +25,18 @@ import (
 var migrationFiles embed.FS
 
 const (
-	initialMigration = "migrations/0001_initial.sql"
-	defaultPageSize  = 100
-	maxPageSize      = 1000
+	defaultPageSize = 100
+	maxPageSize     = 1000
 )
+
+var migrations = []struct {
+	path string
+	name string
+	run  func(context.Context, *sql.Conn) error
+}{
+	{path: "migrations/0001_initial.sql", name: "initial"},
+	{path: "migrations/0002_strip_show_image_model_blobs.sql", name: "strip_show_image_model_blobs", run: stripShowImageModelBlobs},
+}
 
 // Options configures a dedicated SQLite Store.
 type Options struct {
@@ -638,38 +649,46 @@ func migrate(ctx context.Context, db *sql.DB) error {
 	`); err != nil {
 		return fmt.Errorf("droids sqlite: create migration table: %w", err)
 	}
-	body, err := migrationFiles.ReadFile(initialMigration)
-	if err != nil {
-		return fmt.Errorf("droids sqlite: read initial migration: %w", err)
-	}
-	digest := sha256.Sum256(body)
-	checksum := hex.EncodeToString(digest[:])
 	var latest int
 	if err := db.QueryRowContext(ctx, `SELECT COALESCE(MAX(version), 0) FROM schema_migrations`).Scan(&latest); err != nil {
 		return fmt.Errorf("droids sqlite: read migration version: %w", err)
 	}
-	if latest > 1 {
+	if latest > len(migrations) {
 		return fmt.Errorf("droids sqlite: database schema version %d is newer than this build", latest)
 	}
-	var appliedChecksum string
-	err = db.QueryRowContext(ctx, `SELECT checksum FROM schema_migrations WHERE version = 1`).Scan(&appliedChecksum)
-	if err == nil {
-		if appliedChecksum != checksum {
-			return fmt.Errorf("droids sqlite: migration 1 checksum mismatch")
+	for index, migration := range migrations {
+		version := index + 1
+		body, err := migrationFiles.ReadFile(migration.path)
+		if err != nil {
+			return fmt.Errorf("droids sqlite: read migration %d: %w", version, err)
 		}
-		return nil
+		digest := sha256.Sum256(body)
+		checksum := hex.EncodeToString(digest[:])
+		if version <= latest {
+			var appliedName, appliedChecksum string
+			if err := db.QueryRowContext(ctx, `SELECT name, checksum FROM schema_migrations WHERE version = ?`, version).Scan(&appliedName, &appliedChecksum); err != nil {
+				return fmt.Errorf("droids sqlite: inspect migration %d: %w", version, err)
+			}
+			if appliedName != migration.name || appliedChecksum != checksum {
+				return fmt.Errorf("droids sqlite: migration %d checksum mismatch", version)
+			}
+			continue
+		}
+		if err := applyMigration(ctx, db, version, migration.name, checksum, body, migration.run); err != nil {
+			return err
+		}
 	}
-	if !errors.Is(err, sql.ErrNoRows) {
-		return fmt.Errorf("droids sqlite: inspect migrations: %w", err)
-	}
+	return nil
+}
 
+func applyMigration(ctx context.Context, db *sql.DB, version int, name, checksum string, body []byte, run func(context.Context, *sql.Conn) error) error {
 	conn, err := db.Conn(ctx)
 	if err != nil {
 		return fmt.Errorf("droids sqlite: acquire migration connection: %w", err)
 	}
 	defer conn.Close()
 	if _, err := conn.ExecContext(ctx, "BEGIN IMMEDIATE"); err != nil {
-		return fmt.Errorf("droids sqlite: begin migration: %w", err)
+		return fmt.Errorf("droids sqlite: begin migration %d: %w", version, err)
 	}
 	committed := false
 	defer func() {
@@ -678,17 +697,170 @@ func migrate(ctx context.Context, db *sql.DB) error {
 		}
 	}()
 	if _, err := conn.ExecContext(ctx, string(body)); err != nil {
-		return fmt.Errorf("droids sqlite: apply migration 1: %w", err)
+		return fmt.Errorf("droids sqlite: apply migration %d: %w", version, err)
+	}
+	if run != nil {
+		if err := run(ctx, conn); err != nil {
+			return fmt.Errorf("droids sqlite: transform migration %d: %w", version, err)
+		}
 	}
 	if _, err := conn.ExecContext(ctx, `
 		INSERT INTO schema_migrations(version, name, checksum, applied_at)
-		VALUES (1, 'initial', ?, ?)
-	`, checksum, sqliteTime(time.Now())); err != nil {
-		return fmt.Errorf("droids sqlite: record migration 1: %w", err)
+		VALUES (?, ?, ?, ?)
+	`, version, name, checksum, sqliteTime(time.Now())); err != nil {
+		return fmt.Errorf("droids sqlite: record migration %d: %w", version, err)
 	}
 	if _, err := conn.ExecContext(ctx, "COMMIT"); err != nil {
-		return fmt.Errorf("droids sqlite: commit migration 1: %w", err)
+		return fmt.Errorf("droids sqlite: commit migration %d: %w", version, err)
 	}
 	committed = true
 	return nil
+}
+
+func stripShowImageModelBlobs(ctx context.Context, conn *sql.Conn) error {
+	if _, err := conn.ExecContext(ctx, `DROP TRIGGER records_history_immutable_update`); err != nil {
+		return err
+	}
+	rows, err := conn.QueryContext(ctx, `
+		SELECT record_kind, record_id, payload
+		FROM records
+		WHERE record_kind IN ('message', 'runtime', 'tool', 'checkpoint')
+	`)
+	if err != nil {
+		return err
+	}
+	type storedPayload struct {
+		kind    string
+		id      string
+		payload []byte
+	}
+	var records []storedPayload
+	for rows.Next() {
+		var record storedPayload
+		if err := rows.Scan(&record.kind, &record.id, &record.payload); err != nil {
+			_ = rows.Close()
+			return err
+		}
+		records = append(records, record)
+	}
+	if err := rows.Close(); err != nil {
+		return err
+	}
+	for _, record := range records {
+		var payload any
+		decoder := json.NewDecoder(bytes.NewReader(record.payload))
+		decoder.UseNumber()
+		if err := decoder.Decode(&payload); err != nil {
+			return fmt.Errorf("decode %s/%s: %w", record.kind, record.id, err)
+		}
+		if !stripShowImageRecord(record.kind, payload) {
+			continue
+		}
+		encoded, err := json.Marshal(payload)
+		if err != nil {
+			return fmt.Errorf("encode %s/%s: %w", record.kind, record.id, err)
+		}
+		if _, err := conn.ExecContext(ctx, `UPDATE records SET payload = ? WHERE record_kind = ? AND record_id = ?`, encoded, record.kind, record.id); err != nil {
+			return fmt.Errorf("update %s/%s: %w", record.kind, record.id, err)
+		}
+	}
+	_, err = conn.ExecContext(ctx, `
+		CREATE TRIGGER records_history_immutable_update
+		BEFORE UPDATE ON records
+		WHEN OLD.scope = 'history'
+		BEGIN
+			SELECT RAISE(ABORT, 'historical record is immutable');
+		END
+	`)
+	return err
+}
+
+func stripShowImageRecord(kind string, value any) bool {
+	root, ok := value.(map[string]any)
+	if !ok {
+		return false
+	}
+	switch kind {
+	case "message":
+		return stripShowImageEnvelope(root)
+	case "runtime":
+		changed := stripShowImageEnvelopes(root["context"])
+		if tools, ok := root["tools"].(map[string]any); ok {
+			for _, value := range tools {
+				if tool, ok := value.(map[string]any); ok && stripShowImageTool(tool) {
+					changed = true
+				}
+			}
+		}
+		return changed
+	case "tool":
+		return stripShowImageTool(root)
+	case "checkpoint":
+		return stripShowImageEnvelopes(root["messages"])
+	default:
+		return false
+	}
+}
+
+func stripShowImageEnvelopes(value any) bool {
+	envelopes, ok := value.([]any)
+	if !ok {
+		return false
+	}
+	changed := false
+	for _, value := range envelopes {
+		if envelope, ok := value.(map[string]any); ok && stripShowImageEnvelope(envelope) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func stripShowImageEnvelope(envelope map[string]any) bool {
+	message, ok := envelope["message"].(map[string]any)
+	return ok && stripShowImageMessageContent(message)
+}
+
+func stripShowImageTool(tool map[string]any) bool {
+	changed := false
+	for _, field := range []string{"raw_result", "final_result"} {
+		if message, ok := tool[field].(map[string]any); ok && stripShowImageMessageContent(message) {
+			changed = true
+		}
+	}
+	return changed
+}
+
+func stripShowImageMessageContent(message map[string]any) bool {
+	if message["role"] != string(droids.RoleToolResult) || message["tool_name"] != showimage.ToolName {
+		return false
+	}
+	rawDetails, err := json.Marshal(message["details"])
+	if err != nil {
+		return false
+	}
+	details, ok := showimage.ParseDetails(rawDetails)
+	if !ok {
+		return false
+	}
+	content, ok := message["content"].([]any)
+	if !ok {
+		return false
+	}
+	filtered := make([]any, 0, len(content))
+	changed := false
+	for _, item := range content {
+		block, blockOK := item.(map[string]any)
+		matches := blockOK && block["type"] == "file" && block["attachment_id"] == details.AttachmentID &&
+			block["filename"] == details.Filename && block["media_type"] == details.MediaType
+		if matches {
+			changed = true
+			continue
+		}
+		filtered = append(filtered, item)
+	}
+	if changed {
+		message["content"] = filtered
+	}
+	return changed
 }

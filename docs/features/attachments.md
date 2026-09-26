@@ -107,10 +107,24 @@ characters. Relative paths resolve against session cwd. The tool requires a
 stable regular PNG, JPEG, GIF, or WebP file, with limits of 16 MiB and 24
 megapixels.
 
-Success persists the bytes before returning model-facing image content and
-typed presentation details containing the attachment ID, filename, media type,
-dimensions, and caption. Only this explicit presentation marker creates a
-promoted tool image in the transcript.
+Success persists the bytes, returns only a bounded model-facing success message,
+and records typed non-model-facing presentation details containing the
+attachment ID, filename, media type, dimensions, and caption. Only this explicit
+presentation marker creates a promoted tool image in the transcript; presenting
+an image does not add its bytes to model context.
+
+## `inspect_image`
+
+`inspect_image` accepts a local image path when the agent needs to reason about
+its visual content. It applies the same 10 MiB, 8192-by-8192, 12-megapixel, and
+structural validation limits as user image inputs, persists the attachment, and
+returns a standard model-visible image block. It does not create a promoted
+transcript presentation and is available only for models that support image
+input.
+
+Provider-neutral context accounting assigns model-visible images a bounded
+conservative modality estimate rather than counting Base64 transport bytes as
+text tokens.
 
 ## External opening
 

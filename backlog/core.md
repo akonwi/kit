@@ -81,7 +81,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   tool-call tail, compaction trigger/replacement decisions, and manual-versus-
   automatic compaction with regression tests. Preserve safe limits without
   treating Base64 length as token count.
-- [ ] CORE-RUN-007 — Separate image presentation from model inspection.
+- [x] CORE-RUN-007 — Separate image presentation from model inspection.
   `show_image` currently returns persisted image bytes as a model-facing image
   tool-result block as well as displaying them in the transcript. Change it to
   return only bounded text/metadata to the model while retaining the validated
