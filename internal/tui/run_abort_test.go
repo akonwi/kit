@@ -73,6 +73,46 @@ func (s *abortTestSession) Stream(_ context.Context, id string) (sessionclient.E
 	return abortTestStream{updates: make(chan []protocol.SessionEvent)}, nil
 }
 
+type reconnectLookupSession struct {
+	fakeSession
+	lookup chan string
+}
+
+func (s *reconnectLookupSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
+	updates := make(chan []protocol.SessionEvent)
+	close(updates)
+	return abortTestStream{updates: updates}, nil
+}
+
+func (s *reconnectLookupSession) Run(_ context.Context, id string) (protocol.RunInfo, error) {
+	select {
+	case s.lookup <- id:
+	default:
+	}
+	return protocol.RunInfo{RunID: id, Status: protocol.RunStatusRunning}, nil
+}
+
+func TestActiveRunLookupClearsRecoveredFooterStatus(t *testing.T) {
+	application, state, _ := mountRunAbort(t)
+	session := &reconnectLookupSession{fakeSession: fakeSession{id: state.session.ID}, lookup: make(chan string, 2)}
+	state.bound = session
+	state.status = "Reconnecting…"
+	state.watchSession(session, state.operation, state.activeRunID)
+	select {
+	case id := <-session.lookup:
+		if id != "run_abort" {
+			t.Fatalf("run lookup = %q", id)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("active run was not verified")
+	}
+	receiveAbortCompletion(t, state)()
+	application.Pump(120, 36)
+	if state.status != "" || !state.runPending {
+		t.Fatalf("recovered run: status=%q pending=%t", state.status, state.runPending)
+	}
+}
+
 type abortTestRun struct {
 	appTestRun
 	abort func(context.Context) error

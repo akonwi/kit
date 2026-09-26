@@ -2875,6 +2875,15 @@ type subagentToolDetails struct {
 	Warning string `json:"warning"`
 }
 
+// clearRecoveredRunStatus removes only connection warnings once fresh run
+// evidence arrives. Other operations may have replaced the footer status while
+// the watcher was reconnecting; their messages must remain visible.
+func (s *appState) clearRecoveredRunStatus() {
+	if s.status == "Reconnecting activity…" || s.status == "Reconnecting…" {
+		s.status = ""
+	}
+}
+
 func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	transcriptChanged := false
 	changedCWD := ""
@@ -2883,6 +2892,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			continue
 		}
 		s.liveSequence = event.Sequence
+		s.clearRecoveredRunStatus()
 		if event.StreamID != "" {
 			s.liveStreamID = event.StreamID
 		}
@@ -3669,6 +3679,12 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					continue
 				}
 				if info.Status == protocol.RunStatusQueued || info.Status == protocol.RunStatusRunning {
+					verifiedRunID := runID
+					runtime.Dispatch(func() {
+						if operation == s.operation && watchGeneration == s.runWatchGeneration && s.activeRunID == verifiedRunID {
+							s.SetState(func() { s.clearRecoveredRunStatus() })
+						}
+					})
 					if updates == nil {
 						connect()
 					}
@@ -6536,7 +6552,9 @@ func (err promptQueuedError) Error() string { return "prompt queued behind activ
 
 func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
 	if s.runPending {
-		s.SetState(func() { s.status = "Run in progress" })
+		// Composer submissions queue separately; this guard covers other
+		// admission paths, such as a prompt command racing with an active run.
+		s.showToast(toastInput{Title: "Run in progress", Variant: toastInfo})
 		return
 	}
 	admission := &promptAdmission{}

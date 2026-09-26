@@ -378,9 +378,9 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 
 func TestActiveTurnFooterKeepsTransientStatusWithoutShortcutHints(t *testing.T) {
 	t.Parallel()
-	for _, status := range []string{"Reconnecting activity…", "Reconnecting…", "Run in progress"} {
+	for _, status := range []string{"Reconnecting activity…", "Reconnecting…", "Run finished · reconnecting transcript…"} {
 		t.Run(status, func(t *testing.T) {
-			const width, height = 80, 24
+			const width, height = 140, 24
 			app := uitest.New(shellView{Snapshot: shellSnapshot{
 				Phase: phaseReady, AgentRunning: true, TurnActivity: "Working…",
 				Status: status, Location: "~/repo (main)",

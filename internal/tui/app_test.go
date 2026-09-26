@@ -17,6 +17,44 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestRecoveredRunStatusClearsOnlyOnFreshEvidence(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"Reconnecting activity…", "Reconnecting…"} {
+		t.Run(status, func(t *testing.T) {
+			state := appState{status: status, liveSequence: 7, runPending: true}
+			state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Kind: protocol.SessionEventUsageUpdated}})
+			if state.status != status {
+				t.Fatalf("stale event changed status to %q", state.status)
+			}
+			state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Kind: protocol.SessionEventUsageUpdated}})
+			if state.status != "" {
+				t.Fatalf("fresh event left recovered status %q", state.status)
+			}
+		})
+	}
+	state := appState{status: "Applying session configuration…", liveSequence: 7, runPending: true}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Kind: protocol.SessionEventUsageUpdated}})
+	if state.status != "Applying session configuration…" {
+		t.Fatalf("fresh run event erased another operation's status: %q", state.status)
+	}
+}
+
+func TestActiveRunAdmissionGuardPreservesDraftAndShowsInformationalToast(t *testing.T) {
+	_, state, _ := mountRunAbort(t)
+	state.status = "Reconnecting activity…"
+	state.composer = "another prompt"
+	state.startPromptSubmission("another prompt", func(context.Context) (sessionclient.Run, error) {
+		t.Fatal("submitted a prompt during an active run")
+		return nil, nil
+	})
+	if state.status != "Reconnecting activity…" || state.composer != "another prompt" || !state.runPending {
+		t.Fatalf("active run guard: status=%q composer=%q pending=%t", state.status, state.composer, state.runPending)
+	}
+	if got := state.toasts.Snapshot(); len(got) != 1 || got[0].Title != "Run in progress" || got[0].Variant != toastInfo || got[0].Persistent {
+		t.Fatalf("defensive admission feedback = %+v, want transient information toast", got)
+	}
+}
+
 type blockingDiffPreferenceService struct {
 	calls   chan bool
 	release chan struct{}
