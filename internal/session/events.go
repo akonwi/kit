@@ -665,6 +665,9 @@ func (log *eventLog) page(expectedStream string, after int64) EventPage {
 
 func (log *eventLog) pageLocked(expectedStream string, after int64) EventPage {
 	page := EventPage{StreamID: log.streamID, LastSequence: log.next - 1}
+	if len(log.events) > 0 {
+		page.FirstSequence = log.events[0].Sequence
+	}
 	if expectedStream != "" && expectedStream != log.streamID {
 		page.ResyncRequired = true
 		return page
@@ -672,9 +675,6 @@ func (log *eventLog) pageLocked(expectedStream string, after int64) EventPage {
 	if !log.replayAvailable && expectedStream == "" {
 		page.ResyncRequired = true
 		return page
-	}
-	if len(log.events) > 0 {
-		page.FirstSequence = log.events[0].Sequence
 	}
 	if !log.replayAvailable && after < log.tailFrom {
 		page.ResyncRequired = true

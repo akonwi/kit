@@ -222,6 +222,21 @@ func TestEventLogAllowsContiguousRetainedSuffix(t *testing.T) {
 	}
 }
 
+func TestEventLogResyncRetainsSequenceRangeAfterEvents(t *testing.T) {
+	t.Parallel()
+	log, err := newEventLog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := log.append([]NewEvent{{SessionID: "session_1", Kind: EventSessionRenamed, SessionName: "renamed"}}); err != nil {
+		t.Fatal(err)
+	}
+	page := log.page("stream_stale", 0)
+	if !page.ResyncRequired || page.FirstSequence != 1 || page.LastSequence != 1 || len(page.Events) != 0 {
+		t.Fatalf("resync page = %+v, want current retention range 1..1", page)
+	}
+}
+
 func TestEventLogAllowsSnapshotCursorToFollowInvalidatedTail(t *testing.T) {
 	t.Parallel()
 

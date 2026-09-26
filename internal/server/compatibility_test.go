@@ -27,7 +27,7 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 	}{
 		{"older daemon", version.SessionProtocolVersion - 1, "v1", DaemonProtocolOlder},
 		{"older client", version.SessionProtocolVersion + 1, "v2", ClientProtocolOlder},
-		{"release skew", version.SessionProtocolVersion, "v2", ReleaseMismatch},
+		{"unverified release skew", version.SessionProtocolVersion, "v2", ReleaseMismatch},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			err := compatibleWithVersion(Registry{ProtocolVersion: tc.protocol, KitVersion: tc.release}, "v1")
@@ -40,8 +40,63 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 			}
 		})
 	}
-	if err := compatibleWithVersion(Registry{ProtocolVersion: version.SessionProtocolVersion, KitVersion: "v2"}, "dev"); err != nil {
-		t.Fatalf("development binary rejected same-protocol release: %v", err)
+	for _, tc := range []struct {
+		name, client, daemon string
+		compatible           bool
+	}{
+		{"baseline to next stable", "0.37.0", "0.37.1", true},
+		{"next stable to baseline", "0.37.1", "0.37.0", true},
+		{"future major stable", "1.0.0", "0.37.0", true},
+		{"same prerelease", "0.37.0-rc.1", "0.37.0-rc.1", true},
+		{"same dev label remains local-only", "dev", "dev", true},
+		{"rc to stable", "0.37.0-rc.1", "0.37.0", false},
+		{"stable to rc", "0.37.0", "0.37.0-rc.1", false},
+		{"dev to stable", "dev", "0.37.0", false},
+		{"stable to dev", "0.37.0", "dev", false},
+		{"prebaseline to stable", "0.36.3", "0.37.0", false},
+		{"same prebaseline", "0.36.3", "0.36.3", true},
+		{"noncanonical leading zero", "0.037.0", "0.37.0", false},
+		{"build metadata", "0.37.0+local", "0.37.0", false},
+		{"unverified labels", "release-a", "release-b", false},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			err := compatibleWithVersion(Registry{ProtocolVersion: version.SessionProtocolVersion, KitVersion: tc.daemon}, tc.client)
+			if tc.compatible {
+				if err != nil {
+					t.Fatalf("compatible releases %q and %q rejected: %v", tc.client, tc.daemon, err)
+				}
+				return
+			}
+			var mismatch *DaemonCompatibilityError
+			if !errors.As(err, &mismatch) || mismatch.Reason != ReleaseMismatch || mismatch.ClientVersion != tc.client || mismatch.DaemonVersion != tc.daemon {
+				t.Fatalf("unverified releases %q and %q = %v, want typed mismatch", tc.client, tc.daemon, err)
+			}
+		})
+	}
+}
+
+func TestProtocol40ReleaseScope(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		release string
+		want    bool
+	}{
+		{"0.36.99", false}, {"0.37.0", true}, {"0.37.1", true},
+		{"0.38.0", true}, {"1.0.0", true}, {"dev", false},
+		{"0.37.0-rc.1", false}, {"0.37.0+local", false},
+		{"v0.37.0", false}, {"00.37.0", false}, {"0.037.0", false},
+		{"0.37.00", false}, {"0.37", false}, {"0.37.0.0", false},
+		{"0.37.-1", false}, {"0.37.9999999999999999999999999999999", false},
+	} {
+		if got := protocol40Release(tc.release); got != tc.want {
+			t.Errorf("protocol40Release(%q) = %t, want %t", tc.release, got, tc.want)
+		}
+	}
+	for _, protocol := range []int{39, 40, 41} {
+		want := protocol == 40
+		if got := coveredSessionReleasePair(protocol, "0.37.0", "0.37.1"); got != want {
+			t.Errorf("protocol %d stable release skew = %t, want %t", protocol, got, want)
+		}
 	}
 }
 

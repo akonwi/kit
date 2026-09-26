@@ -37,6 +37,15 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
+- [~] CORE-PROTO-001 — From the first tagged protocol-40 release onward,
+  separately built client and daemon releases with the same session protocol
+  interoperate in both directions without replacing an active daemon. Verify
+  baseline session operations, transcript/context-boundary projections,
+  snapshots, errors, event replay and resynchronization, SSE, and mutation
+  admission against pinned source revisions. Bump the protocol for an
+  incompatible baseline change; keep release strings diagnostic and reject
+  unverified protocol skew non-destructively. Database schema, local registry
+  version, and explicit daemon replacement remain separate contracts.
 - [~] CORE-LIFE-002 — Enforce explicit resource and backpressure limits across
   HTTP, event replay and subscriptions, direct tools, MCP, and clients.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
