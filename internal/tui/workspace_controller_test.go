@@ -380,3 +380,91 @@ func TestWorkspaceDescriptorIdentityIgnoresPresentationChanges(t *testing.T) {
 		t.Fatalf("identity = %q, want %q", got, want)
 	}
 }
+
+func TestWorkspaceControllerMovesOnlyLiveDiffOnWorkspaceChange(t *testing.T) {
+	t.Parallel()
+	var controller workspaceController
+	file := fileWorkspacePane("old", "src/main.go")
+	if _, _, err := controller.Open(file); err != nil {
+		t.Fatal(err)
+	}
+	if _, _, err := controller.Open(workingTreeDiffWorkspacePane("old")); err != nil {
+		t.Fatal(err)
+	}
+	before := controller.SelectedIdentity()
+	if !controller.FollowDiffWorkspace("old", "new") {
+		t.Fatal("live Diff did not follow the new workspace")
+	}
+	panes := controller.Panes()
+	if len(panes) != 2 || panes[0].Kind != workspacePaneFile || panes[0].WorkspaceID != file.WorkspaceID || panes[0].Path != file.Path || panes[1].WorkspaceID != "new" || !panes[1].DiffFollowCWD || panes[1].OpenGeneration <= 2 {
+		t.Fatalf("retained panes after cwd change = %+v", panes)
+	}
+	if controller.SelectedIdentity() == before || controller.SelectedIdentity() != "diff:new" {
+		t.Fatalf("selected pane = %q, want retargeted Diff", controller.SelectedIdentity())
+	}
+	if !controller.FollowDiffWorkspace("new", "old") || controller.SelectedIdentity() != "diff:old" || len(controller.Panes()) != 2 {
+		t.Fatal("returning to the original cwd did not follow the same live tab")
+	}
+}
+
+func TestWorkspaceControllerKeepsPinnedDiffOnWorkspaceChange(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		prepare func(*workspaceController)
+	}{
+		{name: "selected commit", prepare: func(c *workspaceController) { c.SetDiffFollowCWD("old", false) }},
+		{name: "revision-pinned annotation", prepare: func(c *workspaceController) {
+			c.panes[0].ExpectedRevision = "rev_old"
+		}},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var controller workspaceController
+			if _, _, err := controller.Open(workingTreeDiffWorkspacePane("old")); err != nil {
+				t.Fatal(err)
+			}
+			test.prepare(&controller)
+			if controller.FollowDiffWorkspace("old", "new") {
+				t.Fatal("pinned diff moved to new workspace")
+			}
+			if got := controller.Panes()[0].WorkspaceID; got != "old" {
+				t.Fatalf("pinned workspace = %q, want old", got)
+			}
+		})
+	}
+}
+
+func TestWorkspaceControllerDoesNotReplaceDestinationDiff(t *testing.T) {
+	t.Parallel()
+	var controller workspaceController
+	if _, _, err := controller.Open(workingTreeDiffWorkspacePane("old")); err != nil {
+		t.Fatal(err)
+	}
+	pinned := workingTreeDiffWorkspacePane("new")
+	pinned.ExpectedRevision = "rev_new"
+	if _, _, err := controller.Open(pinned); err != nil {
+		t.Fatal(err)
+	}
+	if controller.FollowDiffWorkspace("old", "new") {
+		t.Fatal("live Diff replaced pinned evidence in the destination")
+	}
+	panes := controller.Panes()
+	if len(panes) != 2 || panes[0].WorkspaceID != "old" || panes[1].ExpectedRevision != "rev_new" {
+		t.Fatalf("retained panes = %+v", panes)
+	}
+}
+
+func TestAuthoritativeWorkspaceChangeRetargetsLiveDiff(t *testing.T) {
+	t.Parallel()
+	state := &appState{workspaceID: "old", session: protocol.SessionInfo{ID: "session", CWD: "/old"}}
+	if _, _, err := state.workspace.Open(workingTreeDiffWorkspacePane("old")); err != nil {
+		t.Fatal(err)
+	}
+	state.reconcileWorkspaceIdentity(&protocol.WorkspaceRef{SessionID: "session", CWD: "/new", WorkspaceID: "new"})
+	if state.workspaceID != "new" || state.workspace.SelectedIdentity() != "diff:new" {
+		t.Fatalf("current workspace=%q selected=%q", state.workspaceID, state.workspace.SelectedIdentity())
+	}
+	if panes := state.workspace.Panes(); len(panes) != 1 || panes[0].WorkspaceID != "new" {
+		t.Fatalf("retargeted panes = %+v, want one live Diff", panes)
+	}
+}

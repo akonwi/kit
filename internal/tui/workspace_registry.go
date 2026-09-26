@@ -97,8 +97,13 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 				Annotations:        view.Snapshot.ComposerAnnotations,
 				InitialWrapLines:   view.Snapshot.DiffWrapLines,
 				OnWrapLinesChanged: view.Callbacks.SetDiffWrapLines,
-				MouseGestures:      view.Callbacks.WorkspaceMouse,
-				OnFocusRequest:     view.Callbacks.FocusWorkspaceContent,
+				OnFollowCWDChanged: func(follow bool) {
+					if view.Callbacks.SetDiffFollowCWD != nil {
+						view.Callbacks.SetDiffFollowCWD(descriptor.WorkspaceID, follow)
+					}
+				},
+				MouseGestures:  view.Callbacks.WorkspaceMouse,
+				OnFocusRequest: view.Callbacks.FocusWorkspaceContent,
 				OnInputOwnerChanged: func(kind paneInputKind, active bool) bool {
 					return view.Callbacks.PaneInputChanged != nil && view.Callbacks.PaneInputChanged(descriptor, kind, active)
 				},

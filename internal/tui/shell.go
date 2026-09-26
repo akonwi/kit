@@ -145,6 +145,7 @@ type shellCallbacks struct {
 	PaneInputChanged            func(workspacePaneDescriptor, paneInputKind, bool) bool
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
+	SetDiffFollowCWD            func(string, bool)
 	ShowDiffWarning             func(string)
 	ShowDiffNotice              func(string)
 	OpenAuth                    ui.VoidCallback

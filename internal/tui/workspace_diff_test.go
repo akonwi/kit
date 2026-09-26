@@ -26,6 +26,7 @@ const (
 
 type fakeWorkingTreeDiff struct {
 	catalog              protocol.DiffTargetCatalog
+	catalogFn            func(context.Context, protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error)
 	catalogErr           error
 	catalogWait          <-chan struct{}
 	catalogEmpty         bool
@@ -37,7 +38,10 @@ type fakeWorkingTreeDiff struct {
 	pages                map[string]protocol.FileDiffPage
 }
 
-func (f fakeWorkingTreeDiff) ListDiffTargets(ctx context.Context, _ protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+func (f fakeWorkingTreeDiff) ListDiffTargets(ctx context.Context, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+	if f.catalogFn != nil {
+		return f.catalogFn(ctx, input)
+	}
 	if f.catalogWait != nil {
 		select {
 		case <-f.catalogWait:
@@ -1016,11 +1020,16 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 	}}
 	dispatch := &queuedDiffDispatch{}
 	notice := ""
+	var followCWD []bool
 	pane := workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
-		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message }}
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnNotice: func(message string) { notice = message },
+		OnFollowCWDChanged: func(follow bool) { followCWD = append(followCWD, follow) }}
 	theme := ui.DefaultTheme()
 	application := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: pane})
 	pumpDiffUntil(t, application, dispatch, 100, 14, "working evidence")
+	if len(followCWD) == 0 || !followCWD[len(followCWD)-1] {
+		t.Fatalf("working-tree follow state = %v, want live", followCWD)
+	}
 	application.Send(vaxis.Key{Text: "g", Keycode: 'g'})
 	select {
 	case <-commitStarted:
@@ -1028,6 +1037,9 @@ func TestWorkspaceDiffToggleSwitchesInPlaceAndPreservesPath(t *testing.T) {
 		t.Fatal("committed target observation did not start")
 	}
 	application.Pump(100, 14)
+	if len(followCWD) == 0 || followCWD[len(followCWD)-1] {
+		t.Fatalf("committed-target follow state = %v, want pinned", followCWD)
+	}
 	if notice != "Working-tree changes are not included in this committed target" {
 		t.Fatalf("notice = %q", notice)
 	}
@@ -1248,15 +1260,24 @@ func TestWorkspaceDiffTargetSwitchBlockedByRangeWithWarning(t *testing.T) {
 	backend := fakeWorkingTreeDiff{observation: observation, pages: map[string]protocol.FileDiffPage{"range.go": {Observation: observation.Observation, File: file, Computation: protocol.DiffComputation{State: "complete"}, Hunks: []protocol.DiffHunk{{Lines: []protocol.DiffLine{{Kind: "addition", NewLine: &line, Content: "selected", HasTerminatingLF: true}}}}}}}
 	dispatch := &queuedDiffDispatch{}
 	warning := ""
+	var followCWD []bool
 	application := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend, Dispatch: dispatch.dispatch,
-		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnCreateAnnotation: func(protocol.AnnotationAnchor, string, func(error)) {}, OnWarning: func(message string) { warning = message }})
+		Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}, OnCreateAnnotation: func(protocol.AnnotationAnchor, string, func(error)) {}, OnWarning: func(message string) { warning = message },
+		OnFollowCWDChanged: func(follow bool) { followCWD = append(followCWD, follow) }})
 	pumpDiffUntil(t, application, dispatch, 90, 14, "selected")
 	application.Send(vaxis.Key{Keycode: vaxis.KeyDown})
 	application.Send(vaxis.Key{Text: "v", Keycode: 'v'})
+	if len(followCWD) == 0 || followCWD[len(followCWD)-1] {
+		t.Fatalf("range selection follow state = %v, want pinned", followCWD)
+	}
 	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
 	application.Pump(90, 14)
 	if warning != "Finish the active range or comment before changing target" {
 		t.Fatalf("warning = %q", warning)
+	}
+	application.Send(vaxis.Key{Text: "v", Keycode: 'v'})
+	if len(followCWD) == 0 || !followCWD[len(followCWD)-1] {
+		t.Fatalf("cleared range follow state = %v, want live", followCWD)
 	}
 	if strings.Contains(application.Text(), "Select diff target") {
 		t.Fatalf("blocked switch opened picker:\n%s", application.Text())
@@ -1292,5 +1313,23 @@ func TestWorkingTreeDiffDescriptorDeduplicatesByWorkspace(t *testing.T) {
 	}
 	if controller.Panes()[0].OpenGeneration <= 1 {
 		t.Fatalf("reopen generation = %d", controller.Panes()[0].OpenGeneration)
+	}
+}
+
+func TestFrozenDiffCannotSwitchTargetsOrFollowOldCatalog(t *testing.T) {
+	state := &workspaceDiffPaneState{}
+	warning := ""
+	var followed []bool
+	pane := workspaceDiffPane{
+		Descriptor: workingTreeDiffWorkspacePane("old"), CurrentWorkspaceID: "new", testState: state,
+		Presentation:       workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		OnWarning:          func(message string) { warning = message },
+		OnFollowCWDChanged: func(follow bool) { followed = append(followed, follow) },
+	}
+	application := uitest.New(pane)
+	application.Pump(90, 20)
+	state.switchTarget(protocol.DiffTargetEntry{Reference: "old-working-tree", TargetID: "old-target", Kind: protocol.DiffTargetWorkingTree})
+	if warning != "This Diff belongs to a previous workspace; open Diff for the current workspace" || state.pendingTarget.Reference != "" || len(followed) != 0 {
+		t.Fatalf("frozen target switch: warning=%q pending=%+v follow=%v", warning, state.pendingTarget, followed)
 	}
 }

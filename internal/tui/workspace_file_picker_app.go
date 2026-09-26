@@ -78,8 +78,12 @@ func (s *appState) reconcileWorkspaceIdentity(workspace *protocol.WorkspaceRef) 
 	if workspace == nil || workspace.WorkspaceID == "" {
 		return
 	}
-	changed := s.workspaceID != "" && s.workspaceID != workspace.WorkspaceID
+	previousID := s.workspaceID
+	changed := previousID != "" && previousID != workspace.WorkspaceID
 	s.workspaceID = workspace.WorkspaceID
+	if changed && s.workspace.FollowDiffWorkspace(previousID, workspace.WorkspaceID) {
+		s.syncWorkspaceSelection()
+	}
 	pickerChanged := s.workspaceFilePicker.Open && s.workspaceFilePicker.Workspace.WorkspaceID != "" &&
 		s.workspaceFilePicker.Workspace.WorkspaceID != workspace.WorkspaceID
 	if changed || pickerChanged {

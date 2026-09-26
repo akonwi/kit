@@ -78,10 +78,14 @@ requests may carry a line, range, hunk, or changed-file anchor; anchors are
 navigation input rather than identity. Repeated opens update the existing pane's
 pending reveal target and focus it.
 
-A cwd-incarnation change makes old mutable workspace panes read-only and stale
-while preserving their last loaded content and local position. They cannot
-refresh, edit, or fetch additional pages. Opening the same relative path under
-the new incarnation creates a distinct pane.
+A cwd-incarnation change makes old mutable file panes, explicitly selected
+commit/branch Diff targets, and revision-pinned review evidence read-only and
+stale while preserving their last loaded content and local position. They cannot
+refresh, edit, or fetch additional pages.
+A live working-tree Diff tab instead follows the authoritative new workspace,
+cancelling reads from the old incarnation and loading the new one in that tab;
+an active range or comment remains pinned until editing ends. Opening the same
+relative file path under the new incarnation creates a distinct file pane.
 
 File panes provide selectable syntax-highlighted text, line numbers, bounded
 horizontal and vertical navigation, and explicit binary, unreadable, stale,

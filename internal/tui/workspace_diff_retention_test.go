@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"context"
 	"fmt"
 	"strings"
 	"sync"
@@ -66,7 +67,7 @@ func (s *retainedDiffShellState) Build(ui.BuildContext) ui.Widget {
 		Session: protocol.SessionInfo{
 			ID: toolNavigationSessionID, Name: "Retention", Model: "test/echo", CWD: "/repo",
 		},
-		CurrentWorkspaceID:  testDiffWorkspace,
+		CurrentWorkspaceID:  s.workspaceID,
 		Workspace:           s.workspace.Snapshot(),
 		Scroll:              &ui.ScrollController{},
 		PendingInteractions: s.interactions,
@@ -90,6 +91,9 @@ func (s *retainedDiffShellState) Build(ui.BuildContext) ui.Widget {
 		},
 		FocusWorkspaceContent: func(ui.EventContext) {
 			s.SetState(func() { s.workspace.SetFocusOwner(workspaceFocusContent) })
+		},
+		SetDiffFollowCWD: func(workspaceID string, follow bool) {
+			s.SetState(func() { s.workspace.SetDiffFollowCWD(workspaceID, follow) })
 		},
 		CreateAnnotation: func(protocol.AnnotationAnchor, string, func(error)) {},
 	}, WorkspaceDispatch: s.dispatch.dispatch, Diff: s.diff}
@@ -158,7 +162,9 @@ func mountRetainedDiffShell(t *testing.T) (*uitest.App, *retainedDiffShellState)
 	mountedDefinition := definition
 	mountedDefinition.Build = func(view shellView, theme ui.Theme, descriptor workspacePaneDescriptor, presentation workspacePanePresentation) ui.Widget {
 		pane := definition.Build(view, theme, descriptor, presentation).(workspaceDiffPane)
-		pane.testState = state.pane
+		if descriptor.WorkspaceID == testDiffWorkspace {
+			pane.testState = state.pane
+		}
 		return pane
 	}
 	workspacePaneDefinitions[workspacePaneDiff] = mountedDefinition
@@ -423,4 +429,53 @@ func TestShellDiffBackgroundSelectionDefersInputToInteractionDockFrame(t *testin
 		t.Fatalf("post-frame dock response = %+v, want answer", state.response)
 	}
 	retainedDiffCursorRow(t, application, width, height, "retained line 01")
+}
+
+func TestRetainedLiveDiffFollowsAuthoritativeWorkspaceWithoutOldEvidence(t *testing.T) {
+	application, state := mountRetainedDiffShell(t)
+	const newWorkspace = "workspace_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	const newTarget = "difftarget_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	page := testDiffObservation()
+	page.Observation.Target.ID = newTarget
+	page.Observation.Target.WorkspaceID = newWorkspace
+	page.Observation.Revision = "diffrev_BBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBBB"
+	requested := make(chan string, 4)
+	state.diff.catalogFn = func(_ context.Context, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
+		if input.WorkspaceID != newWorkspace {
+			t.Errorf("catalog workspace = %q, want %q", input.WorkspaceID, newWorkspace)
+		}
+		return protocol.DiffTargetCatalog{WorkspaceID: newWorkspace, Targets: []protocol.DiffTargetEntry{{
+			Reference: "new-working-tree", TargetID: newTarget, Kind: protocol.DiffTargetWorkingTree,
+			Metadata: protocol.DiffTargetMetadata{Label: "Working tree"},
+		}}}, nil
+	}
+	state.diff.observeFn = func(_ context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
+		requested <- input.WorkspaceID
+		return page, nil
+	}
+	state.SetState(func() {
+		state.reconcileWorkspaceIdentity(&protocol.WorkspaceRef{WorkspaceID: newWorkspace, SessionID: state.session.ID, CWD: "/new"})
+	})
+	if state.workspace.SelectedIdentity() != "diff:"+newWorkspace || len(state.workspace.Panes()) != 2 {
+		t.Fatalf("retargeted workspace = %+v, selected %q", state.workspace.Panes(), state.workspace.SelectedIdentity())
+	}
+	for range 200 {
+		state.dispatch.flush()
+		application.Pump(140, 18)
+		if strings.Contains(application.Text(), "No changes for Working tree") {
+			break
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if text := application.Text(); !strings.Contains(text, "No changes for Working tree") || strings.Contains(text, "retained line 01") || strings.Contains(text, "Frozen") {
+		t.Fatalf("new working tree presentation:\n%s", text)
+	}
+	select {
+	case workspace := <-requested:
+		if workspace != newWorkspace {
+			t.Fatalf("diff observation workspace = %q, want %q", workspace, newWorkspace)
+		}
+	default:
+		t.Fatal("new working-tree diff was not observed")
+	}
 }

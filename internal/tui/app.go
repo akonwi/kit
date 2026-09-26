@@ -1326,6 +1326,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		PaneInputChanged: s.setPaneInputOwner,
 		WorkspaceMouse:   &s.workspaceMouse,
 		SetDiffWrapLines: s.setDiffWrapLines,
+		SetDiffFollowCWD: func(workspaceID string, follow bool) {
+			s.SetState(func() {
+				s.workspace.SetDiffFollowCWD(workspaceID, follow)
+				if follow && s.workspace.FollowDiffWorkspace(workspaceID, s.workspaceID) {
+					s.syncWorkspaceSelection()
+				}
+			})
+		},
 		ShowDiffWarning: func(message string) {
 			s.showToast(toastInput{Title: "Diff target unchanged", Subtitle: message, Variant: toastWarning})
 		},

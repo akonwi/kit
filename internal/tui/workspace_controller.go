@@ -37,6 +37,7 @@ type workspacePaneDescriptor struct {
 	ExpectedRevision     string
 	ExpectedFileRevision string
 	DiffTargetID         string
+	DiffFollowCWD        bool
 	DiffSide             string
 	AnnotationID         uint64
 	RevealStartLine      int
@@ -53,7 +54,7 @@ func fileWorkspacePane(workspaceID, path string) workspacePaneDescriptor {
 }
 
 func workingTreeDiffWorkspacePane(workspaceID string) workspacePaneDescriptor {
-	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "diff"}
+	return workspacePaneDescriptor{Kind: workspacePaneDiff, WorkspaceID: workspaceID, ResourceID: "diff", DiffFollowCWD: true}
 }
 
 type workspacePaneIdentity string
@@ -162,6 +163,48 @@ func (c *workspaceController) Open(descriptor workspacePaneDescriptor) (workspac
 	c.selected = identity
 	c.focusOwner = workspaceFocusContent
 	return identity, true, nil
+}
+
+// SetDiffFollowCWD keeps the retained tab's live/pinned mode in its descriptor,
+// so a workspace change cannot race an in-flight diff target switch.
+func (c *workspaceController) SetDiffFollowCWD(workspaceID string, follow bool) {
+	for index := range c.panes {
+		pane := &c.panes[index]
+		if pane.Kind == workspacePaneDiff && pane.WorkspaceID == workspaceID && pane.ExpectedRevision == "" {
+			pane.DiffFollowCWD = follow
+			return
+		}
+	}
+}
+
+// FollowDiffWorkspace moves only the live working-tree tab to an authoritative
+// new workspace. Revision-pinned and explicitly selected targets stay frozen.
+func (c *workspaceController) FollowDiffWorkspace(previousID, currentID string) bool {
+	if previousID == "" || currentID == "" || previousID == currentID {
+		return false
+	}
+	oldIdentity, _ := workspacePaneIdentityFor(workingTreeDiffWorkspacePane(previousID))
+	newIdentity, _ := workspacePaneIdentityFor(workingTreeDiffWorkspacePane(currentID))
+	for _, pane := range c.panes {
+		identity, err := workspacePaneIdentityFor(pane)
+		if err == nil && identity == newIdentity {
+			return false // One Diff tab per workspace; never overwrite pinned evidence.
+		}
+	}
+	for index := range c.panes {
+		pane := &c.panes[index]
+		if pane.Kind != workspacePaneDiff || pane.WorkspaceID != previousID || !pane.DiffFollowCWD || pane.ExpectedRevision != "" {
+			continue
+		}
+		pane.WorkspaceID = currentID
+		c.openGeneration++
+		pane.OpenGeneration = c.openGeneration
+		if c.selected == oldIdentity {
+			c.selected = newIdentity
+		}
+		return true
+	}
+	return false
 }
 
 func (c *workspaceController) SelectAgent() {

@@ -30,6 +30,7 @@ const (
 const (
 	workspaceDiffSplitBreakpoint = 120
 	workspaceDiffRefreshInterval = 30 * time.Second
+	frozenDiffTargetWarning      = "This Diff belongs to a previous workspace; open Diff for the current workspace"
 )
 
 const (
@@ -126,6 +127,7 @@ type workspaceDiffPane struct {
 	Annotations         []protocol.AnnotationSummary
 	InitialWrapLines    bool
 	OnWrapLinesChanged  func(bool)
+	OnFollowCWDChanged  func(bool)
 	MouseGestures       *workspaceMouseGestureController
 	OnFocusRequest      ui.VoidCallback
 	OnInputOwnerChanged func(paneInputKind, bool) bool
@@ -537,6 +539,7 @@ func (s *workspaceDiffPaneState) completeObservation(page protocol.DiffPage, err
 		}
 		message := workspaceDiffErrorText(err)
 		s.pendingTarget = protocol.DiffTargetEntry{}
+		s.reportFollowCWD()
 		if s.observation.Revision == "" {
 			s.phase = workspaceDiffError
 			s.errorText = message
@@ -661,6 +664,14 @@ func (s *workspaceDiffPaneState) applyAvailableRefresh() {
 	s.startObservation()
 }
 
+func (s *workspaceDiffPaneState) reportFollowCWD() {
+	w := s.Widget().(workspaceDiffPane)
+	if w.OnFollowCWDChanged != nil {
+		w.OnFollowCWDChanged(!s.pinnedEvidence && s.activeTarget.Kind == protocol.DiffTargetWorkingTree &&
+			(s.pendingTarget.Reference == "" || s.pendingTarget.Kind == protocol.DiffTargetWorkingTree) && !s.refreshBlocked())
+	}
+}
+
 func (s *workspaceDiffPaneState) warning(message string) {
 	if callback := s.Widget().(workspaceDiffPane).OnWarning; callback != nil {
 		callback(message)
@@ -739,12 +750,17 @@ func (s *workspaceDiffPaneState) completeCatalog(catalog protocol.DiffTargetCata
 	}
 	if s.activeTarget.Reference == "" && s.observation.Target.ID == "" && len(s.catalog) > 0 {
 		s.activeTarget = s.catalog[0]
+		s.reportFollowCWD()
 		s.startObservation()
 	}
 	s.ensureTargetSelection()
 }
 
 func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
+	if s.isFrozen(s.Widget().(workspaceDiffPane)) {
+		s.warning(frozenDiffTargetWarning)
+		return
+	}
 	if s.refreshBlocked() {
 		s.warning("Finish the active range or comment before changing target")
 		return
@@ -766,6 +782,9 @@ func (s *workspaceDiffPaneState) switchTarget(target protocol.DiffTargetEntry) {
 	}
 	s.refreshLine = 0
 	s.pendingTarget = target
+	if w.OnFollowCWDChanged != nil {
+		w.OnFollowCWDChanged(target.Kind == protocol.DiffTargetWorkingTree)
+	}
 	s.phase = workspaceDiffLoading
 	s.active.loadingFile = false
 	s.stopPolling()
@@ -791,6 +810,10 @@ func (s *workspaceDiffPaneState) setTargetPickerOpen(open bool) bool {
 }
 
 func (s *workspaceDiffPaneState) openTargetPicker() {
+	if s.isFrozen(s.Widget().(workspaceDiffPane)) {
+		s.warning(frozenDiffTargetWarning)
+		return
+	}
 	if s.refreshBlocked() {
 		s.warning("Finish the active range or comment before changing target")
 		return
@@ -804,6 +827,10 @@ func (s *workspaceDiffPaneState) openTargetPicker() {
 }
 
 func (s *workspaceDiffPaneState) toggleTarget() {
+	if s.isFrozen(s.Widget().(workspaceDiffPane)) {
+		s.warning(frozenDiffTargetWarning)
+		return
+	}
 	if s.refreshBlocked() {
 		s.warning("Finish the active range or comment before changing target")
 		return
@@ -986,6 +1013,7 @@ func (s *workspaceDiffPaneState) moveFile(delta int) {
 	}
 	if s.active.selectionActive() {
 		s.active.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+		s.reportFollowCWD()
 		if s.changesAvailable {
 			s.applyAvailableRefresh()
 			return
@@ -1179,7 +1207,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 		target = "Frozen  " + glyphMiddleDot + "  " + target
 	}
 	revision := ui.Widget(ui.Text{Value: target, Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis})
-	if w.Presentation.Active {
+	if w.Presentation.Active && !s.isFrozen(w) {
 		revision = headerControl{Label: target, OnPressed: func(event ui.EventContext) {
 			if w.OnFocusRequest != nil {
 				w.OnFocusRequest(event)
@@ -1235,7 +1263,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 		if s.active.commenting {
 			bindings[ui.IntentType("vaxis.dismiss")] = func(ui.EventContext, ui.Intent) ui.EventResult {
 				if !s.active.commentPending {
-					s.SetState(func() { s.active.closeComment() })
+					s.SetState(func() { s.active.closeComment(); s.reportFollowCWD() })
 				}
 				return ui.EventHandled
 			}
@@ -1248,6 +1276,7 @@ func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {
 					} else if anchor, ok := s.active.currentDiffAnchor(); ok {
 						s.active.selectionAnchor = anchor
 					}
+					s.reportFollowCWD()
 				})
 				return ui.EventHandled
 			}

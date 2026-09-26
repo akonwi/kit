@@ -643,6 +643,7 @@ func (s *workspaceDiffFileState) revealCursor() {
 func (s *workspaceDiffFileState) moveHunk(delta int) {
 	if s.selectionActive() {
 		s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+		s.pane.reportFollowCWD()
 		if s.pane.changesAvailable {
 			s.pane.applyAvailableRefresh()
 			return
@@ -755,9 +756,11 @@ func (s *workspaceDiffFileState) beginGutterRange(w workspaceDiffPane, row int, 
 	s.cursorRow, s.cursorSide = row, side
 	anchor, ok := s.currentDiffAnchor()
 	if !ok {
+		s.pane.reportFollowCWD()
 		return
 	}
 	s.selectionAnchor = anchor
+	s.pane.reportFollowCWD()
 	s.mouseSelectionGeneration = w.MouseGestures.Generation()
 }
 
@@ -813,6 +816,7 @@ func (s *workspaceDiffFileState) beginComment(w workspaceDiffPane) {
 		s.commentError = ""
 		s.commentAnchor = anchor
 		s.commentAnnotationID = 0
+		s.pane.reportFollowCWD()
 	})
 }
 
@@ -832,6 +836,7 @@ func (s *workspaceDiffFileState) beginEditComment(w workspaceDiffPane, annotatio
 		s.commentError = ""
 		s.commentAnchor = *anchor
 		s.commentAnnotationID = annotation.ID
+		s.pane.reportFollowCWD()
 	})
 	s.commentLoadCancel = w.OnLoadAnnotation(annotation.ID, func(body string, err error) {
 		if s.disposed || s.pane.disposed || operation != s.commentOperation {
@@ -862,6 +867,7 @@ func (s *workspaceDiffFileState) closeComment() {
 	s.commentError = ""
 	s.commentAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
 	s.commentAnnotationID = 0
+	s.pane.reportFollowCWD()
 	s.pane.applyAvailableRefresh()
 }
 
@@ -886,6 +892,7 @@ func (s *workspaceDiffFileState) submitComment(w workspaceDiffPane, body string)
 			}
 			s.closeComment()
 			s.selectionAnchor = protocol.WorkingTreeDiffAnnotationAnchor{}
+			s.pane.reportFollowCWD()
 			s.pane.applyAvailableRefresh()
 		})
 	}
