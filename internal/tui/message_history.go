@@ -59,10 +59,7 @@ func (h *messageHistoryController) Move(delta int) {
 			break
 		}
 	}
-	index = (index + delta) % len(entries)
-	if index < 0 {
-		index += len(entries)
-	}
+	index = max(0, min(index-delta, len(entries)-1))
 	h.Selection = entries[index].ID
 }
 
@@ -76,9 +73,25 @@ func (h *messageHistoryController) Selected() (messageHistoryEntry, bool) {
 }
 
 func (h *messageHistoryController) filtered() []messageHistoryEntry {
-	return ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry messageHistoryEntry) ui.FuzzySelectItem {
+	matches := ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry messageHistoryEntry) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{Title: oneLine(entry.Text)}
 	})
+	// Preserve fuzzy matching without letting relevance scores change the
+	// chronological order of matching history rows.
+	if h.Query == "" {
+		return matches
+	}
+	matched := make(map[string]bool, len(matches))
+	for _, entry := range matches {
+		matched[entry.ID] = true
+	}
+	ordered := make([]messageHistoryEntry, 0, len(matches))
+	for _, entry := range h.Entries {
+		if matched[entry.ID] {
+			ordered = append(ordered, entry)
+		}
+	}
+	return ordered
 }
 
 func (h *messageHistoryController) HandleKey(key ui.Key) (messageHistoryEntry, bool, bool) {
@@ -213,8 +226,8 @@ func (w messageHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 	if len(entries) == 0 {
 		rows = append(rows, ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}})
 	}
-	for _, entry := range entries {
-		entry := entry
+	for index := len(entries) - 1; index >= 0; index-- {
+		entry := entries[index]
 		selected := entry.ID == w.Controller.Selection
 		style := ui.Style{Foreground: rowPresentation.ItemText}
 		if selected {

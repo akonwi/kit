@@ -66,8 +66,8 @@ func (h *bashHistoryController) OpenFor(entries []bashHistoryEntry, composer str
 
 func (h *bashHistoryController) Close() { *h = bashHistoryController{} }
 
-// Exhausted reports whether navigation reached the oldest loaded entry while
-// older durable history remains.
+// Exhausted reports whether navigation reached the oldest matching loaded
+// entry (or found no matches) while older durable history remains.
 func (h *bashHistoryController) Exhausted() bool {
 	if !h.Open || h.Loading || !h.HasMore || h.OnExhausted == nil {
 		return false
@@ -76,10 +76,7 @@ func (h *bashHistoryController) Exhausted() bool {
 		return false
 	}
 	entries := h.filtered()
-	if len(entries) == 0 {
-		return false
-	}
-	return entries[len(entries)-1].ID == h.Selection
+	return len(entries) == 0 || entries[len(entries)-1].ID == h.Selection
 }
 
 // MergeOlder appends an older page while preserving the current query and
@@ -100,6 +97,9 @@ func (h *bashHistoryController) MergeOlder(entries []bashHistoryEntry, before ui
 		known[entry.ID] = struct{}{}
 	}
 	h.HasMore, h.OlderBefore, h.PagesLoaded, h.Loading = hasMore, before, h.PagesLoaded+1, false
+	if h.Selection == "" {
+		h.Selection = firstBashHistoryID(h.filtered())
+	}
 }
 
 func (h *bashHistoryController) SetQuery(query string) {
@@ -108,15 +108,19 @@ func (h *bashHistoryController) SetQuery(query string) {
 }
 
 func (h *bashHistoryController) Move(delta int) {
-	entries := h.filtered()
-	if !h.Open || len(entries) == 0 {
+	if !h.Open {
 		return
 	}
-	// Older entries load before the selection wraps back to the newest row.
+	// Up moves toward older entries; request the next page at the oldest row
+	// or when no loaded entry matches the current query.
 	if h.Exhausted() && delta < 0 {
 		if request := h.OnExhausted; request != nil {
 			request()
 		}
+		return
+	}
+	entries := h.filtered()
+	if len(entries) == 0 {
 		return
 	}
 	index := 0
@@ -126,10 +130,7 @@ func (h *bashHistoryController) Move(delta int) {
 			break
 		}
 	}
-	index = (index + delta) % len(entries)
-	if index < 0 {
-		index += len(entries)
-	}
+	index = max(0, min(index-delta, len(entries)-1))
 	h.Selection = entries[index].ID
 }
 
@@ -143,9 +144,25 @@ func (h *bashHistoryController) Selected() (bashHistoryEntry, bool) {
 }
 
 func (h *bashHistoryController) filtered() []bashHistoryEntry {
-	return ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry bashHistoryEntry) ui.FuzzySelectItem {
+	matches := ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry bashHistoryEntry) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{Title: entry.Command}
 	})
+	// Keep fuzzy matching, but present matches chronologically rather than by
+	// score so the newest match remains nearest the composer.
+	if h.Query == "" {
+		return matches
+	}
+	matched := make(map[string]bool, len(matches))
+	for _, entry := range matches {
+		matched[entry.ID] = true
+	}
+	ordered := make([]bashHistoryEntry, 0, len(matches))
+	for _, entry := range h.Entries {
+		if matched[entry.ID] {
+			ordered = append(ordered, entry)
+		}
+	}
+	return ordered
 }
 
 func (h *bashHistoryController) HandleKey(key ui.Key) (bashHistoryEntry, bool, bool) {
@@ -235,8 +252,8 @@ func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
 		}
 		rows = append(rows, ui.Text{Value: label, Style: ui.Style{Foreground: theme.MutedForeground}})
 	}
-	for _, entry := range entries {
-		entry := entry
+	for index := len(entries) - 1; index >= 0; index-- {
+		entry := entries[index]
 		prefix := "!"
 		description := "included in context"
 		if entry.ExcludeFromContext {

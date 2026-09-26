@@ -31,7 +31,7 @@ func TestMessageHistorySelectionFillsComposerWithoutSubmitting(t *testing.T) {
 	if !history.OpenFor([]messageHistoryEntry{{ID: "message_1", Text: "first"}, {ID: "message_2", Text: "second"}}) {
 		t.Fatal("OpenFor() did not open")
 	}
-	history.Move(1)
+	history.Move(-1)
 	selected, ok := history.Selected()
 	if !ok || selected.Text != "second" {
 		t.Fatalf("selected = %+v, %t", selected, ok)
