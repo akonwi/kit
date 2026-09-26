@@ -1309,6 +1309,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BrowserInstructions:           s.browserInstructions,
 		Remaining:                     s.remaining,
 		Location:                      s.location,
+		LocationBase:                  s.locationBase,
 		LocationURL:                   footerPullRequestURL(s.vcsStatus),
 		LocationLinkText:              footerPullRequestText(s.vcsStatus),
 		PluginFooter:                  s.pluginFooter,

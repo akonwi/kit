@@ -45,7 +45,8 @@ outer frame:
 - The bottom-left footer owns ephemeral modes and intermediate states, such as
   queued follow-ups, bash composer mode, or active connection recovery.
 - The bottom-right footer owns the current working directory and Git/VCS
-  information.
+  information. When width is tight, shorten the cwd before a complete VCS
+  suffix or linked PR label; keep plugin overflow labeled where it fits.
 - Workspace hints remain inside the workspace pane that owns them; do not move
   them into global header metadata.
 - Global chrome describes only the attached session. Subagent status remains in

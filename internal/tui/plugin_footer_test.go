@@ -20,6 +20,9 @@ func TestPluginFooterShowsStyledItemsBesideLocationAndRestoresDefault(t *testing
 	footer.LocationHidden = true
 	hidden := uitest.New(ui.SizedBox{Width: 40, Height: 1, Child: pluginFooterView{Location: "~/project", Footer: footer}})
 	hidden.Pump(40, 1)
+	if got := strings.TrimSpace(paintedRows(hidden, 40, 1)[0]); got != "Ready" {
+		t.Fatalf("first-frame replacement = %q", got)
+	}
 	hidden.Pump(40, 1)
 	if got := strings.TrimSpace(paintedRows(hidden, 40, 1)[0]); got != "Ready" {
 		t.Fatalf("replacement = %q", got)
@@ -244,6 +247,84 @@ func TestLocationPRLinkSurvivesOnlyCompleteLabelTruncation(t *testing.T) {
 		}
 		if text != test.location || linked != wantLink {
 			t.Fatalf("location=%q text=%q link=%q want=%q", test.location, text, linked, wantLink)
+		}
+	}
+}
+
+func TestFooterLocationKeepsCompleteVCSMetadataAtNarrowWidths(t *testing.T) {
+	const target = "https://github.com/a/b/pull/8"
+	const cwd = "~/very/long/project"
+	const location = cwd + " (feature* · PR #8)"
+	for _, test := range []struct {
+		name   string
+		width  int
+		footer *protocol.PluginFooter
+		want   string
+	}{
+		{name: "no plugins", width: 28, want: glyphEllipsis + "/project (feature* · PR #8)"},
+		{name: "one plugin", width: 32, footer: &protocol.PluginFooter{Items: []protocol.PluginFooterItem{{Content: []protocol.PluginFooterSegment{{Text: "Ready"}}}}}, want: glyphEllipsis + "ject (feature* · PR #8) · Ready"},
+		{name: "overflow", width: 29, footer: &protocol.PluginFooter{Items: []protocol.PluginFooterItem{{Content: []protocol.PluginFooterSegment{{Text: "Very long status"}}}, {Content: []protocol.PluginFooterSegment{{Text: "Second"}}}}}, want: "(feature* · PR #8) · … 2 more"},
+		{name: "suffix only", width: 18, want: "(feature* · PR #8)"},
+		{name: "PR only", width: 7, want: "(PR #8)"},
+		{name: "too narrow for PR", width: 6, want: glyphEllipsis},
+		{name: "hidden", width: 32, footer: &protocol.PluginFooter{LocationHidden: true}, want: ""},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			var opened []string
+			view := pluginFooterView{
+				Location: location, LocationBase: cwd, LocationLinkText: "PR #8", LocationURL: target, Footer: test.footer,
+				OpenURL: func(_ ui.EventContext, raw string) { opened = append(opened, raw) },
+			}
+			app := uitest.New(ui.SizedBox{Width: test.width, Height: 1, Child: view})
+			app.Pump(test.width, 1)
+			app.Pump(test.width, 1)
+			if got := strings.TrimSpace(footerPaintedRow(app, test.width)); got != test.want {
+				t.Fatalf("footer = %q, want %q", got, test.want)
+			}
+			if strings.Contains(test.want, "PR #8") {
+				start := footerColumn(t, app, test.width, "PR #8")
+				for column := start; column < start+len("PR #8"); column++ {
+					if got := app.Cell(column, 0).Hyperlink; got != target {
+						t.Fatalf("PR cell %d link = %q, want %q", column, got, target)
+					}
+				}
+				app.Click(start+2, 0)
+				if len(opened) != 1 || opened[0] != target {
+					t.Fatalf("truncated PR click opened %v, want %q", opened, target)
+				}
+			}
+		})
+	}
+}
+
+func TestFooterLocationTruncatesUnicodeCWDByCellsBeforeVCS(t *testing.T) {
+	const cwd = "~/世界/研究/プロジェクト"
+	const suffix = " (界界* · PR #42)"
+	const width = 28
+	view := pluginFooterView{Location: cwd + suffix, LocationBase: cwd, LocationLinkText: "PR #42", LocationURL: "https://github.com/a/b/pull/42"}
+	app := uitest.New(ui.SizedBox{Width: width, Height: 1, Child: view})
+	app.Pump(width, 1)
+	app.Pump(width, 1)
+	if got, want := strings.TrimSpace(footerPaintedRow(app, width)), glyphEllipsis+"ロ ジ ェ ク ト  (界 界 * · PR #42)"; got != want {
+		t.Fatalf("footer = %q, want %q", got, want)
+	}
+}
+
+func TestFooterLocationWithoutPRKeepsBranchWhole(t *testing.T) {
+	const cwd = "~/deep/path/to/worktree"
+	for _, test := range []struct {
+		width int
+		want  string
+	}{
+		{20, glyphEllipsis + "e (feature-branch*)"},
+		{17, "(feature-branch*)"},
+		{16, glyphEllipsis + "ath/to/worktree"},
+	} {
+		app := uitest.New(ui.SizedBox{Width: test.width, Height: 1, Child: pluginFooterView{Location: cwd + " (feature-branch*)", LocationBase: cwd}})
+		app.Pump(test.width, 1)
+		app.Pump(test.width, 1)
+		if got := strings.TrimSpace(footerPaintedRow(app, test.width)); got != test.want {
+			t.Fatalf("width %d: footer = %q, want %q", test.width, got, test.want)
 		}
 	}
 }
