@@ -376,35 +376,43 @@ func TestReadyShellIsViewportNativeAndPreservesChromeOwnership(t *testing.T) {
 	}
 }
 
-func TestActiveTurnFooterKeepsTransientStatusWithoutShortcutHints(t *testing.T) {
+func TestActiveTurnFooterShowsOnlyRecoveryAndLocation(t *testing.T) {
 	t.Parallel()
-	for _, status := range []string{"Reconnecting activity…", "Reconnecting…", "Run finished · reconnecting transcript…"} {
-		t.Run(status, func(t *testing.T) {
+	for _, test := range []struct {
+		name     string
+		recovery footerRecovery
+		status   string
+	}{
+		{name: "healthy", recovery: footerHealthy},
+		{name: "activity recovery", recovery: footerReconnectingActivity, status: "Reconnecting activity…"},
+		{name: "final transcript", recovery: footerSyncingFinalTranscript, status: "Syncing final transcript…"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
 			const width, height = 140, 24
+			const location = "~/repo (main)"
 			app := uitest.New(shellView{Snapshot: shellSnapshot{
 				Phase: phaseReady, AgentRunning: true, TurnActivity: "Working…",
-				Status: status, Location: "~/repo (main)",
+				Recovery: test.recovery, Location: location,
 				Session: protocol.SessionInfo{ID: "session_1", Name: "Session", Model: "test/model"},
 			}})
 			app.Pump(width, height)
 			footer := strings.TrimSpace(paintedRows(app, width, height)[height-1])
-			const location = "~/repo (main)"
-			spaces := width - 2 - utf8.RuneCountInString(status) - utf8.RuneCountInString(location)
-			if want := status + strings.Repeat(" ", spaces) + location; footer != want {
+			spaces := width - 2 - utf8.RuneCountInString(test.status) - utf8.RuneCountInString(location)
+			if want := strings.TrimSpace(test.status + strings.Repeat(" ", spaces) + location); footer != want {
 				t.Fatalf("footer = %q, want %q", footer, want)
 			}
 		})
 	}
 }
 
-func TestBashFooterGuidanceDependsOnAgentTurn(t *testing.T) {
+func TestBashLifecycleLeavesGlobalFooterToLocation(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name, status string
-		agent        bool
+		name  string
+		agent bool
 	}{
-		{name: "bash and agent", status: "running bash " + glyphMiddleDot + " agent running", agent: true},
-		{name: "bash only", status: "running bash " + glyphMiddleDot + " esc cancel"},
+		{name: "bash and agent", agent: true},
+		{name: "bash only"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			const width, height = 120, 24
@@ -415,9 +423,8 @@ func TestBashFooterGuidanceDependsOnAgentTurn(t *testing.T) {
 			}})
 			app.Pump(width, height)
 			footer := strings.TrimSpace(paintedRows(app, width, height)[height-1])
-			spaces := width - 2 - utf8.RuneCountInString(test.status) - utf8.RuneCountInString(location)
-			if want := test.status + strings.Repeat(" ", spaces) + location; footer != want {
-				t.Fatalf("footer = %q, want %q", footer, want)
+			if footer != location {
+				t.Fatalf("footer = %q, want %q", footer, location)
 			}
 		})
 	}
@@ -728,11 +735,11 @@ func TestComposerGrowthKeepsChromeVisibleInShortViewport(t *testing.T) {
 	}
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Composer: strings.Join(lines, "\n"),
-		Status: "composer active", Location: "~/kit-v2", Scroll: &ui.ScrollController{},
+		Location: "~/kit-v2", Scroll: &ui.ScrollController{},
 	}})
 	app.Pump(width, height)
 	rows := paintedRows(app, width, height)
-	if !strings.Contains(rows[height-1], "composer…") || !strings.Contains(rows[height-1], "~/kit-v2") {
+	if !strings.Contains(rows[height-1], "~/kit-v2") {
 		t.Fatalf("footer moved outside viewport: %q", rows[height-1])
 	}
 	if strings.TrimSpace(rows[height-6]) != strings.Repeat("─", width) {
@@ -756,15 +763,15 @@ func TestComposerRemainsVisibleAtMinimumShellHeight(t *testing.T) {
 	const width, height = 20, 5
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Composer: "still visible", TurnActivity: "Working…",
-		Status: "active", Location: "~/kit", Scroll: &ui.ScrollController{},
+		Location: "~/kit", Scroll: &ui.ScrollController{},
 	}})
 	app.Pump(width, height)
 	rows := paintedRows(app, width, height)
 	if got := strings.TrimSpace(rows[2]); got != "still visible" {
 		t.Fatalf("minimum-height composer = %q", got)
 	}
-	if !strings.Contains(rows[height-1], "active") || !strings.Contains(rows[height-1], "~/kit") {
-		t.Fatalf("minimum-height footer = %q", rows[height-1])
+	if got := strings.TrimSpace(rows[height-1]); got != "~/kit" {
+		t.Fatalf("minimum-height footer = %q, want location", got)
 	}
 }
 
@@ -1450,8 +1457,8 @@ func TestAuthGateUsesShellFooterAndDeviceDialog(t *testing.T) {
 	if !actionRendered {
 		t.Fatalf("auth gate action label is not rendered exactly as expected:\n%s", text)
 	}
-	if !strings.Contains(rows[height-1], "enter connect") || !strings.Contains(rows[height-1], "kit-v2") {
-		t.Fatalf("auth footer = %q, want action left and location right", rows[height-1])
+	if got := strings.TrimSpace(rows[height-1]); got != "~/Developer/agent/kit-v2 (kit-v2)" {
+		t.Fatalf("auth footer = %q, want location; action is already on screen", got)
 	}
 
 	app = uitest.New(shellView{Snapshot: shellSnapshot{
@@ -1480,8 +1487,8 @@ func TestClaudeBrowserLoginDialogShowsFallbackInput(t *testing.T) {
 			AuthorizationURL: "https://claude.ai/oauth/authorize?client_id=test",
 			RedirectURI:      "http://localhost:53692/callback",
 		},
-		AuthCode: "http://localhost:53692/callback?code=manual-code",
-		Status:   "Waiting for browser approval…",
+		AuthCode:          "http://localhost:53692/callback?code=manual-code",
+		AuthBrowserStatus: "Waiting for browser approval…",
 	}})
 	app.Pump(90, 24)
 	app.Pump(90, 24)

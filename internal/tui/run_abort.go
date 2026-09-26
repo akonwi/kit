@@ -21,7 +21,6 @@ func (s *appState) abortRunWithDispatch(dispatch func(func()), timeout time.Dura
 		s.runStopping = true
 		s.turnActivity = "Stopping…"
 		s.turnThinking = ""
-		s.status = ""
 	})
 	s.requestRunAbort(dispatch, timeout)
 }
@@ -108,9 +107,6 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 						s.turnActivity = "Compacting session…"
 					}
 				}
-				if s.runPending {
-					s.status = ""
-				}
 			})
 			if fresh && nextRunID == "" {
 				return // It finished despite the failed RPC.
@@ -127,7 +123,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 				detail = "The previous run finished; a new run is active. Press Esc to stop the current run."
 				s.watchSession(bound, operation, nextRunID)
 			}
-			s.showToast(toastInput{Title: "Abort failed", Subtitle: detail, Variant: toastError})
+			s.showToast(toastInput{Title: "Abort failed", Subtitle: detail, Variant: toastError, Persistent: true})
 		})
 	}()
 }

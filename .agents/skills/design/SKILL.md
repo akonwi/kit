@@ -42,8 +42,8 @@ outer frame:
 - Present context usage as a bare percentage inside the model-information
   cluster, such as `41%`; do not draw the main-branch colored progress bar.
 - Do not add an elapsed-turn timer to the header.
-- The bottom-left footer owns transient status and guidance, such as queue,
-  retry, compaction, bash mode, or other actionable run state.
+- The bottom-left footer owns ephemeral modes and intermediate states, such as
+  queued follow-ups, bash composer mode, or active connection recovery.
 - The bottom-right footer owns the current working directory and Git/VCS
   information.
 - Workspace hints remain inside the workspace pane that owns them; do not move
@@ -59,6 +59,23 @@ omit an empty-session `0%` or unavailable value. Use `progressNormal`,
 `progressWarning`, and `progressCritical` on the percentage text at the existing
 thresholds. The header separator remains structural and does not visualize
 context progress.
+
+### Footer state versus toast feedback
+
+- **Footer state** reflects a current, ephemeral mode or intermediate state. It
+  clears when that condition ends; it is not a history of completed actions.
+  Do not use the global footer for operation progress already communicated by
+  its initiating surface or transcript.
+- **Persistent toasts** communicate errors and warnings that need acknowledgement.
+  Keep them visible until dismissed; an intermediate footer state must not turn
+  into a persistent error message in place. For example, a final transcript
+  synchronization failure clears its syncing footer state and opens a persistent
+  error toast.
+- **Dismissable, nonpersistent toasts** communicate informative outcomes or
+  one-off feedback. They may expire but remain manually dismissable while shown.
+  Do not leave confirmation text in the footer after the operation has ended.
+- Put feedback in a local surface when it has a clear owner (such as attachment
+  upload state beside its composer attachment), rather than using global chrome.
 
 ## Theme System
 

@@ -19,36 +19,32 @@ import (
 
 func TestRecoveredRunStatusClearsOnlyOnFreshEvidence(t *testing.T) {
 	t.Parallel()
-	for _, status := range []string{"Reconnecting activity…", "Reconnecting…"} {
-		t.Run(status, func(t *testing.T) {
-			state := appState{status: status, liveSequence: 7, runPending: true}
-			state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Kind: protocol.SessionEventUsageUpdated}})
-			if state.status != status {
-				t.Fatalf("stale event changed status to %q", state.status)
-			}
-			state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Kind: protocol.SessionEventUsageUpdated}})
-			if state.status != "" {
-				t.Fatalf("fresh event left recovered status %q", state.status)
-			}
-		})
+	state := appState{recovery: footerReconnectingActivity, liveSequence: 7, runPending: true}
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Kind: protocol.SessionEventUsageUpdated}})
+	if state.recovery != footerReconnectingActivity {
+		t.Fatalf("stale event changed recovery to %v", state.recovery)
 	}
-	state := appState{status: "Applying session configuration…", liveSequence: 7, runPending: true}
 	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Kind: protocol.SessionEventUsageUpdated}})
-	if state.status != "Applying session configuration…" {
-		t.Fatalf("fresh run event erased another operation's status: %q", state.status)
+	if state.recovery != footerHealthy {
+		t.Fatalf("fresh event left recovery at %v", state.recovery)
+	}
+	state.recovery = footerSyncingFinalTranscript
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 9, Kind: protocol.SessionEventUsageUpdated}})
+	if state.recovery != footerSyncingFinalTranscript {
+		t.Fatalf("run event cleared transcript sync: %v", state.recovery)
 	}
 }
 
 func TestActiveRunAdmissionGuardPreservesDraftAndShowsInformationalToast(t *testing.T) {
 	_, state, _ := mountRunAbort(t)
-	state.status = "Reconnecting activity…"
+	state.recovery = footerReconnectingActivity
 	state.composer = "another prompt"
 	state.startPromptSubmission("another prompt", func(context.Context) (sessionclient.Run, error) {
 		t.Fatal("submitted a prompt during an active run")
 		return nil, nil
 	})
-	if state.status != "Reconnecting activity…" || state.composer != "another prompt" || !state.runPending {
-		t.Fatalf("active run guard: status=%q composer=%q pending=%t", state.status, state.composer, state.runPending)
+	if state.recovery != footerReconnectingActivity || state.composer != "another prompt" || !state.runPending {
+		t.Fatalf("active run guard: recovery=%v composer=%q pending=%t", state.recovery, state.composer, state.runPending)
 	}
 	if got := state.toasts.Snapshot(); len(got) != 1 || got[0].Title != "Run in progress" || got[0].Variant != toastInfo || got[0].Persistent {
 		t.Fatalf("defensive admission feedback = %+v, want transient information toast", got)
@@ -763,8 +759,56 @@ func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
 	if len(state.messages) != 2 || state.messages[0].Text != "hello" || state.messages[1].Text != "partial response" || state.messages[1].Pending {
 		t.Fatalf("settled transcript = %+v", state.messages)
 	}
-	if !strings.Contains(state.status, "next turn will retry") {
-		t.Fatalf("settled status = %q", state.status)
+	if state.recovery != footerHealthy {
+		t.Fatalf("settled recovery = %v, want healthy", state.recovery)
+	}
+}
+
+func TestAuthoritativeSnapshotClearsSyncOnlyWhenTurnSettles(t *testing.T) {
+	t.Parallel()
+	state := &appState{recovery: footerSyncingFinalTranscript, runPending: true, activeRunID: "run_a"}
+	state.applySnapshot(protocol.SessionSnapshot{ActiveRunID: "run_a"})
+	if state.recovery != footerSyncingFinalTranscript {
+		t.Fatalf("active-run snapshot changed recovery to %v", state.recovery)
+	}
+	state.applySnapshot(protocol.SessionSnapshot{})
+	if state.recovery != footerHealthy || state.runPending {
+		t.Fatalf("terminal snapshot left recovery=%v pending=%t", state.recovery, state.runPending)
+	}
+}
+
+func TestSuccessorRunClearsCompletedTranscriptRecovery(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name    string
+		nextRun string
+		want    footerRecovery
+	}{
+		{name: "settled", want: footerHealthy},
+		{name: "successor", nextRun: "run_b", want: footerHealthy},
+		{name: "still same run", nextRun: "run_a", want: footerSyncingFinalTranscript},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			state := &appState{recovery: footerSyncingFinalTranscript}
+			state.settleTranscriptRecovery("run_a", test.nextRun)
+			if state.recovery != test.want {
+				t.Fatalf("recovery = %v, want %v", state.recovery, test.want)
+			}
+		})
+	}
+}
+
+func TestTerminalSnapshotFailureClearsRecoveryAndShowsPersistentToast(t *testing.T) {
+	application, state, _ := mountRunAbort(t)
+	state.recovery = footerSyncingFinalTranscript
+	state.finishRunWithoutSnapshot(protocol.RunInfo{RunID: state.activeRunID, Status: protocol.RunStatusCompleted}, errors.New("snapshot too large"))
+	application.Pump(120, 36)
+	if state.recovery != footerHealthy || state.runPending {
+		t.Fatalf("failed refresh left recovery=%v pending=%t", state.recovery, state.runPending)
+	}
+	toasts := state.toasts.Snapshot()
+	if len(toasts) != 1 || toasts[0].Title != "Transcript refresh failed" || toasts[0].Variant != toastError || !toasts[0].Persistent || !strings.Contains(toasts[0].Subtitle, "snapshot too large") {
+		t.Fatalf("failure toast = %+v, want persistent snapshot error", toasts)
 	}
 }
 
@@ -1160,8 +1204,8 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	if len(state.messages) != 1 || state.messages[0].ID != "target-message" || state.location != "~/other/repo" {
 		t.Fatalf("target presentation messages=%+v location=%q", state.messages, state.location)
 	}
-	if !state.runPending || state.activeRunID != "run_target" || state.status != "" {
-		t.Fatalf("active target run pending=%t id=%q status=%q", state.runPending, state.activeRunID, state.status)
+	if !state.runPending || state.activeRunID != "run_target" || state.recovery != footerHealthy {
+		t.Fatalf("active target run pending=%t id=%q recovery=%v", state.runPending, state.activeRunID, state.recovery)
 	}
 	if state.cwdPending || state.reloadPending {
 		t.Fatalf("source mutation state leaked into target: cwd=%v reload=%v", state.cwdPending, state.reloadPending)

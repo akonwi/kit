@@ -92,11 +92,11 @@ func (s *reconnectLookupSession) Run(_ context.Context, id string) (protocol.Run
 	return protocol.RunInfo{RunID: id, Status: protocol.RunStatusRunning}, nil
 }
 
-func TestActiveRunLookupClearsRecoveredFooterStatus(t *testing.T) {
+func TestReplacementRunWatcherClearsStaleRecovery(t *testing.T) {
 	application, state, _ := mountRunAbort(t)
 	session := &reconnectLookupSession{fakeSession: fakeSession{id: state.session.ID}, lookup: make(chan string, 2)}
 	state.bound = session
-	state.status = "Reconnecting…"
+	state.recovery = footerReconnectingActivity
 	state.watchSession(session, state.operation, state.activeRunID)
 	select {
 	case id := <-session.lookup:
@@ -108,8 +108,8 @@ func TestActiveRunLookupClearsRecoveredFooterStatus(t *testing.T) {
 	}
 	receiveAbortCompletion(t, state)()
 	application.Pump(120, 36)
-	if state.status != "" || !state.runPending {
-		t.Fatalf("recovered run: status=%q pending=%t", state.status, state.runPending)
+	if state.recovery != footerHealthy || !state.runPending {
+		t.Fatalf("recovered run: recovery=%v pending=%t", state.recovery, state.runPending)
 	}
 }
 
@@ -145,7 +145,7 @@ func (s *runAbortTestState) Build(ui.BuildContext) ui.Widget {
 	return shellView{Snapshot: shellSnapshot{
 		Phase: s.phase, Session: s.session, Messages: messages, Running: s.runPending, AgentRunning: s.runPending,
 		TurnActivity: s.presentedTurnActivity(time.Now()), TurnThinking: s.turnThinking,
-		Status: s.status, Scroll: &s.scroll, Toasts: s.toasts.Snapshot(),
+		Recovery: s.recovery, Scroll: &s.scroll, Toasts: s.toasts.Snapshot(),
 		PendingInteractions: append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
 	}, Callbacks: shellCallbacks{
 		InputOwner:             s.inputOwner,

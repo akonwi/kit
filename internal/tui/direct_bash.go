@@ -39,7 +39,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		return
 	}
 	if s.bashStarting || s.activeBashID != "" {
-		s.SetState(func() { s.status = "A bash command is already running" })
+		s.showToast(toastInput{Title: "Bash already running", Variant: toastInfo})
 		return
 	}
 	executionID := ""
@@ -49,7 +49,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		var err error
 		executionID, err = identifier.New("bash_")
 		if err != nil {
-			s.SetState(func() { s.status = "Bash failed: " + err.Error() })
+			s.showToast(toastInput{Title: "Bash failed", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 			return
 		}
 	}
@@ -63,7 +63,6 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		s.bashAdmission = admission
 		s.composer = ""
 		s.bashStarting = true
-		s.status = "Starting bash…"
 		s.bashHistory.Close()
 	})
 	go func() {
@@ -91,17 +90,17 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 					s.bashStarting = false
 					if admission.abort.Load() {
 						s.bashAdmission = nil
-						s.status = ""
 						return
 					}
 					if s.composer == "" {
 						s.composer = value
 						s.composerCursorEndGeneration++
 					}
-					s.status = "Bash failed: " + err.Error()
 				})
 				if admission.abort.Load() {
 					s.abortBashAdmission(bound, executionID)
+				} else {
+					s.showToast(toastInput{Title: "Bash failed", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 				}
 				return
 			}
@@ -111,7 +110,6 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 				s.activeBash = execution
 				s.activeBashID = execution.ID()
 				s.upsertBashExecution(execution.State())
-				s.status = ""
 			})
 			if admission.abort.Load() {
 				go func() {
@@ -154,7 +152,7 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 				return
 			}
 			if err != nil {
-				s.SetState(func() { s.status = "Could not resume bash: " + err.Error() })
+				s.reportBashRecoveryError(executionID, "Could not resume bash", err)
 				s.scheduleBashResume(operation, executionID)
 				return
 			}
@@ -166,6 +164,18 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 			s.watchBash(execution, operation)
 		})
 	}()
+}
+
+// reportBashRecoveryError reports distinct failures but does not repeat an
+// identical error on every attempt of the same recovery loop.
+func (s *appState) reportBashRecoveryError(id, title string, err error) {
+	detail := title + ": " + err.Error()
+	if s.bashRecoveryReportedID == id && s.bashRecoveryReportedDetail == detail {
+		return
+	}
+	s.bashRecoveryReportedID = id
+	s.bashRecoveryReportedDetail = detail
+	s.showToast(toastInput{Title: title, Subtitle: err.Error(), Variant: toastError, Persistent: true})
 }
 
 func (s *appState) watchBash(execution sessionclient.BashExecution, operation uint64) {
@@ -184,7 +194,7 @@ func (s *appState) watchBash(execution sessionclient.BashExecution, operation ui
 				return
 			}
 			if err != nil {
-				s.SetState(func() { s.status = "Bash update failed: " + err.Error() })
+				s.reportBashRecoveryError(execution.ID(), "Bash update failed", err)
 				s.scheduleBashResume(operation, execution.ID())
 				return
 			}
@@ -192,7 +202,6 @@ func (s *appState) watchBash(execution sessionclient.BashExecution, operation ui
 				s.activeBash = nil
 				s.activeBashID = ""
 				s.upsertBashExecution(outcome)
-				s.status = ""
 			})
 		})
 	}()
@@ -231,7 +240,6 @@ func (s *appState) abortBash() {
 	if execution == nil && (executionID == "" || bound == nil) {
 		return
 	}
-	s.SetState(func() { s.status = "Stopping bash…" })
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 		defer cancel()
@@ -347,9 +355,9 @@ func (s *appState) loadBashHistory() {
 			}
 			if err != nil {
 				s.SetState(func() {
-					s.status = "Could not load bash history: " + err.Error()
 					s.bashHistory.Loading = false
 				})
+				s.showToast(toastInput{Title: "Could not load bash history", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 				return
 			}
 			if len(entries) == 0 {
@@ -429,11 +437,13 @@ func (s *appState) loadOlderBashHistory() {
 				if err != nil {
 					s.bashHistory.Loading = false
 					s.bashHistory.HasMore = false
-					s.status = "Could not load older bash history: " + err.Error()
 					return
 				}
 				s.bashHistory.MergeOlder(entries, next, hasMore)
 			})
+			if err != nil {
+				s.showToast(toastInput{Title: "Could not load older bash history", Subtitle: err.Error(), Variant: toastError, Persistent: true})
+			}
 		})
 	})
 }

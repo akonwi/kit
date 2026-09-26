@@ -18,7 +18,8 @@ import (
 type shellSnapshot struct {
 	Phase                         phase
 	Error                         string
-	Status                        string
+	AuthBrowserStatus             string
+	Recovery                      footerRecovery
 	Composer                      string
 	ComposerAttachments           []stagedAttachment
 	ComposerAnnotations           []protocol.AnnotationSummary
@@ -1352,40 +1353,16 @@ func formatAttachmentBytes(size int64) string {
 }
 
 func (w shellView) footer(theme ui.Theme) ui.Widget {
-	left := w.Snapshot.Status
+	left := resolveFooter(w.Snapshot.Recovery, w.Snapshot.FollowUps, w.Snapshot.Composer)
 	leftStyle := ui.Style{Foreground: theme.MutedForeground}
-	bashError := strings.HasPrefix(w.Snapshot.Status, "Bash failed:") || strings.HasPrefix(w.Snapshot.Status, "Bash update failed:") || strings.HasPrefix(w.Snapshot.Status, "Could not resume bash:") || w.Snapshot.Status == "A bash command is already running"
-	if bashError {
-		leftStyle.Foreground = theme.DangerText
-	} else if w.Snapshot.FollowUps.Count > 0 {
-		left = fmt.Sprintf("%d queued %s ↑ restore", w.Snapshot.FollowUps.Count, glyphMiddleDot)
-	} else if strings.HasPrefix(w.Snapshot.Composer, "!!") {
-		left = "bash command " + glyphMiddleDot + " result excluded from context"
+	if left.Tone == footerSuccess {
 		leftStyle.Foreground = theme.SuccessText
-	} else if strings.HasPrefix(w.Snapshot.Composer, "!") {
-		left = "bash command " + glyphMiddleDot + " result will be added to context"
-		leftStyle.Foreground = theme.SuccessText
-	} else if w.Snapshot.BashStarting {
-		left = "starting bash…"
-	} else if w.Snapshot.BashRunning {
-		left = "running bash"
-		if w.Snapshot.AgentRunning {
-			left += " " + glyphMiddleDot + " agent running"
-		} else {
-			left += " " + glyphMiddleDot + " esc cancel"
-		}
-	}
-	if !w.Snapshot.AuthReturnReady && (w.Snapshot.Phase == phaseAuthGate || w.Snapshot.Phase == phaseAuthSelect) {
-		left = "enter connect · ctrl+c quit"
-	}
-	if w.Snapshot.Phase == phaseFailed {
-		left = "r retry · ctrl+c quit"
 	}
 	return ui.SizedBox{Height: 1, Child: ui.Padding(ui.Symmetric(1, 0), ui.Flex{
 		Axis:               ui.Horizontal,
 		CrossAxisAlignment: ui.CrossAxisStretch,
 		Children: []ui.Widget{
-			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left, Style: leftStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
+			ui.ExpandedWidget{Flex: 1, Child: ui.Text{Value: left.Text, Style: leftStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
 			ui.ExpandedWidget{Flex: 2, Child: pluginFooterView{Location: w.Snapshot.Location, LocationURL: w.Snapshot.LocationURL, LocationLinkText: w.Snapshot.LocationLinkText, Footer: w.Snapshot.PluginFooter, OpenURL: w.Callbacks.OpenURL}},
 		},
 	})}
@@ -1577,7 +1554,7 @@ func (w shellView) browserLoginBody(theme ui.Theme) ui.Widget {
 			textInput(fieldTheme, textInputConfig{Value: w.Snapshot.AuthCode, OnChanged: w.Callbacks.AuthCodeChanged, OnSubmitted: w.Callbacks.SubmitAuthCode, AutoFocus: true}),
 		}},
 		ui.SizedBox{Height: 1},
-		spinnerWithLabel(w.Snapshot.Status, ui.Style{Foreground: theme.PrimaryText}),
+		spinnerWithLabel(w.Snapshot.AuthBrowserStatus, ui.Style{Foreground: theme.PrimaryText}),
 	)
 	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }

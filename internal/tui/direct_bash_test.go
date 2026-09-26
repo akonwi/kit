@@ -16,6 +16,23 @@ import (
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
+func TestBashRecoveryToastDeduplicatesIdenticalRetries(t *testing.T) {
+	_, state, _ := mountRunAbort(t)
+	state.reportBashRecoveryError("bash_a", "Bash update failed", errors.New("stream closed"))
+	state.reportBashRecoveryError("bash_a", "Bash update failed", errors.New("stream closed"))
+	state.reportBashRecoveryError("bash_a", "Could not resume bash", errors.New("connection lost"))
+	state.reportBashRecoveryError("bash_b", "Bash update failed", errors.New("stream closed"))
+	toasts := state.toasts.Snapshot()
+	if len(toasts) != 3 {
+		t.Fatalf("recovery toasts = %+v, want one per distinct failure and execution", toasts)
+	}
+	for _, toast := range toasts {
+		if !toast.Persistent || toast.Variant != toastError {
+			t.Fatalf("recovery toast = %+v, want persistent error", toast)
+		}
+	}
+}
+
 func TestParseDirectBash(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

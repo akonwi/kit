@@ -221,7 +221,10 @@ type appState struct {
 
 	phase                            phase
 	errorText                        string
-	status                           string
+	authBrowserStatus                string // local to the Claude login dialog
+	recovery                         footerRecovery
+	bashRecoveryReportedID           string
+	bashRecoveryReportedDetail       string
 	toasts                           toastController
 	toastCancels                     map[uint64]context.CancelFunc
 	eventToasts                      []toastInput
@@ -500,7 +503,6 @@ func (s *appState) InitState() {
 	s.newSessionPending = options.NewSessionID != ""
 	if options.Authenticated {
 		s.phase = phaseLoading
-		s.status = "Starting Kit…"
 		s.startBootstrap(options.DefaultModel, options.DefaultThinking)
 	} else {
 		s.phase = phaseAuthGate
@@ -1197,7 +1199,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	snapshot := shellSnapshot{
 		Phase:                         s.phase,
 		Error:                         s.errorText,
-		Status:                        s.status,
+		AuthBrowserStatus:             s.authBrowserStatus,
+		Recovery:                      s.recovery,
 		Composer:                      s.composer,
 		ComposerAttachments:           append([]stagedAttachment(nil), s.composerAttachments...),
 		ComposerAnnotations:           s.composerAnnotations(),
@@ -1870,7 +1873,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.phase = phaseLoading
 				s.errorText = ""
-				s.status = "Starting Kit…"
 			})
 			s.startBootstrap(s.bootstrapModel, s.bootstrapThinking)
 		},
@@ -2266,7 +2268,6 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 					}
 					s.phase = phaseFailed
 					s.errorText = err.Error()
-					s.status = ""
 				})
 				return
 			}
@@ -2282,12 +2283,9 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				s.locationBase = location
 				s.vcsStatus = nil
 				s.applySnapshot(snapshot)
-				if running {
-					s.status = ""
-				}
 			})
 			for _, warning := range snapshot.Warnings {
-				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
+				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning, Persistent: true})
 			}
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
@@ -2624,7 +2622,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if !s.runPending {
 		s.activeRun = nil
 		s.prompt = nil
-		s.status = ""
+		s.recovery = footerHealthy
 	}
 }
 
@@ -2875,12 +2873,11 @@ type subagentToolDetails struct {
 	Warning string `json:"warning"`
 }
 
-// clearRecoveredRunStatus removes only connection warnings once fresh run
-// evidence arrives. Other operations may have replaced the footer status while
-// the watcher was reconnecting; their messages must remain visible.
+// clearRecoveredRunStatus clears only active-stream recovery. Final transcript
+// synchronization is resolved by its authoritative snapshot, not SSE activity.
 func (s *appState) clearRecoveredRunStatus() {
-	if s.status == "Reconnecting activity…" || s.status == "Reconnecting…" {
-		s.status = ""
+	if s.recovery == footerReconnectingActivity {
+		s.recovery = footerHealthy
 	}
 }
 
@@ -3341,7 +3338,22 @@ func latestThinkingLine(thinking string) string {
 	return "Thinking…"
 }
 
-func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr error) {
+// finishRunWithoutSnapshot settles once and keeps the failure visible until
+// acknowledged; retries themselves never create duplicate notifications.
+func (s *appState) finishRunWithoutSnapshot(info protocol.RunInfo, err error) {
+	s.SetState(func() { s.settleRunWithoutSnapshot(info, err) })
+	s.showToast(toastInput{Title: "Transcript refresh failed", Subtitle: "The next turn will retry. " + err.Error(), Variant: toastError, Persistent: true})
+}
+
+// A terminal snapshot can also report a successor run. The final transcript
+// recovery belongs to the completed run, not the newly active one.
+func (s *appState) settleTranscriptRecovery(finishedRunID, nextRunID string) {
+	if nextRunID == "" || nextRunID != finishedRunID {
+		s.recovery = footerHealthy
+	}
+}
+
+func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, _ error) {
 	s.markTerminalRunSettled(info.RunID)
 	for index := range s.liveMessages {
 		s.liveMessages[index].Pending = false
@@ -3362,7 +3374,7 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, snapshotErr e
 	s.activeRunID = ""
 	s.runPending = false
 	s.prompt = nil
-	s.status = "Transcript refresh failed; the next turn will retry · " + snapshotErr.Error()
+	s.recovery = footerHealthy
 	s.followTranscriptIfPinned()
 }
 
@@ -3472,7 +3484,6 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				if nextRunID != "" {
 					s.activeRun = nil
 					s.prompt = nil
-					s.status = ""
 				} else {
 					s.activeRun = nil
 					s.prompt = nil
@@ -3563,6 +3574,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 	if s.runWatchCancel != nil {
 		s.runWatchCancel()
 	}
+	s.SetState(func() { s.recovery = footerHealthy })
 	s.runWatchGeneration++
 	watchGeneration := s.runWatchGeneration
 	watchCtx, cancel := context.WithCancel(attachmentCtx)
@@ -3630,7 +3642,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						}
 						runtime.Dispatch(func() {
 							if operation == s.operation && watchGeneration == s.runWatchGeneration {
-								s.SetState(func() { s.status = "Reconnecting activity…" })
+								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
 					}
@@ -3672,7 +3684,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
 							if operation == s.operation && watchGeneration == s.runWatchGeneration {
-								s.SetState(func() { s.status = "Reconnecting…" })
+								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
 					}
@@ -3705,7 +3717,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					if snapshotFailures >= 6 {
 						runtime.Dispatch(func() {
 							if operation == s.operation && watchGeneration == s.runWatchGeneration {
-								s.SetState(func() { s.settleRunWithoutSnapshot(info, err) })
+								s.finishRunWithoutSnapshot(info, err)
 								s.notifyTurnSettledOnce(info.RunID, info.Status)
 							}
 						})
@@ -3713,7 +3725,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					runtime.Dispatch(func() {
 						if operation == s.operation && watchGeneration == s.runWatchGeneration {
-							s.SetState(func() { s.status = "Run finished · reconnecting transcript…" })
+							s.SetState(func() { s.recovery = footerSyncingFinalTranscript })
 						}
 					})
 					delay := 100 * time.Millisecond * time.Duration(1<<min(snapshotFailures-1, 4))
@@ -3741,6 +3753,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					s.SetState(func() {
 						s.applySnapshot(snapshot)
+						s.settleTranscriptRecovery(info.RunID, nextRunID)
 						if info.Status != protocol.RunStatusCompleted && !terminalErrorPersisted {
 							message := info.ErrorMessage
 							if message == "" {
@@ -3750,7 +3763,6 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						}
 						if nextRunID != "" {
 							s.runWatchID = nextRunID
-							s.status = ""
 						}
 					})
 					s.notifyTurnSettledOnce(info.RunID, info.Status)
@@ -3818,7 +3830,6 @@ func (s *appState) selectProvider(ctx ui.EventContext, providerID string) {
 		s.authProviderID = provider.ProviderID
 		s.authAPIKey = ""
 		s.errorText = ""
-		s.status = ""
 	})
 }
 
@@ -3857,7 +3868,6 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 	s.SetState(func() {
 		s.authPending = true
 		s.errorText = ""
-		s.status = "Saving " + provider.Name + " API key…"
 	})
 
 	go func() {
@@ -3877,7 +3887,6 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 					s.authPending = false
 					s.authAPIKey = ""
 					s.errorText = err.Error()
-					s.status = ""
 				})
 				return
 			}
@@ -3891,8 +3900,8 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 					s.authPending = false
 					s.authProviderID = ""
 					s.authAPIKey = ""
-					s.status = "Connected to " + provider.Name
 				})
+				s.showToast(toastInput{Title: "Connected to " + provider.Name, Variant: toastInfo})
 				return
 			}
 			s.SetState(func() {
@@ -3900,7 +3909,6 @@ func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 				s.authPending = false
 				s.authProviderID = ""
 				s.authAPIKey = ""
-				s.status = "Connected to " + provider.Name
 			})
 			s.startBootstrap(preferredStartupModel(options.DefaultModel, provider.DefaultModel), options.DefaultThinking)
 		})
@@ -3921,7 +3929,6 @@ func (s *appState) startLogin(_ ui.EventContext) {
 	s.SetState(func() {
 		s.phase = phaseAuthWaiting
 		s.errorText = ""
-		s.status = "Starting OpenAI Codex sign-in…"
 		s.instructions = auth.OpenAICodexDeviceInstructions{}
 		s.authFilter = ""
 		s.authProviderID = ""
@@ -3938,7 +3945,6 @@ func (s *appState) startLogin(_ ui.EventContext) {
 				s.SetState(func() {
 					s.instructions = instructions
 					s.remaining = time.Until(instructions.ExpiresAt)
-					s.status = "Waiting for approval…"
 				})
 			})
 			go s.tickDeviceExpiry(loginContext, runtime, generation, instructions.ExpiresAt)
@@ -3959,7 +3965,6 @@ func (s *appState) startLogin(_ ui.EventContext) {
 					s.phase = phaseAuthSelect
 					s.authPending = false
 					s.errorText = err.Error()
-					s.status = ""
 				})
 				return
 			}
@@ -3971,15 +3976,14 @@ func (s *appState) startLogin(_ ui.EventContext) {
 					s.phase = phaseReady
 					s.authReturnReady = false
 					s.authPending = false
-					s.status = "Connected to OpenAI Codex"
 					s.instructions = auth.OpenAICodexDeviceInstructions{}
 				})
+				s.showToast(toastInput{Title: "Connected to OpenAI Codex", Variant: toastInfo})
 				return
 			}
 			s.SetState(func() {
 				s.phase = phaseLoading
 				s.authPending = false
-				s.status = "Connected to OpenAI Codex"
 				s.instructions = auth.OpenAICodexDeviceInstructions{}
 			})
 			s.startBootstrap(preferredStartupModel(options.DefaultModel, codexDefaultModel), options.DefaultThinking)
@@ -4002,7 +4006,7 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 	s.SetState(func() {
 		s.phase = phaseAuthBrowser
 		s.errorText = ""
-		s.status = "Starting Claude sign-in…"
+		s.authBrowserStatus = "Starting Claude sign-in…"
 		s.browserInstructions = auth.AnthropicLoginInstructions{}
 		s.authCode = ""
 		s.authCodeInput = manualCode
@@ -4018,7 +4022,7 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 				}
 				s.SetState(func() {
 					s.browserInstructions = instructions
-					s.status = "Waiting for browser approval…"
+					s.authBrowserStatus = "Waiting for browser approval…"
 				})
 			})
 			return nil
@@ -4039,7 +4043,6 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 					s.authPending = false
 					s.authCodeInput = nil
 					s.errorText = err.Error()
-					s.status = ""
 				})
 				return
 			}
@@ -4052,15 +4055,14 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 					s.authReturnReady = false
 					s.authPending = false
 					s.authCodeInput = nil
-					s.status = "Connected to Claude"
 				})
+				s.showToast(toastInput{Title: "Connected to Claude", Variant: toastInfo})
 				return
 			}
 			s.SetState(func() {
 				s.phase = phaseLoading
 				s.authPending = false
 				s.authCodeInput = nil
-				s.status = "Connected to Claude"
 			})
 			s.startBootstrap(preferredStartupModel(options.DefaultModel, "anthropic/claude-sonnet-4-6"), options.DefaultThinking)
 		})
@@ -4074,7 +4076,7 @@ func (s *appState) submitAuthCode(_ ui.EventContext, value string) {
 	}
 	select {
 	case s.authCodeInput <- value:
-		s.SetState(func() { s.authCode = ""; s.status = "Completing Claude sign-in…" })
+		s.SetState(func() { s.authCode = ""; s.authBrowserStatus = "Completing Claude sign-in…" })
 	default:
 	}
 }
@@ -5388,7 +5390,6 @@ func (s *appState) applyConfigurationSelection() {
 	bound := s.bound
 	operation := s.operation
 	runtime := s.Context().Runtime()
-	s.SetState(func() { s.status = "Applying session configuration…" })
 	go func() {
 		configureContext, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
 		result, configureErr := bound.Configure(configureContext, input)
@@ -5428,15 +5429,14 @@ func (s *appState) applyConfigurationSelection() {
 				finalErr = fmt.Errorf("configuration applied but snapshot refresh failed: %w", snapshotErr)
 			}
 			s.SetState(func() {
-				s.status = ""
 				s.configurationPicker.ResolveApply(generation, finalErr)
 			})
 			if configureErr != nil {
-				s.showToast(toastInput{Title: "Configuration failed", Subtitle: configureErr.Error(), Variant: toastError})
+				s.showToast(toastInput{Title: "Configuration failed", Subtitle: configureErr.Error(), Variant: toastError, Persistent: true})
 				return
 			}
 			if snapshotErr != nil {
-				s.showToast(toastInput{Title: "Configuration refresh failed", Subtitle: snapshotErr.Error(), Variant: toastError})
+				s.showToast(toastInput{Title: "Configuration refresh failed", Subtitle: snapshotErr.Error(), Variant: toastError, Persistent: true})
 			}
 		})
 	}()
@@ -5461,11 +5461,11 @@ func configurationInputForSelection(session protocol.SessionInfo, mode configura
 
 func (s *appState) compactSession() {
 	if s.compactPending {
-		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Compaction already in progress.", Variant: toastError})
+		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Compaction already in progress.", Variant: toastError, Persistent: true})
 		return
 	}
 	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() || s.reloadPending {
-		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Cannot compact while the agent is running.", Variant: toastError})
+		s.showToast(toastInput{Title: "Compaction failed", Subtitle: "Cannot compact while the agent is running.", Variant: toastError, Persistent: true})
 		return
 	}
 	operationID := s.compactOperationID
@@ -5473,7 +5473,7 @@ func (s *appState) compactSession() {
 		var err error
 		operationID, err = identifier.New("compact_")
 		if err != nil {
-			s.showToast(toastInput{Title: "Compaction failed", Subtitle: err.Error(), Variant: toastError})
+			s.showToast(toastInput{Title: "Compaction failed", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 			return
 		}
 	}
@@ -5483,7 +5483,6 @@ func (s *appState) compactSession() {
 	s.SetState(func() {
 		s.compactPending = true
 		s.compactOperationID = operationID
-		s.status = "Compacting session…"
 	})
 	go func() {
 		compactContext, cancel := context.WithTimeout(s.ctx, 2*time.Minute)
@@ -5505,7 +5504,6 @@ func (s *appState) compactSession() {
 			}
 			s.SetState(func() {
 				s.compactPending = false
-				s.status = ""
 				if compactErr == nil {
 					s.compactOperationID = ""
 				}
@@ -5520,15 +5518,15 @@ func (s *appState) compactSession() {
 
 func compactionToast(result protocol.CompactSessionResult, compactErr, snapshotErr error) toastInput {
 	if compactErr != nil {
-		return toastInput{Title: "Compaction failed", Subtitle: compactErr.Error(), Variant: toastError}
+		return toastInput{Title: "Compaction failed", Subtitle: compactErr.Error(), Variant: toastError, Persistent: true}
 	}
 	if snapshotErr != nil {
-		return toastInput{Title: "Session compacted", Subtitle: "Session context was compacted. " + snapshotErr.Error(), Variant: toastWarning}
+		return toastInput{Title: "Session compacted", Subtitle: "Session context was compacted. " + snapshotErr.Error(), Variant: toastWarning, Persistent: true}
 	}
 	if result.Compacted {
 		return toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo}
 	}
-	return toastInput{Title: "Compaction failed", Subtitle: "Not enough turns to compact.", Variant: toastError}
+	return toastInput{Title: "Compaction failed", Subtitle: "Not enough turns to compact.", Variant: toastError, Persistent: true}
 }
 
 func (s *appState) changeCWD(target string) {
@@ -5546,7 +5544,6 @@ func (s *appState) changeCWD(target string) {
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.cwdPending = true
-		s.status = "Changing working directory…"
 	})
 	go func() {
 		changeContext, cancel := context.WithTimeout(s.ctx, 10*time.Second)
@@ -5561,7 +5558,6 @@ func (s *appState) changeCWD(target string) {
 			}
 			s.SetState(func() {
 				s.cwdPending = false
-				s.status = ""
 				if err == nil {
 					s.invalidateFileMentions()
 					s.session = info
@@ -5571,7 +5567,7 @@ func (s *appState) changeCWD(target string) {
 				}
 			})
 			if err != nil {
-				s.showToast(toastInput{Title: "Failed to change directory", Subtitle: err.Error(), Variant: toastError})
+				s.showToast(toastInput{Title: "Failed to change directory", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 				return
 			}
 			if info.CWD == previousCWD {
@@ -5627,7 +5623,6 @@ func (s *appState) refreshModels() {
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.modelRefreshPending = true
-		s.status = "Refreshing model catalog…"
 	})
 	go func() {
 		refreshContext, cancel := context.WithTimeout(s.ctx, 30*time.Second)
@@ -5642,10 +5637,9 @@ func (s *appState) refreshModels() {
 			}
 			s.SetState(func() {
 				s.modelRefreshPending = false
-				s.status = ""
 			})
 			if err != nil {
-				s.showToast(toastInput{Title: "Model refresh failed", Subtitle: err.Error(), Variant: toastError})
+				s.showToast(toastInput{Title: "Model refresh failed", Subtitle: err.Error(), Variant: toastError, Persistent: true})
 				return
 			}
 			s.showToast(toastInput{Title: "Model catalog refreshed", Subtitle: fmt.Sprintf("%d models available", len(catalog.Models)), Variant: toastInfo})
@@ -5663,7 +5657,6 @@ func (s *appState) reloadSession() {
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
 		s.reloadPending = true
-		s.status = "Reloading session context…"
 	})
 	go func() {
 		reloadContext, cancel := context.WithTimeout(s.ctx, 15*time.Second)
@@ -5684,11 +5677,9 @@ func (s *appState) reloadSession() {
 			}
 			s.SetState(func() {
 				s.reloadPending = false
-				s.status = ""
 				if snapshotErr == nil {
 					s.applyPostReloadSnapshot(snapshot, metadataStream)
 				}
-				s.status = ""
 			})
 			s.showToast(reloadToast(result, reloadErr, snapshotErr))
 		})
@@ -5707,7 +5698,7 @@ func (s *appState) applyPostReloadSnapshot(snapshot protocol.SessionSnapshot, pr
 
 func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr error) toastInput {
 	if reloadErr != nil {
-		toast := toastInput{Title: "Session reload failed", Subtitle: reloadErr.Error(), Variant: toastError}
+		toast := toastInput{Title: "Session reload failed", Subtitle: reloadErr.Error(), Variant: toastError, Persistent: true}
 		if snapshotErr != nil {
 			toast.Subtitle += " · session refresh failed: " + snapshotErr.Error()
 		}
@@ -5726,6 +5717,7 @@ func reloadToast(result protocol.ReloadSessionResult, reloadErr, snapshotErr err
 	}
 	if warning {
 		toast.Variant = toastWarning
+		toast.Persistent = true
 	}
 	if len(details) > 0 {
 		toast.Subtitle = details[0]
@@ -6080,7 +6072,7 @@ func (s *appState) switchSelectedSession() {
 				return
 			}
 			for _, warning := range snapshot.Warnings {
-				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning})
+				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning, Persistent: true})
 			}
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
@@ -6263,7 +6255,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.transcriptAnnotationsExpanded = make(map[string]bool)
 	s.bashHistory = bashHistoryController{}
 	s.messageHistory = messageHistoryController{}
-	s.status = ""
+	s.bashRecoveryReportedID = ""
+	s.bashRecoveryReportedDetail = ""
+	s.recovery = footerHealthy
 	s.applySnapshot(snapshot)
 }
 
@@ -6287,11 +6281,11 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 
 func (s *appState) submit(_ ui.EventContext, value string) {
 	if s.reloadPending {
-		s.SetState(func() { s.status = "Session context is reloading…" })
+		s.showToast(toastInput{Title: "Session context is reloading", Variant: toastInfo})
 		return
 	}
 	if s.compactPending || s.configurationPicker.Pending {
-		s.SetState(func() { s.status = "Session configuration is changing…" })
+		s.showToast(toastInput{Title: "Session configuration is changing", Variant: toastInfo})
 		return
 	}
 	text := strings.TrimSpace(value)
@@ -6300,11 +6294,11 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	}
 	for _, item := range s.composerAttachments {
 		if item.Uploading {
-			s.SetState(func() { s.status = "Waiting for attachments to finish uploading…" })
+			s.showToast(toastInput{Title: "Wait for attachments to upload", Variant: toastInfo})
 			return
 		}
 		if item.Error != "" && !item.PreserveID {
-			s.SetState(func() { s.status = "Remove failed attachments before sending" })
+			s.showToast(toastInput{Title: "Remove failed attachments before sending", Variant: toastInfo})
 			return
 		}
 	}
@@ -6405,7 +6399,6 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 					s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
 					s.liveHasUser = true
 					s.runPending = true
-					s.status = ""
 					s.markTerminalRunStarted(result.Run.ID())
 				}
 				s.activeRun = result.Run
@@ -6567,7 +6560,6 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 		s.composer = ""
 		s.composerAttachmentIDs = nil
 		s.composerAttachments = nil
-		s.status = ""
 		s.resetLiveRun()
 		s.turnActivity = "Working…"
 		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display, Content: attachmentTranscriptContent(display, submittedRows)})
@@ -6701,7 +6693,6 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			s.activeRunID = ""
 			s.runPending = false
 			s.prompt = nil
-			s.status = ""
 			s.followTranscriptIfPinned()
 			if runErr != nil {
 				if snapshotErr == nil && snapshot.Session.ID != "" {
@@ -6866,7 +6857,6 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			s.phase = authSelectionDismissTarget(s.authReturnReady)
 			s.authReturnReady = false
 			s.errorText = ""
-			s.status = ""
 			s.authFilter = ""
 			s.authSelection = 0
 		})
@@ -6880,7 +6870,6 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		s.SetState(func() {
 			s.phase = phaseAuthSelect
 			s.errorText = ""
-			s.status = ""
 			s.instructions = auth.OpenAICodexDeviceInstructions{}
 			s.browserInstructions = auth.AnthropicLoginInstructions{}
 			s.authProviderID = ""
@@ -6898,7 +6887,6 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			if s.bashAdmission != nil {
 				s.bashAdmission.abort.Store(true)
 			}
-			s.SetState(func() { s.status = "Stopping bash…" })
 			return
 		}
 		if !s.runPending || s.runStopping {
