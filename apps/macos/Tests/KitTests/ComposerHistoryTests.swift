@@ -33,6 +33,39 @@ struct ComposerHistoryTests {
         Issue.record("history operation did not settle")
     }
 
+    @Test func historyPanelFitsVisibleRowsAndKeepsItsBottomAnchoredToComposer() {
+        let composer = NSRect(x: 40, y: 100, width: 300, height: 60)
+        let screen = NSRect(x: 0, y: 0, width: 800, height: 900)
+        for (rows, expectedHeight) in [(0, 106), (1, 106), (2, 148), (6, 316), (10, 316)] {
+            let height = ComposerMentionPanel.historyHeight(rows: rows, hasError: false)
+            #expect(height == CGFloat(expectedHeight))
+            let frame = ComposerMentionPanel.frame(above: composer, height: height, screen: screen)
+            #expect(frame == NSRect(x: 40, y: 166, width: 300, height: CGFloat(expectedHeight)))
+        }
+        #expect(ComposerMentionPanel.historyHeight(rows: 0, hasError: true) == 136)
+        #expect(ComposerMentionPanel.historyHeight(rows: 10, hasError: true) == 346)
+    }
+
+    @Test func recentsPaintOldestAboveNewestAndUpMovesOlderWithoutWrapping() async throws {
+        let client = HistoryTestClient(messages: (0..<8).reversed().map {
+            .init(id: "message_\($0)", text: "prompt \($0)")
+        })
+        let state = ComposerHistoryState()
+        state.openMessages(session: "session_1", client: client)
+        try await settle { !state.loading }
+        #expect(state.selected?.text == "prompt 7")
+        #expect(state.visibleMatches.map(\.text) == (2...7).map { "prompt \($0)" })
+        state.move(-1, session: "session_1", client: client)
+        #expect(state.selected?.text == "prompt 6")
+        state.move(1, session: "session_1", client: client)
+        #expect(state.selected?.text == "prompt 7")
+        state.move(1, session: "session_1", client: client)
+        #expect(state.selected?.text == "prompt 7")
+        state.setQuery("prompt 2")
+        #expect(state.selected?.text == "prompt 2")
+        #expect(state.visibleMatches.map(\.text) == ["prompt 2"])
+    }
+
     @Test func messageHistoryFiltersAndInsertsWithoutSubmitting() async throws {
         let client = HistoryTestClient(messages: [
             .init(id: "new", text: "newest prompt"), .init(id: "old", text: "older prompt")
@@ -60,8 +93,8 @@ struct ComposerHistoryTests {
         let state = ComposerHistoryState()
         state.openMessages(session: "session_1", client: client)
         try await settle { !state.loading }
-        state.move(1, session: "session_1", client: client)
-        state.move(1, session: "session_1", client: client)
+        state.move(-1, session: "session_1", client: client)
+        state.move(-1, session: "session_1", client: client)
         try await settle { !state.loading && state.entries.count == 3 }
         #expect(state.selected == .message(.init(id: "old", text: "same ")))
         #expect(state.entries.count == 3)
@@ -75,7 +108,7 @@ struct ComposerHistoryTests {
         let state = ComposerHistoryState()
         state.openBash(session: "session_1", query: "", client: client)
         try await settle { !state.loading }
-        state.move(1, session: "session_1", client: client)
+        state.move(-1, session: "session_1", client: client)
         try await settle { !state.loading && state.entries.count == 2 }
         #expect(state.selected == .bash(.init(id: "old", sequence: 1, command: "echo secret", excluded: true)))
 
@@ -85,6 +118,25 @@ struct ComposerHistoryTests {
         #expect(editor.draftText == "!!echo secret")
         #expect(editor.shellPrefix == "!!")
         #expect(editor.string == "echo secret")
+    }
+
+    @Test func bashRecentsPaintOldestAboveNewestAndUpMovesOlder() async throws {
+        let client = HistoryTestClient(firstBash: .init(entries: [
+            .init(id: "new", sequence: 3, command: "new command", excluded: false),
+            .init(id: "middle", sequence: 2, command: "middle command", excluded: false),
+            .init(id: "old", sequence: 1, command: "old command", excluded: true)
+        ], nextCursor: nil, hasMore: false))
+        let state = ComposerHistoryState()
+        state.openBash(session: "session_1", query: "", client: client)
+        try await settle { !state.loading }
+        #expect(state.visibleMatches.map(\.text) == ["old command", "middle command", "new command"])
+        #expect(state.selected?.text == "new command")
+        state.move(-1, session: "session_1", client: client)
+        #expect(state.selected?.text == "middle command")
+        state.move(-1, session: "session_1", client: client)
+        #expect(state.selected?.text == "old command")
+        state.move(-1, session: "session_1", client: client)
+        #expect(state.selected?.text == "old command")
     }
 
     @Test func filteredBashHistoryPagesUntilAnOlderMatchAppears() async throws {

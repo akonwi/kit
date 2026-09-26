@@ -45,10 +45,16 @@ private struct ComposerPickerHost: View {
     private var observer: NSObjectProtocol?
     private var presentedFrame: NSRect?
     private var themeHolder: ComposerPickerTheme?
+    private var historyGeometryScheduled = false
+    private var historyGeometryGeneration = 0
 
     func dismiss() {
         if let observer { NotificationCenter.default.removeObserver(observer); self.observer = nil }
-        if let panel { panel.parent?.removeChildWindow(panel); panel.close() }
+        if let panel {
+            historyGeometryGeneration &+= 1
+            historyGeometryScheduled = false
+            panel.parent?.removeChildWindow(panel); panel.close()
+        }
         panel = nil
         presentedFrame = nil
         themeHolder = nil
@@ -73,16 +79,37 @@ private struct ComposerPickerHost: View {
 
     func showHistory(editor: ComposerTextView, state: ComposerHistoryState, theme: MicaTheme,
                      select: @escaping (ComposerHistoryState.Entry) -> Void, retry: @escaping () -> Void) {
-        // Keep panel geometry stable while async history results update the
-        // observed list. Replacing or resizing the hosting view from that
-        // callback can re-enter AppKit's constraint display cycle.
-        let visibleRows = 6
+        let generation = historyGeometryGeneration
         present(editor: editor, open: state.isOpen,
-                height: CGFloat(visibleRows * 42 + 90),
+                height: Self.historyHeight(rows: state.visibleMatches.count, hasError: state.error != nil),
                 label: state.mode == .bash ? "Shell history" : "Message history", theme: theme,
                 footer: "↑↓ move · enter insert · esc close",
                 close: { [weak state] in state?.close() },
-                content: AnyView(ComposerHistoryList(state: state, select: select, retry: retry)))
+                content: AnyView(ComposerHistoryList(state: state, select: select, retry: retry,
+                    geometryChanged: { [weak self, weak editor] in
+                        guard let self, self.historyGeometryGeneration == generation else { return }
+                        self.scheduleHistoryGeometryUpdate(editor: editor)
+                    })))
+    }
+
+    static func historyHeight(rows: Int, hasError: Bool) -> CGFloat {
+        // Header 30 + rows/empty state 42 each + top inset 4 + fixed footer 30.
+        CGFloat(min(6, max(1, rows)) * 42 + 64 + (hasError ? 30 : 0))
+    }
+
+    private func scheduleHistoryGeometryUpdate(editor: ComposerTextView?) {
+        guard panel != nil, !historyGeometryScheduled else { return }
+        historyGeometryScheduled = true
+        let generation = historyGeometryGeneration
+        // SwiftUI can report new rows during an AppKit display cycle. Defer and
+        // coalesce geometry requests; present() keeps the hosting root stable
+        // and skips setFrame when the requested frame has not changed.
+        DispatchQueue.main.async { [weak self, weak editor] in
+            guard let self, self.historyGeometryGeneration == generation else { return }
+            self.historyGeometryScheduled = false
+            guard self.panel != nil else { return }
+            editor?.mentionChanged?()
+        }
     }
 
     private func present(editor: ComposerTextView, open: Bool, height: CGFloat,
@@ -132,7 +159,10 @@ private struct ComposerPickerHost: View {
         // setFrame and feed another SwiftUI/AppKit layout pass.
         if presentedFrame != frame {
             presentedFrame = frame
-            panel.setFrame(frame, display: panel.isVisible)
+            panel.setFrame(frame, display: false)
+            // The new viewport may expose rows after SwiftUI's prior display
+            // transaction. Request paint on the next cycle, not synchronously.
+            panel.contentView?.needsDisplay = true
         }
         if created || !panel.isVisible { panel.orderFront(nil) }
     }
@@ -205,6 +235,7 @@ private struct ComposerHistoryList: View {
     @Bindable var state: ComposerHistoryState
     let select: (ComposerHistoryState.Entry) -> Void
     let retry: () -> Void
+    let geometryChanged: () -> Void
     var body: some View {
         let matches = state.visibleMatches
         let selectedID = state.selected?.id
@@ -239,5 +270,8 @@ private struct ComposerHistoryList: View {
             if state.error != nil { Button("Retry", action: retry).buttonStyle(.plain).padding(.horizontal, 10).frame(height: 30) }
         }.font(.kit(size: 12)).foregroundStyle(theme.text).padding(.top, 4)
             .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+            .onAppear(perform: geometryChanged)
+            .onChange(of: matches.count) { _, _ in geometryChanged() }
+            .onChange(of: state.error != nil) { _, _ in geometryChanged() }
     }
 }

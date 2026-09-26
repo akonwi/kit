@@ -26,8 +26,10 @@ import Observation
     }
     var selected: Entry? { matches.indices.contains(selection) ? matches[selection] : nil }
     var visibleMatches: [Entry] {
+        // The server and pagination are newest-first. Paint the six-row window
+        // oldest-to-newest so the selected newest result starts nearest the composer.
         let first = max(0, selection - 5)
-        return Array(matches.dropFirst(first).prefix(10))
+        return Array(matches.dropFirst(first).prefix(6).reversed())
     }
 
     func reset(identity: String) {
@@ -69,15 +71,17 @@ import Observation
     func appendQuery(_ value: String) { setQuery(query + value) }
     func deleteQueryBackward() { if !query.isEmpty { setQuery(String(query.dropLast())) } }
     func move(_ offset: Int, session: String, client: (any ComposerHistoryClient)?) {
-        guard !matches.isEmpty else {
-            if hasMore, !loading { loadOlder(session: session, client: client) }
+        let filtered = matches
+        guard !filtered.isEmpty else {
+            if offset < 0, hasMore, !loading { loadOlder(session: session, client: client) }
             return
         }
-        if offset > 0, selection == matches.count - 1, hasMore {
-            if !loading { loadOlder(session: session, client: client, advancingFrom: matches[selection].id) }
+        if offset < 0, selection == filtered.count - 1, hasMore {
+            if !loading { loadOlder(session: session, client: client, advancingFrom: filtered[selection].id) }
             return
         }
-        selection = (selection + offset + matches.count) % matches.count
+        // Up is older in the newest-first source; Down moves back toward now.
+        selection = min(filtered.count - 1, max(0, selection - offset))
     }
     func retry(session: String, client: (any ComposerHistoryClient)?) {
         let mode = mode, query = query
