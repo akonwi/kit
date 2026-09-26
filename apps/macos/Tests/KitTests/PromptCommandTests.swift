@@ -18,7 +18,78 @@ private actor CommandClient: PromptCommandClient {
     }
 }
 
+private actor PalettePromptClient: PromptCommandClient {
+    nonisolated let serverID = "test"
+    nonisolated let isDemo = false
+    let catalog: [SessionExcerpt]
+    var requests: [WirePromptCommandInput] = []
+    var paused = false
+    var waiting: CheckedContinuation<Void, Never>?
+    init(session: SessionExcerpt, other: [SessionExcerpt] = []) { catalog = [session] + other }
+    func pause() { paused = true }
+    func resume() { waiting?.resume(); waiting = nil; paused = false }
+    func sessions() async throws -> [SessionExcerpt] { catalog }
+    func snapshot(_ id: String) async throws -> SessionExcerpt { catalog.first { $0.id == id }! }
+    func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
+        await receive(try await snapshot(id))
+        while !Task.isCancelled { try await Task.sleep(for: .seconds(1)) }
+    }
+    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireRunReservation {
+        requests.append(input)
+        if paused { await withCheckedContinuation { waiting = $0 } }
+        return .init(sessionId: id, turnId: "turn_a", runId: "turn_a")
+    }
+}
+
 @MainActor struct PromptCommandTests {
+    @Test func paletteRunsPromptWithArgumentsAndPreservesComposerDraft() async throws {
+        let prompt = PromptCommand(name: "review", description: "Review changes", source: "project",
+                                   location: "/repo/review.md", argumentHint: "<scope>")
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "test/model", thinking: "off",
+                                     workspace: "Test", date: "", messages: [])
+        session.promptCommands = [prompt]
+        let client = PalettePromptClient(session: session)
+        let store = SessionStore(fixture: Fixture(sessions: [session]), client: client)
+        store.attach()
+        defer { store.detach() }
+        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.palettePromptUnavailableReason == nil)
+        store.ui.draft = "Existing draft"
+        store.runPalettePrompt(prompt, args: "\"auth module\" carefully")
+        for _ in 0..<100 where (await client.requests).isEmpty || store.operations.sending {
+            try await Task.sleep(for: .milliseconds(10))
+        }
+        #expect(await client.requests.map { ($0.name, $0.args ?? "") }.first?.0 == "review")
+        #expect(await client.requests.first?.args == "\"auth module\" carefully")
+        #expect(store.ui.draft == "Existing draft")
+        #expect(store.operations.acknowledgedDraft == nil)
+    }
+
+    @Test func paletteAcknowledgementKeepsItsOriginalSession() async throws {
+        let prompt = PromptCommand(name: "review", description: "Review changes", source: "project", location: "/repo/review.md")
+        var first = SessionExcerpt(id: "a", title: "First", sourceTitle: "Test", model: "test/model", thinking: "off",
+                                   workspace: "Test", date: "", messages: [])
+        first.promptCommands = [prompt]
+        let second = SessionExcerpt(id: "b", title: "Second", sourceTitle: "Test", model: "test/model", thinking: "off",
+                                    workspace: "Test", date: "", messages: [])
+        let client = PalettePromptClient(session: first, other: [second])
+        let store = SessionStore(fixture: Fixture(sessions: [first, second]), client: client)
+        store.attach()
+        defer { store.detach() }
+        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        await client.pause()
+        store.runPalettePrompt(prompt, args: "")
+        let origin = store.operations
+        for _ in 0..<100 where (await client.requests).isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        store.select("b")
+        let destination = store.operations
+        await client.resume()
+        for _ in 0..<100 where origin.sending { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(origin.acknowledgedDraft == nil)
+        #expect(destination.acknowledgedDraft == nil)
+        #expect(destination.submission == .idle)
+    }
+
     @Test func completionInsertsBeforeSubmittingAndPreservesQuotedArguments() throws {
         let state = ComposerCommandState()
         state.catalog = [.init(name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")]
@@ -47,6 +118,14 @@ private actor CommandClient: PromptCommandClient {
     @Test func discoveryRejectsAmbiguousNamesAndCompletionRespectsCaretAndPaste() throws {
         let wire = WirePromptCommand(argumentHint: nil, name: "review", description: "Review changes", source: "project", location: "/tmp/review.md")
         #expect(try PromptCommand.project([wire]).map(\.name) == ["review"])
+        let hinted = WirePromptCommand(argumentHint: "<scope>", name: "review", description: "Review changes",
+                                       source: "project", location: "/tmp/review.md")
+        #expect(try PromptCommand.project([hinted]).first?.argumentHint == "<scope>")
+        for invalid in ["line\nbreak", "\u{1B}escape", "left\u{200D}right"] {
+            let wire = WirePromptCommand(argumentHint: invalid, name: "review", description: "Review",
+                                         source: "project", location: "/tmp/review.md")
+            #expect(throws: ClientError.self) { try PromptCommand.project([wire]) }
+        }
         #expect(throws: ClientError.self) { try PromptCommand.project([wire, wire]) }
         let state = ComposerCommandState()
         state.catalog = try PromptCommand.project([wire])

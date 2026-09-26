@@ -9,6 +9,14 @@ struct PaletteCommand: Identifiable {
     var aliases: [String] = []
     var demoOnly = false
     var plugin: PluginCommand? = nil
+    var prompt: PromptCommand? = nil
+
+    static func splitQuery(_ query: String) -> (command: String, args: String) {
+        let trimmed = query.drop(while: { $0.isWhitespace })
+        guard let separator = trimmed.firstIndex(where: { $0.isWhitespace }) else { return (String(trimmed), "") }
+        return (String(trimmed[..<separator]),
+                String(trimmed[separator...].drop(while: { $0.isWhitespace })).trimmingCharacters(in: .whitespacesAndNewlines))
+    }
 
     func matches(_ query: String) -> Bool {
         let query = query.trimmingCharacters(in: .whitespacesAndNewlines)
@@ -16,6 +24,15 @@ struct PaletteCommand: Identifiable {
         return query.split(whereSeparator: { $0.isWhitespace }).allSatisfy {
             text.localizedCaseInsensitiveContains(String($0))
         }
+    }
+
+    static func sortedByName(_ commands: [Self]) -> [Self] {
+        commands.sorted { $0.name == $1.name ? $0.id < $1.id : $0.name < $1.name }
+    }
+
+    static func promptCatalog(_ commands: [PromptCommand]) -> [Self] {
+        commands.map { .init(id: "prompt:" + $0.name, name: $0.name, description: $0.description,
+                             icon: "text.bubble", aliases: ["/" + $0.name, $0.source, $0.location], prompt: $0) }
     }
 
     static func pluginCatalog(_ commands: [PluginCommand]) -> [Self] {

@@ -18,6 +18,7 @@ struct PromptCommand: Decodable, Sendable, Equatable, Identifiable {
     let description: String
     let source: String
     let location: String
+    var argumentHint: String? = nil
     var id: String { name }
 
     static func validName(_ name: String) -> Bool {
@@ -32,8 +33,10 @@ struct PromptCommand: Decodable, Sendable, Equatable, Identifiable {
         var seen = Set<String>()
         return try commands.map {
             guard validName($0.name), seen.insert($0.name).inserted,
-                  $0.description.utf8.count <= 1024, $0.location.utf8.count <= 4096 else { throw ClientError.invalidPayload }
-            return Self(name: $0.name, description: $0.description, source: $0.source, location: $0.location)
+                  $0.description.utf8.count <= 1024, $0.location.utf8.count <= 4096,
+                  PluginCommand.safeText($0.argumentHint ?? "", limit: 1024) else { throw ClientError.invalidPayload }
+            return Self(name: $0.name, description: $0.description, source: $0.source, location: $0.location,
+                        argumentHint: $0.argumentHint)
         }
     }
 

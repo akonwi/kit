@@ -523,6 +523,41 @@ final class SessionStore {
         ui.notice = "Local preview only"
     }
 
+    var palettePromptUnavailableReason: String? {
+        if !(catalogClient is any PromptCommandClient) { return "Unavailable for this connection" }
+        if unavailable { return "Session unavailable" }
+        if connectionState != .connected { return "Connect to run" }
+        if running || operations.sending || operations.uncertain || operations.queuePending { return "Idle only" }
+        if directoryChange.pending || reloadOperation.pending || compactionOperation.pending || configuration.changing {
+            return "Wait for the current change"
+        }
+        return nil
+    }
+
+    func runPalettePrompt(_ command: PromptCommand, args: String) {
+        guard let client = catalogClient as? any PromptCommandClient,
+              palettePromptUnavailableReason == nil else { return }
+        guard selected?.promptCommands?.contains(where: { $0.name == command.name && $0.location == command.location }) == true else {
+            feedback.show(title: "Prompt command changed", detail: "Reselect it from the refreshed catalog.", tone: .warning)
+            return
+        }
+        guard args.utf8.count <= 128 * 1024, !args.contains("\0") else {
+            feedback.show(title: "Invalid prompt arguments", detail: "Arguments must fit within 128 KiB and contain no NUL.", tone: .error)
+            return
+        }
+        let id = selectedID, operation = operations
+        let invocation = "/" + command.name + (args.isEmpty ? "" : " " + args)
+        operation.submitCommand(client: client, session: id, input: .init(name: command.name, args: args),
+            draft: .init(text: invocation, notes: [:], attachmentIDs: []),
+            uncertain: { [weak self] in
+                guard let self, self.selectedID == id else { return }
+                self.recoverSubmission()
+            }, acknowledged: {
+                // This command did not originate in the composer; preserve its draft and attachments.
+                operation.consumeAcknowledgedDraft()
+            })
+    }
+
     private func submitLive() {
         guard let client = mutationClient, connectionState == .connected else { return }
         guard !operations.queuePending, !operations.sending, !operations.uncertain else { return }

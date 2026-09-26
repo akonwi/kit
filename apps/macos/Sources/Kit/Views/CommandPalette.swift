@@ -22,12 +22,17 @@ struct CommandPalette: View {
     @FocusState private var focused: Bool
 
     private var actions: [PaletteCommand] {
-        (PaletteCommand.catalog(dark: theme.dark) + PaletteCommand.pluginCatalog(state.pluginCommands))
+        PaletteCommand.sortedByName(PaletteCommand.catalog(dark: theme.dark)
+                                    + PaletteCommand.promptCatalog(state.selected?.promptCommands ?? [])
+                                    + PaletteCommand.pluginCatalog(state.pluginCommands))
             .filter { state.isDemo || !$0.demoOnly }
             .filter { $0.id != "Open Scratchpad" || state.canOpenScratchpad }
             .filter { $0.id != "Dispose temporary session" || state.isTemporary }
-            .filter { $0.matches(query) }
+            .filter { $0.matches($0.prompt == nil ? query : promptQuery) }
     }
+
+    private var promptQuery: String { PaletteCommand.splitQuery(query).command }
+    private var promptArguments: String { PaletteCommand.splitQuery(query).args }
 
     var body: some View {
         Group {
@@ -115,6 +120,9 @@ struct CommandPalette: View {
                             HStack {
                                 Text(action.name).font(.kit(size: 13, weight: .medium))
                                 if let hint = action.plugin?.argName { Text("<" + hint + ">").font(.kit(size: 12)).foregroundStyle(theme.muted) }
+                                if let hint = action.prompt?.argumentHint, !hint.isEmpty {
+                                    Text(hint).font(.kit(size: 12)).foregroundStyle(theme.muted)
+                                }
                             }
                             Text(action.description).font(.kit(size: 12)).foregroundStyle(theme.muted)
                                 .fixedSize(horizontal: false, vertical: true)
@@ -127,6 +135,7 @@ struct CommandPalette: View {
                         .background(selection == index ? theme.hover : Color.clear)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain).disabled(unavailableReason(action.id) != nil).padding(.horizontal, 8).id(action.id)
+                    .help(action.prompt.map { $0.source + " · " + $0.location } ?? action.description)
             }
             } }
             .onChange(of: selection) {
@@ -166,6 +175,7 @@ struct CommandPalette: View {
     }
 
     private func unavailableReason(_ name: String) -> String? {
+        if name.hasPrefix("prompt:") { return state.palettePromptUnavailableReason }
         if name.hasPrefix("plugin:") { return state.pluginCommandUnavailableReason }
         return switch name {
         case "compact": state.compactionUnavailableReason
@@ -190,6 +200,13 @@ struct CommandPalette: View {
         guard actions.indices.contains(selection) else { return }
         let action = actions[selection]
         guard selectedIdentity == action.id else { return }
+        if let command = action.prompt {
+            guard state.palettePromptUnavailableReason == nil else { return }
+            focused = false
+            state.runPalettePrompt(command, args: promptArguments)
+            state.ui.palette = false
+            return
+        }
         if let command = action.plugin {
             guard state.pluginCommandUnavailableReason == nil else { return }
             focused = false
