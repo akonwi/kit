@@ -5,14 +5,52 @@ import (
 	"context"
 	"io"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/auth"
 	kitserver "github.com/akonwi/kit/internal/server"
+	"github.com/akonwi/kit/internal/version"
 )
+
+func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
+	t.Parallel()
+	compatibleVerdict := "compatibility: compatible"
+	if version.Version == "dev" {
+		compatibleVerdict = "compatibility: protocol-compatible (dev build; release behavior not verified)"
+	}
+	for _, tc := range []struct {
+		name     string
+		protocol int
+		release  string
+		ready    bool
+		verdict  string
+	}{
+		{name: "compatible", protocol: version.SessionProtocolVersion, release: version.Version, ready: true, verdict: compatibleVerdict},
+		{name: "older daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, ready: true, verdict: "compatibility: local daemon is incompatible (daemon_protocol_older)"},
+		{name: "newer daemon", protocol: version.SessionProtocolVersion + 1, release: version.Version, ready: true, verdict: "compatibility: local daemon is incompatible (client_protocol_older)"},
+		{name: "unready incompatible daemon", protocol: version.SessionProtocolVersion - 1, release: version.Version, verdict: "compatibility: local daemon is incompatible (daemon_protocol_older)"},
+		{name: "unready compatible daemon", protocol: version.SessionProtocolVersion, release: version.Version, verdict: compatibleVerdict},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			registry := kitserver.Registry{PID: 42, URL: "http://127.0.0.1:2345", KitVersion: tc.release, ProtocolVersion: tc.protocol}
+			var output bytes.Buffer
+			writeServerStatus(&output, registry, kitserver.Health{DatabaseReady: tc.ready})
+			readiness := "database: not ready\n"
+			if tc.ready {
+				readiness = "database: ready\n"
+			}
+			wantPrefix := "server running: pid 42, http://127.0.0.1:2345\n" +
+				"daemon: version " + tc.release + ", protocol " + strconv.Itoa(tc.protocol) + "\n" +
+				"client: version " + version.Version + ", protocol " + strconv.Itoa(version.SessionProtocolVersion) + "\n" + readiness
+			if !strings.HasPrefix(output.String(), wantPrefix) || !strings.HasPrefix(strings.TrimPrefix(output.String(), wantPrefix), tc.verdict) {
+				t.Fatalf("status = %q, want prefix %q and verdict %q", output.String(), wantPrefix, tc.verdict)
+			}
+		})
+	}
+}
 
 func TestRunVersion(t *testing.T) {
 	t.Parallel()
@@ -344,20 +382,6 @@ func TestRunNewHelpAndArgumentValidation(t *testing.T) {
 	code = Run(context.Background(), []string{"new", "unexpected"}, &stdout, &stderr)
 	if code != 2 || stdout.Len() != 0 || !strings.Contains(stderr.String(), "unexpected") {
 		t.Fatalf("new argument exit=%d stdout=%q stderr=%q", code, stdout.String(), stderr.String())
-	}
-}
-
-func TestSupportsInteractiveAPIKeyLoginRequiresBothProviderSources(t *testing.T) {
-	t.Parallel()
-	registry := kitserver.Registry{CredentialSources: map[string]kitserver.CredentialSource{
-		auth.OpenAIProviderID: kitserver.CredentialSourceStore,
-	}}
-	if supportsInteractiveAPIKeyLogin(registry) {
-		t.Fatal("partial API-key credential metadata was accepted")
-	}
-	registry.CredentialSources[auth.AnthropicProviderID] = kitserver.CredentialSourceEnvironment
-	if !supportsInteractiveAPIKeyLogin(registry) {
-		t.Fatal("complete API-key credential metadata was rejected")
 	}
 }
 

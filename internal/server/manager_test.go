@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"sync/atomic"
 	"testing"
 	"time"
@@ -166,9 +167,11 @@ func TestAcquireCredentialStoreMutationChecksRunningDaemonSource(t *testing.T) {
 		name    string
 		source  CredentialSource
 		wantErr error
+		missing bool
 	}{
 		{name: "store", source: CredentialSourceStore},
 		{name: "environment", source: CredentialSourceEnvironment, wantErr: ErrEnvironmentCredentialsActive},
+		{name: "missing metadata", missing: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
@@ -186,6 +189,9 @@ func TestAcquireCredentialStoreMutationChecksRunningDaemonSource(t *testing.T) {
 				URL: server.URL, StartedAt: time.Now().UTC(),
 				CredentialSources: map[string]CredentialSource{"openai-codex": test.source},
 			}
+			if test.missing {
+				registry.CredentialSources = nil
+			}
 			if err := writePrivateFile(paths.ServerToken, []byte(token+"\n")); err != nil {
 				t.Fatal(err)
 			}
@@ -193,6 +199,12 @@ func TestAcquireCredentialStoreMutationChecksRunningDaemonSource(t *testing.T) {
 				t.Fatal(err)
 			}
 			release, err := NewManager(paths).AcquireCredentialStoreMutation(context.Background(), "openai-codex")
+			if test.missing {
+				if err == nil || !strings.Contains(err.Error(), "does not report a credential source") {
+					t.Fatalf("missing credential source error = %v", err)
+				}
+				return
+			}
 			if !errors.Is(err, test.wantErr) {
 				t.Fatalf("AcquireCredentialStoreMutation() error = %v, want %v", err, test.wantErr)
 			}

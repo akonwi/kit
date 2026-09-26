@@ -57,6 +57,7 @@ type abortTestSession struct {
 	abort    func(context.Context, string) error
 	snapshot func(context.Context) (protocol.SessionSnapshot, error)
 	streams  chan string
+	stream   func(string) (sessionclient.EventStream, error)
 }
 
 func (s *abortTestSession) Abort(ctx context.Context, id string) error { return s.abort(ctx, id) }
@@ -70,6 +71,9 @@ func (s abortTestStream) Updates() <-chan []protocol.SessionEvent { return s.upd
 func (abortTestStream) Err() error                                { return nil }
 func (s *abortTestSession) Stream(_ context.Context, id string) (sessionclient.EventStream, error) {
 	s.streams <- id
+	if s.stream != nil {
+		return s.stream(id)
+	}
 	return abortTestStream{updates: make(chan []protocol.SessionEvent)}, nil
 }
 

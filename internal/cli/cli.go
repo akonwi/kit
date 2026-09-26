@@ -23,6 +23,7 @@ import (
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"github.com/akonwi/kit/internal/tui"
+	"github.com/akonwi/kit/internal/version"
 )
 
 type interactiveOptions struct {
@@ -78,28 +79,14 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	registry, health, err := kitserver.NewClient(paths).Probe(probeContext)
+	_, health, err := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
 		return 1
 	}
-	if !supportsInteractiveAPIKeyLogin(registry) {
-		restartContext, restartCancel := context.WithTimeout(ctx, 12*time.Second)
-		err = manager.Restart(restartContext)
-		restartCancel()
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: reload local daemon for provider login: %v\n", err)
-			return 1
-		}
-		probeContext, probeCancel = context.WithTimeout(ctx, 3*time.Second)
-		_, health, err = kitserver.NewClient(paths).Probe(probeContext)
-		probeCancel()
-		if err != nil {
-			fmt.Fprintf(stderr, "kit: inspect reloaded daemon providers: %v\n", err)
-			return 1
-		}
-	}
+	// Credential-source support is checked under the daemon startup lock at
+	// login time, not by restarting a healthy daemon during client startup.
 	providers, defaultModel := interactiveProviders(health.Providers)
 	authenticated := len(providers) > 0
 	if options.Model != "" {
@@ -245,11 +232,6 @@ func cleanupTemporarySession(ctx context.Context, server sessionclient.Server, s
 		return nil
 	}
 	return err
-}
-
-func supportsInteractiveAPIKeyLogin(registry kitserver.Registry) bool {
-	return registry.CredentialSources[auth.OpenAIProviderID] != "" &&
-		registry.CredentialSources[auth.AnthropicProviderID] != ""
 }
 
 func interactiveProviders(providerIDs []string) (map[string]bool, string) {
@@ -553,12 +535,12 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 		}
 		operationContext, cancel := context.WithTimeout(ctx, 3*time.Second)
 		defer cancel()
-		registry, _, err := manager.Status(operationContext)
+		registry, health, err := manager.Status(operationContext)
 		if err != nil {
 			fmt.Fprintf(stderr, "server unavailable: %v\n", err)
 			return 1
 		}
-		fmt.Fprintf(stdout, "server running: pid %d, %s, version %s\n", registry.PID, registry.URL, registry.KitVersion)
+		writeServerStatus(stdout, registry, health)
 		return 0
 	case "stop":
 		if len(args) != 1 {
@@ -592,6 +574,26 @@ func runServerCommand(ctx context.Context, args []string, stdout, stderr io.Writ
 	default:
 		return serverUsage(stderr)
 	}
+}
+
+func writeServerStatus(output io.Writer, registry kitserver.Registry, health kitserver.Health) {
+	fmt.Fprintf(output, "server running: pid %d, %s\n", registry.PID, registry.URL)
+	fmt.Fprintf(output, "daemon: version %s, protocol %d\n", registry.KitVersion, registry.ProtocolVersion)
+	fmt.Fprintf(output, "client: version %s, protocol %d\n", version.Version, version.SessionProtocolVersion)
+	if health.DatabaseReady {
+		fmt.Fprintln(output, "database: ready")
+	} else {
+		fmt.Fprintln(output, "database: not ready")
+	}
+	if err := kitserver.CheckCompatibility(registry); err != nil {
+		fmt.Fprintf(output, "compatibility: %v\n", err)
+		return
+	}
+	if version.Version == "dev" {
+		fmt.Fprintln(output, "compatibility: protocol-compatible (dev build; release behavior not verified)")
+		return
+	}
+	fmt.Fprintln(output, "compatibility: compatible")
 }
 
 func serverUsage(output io.Writer) int {

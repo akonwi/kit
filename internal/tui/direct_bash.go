@@ -35,7 +35,7 @@ func parseDirectBash(value string) (command string, excludeFromContext, ok bool)
 }
 
 func (s *appState) startDirectBash(value, command string, excludeFromContext bool) {
-	if s.bound == nil || s.reloadPending {
+	if s.bound == nil || s.reloadPending || s.daemonIncompatible {
 		return
 	}
 	if s.bashStarting || s.activeBashID != "" {
@@ -70,6 +70,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		if s.ctx.Err() != nil {
 			return
 		}
+		s.reportDaemonMismatch(runtime, bound, operation, err)
 		runtime.Dispatch(func() {
 			if operation != s.operation {
 				if admission.abort.Load() {
@@ -83,6 +84,17 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 						s.abortBashAdmission(bound, executionID)
 					}
 				}
+				return
+			}
+			if s.daemonIncompatible {
+				s.SetState(func() {
+					s.bashStarting = false
+					s.bashAdmission = nil
+					if s.composer == "" {
+						s.composer = value
+					}
+				})
+				s.showToast(toastInput{Title: "Bash outcome uncertain", Subtitle: "Check the session before running this command again.", Variant: toastWarning, Persistent: true})
 				return
 			}
 			if err != nil {
@@ -142,13 +154,17 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 		return
 	}
 	runtime := s.Context().Runtime()
+	attachmentCtx := s.attachmentCtx
+	if attachmentCtx == nil {
+		attachmentCtx = s.ctx
+	}
 	go func() {
-		execution, err := bound.Bash(s.ctx, executionID)
-		if s.ctx.Err() != nil {
+		execution, err := bound.Bash(attachmentCtx, executionID)
+		if attachmentCtx.Err() != nil || s.reportDaemonMismatch(runtime, bound, operation, err) {
 			return
 		}
 		runtime.Dispatch(func() {
-			if operation != s.operation {
+			if operation != s.operation || attachmentCtx.Err() != nil || s.daemonIncompatible {
 				return
 			}
 			if err != nil {
@@ -180,17 +196,18 @@ func (s *appState) reportBashRecoveryError(id, title string, err error) {
 
 func (s *appState) watchBash(execution sessionclient.BashExecution, operation uint64) {
 	runtime := s.Context().Runtime()
+	bound := s.bound
 	attachmentCtx := s.attachmentCtx
 	if attachmentCtx == nil {
 		attachmentCtx = s.ctx
 	}
 	go func() {
 		outcome, err := execution.Wait(attachmentCtx)
-		if attachmentCtx.Err() != nil {
+		if attachmentCtx.Err() != nil || s.reportDaemonMismatch(runtime, bound, operation, err) {
 			return
 		}
 		runtime.Dispatch(func() {
-			if operation != s.operation || s.activeBashID != execution.ID() {
+			if operation != s.operation || attachmentCtx.Err() != nil || s.daemonIncompatible || s.activeBashID != execution.ID() {
 				return
 			}
 			if err != nil {
@@ -226,7 +243,7 @@ func (s *appState) scheduleBashResume(operation uint64, executionID string) {
 		case <-timer.C:
 		}
 		runtime.Dispatch(func() {
-			if operation == s.operation && s.activeBashID == executionID {
+			if operation == s.operation && attachmentCtx.Err() == nil && !s.daemonIncompatible && s.activeBashID == executionID {
 				s.resumeBash(bound, operation, executionID)
 			}
 		})

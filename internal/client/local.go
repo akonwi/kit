@@ -83,6 +83,7 @@ var (
 )
 
 var _ sessionclient.Server = (*localServer)(nil)
+var _ sessionclient.CompatibilityProber = (*localServer)(nil)
 var _ sessionclient.Session = (*localSession)(nil)
 var _ sessionclient.SessionEventWatcher = (*localSession)(nil)
 var _ sessionclient.WorkspaceFilesSession = (*localSession)(nil)
@@ -98,6 +99,11 @@ var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 // NewLocalServer creates an authenticated loopback server client.
 func NewLocalServer(paths apphome.Paths) sessionclient.Server {
 	return &localServer{transport: kitserver.NewClient(paths)}
+}
+
+func (c *localServer) ProbeCompatibility(ctx context.Context) error {
+	_, err := c.transport.ProbeCompatible(ctx)
+	return err
 }
 
 func (c *localServer) CreateSession(

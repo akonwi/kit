@@ -15,6 +15,8 @@ const (
 	footerHealthy footerRecovery = iota
 	footerReconnectingActivity
 	footerSyncingFinalTranscript
+	footerDaemonIncompatible
+	footerCheckingDaemon
 )
 
 type footerTone uint8
@@ -37,6 +39,10 @@ func resolveFooter(recovery footerRecovery, followUps protocol.FollowUpQueue, co
 		return footerPresentation{Text: "Reconnecting activity…"}
 	case footerSyncingFinalTranscript:
 		return footerPresentation{Text: "Syncing final transcript…"}
+	case footerDaemonIncompatible:
+		return footerPresentation{Text: "Server incompatible · sending unavailable · Ctrl+r recheck"}
+	case footerCheckingDaemon:
+		return footerPresentation{Text: "Checking server…"}
 	}
 	if followUps.Count > 0 {
 		return footerPresentation{Text: fmt.Sprintf("%d queued %s ↑ restore", followUps.Count, glyphMiddleDot)}

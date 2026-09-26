@@ -22,6 +22,9 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 	go func() {
 		for ctx.Err() == nil {
 			stream, err := watcher.WatchPluginToasts(ctx)
+			if s.reportDaemonMismatch(runtime, bound, operation, err) {
+				return
+			}
 			if err == nil {
 				for toast := range stream.Updates() {
 					if ctx.Err() != nil {
@@ -40,6 +43,9 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 						return
 					case <-applied:
 					}
+				}
+				if s.reportDaemonMismatch(runtime, bound, operation, stream.Err()) {
+					return
 				}
 			}
 			timer := time.NewTimer(time.Second)

@@ -223,6 +223,9 @@ type appState struct {
 	errorText                        string
 	authBrowserStatus                string // local to the Claude login dialog
 	recovery                         footerRecovery
+	daemonIncompatible               bool
+	daemonRechecking                 bool
+	daemonMismatchToastID            uint64
 	bashRecoveryReportedID           string
 	bashRecoveryReportedDetail       string
 	toasts                           toastController
@@ -1092,6 +1095,9 @@ func scrollControllerPinnedToEnd(controller *ui.ScrollController) bool {
 }
 
 func (s *appState) resetAttachmentContext() {
+	s.daemonIncompatible = false
+	s.daemonRechecking = false
+	s.dismissDaemonMismatchToast()
 	if s.mcpStatusCancel != nil {
 		s.mcpStatusCancel()
 		s.mcpStatusCancel = nil
@@ -2000,6 +2006,10 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	if key.EventType == vaxis.EventPaste && !s.acceptsPaste(owner) {
 		return ui.EventHandled
 	}
+	if s.daemonIncompatible && !s.daemonRechecking && owner.permitsRoot() && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+r") {
+		s.recheckDaemon()
+		return ui.EventHandled
+	}
 	if owner.trapsFocus() && key.EventType != vaxis.EventPaste && (key.MatchString("Ctrl+p") || key.MatchString("Ctrl+]") || key.MatchString("Ctrl+[") || (key.MatchString("Ctrl+o") && owner != inputConfiguration)) {
 		return ui.EventHandled
 	}
@@ -2639,7 +2649,9 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	if !s.runPending {
 		s.activeRun = nil
 		s.prompt = nil
-		s.recovery = footerHealthy
+		if !s.daemonIncompatible {
+			s.recovery = footerHealthy
+		}
 	}
 }
 
@@ -3471,6 +3483,111 @@ func shouldApplyAttachedSnapshot(runPending bool, activeRunID, snapshotRunID str
 	return snapshotRunID == "" || snapshotRunID != activeRunID
 }
 
+func (s *appState) dismissDaemonMismatchToast() {
+	if s.daemonMismatchToastID != 0 {
+		s.dismissToast(s.daemonMismatchToastID)
+		s.daemonMismatchToastID = 0
+	}
+}
+
+// reportDaemonMismatch freezes this attachment without discarding its draft or
+// transcript. Rechecking is always user initiated; admissions are never replayed.
+func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound sessionclient.Session, operation uint64, err error) bool {
+	if !sessionclient.IsIncompatibleDaemon(err) {
+		return false
+	}
+	runtime.Dispatch(func() {
+		if operation != s.operation || bound != s.bound || s.daemonIncompatible {
+			return
+		}
+		s.SetState(func() {
+			s.daemonIncompatible = true
+			s.recovery = footerDaemonIncompatible
+		})
+		// Stop every attachment-scoped watcher, not only the two transcript
+		// streams. The old attachment remains visible but cannot poll or mutate.
+		if s.attachmentCancel != nil {
+			s.attachmentCancel()
+		}
+		if s.sessionWatchCancel != nil {
+			s.sessionWatchCancel()
+		}
+		if s.runWatchCancel != nil {
+			s.runWatchCancel()
+		}
+		s.runWatchGeneration++
+		s.stopVCSMonitoring()
+		s.SetState(func() {
+			s.daemonMismatchToastID = s.storeToast(toastInput{Title: "Server compatibility changed", Subtitle: err.Error(), Variant: toastError, Persistent: true}).ID
+		})
+	})
+	return true
+}
+
+// probeAndReattach never starts or replaces a daemon. Failed recovery must
+// leave the previously attached session and its local drafts untouched.
+func probeAndReattach(ctx context.Context, server sessionclient.Server, sessionID string, resolveLocation func(context.Context, string) string) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
+	probe, ok := server.(sessionclient.CompatibilityProber)
+	if !ok {
+		return nil, protocol.SessionSnapshot{}, "", errors.New("server compatibility probe is unavailable; session was not reattached")
+	}
+	if err := probe.ProbeCompatibility(ctx); err != nil {
+		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("check server compatibility: %w", err)
+	}
+	return attachSessionForSwitch(ctx, server, sessionID, resolveLocation)
+}
+
+// recheckDaemon probes the current daemon and binds a new session client before
+// allowing work. It never replays a pending or ambiguous submission.
+func (s *appState) recheckDaemon() {
+	options := s.Widget().(app).Options
+	s.recheckDaemonWith(options.Server, options.ResolveLocation)
+}
+
+func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocation func(context.Context, string) string) {
+	bound, operation, runtime := s.bound, s.operation, s.Context().Runtime()
+	if bound == nil || server == nil || s.daemonRechecking {
+		return
+	}
+	s.SetState(func() {
+		s.daemonRechecking = true
+		s.recovery = footerCheckingDaemon
+	})
+	sessionID := s.session.ID
+	go func() {
+		checkContext, cancel := context.WithTimeout(s.ctx, 8*time.Second)
+		defer cancel()
+		next, snapshot, location, err := probeAndReattach(checkContext, server, sessionID, resolveLocation)
+		if s.ctx.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if operation != s.operation || bound != s.bound {
+				return
+			}
+			if err != nil {
+				s.SetState(func() {
+					s.daemonRechecking = false
+					s.recovery = footerDaemonIncompatible
+				})
+				s.showToast(toastInput{Title: "Server recheck failed", Subtitle: err.Error(), Variant: toastError})
+				return
+			}
+			nextRunID, nextBashID := snapshot.ActiveRunID, snapshot.ActiveBashExecutionID
+			s.SetState(func() { s.installSession(next, snapshot, location) })
+			s.startVCSMonitoring()
+			s.watchAttachedSession(next, s.operation)
+			if nextRunID != "" {
+				s.watchSession(next, s.operation, nextRunID)
+			}
+			if nextBashID != "" {
+				s.resumeBash(next, s.operation, nextBashID)
+			}
+			s.showToast(toastInput{Title: "Session reattached", Variant: toastInfo})
+		})
+	}()
+}
+
 func (s *appState) watchAttachedSession(bound sessionclient.Session, operation uint64) {
 	s.watchPluginToasts(bound, operation)
 	watcher, ok := bound.(sessionclient.SessionEventWatcher)
@@ -3485,7 +3602,7 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 	runtime := s.Context().Runtime()
 	applySnapshot := func(snapshot protocol.SessionSnapshot, finishedRunID string, status protocol.RunStatus) {
 		runtime.Dispatch(func() {
-			if operation != s.operation || s.bound != bound {
+			if operation != s.operation || s.bound != bound || watchContext.Err() != nil || s.daemonIncompatible {
 				return
 			}
 			if !shouldApplyAttachedSnapshot(s.runPending, s.activeRunID, snapshot.ActiveRunID) {
@@ -3528,6 +3645,9 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				applySnapshot(snapshot, finishedRunID, status)
 				return true
 			}
+			if s.reportDaemonMismatch(runtime, bound, operation, err) {
+				return false
+			}
 			timer := time.NewTimer(delay)
 			select {
 			case <-watchContext.Done():
@@ -3544,6 +3664,9 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 	go func() {
 		for watchContext.Err() == nil {
 			baseline, stream, err := watcher.Watch(watchContext)
+			if s.reportDaemonMismatch(runtime, bound, operation, err) {
+				return
+			}
 			if err == nil {
 				applySnapshot(baseline, "", "")
 				for updates := range stream.Updates() {
@@ -3554,7 +3677,7 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 					if hasMetadata {
 						copy := append([]protocol.SessionEvent(nil), updates...)
 						runtime.Dispatch(func() {
-							if operation == s.operation && s.bound == bound {
+							if operation == s.operation && s.bound == bound && watchContext.Err() == nil && !s.daemonIncompatible {
 								changedCWD := ""
 								s.SetState(func() { changedCWD = s.applySessionMetadataEvents(copy) })
 								if changedCWD != "" {
@@ -3573,6 +3696,9 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 						return
 					}
 				}
+				if s.reportDaemonMismatch(runtime, bound, operation, stream.Err()) {
+					return
+				}
 			}
 			select {
 			case <-watchContext.Done():
@@ -3584,6 +3710,9 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 }
 
 func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
+	if s.daemonIncompatible {
+		return
+	}
 	if s.runWatchCancel != nil && s.runWatchID == runID {
 		return
 	}
@@ -3610,7 +3739,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 		var updates <-chan []protocol.SessionEvent
 		streamFailures := 0
 		retryAt := time.Time{}
-		connect := func() {
+		connect := func() bool {
 			if streamCancel != nil {
 				streamCancel()
 			}
@@ -3619,21 +3748,27 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 			if err != nil {
 				cancel()
 				streamCancel = nil
+				if s.reportDaemonMismatch(runtime, bound, operation, err) {
+					return false
+				}
 				streamFailures++
 				exponent := min(streamFailures-1, 4)
 				retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
-				return
+				return true
 			}
 			stream = connected
 			streamCancel = cancel
 			updates = connected.Updates()
+			return true
 		}
 		defer func() {
 			if streamCancel != nil {
 				streamCancel()
 			}
 		}()
-		connect()
+		if !connect() {
+			return
+		}
 		snapshotFailures := 0
 		for {
 			select {
@@ -3647,14 +3782,20 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						streamCancel = nil
 					}
 					if stream != nil && stream.Err() != nil && attachmentCtx.Err() == nil {
+						if s.reportDaemonMismatch(runtime, bound, operation, stream.Err()) {
+							return
+						}
 						streamFailures++
 						exponent := min(streamFailures-1, 4)
 						retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 						snapshot, snapshotErr := bound.Snapshot(attachmentCtx)
+						if s.reportDaemonMismatch(runtime, bound, operation, snapshotErr) {
+							return
+						}
 						if snapshotErr == nil && snapshot.ActiveRunID == runID {
 							if !snapshot.EventReplayAvailable {
 								runtime.Dispatch(func() {
-									if operation == s.operation && watchGeneration == s.runWatchGeneration {
+									if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 										s.SetState(func() { s.applySnapshot(snapshot) })
 									}
 								})
@@ -3662,7 +3803,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							continue
 						}
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
@@ -3673,7 +3814,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				retryAt = time.Time{}
 				batch := append([]protocol.SessionEvent(nil), events...)
 				runtime.Dispatch(func() {
-					if operation == s.operation && watchGeneration == s.runWatchGeneration {
+					if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 						changedCWD := ""
 						var eventToasts []toastInput
 						s.SetState(func() {
@@ -3699,12 +3840,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				}
 				info, err := bound.Run(attachmentCtx, runID)
 				if err != nil {
+					if s.reportDaemonMismatch(runtime, bound, operation, err) {
+						return
+					}
 					streamFailures++
 					exponent := min(streamFailures-1, 4)
 					retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
@@ -3714,30 +3858,33 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				if info.Status == protocol.RunStatusQueued || info.Status == protocol.RunStatusRunning {
 					verifiedRunID := runID
 					runtime.Dispatch(func() {
-						if operation == s.operation && watchGeneration == s.runWatchGeneration && s.activeRunID == verifiedRunID {
+						if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible && s.activeRunID == verifiedRunID {
 							s.SetState(func() { s.clearRecoveredRunStatus() })
 						}
 					})
-					if updates == nil {
-						connect()
+					if updates == nil && !connect() {
+						return
 					}
 					continue
 				}
 				settledRunID := runID
 				runtime.Dispatch(func() {
-					if operation == s.operation && watchGeneration == s.runWatchGeneration {
+					if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 						s.SetState(func() { s.markTerminalRunSettled(settledRunID) })
 					}
 				})
 				snapshot, err := bound.Snapshot(attachmentCtx)
 				if err != nil {
+					if s.reportDaemonMismatch(runtime, bound, operation, err) {
+						return
+					}
 					snapshotFailures++
 					if attachmentCtx.Err() != nil {
 						return
 					}
 					if snapshotFailures >= 6 {
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration {
+							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 								s.finishRunWithoutSnapshot(info, err)
 								s.notifyTurnSettledOnce(info.RunID, info.Status)
 							}
@@ -3745,7 +3892,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						return
 					}
 					runtime.Dispatch(func() {
-						if operation == s.operation && watchGeneration == s.runWatchGeneration {
+						if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
 							s.SetState(func() { s.recovery = footerSyncingFinalTranscript })
 						}
 					})
@@ -3769,7 +3916,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 				}
 				runtime.Dispatch(func() {
-					if operation != s.operation || watchGeneration != s.runWatchGeneration {
+					if operation != s.operation || watchGeneration != s.runWatchGeneration || s.daemonIncompatible {
 						return
 					}
 					s.SetState(func() {
@@ -3795,7 +3942,9 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				snapshotFailures = 0
 				stream = nil
 				updates = nil
-				connect()
+				if !connect() {
+					return
+				}
 			}
 		}
 	}()
@@ -6303,6 +6452,10 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 }
 
 func (s *appState) submit(_ ui.EventContext, value string) {
+	if s.daemonIncompatible {
+		s.showToast(toastInput{Title: "Submissions paused", Subtitle: "Press Ctrl+r to recheck server compatibility.", Variant: toastInfo})
+		return
+	}
 	if s.reloadPending {
 		s.showToast(toastInput{Title: "Session context is reloading", Variant: toastInfo})
 		return
@@ -6549,7 +6702,7 @@ func (s *appState) promoteFollowUps() {
 }
 
 func (s *appState) submitPromptCommand(name, args string) {
-	if s.bound == nil {
+	if s.bound == nil || s.daemonIncompatible {
 		return
 	}
 	display := "/" + name
@@ -6567,6 +6720,10 @@ type promptQueuedError struct{ queue protocol.FollowUpQueue }
 func (err promptQueuedError) Error() string { return "prompt queued behind active work" }
 
 func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
+	if s.daemonIncompatible {
+		s.showToast(toastInput{Title: "Submissions paused", Subtitle: "Press Ctrl+r to recheck server compatibility.", Variant: toastInfo})
+		return
+	}
 	if s.runPending {
 		// Composer submissions queue separately; this guard covers other
 		// admission paths, such as a prompt command racing with an active run.
@@ -6693,11 +6850,14 @@ func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run
 }
 
 func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome protocol.PromptOutcome, runErr error) {
+	// Never retry an ambiguous submission after a compatibility failure.
+	s.reportDaemonMismatch(runtime, s.bound, operation, runErr)
 	var snapshot protocol.SessionSnapshot
 	var snapshotErr error
 	if s.bound != nil {
 		snapshot, snapshotErr = s.bound.Snapshot(s.ctx)
 	}
+	s.reportDaemonMismatch(runtime, s.bound, operation, snapshotErr)
 	runtime.Dispatch(func() {
 		if operation != s.operation {
 			return

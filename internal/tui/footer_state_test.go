@@ -22,6 +22,8 @@ func TestResolveFooterPriorityAndTone(t *testing.T) {
 		{name: "queued over bash", queue: 3, composer: "!echo hi", want: footerPresentation{Text: "3 queued " + glyphMiddleDot + " ↑ restore"}},
 		{name: "reconnecting over queue", recovery: footerReconnectingActivity, queue: 3, composer: "!!echo hi", want: footerPresentation{Text: "Reconnecting activity…"}},
 		{name: "syncing over queue", recovery: footerSyncingFinalTranscript, queue: 3, composer: "!!echo hi", want: footerPresentation{Text: "Syncing final transcript…"}},
+		{name: "incompatible over queue", recovery: footerDaemonIncompatible, queue: 3, composer: "draft", want: footerPresentation{Text: "Server incompatible · sending unavailable · Ctrl+r recheck"}},
+		{name: "checking over queue", recovery: footerCheckingDaemon, queue: 3, composer: "draft", want: footerPresentation{Text: "Checking server…"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			t.Parallel()

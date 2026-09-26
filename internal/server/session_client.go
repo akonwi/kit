@@ -37,6 +37,12 @@ func (e *APIError) Error() string {
 	return fmt.Sprintf("daemon returned HTTP %d: %s", e.StatusCode, e.Message)
 }
 
+// IncompatibleDaemon reports an HTTP protocol-version rejection. Authentication,
+// missing sessions, and transient transport failures are not compatibility errors.
+func (e *APIError) IncompatibleDaemon() bool {
+	return e != nil && e.StatusCode == http.StatusUpgradeRequired
+}
+
 // UserMessage returns the bounded server-provided explanation without transport details.
 func (e *APIError) UserMessage() string { return e.Message }
 

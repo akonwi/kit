@@ -9,6 +9,13 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 )
 
+// IsIncompatibleDaemon reports a terminal compatibility failure across the
+// renderer-neutral client boundary. Ordinary transport errors remain retryable.
+func IsIncompatibleDaemon(err error) bool {
+	var mismatch interface{ IncompatibleDaemon() bool }
+	return errors.As(err, &mismatch) && mismatch.IncompatibleDaemon()
+}
+
 // Server discovers, creates, and binds authoritative sessions.
 type Server interface {
 	CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
@@ -19,6 +26,13 @@ type Server interface {
 	ListSessions(context.Context, string) ([]protocol.SessionInfo, error)
 	Models(context.Context) (protocol.ModelCatalog, error)
 	Attach(context.Context, string) (Session, error)
+}
+
+// CompatibilityProber is an optional read-only server capability. It verifies
+// the currently registered daemon without starting or replacing it.
+// Reattachment uses it before binding a new session client.
+type CompatibilityProber interface {
+	ProbeCompatibility(context.Context) error
 }
 
 // ModelCatalogRefresher is the optional server capability for refreshing models.dev.

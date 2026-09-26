@@ -64,6 +64,19 @@ func (c *Client) ProbeLifecycle(ctx context.Context) (Registry, Health, error) {
 	return c.probe(ctx, false)
 }
 
+// ProbeCompatible authenticates the current daemon without starting or replacing
+// it, and requires a ready database and a compatible client protocol/release.
+func (c *Client) ProbeCompatible(ctx context.Context) (Registry, error) {
+	registry, health, err := c.ProbeLifecycle(ctx)
+	if err != nil {
+		return Registry{}, err
+	}
+	if !health.DatabaseReady {
+		return Registry{}, fmt.Errorf("%w: daemon %s (protocol %d)", ErrDaemonNotReady, registry.KitVersion, registry.ProtocolVersion)
+	}
+	return registry, CheckCompatibility(registry)
+}
+
 func (c *Client) probe(ctx context.Context, requireDatabase bool) (Registry, Health, error) {
 	registry, err := LoadRegistry(c.paths)
 	if err != nil {
@@ -108,6 +121,9 @@ func (c *Client) probe(ctx context.Context, requireDatabase bool) (Registry, Hea
 	}
 	if health.ProtocolVersion != registry.ProtocolVersion {
 		return Registry{}, Health{}, errors.New("daemon protocol does not match registry")
+	}
+	if health.KitVersion != registry.KitVersion {
+		return Registry{}, Health{}, errors.New("daemon Kit version does not match registry")
 	}
 	if requireDatabase && !health.DatabaseReady {
 		return Registry{}, Health{}, errors.New("daemon database is not ready")

@@ -11,6 +11,7 @@ import (
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
@@ -32,6 +33,70 @@ func TestRecoveredRunStatusClearsOnlyOnFreshEvidence(t *testing.T) {
 	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 9, Kind: protocol.SessionEventUsageUpdated}})
 	if state.recovery != footerSyncingFinalTranscript {
 		t.Fatalf("run event cleared transcript sync: %v", state.recovery)
+	}
+}
+
+func TestTerminalMismatchPausesSubmissionsWithoutDroppingDraft(t *testing.T) {
+	application, state, session := mountRunAbort(t)
+	state.attachmentCtx, state.attachmentCancel = context.WithCancel(state.ctx)
+	state.composer = "keep my draft"
+	mismatch := &kitserver.APIError{StatusCode: 426, Message: "protocol upgrade required"}
+	if !state.reportDaemonMismatch(state.Context().Runtime(), session, state.operation, mismatch) {
+		t.Fatal("HTTP 426 was not classified as terminal")
+	}
+	receiveAbortCompletion(t, state)()
+	application.Pump(120, 36)
+	state.startPromptSubmission("keep my draft", func(context.Context) (sessionclient.Run, error) {
+		t.Fatal("started a prompt while daemon is incompatible")
+		return nil, nil
+	})
+	if !state.daemonIncompatible || state.composer != "keep my draft" || state.recovery != footerDaemonIncompatible || len(state.messages) != 1 || state.messages[0].Text != "Retained evidence" {
+		t.Fatalf("terminal mismatch lost attached state: incompatible=%t draft=%q recovery=%v messages=%+v", state.daemonIncompatible, state.composer, state.recovery, state.messages)
+	}
+	if got := state.toasts.Snapshot(); len(got) < 2 || got[0].Title != "Server compatibility changed" || !got[0].Persistent || got[1].Title != "Submissions paused" {
+		t.Fatalf("mismatch feedback = %+v", got)
+	}
+	state.submit(ui.EventContext{}, "keep my draft")
+	if state.composer != "keep my draft" {
+		t.Fatalf("submission changed draft to %q", state.composer)
+	}
+	// A fresh, user-initiated attachment may unblock without replaying the draft.
+	next := &abortTestSession{fakeSession: fakeSession{id: "session_abort"}, streams: make(chan string, 4)}
+	next.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
+		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}}, nil
+	}
+	server := &fakeServer{attach: func(string) (sessionclient.Session, error) { return next, nil }}
+	state.recheckDaemonWith(server, nil)
+	if state.recovery != footerCheckingDaemon {
+		t.Fatalf("recheck footer = %v, want checking", state.recovery)
+	}
+	receiveAbortCompletion(t, state)()
+	application.Pump(120, 36)
+	if state.daemonIncompatible || state.recovery != footerHealthy || state.composer != "keep my draft" || state.bound != next || state.attachmentCtx.Err() != nil {
+		t.Fatalf("explicit recheck = incompatible %t recovery %v draft %q bound %T attachment %v", state.daemonIncompatible, state.recovery, state.composer, state.bound, state.attachmentCtx.Err())
+	}
+	for _, toast := range state.toasts.Snapshot() {
+		if toast.Title == "Server compatibility changed" {
+			t.Fatalf("obsolete mismatch toast still visible after recovery: %+v", toast)
+		}
+	}
+}
+
+func TestSwitchingAttachmentClearsPendingCompatibilityRecheck(t *testing.T) {
+	application, state, session := mountRunAbort(t)
+	state.composer = "preserve this draft"
+	state.reportDaemonMismatch(state.Context().Runtime(), session, state.operation, &kitserver.APIError{StatusCode: 426, Message: "mismatch"})
+	receiveAbortCompletion(t, state)()
+	application.Pump(120, 36)
+	state.daemonRechecking = true
+	state.resetAttachmentContext()
+	if state.daemonIncompatible || state.daemonRechecking || state.composer != "preserve this draft" {
+		t.Fatalf("new attachment inherited mismatch: incompatible=%t checking=%t draft=%q", state.daemonIncompatible, state.daemonRechecking, state.composer)
+	}
+	for _, toast := range state.toasts.Snapshot() {
+		if toast.Title == "Server compatibility changed" {
+			t.Fatalf("obsolete mismatch toast still visible after attachment change: %+v", toast)
+		}
 	}
 }
 
@@ -1521,6 +1586,7 @@ type fakeServer struct {
 	deleteSession func(string) error
 	list          func(string) ([]protocol.SessionInfo, error)
 	models        func() (protocol.ModelCatalog, error)
+	probe         func(context.Context) error
 }
 
 func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -1567,6 +1633,13 @@ func (s *fakeServer) Models(context.Context) (protocol.ModelCatalog, error) {
 		ThinkingLevels: []protocol.ThinkingLevel{protocol.ThinkingOff, protocol.ThinkingMedium},
 		Inputs:         []protocol.ModelInputKind{protocol.ModelInputText},
 	}}}, nil
+}
+
+func (s *fakeServer) ProbeCompatibility(ctx context.Context) error {
+	if s.probe != nil {
+		return s.probe(ctx)
+	}
+	return nil
 }
 
 func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {

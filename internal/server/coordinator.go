@@ -16,16 +16,11 @@ type ProbeFunc func(context.Context) (Registry, error)
 // LaunchFunc starts a daemon process without waiting for its lifetime.
 type LaunchFunc func(context.Context) error
 
-// ShutdownFunc requests graceful shutdown without acquiring lifecycle locks.
-type ShutdownFunc func(context.Context) error
-
 // Coordinator serializes discovery and startup across concurrent Kit clients.
 type Coordinator struct {
 	Paths        apphome.Paths
 	Probe        ProbeFunc
 	Launch       LaunchFunc
-	Shutdown     ShutdownFunc
-	CanReplace   func(Registry) bool
 	PollInterval time.Duration
 	StartTimeout time.Duration
 }
@@ -40,7 +35,7 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 	}
 	if registry, err := c.Probe(ctx); err == nil {
 		return registry, nil
-	} else if errors.Is(err, ErrIncompatibleDaemon) && !c.canReplace(registry) {
+	} else if errors.Is(err, ErrIncompatibleDaemon) || errors.Is(err, ErrDaemonNotReady) {
 		return Registry{}, err
 	}
 	if err := c.Paths.Ensure(); err != nil {
@@ -67,20 +62,10 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 	defer startupLock.Unlock()
 
 	// Another client may have completed startup while this caller waited.
-	replacing := false
 	if registry, err := c.Probe(ctx); err == nil {
 		return registry, nil
-	} else if errors.Is(err, ErrIncompatibleDaemon) {
-		if !c.canReplace(registry) {
-			return Registry{}, err
-		}
-		if c.Shutdown == nil {
-			return Registry{}, errors.New("replace incompatible daemon: shutdown is unavailable")
-		}
-		if err := c.Shutdown(ctx); err != nil {
-			return Registry{}, fmt.Errorf("replace incompatible daemon: %w", err)
-		}
-		replacing = true
+	} else if errors.Is(err, ErrIncompatibleDaemon) || errors.Is(err, ErrDaemonNotReady) {
+		return Registry{}, err
 	}
 	// A previous daemon may have removed its registry while still flushing the
 	// database and holding the lifetime lock. Wait for complete teardown before
@@ -92,12 +77,6 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 	}
 	if !available {
 		return Registry{}, errors.New("daemon lifetime lock was not acquired")
-	}
-	if replacing {
-		if err := clearRegistration(c.Paths); err != nil {
-			_ = lifetimeLock.Unlock()
-			return Registry{}, fmt.Errorf("clear incompatible daemon registration: %w", err)
-		}
 	}
 	if err := lifetimeLock.Unlock(); err != nil {
 		return Registry{}, fmt.Errorf("release daemon lifetime probe: %w", err)
@@ -129,8 +108,4 @@ func (c Coordinator) Ensure(ctx context.Context) (Registry, error) {
 		case <-ticker.C:
 		}
 	}
-}
-
-func (c Coordinator) canReplace(registry Registry) bool {
-	return c.CanReplace != nil && c.CanReplace(registry)
 }

@@ -13,12 +13,8 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/securefs"
-	"github.com/akonwi/kit/internal/version"
 	"github.com/gofrs/flock"
 )
-
-// ErrIncompatibleDaemon indicates a healthy daemon that this client must not use.
-var ErrIncompatibleDaemon = errors.New("local daemon is incompatible")
 
 // ErrEnvironmentCredentialsActive indicates that a running daemon would ignore
 // a mutation to the persisted credential store.
@@ -38,22 +34,9 @@ func NewManager(paths apphome.Paths) *Manager {
 // Ensure returns a compatible local daemon, starting one if needed.
 func (m *Manager) Ensure(ctx context.Context) (Registry, error) {
 	coordinator := Coordinator{
-		Paths: m.paths,
-		Probe: func(ctx context.Context) (Registry, error) {
-			registry, _, err := m.client.Probe(ctx)
-			if err != nil {
-				return Registry{}, err
-			}
-			if err := compatible(registry); err != nil {
-				return registry, err
-			}
-			return registry, nil
-		},
-		Launch:   m.launch,
-		Shutdown: m.client.Stop,
-		CanReplace: func(registry Registry) bool {
-			return registry.ProtocolVersion < version.SessionProtocolVersion
-		},
+		Paths:        m.paths,
+		Probe:        m.client.ProbeCompatible,
+		Launch:       m.launch,
 		PollInterval: 50 * time.Millisecond,
 		StartTimeout: 10 * time.Second,
 	}
@@ -142,7 +125,7 @@ func (m *Manager) AcquireCredentialStoreMutation(
 				}
 				source, ok := registry.CredentialSources[providerID]
 				if !ok {
-					return fail(fmt.Errorf("running daemon does not report a credential source for %q", providerID))
+					return fail(fmt.Errorf("running daemon does not report a credential source for %q; use a matching client or explicitly restart with the intended binary when interrupting active work is acceptable", providerID))
 				}
 				if source == CredentialSourceEnvironment {
 					return fail(fmt.Errorf("%w for %q; restart it without provider environment credentials", ErrEnvironmentCredentialsActive, providerID))
@@ -329,19 +312,4 @@ func stageDaemonExecutable(source, destination string) (string, error) {
 		return "", fmt.Errorf("publish executable: %w", err)
 	}
 	return destination, nil
-}
-
-func compatible(registry Registry) error {
-	if registry.ProtocolVersion != version.SessionProtocolVersion {
-		return fmt.Errorf(
-			"%w: daemon protocol %d does not match client protocol %d",
-			ErrIncompatibleDaemon,
-			registry.ProtocolVersion,
-			version.SessionProtocolVersion,
-		)
-	}
-	if version.Version != "dev" && registry.KitVersion != version.Version {
-		return fmt.Errorf("%w: daemon version %q does not match client version %q", ErrIncompatibleDaemon, registry.KitVersion, version.Version)
-	}
-	return nil
 }

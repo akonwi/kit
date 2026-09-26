@@ -155,46 +155,52 @@ func TestCoordinatorDoesNotReplaceIncompatibleDaemon(t *testing.T) {
 	}
 }
 
-func TestCoordinatorReplacesOlderIncompatibleDaemonUnderStartupLock(t *testing.T) {
+func TestCoordinatorDoesNotReplaceDaemonDiscoveredUnderStartupLock(t *testing.T) {
 	t.Parallel()
 
 	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
-	var shutdowns atomic.Int32
-	var launches atomic.Int32
-	var old atomic.Bool
-	var ready atomic.Bool
-	old.Store(true)
+	if err := paths.Ensure(); err != nil {
+		t.Fatal(err)
+	}
+	startup := flock.New(paths.StartupLock)
+	if locked, err := startup.TryLock(); err != nil || !locked {
+		t.Fatalf("hold startup lock: %t, %v", locked, err)
+	}
+	defer startup.Unlock()
+
+	var probes, launches atomic.Int32
+	result := make(chan error, 1)
 	coordinator := Coordinator{
 		Paths: paths,
 		Probe: func(context.Context) (Registry, error) {
-			if old.Load() {
-				return Registry{ProtocolVersion: 5, InstanceID: "old"}, fmt.Errorf("%w: old protocol", ErrIncompatibleDaemon)
+			if probes.Add(1) == 1 {
+				return Registry{}, errors.New("no daemon yet")
 			}
-			if ready.Load() {
-				return Registry{ProtocolVersion: 6, InstanceID: "new"}, nil
-			}
-			return Registry{}, errors.New("not ready")
+			return Registry{ProtocolVersion: 5, InstanceID: "old"}, fmt.Errorf("%w: old protocol", ErrIncompatibleDaemon)
 		},
-		Shutdown: func(context.Context) error {
-			shutdowns.Add(1)
-			old.Store(false)
-			return nil
-		},
-		CanReplace: func(registry Registry) bool { return registry.ProtocolVersion < 6 },
 		Launch: func(context.Context) error {
 			launches.Add(1)
-			ready.Store(true)
 			return nil
 		},
 		PollInterval: 5 * time.Millisecond,
-		StartTimeout: time.Second,
 	}
-	registry, err := coordinator.Ensure(context.Background())
-	if err != nil {
-		t.Fatalf("Ensure() error = %v", err)
+	go func() { _, err := coordinator.Ensure(context.Background()); result <- err }()
+	for probes.Load() == 0 {
+		time.Sleep(time.Millisecond)
 	}
-	if registry.InstanceID != "new" || shutdowns.Load() != 1 || launches.Load() != 1 {
-		t.Fatalf("replacement = registry %+v shutdowns %d launches %d", registry, shutdowns.Load(), launches.Load())
+	if err := startup.Unlock(); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case err := <-result:
+		if !errors.Is(err, ErrIncompatibleDaemon) {
+			t.Fatalf("Ensure() error = %v, want incompatible", err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("Ensure() did not finish")
+	}
+	if got := launches.Load(); got != 0 {
+		t.Fatalf("launched %d daemons after detecting an incompatible owner", got)
 	}
 }
 
