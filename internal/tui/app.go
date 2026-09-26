@@ -302,6 +302,7 @@ type appState struct {
 	transcriptHistoryScrollInput     bool
 	transcriptLatestOutOfView        bool
 	transcriptReading                transcriptReadingSnapshot
+	transcriptArrivalID              string
 	transcriptReadingPickerOpen      bool
 	transcriptReadingPickerSelected  int
 	transcriptReadingSections        []transcriptReadingSection
@@ -563,6 +564,11 @@ func (s *appState) TickFrame(now time.Time) bool {
 	if s.restoreTranscriptHistoryAnchor() {
 		keepTicking = true
 	}
+	if s.transcriptArrivalID != "" && !s.transcriptInitialLoading && !s.needsScroll && s.transcriptHistoryRestore == 0 {
+		if s.positionTranscriptArrival() {
+			keepTicking = true
+		}
+	}
 	if !positioning && s.maybeLoadTranscriptHistory() {
 		keepTicking = true
 	}
@@ -743,6 +749,7 @@ func (s *appState) resumeSubagentFollow(_ ui.EventContext, conversationID string
 
 // resumeTranscriptFollow re-pins the transcript to its latest content.
 func (s *appState) resumeTranscriptFollow(ui.EventContext) {
+	s.transcriptArrivalID = ""
 	s.requestTranscriptScroll()
 	if s.transcriptLatestOutOfView {
 		s.transcriptLatestOutOfView = false
@@ -754,6 +761,7 @@ func (s *appState) noteTranscriptHistoryScrollUp(ui.EventContext) {
 	if !s.transcriptVisible || s.transcriptInitialLoading || s.transcriptHistoryRestore != 0 {
 		return
 	}
+	s.transcriptArrivalID = ""
 	if s.needsScroll {
 		// A transcript-directed upward scroll takes ownership from a deferred
 		// follow request, including one scheduled while restoring the Agent pane.
@@ -2968,6 +2976,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			}
 		case protocol.SessionEventAssistantCompleted:
 			transcriptChanged = true
+			arrival := s.transcriptVisible && !s.transcriptInitialLoading && scrollControllerPinnedToEnd(&s.scroll) && len(s.mainTranscriptPresentation().Items) > 0
 			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
 			if event.Text != "" {
 				s.liveMessages[index].Text = event.Text
@@ -2976,6 +2985,9 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				s.liveMessages[index].Thinking = event.Thinking
 			}
 			s.liveMessages[index].Pending = false
+			if arrival && strings.TrimSpace(s.liveMessages[index].Text) != "" {
+				s.transcriptArrivalID = event.MessageID
+			}
 			if s.liveMessages[index].Text == "" && s.liveMessages[index].Thinking == "" && len(s.liveMessages[index].ToolCalls) == 0 {
 				s.removeLiveMessage(index)
 			}
@@ -4999,6 +5011,7 @@ func (s *appState) syncTranscriptVisibility(visible bool) {
 		return
 	}
 	if !visible {
+		s.transcriptArrivalID = ""
 		// The left click selecting a workspace tab is captured before this
 		// transition. Keep an in-flight history anchor authoritative rather
 		// than treating that tab click as transcript scroll input.
@@ -6166,6 +6179,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.composerCursorEndGeneration++
 	s.messages = nil
 	s.transcriptList = ui.SliverListController{}
+	s.transcriptArrivalID = ""
 	s.transcriptInitialLoading, s.transcriptInitialPositioned, s.transcriptInitialStable = false, false, false
 	s.transcriptHistoryUserScroll = false
 	s.transcriptHistoryLastOffset = 0

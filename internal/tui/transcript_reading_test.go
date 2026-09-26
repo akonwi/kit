@@ -1,6 +1,7 @@
 package tui
 
 import (
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -211,5 +212,100 @@ func TestTranscriptReadingStripRendersPosition(t *testing.T) {
 	}
 	if got := app.Cell(0, 0).Background; got != theme.Surface {
 		t.Errorf("strip background = %#v, want surface %#v", got, theme.Surface)
+	}
+}
+
+func TestTallLiveResponseStartsAtTopForReading(t *testing.T) {
+	state := &latestFollowState{appState: appState{
+		phase: phaseReady, transcriptVisible: true,
+		messages: []transcriptMessage{{ID: "user_1", TurnID: "turn_1", Role: "user", Text: "Review this change"}},
+	}}
+	state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{})
+	app := uitest.New(latestFollowHarness{state})
+	const width, height = 80, 24
+	pump := func() {
+		for range 8 {
+			app.Pump(width, height)
+			state.TickFrame(time.Now())
+		}
+		app.Pump(width, height)
+	}
+	pump()
+	state.SetState(func() {
+		state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventAssistantCompleted,
+			MessageID: "assistant_1", TurnID: "turn_1", Text: tallSectionedResponse()}})
+	})
+	pump()
+	metrics := state.scroll.Metrics()
+	index := len(state.mainTranscriptPresentation().Items) - 1
+	start, ok := state.transcriptList.OffsetForIndex(index)
+	if !ok || metrics.ScrollOffset != start || metrics.ScrollOffset == metrics.MaxScrollOffset {
+		t.Fatalf("new long response offset = %d, start %d (measured %t), end %d\n%s", metrics.ScrollOffset, start, ok, metrics.MaxScrollOffset, app.Text())
+	}
+	rows := paintedRows(app, width, height)
+	if got := findPaintedRow(rows, "Opening context for the change."); got != 3 {
+		t.Fatalf("opening line at row %d, want first content row below section strip\n%s", got, strings.Join(rows, "\n"))
+	}
+	if got := findPaintedRow(rows, "Overview"); got != 2 {
+		t.Fatalf("reading strip at row %d, want top of transcript\n%s", got, strings.Join(rows, "\n"))
+	}
+	column, row := findPaintedCellSequence(t, app, width, height, "↓")
+	app.Send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	pump()
+	rows = paintedRows(app, width, height)
+	if got := findPaintedRow(rows, "Findings detail line"); got < 0 || state.transcriptReading.Selected != 1 {
+		t.Fatalf("live response section jump selected %d, detail row %d\n%s", state.transcriptReading.Selected, got, strings.Join(rows, "\n"))
+	}
+}
+
+func TestLiveResponseArrivalRespectsHeightAndManualScroll(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		text  string
+		away  bool
+		atTop bool
+	}{
+		{name: "short reply stays at bottom", text: "A short reply."},
+		{name: "long reply without sections starts at top", text: strings.Repeat("A long answer with enough detail to read.\n", 35), atTop: true},
+		{name: "manual scroll is retained", text: strings.Repeat("A long answer with enough detail to read.\n", 35), away: true},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			messages := make([]transcriptMessage, 20)
+			for index := range messages {
+				messages[index] = transcriptMessage{ID: "user_" + strconv.Itoa(index), TurnID: "turn_" + strconv.Itoa(index), Role: "user", Text: "Earlier question"}
+			}
+			state := &latestFollowState{appState: appState{phase: phaseReady, transcriptVisible: true, messages: messages}}
+			state.resetTranscriptHistoryFromSnapshot(protocol.SessionSnapshot{})
+			app := uitest.New(latestFollowHarness{state})
+			const width, height = 80, 24
+			for range 8 {
+				app.Pump(width, height)
+				state.TickFrame(time.Now())
+			}
+			if test.away {
+				state.scroll.ScrollToStart()
+			}
+			before := state.scroll.Metrics().ScrollOffset
+			state.SetState(func() {
+				state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventAssistantCompleted,
+					MessageID: "new_assistant", TurnID: "turn_latest", Text: test.text}})
+			})
+			for range 8 {
+				app.Pump(width, height)
+				state.TickFrame(time.Now())
+			}
+			app.Pump(width, height)
+			metrics := state.scroll.Metrics()
+			index := len(state.mainTranscriptPresentation().Items) - 1
+			start, ok := state.transcriptList.OffsetForIndex(index)
+			switch {
+			case test.away && metrics.ScrollOffset != before:
+				t.Fatalf("manual scroll changed from %d to %d", before, metrics.ScrollOffset)
+			case test.atTop && (!ok || metrics.ScrollOffset != start || metrics.ScrollOffset == metrics.MaxScrollOffset):
+				t.Fatalf("long reply offset %d, start %d, end %d", metrics.ScrollOffset, start, metrics.MaxScrollOffset)
+			case !test.away && !test.atTop && metrics.ScrollOffset != metrics.MaxScrollOffset:
+				t.Fatalf("short reply offset %d, end %d", metrics.ScrollOffset, metrics.MaxScrollOffset)
+			}
+		})
 	}
 }

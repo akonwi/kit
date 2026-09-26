@@ -69,7 +69,8 @@ type transcriptReadingSnapshot struct {
 func (s *appState) observeTranscriptReading() {
 	reading, sections := transcriptReadingSnapshot{}, []transcriptReadingSection(nil)
 	if s.transcriptVisible {
-		reading, sections = transcriptReadingAt(s.messages, &s.scroll, &s.transcriptList)
+		messages := append(append([]transcriptMessage(nil), s.messages...), s.liveMessages...)
+		reading, sections = transcriptReadingAt(messages, &s.scroll, &s.transcriptList)
 	}
 	if !reading.Visible && s.transcriptReadingPickerOpen {
 		s.transcriptReadingPickerOpen = false
@@ -198,6 +199,35 @@ func markdownBlockRowOffsets(document kitmarkdown.Document) []int {
 	return offsets
 }
 
+// positionTranscriptArrival begins reading a newly delivered tall response at
+// its first row, rather than following its tail. Historical snapshots and
+// shorter replies retain the usual bottom-follow behavior.
+func (s *appState) positionTranscriptArrival() bool {
+	if !s.transcriptVisible || !s.scroll.Attached() || !s.transcriptList.Attached() {
+		return false
+	}
+	id := s.transcriptArrivalID
+	s.transcriptArrivalID = ""
+	items := s.mainTranscriptPresentation().Items
+	proseID := "assistant-prose:" + id
+	for index, item := range items {
+		if index != len(items)-1 || (item.ID != proseID && !strings.HasPrefix(item.ID, proseID+":ordered:")) {
+			continue
+		}
+		start, ok := s.transcriptList.OffsetForIndex(index)
+		if !ok {
+			return false
+		}
+		metrics := s.scroll.Metrics()
+		if metrics.ContentHeight-start <= metrics.ViewportHeight {
+			return false
+		}
+		s.transcriptList.ScrollToIndex(index, ui.ScrollAlignStart)
+		return true
+	}
+	return false
+}
+
 // moveTranscriptReading jumps one section up or down within the message the
 // strip is tracking, and unpins follow so new output stays put.
 func (s *appState) moveTranscriptReading(_ ui.EventContext, delta int) {
@@ -211,7 +241,9 @@ func (s *appState) moveTranscriptReading(_ ui.EventContext, delta int) {
 // jumpToTranscriptSection scrolls the tracked message so the section begins at
 // the top of the viewport.
 func (s *appState) jumpToTranscriptSection(section int) {
-	if jumpTranscriptSection(s.messages, &s.scroll, &s.transcriptList, section) {
+	s.transcriptArrivalID = ""
+	messages := append(append([]transcriptMessage(nil), s.messages...), s.liveMessages...)
+	if jumpTranscriptSection(messages, &s.scroll, &s.transcriptList, section) {
 		s.needsScroll = false
 		s.scrollPendingLayout = false
 		s.observeTranscriptReading()
