@@ -283,15 +283,24 @@ func TestShellDiffPaneRetainsCursorRangeScrollAndFocusAcrossTabsAndResize(t *tes
 	if !rowContainsSplitSeparator(application, wideWidth, cursorRow) {
 		t.Fatalf("wide Diff cursor row is not split:\n%s", strings.Join(wideRows, "\n"))
 	}
+	// Bring the replacement below the pinned two-row file header to inspect
+	// both split halves without changing the retained navigation state.
+	wideOffset := state.pane.scroll.Metrics(ui.ScrollVertical).ScrollOffset
+	state.pane.scroll.ScrollTo(0, wideOffset-2)
+	state.pane.TickFrame(time.Now())
+	application.Pump(wideWidth, height)
 	_, removedRow := findRenderedDiffText(t, application, wideWidth, height, "removed retained line 13")
 	_, addedRow := findRenderedDiffText(t, application, wideWidth, height, "added retained line 13")
 	if removedRow != addedRow || !rowContainsSplitSeparator(application, wideWidth, removedRow) {
 		t.Fatalf("wide replacement is not paired on split row %d/%d:\n%s", removedRow, addedRow, strings.Join(wideRows, "\n"))
 	}
 	firstVisible := firstVisibleRetainedDiffLine(wideRows)
-	if firstVisible != "retained line 12" {
-		t.Fatalf("scrolled Diff starts at %q, want retained line 12\n%s", firstVisible, strings.Join(wideRows, "\n"))
+	if firstVisible != "retained line 14" {
+		t.Fatalf("scrolled Diff starts at %q, want retained line 14\n%s", firstVisible, strings.Join(wideRows, "\n"))
 	}
+	state.pane.scroll.ScrollTo(0, wideOffset)
+	state.pane.TickFrame(time.Now())
+	application.Pump(wideWidth, height)
 
 	application.Send(vaxis.Key{Keycode: '[', Modifiers: vaxis.ModCtrl})
 	application.Pump(wideWidth, height)
@@ -311,23 +320,34 @@ func TestShellDiffPaneRetainsCursorRangeScrollAndFocusAcrossTabsAndResize(t *tes
 	wideRows = pumpRetainedDiffShell(t, application, state, wideWidth, height, "new L1–16")
 	retainedDiffCursorRow(t, application, wideWidth, height, "retained line 16")
 	resizedFirstVisible := firstVisibleRetainedDiffLine(wideRows)
-	if resizedFirstVisible != "retained line 13" {
-		t.Fatalf("advanced Diff starts at %q, want retained line 13", resizedFirstVisible)
+	if resizedFirstVisible != "retained line 15" {
+		t.Fatalf("advanced Diff starts at %q, want retained line 15", resizedFirstVisible)
 	}
 
 	narrowRows := pumpRetainedDiffShell(t, application, state, narrowWidth, height, "new L1–16")
+	for range 3 {
+		state.pane.TickFrame(time.Now())
+		application.Pump(narrowWidth, height)
+	}
+	narrowOffset := state.pane.scroll.Metrics(ui.ScrollVertical).ScrollOffset
+	state.pane.scroll.ScrollTo(0, 13)
+	application.Pump(narrowWidth, height)
+	geometryRows := paintedRows(application, narrowWidth, height)
 	removedColumn, narrowRemovedRow := findRenderedDiffText(t, application, narrowWidth, height, "removed retained line 13")
 	addedColumn, narrowAddedRow := findRenderedDiffText(t, application, narrowWidth, height, "added retained line 13")
-	if got := firstVisibleRetainedDiffLine(narrowRows); got != "retained line 13" || narrowAddedRow != narrowRemovedRow+1 || removedColumn != 14 || addedColumn != 14 ||
+	if got := firstVisibleRetainedDiffLine(narrowRows); got != "retained line 14" || narrowAddedRow != narrowRemovedRow+1 || removedColumn != 14 || addedColumn != 14 ||
 		application.Cell(3, narrowRemovedRow).Grapheme != "1" || application.Cell(4, narrowRemovedRow).Grapheme != "3" || application.Cell(12, narrowRemovedRow).Grapheme != "−" ||
 		application.Cell(9, narrowAddedRow).Grapheme != "1" || application.Cell(10, narrowAddedRow).Grapheme != "3" || application.Cell(12, narrowAddedRow).Grapheme != "+" {
-		t.Fatalf("narrow unified replacement geometry/top = first:%q old:(%d,%d) new:(%d,%d):\n%s", got, removedColumn, narrowRemovedRow, addedColumn, narrowAddedRow, strings.Join(narrowRows, "\n"))
+		t.Fatalf("narrow unified replacement geometry/top = first:%q old:(%d,%d) new:(%d,%d):\n%s", got, removedColumn, narrowRemovedRow, addedColumn, narrowAddedRow, strings.Join(geometryRows, "\n"))
 	}
+	state.pane.scroll.ScrollTo(0, narrowOffset)
+	state.pane.TickFrame(time.Now())
+	application.Pump(narrowWidth, height)
 
 	wideRows = pumpRetainedDiffShell(t, application, state, wideWidth, height, "new L1–16")
 	cursorRow = retainedDiffCursorRow(t, application, wideWidth, height, "retained line 16")
-	if got := firstVisibleRetainedDiffLine(wideRows); !rowContainsSplitSeparator(application, wideWidth, cursorRow) || got != resizedFirstVisible {
-		t.Fatalf("restored wide Diff scroll starts at %q, want %q:\n%s", got, resizedFirstVisible, strings.Join(wideRows, "\n"))
+	if got := firstVisibleRetainedDiffLine(wideRows); !rowContainsSplitSeparator(application, wideWidth, cursorRow) || got != "retained line 16" {
+		t.Fatalf("restored wide Diff scroll starts at %q, want retained line 16:\n%s", got, strings.Join(wideRows, "\n"))
 	}
 }
 

@@ -137,21 +137,7 @@ func (s *workspaceDiffPaneState) documentRows(theme ui.Theme, semantic SemanticT
 			continue
 		}
 		file := s.files[section.index]
-		title := file.Path
-		if file.Additions != nil && file.Deletions != nil {
-			title += fmt.Sprintf("  +%d −%d", *file.Additions, *file.Deletions)
-		}
-		header := headerControl{Label: title, OnPressed: func(event ui.EventContext) {
-			w := s.Widget().(workspaceDiffPane)
-			if w.OnFocusRequest != nil {
-				w.OnFocusRequest(event)
-			}
-			s.SetState(func() { s.activateSection(section.index) })
-		}}
-		fileRows := []ui.Widget{
-			ui.SizedBox{Height: 1, Child: ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Surface}}, ui.Padding(ui.Symmetric(1, 0), header))},
-			ui.SizedBox{Height: 1, Child: ui.Divider{Style: ui.Style{Foreground: theme.Border}}},
-		}
+		fileRows := s.diffFileHeader(section, theme)
 		switch {
 		case section.loaded && len(section.hunks) > 0:
 			var body []ui.Widget
@@ -262,15 +248,62 @@ func (s *workspaceDiffFileState) measure() (int, int) {
 	return width, height
 }
 
+// diffFileHeader is shared by the in-document row and its pinned projection.
+// Both have the same label, surface, and file-selection action.
+func (s *workspaceDiffPaneState) diffFileHeader(section *workspaceDiffFileState, theme ui.Theme) []ui.Widget {
+	file := s.files[section.index]
+	title := file.Path
+	if file.Additions != nil && file.Deletions != nil {
+		title += fmt.Sprintf("  +%d −%d", *file.Additions, *file.Deletions)
+	}
+	header := headerControl{Label: title, OnPressed: func(event ui.EventContext) {
+		w := s.Widget().(workspaceDiffPane)
+		if w.OnFocusRequest != nil {
+			w.OnFocusRequest(event)
+		}
+		s.SetState(func() { s.activateSection(section.index) })
+	}}
+	return []ui.Widget{
+		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Surface}}, ui.Padding(ui.Symmetric(1, 0), header))},
+		ui.SizedBox{Height: 1, Child: ui.Divider{Style: ui.Style{Foreground: theme.Border}}},
+	}
+}
+
+func (s *workspaceDiffPaneState) pinnedDiffFileHeader(theme ui.Theme) ui.Widget {
+	if !s.scroll.Attached() || !s.layoutReady || len(s.sections) == 0 {
+		return nil
+	}
+	top := s.scroll.Metrics(ui.ScrollVertical).ScrollOffset
+	for index, section := range s.sections {
+		if section.offset >= top || section.offset+section.height <= top {
+			continue
+		}
+		rows := s.diffFileHeader(section, theme)
+		if index+1 < len(s.sections) && s.sections[index+1].offset-top == 1 {
+			// The next title pushes this title off; only its divider remains.
+			rows = rows[1:]
+		}
+		return ui.Positioned{Child: ui.SizedBox{Width: max(1, s.viewportWidth-1), Height: len(rows), Child: ui.Flex{
+			Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows,
+		}}}
+	}
+	return nil
+}
+
 func (s *workspaceDiffPaneState) documentBody(theme ui.Theme, semantic SemanticTheme) ui.Widget {
 	rows, width, height := s.documentRows(theme, semantic)
-	return ui.Scrollbar{
+	content := ui.Widget(ui.Scrollbar{
 		Child: ui.ScrollPane{Controller: &s.scroll, Child: ui.SizedBox{Width: width, Height: height, Child: ui.Flex{
 			Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows,
 		}}},
 		ThumbStyle: ui.Style{Foreground: semantic.Token(kittheme.TokenScrollbarForeground)},
 		TrackStyle: ui.Style{Foreground: semantic.Token(kittheme.TokenScrollbarBackground)},
+	})
+	children := []ui.Widget{content}
+	if pinned := s.pinnedDiffFileHeader(theme); pinned != nil {
+		children = append(children, pinned)
 	}
+	return ui.Stack{Alignment: ui.TopLeft, Children: children}
 }
 
 // Demand is measured after layout, so mouse scrolling loads sections as well as

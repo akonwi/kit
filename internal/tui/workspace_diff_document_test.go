@@ -472,3 +472,167 @@ func TestWorkspaceDiffHeaderWrapButton(t *testing.T) {
 		})
 	}
 }
+
+func TestWorkspaceDiffFileHeaderSticksAndYieldsToNextFile(t *testing.T) {
+	backend := documentFixture("first.go", "second.go")
+	for index, count := range []int{30, 18} {
+		file := backend.observation.Files[index]
+		file.Additions = &count
+		backend.observation.Files[index] = file
+		page := backend.pages[file.Path]
+		page.File = file
+		page.Hunks[0].NewCount = count
+		page.Hunks[0].Lines = nil
+		for number := 1; number <= count; number++ {
+			line := number
+			page.Hunks[0].Lines = append(page.Hunks[0].Lines, protocol.DiffLine{
+				Kind: "addition", NewLine: &line, Content: fmt.Sprintf("%s line %02d", file.Path, number), HasTerminatingLF: true,
+			})
+		}
+		backend.pages[file.Path] = page
+	}
+	state := &workspaceDiffPaneState{}
+	dispatch := &queuedDiffDispatch{}
+	focusRequests := 0
+	app := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend,
+		Dispatch: dispatch.dispatch, testState: state, Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true},
+		OnFocusRequest: func(ui.EventContext) { focusRequests++ }})
+	const width, height = 80, 15
+	settle := func(offset int) []string {
+		t.Helper()
+		state.scroll.ScrollTo(0, offset)
+		for range 6 {
+			dispatch.flush()
+			app.Pump(width, height)
+			state.TickFrame(time.Now())
+			app.Pump(width, height)
+		}
+		if got := state.scroll.Metrics(ui.ScrollVertical).ScrollOffset; got != offset {
+			t.Fatalf("scroll offset = %d, want %d", got, offset)
+		}
+		return paintedRows(app, width, height)
+	}
+	defer state.Dispose()
+	rows := pumpDocument(t, app, dispatch, state, width, height, func() bool {
+		return len(state.sections) == 2 && state.sections[0].loaded && state.sections[1].loaded
+	})
+	if got := strings.TrimSpace(rows[2]); got != "first.go  +30 −0" {
+		t.Fatalf("natural file header = %q", got)
+	}
+	naturalSurface := app.Cell(1, 2).Style.Background
+	rows = settle(6)
+	if got := strings.TrimSpace(rows[2]); got != "first.go  +30 −0" {
+		t.Fatalf("pinned header = %q, want first file", got)
+	}
+	if got := rows[3]; !strings.HasPrefix(got, strings.Repeat("─", width-1)) {
+		t.Fatalf("pinned separator = %q", got)
+	}
+	if got := strings.TrimSpace(rows[4]); !strings.HasPrefix(got, "6 + first.go line 06") {
+		t.Fatalf("content after pinned header = %q", got)
+	}
+	if got := app.Cell(1, 2).Style.Background; got != naturalSurface {
+		t.Fatalf("pinned header surface = %v, want %v", got, naturalSurface)
+	}
+	if got := strings.Count(strings.Join(rows, "\n"), "first.go  +30 −0"); got != 1 {
+		t.Fatalf("visible file title count = %d, want 1", got)
+	}
+	state.sections[0].cursorRow = 4 // line 4 is covered by the pinned title at offset 6.
+	state.sections[0].revealCursor()
+	state.TickFrame(time.Now())
+	app.Pump(width, height)
+	if got := strings.TrimSpace(paintedRows(app, width, height)[4]); !strings.HasPrefix(got, "4 + first.go line 04") {
+		t.Fatalf("revealed cursor below sticky header = %q", got)
+	}
+	rows = settle(6)
+	state.SetState(func() { state.selectedFile, state.active = 1, state.sections[1] })
+	app.Pump(width, height)
+	app.Click(4, 2)
+	app.Pump(width, height)
+	if state.selectedFile != 0 || focusRequests == 0 {
+		t.Fatalf("pinned title click selected file %d with %d focus requests", state.selectedFile, focusRequests)
+	}
+	// The old title slides off one row before the next title reaches the top.
+	boundary := state.sections[1].offset
+	rows = settle(boundary - 2)
+	if got := strings.TrimSpace(rows[2]); got != "first.go  +30 −0" {
+		t.Fatalf("header before boundary = %q", got)
+	}
+	rows = settle(boundary - 1)
+	if got := rows[2]; !strings.HasPrefix(got, strings.Repeat("─", width-1)) {
+		t.Fatalf("pushed header = %q, want divider", got)
+	}
+	if got := strings.TrimSpace(rows[3]); got != "second.go  +18 −0" {
+		t.Fatalf("incoming file title = %q", got)
+	}
+	rows = settle(boundary)
+	if got := strings.TrimSpace(rows[2]); got != "second.go  +18 −0" {
+		t.Fatalf("next sticky file = %q", got)
+	}
+	rows = settle(boundary + 4)
+	if got := strings.TrimSpace(rows[2]); got != "second.go  +18 −0" {
+		t.Fatalf("second file content header = %q", got)
+	}
+	before := state.scroll.Metrics(ui.ScrollVertical).ScrollOffset
+	app.Send(vaxis.Mouse{Col: 4, Row: 4, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
+	app.Pump(width, height)
+	state.TickFrame(time.Now())
+	rows = paintedRows(app, width, height)
+	if after := state.scroll.Metrics(ui.ScrollVertical).ScrollOffset; after <= before {
+		t.Fatalf("wheel offset = %d, want greater than %d", after, before)
+	}
+	if got := strings.TrimSpace(rows[2]); got != "second.go  +18 −0" {
+		t.Fatalf("header after wheel scroll = %q", got)
+	}
+	const narrowWidth = 40
+	for range 5 {
+		app.Pump(narrowWidth, height)
+		state.TickFrame(time.Now())
+	}
+	state.scroll.ScrollTo(0, boundary+5)
+	for range 3 {
+		app.Pump(narrowWidth, height)
+		state.TickFrame(time.Now())
+	}
+	rows = paintedRows(app, narrowWidth, height)
+	if got := strings.TrimSpace(rows[2]); !strings.HasPrefix(got, "second.go  +18 −0") {
+		t.Fatalf("narrow pinned title = %q", got)
+	}
+	if got := state.scroll.Metrics(ui.ScrollVertical).ViewportWidth; got != narrowWidth {
+		t.Fatalf("narrow viewport width = %d, want %d", got, narrowWidth)
+	}
+}
+
+func TestWorkspaceDiffShortFileHeaderTransition(t *testing.T) {
+	backend := documentFixture("one.go", "two.go", "three.go")
+	state := &workspaceDiffPaneState{}
+	dispatch := &queuedDiffDispatch{}
+	app := uitest.New(workspaceDiffPane{Descriptor: workingTreeDiffWorkspacePane(testDiffWorkspace), Diff: backend,
+		Dispatch: dispatch.dispatch, testState: state, Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
+	defer state.Dispose()
+	const width, height = 80, 12
+	pumpDocument(t, app, dispatch, state, width, height, func() bool {
+		return len(state.sections) == 3 && state.sections[0].loaded && state.sections[1].loaded && state.sections[2].loaded
+	})
+	boundary := state.sections[1].offset
+	for _, tc := range []struct {
+		offset int
+		row    string
+	}{
+		{1, "one.go  +1 −0"},
+		{boundary - 1, strings.Repeat("─", width-1)},
+		{boundary, "two.go  +1 −0"},
+	} {
+		state.scroll.ScrollTo(0, tc.offset)
+		for range 4 {
+			app.Pump(width, height)
+			state.TickFrame(time.Now())
+		}
+		if got := state.scroll.Metrics(ui.ScrollVertical).ScrollOffset; got != tc.offset {
+			t.Fatalf("offset = %d, want %d", got, tc.offset)
+		}
+		row := strings.TrimSpace(paintedRows(app, width, height)[2])
+		if !strings.HasPrefix(row, tc.row) {
+			t.Fatalf("offset %d: top row = %q, want %q", tc.offset, row, tc.row)
+		}
+	}
+}

@@ -628,7 +628,12 @@ func (s *workspaceDiffFileState) revealCursor() {
 	vertical := s.pane.scroll.Metrics(ui.ScrollVertical)
 	viewportHeight := max(1, vertical.ViewportHeight)
 	row, target := s.offset+2+s.cursorVisualRow(), vertical.ScrollOffset
-	if row < vertical.ScrollOffset {
+	// A pinned file header covers the first two scroll rows. Keep keyboard
+	// navigation and explicit cursor reveals below it, not merely in the raw
+	// scroll viewport.
+	if s.offset < vertical.ScrollOffset && row < vertical.ScrollOffset+2 {
+		target = row - 2
+	} else if row < vertical.ScrollOffset {
 		target = row
 	} else if row >= vertical.ScrollOffset+viewportHeight {
 		target = row - viewportHeight + 1
