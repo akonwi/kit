@@ -37,6 +37,10 @@ struct SessionFooter: View {
             } else if compaction.pending {
                 KitSpinner()
                 Text(compaction.title)
+            } else if state.reloadOperation.pending {
+                KitSpinner()
+                Text(state.reloadOperation.result != nil || state.reloadOperation.error != nil
+                     ? "Refreshing session…" : "Reloading session context…")
             } else if let retryAt = state.selected?.providerRetryAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("Provider retry in \(Self.secondsRemaining(retryAt, now: context.date))s")
@@ -51,7 +55,6 @@ struct SessionFooter: View {
                     .lineLimit(1).truncationMode(.tail)
                     .help(state.notice)
             }
-            SessionNoticeButton(feedback: state.feedback)
         }.lineLimit(1)
     }
 

@@ -32,8 +32,18 @@ final class ComposerAttachments {
     func acknowledge(_ ids: [String]) {
         for item in items where item.uploaded.map({ ids.contains($0.id) }) == true { remove(item.id) }
     }
-    func add(url: URL, client: any ComposerClient, session: String) {
-        add(filename: url.lastPathComponent, client: client, session: session) {
+    /// Reserve a visible, non-sendable slot before an asynchronous pasteboard provider resolves.
+    func reserve(filename: String) -> UUID? {
+        guard items.count < 8 else { error = "A message can contain up to eight attachments."; return nil }
+        error = nil
+        let id = UUID()
+        items.append(Item(id: id, filename: filename))
+        return id
+    }
+    func failReserved(_ id: UUID, error: Error) { fail(id, error: error) }
+
+    func add(url: URL, client: any ComposerClient, session: String, reserved id: UUID? = nil) {
+        add(filename: url.lastPathComponent, client: client, session: session, reserved: id) {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
@@ -44,15 +54,19 @@ final class ComposerAttachments {
             return try file.read(upToCount: 10 * 1024 * 1024 + 1) ?? Data()
         }
     }
-    func add(filename: String, data: Data, client: any ComposerClient, session: String) {
-        add(filename: filename, client: client, session: session) { data }
+    func add(filename: String, data: Data, client: any ComposerClient, session: String, reserved id: UUID? = nil) {
+        add(filename: filename, client: client, session: session, reserved: id) { data }
     }
-    private func add(filename: String, client: any ComposerClient, session: String,
+    private func add(filename: String, client: any ComposerClient, session: String, reserved reservedID: UUID?,
                      read: @escaping @Sendable () throws -> Data) {
-        guard items.count < 8 else { error = "A message can contain up to eight attachments."; return }
-        error = nil
-        let id = UUID()
-        items.append(Item(id: id, filename: filename))
+        let id: UUID
+        if let reservedID {
+            guard items.contains(where: { $0.id == reservedID }) else { return }
+            id = reservedID
+        } else {
+            guard let newID = reserve(filename: filename) else { return }
+            id = newID
+        }
         tasks[id] = Task { [weak self] in
             do {
                 let prepared = try await Task.detached { try Self.prepare(read(), filename: filename) }.value

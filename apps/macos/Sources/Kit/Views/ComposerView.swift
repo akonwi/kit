@@ -184,20 +184,22 @@ struct ComposerView: View {
             let uploads = state.ui.uploads, session = state.selectedID
             let accepted = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) || $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }
             for provider in accepted {
-                if provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) {
+                let fileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
+                let name = provider.suggestedName ?? (fileURL ? "File" : "Pasted image.png")
+                guard let id = uploads.reserve(filename: name) else { continue }
+                if fileURL {
                     provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                         let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
                         Task { @MainActor in
-                            if let url { uploads.add(url: url, client: client, session: session) }
-                            else { uploads.error = error?.localizedDescription ?? "Couldn’t read the dropped file." }
+                            if let url, url.isFileURL { uploads.add(url: url, client: client, session: session, reserved: id) }
+                            else { uploads.failReserved(id, error: error ?? MutationNotSent(reason: "Couldn’t read the file.")) }
                         }
                     }
                 } else {
-                    let name = provider.suggestedName ?? "Dropped image.png"
                     provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
                         Task { @MainActor in
-                            if let data { uploads.add(filename: name, data: data, client: client, session: session) }
-                            else { uploads.error = error?.localizedDescription ?? "Couldn’t read the dropped image." }
+                            if let data { uploads.add(filename: name, data: data, client: client, session: session, reserved: id) }
+                            else { uploads.failReserved(id, error: error ?? MutationNotSent(reason: "Couldn’t read the image.")) }
                         }
                     }
                 }

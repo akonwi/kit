@@ -47,6 +47,20 @@ private actor ComposerMock: ComposerClient {
         ui.uploads.acknowledge(["attachment_2"])
         #expect(ui.uploads.items.isEmpty)
     }
+    @Test func pendingPasteboardAttachmentBlocksSubmissionUntilProviderResolves() async throws {
+        let client = ComposerMock(), uploads = ComposerAttachments()
+        let id = try #require(uploads.reserve(filename: "Pasted image.png"))
+        #expect(uploads.items.count == 1)
+        #expect(!uploads.ready)
+        uploads.add(filename: "note.txt", data: Data("hello".utf8), client: client, session: "first", reserved: id)
+        #expect(uploads.items.count == 1)
+        #expect(!uploads.ready)
+        try await wait { uploads.items.first?.error != nil }
+        #expect(!uploads.ready)
+        uploads.remove(id)
+        #expect(uploads.ready)
+    }
+
     @Test func removingAnUploadPreventsLateCompletionFromRestoringIt() async throws {
         let client = ComposerMock(), uploads = ComposerAttachments()
         uploads.add(filename: "note.txt", data: Data("hello".utf8), client: client, session: "first")

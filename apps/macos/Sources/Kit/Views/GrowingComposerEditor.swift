@@ -349,8 +349,50 @@ final class ComposerTextView: NSTextView {
     var pasting = false
 
     override func paste(_ sender: Any?) {
+        guard isEditable else { return }
+        if pasteAttachments(from: .general) { return }
         pasting = true; defer { pasting = false }
         super.paste(sender)
+    }
+
+    func pasteAttachments(from pasteboard: NSPasteboard) -> Bool {
+        guard isEditable, shellPrefix.isEmpty, let attachmentDrop else { return false }
+        let providers = attachmentProviders(from: pasteboard.pasteboardItems ?? [])
+        if !providers.isEmpty { return attachmentDrop(providers) }
+        guard let text = pasteboard.string(forType: .string),
+              let urls = Self.pastedFileURLs(text) else { return false }
+        return attachmentDrop(urls.map { NSItemProvider(item: $0 as NSURL, typeIdentifier: UTType.fileURL.identifier) })
+    }
+
+    private static func pastedFileURLs(_ text: String) -> [URL]? {
+        let lines = text.replacingOccurrences(of: "\r\n", with: "\n").split(separator: "\n", omittingEmptySubsequences: true)
+        guard !lines.isEmpty else { return nil }
+        var urls: [URL] = []
+        for line in lines {
+            var path = line.trimmingCharacters(in: .whitespacesAndNewlines)
+            if path.hasPrefix("file://") {
+                guard let url = URL(string: path), url.isFileURL,
+                      url.host == nil || url.host == "localhost" else { return nil }
+                path = url.path
+            } else {
+                if path.count >= 2, let first = path.first, first == path.last, first == "\"" || first == "'" {
+                    path = String(path.dropFirst().dropLast())
+                }
+                path = path.replacingOccurrences(of: "\\ ", with: " ")
+            }
+            let url = URL(fileURLWithPath: path)
+            guard path.hasPrefix("/"),
+                  let values = try? url.resourceValues(forKeys: [.isRegularFileKey]),
+                  values.isRegularFile == true,
+                  let file = try? FileHandle(forReadingFrom: url) else { return nil }
+            let header = try? file.read(upToCount: 512)
+            try? file.close()
+            guard let header, !header.isEmpty,
+                  (UTType(filenameExtension: url.pathExtension)?.conforms(to: .image) == true
+                      || (!header.contains(0) && String(data: header, encoding: .utf8) != nil)) else { return nil }
+            urls.append(url)
+        }
+        return urls.isEmpty ? nil : urls
     }
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
@@ -501,25 +543,28 @@ final class ComposerTextView: NSTextView {
         super.keyDown(with: event)
     }
 
-    private func attachmentProviders(_ sender: NSDraggingInfo) -> [NSItemProvider] {
-        (sender.draggingPasteboard.pasteboardItems ?? []).compactMap { item in
+    private func attachmentProviders(from items: [NSPasteboardItem]) -> [NSItemProvider] {
+        items.compactMap { item in
             if let value = item.string(forType: .fileURL), let url = URL(string: value), url.isFileURL {
                 return NSItemProvider(item: url as NSURL, typeIdentifier: UTType.fileURL.identifier)
             }
-            guard let type = item.types.first(where: { UTType($0.rawValue)?.conforms(to: .image) == true }),
+            let imageTypes = item.types.filter { UTType($0.rawValue)?.conforms(to: .image) == true }
+            let preferred = [UTType.png.identifier, UTType.jpeg.identifier, UTType.gif.identifier]
+            guard let type = preferred.compactMap({ name in imageTypes.first(where: { $0.rawValue == name }) }).first
+                    ?? imageTypes.first,
                   let data = item.data(forType: type) else { return nil }
             return NSItemProvider(item: data as NSData, typeIdentifier: type.rawValue)
         }
     }
 
     override func draggingEntered(_ sender: NSDraggingInfo) -> NSDragOperation {
-        guard !attachmentProviders(sender).isEmpty else { return super.draggingEntered(sender) }
+        guard !attachmentProviders(from: sender.draggingPasteboard.pasteboardItems ?? []).isEmpty else { return super.draggingEntered(sender) }
         attachmentDropTargeted?(true)
         return .copy
     }
 
     override func draggingUpdated(_ sender: NSDraggingInfo) -> NSDragOperation {
-        attachmentProviders(sender).isEmpty ? super.draggingUpdated(sender) : .copy
+        attachmentProviders(from: sender.draggingPasteboard.pasteboardItems ?? []).isEmpty ? super.draggingUpdated(sender) : .copy
     }
 
     override func draggingExited(_ sender: NSDraggingInfo?) {
@@ -528,12 +573,12 @@ final class ComposerTextView: NSTextView {
     }
 
     override func prepareForDragOperation(_ sender: NSDraggingInfo) -> Bool {
-        !attachmentProviders(sender).isEmpty || super.prepareForDragOperation(sender)
+        !attachmentProviders(from: sender.draggingPasteboard.pasteboardItems ?? []).isEmpty || super.prepareForDragOperation(sender)
     }
 
     override func performDragOperation(_ sender: NSDraggingInfo) -> Bool {
         attachmentDropTargeted?(false)
-        let providers = attachmentProviders(sender)
+        let providers = attachmentProviders(from: sender.draggingPasteboard.pasteboardItems ?? [])
         if !providers.isEmpty { return attachmentDrop?(providers) ?? false }
         return super.performDragOperation(sender)
     }

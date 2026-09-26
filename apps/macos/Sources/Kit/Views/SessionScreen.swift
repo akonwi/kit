@@ -86,6 +86,14 @@ struct SessionScreen: View {
         .tint(theme.accent)
         .preferredColorScheme(windowScheme)
         .frame(minWidth: 800, minHeight: 640)
+        .overlay(alignment: .topTrailing) {
+            if state.selected != nil {
+                SessionFeedbackView(feedback: state.feedback)
+                    .environment(\.mica, theme)
+                    .id(state.serverID + "|" + state.selectedID)
+                    .padding(.top, 16).padding(.trailing, 16)
+            }
+        }
         .disabled(state.ui.palette || state.ui.filePicker)
         .accessibilityHidden(state.ui.palette || state.ui.filePicker)
         .overlay {

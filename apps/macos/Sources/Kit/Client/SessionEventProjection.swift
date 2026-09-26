@@ -207,8 +207,11 @@ struct SessionEventProjection {
             session.activity = "Compacting context…"
         case "compaction.failed", "compaction.completed":
             if let id = event.compactionID, session.activeCompactionID == id {
-                session.compactionOutcome = CompactionOutcome(id: id, failed: event.kind == "compaction.failed",
-                                                              detail: event.errorMessage ?? "")
+                let failed = event.kind == "compaction.failed"
+                let detail = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
+                session.compactionOutcome = CompactionOutcome(id: id, failed: failed,
+                                                              detail: failed && (detail?.isEmpty ?? true)
+                                                                  ? "Context compaction failed" : (detail ?? ""))
                 session.activeCompactionID = nil
                 session.activity = activeRunID == nil ? nil : "Working…"
             }

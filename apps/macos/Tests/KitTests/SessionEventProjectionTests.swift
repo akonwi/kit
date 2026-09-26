@@ -66,6 +66,25 @@ struct SessionEventProjectionTests {
         #expect(state.session.activity == "Working…")
     }
 
+    @MainActor @Test func failedCompactionAlwaysProvidesToastDetail() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("compaction.started", ["compactionId": "compact_a"]))
+        try state.apply(event("compaction.failed", ["compactionId": "compact_a"]))
+        #expect(state.session.compactionOutcome?.failed == true)
+        #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
+        let feedback = SessionFeedback()
+        feedback.observe(state.session)
+        #expect(feedback.notices.first?.detail == "Context compaction failed")
+
+        try state.apply(event("compaction.started", ["compactionId": "compact_b"]))
+        try state.apply(event("compaction.failed", ["compactionId": "compact_b", "errorMessage": "  "]))
+        #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
+
+        try state.apply(event("compaction.started", ["compactionId": "compact_c"]))
+        try state.apply(event("compaction.failed", ["compactionId": "compact_c", "errorMessage": "Provider unavailable"]))
+        #expect(state.session.compactionOutcome?.detail == "Provider unavailable")
+    }
+
     @Test func contextTracksSnapshotUpdatesAndCompaction() throws {
         let data = try JSONEncoder().encode(snapshot())
         var json = try #require(JSONSerialization.jsonObject(with: data) as? [String: Any])

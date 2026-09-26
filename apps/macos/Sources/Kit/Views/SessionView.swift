@@ -42,7 +42,6 @@ struct SessionComposerRegion: View {
                     .frame(maxWidth: 780).padding(.horizontal, 32)
                     .frame(maxWidth: .infinity)
             }
-            SessionFeedbackView(feedback: state.feedback)
             if let flow = state.interactions.first {
                 InteractionCard(flow: flow, pendingCount: state.interactions.count) { state.finishInteraction(cancelled: $0) }
                     .id(flow.id).frame(maxWidth: .infinity)

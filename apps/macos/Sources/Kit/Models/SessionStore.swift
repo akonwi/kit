@@ -120,15 +120,34 @@ final class SessionStore {
         if reloadOperation.pending { return "Reloading session context" }
         return nil
     }
-    func reloadSession(refreshOnly: Bool = false) async {
-        guard let client = catalogClient as? any SessionReloadClient else { return }
-        let id = selectedID
+    func reloadSession(for id: String, refreshOnly: Bool = false) async {
+        guard selectedID == id, let client = catalogClient as? any SessionReloadClient else { return }
+        let operation = reloadOperation
+        guard !operation.pending, refreshOnly || reloadUnavailableReason == nil else { return }
+        let feedback = feedback(for: id)
+        feedback.clear(key: "session-reload")
         let refresh: @MainActor () async throws -> Void = { [weak self] in
             guard let self, self.selectedID == id else { throw CancellationError() }
             _ = try await self.replica.resynchronize()
         }
-        if refreshOnly { await reloadOperation.refreshOnly(refresh) }
-        else if reloadUnavailableReason == nil { await reloadOperation.perform(session: id, client: client, refresh: refresh) }
+        if refreshOnly { await operation.refreshOnly(refresh) }
+        else { await operation.perform(session: id, client: client, refresh: refresh) }
+        // Cancellation does not undo an acknowledged server mutation. Always
+        // publish its recorded result (or recovery error) to the owning session.
+        guard let summary = SessionReloadFeedback.from(operation) else { return }
+        let action: (@MainActor () -> Void)? = switch summary.recovery {
+        case .refresh: { [weak self] in Task { await self?.reloadSession(for: id, refreshOnly: true) } }
+        case .reload: { [weak self] in Task { await self?.reloadSession(for: id) } }
+        case nil: nil
+        }
+        let actionTitle: String? = switch summary.recovery {
+        case .refresh: "Refresh session"
+        case .reload: "Reload again"
+        case nil: nil
+        }
+        feedback.show(key: "session-reload", title: summary.title, detail: summary.detail,
+                      tone: summary.tone, persistent: summary.persistent,
+                      actionTitle: actionTitle, action: action, reloadReport: summary.report)
     }
 
     @ObservationIgnored private var knownDirectories: [String: String] = [:]

@@ -7,7 +7,6 @@ struct CommandPalette: View {
     let openFork: (String) -> Void
     @State private var disposalTarget: SessionExcerpt?
     @State private var deleting = true
-    @State private var reloading = false
     @State private var showingDetails = false
     @State private var showingMCP = false
     @State private var changingDirectory = false
@@ -32,8 +31,6 @@ struct CommandPalette: View {
         Group {
             if let command = pluginSelection {
                 PluginCommandArguments(state: state, command: command) { pluginSelection = nil }
-            } else if reloading {
-                SessionReloadView(state: state) { reloading = false }
             } else if showingDetails {
                 SessionDetailsView(state: state) { showingDetails = false }
             } else if showingMCP {
@@ -183,7 +180,9 @@ struct CommandPalette: View {
         if name == "Reload session context" {
             guard state.reloadUnavailableReason == nil else { return }
             focused = false
-            reloading = true
+            state.ui.palette = false
+            let session = state.selectedID
+            Task { await state.reloadSession(for: session) }
             return
         }
         if name == "Session details" {

@@ -17,7 +17,10 @@ struct SelectionActions: NSViewRepresentable {
     func updateNSView(_ view: NSView, context: Context) {
         context.coordinator.enabled = enabled
         if !enabled { context.coordinator.dismiss() }
-        context.coordinator.theme = theme
+        if context.coordinator.theme != theme {
+            context.coordinator.dismiss()
+            context.coordinator.theme = theme
+        }
         context.coordinator.quote = quote
     }
     func makeCoordinator() -> Coordinator { Coordinator(theme: theme, enabled: enabled, quote: quote) }
@@ -30,7 +33,40 @@ struct SelectionActions: NSViewRepresentable {
         var quote: (String) -> Void
         var monitor: Any?
         var panel: NSPanel?
-        var presentedText: String?
+        var presentedSelection: Selection?
+        var selectionBeforeMouseDown: Selection?
+        var pendingPresentation: DispatchWorkItem?
+        var selectionCheck: Timer?
+        var mouseSelectionPoll: Timer?
+
+        @MainActor struct Selection {
+            let text: String
+            let rect: NSRect
+            let source: NSObject
+            let range: NSRange?
+            let responder: NSResponder?
+            let viaAccessibility: Bool
+
+            func isNew(comparedTo previous: Selection?) -> Bool {
+                guard let previous else { return true }
+                return text != previous.text || range != previous.range
+                    || !(source === previous.source || source.isEqual(previous.source))
+            }
+
+            func isCurrent(in window: NSWindow) -> Bool {
+                guard window.firstResponder === responder else { return false }
+                if !viaAccessibility, let client = source as? NSTextInputClient, let range {
+                    guard client.selectedRange() == range,
+                          let selected = client.attributedSubstring(forProposedRange: range, actualRange: nil),
+                          selected.string == text else { return false }
+                    let currentRect = client.firstRect(forCharacterRange: range, actualRange: nil)
+                    return abs(currentRect.midX - rect.midX) < 3 && abs(currentRect.midY - rect.midY) < 3
+                }
+                guard source.accessibilityAttributeValue(.selectedText) as? String == text else { return false }
+                let currentRange = (source.accessibilityAttributeValue(.selectedTextRange) as? NSValue)?.rangeValue
+                return currentRange == range
+            }
+        }
         init(theme: MicaTheme, enabled: Bool = true, quote: @escaping (String) -> Void) { self.theme = theme; self.enabled = enabled; self.quote = quote }
         func start() {
             monitor = NSEvent.addLocalMonitorForEvents(matching: [.leftMouseUp, .leftMouseDown, .rightMouseDown, .keyUp, .keyDown, .scrollWheel]) { [weak self] event in
@@ -55,11 +91,22 @@ struct SelectionActions: NSViewRepresentable {
                     withExtendedLifetime(target) { NSMenu.popUpContextMenu(menu, with: event, for: message) }
                     return nil
                 }
-                if event.type == .leftMouseDown || event.type == .scrollWheel || (event.type == .keyDown && event.keyCode == 53) {
+                switch event.type {
+                case .leftMouseDown:
+                    self.selectionBeforeMouseDown = self.selection(in: window)
                     self.dismiss()
-                    if event.type == .leftMouseDown { self.afterSelectionGesture() }
-                } else if event.type == .leftMouseUp || (event.type == .keyUp && event.modifierFlags.contains(.shift)) {
-                    DispatchQueue.main.async { [weak self] in self?.showSelection() }
+                    self.pollForMouseSelection(in: window)
+                case .leftMouseUp:
+                    self.mouseSelectionPoll?.invalidate()
+                    self.mouseSelectionPoll = nil
+                    self.scheduleSelection(after: self.selectionBeforeMouseDown)
+                    self.selectionBeforeMouseDown = nil
+                case .keyDown:
+                    // A nonactivating mouse-only panel is not useful for keyboard selection.
+                    self.dismiss()
+                case .scrollWheel:
+                    self.dismiss()
+                default: break
                 }
                 return event
             }
@@ -90,34 +137,94 @@ struct SelectionActions: NSViewRepresentable {
             dismiss()
         }
         func dismiss() {
+            mouseSelectionPoll?.invalidate()
+            mouseSelectionPoll = nil
+            pendingPresentation?.cancel()
+            pendingPresentation = nil
+            selectionCheck?.invalidate()
+            selectionCheck = nil
             if let panel { panel.parent?.removeChildWindow(panel) }
             panel?.orderOut(nil)
             panel = nil
-            presentedText = nil
+            presentedSelection = nil
         }
-        func afterSelectionGesture() {
-            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) { [weak self] in
-                guard let self, self.enabled, self.monitor != nil, self.host?.window?.isKeyWindow == true else { return }
-                if NSEvent.pressedMouseButtons & 1 != 0 { self.afterSelectionGesture() }
-                else { self.showSelection() }
+        // SwiftUI's selectable Text can consume the mouse-up in its own tracking
+        // loop, bypassing local event monitors. The timer resumes once tracking
+        // ends and captures the newly selected text without relying on mouse-up.
+        func pollForMouseSelection(in window: NSWindow) {
+            mouseSelectionPoll?.invalidate()
+            mouseSelectionPoll = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self, weak window] timer in
+                guard NSEvent.pressedMouseButtons & 1 == 0 else { return }
+                timer.invalidate()
+                MainActor.assumeIsolated {
+                    guard let self, self.enabled, self.host?.window === window,
+                          let window, window.isKeyWindow else { return }
+                    self.mouseSelectionPoll = nil
+                    let previous = self.selectionBeforeMouseDown
+                    self.selectionBeforeMouseDown = nil
+                    guard self.selectionAfterMouseGesture(in: window, after: previous, mouseIsDown: false) != nil else { return }
+                    self.scheduleSelection(after: previous)
+                }
             }
         }
-        func showSelection() {
-            guard enabled, let window = host?.window, window.isKeyWindow else { dismiss(); return }
-            var text: String
-            var rect: NSRect
-            if let client = window.firstResponder as? NSTextInputClient,
-               !(client is ComposerTextView), client.selectedRange().length > 0,
-               let selected = client.attributedSubstring(forProposedRange: client.selectedRange(), actualRange: nil) {
-                text = selected.string
-                rect = client.firstRect(forCharacterRange: client.selectedRange(), actualRange: nil)
-            } else if let element = window.accessibilityHitTest(NSEvent.mouseLocation) as? NSObject,
-                      let selected = element.accessibilityAttributeValue(.selectedText) as? String, !selected.isEmpty {
-                text = selected
-                rect = NSRect(x: NSEvent.mouseLocation.x, y: NSEvent.mouseLocation.y, width: 1, height: 18)
-            } else { dismiss(); return }
-            guard !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { dismiss(); return }
-            if panel != nil, presentedText == text { return }
+        func selectionAfterMouseGesture(in window: NSWindow, after previous: Selection?, mouseIsDown: Bool) -> Selection? {
+            guard !mouseIsDown, let selection = selection(in: window), selection.isNew(comparedTo: previous) else { return nil }
+            return selection
+        }
+        func scheduleSelection(after previous: Selection?) {
+            pendingPresentation?.cancel()
+            // Read the selection after AppKit handles mouse-up but before the
+            // pointer can move off the selected text. Delay only the panel.
+            let capture = DispatchWorkItem { [weak self] in
+                guard let self, self.enabled, self.monitor != nil,
+                      let window = self.host?.window, window.isKeyWindow else { return }
+                self.pendingPresentation = nil
+                guard let selection = self.selectionAfterMouseGesture(in: window, after: previous, mouseIsDown: false) else { return }
+                let present = DispatchWorkItem { [weak self] in
+                    guard let self, self.enabled, self.monitor != nil,
+                          self.host?.window === window, window.isKeyWindow,
+                          selection.isCurrent(in: window) else { return }
+                    self.pendingPresentation = nil
+                    self.showSelection(selection, in: window)
+                }
+                self.pendingPresentation = present
+                DispatchQueue.main.asyncAfter(deadline: .now() + .milliseconds(180), execute: present)
+            }
+            pendingPresentation = capture
+            DispatchQueue.main.async(execute: capture)
+        }
+        func selection(in window: NSWindow, accessibilityElement: NSObject? = nil) -> Selection? {
+            if let client = window.firstResponder as? NSTextInputClient, !(client is ComposerTextView),
+               let source = window.firstResponder {
+                let range = client.selectedRange()
+                if range.length > 0,
+                   let selected = client.attributedSubstring(forProposedRange: range, actualRange: nil),
+                   !selected.string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                    return Selection(text: selected.string,
+                                     rect: client.firstRect(forCharacterRange: range, actualRange: nil),
+                                     source: source, range: range, responder: source, viaAccessibility: false)
+                }
+            }
+            let point = NSEvent.mouseLocation
+            if let composer = window.firstResponder as? ComposerTextView,
+               composer.bounds.contains(composer.convert(window.convertPoint(fromScreen: point), from: nil)) { return nil }
+            guard let element = accessibilityElement ?? window.accessibilityHitTest(point) as? NSObject,
+                  let text = element.accessibilityAttributeValue(.selectedText) as? String,
+                  !text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
+            return Selection(text: text,
+                             rect: NSRect(x: point.x, y: point.y, width: 1, height: 18),
+                             source: element,
+                             range: (element.accessibilityAttributeValue(.selectedTextRange) as? NSValue)?.rangeValue,
+                             responder: window.firstResponder, viaAccessibility: true)
+        }
+        func checkPresentedSelection() {
+            guard let window = host?.window, window.isKeyWindow,
+                  let presentedSelection, presentedSelection.isCurrent(in: window) else { dismiss(); return }
+        }
+        func showSelection(_ selection: Selection, in window: NSWindow) {
+            guard enabled, window.isKeyWindow else { dismiss(); return }
+            let text = selection.text
+            var rect = selection.rect
             let selectionTop = rect.maxY
             dismiss()
             let panel = NSPanel(contentRect: .zero, styleMask: [.borderless, .nonactivatingPanel], backing: .buffered, defer: false)
@@ -145,7 +252,10 @@ struct SelectionActions: NSViewRepresentable {
             window.addChildWindow(panel, ordered: .above)
             panel.orderFront(nil)
             self.panel = panel
-            presentedText = text
+            presentedSelection = selection
+            selectionCheck = Timer.scheduledTimer(withTimeInterval: 0.1, repeats: true) { [weak self] _ in
+                MainActor.assumeIsolated { self?.checkPresentedSelection() }
+            }
             NSAnimationContext.runAnimationGroup { context in
                 context.duration = reduceMotion ? 0.1 : 0.16
                 context.timingFunction = CAMediaTimingFunction(name: .easeOut)
