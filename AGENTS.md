@@ -11,6 +11,13 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 Kit uses `~/.kit` by default. Set `KIT_HOME` to an explicit isolated directory
 for development and tests when production state must not be read or mutated.
 
+When working from a development worktree, do not launch a development daemon,
+replace or restart the existing daemon, or open/migrate the production `~/.kit`
+database without explicit user authorization. A normal `kit` invocation may
+start or replace a daemon. Follow `.agents/skills/worktree-development/SKILL.md`
+before running a development build against a Kit home; keep ordinary access to
+existing sessions on their current server when compatible.
+
 ## Design language
 
 Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All
