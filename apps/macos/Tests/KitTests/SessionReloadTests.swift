@@ -104,6 +104,38 @@ private actor ReloadClient: SessionReloadClient {
         #expect(await client.calls == 1)
     }
 
+    @Test func reopeningPaletteHasADistinctPresentation() {
+        let ui = SessionUIState(demo: false)
+        ui.palette = true
+        let first = ui.paletteGeneration
+        ui.palette = true
+        #expect(ui.paletteGeneration == first)
+        ui.palette = false
+        ui.palette = true
+        #expect(ui.paletteGeneration != first)
+    }
+
+    @Test func paletteProgressTracksReloadThenRefresh() async throws {
+        let client = ReloadClient(clean: true), operation = SessionReloadOperation()
+        await client.pauseReload()
+        var finishRefresh: CheckedContinuation<Void, Never>?
+        let task = Task {
+            await operation.perform(session: "s", client: client) {
+                await withCheckedContinuation { finishRefresh = $0 }
+            }
+        }
+        for _ in 0..<100 where !(await client.reloadWaiting()) { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(operation.pending)
+        #expect(operation.progressLabel == "Reloading session context…")
+        await client.resumeReload()
+        for _ in 0..<100 where finishRefresh == nil { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(operation.pending)
+        #expect(operation.progressLabel == "Refreshing session…")
+        finishRefresh?.resume()
+        await task.value
+        #expect(!operation.pending)
+    }
+
     @Test func cleanReloadReportsAnEphemeralSuccessToast() async throws {
         let client = ReloadClient(clean: true), operation = SessionReloadOperation()
         await operation.perform(session: "s", client: client, refresh: {})

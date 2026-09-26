@@ -57,6 +57,9 @@ final class SessionReloadOperation {
     private(set) var result: WireReloadSessionResult?
     private(set) var error: String?
     private(set) var refreshError: String?
+    var progressLabel: String {
+        result != nil || error != nil ? "Refreshing session…" : "Reloading session context…"
+    }
 
     func perform(session: String, client: any SessionReloadClient,
                  refresh: @MainActor () async throws -> Void) async {

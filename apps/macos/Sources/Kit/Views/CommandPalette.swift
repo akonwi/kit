@@ -13,6 +13,8 @@ struct CommandPalette: View {
     @State private var browsing = false
     @State private var forking = false
     @State private var renaming = false
+    @State private var reloadSessionID: String?
+    @State private var reloadProgressOperation: SessionReloadOperation?
     @State private var query = ""
     @State private var selection = 0
     @State private var selectedIdentity: String?
@@ -29,7 +31,9 @@ struct CommandPalette: View {
 
     var body: some View {
         Group {
-            if let command = pluginSelection {
+            if let reloadProgressOperation {
+                reloadProgress(operation: reloadProgressOperation)
+            } else if let command = pluginSelection {
                 PluginCommandArguments(state: state, command: command) { pluginSelection = nil }
             } else if showingDetails {
                 SessionDetailsView(state: state) { showingDetails = false }
@@ -54,6 +58,33 @@ struct CommandPalette: View {
             await state.refreshSessions()
             if state.unavailable { state.ui.palette = false }
         }, target: $disposalTarget, deleting: $deleting))
+        .onChange(of: state.ui.palette) { _, presented in
+            if !presented {
+                reloadSessionID = nil
+                reloadProgressOperation = nil
+            }
+        }
+    }
+
+    private func reloadProgress(operation: SessionReloadOperation) -> some View {
+        VStack(alignment: .leading, spacing: 0) {
+            HStack(spacing: 12) {
+                KitSpinner()
+                Text(operation.progressLabel).font(.kit(size: 16, weight: .medium))
+            }.padding(20)
+            Rule()
+            Text("You can hide this panel; the reload will continue.")
+                .font(.kit(size: 12)).foregroundStyle(theme.muted)
+                .padding(20)
+            Spacer(minLength: 16)
+            Rule()
+            Button("Esc hide") { state.ui.palette = false }
+                .keyboardShortcut(.cancelAction).buttonStyle(.plain)
+                .font(.kit(size: 11)).foregroundStyle(theme.muted).padding(14)
+        }
+        .foregroundStyle(theme.text).background(theme.surface)
+        .frame(width: 520, height: 180)
+        .onExitCommand { state.ui.palette = false }
     }
 
     private var commandList: some View {
@@ -75,7 +106,11 @@ struct CommandPalette: View {
             ScrollView { VStack(spacing: 0) { ForEach(Array(actions.enumerated()), id: \.element.id) { index, action in
                 Button { selection = index; selectedIdentity = action.id; performSelected() } label: {
                     HStack(spacing: 12) {
-                        Image(systemName: action.icon).frame(width: 18)
+                        if action.id == "Reload session context" && state.reloadOperation.pending {
+                            KitSpinner().frame(width: 18)
+                        } else {
+                            Image(systemName: action.icon).frame(width: 18)
+                        }
                         VStack(alignment: .leading, spacing: 3) {
                             HStack {
                                 Text(action.name).font(.kit(size: 13, weight: .medium))
@@ -135,7 +170,7 @@ struct CommandPalette: View {
         return switch name {
         case "compact": state.compactionUnavailableReason
         case "Refresh model catalog": modelRefreshUnavailableReason
-        case "Reload session context": state.reloadUnavailableReason
+        case "Reload session context": state.reloadOperation.pending ? state.reloadOperation.progressLabel : state.reloadUnavailableReason
         case "Change working directory": state.directoryUnavailableReason
         case "Rename session": state.renameUnavailableReason
         case "Fork session": state.forkUnavailableReason
@@ -180,9 +215,18 @@ struct CommandPalette: View {
         if name == "Reload session context" {
             guard state.reloadUnavailableReason == nil else { return }
             focused = false
-            state.ui.palette = false
             let session = state.selectedID
-            Task { await state.reloadSession(for: session) }
+            let operation = state.reloadOperation
+            let presentation = state.ui.paletteGeneration
+            reloadSessionID = session
+            reloadProgressOperation = operation
+            Task {
+                await state.reloadSession(for: session)
+                guard state.ui.palette, state.ui.paletteGeneration == presentation,
+                      state.selectedID == session, reloadSessionID == session,
+                      reloadProgressOperation === operation else { return }
+                state.ui.palette = false
+            }
             return
         }
         if name == "Session details" {

@@ -52,7 +52,9 @@ hovering or keyboard focus keeps them visible. Persistent warnings remain availa
 card or its list entry removes the notice from both surfaces. Notices are local
 to each session and do not send system notifications. Compaction outcomes, shell
 operation errors, run failures, and subagent-definition diagnostics use this surface;
-ongoing progress stays in the footer and input-specific errors remain at their source.
+compaction progress stays in the footer, while reload progress appears in the command
+palette until hidden or complete. Hiding the palette does not stop the reload.
+Input-specific errors remain at their source.
 
 Live tool groups reveal their first five calls, then collapse when the sixth arrives.
 The collapsed summary shows activity, the cumulative call count, and failures.

@@ -4,7 +4,10 @@ import Observation
 /// Per-window UI state, with per-session drafts and workspaces retained locally.
 @MainActor @Observable
 final class SessionUIState {
-    var palette = false
+    var palette = false {
+        didSet { if palette && !oldValue { paletteGeneration = UUID() } }
+    }
+    @ObservationIgnored private(set) var paletteGeneration = UUID()
     var subagentsPresented = false
     var filePicker = false
     var filePickerIntent = "mention"

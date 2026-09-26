@@ -31,16 +31,9 @@ struct SessionFooter: View {
         let compaction = state.compactionOperation
         let status = Self.status(approval: state.approval, replaying: state.replaying)
         return HStack(spacing: 8) {
-            if state.bashOperation.pending || state.activeBashID != nil {
-                KitSpinner()
-                Text(state.bashOperation.stopping ? "Stopping shell…" : state.bashOperation.pending ? "Starting shell…" : "Running shell…")
-            } else if compaction.pending {
+            if compaction.pending {
                 KitSpinner()
                 Text(compaction.title)
-            } else if state.reloadOperation.pending {
-                KitSpinner()
-                Text(state.reloadOperation.result != nil || state.reloadOperation.error != nil
-                     ? "Refreshing session…" : "Reloading session context…")
             } else if let retryAt = state.selected?.providerRetryAt {
                 TimelineView(.periodic(from: .now, by: 1)) { context in
                     Text("Provider retry in \(Self.secondsRemaining(retryAt, now: context.date))s")
