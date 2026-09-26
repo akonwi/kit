@@ -4,12 +4,29 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/storage"
 )
+
+type scratchpadFanoutGateRepository struct {
+	*storage.Store
+	armed   atomic.Bool
+	started chan struct{}
+	release chan struct{}
+}
+
+func (repository *scratchpadFanoutGateRepository) ListSessions(ctx context.Context, cwd string) ([]session.SessionRecord, error) {
+	if repository.armed.CompareAndSwap(true, false) {
+		close(repository.started)
+		<-repository.release
+	}
+	return repository.Store.ListSessions(ctx, cwd)
+}
 
 type mismatchedScratchpadOwnerRepository struct {
 	session.Repository
@@ -138,6 +155,101 @@ func TestManagerAssignsScratchpadOwnershipOnlyToSemanticForks(t *testing.T) {
 		if err != nil || len(page.Events) != 1 || page.Events[0].Scratchpad == nil || *page.Events[0].Scratchpad != edited {
 			t.Fatalf("edit family events for %q = %+v, %v", record.ID, page, err)
 		}
+	}
+
+	beforeTransfer := make(map[string]session.Snapshot)
+	for _, record := range []session.SessionRecord{child, grandchild} {
+		snapshot, err := manager.Snapshot(t.Context(), record.ID)
+		if err != nil {
+			t.Fatal(err)
+		}
+		beforeTransfer[record.ID] = snapshot
+	}
+	if err := manager.Delete(t.Context(), owner.ID); err != nil {
+		t.Fatal(err)
+	}
+	transferred, err := manager.UpdateScratchpad(t.Context(), child.ID, edited.Revision, "notes after owner deletion")
+	if err != nil || transferred.OwnerSessionID != child.ID {
+		t.Fatalf("UpdateScratchpad() after owner deletion = %+v, %v", transferred, err)
+	}
+	for _, record := range []session.SessionRecord{child, grandchild} {
+		page, err := manager.Events(t.Context(), record.ID, beforeTransfer[record.ID].EventStreamID, beforeTransfer[record.ID].EventCursor)
+		if err != nil || len(page.Events) != 1 || page.Events[0].Kind != session.EventScratchpadChanged || page.Events[0].Scratchpad == nil || *page.Events[0].Scratchpad != transferred {
+			t.Fatalf("post-transfer events for %q = %+v, %v", record.ID, page, err)
+		}
+	}
+}
+
+func TestScratchpadFanoutCompletesBeforeOwnerTransfer(t *testing.T) {
+	root := t.TempDir()
+	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = store.Close() })
+	repository := &scratchpadFanoutGateRepository{Store: store, started: make(chan struct{}), release: make(chan struct{})}
+	manager, err := session.NewManager(
+		repository,
+		&authorityProviders{},
+		staticRuntimeBundleBuilder("system"),
+		session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
+	)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(manager.Close)
+	owner, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	fork, err := manager.Fork(t.Context(), owner.ID, session.ForkInput{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	before, err := manager.Snapshot(t.Context(), fork.Session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	released := false
+	defer func() {
+		if !released {
+			close(repository.release)
+		}
+	}()
+	repository.armed.Store(true)
+	updateDone := make(chan error, 1)
+	go func() {
+		_, err := manager.UpdateScratchpad(context.Background(), fork.Session.ID, 1, "serialized update")
+		updateDone <- err
+	}()
+	select {
+	case <-repository.started:
+	case err := <-updateDone:
+		t.Fatalf("scratchpad update returned before fanout gate: %v", err)
+	case <-time.After(10 * time.Second):
+		t.Fatal("scratchpad fanout did not reach repository gate")
+	}
+	deleteDone := make(chan error, 1)
+	go func() { deleteDone <- manager.Delete(context.Background(), owner.ID) }()
+	select {
+	case err := <-deleteDone:
+		t.Fatalf("Delete() completed before scratchpad fanout: %v", err)
+	case <-time.After(25 * time.Millisecond):
+	}
+	if _, err := store.GetSession(t.Context(), owner.ID); err != nil {
+		t.Fatalf("owner disappeared before scratchpad fanout completed: %v", err)
+	}
+	close(repository.release)
+	released = true
+	if err := <-updateDone; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-deleteDone; err != nil {
+		t.Fatal(err)
+	}
+	page, err := manager.Events(t.Context(), fork.Session.ID, before.EventStreamID, before.EventCursor)
+	if err != nil || len(page.Events) != 1 || page.Events[0].Kind != session.EventScratchpadChanged {
+		t.Fatalf("event page after serialized deletion = %+v, %v", page, err)
 	}
 }
 

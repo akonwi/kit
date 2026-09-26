@@ -239,11 +239,11 @@ func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) err
 	if s.diffs != nil {
 		s.diffs.RemoveSession(sessionID)
 	}
+	if s.fileIndexes != nil {
+		s.fileIndexes.removeSession(sessionID)
+	}
 	if s.annotations != nil {
 		s.annotations.ForgetSession(sessionID)
-	}
-	if s.attachments != nil {
-		return s.attachments.RemoveSession(ctx, sessionID)
 	}
 	return nil
 }
@@ -454,9 +454,20 @@ func (s runtimeSessionService) ReadFileDiff(ctx context.Context, sessionID strin
 	if s.diffs == nil {
 		return protocol.FileDiffPage{}, &kitworkingdiff.Error{Code: kitworkingdiff.Unavailable, Message: "diff service is unavailable"}
 	}
-	record, err := s.manager.Get(ctx, sessionID)
-	if err != nil {
-		return protocol.FileDiffPage{}, err
+	var record kitsession.SessionRecord
+	var err error
+	if input.AnnotationID != 0 {
+		var release func()
+		record, release, err = s.manager.BeginSessionOperationRecord(ctx, sessionID)
+		if err != nil {
+			return protocol.FileDiffPage{}, err
+		}
+		defer release()
+	} else {
+		record, err = s.manager.Get(ctx, sessionID)
+		if err != nil {
+			return protocol.FileDiffPage{}, err
+		}
 	}
 	var result protocol.FileDiffPage
 	if input.AnnotationID != 0 {
@@ -498,10 +509,11 @@ func (s runtimeSessionService) ListAnnotations(ctx context.Context, sessionID st
 	if s.annotations == nil {
 		return protocol.AnnotationPage{}, fmt.Errorf("annotation service is unavailable")
 	}
-	record, err := s.manager.Get(ctx, sessionID)
+	record, release, err := s.manager.BeginSessionOperationRecord(ctx, sessionID)
 	if err != nil {
 		return protocol.AnnotationPage{}, err
 	}
+	defer release()
 	if err := s.prepareAnnotationSession(ctx, record); err != nil {
 		return protocol.AnnotationPage{}, err
 	}
@@ -534,10 +546,11 @@ func (s runtimeSessionService) CreateAnnotation(ctx context.Context, sessionID s
 	if s.annotations == nil {
 		return protocol.Annotation{}, fmt.Errorf("annotation service is unavailable")
 	}
-	record, err := s.manager.Get(ctx, sessionID)
+	record, release, err := s.manager.BeginSessionOperationRecord(ctx, sessionID)
 	if err != nil {
 		return protocol.Annotation{}, err
 	}
+	defer release()
 	if err := s.prepareAnnotationSession(ctx, record); err != nil {
 		return protocol.Annotation{}, err
 	}
@@ -555,10 +568,11 @@ func (s runtimeSessionService) UpdateAnnotation(ctx context.Context, sessionID s
 	if s.annotations == nil {
 		return protocol.Annotation{}, fmt.Errorf("annotation service is unavailable")
 	}
-	record, err := s.manager.Get(ctx, sessionID)
+	record, release, err := s.manager.BeginSessionOperationRecord(ctx, sessionID)
 	if err != nil {
 		return protocol.Annotation{}, err
 	}
+	defer release()
 	if err := s.prepareAnnotationSession(ctx, record); err != nil {
 		return protocol.Annotation{}, err
 	}
@@ -576,10 +590,11 @@ func (s runtimeSessionService) DeleteAnnotation(ctx context.Context, sessionID s
 	if s.annotations == nil {
 		return fmt.Errorf("annotation service is unavailable")
 	}
-	record, err := s.manager.Get(ctx, sessionID)
+	record, release, err := s.manager.BeginSessionOperationRecord(ctx, sessionID)
 	if err != nil {
 		return err
 	}
+	defer release()
 	if err := s.prepareAnnotationSession(ctx, record); err != nil {
 		return err
 	}
@@ -697,6 +712,13 @@ func (s runtimeSessionService) VCS(ctx context.Context, sessionID string) (proto
 }
 
 func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
+	if s.annotations != nil {
+		release, err := s.manager.BeginSessionOperation(ctx, sessionID)
+		if err != nil {
+			return protocol.SessionSnapshot{}, err
+		}
+		defer release()
+	}
 	workspaces, workspaceErr := s.workspaceService()
 	if workspaceErr != nil {
 		return protocol.SessionSnapshot{}, workspaceErr

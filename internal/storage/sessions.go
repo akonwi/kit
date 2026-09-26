@@ -10,6 +10,9 @@ import (
 	"strings"
 	"time"
 	"unicode/utf8"
+
+	"github.com/akonwi/kit/internal/identifier"
+	kitsession "github.com/akonwi/kit/internal/session"
 )
 
 const timestampLayout = "2006-01-02T15:04:05.000000000Z"
@@ -51,6 +54,12 @@ func (s *Store) CreateSession(ctx context.Context, input NewSession) (SessionRec
 		return SessionRecord{}, fmt.Errorf("begin session %q creation: %w", input.ID, err)
 	}
 	defer func() { _ = tx.Rollback() }()
+	var deleted int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM deleted_session_ids WHERE id = ?`, input.ID).Scan(&deleted); err == nil {
+		return SessionRecord{}, fmt.Errorf("session id %q was permanently deleted: %w", input.ID, kitsession.ErrInvalidInput)
+	} else if !errors.Is(err, sql.ErrNoRows) {
+		return SessionRecord{}, fmt.Errorf("check deleted session id %q: %w", input.ID, err)
+	}
 
 	ownerID := input.ScratchpadOwnerID
 	if ownerID != input.ID {
@@ -333,6 +342,208 @@ func (s *Store) TouchSession(ctx context.Context, id string, activityAt time.Tim
 		return nil
 	}
 	return fmt.Errorf("session %q: %w", id, ErrNotFound)
+}
+
+// CompleteSessionDeletion records that external stores and attachments were removed.
+func (s *Store) CompleteSessionDeletion(ctx context.Context, id string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+	result, err := tx.ExecContext(ctx, `UPDATE deleted_session_ids SET cleanup_pending = 0 WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("complete session deletion %q: %w", id, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return err
+	}
+	if count == 0 {
+		var exists int
+		if err := tx.QueryRowContext(ctx, `SELECT 1 FROM deleted_session_ids WHERE id = ?`, id).Scan(&exists); errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("session deletion %q: %w", id, ErrNotFound)
+		} else if err != nil {
+			return fmt.Errorf("check session deletion %q: %w", id, err)
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM session_deletion_artifacts WHERE session_id = ?`, id); err != nil {
+		return fmt.Errorf("complete deletion artifacts for %q: %w", id, err)
+	}
+	return tx.Commit()
+}
+
+// ListSessionDeletionArtifacts returns the durable external-store inventory for a deletion job.
+func (s *Store) ListSessionDeletionArtifacts(ctx context.Context, id string) ([]string, error) {
+	if s == nil || s.db == nil {
+		return nil, fmt.Errorf("store is closed")
+	}
+	rows, err := s.db.QueryContext(ctx, `
+		SELECT artifact_id FROM session_deletion_artifacts
+		WHERE session_id = ? AND artifact_kind = 'subagent_store' ORDER BY artifact_id
+	`, id)
+	if err != nil {
+		return nil, fmt.Errorf("list deletion artifacts for %q: %w", id, err)
+	}
+	defer rows.Close()
+	var ids []string
+	for rows.Next() {
+		var artifactID string
+		if err := rows.Scan(&artifactID); err != nil {
+			return nil, err
+		}
+		ids = append(ids, artifactID)
+	}
+	return ids, rows.Err()
+}
+
+// DeleteSession permanently deletes a session and all registry data owned by it.
+// When semantic forks share its scratchpad, ownership transfers to a surviving
+// direct child so the remaining sessions keep the same shared contents.
+func (s *Store) DeleteSession(ctx context.Context, id string) error {
+	return s.DeleteSessionWithArtifacts(ctx, id)
+}
+
+// DeleteSessionWithArtifacts permanently deletes a session and records its exact
+// external child-store inventory in the durable cleanup job.
+func (s *Store) DeleteSessionWithArtifacts(ctx context.Context, id string) error {
+	if s == nil || s.db == nil {
+		return fmt.Errorf("store is closed")
+	}
+	if id == "" {
+		return fmt.Errorf("session id is empty")
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = tx.Rollback() }()
+
+	var exists int
+	if err := tx.QueryRowContext(ctx, `SELECT 1 FROM sessions WHERE id = ?`, id).Scan(&exists); err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			var deleted int
+			if deletedErr := tx.QueryRowContext(ctx, `SELECT 1 FROM deleted_session_ids WHERE id = ?`, id).Scan(&deleted); deletedErr == nil {
+				return nil
+			} else if !errors.Is(deletedErr, sql.ErrNoRows) {
+				return fmt.Errorf("check deleted session %q: %w", id, deletedErr)
+			}
+			return fmt.Errorf("session %q: %w", id, ErrNotFound)
+		}
+		return fmt.Errorf("find session %q for deletion: %w", id, err)
+	}
+
+	var dependentCount int
+	if err := tx.QueryRowContext(ctx, `
+		SELECT COUNT(*) FROM sessions WHERE scratchpad_owner_id = ? AND id <> ?
+	`, id, id).Scan(&dependentCount); err != nil {
+		return fmt.Errorf("count sessions sharing scratchpad %q: %w", id, err)
+	}
+	if dependentCount > 0 {
+		var successor string
+		err := tx.QueryRowContext(ctx, `
+			SELECT id FROM sessions
+			WHERE scratchpad_owner_id = ? AND id <> ?
+			ORDER BY created_at, id LIMIT 1
+		`, id, id).Scan(&successor)
+		if errors.Is(err, sql.ErrNoRows) {
+			return fmt.Errorf("cannot delete session %q: shared scratchpad has no surviving owner", id)
+		}
+		if err != nil {
+			return fmt.Errorf("find successor scratchpad owner for %q: %w", id, err)
+		}
+
+		var content string
+		var revision int64
+		var updatedAt string
+		var migrationRequired int
+		if err := tx.QueryRowContext(ctx, `
+			SELECT content, revision, updated_at, migration_required
+			FROM scratchpads WHERE owner_session_id = ?
+		`, id).Scan(&content, &revision, &updatedAt, &migrationRequired); err != nil {
+			return fmt.Errorf("load shared scratchpad %q for transfer: %w", id, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO scratchpads(owner_session_id, content, revision, updated_at, migration_required)
+			VALUES (?, ?, ?, ?, ?)
+		`, successor, content, revision, updatedAt, migrationRequired); err != nil {
+			return fmt.Errorf("copy shared scratchpad %q to successor %q: %w", id, successor, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO scratchpad_owner_transfers(source_owner_id, target_owner_id)
+			VALUES (?, ?)
+		`, id, successor); err != nil {
+			return fmt.Errorf("authorize shared scratchpad transfer from %q to %q: %w", id, successor, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			UPDATE sessions SET scratchpad_owner_id = ?
+			WHERE scratchpad_owner_id = ? AND id <> ?
+		`, successor, id, id); err != nil {
+			return fmt.Errorf("transfer shared scratchpad %q to successor %q: %w", id, successor, err)
+		}
+		if _, err := tx.ExecContext(ctx, `
+			DELETE FROM scratchpad_owner_transfers WHERE source_owner_id = ? AND target_owner_id = ?
+		`, id, successor); err != nil {
+			return fmt.Errorf("finish shared scratchpad transfer from %q to %q: %w", id, successor, err)
+		}
+	}
+
+	if _, err := tx.ExecContext(ctx, `
+		INSERT INTO deleted_session_ids(id, deleted_at, cleanup_pending)
+		VALUES (?, ?, 1)
+	`, id, formatTimestamp(time.Now().UTC())); err != nil {
+		return fmt.Errorf("reserve deleted session id %q: %w", id, err)
+	}
+	rows, err := tx.QueryContext(ctx, `SELECT id FROM subagent_conversations WHERE owner_session_id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("list child stores for session %q: %w", id, err)
+	}
+	var childStoreIDs []string
+	for rows.Next() {
+		var childID string
+		if err := rows.Scan(&childID); err != nil {
+			_ = rows.Close()
+			return fmt.Errorf("read child store for session %q: %w", id, err)
+		}
+		if !identifier.Valid(childID, "subagent_") {
+			_ = rows.Close()
+			return fmt.Errorf("invalid subagent store id %q", childID)
+		}
+		childStoreIDs = append(childStoreIDs, childID)
+	}
+	if err := rows.Err(); err != nil {
+		_ = rows.Close()
+		return fmt.Errorf("iterate child stores for session %q: %w", id, err)
+	}
+	if err := rows.Close(); err != nil {
+		return fmt.Errorf("close child store inventory for session %q: %w", id, err)
+	}
+	for _, childID := range childStoreIDs {
+		if _, err := tx.ExecContext(ctx, `
+			INSERT INTO session_deletion_artifacts(session_id, artifact_kind, artifact_id)
+			VALUES (?, 'subagent_store', ?)
+		`, id, childID); err != nil {
+			return fmt.Errorf("record deletion artifact %q for session %q: %w", childID, id, err)
+		}
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM sessions WHERE id = ?`, id)
+	if err != nil {
+		return fmt.Errorf("delete session %q: %w", id, err)
+	}
+	count, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("count deleted session %q: %w", id, err)
+	}
+	if count != 1 {
+		return fmt.Errorf("session %q: %w", id, ErrNotFound)
+	}
+	if err := tx.Commit(); err != nil {
+		return fmt.Errorf("commit deletion of session %q: %w", id, err)
+	}
+	return nil
 }
 
 // ArchiveSession hides a session from future loads while retaining its durable data.

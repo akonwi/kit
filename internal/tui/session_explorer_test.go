@@ -514,7 +514,7 @@ func TestSessionDeletePresentationShowsConfirmationFailureAndPendingStates(t *te
 		snapshot sessionExplorerSnapshot
 		want     []string
 	}{
-		{name: "confirm", snapshot: base, want: []string{"Delete session?", "Target", "This action cannot be undone.", "enter confirm · esc cancel"}},
+		{name: "confirm", snapshot: base, want: []string{"Delete session?", "Target", "Stored history and data will be permanently deleted. This cannot", "be undone.", "enter confirm · esc cancel"}},
 		{name: "failed", snapshot: func() sessionExplorerSnapshot {
 			snapshot := base
 			snapshot.DeleteError = "session is busy"

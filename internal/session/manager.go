@@ -131,16 +131,24 @@ type Manager struct {
 	mailbox               subagent.Repository
 	peerQueries           peer.Repository
 	peerLimits            peer.Limits
-	subagentOwnerCanceler interface{ CancelOwner(string) }
-	droidDirectory        string
-	temporaryDroids       bool
-	bashContext           context.Context
-	cancelBash            context.CancelCauseFunc
-	mailboxContext        context.Context
-	cancelMailbox         context.CancelFunc
+	peerActive            map[string]peer.Request
+	peerAdmissionCounts   map[string]int
+	subagentOwnerDeletion interface {
+		BeginOwnerDeletion(string) error
+		EndOwnerDeletion(string)
+		ForgetOwnerConversations([]subagent.ConversationID) error
+	}
+	droidDirectory  string
+	temporaryDroids bool
+	bashContext     context.Context
+	cancelBash      context.CancelCauseFunc
+	mailboxContext  context.Context
+	cancelMailbox   context.CancelFunc
 
 	mu                sync.Mutex
+	scratchpadMu      sync.RWMutex
 	metadataGates     map[string]*sync.Mutex
+	sessionOperations map[string]int
 	runtimes          map[string]*runtime
 	loading           map[string]*runtimeLoad
 	deleting          map[string]bool
@@ -216,7 +224,6 @@ type runtime struct {
 	events                     *eventLog
 	eventCursor                droids.EventSequence
 	eventChanged               chan struct{}
-	scratchpadOwnerID          string
 
 	subagentEventMu       sync.Mutex
 	subagentEventPending  *NewEvent
@@ -414,7 +421,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
 		shutdownDone: make(chan struct{}), mailboxWorkers: make(map[string]*mailboxReactionWorker),
 		mailboxBlocked: make(map[string]bool), mailboxSlots: make(chan struct{}, maxConcurrentReactions),
-		peerLimits: peer.DefaultLimits(), peerWorkers: make(map[string]*mailboxReactionWorker),
+		peerLimits: peer.DefaultLimits(), peerWorkers: make(map[string]*mailboxReactionWorker), peerActive: make(map[string]peer.Request), peerAdmissionCounts: make(map[string]int),
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
 		bashSlots:        make(chan struct{}, maxConcurrentDirectBash),
@@ -454,15 +461,19 @@ func (m *Manager) StartSubagentMailbox() error {
 	return nil
 }
 
-// SetSubagentOwnerCanceler connects owner archival to the daemon-wide child supervisor.
+// SetSubagentOwnerDeletion connects session deletion to the daemon-wide child supervisor.
 // It must be called during composition before sessions accept work.
-func (m *Manager) SetSubagentOwnerCanceler(canceler interface{ CancelOwner(string) }) error {
+func (m *Manager) SetSubagentOwnerDeletion(deletion interface {
+	BeginOwnerDeletion(string) error
+	EndOwnerDeletion(string)
+	ForgetOwnerConversations([]subagent.ConversationID) error
+}) error {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.closed || len(m.runtimes) != 0 || len(m.loading) != 0 {
 		return ErrBusy
 	}
-	m.subagentOwnerCanceler = canceler
+	m.subagentOwnerDeletion = deletion
 	return nil
 }
 
@@ -821,8 +832,63 @@ func sessionMatchesCreate(record SessionRecord, input NewSession) bool {
 		record.ThinkingLevel == input.ThinkingLevel && record.ArchivedAt == nil
 }
 
-func (m *Manager) lockSessionMetadata(sessionID string) func() {
+// BeginSessionOperation tracks an external session operation such as publishing
+// or opening an attachment. Concurrent operations are allowed; deletion is
+// rejected while any operation is active. The returned release function must be
+// called exactly once.
+func (m *Manager) BeginSessionOperation(ctx context.Context, sessionID string) (func(), error) {
+	_, release, err := m.BeginSessionOperationRecord(ctx, sessionID)
+	return release, err
+}
+
+// BeginSessionOperationRecord starts a tracked session operation and returns
+// the authoritative metadata loaded while deletion admission is closed.
+func (m *Manager) BeginSessionOperationRecord(ctx context.Context, sessionID string) (SessionRecord, func(), error) {
+	if err := m.beginOperation(); err != nil {
+		return SessionRecord{}, nil, err
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
 	m.mu.Lock()
+	if m.deleting[sessionID] {
+		m.mu.Unlock()
+		m.ops.Done()
+		return SessionRecord{}, nil, ErrDeleteBusy
+	}
+	if m.sessionOperations == nil {
+		m.sessionOperations = make(map[string]int)
+	}
+	m.sessionOperations[sessionID]++
+	m.mu.Unlock()
+	record, err := m.Get(ctx, sessionID)
+	if err != nil {
+		m.endSessionOperation(sessionID)
+		m.ops.Done()
+		return SessionRecord{}, nil, err
+	}
+	var once sync.Once
+	release := func() {
+		once.Do(func() {
+			m.endSessionOperation(sessionID)
+			m.ops.Done()
+		})
+	}
+	return record, release, nil
+}
+
+func (m *Manager) endSessionOperation(sessionID string) {
+	m.mu.Lock()
+	m.sessionOperations[sessionID]--
+	if m.sessionOperations[sessionID] == 0 {
+		delete(m.sessionOperations, sessionID)
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) sessionMetadataGate(sessionID string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
 	if m.metadataGates == nil {
 		m.metadataGates = make(map[string]*sync.Mutex)
 	}
@@ -831,7 +897,11 @@ func (m *Manager) lockSessionMetadata(sessionID string) func() {
 		gate = &sync.Mutex{}
 		m.metadataGates[sessionID] = gate
 	}
-	m.mu.Unlock()
+	return gate
+}
+
+func (m *Manager) lockSessionMetadata(sessionID string) func() {
+	gate := m.sessionMetadataGate(sessionID)
 	gate.Lock()
 	return gate.Unlock
 }
@@ -918,7 +988,7 @@ func (m *Manager) publishSessionRenamed(loaded *runtime, record SessionRecord) {
 	}
 }
 
-// Delete archives a persisted session and releases an idle loaded runtime.
+// Delete permanently removes a persisted session and its session-owned stores.
 func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 	if err := m.beginOperation(); err != nil {
 		return err
@@ -931,9 +1001,19 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		return fmt.Errorf("%w: invalid session id", ErrInvalidInput)
 	}
 	m.mu.Lock()
-	if m.deleting[sessionID] || m.creating[sessionID] != nil || m.loading[sessionID] != nil {
+	if m.deleting[sessionID] || m.creating[sessionID] != nil || m.loading[sessionID] != nil || m.sessionOperations[sessionID] > 0 {
 		m.mu.Unlock()
 		return ErrDeleteBusy
+	}
+	if m.peerAdmissionCounts[sessionID] > 0 {
+		m.mu.Unlock()
+		return ErrDeleteBusy
+	}
+	for _, request := range m.peerActive {
+		if request.SenderSessionID == sessionID || request.RecipientSessionID == sessionID {
+			m.mu.Unlock()
+			return ErrDeleteBusy
+		}
 	}
 	_, temporary := m.temporary[sessionID]
 	if temporary {
@@ -948,6 +1028,43 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		delete(m.deleting, sessionID)
 		m.mu.Unlock()
 	}()
+	// Drain short session metadata mutations; external attachment operations are
+	// tracked separately and cause deletion to return ErrDeleteBusy above.
+	unlockMetadata := m.lockSessionMetadata(sessionID)
+	unlockMetadata()
+
+	ownerDeletionStarted := false
+	if m.subagentOwnerDeletion != nil {
+		if err := m.subagentOwnerDeletion.BeginOwnerDeletion(sessionID); err != nil {
+			return ErrDeleteBusy
+		}
+		ownerDeletionStarted = true
+		defer m.subagentOwnerDeletion.EndOwnerDeletion(sessionID)
+	}
+
+	var childConversations []subagent.Conversation
+	if m.mailbox != nil {
+		conversations, err := m.mailbox.ListConversations(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("list subagent conversations for deletion: %w", err)
+		}
+		dismissed, err := m.mailbox.ListDismissedConversations(ctx, sessionID)
+		if err != nil {
+			return fmt.Errorf("list dismissed subagent conversations for deletion: %w", err)
+		}
+		childConversations = append(conversations, dismissed...)
+		for _, conversation := range childConversations {
+			tasks, err := m.mailbox.ListTasks(ctx, conversation.ID)
+			if err != nil {
+				return fmt.Errorf("list subagent tasks for deletion: %w", err)
+			}
+			for _, task := range tasks {
+				if !subagent.TerminalTask(task.State) {
+					return ErrDeleteBusy
+				}
+			}
+		}
+	}
 
 	if loaded != nil {
 		if !loaded.transitionMu.TryLock() {
@@ -972,29 +1089,80 @@ func (m *Manager) Delete(ctx context.Context, sessionID string) error {
 		m.bashMu.Unlock()
 		return ErrDeleteBusy
 	}
-	if err := m.store.ArchiveSession(ctx, sessionID, time.Now().UTC()); err != nil {
+	m.bashMu.Unlock()
+
+	var cleanupErr error
+	if loaded != nil {
+		// Wait for the droid SQLite connection to close before unlinking its files.
+		cleanupErr = errors.Join(cleanupErr, loaded.close(context.Background(), "deleted"))
+		m.mu.Lock()
+		if m.runtimes[sessionID] == loaded {
+			delete(m.runtimes, sessionID)
+		}
+		m.mu.Unlock()
+	}
+	if cleanupErr != nil {
+		return cleanupErr
+	}
+
+	m.bashMu.Lock()
+	m.scratchpadMu.Lock()
+	deleteErr := m.store.DeleteSession(ctx, sessionID)
+	m.scratchpadMu.Unlock()
+	if deleteErr != nil {
 		m.bashMu.Unlock()
-		return err
+		return deleteErr
 	}
 	delete(m.bashHistory, sessionID)
 	delete(m.bashNextSequence, sessionID)
 	m.bashMu.Unlock()
-	if m.subagentOwnerCanceler != nil {
-		m.subagentOwnerCanceler.CancelOwner(sessionID)
-	}
 
-	m.mu.Lock()
-	if loaded != nil && m.runtimes[sessionID] == loaded {
-		delete(m.runtimes, sessionID)
+	cleanupErr = removeSQLiteStoreFiles(m.droidDirectory, sessionID, "session_")
+	childrenReady := true
+	if ownerDeletionStarted {
+		conversationIDs := make([]subagent.ConversationID, 0, len(childConversations))
+		for _, conversation := range childConversations {
+			conversationIDs = append(conversationIDs, conversation.ID)
+		}
+		if err := m.subagentOwnerDeletion.ForgetOwnerConversations(conversationIDs); err != nil {
+			childrenReady = false
+			cleanupErr = errors.Join(cleanupErr, err)
+		}
 	}
-	m.mu.Unlock()
-	if loaded != nil {
-		// Archival is the authoritative delete commit. Runtime cleanup is best
-		// effort so an interrupted client cannot turn a committed delete into a
-		// misleading retryable failure or allow a second runtime to load.
-		_ = loaded.close(ctx, "deleted")
+	artifactIDs, err := m.store.ListSessionDeletionArtifacts(context.Background(), sessionID)
+	cleanupErr = errors.Join(cleanupErr, err)
+	seenArtifacts := make(map[string]struct{}, len(artifactIDs))
+	for _, id := range artifactIDs {
+		if _, exists := seenArtifacts[id]; exists {
+			continue
+		}
+		seenArtifacts[id] = struct{}{}
+		if !childrenReady {
+			continue
+		}
+		cleanupErr = errors.Join(cleanupErr, removeSQLiteStoreFiles(filepath.Join(m.droidDirectory, "subagents"), id, "subagent_"))
 	}
-	return nil
+	if m.attachments != nil {
+		cleanupErr = errors.Join(cleanupErr, m.attachments.RemoveSession(context.Background(), sessionID))
+	}
+	if cleanupErr == nil {
+		cleanupErr = m.store.CompleteSessionDeletion(context.Background(), sessionID)
+	}
+	return cleanupErr
+}
+
+func removeSQLiteStoreFiles(directory, id, prefix string) error {
+	if directory == "" || !identifier.Valid(id, prefix) {
+		return fmt.Errorf("invalid SQLite store identity %q", id)
+	}
+	path := filepath.Join(directory, id+".db")
+	var result error
+	for _, candidate := range []string{path, path + "-wal", path + "-shm"} {
+		if err := os.Remove(candidate); err != nil && !errors.Is(err, os.ErrNotExist) {
+			result = errors.Join(result, fmt.Errorf("remove session store file %q: %w", candidate, err))
+		}
+	}
+	return result
 }
 
 // DisposeTemporary revokes a temporary session, cancels its active work, and
@@ -2407,8 +2575,7 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 		cleanupOwner: &m.cleanups,
 		interception: interception, turnEvents: turnEvents, droid: droid, model: model, store: store, closeStore: closeStore, bundle: cloneRuntimeBundle(bundle),
 		workspace: workspace, events: events, eventCursor: snapshot.LastEvent, eventChanged: make(chan struct{}),
-		scratchpadOwnerID: record.ScratchpadOwnerID,
-		runs:              make(map[string]*liveRun), interactions: interactions,
+		runs: make(map[string]*liveRun), interactions: interactions,
 	}
 	loaded.pluginContributions.initialize(bundle.Subagents, droid)
 	interactions.authority = &loaded.mu

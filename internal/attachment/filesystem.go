@@ -231,7 +231,9 @@ func (store *Filesystem) Remove(ctx context.Context, sessionID, id string) error
 	return store.removeOwner(ctx, sessionID, id)
 }
 
-// RemoveSession deletes every readable attachment manifest owned by a session.
+// RemoveSession deletes every attachment manifest owned by a session. It fails
+// closed on malformed candidate metadata so callers do not mark deletion
+// complete while ownership may still be present.
 func (store *Filesystem) RemoveSession(ctx context.Context, sessionID string) error {
 	store.mu.Lock()
 	defer store.mu.Unlock()
@@ -246,23 +248,47 @@ func (store *Filesystem) RemoveSession(ctx context.Context, sessionID string) er
 		if err := ctx.Err(); err != nil {
 			return err
 		}
-		if !entry.IsDir() || !identifier.Valid(entry.Name(), IDPrefix) {
+		if !identifier.Valid(entry.Name(), IDPrefix) {
 			continue
+		}
+		if !entry.IsDir() {
+			return fmt.Errorf("attachment %q is not a directory", entry.Name())
 		}
 		manifestPath := filepath.Join(store.root, entry.Name(), manifestFilename)
 		if err := requireRegularFile(manifestPath); err != nil {
-			continue
+			return fmt.Errorf("validate attachment %q manifest: %w", entry.Name(), err)
 		}
 		data, err := os.ReadFile(manifestPath)
 		if err != nil {
-			return fmt.Errorf("read attachment manifest: %w", err)
+			return fmt.Errorf("read attachment %q manifest: %w", entry.Name(), err)
 		}
 		var record Record
-		if json.Unmarshal(data, &record) != nil || validateRecord(record) != nil || record.ID != entry.Name() || !store.recordOwnedBy(record, sessionID) {
-			continue
+		if err := json.Unmarshal(data, &record); err != nil {
+			return fmt.Errorf("decode attachment %q manifest: %w", entry.Name(), err)
 		}
-		if err := store.removeOwner(ctx, sessionID, record.ID); err != nil {
-			return fmt.Errorf("remove session attachment: %w", err)
+		if err := validateRecord(record); err != nil || record.ID != entry.Name() {
+			return fmt.Errorf("validate attachment %q manifest: %w", entry.Name(), errors.Join(err, ErrInvalidInput))
+		}
+		owners, err := store.readOwners(record.ID)
+		if err != nil {
+			return fmt.Errorf("validate attachment %q owners: %w", record.ID, err)
+		}
+		seen := make(map[string]struct{}, len(owners))
+		owned := record.SessionID == sessionID
+		for _, owner := range owners {
+			if owner == "" || strings.ContainsRune(owner, 0) {
+				return fmt.Errorf("attachment %q has invalid owner %q", record.ID, owner)
+			}
+			if _, duplicate := seen[owner]; duplicate || owner == record.SessionID {
+				return fmt.Errorf("attachment %q has duplicate owner %q", record.ID, owner)
+			}
+			seen[owner] = struct{}{}
+			owned = owned || owner == sessionID
+		}
+		if owned {
+			if err := store.removeOwner(ctx, sessionID, record.ID); err != nil {
+				return fmt.Errorf("remove session attachment: %w", err)
+			}
 		}
 	}
 	return syncDirectory(store.root)
@@ -368,7 +394,13 @@ func (store *Filesystem) recordOwnedBy(record Record, sessionID string) bool {
 }
 
 func (store *Filesystem) readOwners(id string) ([]string, error) {
-	data, err := os.ReadFile(filepath.Join(store.root, id, ownersFilename))
+	path := filepath.Join(store.root, id, ownersFilename)
+	if err := requireRegularFile(path); errors.Is(err, os.ErrNotExist) {
+		return nil, nil
+	} else if err != nil {
+		return nil, fmt.Errorf("validate attachment owners file: %w", err)
+	}
+	data, err := os.ReadFile(path)
 	if errors.Is(err, os.ErrNotExist) {
 		return nil, nil
 	}

@@ -11,6 +11,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 	"unicode/utf8"
 
@@ -34,39 +35,51 @@ type runtimeAttachmentService struct {
 }
 
 func (service runtimeAttachmentService) Put(ctx context.Context, sessionID string, input attachment.PutInput) (protocol.AttachmentInfo, error) {
-	if _, err := service.manager.Get(ctx, sessionID); err != nil {
-		return protocol.AttachmentInfo{}, err
-	}
-	input.SessionID = sessionID
-	record, err := service.store.Put(ctx, input)
+	release, err := service.manager.BeginSessionOperation(ctx, sessionID)
 	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
-	// Close the upload/delete race: either this check observes deletion and
-	// removes the just-published blob, or deletion's session sweep runs after it.
-	if _, err := service.manager.Get(ctx, sessionID); err != nil {
-		_ = service.store.Remove(context.Background(), sessionID, record.ID)
+	defer release()
+	input.SessionID = sessionID
+	record, err := service.store.Put(ctx, input)
+	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
 	return projectAttachment(record), nil
 }
 
 func (service runtimeAttachmentService) Open(ctx context.Context, sessionID, id string) (protocol.AttachmentInfo, io.ReadCloser, error) {
-	if _, err := service.manager.Get(ctx, sessionID); err != nil {
+	release, err := service.manager.BeginSessionOperation(ctx, sessionID)
+	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
 	record, content, err := service.store.Open(ctx, sessionID, id)
 	if err != nil {
+		release()
 		return protocol.AttachmentInfo{}, nil, err
 	}
-	return projectAttachment(record), content, nil
+	return projectAttachment(record), &sessionAttachmentReader{ReadCloser: content, release: release}, nil
 }
 
 func (service runtimeAttachmentService) Resolve(ctx context.Context, sessionID string, ids []string) (protocol.AttachmentResolution, error) {
-	if _, err := service.manager.Get(ctx, sessionID); err != nil {
+	release, err := service.manager.BeginSessionOperation(ctx, sessionID)
+	if err != nil {
 		return protocol.AttachmentResolution{}, err
 	}
+	defer release()
 	return resolveAttachmentMetadata(ctx, sessionID, ids, service.store.Stat)
+}
+
+type sessionAttachmentReader struct {
+	io.ReadCloser
+	release func()
+	once    sync.Once
+}
+
+func (reader *sessionAttachmentReader) Close() error {
+	err := reader.ReadCloser.Close()
+	reader.once.Do(reader.release)
+	return err
 }
 
 func resolveAttachmentMetadata(ctx context.Context, sessionID string, ids []string, stat func(context.Context, string, string) (attachment.Record, error)) (protocol.AttachmentResolution, error) {

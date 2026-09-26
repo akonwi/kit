@@ -59,6 +59,14 @@ func (cache *sessionFileIndexCache) load(ctx context.Context, sessionID, cwd str
 	return cloneFileIndexResult(result), nil
 }
 
+func (cache *sessionFileIndexCache) removeSession(sessionID string) {
+	cache.mu.Lock()
+	delete(cache.entries, sessionID)
+	delete(cache.pendingCWD, sessionID)
+	cache.generations[sessionID]++
+	cache.mu.Unlock()
+}
+
 func cloneFileIndexResult(result fileindex.Result) fileindex.Result {
 	result.Entries = append([]fileindex.Entry(nil), result.Entries...)
 	return result

@@ -150,6 +150,12 @@ func (m *Manager) processOnePeerQuery(ctx context.Context, recipient string) err
 		release()
 		return err
 	}
+	if !m.trackPeerQuery(request) {
+		release()
+		m.failPeerRequest(request, peer.StateInterrupted, ErrDeleteBusy)
+		return ErrDeleteBusy
+	}
+	defer m.untrackPeerQuery(request.ID)
 	subscription, err := loaded.droid.Subscribe(context.Background(), droids.SubscribeOptions{After: loaded.eventCursor, IncludeTransient: true, Buffer: 256})
 	if err != nil {
 		release()
@@ -202,6 +208,44 @@ func (m *Manager) processOnePeerQuery(ctx context.Context, recipient string) err
 	case <-done:
 		return nil
 	}
+}
+
+func (m *Manager) beginPeerAdmission(sender, recipient string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.deleting[sender] || m.deleting[recipient] {
+		return false
+	}
+	m.peerAdmissionCounts[sender]++
+	m.peerAdmissionCounts[recipient]++
+	return true
+}
+
+func (m *Manager) endPeerAdmission(sender, recipient string) {
+	m.mu.Lock()
+	for _, sessionID := range []string{sender, recipient} {
+		m.peerAdmissionCounts[sessionID]--
+		if m.peerAdmissionCounts[sessionID] == 0 {
+			delete(m.peerAdmissionCounts, sessionID)
+		}
+	}
+	m.mu.Unlock()
+}
+
+func (m *Manager) trackPeerQuery(request peer.Request) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.closed || m.deleting[request.SenderSessionID] || m.deleting[request.RecipientSessionID] {
+		return false
+	}
+	m.peerActive[request.ID] = request
+	return true
+}
+
+func (m *Manager) untrackPeerQuery(requestID string) {
+	m.mu.Lock()
+	delete(m.peerActive, requestID)
+	m.mu.Unlock()
 }
 
 func (m *Manager) peerQueryBoundary(ctx context.Context, request peer.Request) (droids.BoundaryMessage, error) {
@@ -338,6 +382,10 @@ func (m *Manager) SendPeerQuery(ctx context.Context, sender string, call droids.
 	if m.peerQueries == nil {
 		return peer.Request{}, peer.ErrUnavailable
 	}
+	if !m.beginPeerAdmission(sender, recipient) {
+		return peer.Request{}, ErrDeleteBusy
+	}
+	defer m.endPeerAdmission(sender, recipient)
 	if strings.TrimSpace(message) == "" {
 		return peer.Request{}, peer.ErrInvalid
 	}

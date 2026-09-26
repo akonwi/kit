@@ -50,10 +50,13 @@ Clients operate through their bound session; the server resolves its persisted
 owner. Fork creation copies only the owner identity and never copies scratchpad
 content.
 
-Archiving any family member does not delete the scratchpad. Archiving the root
-also leaves the shared record available to surviving descendants. Kit's current
-session deletion operation is archival, so physical family and scratchpad
-reclamation remain outside this decision.
+Archiving a family member does not delete the scratchpad. Archiving the root
+also leaves the shared record available to surviving descendants. Permanently
+deleting a session removes its session-owned data. If surviving semantic forks
+still reference the deleted session's shared scratchpad, the server atomically
+transfers the scratchpad record and ownership to a surviving direct child before
+deleting the old owner. Remaining descendants continue to share the same content;
+when no session references the owner, the scratchpad is deleted with it.
 
 Temporary sessions remain process-local under ADR 0009 and do not create
 scratchpad rows or expose the durable scratchpad capability.

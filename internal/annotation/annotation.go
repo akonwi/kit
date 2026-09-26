@@ -134,7 +134,7 @@ type Service struct {
 	files                FileReader
 	diffs                DiffReader
 	locksMu              sync.Mutex
-	locks                map[string]*sync.Mutex
+	locks                map[string]*sessionLockEntry
 	temporary            map[string]struct{}
 	observerMu           sync.RWMutex
 	observer             Observer
@@ -153,7 +153,7 @@ func NewService(repository Repository, files FileReader, diffReaders ...DiffRead
 	}
 	return &Service{
 		repository: repository, memory: NewMemoryRepository(), files: files, diffs: diffs,
-		locks: make(map[string]*sync.Mutex), temporary: make(map[string]struct{}),
+		locks: make(map[string]*sessionLockEntry), temporary: make(map[string]struct{}),
 		listEvidenceTimeout: defaultListEvidenceTimeout, listDiffTargetBudget: defaultListDiffTargetBudget,
 	}, nil
 }
@@ -178,7 +178,10 @@ func (s *Service) SetTemporary(sessionID string) {
 	s.temporary[sessionID] = struct{}{}
 }
 
-// ForgetSession removes process-local annotation state and routing.
+// ForgetSession serializes with the session's currently admitted operations and
+// removes process-local annotation state and routing. Callers must close new
+// session-operation admission before invoking it; the service does not reserve
+// a deleted session ID against future calls.
 func (s *Service) ForgetSession(sessionID string) {
 	lock := s.sessionLock(sessionID)
 	lock.Lock()
@@ -192,7 +195,6 @@ func (s *Service) ForgetSession(sessionID string) {
 	})
 	s.locksMu.Lock()
 	delete(s.temporary, sessionID)
-	delete(s.locks, sessionID)
 	s.locksMu.Unlock()
 }
 
@@ -205,15 +207,42 @@ func (s *Service) repositoryFor(sessionID string) Repository {
 	return s.repository
 }
 
-func (s *Service) sessionLock(sessionID string) *sync.Mutex {
+type sessionLockEntry struct {
+	mu   sync.Mutex
+	refs int
+}
+
+type sessionLockLease struct {
+	service *Service
+	session string
+	entry   *sessionLockEntry
+	once    sync.Once
+}
+
+func (s *Service) sessionLock(sessionID string) *sessionLockLease {
 	s.locksMu.Lock()
-	defer s.locksMu.Unlock()
-	lock := s.locks[sessionID]
-	if lock == nil {
-		lock = &sync.Mutex{}
-		s.locks[sessionID] = lock
+	entry := s.locks[sessionID]
+	if entry == nil {
+		entry = &sessionLockEntry{}
+		s.locks[sessionID] = entry
 	}
-	return lock
+	entry.refs++
+	s.locksMu.Unlock()
+	return &sessionLockLease{service: s, session: sessionID, entry: entry}
+}
+
+func (lease *sessionLockLease) Lock() { lease.entry.mu.Lock() }
+
+func (lease *sessionLockLease) Unlock() {
+	lease.once.Do(func() {
+		lease.entry.mu.Unlock()
+		lease.service.locksMu.Lock()
+		lease.entry.refs--
+		if lease.entry.refs == 0 && lease.service.locks[lease.session] == lease.entry {
+			delete(lease.service.locks, lease.session)
+		}
+		lease.service.locksMu.Unlock()
+	})
 }
 
 // Create derives a preview and atomically allocates the next session ID.
@@ -399,7 +428,7 @@ type PreparedSubmission struct {
 	sessionID    string
 	ids          []uint64
 	Records      []Record
-	lock         *sync.Mutex
+	lock         *sessionLockLease
 	submissionID string
 	reserved     bool
 	finalized    bool

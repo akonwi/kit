@@ -34,6 +34,8 @@ type Supervisor struct {
 	started           bool
 	closed            bool
 	cursor            string
+	deletingOwners    map[string]struct{}
+	ownerAdmissions   map[string]int
 	running           map[TaskID]*worker
 	live              map[ConversationID]*liveEventJournal
 	conversationLocks map[ConversationID]*conversationLock
@@ -85,6 +87,8 @@ func NewSupervisor(repository Repository, factory ChildRuntimeFactory, limits Li
 		repository: repository, factory: factory, limits: limits, sink: sink,
 		ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), done: make(chan struct{}),
 		running: make(map[TaskID]*worker), live: make(map[ConversationID]*liveEventJournal),
+		deletingOwners:    make(map[string]struct{}),
+		ownerAdmissions:   make(map[string]int),
 		conversationLocks: make(map[ConversationID]*conversationLock), changed: make(chan struct{}),
 	}, nil
 }
@@ -153,6 +157,10 @@ func (s *Supervisor) Admit(ctx context.Context, admission Admission) (Conversati
 	if err := s.available(); err != nil {
 		return Conversation{}, Task{}, err
 	}
+	if err := s.beginOwnerOperation(admission.OwnerSessionID); err != nil {
+		return Conversation{}, Task{}, err
+	}
+	defer s.endOwnerOperation(admission.OwnerSessionID)
 	conversation, task, err := s.repository.Admit(ctx, admission, s.limits)
 	if err != nil {
 		return Conversation{}, Task{}, err
@@ -161,6 +169,28 @@ func (s *Supervisor) Admit(ctx context.Context, admission Admission) (Conversati
 	s.signalChanged()
 	s.Wake()
 	return conversation, task, nil
+}
+
+func (s *Supervisor) beginOwnerOperation(ownerSessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosed
+	}
+	if _, deleting := s.deletingOwners[ownerSessionID]; deleting {
+		return ErrConflict
+	}
+	s.ownerAdmissions[ownerSessionID]++
+	return nil
+}
+
+func (s *Supervisor) endOwnerOperation(ownerSessionID string) {
+	s.mu.Lock()
+	s.ownerAdmissions[ownerSessionID]--
+	if s.ownerAdmissions[ownerSessionID] == 0 {
+		delete(s.ownerAdmissions, ownerSessionID)
+	}
+	s.mu.Unlock()
 }
 
 // Wake hints that authoritative queue state may now be schedulable.
@@ -205,12 +235,24 @@ func (s *Supervisor) schedule() {
 				s.mu.Unlock()
 				return
 			}
+			_, deleting := s.deletingOwners[owner]
 			s.mu.Unlock()
+			if deleting {
+				continue
+			}
+			// Cover the durable claim-to-worker-registration window. Owner deletion
+			// must not pass its admission check while a task can be claimed but has
+			// not yet entered the running map.
+			if err := s.beginOwnerOperation(owner); err != nil {
+				continue
+			}
 			claim, err := s.repository.ClaimNext(s.ctx, owner, s.limits, time.Now().UTC())
 			if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
+				s.endOwnerOperation(owner)
 				continue
 			}
 			if err != nil {
+				s.endOwnerOperation(owner)
 				return
 			}
 			workerContext, cancel := context.WithCancelCause(s.ctx)
@@ -220,11 +262,8 @@ func (s *Supervisor) schedule() {
 			if s.closed {
 				s.mu.Unlock()
 				cancel(errSupervisorStop)
-				_, _, _ = s.repository.Complete(context.Background(), Completion{
-					TaskID: claim.Task.ID, ConversationID: claim.Task.ConversationID,
-					CancellationGeneration: claim.Task.CancellationGeneration,
-					State:                  TaskInterrupted, Error: errSupervisorStop.Error(), FinishedAt: time.Now().UTC(),
-				})
+				s.endOwnerOperation(owner)
+				_, _ = s.repository.Cancel(context.Background(), claim.Task.ID, claim.Task.CancellationGeneration, "supervisor stopped", time.Now().UTC())
 				return
 			}
 			conversationMu := s.retainConversationLockLocked(claim.Task.ConversationID)
@@ -238,6 +277,7 @@ func (s *Supervisor) schedule() {
 			s.workerWG.Add(1)
 			s.signalChangedLocked()
 			s.mu.Unlock()
+			s.endOwnerOperation(owner)
 			s.emitChanged(owner, claim.Task.ConversationID, claim.Task.ID)
 			// Cancellation or dismissal can commit after the claim but before the
 			// worker is published. Reconcile authoritative state now that later
@@ -520,6 +560,14 @@ func (s *Supervisor) Cancel(ctx context.Context, taskID TaskID, expectedGenerati
 	if err := s.available(); err != nil {
 		return Task{}, err
 	}
+	existing, err := s.repository.Task(ctx, taskID)
+	if err != nil {
+		return Task{}, err
+	}
+	if err := s.beginOwnerOperation(existing.OwnerSessionID); err != nil {
+		return Task{}, err
+	}
+	defer s.endOwnerOperation(existing.OwnerSessionID)
 	task, err := s.repository.Cancel(ctx, taskID, expectedGeneration, reason, time.Now().UTC())
 	if err != nil {
 		return Task{}, err
@@ -546,6 +594,14 @@ func (s *Supervisor) Dismiss(ctx context.Context, conversationID ConversationID,
 	if err := s.available(); err != nil {
 		return nil, err
 	}
+	conversation, err := s.repository.Conversation(ctx, conversationID)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.beginOwnerOperation(conversation.OwnerSessionID); err != nil {
+		return nil, err
+	}
+	defer s.endOwnerOperation(conversation.OwnerSessionID)
 	tasks, err := s.repository.Dismiss(ctx, conversationID, expectedGeneration, reason, time.Now().UTC())
 	if err != nil {
 		return nil, err
@@ -587,6 +643,56 @@ func (s *Supervisor) cancelWorker(owned *worker, cause error) {
 	owned.steerable = false
 	owned.cancel(cause)
 	owned.mu.Unlock()
+}
+
+// BeginOwnerDeletion blocks new child work and rejects deletion while a child worker is active.
+func (s *Supervisor) BeginOwnerDeletion(ownerSessionID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.closed {
+		return ErrClosed
+	}
+	if _, deleting := s.deletingOwners[ownerSessionID]; deleting || s.ownerAdmissions[ownerSessionID] > 0 {
+		return ErrConflict
+	}
+	for _, owned := range s.running {
+		if owned.claim.Task.OwnerSessionID == ownerSessionID {
+			return ErrConflict
+		}
+	}
+	s.deletingOwners[ownerSessionID] = struct{}{}
+	return nil
+}
+
+// EndOwnerDeletion re-enables scheduling when session deletion did not complete.
+func (s *Supervisor) EndOwnerDeletion(ownerSessionID string) {
+	s.mu.Lock()
+	delete(s.deletingOwners, ownerSessionID)
+	s.mu.Unlock()
+	s.Wake()
+}
+
+// ForgetOwnerConversations removes runtime-local child event journals after the owner is deleted.
+func (s *Supervisor) ForgetOwnerConversations(conversationIDs []ConversationID) error {
+	var result error
+	for _, conversationID := range conversationIDs {
+		s.mu.Lock()
+		active := false
+		for _, owned := range s.running {
+			if owned.claim.Conversation.ID == conversationID {
+				active = true
+				break
+			}
+		}
+		if !active {
+			delete(s.live, conversationID)
+		}
+		s.mu.Unlock()
+		if active {
+			result = errors.Join(result, fmt.Errorf("conversation %q is still active", conversationID))
+		}
+	}
+	return result
 }
 
 // CancelOwner stops every in-memory worker after the owner's archival transaction commits.
@@ -681,6 +787,7 @@ func (s *Supervisor) Steer(ctx context.Context, conversationID ConversationID, m
 	if message == "" {
 		return Conversation{}, fmt.Errorf("%w: message is required", ErrInvalidInput)
 	}
+	operationStarted := false
 	for {
 		s.mu.Lock()
 		changed := s.changed
@@ -688,6 +795,13 @@ func (s *Supervisor) Steer(ctx context.Context, conversationID ConversationID, m
 		conversation, err := s.repository.Conversation(ctx, conversationID)
 		if err != nil {
 			return Conversation{}, err
+		}
+		if !operationStarted {
+			if err := s.beginOwnerOperation(conversation.OwnerSessionID); err != nil {
+				return Conversation{}, err
+			}
+			operationStarted = true
+			defer s.endOwnerOperation(conversation.OwnerSessionID)
 		}
 		if conversation.DismissedAt != nil {
 			return Conversation{}, ErrDismissed
@@ -802,6 +916,10 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 	if err != nil {
 		return Transcript{}, err
 	}
+	if err := s.beginOwnerOperation(conversation.OwnerSessionID); err != nil {
+		return Transcript{}, err
+	}
+	defer s.endOwnerOperation(conversation.OwnerSessionID)
 	if conversation.DismissedAt != nil {
 		return Transcript{}, ErrDismissed
 	}

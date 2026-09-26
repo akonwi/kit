@@ -330,6 +330,9 @@ func TestSupervisorReconcilesCancellationBetweenClaimAndWorkerPublication(t *tes
 	case <-time.After(3 * time.Second):
 		t.Fatal("claim did not reach publication gate")
 	}
+	if err := supervisor.BeginOwnerDeletion(owner); err != subagent.ErrConflict {
+		t.Fatalf("BeginOwnerDeletion() during claim = %v, want ErrConflict", err)
+	}
 	canceled, err := supervisor.Cancel(t.Context(), task.ID, task.CancellationGeneration, "race cancel")
 	if err != nil || canceled.CancellationGeneration != task.CancellationGeneration+1 {
 		t.Fatalf("Cancel() = %#v, %v", canceled, err)

@@ -192,6 +192,106 @@ func TestFilesystemRejectsMalformedManifestAndSymlinkContent(t *testing.T) {
 	}
 }
 
+func TestFilesystemRemoveSessionFailsClosedOnCorruptOwnershipMetadata(t *testing.T) {
+	t.Parallel()
+	store, err := NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err := store.Put(context.Background(), PutInput{
+		SessionID: "session_one", Filename: "notes.txt", MediaType: "text/plain",
+		Content: strings.NewReader("private"), MaxBytes: 16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.root, record.ID, manifestFilename), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_one"); err == nil {
+		t.Fatal("RemoveSession() succeeded with a malformed manifest")
+	}
+	manifest, err := json.Marshal(record)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.root, record.ID, manifestFilename), manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_one"); err != nil {
+		t.Fatalf("RemoveSession() after repairing manifest = %v", err)
+	}
+
+	store, err = NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	record, err = store.Put(context.Background(), PutInput{
+		SessionID: "session_one", Filename: "notes.txt", MediaType: "text/plain",
+		Content: strings.NewReader("private"), MaxBytes: 16,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := store.ForkSession(context.Background(), "session_one", "session_two"); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(store.root, record.ID, ownersFilename), []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	ownersPath := filepath.Join(store.root, record.ID, ownersFilename)
+	if err := store.RemoveSession(context.Background(), "session_one"); err == nil {
+		t.Fatal("RemoveSession() succeeded with corrupt owners metadata")
+	}
+	if err := os.WriteFile(ownersPath, []byte(`["session_two"]`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_one"); err != nil {
+		t.Fatalf("RemoveSession() after repairing owners metadata = %v", err)
+	}
+}
+
+func TestFilesystemUnrelatedCorruptionBlocksCleanupUntilRepaired(t *testing.T) {
+	t.Parallel()
+	store, err := NewFilesystem(filepath.Join(t.TempDir(), "attachments"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var records []Record
+	for _, sessionID := range []string{"session_one", "session_two"} {
+		record, err := store.Put(context.Background(), PutInput{
+			SessionID: sessionID, Filename: "notes.txt", MediaType: "text/plain",
+			Content: strings.NewReader(sessionID), MaxBytes: 32,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		records = append(records, record)
+	}
+	manifestPath := filepath.Join(store.root, records[1].ID, manifestFilename)
+	if err := os.WriteFile(manifestPath, []byte("{"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_one"); err == nil {
+		t.Fatal("RemoveSession() succeeded despite unrelated corrupt metadata")
+	}
+	manifest, err := json.Marshal(records[1])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(manifestPath, manifest, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := store.RemoveSession(context.Background(), "session_one"); err != nil {
+		t.Fatalf("RemoveSession() after repair = %v", err)
+	}
+	if _, content, err := store.Open(context.Background(), "session_two", records[1].ID); err != nil {
+		t.Fatalf("unrelated attachment after repair = %v", err)
+	} else {
+		_ = content.Close()
+	}
+}
+
 func TestFilesystemRemovesSessionAttachmentsOnly(t *testing.T) {
 	t.Parallel()
 

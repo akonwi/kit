@@ -18,7 +18,7 @@ func (w sessionDeleteSurface) Build(ctx ui.BuildContext) ui.Widget {
 	children := []ui.Widget{
 		ui.Text{Value: targetLabel, Style: ui.Style{Foreground: theme.Foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
 		ui.SizedBox{Height: 1},
-		ui.Text{Value: "This action cannot be undone.", Style: ui.Style{Foreground: theme.DangerText}},
+		ui.Text{Value: "Stored history and data will be permanently deleted. This cannot be undone.", Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
 	}
 	if w.Snapshot.DeleteError != "" {
 		children = append(children,

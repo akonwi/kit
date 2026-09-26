@@ -270,8 +270,8 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err := subagents.SetEventSink(sessionManager); err != nil {
 		return fmt.Errorf("connect subagent event sink: %w", err)
 	}
-	if err := sessionManager.SetSubagentOwnerCanceler(subagents); err != nil {
-		return fmt.Errorf("connect subagent owner cancellation: %w", err)
+	if err := sessionManager.SetSubagentOwnerDeletion(subagents); err != nil {
+		return fmt.Errorf("connect subagent owner deletion: %w", err)
 	}
 	if _, err := subagents.Start(ctx); err != nil {
 		return fmt.Errorf("recover and start subagent supervisor: %w", err)

@@ -120,7 +120,7 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 	return output, nil
 }
 
-// DeleteSession archives one persisted session.
+// DeleteSession permanently deletes one persisted session and its stored history.
 func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 	path := "/v1/sessions/" + url.PathEscape(sessionID)
 	return c.sessionJSON(ctx, http.MethodDelete, path, nil, http.StatusNoContent, nil)

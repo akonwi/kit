@@ -36,7 +36,7 @@ func TestInitialSchemaContainsSessionRegistryAndDurableMailboxState(t *testing.T
 		}
 		tables = append(tables, name)
 	}
-	want := []string{"annotation_sequences", "annotations", "direct_bash_history", "parent_mailbox", "peer_session_queries", "schema_migrations", "scratchpads", "session_cwd_mutations", "sessions", "subagent_conversations", "subagent_events", "subagent_tasks"}
+	want := []string{"annotation_sequences", "annotations", "deleted_session_ids", "direct_bash_history", "parent_mailbox", "peer_session_queries", "schema_migrations", "scratchpad_owner_transfers", "scratchpads", "session_cwd_mutations", "session_deletion_artifacts", "sessions", "subagent_conversations", "subagent_events", "subagent_tasks"}
 	if fmt.Sprint(tables) != fmt.Sprint(want) {
 		t.Fatalf("tables = %v, want %v", tables, want)
 	}

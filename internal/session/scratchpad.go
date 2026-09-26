@@ -17,6 +17,8 @@ func (m *Manager) Scratchpad(ctx context.Context, sessionID string) (scratchpad.
 		return scratchpad.Record{}, err
 	}
 	defer m.ops.Done()
+	m.scratchpadMu.RLock()
+	defer m.scratchpadMu.RUnlock()
 	if err := m.requireScratchpadSession(ctx, sessionID); err != nil {
 		return scratchpad.Record{}, err
 	}
@@ -34,6 +36,8 @@ func (m *Manager) UpdateScratchpad(ctx context.Context, sessionID string, expect
 		return scratchpad.Record{}, err
 	}
 	defer m.ops.Done()
+	m.scratchpadMu.RLock()
+	defer m.scratchpadMu.RUnlock()
 	if err := m.requireScratchpadSession(ctx, sessionID); err != nil {
 		return scratchpad.Record{}, err
 	}
@@ -64,6 +68,8 @@ func (m *Manager) EditScratchpad(ctx context.Context, sessionID string, edits []
 		return scratchpad.Record{}, 0, err
 	}
 	defer m.ops.Done()
+	m.scratchpadMu.RLock()
+	defer m.scratchpadMu.RUnlock()
 	if err := m.requireScratchpadSession(ctx, sessionID); err != nil {
 		return scratchpad.Record{}, 0, err
 	}
@@ -111,10 +117,19 @@ func (m *Manager) publishScratchpadChanged(record scratchpad.Record) {
 		sessionID string
 		runtime   *runtime
 	}
+	owners, err := m.store.ListSessions(context.Background(), "")
+	if err != nil {
+		slog.Error("Could not load scratchpad owners for event fanout", "owner_session_id", record.OwnerSessionID, "error", err)
+		return
+	}
+	ownerBySession := make(map[string]string, len(owners))
+	for _, owner := range owners {
+		ownerBySession[owner.ID] = owner.ScratchpadOwnerID
+	}
 	m.mu.Lock()
 	targets := make([]target, 0)
 	for sessionID, loaded := range m.runtimes {
-		if loaded.scratchpadOwnerID == record.OwnerSessionID {
+		if ownerBySession[sessionID] == record.OwnerSessionID {
 			targets = append(targets, target{sessionID: sessionID, runtime: loaded})
 		}
 	}

@@ -113,7 +113,9 @@ type BashHistoryRepository interface {
 	BashHistoryPage(context.Context, string, uint64, int) ([]BashExecution, bool, error)
 }
 
-// Repository is the persistence port for Kit's session registry. Conversation
+// Repository is the persistence port for Kit's session registry. DeleteSession
+// permanently removes registry-owned records and atomically records the external
+// stores that must be removed before deletion cleanup can be completed. Conversation
 // turns, executions, messages, and events belong to each session's droid Store.
 type Repository interface {
 	CreateSession(context.Context, NewSession) (SessionRecord, error)
@@ -123,6 +125,9 @@ type Repository interface {
 	RenameSession(context.Context, string, string) (SessionRecord, error)
 	TouchSession(context.Context, string, time.Time) error
 	ArchiveSession(context.Context, string, time.Time) error
+	DeleteSession(context.Context, string) error
+	CompleteSessionDeletion(context.Context, string) error
+	ListSessionDeletionArtifacts(context.Context, string) ([]string, error)
 	GetSession(context.Context, string) (SessionRecord, error)
 	ListSessions(context.Context, string) ([]SessionRecord, error)
 	MarkDroidInitialized(context.Context, string, time.Time) error

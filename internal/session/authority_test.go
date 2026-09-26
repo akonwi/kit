@@ -310,7 +310,7 @@ func TestPromptActivityFailurePreventsDroidAdmission(t *testing.T) {
 	}
 }
 
-func TestManagerDeletesIdleSessionAndRetainsArchivedDroidStore(t *testing.T) {
+func TestManagerHardDeletesIdleSessionAndDroidStore(t *testing.T) {
 	t.Parallel()
 
 	root := t.TempDir()
@@ -336,18 +336,20 @@ func TestManagerDeletesIdleSessionAndRetainsArchivedDroidStore(t *testing.T) {
 	if err := manager.Delete(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := os.Stat(droidPath); err != nil {
-		t.Fatalf("archived droid store was not retained: %v", err)
+	for _, path := range []string{droidPath, droidPath + "-wal", droidPath + "-shm"} {
+		if _, err := os.Stat(path); !errors.Is(err, os.ErrNotExist) {
+			t.Fatalf("deleted droid store file %q still exists (stat error %v)", path, err)
+		}
 	}
-	if _, err := manager.Snapshot(t.Context(), created.ID); !errors.Is(err, session.ErrNotFound) {
-		t.Fatalf("deleted Snapshot() error = %v", err)
+	if _, err := store.GetSession(t.Context(), created.ID); !errors.Is(err, storage.ErrNotFound) {
+		t.Fatalf("deleted GetSession() error = %v", err)
+	}
+	if _, err := manager.Create(t.Context(), session.CreateInput{ID: created.ID, CWD: root, Model: "test/echo"}); !errors.Is(err, session.ErrInvalidInput) {
+		t.Fatalf("Create() with permanently deleted id error = %v", err)
 	}
 	listed, err := manager.List(t.Context(), "")
 	if err != nil || len(listed) != 0 {
 		t.Fatalf("List() = %+v, %v", listed, err)
-	}
-	if _, err := manager.Create(t.Context(), session.CreateInput{ID: created.ID, CWD: root, Model: "test/echo"}); !errors.Is(err, session.ErrInvalidInput) {
-		t.Fatalf("Create() with deleted id error = %v", err)
 	}
 }
 

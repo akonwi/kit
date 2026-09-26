@@ -406,7 +406,7 @@ func (repository *blockingArchiveRepository) startBlocking() {
 	repository.mu.Unlock()
 }
 
-func (repository *blockingArchiveRepository) ArchiveSession(ctx context.Context, id string, archivedAt time.Time) error {
+func (repository *blockingArchiveRepository) DeleteSession(ctx context.Context, id string) error {
 	repository.mu.Lock()
 	started, release := repository.started, repository.release
 	repository.mu.Unlock()
@@ -418,7 +418,7 @@ func (repository *blockingArchiveRepository) ArchiveSession(ctx context.Context,
 			return ctx.Err()
 		}
 	}
-	return repository.Repository.ArchiveSession(ctx, id, archivedAt)
+	return repository.Repository.DeleteSession(ctx, id)
 }
 
 func (repository *blockingArchiveRepository) waitStarted(t *testing.T) {
@@ -429,7 +429,7 @@ func (repository *blockingArchiveRepository) waitStarted(t *testing.T) {
 	select {
 	case <-started:
 	case <-time.After(5 * time.Second):
-		t.Fatal("delete did not reach archive")
+		t.Fatal("delete did not reach storage")
 	}
 }
 
