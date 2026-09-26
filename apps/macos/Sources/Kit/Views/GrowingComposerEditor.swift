@@ -22,6 +22,10 @@ struct GrowingComposerEditor: NSViewRepresentable {
     var commands: ComposerCommandState? = nil
     var promptCommands: [PromptCommand] = []
     var mentions: ComposerMentionState? = nil
+    var history: ComposerHistoryState? = nil
+    var historySession = ""
+    var historyClient: (any ComposerHistoryClient)? = nil
+    var recallQueued: (() -> Bool)? = nil
     var mentionRevision = 0
     var mentionIdentity = ""
     var mentionLoader: (@Sendable (Bool) async throws -> FileIndex)? = nil
@@ -67,13 +71,17 @@ struct GrowingComposerEditor: NSViewRepresentable {
             if commands?.isOpen == true { commands?.observe(text: view.string, caret: view.selectedRange(), pasted: false) }
         }
         view.mentions = mentions
+        view.history = history
+        view.historySession = historySession
+        view.historyClient = historyClient
+        view.recallQueued = recallQueued
         view.mentionOpened = { [weak coordinator = context.coordinator] in coordinator?.loadMentions() }
         view.mentionChanged = { [weak coordinator = context.coordinator, weak view] in
             guard let view else { return }; coordinator?.renderMentions(view)
         }
         if context.coordinator.identity != mentionIdentity {
             context.coordinator.identity = mentionIdentity
-            mentions?.reset(); commands?.close()
+            mentions?.reset(); commands?.close(); history?.reset(identity: mentionIdentity)
         }
         view.attachmentDrop = attachmentDrop
         view.attachmentDropTargeted = attachmentDropTargeted
@@ -82,7 +90,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         if view.draftText != text {
             view.setDraftText(text)
             scroll.revealSelectionAfterLayout = true
-            mentions?.close(); commands?.close()
+            mentions?.close(); commands?.close(); history?.close()
         }
         context.coordinator.previousText = view.string
         view.font = Typography.shared.font(size: 14, mono: !view.shellPrefix.isEmpty)
@@ -114,6 +122,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         coordinator.highlightTask?.cancel()
         coordinator.commandPanel.dismiss(); coordinator.parent.commands?.close()
         coordinator.panel.dismiss(); coordinator.parent.mentions?.close()
+        coordinator.historyPanel.dismiss(); coordinator.parent.history?.close()
         view.mentionChanged = nil; view.mentionOpened = nil
     }
 
@@ -121,6 +130,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
         var parent: GrowingComposerEditor
         let commandPanel = ComposerMentionPanel()
         let panel = ComposerMentionPanel()
+        let historyPanel = ComposerMentionPanel()
         var highlightTask: Task<Void, Never>?
         var highlightedSource: String?
         var highlightedTheme: MicaTheme?
@@ -159,7 +169,17 @@ struct GrowingComposerEditor: NSViewRepresentable {
             parent.mentions?.load(loader, force: force)
         }
         func renderMentions(_ view: ComposerTextView) {
+            if let history = parent.history {
+                historyPanel.showHistory(editor: view, state: history, theme: parent.theme,
+                    select: { [weak view] entry in view?.insertHistory(entry) },
+                    retry: { [weak view] in view?.retryHistory() })
+            } else { historyPanel.dismiss() }
             guard view.shellPrefix.isEmpty else {
+                if parent.commands?.isOpen == true { parent.commands?.close() }
+                if parent.mentions?.isOpen == true { parent.mentions?.close() }
+                commandPanel.dismiss(); panel.dismiss(); return
+            }
+            if parent.history?.isOpen == true {
                 if parent.commands?.isOpen == true { parent.commands?.close() }
                 if parent.mentions?.isOpen == true { parent.mentions?.close() }
                 commandPanel.dismiss(); panel.dismiss(); return
@@ -190,6 +210,7 @@ struct GrowingComposerEditor: NSViewRepresentable {
             let draft = view.draftText
             if !view.hasMarkedText() { view.setDraftText(draft) }
             parent.commands?.observe(text: view.string, caret: view.selectedRange(), pasted: view.pasting || view.hasMarkedText())
+            if parent.history?.mode == .bash { parent.history?.setQuery(view.string.trimmingCharacters(in: .whitespacesAndNewlines)) }
             let opened = parent.mentions?.observe(previous: previousText, next: view.string, pasted: view.pasting || view.hasMarkedText()) == true
             previousText = view.string
             parent.text = draft
@@ -319,6 +340,10 @@ final class ComposerTextView: NSTextView {
     var submit: (() -> Void)?
     var commands: ComposerCommandState?
     var mentions: ComposerMentionState?
+    var history: ComposerHistoryState?
+    var historySession = ""
+    var historyClient: (any ComposerHistoryClient)?
+    var recallQueued: (() -> Bool)?
     var mentionOpened: (() -> Void)?
     var mentionChanged: (() -> Void)?
     var pasting = false
@@ -329,7 +354,7 @@ final class ComposerTextView: NSTextView {
     }
     override func resignFirstResponder() -> Bool {
         let result = super.resignFirstResponder()
-        if result { commands?.close(); mentions?.close(); mentionChanged?() }
+        if result { commands?.close(); mentions?.close(); history?.close(); mentionChanged?() }
         return result
     }
     override func layout() { super.layout(); mentionChanged?() }
@@ -360,6 +385,26 @@ final class ComposerTextView: NSTextView {
         mentionChanged?()
     }
 
+    func insertHistory(_ entry: ComposerHistoryState.Entry? = nil) {
+        guard let entry = entry ?? history?.selected else { return }
+        let draft: String
+        switch entry {
+        case .message(let value): draft = value.text
+        case .bash(let value): draft = (value.excluded ? "!!" : "!") + value.command
+        }
+        history?.close()
+        setDraftText(draft)
+        setSelectedRange(NSRange(location: string.utf16.count, length: 0))
+        didChangeText()
+        window?.makeFirstResponder(self)
+        mentionChanged?()
+    }
+
+    func retryHistory() {
+        history?.retry(session: historySession, client: historyClient)
+        mentionChanged?()
+    }
+
     override func performKeyEquivalent(with event: NSEvent) -> Bool {
         if window?.firstResponder === self, isEditable, !hasMarkedText(),
            [36, 76].contains(event.keyCode),
@@ -373,6 +418,53 @@ final class ComposerTextView: NSTextView {
     var cancel: (() -> Void)?
 
     override func keyDown(with event: NSEvent) {
+        let modifiers = event.modifierFlags.intersection([.command, .control, .option, .shift])
+        let plain = modifiers.isEmpty
+        let queryTyping = modifiers.subtracting(.shift).isEmpty
+        if isEditable, history?.isOpen == true {
+            // Option/dead-key input can enter marked-text composition. Do not
+            // leave the picker visible while AppKit edits the hidden draft.
+            guard !hasMarkedText(), queryTyping else {
+                history?.close()
+                mentionChanged?()
+                super.keyDown(with: event)
+                return
+            }
+            switch event.keyCode {
+            case 126 where plain: history?.move(-1, session: historySession, client: historyClient)
+            case 125 where plain: history?.move(1, session: historySession, client: historyClient)
+            case 36 where plain, 76 where plain: insertHistory()
+            case 53 where plain: history?.close()
+            case 51 where history?.mode == .messages: history?.deleteQueryBackward()
+            default:
+                if history?.mode == .messages, let value = event.characters, !value.isEmpty,
+                   value.unicodeScalars.allSatisfy({ $0.value >= 32 && $0.value != 127 }) {
+                    history?.appendQuery(value)
+                } else {
+                    super.keyDown(with: event)
+                    return
+                }
+            }
+            mentionChanged?(); return
+        }
+        // Let NSTextView move within multiline (including wrapped) commands.
+        // History recall starts only at the corresponding end of the draft.
+        let caret = selectedRange()
+        let atHistoryBoundary = caret.length == 0 &&
+            (event.keyCode == 126 ? caret.location == 0 : caret.location == string.utf16.count)
+        if isEditable, !hasMarkedText(), plain, [125, 126].contains(event.keyCode),
+           !shellPrefix.isEmpty, atHistoryBoundary {
+            commands?.close(); mentions?.close()
+            history?.openBash(session: historySession, query: string.trimmingCharacters(in: .whitespacesAndNewlines), client: historyClient)
+            mentionChanged?(); return
+        }
+        if isEditable, !hasMarkedText(), plain, event.keyCode == 126,
+           shellPrefix.isEmpty, string.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+            if recallQueued?() == true { return }
+            commands?.close(); mentions?.close()
+            history?.openMessages(session: historySession, client: historyClient)
+            mentionChanged?(); return
+        }
         if !hasMarkedText(), event.keyCode == 53, let cancel { cancel(); return }
         if isEditable, !hasMarkedText(), !shellPrefix.isEmpty, event.keyCode == 53,
            event.modifierFlags.intersection([.command, .control, .option, .shift]).isEmpty {

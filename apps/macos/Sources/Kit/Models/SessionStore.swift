@@ -243,6 +243,7 @@ final class SessionStore {
     var mutationClient: (any SessionMutationClient)? { replica.client as? any SessionMutationClient }
     var attachmentClient: (any AttachmentClient)? { replica.client as? any AttachmentClient }
     var composerClient: (any ComposerClient)? { replica.client as? any ComposerClient }
+    var composerHistoryClient: (any ComposerHistoryClient)? { replica.client as? any ComposerHistoryClient }
     @ObservationIgnored private var configurations: [String: ComposerConfiguration] = [:]
     private let emptyConfiguration = ComposerConfiguration()
     private(set) var modelCatalogRefreshPending = false

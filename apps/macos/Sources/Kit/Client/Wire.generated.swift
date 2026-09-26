@@ -673,6 +673,23 @@ struct WireBashExecution: Codable, Sendable {
     let `completedAt`: String?
 }
 
+struct WireBashHistoryEntry: Codable, Sendable {
+    let `id`: String
+    let `sequence`: Int64
+    let `command`: String
+    let `status`: String
+    let `excludeFromContext`: Bool?
+    let `startedAt`: String
+    let `completedAt`: String?
+}
+
+struct WireBashHistoryPage: Codable, Sendable {
+    let `sessionId`: String
+    let `entries`: [WireBashHistoryEntry]?
+    let `nextCursor`: String?
+    let `hasMore`: Bool
+}
+
 struct WireRunReservation: Codable, Sendable {
     let `sessionId`: String
     let `turnId`: String

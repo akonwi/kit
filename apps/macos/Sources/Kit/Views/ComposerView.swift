@@ -8,6 +8,7 @@ struct ComposerView: View {
     @Bindable var state: SessionStore
     @State private var commands = ComposerCommandState()
     @State private var mentions = ComposerMentionState()
+    @State private var history = ComposerHistoryState()
     @State private var pickerAnchor = ComposerPickerAnchor()
     @State private var focused = false
     @State private var attachmentDropTargeted = false
@@ -64,7 +65,12 @@ struct ComposerView: View {
                                   focusRequest: state.ui.composerFocus,
                                   foreground: theme.text, placeholderColor: theme.muted,
                                   attachmentDrop: acceptAttachments, attachmentDropTargeted: { attachmentDropTargeted = $0 },
-                                  submit: { state.send() }, exitShell: exitShell, commands: commands, promptCommands: state.selected?.promptCommands ?? [], mentions: mentions, mentionRevision: mentions.revision,
+                                  submit: { state.send() }, exitShell: exitShell, commands: commands, promptCommands: state.selected?.promptCommands ?? [], mentions: mentions,
+                                  history: history, historySession: state.selectedID, historyClient: state.composerHistoryClient,
+                                  recallQueued: {
+                                      guard (state.operations.queue?.count ?? 0) > 0 else { return false }
+                                      state.changeQueue(.edit); return true
+                                  }, mentionRevision: mentions.revision,
                                   mentionIdentity: state.serverID + "/" + state.selectedID,
                                   mentionLoader: mentionLoader, pickerAnchor: pickerAnchor, theme: theme)
                 .fixedSize(horizontal: false, vertical: true)

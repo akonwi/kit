@@ -715,6 +715,33 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return try TranscriptHistoryPage(page, sessionID: id, before: before)
     }
 
+    func messageHistory(_ id: String, before: String?) async throws -> ComposerMessageHistoryPage {
+        guard Self.validHistorySession(id),
+              before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
+        var query = [URLQueryItem(name: "limit", value: "100"), URLQueryItem(name: "role", value: "user")]
+        if let before { query.append(URLQueryItem(name: "before", value: before)) }
+        let page: WireMessageHistoryPage = try await get("v1/sessions/" + id + "/messages", query: query)
+        let source = try page.validatedMessages(session: id, before: before)
+        let entries = source.compactMap { message -> ComposerMessageHistoryEntry? in
+            let text = SessionProjection.visibleText(message.content ?? []).trimmingCharacters(in: .whitespacesAndNewlines)
+            return text.isEmpty ? nil : .init(id: message.id, text: text)
+        }
+        return .init(entries: entries, nextCursor: page.nextCursor, hasMore: page.hasMore)
+    }
+
+    func bashHistory(_ id: String, before: String?, limit: Int) async throws -> ComposerBashHistoryPage {
+        guard Self.validHistorySession(id), (1...200).contains(limit),
+              before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
+        var query = [URLQueryItem(name: "limit", value: String(limit))]
+        if let before { query.append(URLQueryItem(name: "before", value: before)) }
+        let page: WireBashHistoryPage = try await get("v1/sessions/" + id + "/bash-history", query: query)
+        return try ComposerBashHistoryPage(page, session: id, before: before)
+    }
+
+    private static func validHistorySession(_ id: String) -> Bool {
+        !id.isEmpty && id.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }
+    }
+
     private func wireSnapshot(_ id: String) async throws -> WireSessionSnapshot {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
         let snapshot: WireSessionSnapshot = try await get("v1/sessions/" + id)
