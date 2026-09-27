@@ -30,10 +30,10 @@ enum DaemonCompatibility {
                  clientProtocol: clientProtocol, daemonProtocol: daemonProtocol) == nil
     }
 
-    static func appVersion(_ bundle: Bundle = .main) -> String {
-        let version = bundle.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev"
-        // The local ad-hoc development bundle does not assert release compatibility.
-        return version == "0.0.0" ? "dev" : version
+    static func clientRelease(_ bundle: Bundle = .main) -> String {
+        // The app's own version is independent of the Kit protocol release whose
+        // stable compatibility promise it implements. Development builds use dev.
+        bundle.object(forInfoDictionaryKey: "KitClientRelease") as? String ?? "dev"
     }
 
     private static func stableProtocol40Release(_ version: String) -> Bool {

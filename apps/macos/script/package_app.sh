@@ -9,7 +9,10 @@ if [[ ! "$tag" =~ ^macos-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
   exit 2
 fi
 version="${BASH_REMATCH[1]}"
-# Match the protocol-40 canonical stable-release parser before stamping a bundle.
+# The app is versioned independently; this source implements Kit's stable
+# protocol-40 client contract beginning with Kit release 0.37.0.
+client_release="0.37.0"
+# Require a canonical app version before stamping a bundle.
 python3 - "$version" <<'PYVERSION'
 import sys
 v = sys.argv[1]
@@ -20,9 +23,6 @@ if (len(parts) != 3 or any(not p or (len(p) > 1 and p[0] == "0") or
                            not p.isascii() or not p.isdecimal() or
                            int(p) > 18446744073709551615 for p in parts)):
     sys.exit("A canonical stable app version is required")
-major, minor, _ = map(int, parts)
-if major == 0 and minor < 37:
-    sys.exit("App release must be >= 0.37.0 for protocol 40")
 PYVERSION
 repo="$(cd "$APP_ROOT/../.." && pwd)"
 if [[ "$(git -C "$repo" rev-parse --is-shallow-repository)" != false ]]; then
@@ -64,10 +64,12 @@ app="$staging/Kit.app"
 KIT_MACOS_APP_BUNDLE="$app" KIT_MACOS_CONFIGURATION=Release KIT_MACOS_ARCH=arm64 \
   KIT_MACOS_RELEASE_BUILD=1 KIT_MACOS_DERIVED_DATA="$staging/DerivedData" \
   KIT_MACOS_APP_VERSION="$version" KIT_MACOS_APP_BUILD="$build" KIT_MACOS_SOURCE_COMMIT="$commit" \
+  KIT_MACOS_CLIENT_RELEASE="$client_release" \
   "$APP_ROOT/script/build_and_run.sh" --build
 
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleShortVersionString' "$app/Contents/Info.plist")" == "$version" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :CFBundleVersion' "$app/Contents/Info.plist")" == "$build" ]]
+[[ "$(/usr/libexec/PlistBuddy -c 'Print :KitClientRelease' "$app/Contents/Info.plist")" == "$client_release" ]]
 [[ "$(/usr/libexec/PlistBuddy -c 'Print :KitSourceCommit' "$app/Contents/Info.plist")" == "$commit" ]]
 [[ "$(lipo -archs "$app/Contents/MacOS/Kit")" == arm64 ]] || { echo "Expected an arm64 app" >&2; exit 1; }
 [[ ! -e "$app/Contents/Resources/fixture.json" && ! -e "$app/Contents/Resources/workspace.json" ]]

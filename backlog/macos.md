@@ -87,6 +87,8 @@ The first desktop distribution is an Apple Silicon, macOS 15+ app release per
 It requires a separately installed compatible Kit server. Discovery must
 validate registry/health identity and readiness and follow the Go protocol and
 stable-release compatibility contract without prescribing an exact CLI version.
+The app's `0.1.0` product version is independent of the pinned protocol-40 Kit
+client release identity (`0.37.0`).
 
 - [~] MAC-DIST-004 — Publish a Developer ID signed, notarized, stapled app
   ZIP with versioned metadata and SHA-256 on a regular GitHub Release. A

@@ -7,11 +7,29 @@ APP_BUNDLE="${KIT_MACOS_APP_BUNDLE:-$APP_ROOT/dist/Kit.app}"
 CONFIGURATION="${KIT_MACOS_CONFIGURATION:-Debug}"
 APP_VERSION="${KIT_MACOS_APP_VERSION:-0.0.0}"
 APP_BUILD="${KIT_MACOS_APP_BUILD:-1}"
+CLIENT_RELEASE="${KIT_MACOS_CLIENT_RELEASE:-dev}"
 APP_COMMIT="${KIT_MACOS_SOURCE_COMMIT:-}"
 DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
 [[ -z "$APP_COMMIT" || "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid source commit" >&2; exit 2; }
 [[ "$CONFIGURATION" == Debug || "$CONFIGURATION" == Release ]] || { echo "Invalid build configuration" >&2; exit 2; }
 [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$APP_BUILD" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "Invalid app version or build" >&2; exit 2; }
+[[ "$CLIENT_RELEASE" == dev || "$CLIENT_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid Kit client release" >&2; exit 2; }
+if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
+  # The protocol-40 stable-release parser must agree with Swift/Go, not just
+  # accept a numeric-looking label that would fail compatibility at runtime.
+  python3 - "$CLIENT_RELEASE" <<'PYCLIENT'
+import sys
+v = sys.argv[1]
+parts = v.split(".")
+if (len(v) > 64 or len(parts) != 3 or
+    any(not p or (len(p) > 1 and p[0] == "0") or not p.isascii() or
+        not p.isdecimal() or int(p) > 18446744073709551615 for p in parts)):
+    sys.exit("Release build requires a canonical Kit client release")
+major, minor, _ = map(int, parts)
+if major == 0 and minor < 37:
+    sys.exit("Protocol 40 requires Kit client release >= 0.37.0")
+PYCLIENT
+fi
 if [[ "$MODE" != --build ]]; then pkill -x Kit 2>/dev/null || true; fi
 cd "$APP_ROOT"
 # SwiftLintPlugin declares these output directories but does not create them.
@@ -63,6 +81,7 @@ cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <key>CFBundleName</key><string>Kit</string>
 <key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
 <key>CFBundleVersion</key><string>$APP_BUILD</string>
+<key>KitClientRelease</key><string>$CLIENT_RELEASE</string>
 $commit_entry
 <key>CFBundleIconFile</key><string>Kit</string>
 <key>CFBundleIconName</key><string>Kit</string>

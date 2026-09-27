@@ -31,7 +31,7 @@ struct FixtureClient: SessionClient {
 enum ClientError: LocalizedError {
     case discovery(String)
     case noDaemon, invalidEndpoint, incompatible, invalidPayload, daemonNotReady, missingSession, http(Int), disconnected, oversized
-    case incompatibleDaemon(appVersion: String, daemonVersion: String, appProtocol: Int, daemonProtocol: Int,
+    case incompatibleDaemon(clientRelease: String, daemonVersion: String, appProtocol: Int, daemonProtocol: Int,
                             reason: DaemonCompatibility.Mismatch)
     var errorDescription: String? {
         switch self {
@@ -39,8 +39,8 @@ enum ClientError: LocalizedError {
         case .noDaemon: "No running Kit server found. Start a compatible Kit server, then retry."
         case .invalidEndpoint: "The server endpoint is invalid. Local discovery must use a loopback address."
         case .incompatible: "The server registry is not supported by this app. Update to compatible releases."
-        case .incompatibleDaemon(let app, let daemon, let appProtocol, let daemonProtocol, let reason):
-            "Kit app \(app) (protocol \(appProtocol)) cannot attach to the running server \(daemon) (protocol \(daemonProtocol)): \(reason.rawValue). \(reason.recovery) The server was not changed."
+        case .incompatibleDaemon(let release, let daemon, let appProtocol, let daemonProtocol, let reason):
+            "Kit app \(Bundle.main.object(forInfoDictionaryKey: "CFBundleShortVersionString") as? String ?? "dev") (client release \(release), protocol \(appProtocol)) cannot attach to the running server \(daemon) (protocol \(daemonProtocol)): \(reason.rawValue). \(reason.recovery) The server was not changed."
         case .daemonNotReady: "The running Kit server's database is not ready. Retry when it is ready; the server was not changed."
         case .invalidPayload: "The server identity or response does not match local discovery."
         case .missingSession: "This session is no longer available."

@@ -44,20 +44,20 @@ struct DaemonCompatibilityTests {
     }
 
     @Test func discoveryAuthenticatesIdentityAndReadinessBeforeNegotiation() throws {
-        try HTTPClient.validateDiscovery(registry: registry(), health: health(), appVersion: "0.37.0")
+        try HTTPClient.validateDiscovery(registry: registry(), health: health(), clientRelease: "0.37.0")
         for altered in [try health(version: "0.39.0"), try health(protocolNumber: 41),
                         try health(instance: "another"), try health(pid: 124)] {
             do {
-                try HTTPClient.validateDiscovery(registry: registry(), health: altered, appVersion: "0.37.0")
+                try HTTPClient.validateDiscovery(registry: registry(), health: altered, clientRelease: "0.37.0")
                 Issue.record("A mismatched server identity must not attach")
             } catch ClientError.invalidPayload { /* registry and health must agree */ }
         }
         do {
-            try HTTPClient.validateDiscovery(registry: registry(), health: health(ready: false), appVersion: "0.37.0")
+            try HTTPClient.validateDiscovery(registry: registry(), health: health(ready: false), clientRelease: "0.37.0")
             Issue.record("An unready database must not attach")
         } catch ClientError.daemonNotReady { /* leave the server alone */ }
         do {
-            try HTTPClient.validateDiscovery(registry: registry(version: "dev"), health: health(version: "dev"), appVersion: "0.37.0")
+            try HTTPClient.validateDiscovery(registry: registry(version: "dev"), health: health(version: "dev"), clientRelease: "0.37.0")
             Issue.record("A stable release must not attach to an unverified dev daemon")
         } catch ClientError.incompatibleDaemon(let app, let daemon, let appProtocol, let daemonProtocol, let reason) {
             #expect(app == "0.37.0")

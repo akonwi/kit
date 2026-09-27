@@ -20,7 +20,8 @@ separately from the Go executable. App tags use `macos-vX.Y.Z` and do not
 trigger the Go release workflow's `vX.Y.Z` tags. The bundle uses `X.Y.Z` for
 `CFBundleShortVersionString` and a positive source-commit-count build number for
 `CFBundleVersion`, retains the bundle identifier `com.akonwi.kit`, and embeds
-the reviewed source commit. The first
+the reviewed source commit. The app version starts at `0.1.0` independently
+of Kit's CLI release version. The first
 download is a versioned ZIP containing `Kit.app` on a GitHub Release. A
 separate Homebrew Cask installs that same ZIP; it does not replace the `kit`
 CLI formula. Publish its SHA-256 alongside the archive.
@@ -32,9 +33,13 @@ database readiness, then negotiates the protocol and release policy used by the
 Go client. For protocol 40, differing canonical stable releases at or above
 `0.37.0` are compatible; equal labels attach, but equal `dev` labels alone do
 not guarantee compatibility across different builds. Differing dev/prerelease
-labels or protocol versions do not attach. The app's bundle release version is
-its client release identity. Release notes and the Cask description disclose
-the external-server requirement and explain recovery from an incompatible
+labels or protocol versions do not attach. The bundle's separate
+`KitClientRelease` identity names the stable Kit protocol contract implemented
+by that build (`0.37.0` for the initial protocol-40 app), not the app's
+`CFBundleShortVersionString`. The packaging check pins and verifies this value;
+changing the wire contract requires a reviewed compatibility update. Release
+notes and the Cask description disclose the external-server requirement and
+explain recovery from an incompatible
 running server without replacing it automatically. Verify the released app
 against a compatible daemon in an isolated Kit home; do not require one exact
 CLI version.
