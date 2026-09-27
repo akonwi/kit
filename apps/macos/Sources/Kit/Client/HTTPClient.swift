@@ -11,6 +11,23 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
+struct LocalDaemonRegistry: Decodable {
+    let registryVersion: Int
+    let protocolVersion: Int
+    let kitVersion: String
+    let url: String
+    let instanceId: String
+    let pid: Int
+}
+
+struct LocalDaemonHealth: Decodable {
+    let instanceId: String
+    let protocolVersion: Int
+    let kitVersion: String
+    let pid: Int
+    let databaseReady: Bool
+}
+
 final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
@@ -40,11 +57,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     static func local() async throws -> HTTPClient {
         // Discovery is read-only. Starting a daemon remains owned by Kit's CLI.
         let root = SharedSettingsStore.home.appendingPathComponent("run")
-        struct Registry: Decodable { let registryVersion: Int; let protocolVersion: Int; let url: String; let instanceId: String; let pid: Int }
-        let registry: Registry
+        let registry: LocalDaemonRegistry
         let token: String
         do {
-            registry = try JSONDecoder().decode(Registry.self, from: Data(contentsOf: root.appendingPathComponent("server.json")))
+            registry = try JSONDecoder().decode(LocalDaemonRegistry.self, from: Data(contentsOf: root.appendingPathComponent("server.json")))
             token = try String(contentsOf: root.appendingPathComponent("server.token"), encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines)
         } catch {
             let failure = error as NSError
@@ -54,14 +70,24 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             let cause = failure.userInfo[NSUnderlyingErrorKey] as? NSError ?? failure
             throw ClientError.discovery(cause.localizedDescription)
         }
-        guard registry.registryVersion == 1, registry.protocolVersion == kitWireVersion else { throw ClientError.incompatible }
+        guard registry.registryVersion == 1 else { throw ClientError.incompatible }
         guard let url = URL(string: registry.url), registry.pid > 0 else { throw ClientError.invalidEndpoint }
         let client = try HTTPClient(endpoint: url, token: token, instance: registry.instanceId, serverID: "local-v2")
-        struct Health: Decodable { let instanceId: String; let protocolVersion: Int; let pid: Int; let databaseReady: Bool }
-        let health: Health = try await client.get("v1/health")
-        guard health.instanceId == registry.instanceId, health.pid == registry.pid,
-              health.protocolVersion == kitWireVersion, health.databaseReady else { throw ClientError.incompatible }
+        let health: LocalDaemonHealth = try await client.get("v1/health")
+        try validateDiscovery(registry: registry, health: health, appVersion: DaemonCompatibility.appVersion())
         return client
+    }
+
+    static func validateDiscovery(registry: LocalDaemonRegistry, health: LocalDaemonHealth, appVersion: String) throws {
+        guard health.instanceId == registry.instanceId, health.pid == registry.pid,
+              health.protocolVersion == registry.protocolVersion,
+              health.kitVersion == registry.kitVersion else { throw ClientError.invalidPayload }
+        guard health.databaseReady else { throw ClientError.daemonNotReady }
+        if let reason = DaemonCompatibility.mismatch(clientVersion: appVersion, daemonVersion: registry.kitVersion,
+                                                      clientProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion) {
+            throw ClientError.incompatibleDaemon(appVersion: appVersion, daemonVersion: registry.kitVersion,
+                                                 appProtocol: kitWireVersion, daemonProtocol: registry.protocolVersion, reason: reason)
+        }
     }
 
     private func request(_ path: String, query: [URLQueryItem] = []) throws -> URLRequest {

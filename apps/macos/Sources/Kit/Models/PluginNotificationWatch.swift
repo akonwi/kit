@@ -25,6 +25,7 @@ import Foundation
                 catch ClientError.invalidPayload { return }
                 catch ClientError.oversized { return }
                 catch ClientError.incompatible { return }
+                catch ClientError.incompatibleDaemon { return }
                 catch is DecodingError { return }
                 catch { }
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }

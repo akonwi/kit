@@ -133,7 +133,8 @@ final class SessionReplica {
                     return // Terminal: reconnecting cannot repair authentication or a missing session.
                 } catch is DecodingError {
                     return
-                } catch ClientError.invalidPayload, ClientError.oversized, ClientError.incompatible {
+                } catch ClientError.invalidPayload, ClientError.oversized, ClientError.incompatible,
+                        ClientError.incompatibleDaemon {
                     return // Terminal protocol violation; a misbehaving server is not retried.
                 } catch {
                     // Transient (including ClientError.disconnected): reconnect fresh.
@@ -299,6 +300,7 @@ final class SessionReplica {
                     if case ClientError.invalidPayload = error { return }
                     if case ClientError.oversized = error { return }
                     if case ClientError.incompatible = error { return }
+                    if case ClientError.incompatibleDaemon = error { return }
                     if error is DecodingError { return }
                     self.connectionState = .retrying(message: error.localizedDescription, delay: delay)
                 }

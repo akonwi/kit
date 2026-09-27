@@ -30,14 +30,19 @@ struct FixtureClient: SessionClient {
 
 enum ClientError: LocalizedError {
     case discovery(String)
-    case noDaemon, invalidEndpoint, incompatible, invalidPayload, missingSession, http(Int), disconnected, oversized
+    case noDaemon, invalidEndpoint, incompatible, invalidPayload, daemonNotReady, missingSession, http(Int), disconnected, oversized
+    case incompatibleDaemon(appVersion: String, daemonVersion: String, appProtocol: Int, daemonProtocol: Int,
+                            reason: DaemonCompatibility.Mismatch)
     var errorDescription: String? {
         switch self {
         case .discovery(let reason): "Couldn’t read Kit’s server discovery files. \(reason)"
-        case .noDaemon: "No running Kit v2 server found. Start it with the Kit v2 CLI, then retry."
+        case .noDaemon: "No running Kit server found. Start a compatible Kit server, then retry."
         case .invalidEndpoint: "The server endpoint is invalid. Local discovery must use a loopback address."
-        case .incompatible: "The server uses an incompatible protocol. Update Kit and the server together."
-        case .invalidPayload: "The server returned an invalid session response."
+        case .incompatible: "The server registry is not supported by this app. Update to compatible releases."
+        case .incompatibleDaemon(let app, let daemon, let appProtocol, let daemonProtocol, let reason):
+            "Kit app \(app) (protocol \(appProtocol)) cannot attach to the running server \(daemon) (protocol \(daemonProtocol)): \(reason.rawValue). \(reason.recovery) The server was not changed."
+        case .daemonNotReady: "The running Kit server's database is not ready. Retry when it is ready; the server was not changed."
+        case .invalidPayload: "The server identity or response does not match local discovery."
         case .missingSession: "This session is no longer available."
         case .http(401), .http(403): "Server authentication failed. Reconnect to refresh credentials."
         case .http(let code): "Server request failed (HTTP \(code))."

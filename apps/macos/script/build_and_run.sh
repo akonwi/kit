@@ -3,16 +3,31 @@ set -euo pipefail
 APP_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 MODE="${1:-run}"
 case "$MODE" in run|--verify|--build) ;; *) echo "usage: $0 [--verify|--build]" >&2; exit 2 ;; esac
-APP_BUNDLE="$APP_ROOT/dist/Kit.app"
+APP_BUNDLE="${KIT_MACOS_APP_BUNDLE:-$APP_ROOT/dist/Kit.app}"
+CONFIGURATION="${KIT_MACOS_CONFIGURATION:-Debug}"
+APP_VERSION="${KIT_MACOS_APP_VERSION:-0.0.0}"
+APP_BUILD="${KIT_MACOS_APP_BUILD:-1}"
+APP_COMMIT="${KIT_MACOS_SOURCE_COMMIT:-}"
+DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
+[[ -z "$APP_COMMIT" || "$APP_COMMIT" =~ ^[a-f0-9]{40}$ ]] || { echo "Invalid source commit" >&2; exit 2; }
+[[ "$CONFIGURATION" == Debug || "$CONFIGURATION" == Release ]] || { echo "Invalid build configuration" >&2; exit 2; }
+[[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$APP_BUILD" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "Invalid app version or build" >&2; exit 2; }
 if [[ "$MODE" != --build ]]; then pkill -x Kit 2>/dev/null || true; fi
 cd "$APP_ROOT"
 # SwiftLintPlugin declares these output directories but does not create them.
-PLUGIN_OUTPUT="$APP_ROOT/.build/xcode/Build/Intermediates.noindex/BuildToolPluginIntermediates"
+PLUGIN_OUTPUT="$DERIVED_DATA/Build/Intermediates.noindex/BuildToolPluginIntermediates"
 mkdir -p "$PLUGIN_OUTPUT/codeeditsourceeditor.output/CodeEditSourceEditor/SwiftLint/Output" \
   "$PLUGIN_OUTPUT/codeedittextview.output/CodeEditTextView/SwiftLint/Output"
-xcodebuild -scheme Kit -destination 'platform=macOS' \
-  -derivedDataPath .build/xcode -skipPackagePluginValidation build
-BIN_DIR="$APP_ROOT/.build/xcode/Build/Products/Debug"
+build_args=(-scheme Kit -destination 'platform=macOS' -configuration "$CONFIGURATION"
+  -derivedDataPath "$DERIVED_DATA")
+if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
+  build_args+=(-disableAutomaticPackageResolution)
+else
+  build_args+=(-skipPackagePluginValidation)
+fi
+if [[ -n "${KIT_MACOS_ARCH:-}" ]]; then build_args+=("ARCHS=$KIT_MACOS_ARCH" ONLY_ACTIVE_ARCH=NO); fi
+xcodebuild "${build_args[@]}" build
+BIN_DIR="$DERIVED_DATA/Build/Products/$CONFIGURATION"
 python3 "$APP_ROOT/script/generate_wire.py" --check
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Fonts"
@@ -37,13 +52,18 @@ cp "$ICON_OUTPUT/Assets.car" "$APP_BUNDLE/Contents/Resources/Assets.car"
 cp "$APP_ROOT/../../assets/kit/Kit.icns" "$APP_BUNDLE/Contents/Resources/Kit.icns"
 # Private recordings are never part of the normal app bundle.
 rm -f "$APP_BUNDLE/Contents/Resources/fixture.json" "$APP_BUNDLE/Contents/Resources/workspace.json"
-cat > "$APP_BUNDLE/Contents/Info.plist" <<'PLIST'
+commit_entry=""
+if [[ -n "$APP_COMMIT" ]]; then commit_entry="<key>KitSourceCommit</key><string>$APP_COMMIT</string>"; fi
+cat > "$APP_BUNDLE/Contents/Info.plist" <<PLIST
 <?xml version="1.0" encoding="UTF-8"?>
 <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>Kit</string>
 <key>CFBundleIdentifier</key><string>com.akonwi.kit</string>
 <key>CFBundleName</key><string>Kit</string>
+<key>CFBundleShortVersionString</key><string>$APP_VERSION</string>
+<key>CFBundleVersion</key><string>$APP_BUILD</string>
+$commit_entry
 <key>CFBundleIconFile</key><string>Kit</string>
 <key>CFBundleIconName</key><string>Kit</string>
 <key>CFBundlePackageType</key><string>APPL</string>

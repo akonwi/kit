@@ -43,7 +43,8 @@ final class SubagentConversationState {
                     self.error = "This subagent conversation is no longer available."
                     return
                 case ClientError.http(401), ClientError.http(403), ClientError.invalidPayload,
-                     ClientError.oversized, ClientError.incompatible, is DecodingError:
+                     ClientError.oversized, ClientError.incompatible, ClientError.incompatibleDaemon,
+                     is DecodingError:
                     self.error = error.localizedDescription
                     return
                 default:

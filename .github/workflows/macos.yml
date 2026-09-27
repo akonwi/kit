@@ -7,6 +7,8 @@ jobs:
     runs-on: macos-latest
     steps:
       - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
       - name: Verify generated protocol
         run: python3 apps/macos/script/generate_wire.py --check
       - name: Build clean app without private fixtures
@@ -14,3 +16,19 @@ jobs:
       - name: Test
         working-directory: apps/macos
         run: xcodebuild -scheme Kit -destination 'platform=macOS' -derivedDataPath .build/xcode -skipPackagePluginValidation test
+      - name: Validate app packaging scripts
+        run: bash -n apps/macos/script/build_and_run.sh apps/macos/script/package_app.sh
+      - name: Build Apple Silicon Release staging app (not distributable)
+        env:
+          KIT_MACOS_APP_BUNDLE: ${{ runner.temp }}/Kit-release-check.app
+          KIT_MACOS_CONFIGURATION: Release
+          KIT_MACOS_ARCH: arm64
+          KIT_MACOS_RELEASE_BUILD: '1'
+          KIT_MACOS_APP_VERSION: 0.37.0
+          KIT_MACOS_SOURCE_COMMIT: ${{ github.sha }}
+        run: |
+          KIT_MACOS_APP_BUILD="$(git rev-list --count HEAD)" apps/macos/script/build_and_run.sh --build
+          test "$(lipo -archs "$KIT_MACOS_APP_BUNDLE/Contents/MacOS/Kit")" = arm64
+          test "$(/usr/libexec/PlistBuddy -c 'Print :KitSourceCommit' "$KIT_MACOS_APP_BUNDLE/Contents/Info.plist")" = "$GITHUB_SHA"
+          test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/fixture.json"
+          test ! -e "$KIT_MACOS_APP_BUNDLE/Contents/Resources/workspace.json"

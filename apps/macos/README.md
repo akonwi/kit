@@ -12,13 +12,60 @@ apps/macos/script/build_and_run.sh --verify
 
 The script builds and packages `apps/macos/dist/Kit.app`, then launches it.
 `--build` packages without launching. Xcode is required for the editor dependency's
-resource generation. The development bundle is ad-hoc signed; distribution,
-notarization, and bundled-daemon work remain on the backlog.
+resource generation. The development bundle is ad-hoc signed and must not be
+published. The separately signed macOS app release procedure is documented below;
+bundled-daemon work remains on the backlog.
 
 Start a compatible Kit daemon separately. The app discovers it through
 `$KIT_HOME/run`, defaulting to `~/.kit/run`, and checks identity and protocol
 compatibility. It never starts a daemon or reads a separate legacy home. There is
 no demo launch mode or packaged private transcript data.
+
+## Apple Silicon app release
+
+The macOS 15+ Apple Silicon app is released separately from the Go executable
+as a notarized GitHub Release ZIP and a separate Homebrew Cask with manual
+updates; see [ADR 0029](../../docs/adrs/0029-distribute-native-macos-app-separately.md).
+It **does not include or start** a server. Install and start a compatible Kit
+server separately. Discovery authenticates the registered server, checks its
+identity and readiness, and negotiates protocol/release compatibility. For
+protocol 40, differing canonical stable versions >= 0.37.0 can attach without
+requiring the app and CLI to share an exact version. Incompatible running
+servers are left alone; update to compatible releases rather than restarting or
+replacing one from the app.
+
+An operator with a **Developer ID Application** certificate and a `notarytool`
+keychain profile can prepare an artifact without launching the app, touching
+the daemon, tagging, or publishing:
+
+```sh
+export KIT_DEVELOPER_ID_APPLICATION='Developer ID Application: Akonwi Ngoh (M7B73F53MK)'
+# The operator's existing notarytool profile is named kit (the script defaults to it).
+apps/macos/script/package_app.sh macos-vX.Y.Z
+```
+
+Run it only from a clean checkout at the reviewed `macos-vX.Y.Z` tag, with a
+canonical stable version >= 0.37.0. The script builds arm64 Release, stamps
+release version, source-derived build number, and source commit; signs with
+hardened runtime; notarizes and staples the app; checks Gatekeeper; and writes
+`apps/macos/dist/releases/kit_macos-vX.Y.Z_darwin_arm64.zip` plus its SHA-256
+file. It fails if required credentials are missing. The development
+`build_and_run.sh` remains ad-hoc signed by default; **never publish its output**.
+
+Before release, confirm the build number increases over the last app release,
+then run the full macOS tests and prepare curated notes stating the
+source commit, protocol compatibility range, macOS 15+ Apple Silicon support,
+external-server dependency, and manual-update steps. Create a **draft** GitHub
+Release for the tag and upload the ZIP and checksum. Freshly download those
+assets outside the checkout; verify `shasum -c`, bundle contents and source
+commit, Developer ID signature, stapled ticket, Gatekeeper acceptance, launch,
+and a live connection to a compatible server with an isolated `KIT_HOME`.
+Also verify incompatible-server recovery and preservation of settings, drafts,
+and window restoration after manual replacement. Only then publish the draft
+as a regular release. Add/update a **separate** Homebrew Cask referencing the
+published asset URL and exact SHA-256 without changing the CLI formula. Review
+both manual and Cask upgrade paths. This is not release authorization or a claim
+that these gates have passed.
 
 ## Navigation
 
