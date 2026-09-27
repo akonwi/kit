@@ -20,6 +20,24 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 Kit stores data under `~/.kit` by default. Set `KIT_HOME` to an explicit
 isolated location when developing or testing.
 
+## Installation
+
+Install the CLI and daemon on macOS or Linux with Homebrew:
+
+```sh
+brew install akonwi/tap/kit
+```
+
+On Apple Silicon Macs running macOS 15 or newer, install the native app
+separately:
+
+```sh
+brew install --cask akonwi/tap/kit-app
+```
+
+The app connects to a separately running compatible Kit server; it does not
+install or start one. The CLI and app have independent version numbers.
+
 ## CLI
 
 ```sh
