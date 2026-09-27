@@ -101,5 +101,6 @@ For browser-client changes, run its formatting, lint, typecheck, unit, and
 browser suites defined by the web workspace. Bun is a development/build-time
 dependency only and must not become a user runtime requirement.
 
-Before releasing the rewrite, satisfy the R1 verification gates in
-`backlog/README.md` and `backlog/core.md`.
+Before publishing a release, follow `.agents/skills/release/SKILL.md` and
+report material limitations honestly. Open backlog items track future work;
+they are not automatic release blockers.

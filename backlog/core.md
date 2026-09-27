@@ -170,13 +170,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   race-enabled plugin-tool tests. Confirm the corrected fixtures pass in CI.
 - [ ] CORE-TEST-002 — Cover malformed and adversarial protocol records with fuzz
   or property tests.
-- [~] CORE-TEST-003 — Use isolated production-shaped fixtures to verify in-place
-  configuration reuse, fresh native sessions, and provider/MCP reauthentication.
-  Prove isolated development/tests leave real `~/.kit` untouched and upgrade
-  leaves legacy runtime data untouched and unimported.
-- [ ] CORE-TEST-004 — Complete authenticated production smoke coverage for
-  model and thinking selection, coding tools, attachments/images, MCP,
-  interactions, signals, and the existing-installation upgrade workflow.
 
 ### GPT-6 provider and runtime capabilities
 

@@ -59,9 +59,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   capabilities, attention/progress state, and clean restoration on every exit.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
-- [ ] TUI-TEST-001 — Pass deterministic presentation, keyboard/mouse, focus,
-  directory/file/diff, attachment/image, interaction, reconnect, and narrow/wide
-  layout suites.
 
 ## Scope decisions
 

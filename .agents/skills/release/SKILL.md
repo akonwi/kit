@@ -12,9 +12,9 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
 
 1. Inspect `git status --short`, the current branch, and recent release tags.
    Do not include unrelated changes. Release from reviewed, committed `main`.
-   Read the release requirements in `backlog/README.md` and the core/TUI backlogs; a successful
-   build alone does not establish release readiness. Report unresolved gates
-   before publishing.
+   Read the release scope in `backlog/README.md` and the core/TUI backlogs to
+   identify relevant changes and limitations. Open backlog items are tracked
+   work, not automatic release blockers; report material limitations honestly.
 
 2. Review commits since the last published release (`gh release list` and
    `git log <previous-tag>..HEAD`). Choose a patch for fixes and maintenance,
@@ -97,8 +97,8 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
    ```
    Verify manual extraction/install too. Existing npm users must remove their
    npm installation and verify PATH resolves to the new binary; do not publish
-   an npm update. Follow the migration guidance and outstanding distribution
-   verification gates in the backlog.
+   an npm update. Follow the migration guidance and report any unverified
+   distribution behavior without treating open backlog items as release gates.
 
 8. Report the version, validation results and platform limits, release commit,
    tag, GitHub release URL, and Homebrew tap commit. Never imply a local dry run
