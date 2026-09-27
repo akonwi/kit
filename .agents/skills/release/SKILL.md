@@ -1,14 +1,24 @@
 ---
 name: release
-description: Prepare and publish a Kit release. Use when asked to release Kit, cut a release, publish a new version, or bump the package for release.
+description: Prepare and publish Kit CLI and/or native macOS app releases. Use when asked to release Kit, cut a CLI or macOS app release, publish a new version, or bump the package for release.
 ---
 
 # Release skill
 
-Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
-`apps/web`, change its package version or release notes, or publish to npm.
+Kit's Go executable and native macOS app are **independent releases**. For an
+ambiguous "release Kit" request, ask whether to release the CLI, the macOS app,
+or both before tagging or publishing. For both, follow each path separately;
+do not force matching product versions or let one release implicitly publish the
+other. Do not build `apps/web` or change its package version or release notes.
+Never tag, push, publish, or access signing credentials without authorization
+for the relevant release.
 
-## Steps
+## Go CLI release (`vX.Y.Z`)
+
+Publish Kit's Go executable through GitHub Releases and the `kit` Homebrew
+formula. The `v*` tag workflow builds **only** CLI artifacts.
+
+### Steps
 
 1. Inspect `git status --short`, the current branch, and recent release tags.
    Do not include unrelated changes. Release from reviewed, committed `main`.
@@ -95,11 +105,94 @@ Publish Kit's Go executable through GitHub Releases and Homebrew. Do not build
    ```sh
    brew update && brew upgrade akonwi/tap/kit && brew test kit
    ```
-   Verify manual extraction/install too. Existing npm users must remove their
-   npm installation and verify PATH resolves to the new binary; do not publish
-   an npm update. Follow the migration guidance and report any unverified
-   distribution behavior without treating open backlog items as release gates.
+   Verify manual extraction/install too. Follow the migration guidance and
+   report any unverified distribution behavior without treating open backlog
+   items as release gates.
 
 8. Report the version, validation results and platform limits, release commit,
    tag, GitHub release URL, and Homebrew tap commit. Never imply a local dry run
    published a release or verified other platforms.
+
+## Native macOS app release (`macos-vX.Y.Z`)
+
+The app is a regular Apple Silicon, macOS 15+ release with a separate external
+Kit server. Follow [ADR 0029](../../../docs/adrs/0029-distribute-native-macos-app-separately.md),
+[`apps/macos/README.md`](../../../apps/macos/README.md), and
+[`backlog/macos.md`](../../../backlog/macos.md). The app release is **manual**:
+`.github/workflows/macos.yml` builds a non-distributable PR staging app; it
+does not sign, notarize, tag, or publish an app.
+
+1. Check both the Kit and `../homebrew-tap` worktrees, current tags and published
+   releases. Release only from reviewed, committed `main`. Choose the app's own
+   `X.Y.Z` version (starting at `0.1.0`), not the CLI version. Review app changes
+   since the previous `macos-v*` tag and ensure the source-derived
+   `CFBundleVersion` build number increases. Check the generated wire protocol,
+   `KitClientRelease` identity, and pinned `client_release` in
+   `apps/macos/script/package_app.sh` against the actual server compatibility
+   contract. For protocol 40, stable server releases >= 0.37.0 can be compatible
+   without matching the app version; do not require one exact CLI release.
+   Changes to the protocol or compatibility promise require explicit review.
+2. Prepare curated, version-matched app notes for the reviewed release commit
+   before tagging. Include its full source SHA, supported macOS/architecture,
+   external-server requirement, protocol/release compatibility, manual
+   install/update path, Cask status, and material limitations or skipped checks.
+   The app release is manual: supply the finalized notes to `gh release create`
+   with `--notes-file`; no workflow reads a tracked app notes file. If committing
+   notes, do so **before** selecting the release commit—do not change or retag
+   the source merely to put its own SHA in a tracked file. Confirm the intended
+   tag and release commit before building.
+3. Verify generated wire code (`python3 apps/macos/script/generate_wire.py
+   --check`), shell syntax (`bash -n apps/macos/script/build_and_run.sh
+   apps/macos/script/package_app.sh`), `git diff --check`, and the full macOS
+   suite from `apps/macos`:
+   ```sh
+   xcodebuild -scheme Kit -destination 'platform=macOS' \
+     -derivedDataPath .build/xcode -skipPackagePluginValidation test
+   ```
+   Run the arm64 Release staging build and check its architecture, bundle
+   version/build, source commit, client-release identity, and fixture exclusion
+   as in `.github/workflows/macos.yml`. This staging app is ad-hoc signed and
+   must **not** be published. Do not start, replace, or restart a production
+   daemon to run compatibility checks; use an isolated `KIT_HOME` when a
+   development server or database is needed.
+4. With authorization, tag the reviewed clean commit `macos-vX.Y.Z`. From that
+   exact checkout, with the operator's Developer ID Application identity in the
+   keychain and the `kit` notarytool keychain profile, run:
+   ```sh
+   KIT_DEVELOPER_ID_APPLICATION='Developer ID Application: Akonwi Ngoh (M7B73F53MK)' \
+     KIT_NOTARY_KEYCHAIN_PROFILE=kit \
+     apps/macos/script/package_app.sh macos-vX.Y.Z
+   ```
+   The script builds arm64 Release, signs with hardened runtime, notarizes,
+   staples, assesses Gatekeeper, and creates
+   `apps/macos/dist/releases/kit_macos-vX.Y.Z_darwin_arm64.zip` and `.sha256`.
+   It refuses dirty or untagged source; never publish the ad-hoc development
+   bundle or expose keychain credentials in notes or logs.
+5. Verify the ZIP checksum, extract it outside the checkout, and inspect the
+   app's architecture, source commit, bundle version/build, `KitClientRelease`,
+   Developer ID signature, stapled ticket, and Gatekeeper assessment. Exercise
+   the installed artifact against a compatible running server and check
+   incompatible-server recovery without altering that server. For upgrades,
+   verify retained settings, drafts, and window restoration. Do not claim
+   cross-version live testing unless it was actually done.
+6. With push/publication authorization, push `main` and the app tag. Create a
+   **draft** regular GitHub Release using the curated notes, ZIP, and checksum;
+   use `--verify-tag --latest=false` so the macOS app does not replace the CLI's
+   Latest release. Check tag target, draft body, asset names, sizes, and digests
+   against the local candidate. Fresh-download verification of draft assets is
+   the default distribution check; if the user explicitly waives it, record
+   that it was not performed. Publish the draft only after the agreed checks
+   pass (or explicitly waived checks are recorded). There is no Go release
+   workflow for `macos-v*` tags.
+7. Update `../homebrew-tap/Casks/kit-app.rb` using the **published** app asset
+   URL and exact SHA-256. Leave `Formula/kit.rb` unchanged. Check macOS 15+
+   and arm64 constraints, run `brew audit --cask --strict akonwi/tap/kit-app`
+   and `brew style --cask akonwi/tap/kit-app` from a tap visible to Homebrew,
+   and test `brew install --cask akonwi/tap/kit-app` (or `brew upgrade --cask`
+   for an existing installation). Verify the installed `/Applications/Kit.app`
+   metadata, signature, Gatekeeper assessment, and launch as appropriate. Push
+   the tap change only with authorization. Installing the app must not install,
+   start, or replace the CLI/server.
+8. Report the app version, full source commit and tag, checksum, validation
+   (including waived or untested checks), GitHub Release URL, Cask commit and
+   installation result. Keep CLI and app release outcomes distinct.
