@@ -77,7 +77,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [x] CORE-RUN-004 — Expose bounded provider retry countdowns and recovery state
   to clients.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
-  checkpoints and expose pending, completed, and failed lifecycle state.
+  checkpoints and expose pending, completed, and failed lifecycle state. Include
+  a bounded, actionable failure reason in the server's failed-compaction event
+  and persisted state so clients can explain the failure in toasts and after
+  reconnect, without exposing credentials or sensitive prompt content.
 - [ ] CORE-RUN-006 — Fix multimodal context estimation for image/file content.
   The provider-neutral estimator counts inline `data:` URLs as text
   (approximately two encoded bytes per token), so a ~1.8 MB image returned by
