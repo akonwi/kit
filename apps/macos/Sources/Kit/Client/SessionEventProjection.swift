@@ -7,6 +7,7 @@ struct SessionEventProjection {
     private var text: [String: [Int: String]] = [:]
     private var thinking: [String: [Int: String]] = [:]
     private var userTurns: Set<String>
+    private var candidateAnnotationTurn: String?
     private var lastTurn: String?
     private let persistedMessages: Set<String>
     private let persistedTools: Set<String>
@@ -87,6 +88,7 @@ struct SessionEventProjection {
             guard let ids = event.annotationIds, ids.count <= 64, Set(ids).count == ids.count else { throw ClientError.invalidPayload }
             session.annotations?.removeAll { ids.contains($0.id) }
         case "run.started":
+            candidateAnnotationTurn = nil
             session.activeCompactionID = nil
             if activeRunID != event.runId { retainPluginInteractions() }
             activeRunID = event.runId
@@ -110,6 +112,7 @@ struct SessionEventProjection {
             let value = event.text ?? SessionProjection.visibleText(event.content ?? [])
             if userTurns.insert(event.turnId).inserted {
                 session.messages.append(TranscriptMessage(id: "live-user-" + event.turnId, role: "user", text: value, tools: [], attachments: SessionProjection.attachments(event.content ?? []), annotations: annotations))
+                candidateAnnotationTurn = value == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
             }
             session.observedTurns = Array(Set((session.observedTurns ?? []) + [event.turnId]))
             lastTurn = event.turnId
@@ -226,6 +229,32 @@ struct SessionEventProjection {
         }
         session.activeRunID = activeRunID
         session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
+    }
+
+    mutating func acceptAnnotationMessage(_ message: WireTranscriptMessage, ids: [UInt64]) throws {
+        let rows = try SessionProjection.transcript([message])
+        guard message.role == "user", rows.count == 1, let row = rows.first,
+              let notes = row.annotations, notes.count == ids.count,
+              Set(notes.map(\.id)) == Set(ids) else { throw ClientError.invalidPayload }
+        if let turn = candidateAnnotationTurn, message.turnId != turn { throw ClientError.invalidPayload }
+        if let index = session.messages.firstIndex(where: { $0.id == "live-user-" + message.turnId && $0.role == "user" }) {
+            session.messages[index] = row
+        } else if !session.messages.contains(where: { $0.id == row.id }) {
+            session.messages.append(row)
+        }
+        userTurns.insert(message.turnId)
+        candidateAnnotationTurn = nil
+    }
+
+    mutating func clearAnnotationPreviewCandidate() {
+        candidateAnnotationTurn = nil
+    }
+
+    mutating func discardAnnotationPreview() {
+        guard let turn = candidateAnnotationTurn else { return }
+        session.messages.removeAll { $0.id == "live-user-" + turn && $0.role == "user" && $0.text == "Annotations" }
+        userTurns.remove(turn)
+        candidateAnnotationTurn = nil
     }
 
     private mutating func retainPluginInteractions() {

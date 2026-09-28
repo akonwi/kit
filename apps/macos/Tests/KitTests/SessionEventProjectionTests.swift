@@ -111,6 +111,53 @@ struct SessionEventProjectionTests {
         #expect(tool.contentTruncated == true)
     }
 
+    @Test func annotationOnlyLivePreviewWaitsForPersistedEvidence() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("run.started"))
+        try state.apply(event("message.user", ["text": "Annotations"]))
+        #expect(state.session.observedTurns == ["t"])
+        #expect(state.session.messages.map(\.text) == ["Annotations"])
+        try state.apply(event("annotation.submitted", ["annotationIds": [5]]))
+        #expect(state.session.messages.map(\.text) == ["Annotations"])
+
+        let evidence: [String: Any] = ["kind": "annotations", "annotations": [[
+            "originalAnnotationId": 5, "anchor": ["kind": "workspace_file", "workspaceFile": [
+                "workspaceId": "workspace_test", "path": "README.md", "fileRevision": "file_test",
+                "startLine": 7, "endLine": 7]], "body": "testing annotations",
+            "preview": ["startLine": 7, "endLine": 7, "text": "Kit is implemented in Go."]]]]
+        let canonical: [String: Any] = ["id": "message_0123456789abcdef0123456789abcdef",
+            "turnId": "t", "sequence": 1, "role": "user", "createdAt": "2026-09-17T00:00:00Z",
+            "content": [evidence]]
+        let accepted = try JSONDecoder().decode(WireTranscriptMessage.self, from: JSONSerialization.data(withJSONObject: canonical))
+        try state.acceptAnnotationMessage(accepted, ids: [5])
+        #expect(state.session.messages.map(\.id) == ["message_0123456789abcdef0123456789abcdef"])
+        #expect(state.session.messages.first?.annotations?.map(\.body) == ["testing annotations"])
+        #expect(state.session.messages.first?.annotations?.map(\.source) == ["Kit is implemented in Go."])
+
+        var withText = try SessionEventProjection(snapshot())
+        try withText.apply(event("message.user", ["text": "Please review this"]))
+        var textAndEvidence = canonical
+        textAndEvidence["content"] = [["kind": "text", "text": "Please review this"], evidence]
+        let acceptedWithText = try JSONDecoder().decode(WireTranscriptMessage.self,
+            from: JSONSerialization.data(withJSONObject: textAndEvidence))
+        try withText.acceptAnnotationMessage(acceptedWithText, ids: [5])
+        #expect(withText.session.messages.map(\.text) == ["Please review this"])
+        #expect(withText.session.messages.first?.annotations?.map(\.body) == ["testing annotations"])
+
+        var failedLookup = try SessionEventProjection(snapshot())
+        try failedLookup.apply(event("message.user", ["text": "Annotations"]))
+        try failedLookup.apply(event("annotation.submitted", ["annotationIds": [5]]))
+        failedLookup.discardAnnotationPreview()
+        #expect(failedLookup.session.messages.isEmpty)
+
+        var literal = try SessionEventProjection(snapshot())
+        try literal.apply(event("message.user", ["text": "Annotations"]))
+        try literal.apply(event("run.finished"))
+        literal.clearAnnotationPreviewCandidate()
+        literal.discardAnnotationPreview()
+        #expect(literal.session.messages.map(\.text) == ["Annotations"])
+    }
+
     @Test func runIdentityRetryAndTerminalFailureAreProjected() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("run.started"))

@@ -217,6 +217,29 @@ private actor AnnotationStreamProbe {
 }
 
 extension AnnotationTests {
+    @Test func annotationSubmissionWaitsForPersistedEvidence() throws {
+        func event(_ sequence: Int64, _ kind: String, text: String? = nil) throws -> WireSessionEvent {
+            var json: [String: Any] = ["streamId": "stream", "sequence": sequence,
+                "sessionId": "session_test", "turnId": "turn_test", "runId": "turn_test", "kind": kind]
+            if let text { json["text"] = text }
+            return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
+        }
+        let started = try event(1, "run.started")
+        let placeholder = try event(2, "message.user", text: "Annotations")
+        let submitted = try event(3, "annotation.submitted")
+        var split = LiveAnnotationGate()
+        #expect(split.shouldPublish([started, placeholder]) == false)
+        #expect(split.shouldPublish([submitted]) == true)
+        var together = LiveAnnotationGate()
+        #expect(together.shouldPublish([started, placeholder, submitted]) == true)
+        var plain = LiveAnnotationGate()
+        #expect(plain.shouldPublish([started, placeholder]) == false)
+        #expect(plain.shouldPublish([try event(3, "run.finished")]) == true)
+        #expect(plain.releasedOrdinaryCandidate)
+        var ordinary = LiveAnnotationGate()
+        #expect(ordinary.shouldPublish([started, try event(2, "message.user", text: "Hello")]) == true)
+    }
+
     @Test @MainActor func annotationOnlyTranscriptUsesFrozenStructuredEvidence() throws {
         let payload = #"[{"id":"message_test","turnId":"turn_test","sequence":1,"role":"user","createdAt":"2026-09-17T00:00:00Z","content":[{"kind":"annotations","annotations":[{"originalAnnotationId":4,"anchor":{"kind":"workspace_file","workspaceFile":{"workspaceId":"workspace_test","path":"main.swift","fileRevision":"file_old","startLine":1,"endLine":1}},"body":"Preserve this","preview":{"startLine":1,"endLine":1,"text":"original source"}}]}]}]"#
         let source = try JSONDecoder().decode([WireTranscriptMessage].self, from: Data(payload.utf8))

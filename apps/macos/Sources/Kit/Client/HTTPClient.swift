@@ -11,6 +11,30 @@ private final class NoRedirects: NSObject, URLSessionTaskDelegate, @unchecked Se
     }
 }
 
+/// Keeps the live annotation preview private until the adjacent submission event resolves it.
+struct LiveAnnotationGate {
+    private var candidateTurn: String?
+    private(set) var releasedOrdinaryCandidate = false
+
+    mutating func shouldPublish(_ events: [WireSessionEvent]) -> Bool {
+        releasedOrdinaryCandidate = false
+        for event in events {
+            switch event.kind.rawValue {
+            case "message.user":
+                candidateTurn = event.text == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
+            case "annotation.submitted":
+                candidateTurn = nil
+            default:
+                // A normal message whose text happens to be "Annotations" is
+                // released when the next event isn't a submission.
+                if candidateTurn != nil { releasedOrdinaryCandidate = true }
+                candidateTurn = nil
+            }
+        }
+        return candidateTurn == nil
+    }
+}
+
 struct LocalDaemonRegistry: Decodable {
     let registryVersion: Int
     let protocolVersion: Int
@@ -892,10 +916,23 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         try Task.checkCancellation()
     }
 
+    func acceptedAnnotationMessage(session id: String, event: WireSessionEvent) async throws -> WireTranscriptMessage {
+        guard let acceptedID = event.acceptedMessageId, let ids = event.annotationIds,
+              !acceptedID.isEmpty, !ids.isEmpty else { throw ClientError.invalidPayload }
+        let page: WireMessageHistoryPage = try await get("v1/sessions/" + id + "/messages",
+            query: [URLQueryItem(name: "limit", value: "100"), URLQueryItem(name: "role", value: "user")])
+        let messages = try page.validatedMessages(session: id, before: nil)
+        guard let message = messages.first(where: { $0.id == acceptedID }),
+              let notes = message.content?.flatMap({ $0.annotations ?? [] }), notes.count == ids.count,
+              Set(notes.map(\.originalAnnotationId)) == Set(ids) else { throw ClientError.invalidPayload }
+        return message
+    }
+
     private func watchStream(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
         var snapshot = try await wireSnapshot(id)
         var projection = try SessionEventProjection(snapshot)
         await receive(projection.session)
+        var annotationGate = LiveAnnotationGate()
         let stream = snapshot.eventStreamId ?? ""
         var cursor = snapshot.eventReplayAvailable == true ? snapshot.eventReplayFrom ?? 0 : snapshot.eventCursor ?? 0
         let query = [URLQueryItem(name: "stream", value: stream), URLQueryItem(name: "after", value: String(cursor))]
@@ -917,15 +954,40 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 guard updated > cursor else { continue }
                 var refresh = false
                 var refreshSubagents = false
+                var applied: [WireSessionEvent] = []
+                var submissions: [WireSessionEvent] = []
                 for event in batch.events ?? [] where event.sequence > cursor {
+                    applied.append(event)
+                    if event.kind.rawValue == "annotation.submitted" { submissions.append(event) }
                     refreshSubagents = refreshSubagents || event.kind.rawValue == "subagent.changed"
                     try projection.apply(event)
                     cursor = event.sequence
-                    refresh = refresh || (event.sequence > (snapshot.eventCursor ?? 0)
-                        && ["run.finished", "compaction.completed", "annotation.submitted"].contains(event.kind.rawValue))
+                    let newEvent = event.sequence > (snapshot.eventCursor ?? 0)
+                    refresh = refresh || (newEvent
+                        && ["run.finished", "compaction.completed"].contains(event.kind.rawValue))
                 }
                 cursor = updated
-                await receive(projection.session)
+                let publish = annotationGate.shouldPublish(applied)
+                if annotationGate.releasedOrdinaryCandidate {
+                    projection.clearAnnotationPreviewCandidate()
+                }
+                for event in submissions {
+                    do {
+                        let message = try await acceptedAnnotationMessage(session: id, event: event)
+                        try projection.acceptAnnotationMessage(message, ids: event.annotationIds ?? [])
+                    } catch is CancellationError { throw CancellationError() }
+                    catch let error as URLError where error.code == .cancelled { throw error }
+                    catch {
+                        if Task.isCancelled { throw CancellationError() }
+                        // Never publish the synthetic preview. Reconcile immediately
+                        // if the accepted message cannot be read or validated.
+                        projection.discardAnnotationPreview()
+                        refresh = true
+                    }
+                }
+                // Hold a possible synthetic user preview across frames. The
+                // accepted message above replaces it before any publication.
+                if publish { await receive(projection.session) }
                 if refreshSubagents && !refresh {
                     let metadata = try await wireSnapshot(id)
                     guard metadata.eventStreamId == stream, (metadata.eventCursor ?? 0) >= cursor else { throw ClientError.disconnected }
@@ -938,6 +1000,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                     // If another turn has already started, reattach using its replay boundary.
                     guard snapshot.activeRunId == nil else { throw StreamResync() }
                     projection = try SessionEventProjection(snapshot, terminalError: projection.session.terminalError)
+                    annotationGate = LiveAnnotationGate()
                     cursor = snapshot.eventCursor ?? cursor
                     await receive(projection.session)
                 }
