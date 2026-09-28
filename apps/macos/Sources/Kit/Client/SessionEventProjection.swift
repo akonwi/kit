@@ -145,7 +145,14 @@ struct SessionEventProjection {
             guard let id = event.messageId, !id.isEmpty else { throw ClientError.invalidPayload }
             let value = event.text.flatMap { $0.isEmpty ? nil : $0 } ?? joined(text[id])
             if !persistedMessages.contains(id), !value.isEmpty {
-                session.messages.append(TranscriptMessage(id: id, role: "assistant", text: value, tools: []))
+                let message = TranscriptMessage(id: id, role: "assistant", text: value, tools: [])
+                // Completion can be delivered again without a new snapshot.
+                // Update the existing response without moving it past later rows.
+                if let index = session.messages.firstIndex(where: { $0.id == id }) {
+                    session.messages[index] = message
+                } else {
+                    session.messages.append(message)
+                }
             }
             if let finalThinking = event.thinking {
                 thinking[id] = [-1: finalThinking]

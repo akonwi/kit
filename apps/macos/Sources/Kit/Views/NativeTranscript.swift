@@ -34,7 +34,7 @@ struct NativeTranscript: NSViewRepresentable {
     let scroll = NativeTranscriptScrollView()
     let table = NSTableView()
     private var input: NativeTranscript
-    private var messages: [TranscriptMessage] = []
+    private(set) var messages: [TranscriptMessage] = []
     private var liveGroups: Set<String> = []
     private var attachments: TranscriptAttachmentStore?
     private var heights: [String: CGFloat] = [:]
@@ -51,7 +51,7 @@ struct NativeTranscript: NSViewRepresentable {
     private var insertionAnchor: Anchor?
     private var pendingMeasurements: [String: PendingMeasurement] = [:]
     private var measurementFlushQueued = false
-    private var indices: [String: Int] = [:]
+    private(set) var indices: [String: Int] = [:]
     private var sections: [String: [TranscriptReadingSection]] = [:]
     private var arrival: String?
 
@@ -341,8 +341,21 @@ struct NativeTranscript: NSViewRepresentable {
             text: "\(next.hasHistory)|\(next.historyLoading)|\(next.historyError ?? "")", tools: [])
         // Namespace message identities separately from container-owned rows.
         let headers = next.hasHistory || next.historyError != nil ? [header] : []
-        messages = headers + next.messages.map(Self.row(from:))
-        indices = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
+        // Replayed/overlapping updates must not give the native table duplicate
+        // identities. Keep the first position and the latest value for each ID.
+        // Normalize the rows themselves, not just the lookup used by anchors.
+        messages = headers
+        indices = [:]
+        for (index, row) in headers.enumerated() { indices[row.id] = index }
+        for message in next.messages {
+            let row = Self.row(from: message)
+            if let index = indices[row.id] {
+                messages[index] = row
+            } else {
+                indices[row.id] = messages.count
+                messages.append(row)
+            }
+        }
         let diff = messages.map(\.id).difference(from: old.map(\.id))
         var removals = IndexSet(), insertions = IndexSet()
         for change in diff {

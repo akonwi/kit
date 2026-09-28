@@ -213,6 +213,16 @@ struct SessionEventProjectionTests {
         try state.apply(event("run.finished", ["status": "completed"]))
         #expect(state.session.activity == nil)
     }
+    @Test func repeatedLiveCompletionUpdatesResponseInPlace() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("assistant.completed", ["messageId": "m", "text": "First response"]))
+        try state.apply(event("assistant.completed", ["messageId": "later", "text": "Later response"]))
+        try state.apply(event("assistant.completed", ["messageId": "m", "text": "Final response"]))
+        try state.apply(event("assistant.completed", ["messageId": "m", "text": "Final response"]))
+        #expect(state.session.messages.map(\.id) == ["m", "later"])
+        #expect(state.session.messages.map(\.text) == ["Final response", "Later response"])
+    }
+
     @Test func replayKeepsPersistedCallsAndMessagesUnique() throws {
         let base = try snapshot()
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(base)) as! [String: Any]

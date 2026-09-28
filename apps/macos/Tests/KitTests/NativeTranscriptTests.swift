@@ -8,6 +8,34 @@ import Testing
         override var isFlipped: Bool { true }
     }
 
+    @Test func duplicateRowsKeepLatestContentAndStablePositionsAcrossUpdates() {
+        let first = TranscriptMessage(id: "a", role: "assistant", text: "First", tools: [])
+        let latest = TranscriptMessage(id: "a", role: "assistant", text: "Latest", tools: [])
+        let other = TranscriptMessage(id: "b", role: "user", text: "Next question", tools: [])
+        let input = NativeTranscript(messages: [first, other, latest],
+            hasHistory: true, historyLoading: false, historyError: nil, active: false,
+            presentation: TranscriptPresentationState(), workspace: WorkspaceState(demo: false),
+            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
+        let adapter = NativeTranscriptCoordinator(input)
+        defer { adapter.stop() }
+        for _ in 0..<2 {
+            adapter.receive(input)
+            #expect(adapter.messages.map(\.id) == ["native-transcript-header", "message:a", "message:b"])
+            #expect(Array(adapter.messages.dropFirst()).map(\.text) == ["Latest", "Next question"])
+            #expect(adapter.table.numberOfRows == 3)
+            #expect(adapter.indices == ["native-transcript-header": 0, "message:a": 1, "message:b": 2])
+        }
+        let next = NativeTranscript(messages: [other, latest, latest],
+            hasHistory: false, historyLoading: false, historyError: nil, active: false,
+            presentation: input.presentation, workspace: input.workspace,
+            resumeRequest: 0, latestOutOfView: .constant(false), loadHistory: {}, theme: input.theme)
+        adapter.receive(next)
+        #expect(adapter.messages.map(\.id) == ["message:b", "message:a"])
+        #expect(adapter.messages.map(\.text) == ["Next question", "Latest"])
+        #expect(adapter.table.numberOfRows == 2)
+        #expect(adapter.indices == ["message:b": 0, "message:a": 1])
+    }
+
     @Test func transcriptColumnRemainsCenteredAcrossResizes() async throws {
         let input = NativeTranscript(messages: [
             TranscriptMessage(id: "message", role: "user", text: "Identical transcript content", tools: [])
