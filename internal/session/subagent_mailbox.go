@@ -391,13 +391,18 @@ func (m *Manager) informPendingSubagentMailbox(ctx context.Context, sessionID st
 	if err != nil {
 		return nil, fmt.Errorf("load parent subagent mailbox: %w", err)
 	}
-	for start := 0; start < len(items); start += maxMailboxDeliveryBatch {
-		end := min(start+maxMailboxDeliveryBatch, len(items))
+	start := 0
+	for groups := 0; start < len(items) && groups < maxMailboxDeliveryGroups; groups++ {
+		end := start + 1
+		for end < len(items) && end-start < maxMailboxDeliveryBatch && items[end].Kind == items[start].Kind {
+			end++
+		}
 		if err := m.informSubagentMailboxItems(ctx, droid, items[start:end]); err != nil {
 			return nil, err
 		}
+		start = end
 	}
-	return items, nil
+	return items[:start], nil
 }
 
 func (m *Manager) acknowledgeConsumedSubagentMailbox(ctx context.Context, droid *droids.Droid, turnID string, items []subagent.MailboxItem) error {
@@ -451,6 +456,11 @@ func mailboxBoundary(items []subagent.MailboxItem) (droids.BoundaryMessage, erro
 	if len(items) == 0 {
 		return droids.BoundaryMessage{}, errors.New("subagent mailbox batch is empty")
 	}
+	for _, item := range items[1:] {
+		if item.Kind != items[0].Kind {
+			return droids.BoundaryMessage{}, fmt.Errorf("mixed subagent mailbox delivery kinds %q and %q", items[0].Kind, item.Kind)
+		}
+	}
 	type detailItem struct {
 		Agent string `json:"agent"`
 		State string `json:"state"`
@@ -462,9 +472,13 @@ func mailboxBoundary(items []subagent.MailboxItem) (droids.BoundaryMessage, erro
 		if index > 0 {
 			text.WriteString("\n\n")
 		}
-		fmt.Fprintf(&text, "Subagent %s finished with state %s.", item.AgentName, item.State)
+		if item.Kind == subagent.ParentDeliveryRequest {
+			fmt.Fprintf(&text, "Subagent %s replied to request %s with state %s.", item.AgentName, item.RequestID, item.State)
+		} else {
+			fmt.Fprintf(&text, "Subagent %s finished with state %s.", item.AgentName, item.State)
+		}
 		if summary := boundedMailboxContext(item.Summary); summary != "" {
-			text.WriteString("\nResult summary: ")
+			text.WriteString("\nResult: ")
 			text.WriteString(summary)
 		}
 		if terminalError := boundedMailboxContext(subagent.RedactInternalIdentities(item.Error)); terminalError != "" {
@@ -484,8 +498,12 @@ func mailboxBoundary(items []subagent.MailboxItem) (droids.BoundaryMessage, erro
 	if !json.Valid(details) {
 		return droids.BoundaryMessage{}, errors.New("encode subagent mailbox details")
 	}
+	kind := "subagent_result"
+	if items[0].Kind == subagent.ParentDeliveryRequest {
+		kind = "subagent_request_result"
+	}
 	return droids.BoundaryMessage{
-		ID: items[0].ID, ReceiptIDs: receipts, Kind: "subagent_result", Source: "subagent",
+		ID: items[0].ID, ReceiptIDs: receipts, Kind: kind, Source: "subagent",
 		Content: []droids.InputContent{droids.TextInput{Text: text.String()}}, Details: details,
 	}, nil
 }

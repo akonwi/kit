@@ -509,8 +509,8 @@ func validateSubagentSnapshot(snapshot SessionSnapshot) error {
 		}
 	}
 	for index, item := range snapshot.SubagentMailbox {
-		if !identifier.Valid(item.ID, "mail_") || !identifier.Valid(item.ConversationID, "subagent_") ||
-			!identifier.Valid(item.TaskID, "task_") || !validRendererText(item.AgentName, 128) ||
+		if !identifier.Valid(item.ID, "mail_") || (item.Kind != "task" && item.Kind != "request") ||
+			!identifier.Valid(item.ConversationID, "subagent_") || !validRendererText(item.AgentName, 128) ||
 			!validSubagentTaskState(item.State) || item.State == "queued" || item.State == "running" || len(item.Summary) > 16<<10 || len(item.Error) > 16<<10 {
 			return fmt.Errorf("snapshot subagent mailbox item %d is invalid", index)
 		}

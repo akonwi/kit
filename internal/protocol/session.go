@@ -448,8 +448,8 @@ type SubagentConversation struct {
 // SubagentMailboxItem is one pending bounded parent notification.
 type SubagentMailboxItem struct {
 	ID             string `json:"id"`
+	Kind           string `json:"kind"`
 	ConversationID string `json:"conversationId"`
-	TaskID         string `json:"taskId"`
 	AgentName      string `json:"agentName"`
 	State          string `json:"state"`
 	Summary        string `json:"summary,omitempty"`

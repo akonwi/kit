@@ -96,11 +96,22 @@ type Conversation struct {
 	DismissedAt         *time.Time
 }
 
+// TaskOrigin identifies who admitted a child task and its result destination.
+type TaskOrigin string
+
+const (
+	TaskOriginParent  TaskOrigin = "parent"
+	TaskOriginRequest TaskOrigin = "request"
+	TaskOriginReply   TaskOrigin = "reply"
+)
+
 // Task is the Kit-owned durable projection of one child unit of work.
 type Task struct {
 	ID                     TaskID
 	ConversationID         ConversationID
 	OwnerSessionID         string
+	Origin                 TaskOrigin
+	RequestID              string
 	Sequence               uint64
 	Message                string
 	State                  TaskState
@@ -175,9 +186,19 @@ type Transcript struct {
 	Messages       []TranscriptMessage
 }
 
+// ParentDeliveryKind identifies the source of a parent-directed result.
+type ParentDeliveryKind string
+
+const (
+	ParentDeliveryTask    ParentDeliveryKind = "task"
+	ParentDeliveryRequest ParentDeliveryKind = "request"
+)
+
 // MailboxItem is the bounded result delivered to a parent at a safe boundary.
 type MailboxItem struct {
 	ID             string
+	Kind           ParentDeliveryKind
+	RequestID      string // set only for an explicit parent send result
 	OwnerSessionID string
 	ConversationID ConversationID
 	TaskID         TaskID

@@ -801,7 +801,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 	}
 	for _, item := range snapshot.SubagentMailbox {
 		result.SubagentMailbox = append(result.SubagentMailbox, protocol.SubagentMailboxItem{
-			ID: item.ID, ConversationID: item.ConversationID, TaskID: item.TaskID,
+			ID: item.ID, Kind: string(item.Kind), ConversationID: item.ConversationID,
 			AgentName: item.AgentName, State: item.State, Summary: item.Summary, Error: item.Error,
 			CreatedAt: item.CreatedAt.Format(time.RFC3339Nano),
 		})

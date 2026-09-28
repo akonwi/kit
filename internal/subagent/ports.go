@@ -90,6 +90,18 @@ type Repository interface {
 	MarkMailboxDelivered(context.Context, []string, uint64, time.Time) error
 }
 
+// RequestRepository supplies durable inbox admission alongside normal child tasks.
+// It is optional while the request capability is not wired by a host.
+type RequestRepository interface {
+	CreateSubagentRequest(context.Context, RequestAdmission) (Request, error)
+	ReplySubagentRequest(context.Context, ConversationID, string, string, string) (Request, error)
+	InspectSubagentRequest(context.Context, string, ConversationID, string) (Request, error)
+	ListSubagentInbox(context.Context, string, ConversationID, string, int) ([]Request, error)
+	PendingSubagentDeliveryOwners(context.Context, int) ([]string, error)
+	AdmitPendingSubagentDelivery(context.Context, string, Limits) (Task, error)
+	SettleSubagentRequests(context.Context, time.Time, int) (int, error)
+}
+
 // ChildRuntimeFactory constructs an isolated child over its own conversation store.
 type ChildRuntimeFactory interface {
 	Open(context.Context, Conversation) (ChildRuntime, error)

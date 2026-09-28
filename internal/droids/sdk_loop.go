@@ -212,7 +212,7 @@ func (rt *sdkRuntime) run(ctx context.Context, turnID TurnID, generation uint64)
 }
 
 func reactionDrivingBoundary(kind string) bool {
-	return kind == "subagent_result" || kind == "peer_query" || kind == "peer_result"
+	return kind == "subagent_result" || kind == "subagent_request_result" || kind == "peer_query" || kind == "peer_result"
 }
 
 func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) error {

@@ -26,6 +26,7 @@ type ChildRuntimeFactory struct {
 	// owning session's MCP namespaces instead of starting duplicate server
 	// processes, and never closes them.
 	MCPTools           func(context.Context, string) ([]droids.AnyTool, error)
+	SiblingTools       *subagent.SiblingToolService
 	providers          droids.Providers
 	bundleBuilder      RuntimeBundleBuilder
 	directory          string
@@ -96,6 +97,13 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 		return nil, errors.New("child runtime bundle owns MCP namespaces")
 	}
 	tools := bundle.Tools
+	if f.SiblingTools != nil {
+		siblings, err := f.SiblingTools.Tools(conversation)
+		if err != nil {
+			return nil, fmt.Errorf("build child sibling tools: %w", err)
+		}
+		tools = append(append([]droids.AnyTool(nil), tools...), siblings...)
+	}
 	if f.MCPTools != nil {
 		borrowed, err := f.MCPTools(ctx, conversation.OwnerSessionID)
 		if err != nil {
@@ -179,7 +187,8 @@ func childInstructions(definition subagent.Definition) string {
 	return "You are the " + definition.Name + " subagent.\n\n" +
 		"Your role: " + definition.Description + "\n\n" +
 		"Follow these child-specific instructions:\n\n" + strings.TrimSpace(definition.Instructions) +
-		"\n\nDo not attempt to delegate to another subagent. Return a concise result to the parent."
+		"\n\nYou may send requests to configured siblings (including ones not yet started) and explicitly reply to requests in your inbox. " +
+		"Do not directly start, cancel, or dismiss another subagent. Return a concise result to the parent for parent-assigned work."
 }
 
 func modelProvider(exact string) string {
@@ -231,7 +240,40 @@ func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted fun
 			}
 		}
 	}()
-	handle, err := r.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: task.Message}}}, droids.PromptOptions{AdmissionKey: string(task.ID)})
+	var handle droids.ExecutionHandle
+	if task.Origin == subagent.TaskOriginParent {
+		handle, err = r.droid.Prompt(ctx, droids.Input{Content: []droids.InputContent{droids.TextInput{Text: task.Message}}}, droids.PromptOptions{AdmissionKey: string(task.ID)})
+	} else {
+		boundaryID := "inbox_" + string(task.ID)
+		details, encodeErr := droids.EncodeDetails(struct {
+			Version int    `json:"version"`
+			Receipt string `json:"receipt"`
+			Kind    string `json:"kind"`
+		}{Version: 1, Receipt: task.RequestID, Kind: string(task.Origin)})
+		if encodeErr != nil {
+			err = encodeErr
+		} else {
+			err = r.droid.Inform(ctx, droids.BoundaryMessage{
+				ID: boundaryID, Kind: "subagent_inbox", Source: "subagent",
+				Content: []droids.InputContent{droids.TextInput{Text: task.Message}}, Details: details,
+			})
+			if err != nil {
+				if received, reconcileErr := r.droid.BoundaryReceived(context.Background(), boundaryID); reconcileErr == nil && received {
+					err = nil
+				}
+			}
+			if err == nil {
+				key := "inbox:" + string(task.ID)
+				handle, _, err = r.droid.ReactUncounted(ctx, key)
+				if err != nil {
+					status, reconcileErr := r.droid.BoundaryStatus(context.Background(), boundaryID)
+					if reconcileErr == nil && status.TurnID != "" {
+						handle, _, err = r.droid.ReactUncounted(context.Background(), key)
+					}
+				}
+			}
+		}
+	}
 	if err != nil {
 		subscription.Close()
 		<-drainDone

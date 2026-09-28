@@ -293,8 +293,8 @@ struct WireSubagentConversation: Codable, Sendable {
 
 struct WireSubagentMailboxItem: Codable, Sendable {
     let `id`: String
+    let `kind`: String
     let `conversationId`: String
-    let `taskId`: String
     let `agentName`: String
     let `state`: String
     let `summary`: String?

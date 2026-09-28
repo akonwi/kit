@@ -118,8 +118,8 @@ type SubagentConversation struct {
 
 type SubagentMailboxItem struct {
 	ID             string
+	Kind           subagent.ParentDeliveryKind
 	ConversationID string
-	TaskID         string
 	AgentName      string
 	State          string
 	Summary        string
@@ -542,7 +542,7 @@ func (m *Manager) projectSnapshotLocked(ctx context.Context, sessionID string, l
 		}
 		for _, item := range mailbox {
 			result.SubagentMailbox = append(result.SubagentMailbox, SubagentMailboxItem{
-				ID: item.ID, ConversationID: string(item.ConversationID), TaskID: string(item.TaskID),
+				ID: item.ID, Kind: item.Kind, ConversationID: string(item.ConversationID),
 				AgentName: item.AgentName, State: string(item.State), Summary: item.Summary, Error: item.Error, CreatedAt: item.CreatedAt,
 			})
 		}

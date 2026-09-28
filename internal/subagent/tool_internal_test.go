@@ -25,7 +25,7 @@ func TestRedactInternalIdentities(t *testing.T) {
 func TestModelToolUsesAgentNameWithoutStorageIdentities(t *testing.T) {
 	t.Parallel()
 	properties := modelToolParameters()["properties"].(map[string]any)
-	if len(properties) != 3 || properties["action"] == nil || properties["agent"] == nil || properties["message"] == nil {
+	if len(properties) != 4 || properties["action"] == nil || properties["agent"] == nil || properties["message"] == nil || properties["receipt"] == nil {
 		t.Fatalf("model tool properties = %#v", properties)
 	}
 	projected := projectModelConversation(Conversation{
@@ -121,4 +121,56 @@ func TestResolveChildModelRejectsUnavailableActiveConfiguration(t *testing.T) {
 	if err == nil {
 		t.Fatal("unavailable requested and active models were accepted")
 	}
+}
+
+func TestResolveConfiguredUnstartedPluginRecipient(t *testing.T) {
+	const ownerID = "session_abcdefabcdefabcdefabcdefabcdefab"
+	base, err := NewCatalog()
+	if err != nil {
+		t.Fatal(err)
+	}
+	definition := Definition{
+		Name: "demo.reviewer", Description: "Reviews", Instructions: "Review carefully.", Model: "test/reviewer",
+		Source: Source{Kind: SourcePlugin, PluginID: "demo", Path: "/plugin.json"},
+	}
+	plugin, err := NewCatalog(definition)
+	if err != nil {
+		t.Fatal(err)
+	}
+	service := &ToolService{
+		Owners: configuredOwnerResolver{owner: Owner{
+			SessionID: ownerID, CWD: "/owner/workspace", Model: "test/default", ThinkingLevel: "high", Persistent: true,
+		}},
+		Definitions: configuredCatalogLoader{catalog: base},
+		ResolveConfiguration: func(_ context.Context, selector, thinking string) (string, string, error) {
+			if selector != definition.Model || thinking != "high" {
+				return "", "", ErrInvalidInput
+			}
+			return selector, "medium", nil
+		},
+	}
+	cleanup, err := service.RegisterPluginCatalogProvider(ownerID, func() (Catalog, error) { return plugin, nil })
+	if err != nil {
+		t.Fatal(err)
+	}
+	resolved, owner, model, thinking, err := service.ResolveConfiguredRecipient(t.Context(), ownerID, definition.Name)
+	if err != nil || resolved != definition || owner.CWD != "/owner/workspace" || model != "test/reviewer" || thinking != "medium" {
+		t.Fatalf("configured plugin recipient = %#v, %#v, %q, %q, %v", resolved, owner, model, thinking, err)
+	}
+	cleanup()
+	if _, _, _, _, err := service.ResolveConfiguredRecipient(t.Context(), ownerID, definition.Name); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unloaded plugin recipient = %v, want not found", err)
+	}
+}
+
+type configuredCatalogLoader struct{ catalog Catalog }
+
+func (l configuredCatalogLoader) Load(_ context.Context, _ string) (LoadResult, error) {
+	return LoadResult{Catalog: l.catalog}, nil
+}
+
+type configuredOwnerResolver struct{ owner Owner }
+
+func (r configuredOwnerResolver) SubagentOwner(_ context.Context, _ string) (Owner, error) {
+	return r.owner, nil
 }

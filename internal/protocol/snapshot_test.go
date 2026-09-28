@@ -47,6 +47,23 @@ func TestSessionSnapshotRejectsBashTranscriptRole(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotValidatesTypedParentDeliveries(t *testing.T) {
+	t.Parallel()
+	snapshot := validTranscriptSnapshot()
+	created := time.Unix(5, 0).UTC().Format(time.RFC3339Nano)
+	snapshot.SubagentMailbox = []SubagentMailboxItem{
+		{ID: "mail_0123456789abcdef0123456789abcdef", Kind: "task", ConversationID: "subagent_0123456789abcdef0123456789abcdef", AgentName: "scout", State: "completed", CreatedAt: created},
+		{ID: "mail_fedcba9876543210fedcba9876543210", Kind: "request", ConversationID: "subagent_fedcba9876543210fedcba9876543210", AgentName: "reviewer", State: "failed", CreatedAt: created},
+	}
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("mixed parent deliveries: %v", err)
+	}
+	snapshot.SubagentMailbox[1].Kind = "unknown"
+	if err := snapshot.Validate(); err == nil {
+		t.Fatal("snapshot accepted an unknown parent delivery kind")
+	}
+}
+
 func TestSessionSnapshotValidatesActiveCompaction(t *testing.T) {
 	t.Parallel()
 

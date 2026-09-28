@@ -29,7 +29,8 @@ const taskColumns = `
 	t.id, t.conversation_id, t.owner_session_id, t.sequence, t.message,
 	t.state, COALESCE(t.retry_of_task_id, ''), COALESCE(t.child_turn_id, ''),
 	t.cancellation_generation, t.queued_at, t.started_at, t.finished_at,
-	COALESCE(t.result_summary, ''), COALESCE(t.terminal_error, '')`
+	COALESCE(t.result_summary, ''), COALESCE(t.terminal_error, ''),
+	t.origin_kind, COALESCE(t.request_id, '')`
 
 // Admit creates or continues the one active conversation for an agent and
 // transactionally inserts a queued task before returning its identity.
@@ -417,9 +418,13 @@ func (s *Store) Complete(ctx context.Context, completion subagent.Completion) (s
 		boundedSubagentSummary(completion.ResultSummary), formatTimestamp(finishedAt), task.ConversationID); err != nil {
 		return subagent.Task{}, nil, err
 	}
-	mailbox, err := insertMailbox(ctx, tx, task, completion.State, completion.ResultSummary, completion.Error, finishedAt)
-	if err != nil {
-		return subagent.Task{}, nil, err
+	var mailbox *subagent.MailboxItem
+	if task.Origin == subagent.TaskOriginParent {
+		item, mailboxErr := insertMailbox(ctx, tx, task, completion.State, completion.ResultSummary, completion.Error, finishedAt)
+		if mailboxErr != nil {
+			return subagent.Task{}, nil, mailboxErr
+		}
+		mailbox = &item
 	}
 	if err := insertSubagentEvent(ctx, tx, task.OwnerSessionID, task.ConversationID, task.ID, "task."+string(completion.State), finishedAt); err != nil {
 		return subagent.Task{}, nil, err
@@ -431,7 +436,7 @@ func (s *Store) Complete(ctx context.Context, completion subagent.Completion) (s
 	if err := tx.Commit(); err != nil {
 		return subagent.Task{}, nil, err
 	}
-	return task, &mailbox, nil
+	return task, mailbox, nil
 }
 
 // Cancel aborts queued work immediately or generation-safely requests running cancellation.
@@ -506,7 +511,8 @@ func updateConversationAfterQueuedCancel(ctx context.Context, tx *sql.Tx, conver
 	return err
 }
 
-// Dismiss durably tombstones a conversation and aborts all queued/running tasks.
+// Dismiss durably tombstones a conversation, aborts its active work, and
+// cancels queued request inboxes in other children that lost this sender.
 func (s *Store) Dismiss(ctx context.Context, conversationID subagent.ConversationID, expectedGeneration uint64, reason string, dismissedAt time.Time) ([]subagent.Task, error) {
 	dismissedAt = dismissedAt.UTC()
 	if dismissedAt.IsZero() {
@@ -569,7 +575,7 @@ func (s *Store) Dismiss(ctx context.Context, conversationID subagent.Conversatio
 			return nil, err
 		}
 		changed = append(changed, task)
-		if previous.State == subagent.TaskRunning {
+		if previous.State == subagent.TaskRunning && task.Origin == subagent.TaskOriginParent {
 			if _, err := insertMailbox(ctx, tx, task, subagent.TaskAborted, "", reason, dismissedAt); err != nil {
 				return nil, err
 			}
@@ -578,6 +584,11 @@ func (s *Store) Dismiss(ctx context.Context, conversationID subagent.Conversatio
 			return nil, err
 		}
 	}
+	canceledInbox, err := settleDismissedSenderRequests(ctx, tx, conversationID, dismissedAt)
+	if err != nil {
+		return nil, err
+	}
+	changed = append(changed, canceledInbox...)
 	if err := insertSubagentEvent(ctx, tx, conversation.OwnerSessionID, conversationID, "", "conversation.dismissed", dismissedAt); err != nil {
 		return nil, err
 	}
@@ -730,8 +741,10 @@ func (s *Store) RecoverRunning(ctx context.Context, recoveredAt time.Time) (suba
 		if err != nil {
 			return subagent.Recovery{}, err
 		}
-		if _, err := insertMailbox(ctx, tx, task, subagent.TaskInterrupted, "", task.Error, recoveredAt); err != nil {
-			return subagent.Recovery{}, err
+		if task.Origin == subagent.TaskOriginParent {
+			if _, err := insertMailbox(ctx, tx, task, subagent.TaskInterrupted, "", task.Error, recoveredAt); err != nil {
+				return subagent.Recovery{}, err
+			}
 		}
 		if err := insertSubagentEvent(ctx, tx, task.OwnerSessionID, task.ConversationID, task.ID, "task.interrupted", recoveredAt); err != nil {
 			return subagent.Recovery{}, err
@@ -756,18 +769,23 @@ func (s *Store) RecoverRunning(ctx context.Context, recoveredAt time.Time) (suba
 	return subagent.Recovery{InterruptedTasks: interrupted, QueuedTasks: queued}, nil
 }
 
-// PendingMailbox returns a bounded deterministic batch for safe-boundary delivery.
+const parentDeliveryColumns = `d.id, d.kind, d.owner_session_id,
+	COALESCE(t.conversation_id, r.recipient_conversation_id, ''),
+	COALESCE(d.task_id, ''), COALESCE(d.request_id, ''), d.agent_name,
+	d.task_state, COALESCE(d.summary, ''), COALESCE(d.terminal_error, ''),
+	d.created_at, d.delivered_at, d.generation`
+
+// PendingMailbox returns a bounded oldest-first batch of typed parent deliveries.
 func (s *Store) PendingMailbox(ctx context.Context, ownerSessionID string, limit int) ([]subagent.MailboxItem, error) {
 	if limit < 1 || limit > 256 {
 		return nil, fmt.Errorf("mailbox limit must be 1-256")
 	}
-	rows, err := s.db.QueryContext(ctx, `
-		SELECT id, owner_session_id, conversation_id, task_id, agent_name,
-		       task_state, COALESCE(summary, ''), COALESCE(terminal_error, ''),
-		       created_at, delivered_at, generation
-		FROM parent_mailbox
-		WHERE owner_session_id = ? AND delivered_at IS NULL
-		ORDER BY created_at, id LIMIT ?`, ownerSessionID, limit)
+	rows, err := s.db.QueryContext(ctx, `SELECT `+parentDeliveryColumns+`
+		FROM subagent_parent_deliveries d
+		LEFT JOIN subagent_tasks t ON t.id = d.task_id
+		LEFT JOIN subagent_requests r ON r.id = d.request_id
+		WHERE d.owner_session_id = ? AND d.delivered_at IS NULL
+		ORDER BY d.created_at, d.id LIMIT ?`, ownerSessionID, limit)
 	if err != nil {
 		return nil, err
 	}
@@ -790,7 +808,7 @@ func (s *Store) PendingMailboxOwners(ctx context.Context, afterOwner string, lim
 	}
 	rows, err := s.db.QueryContext(ctx, `
 		SELECT p.owner_session_id
-		FROM parent_mailbox p
+		FROM subagent_parent_deliveries p
 		JOIN sessions s ON s.id = p.owner_session_id
 		WHERE p.delivered_at IS NULL AND s.archived_at IS NULL
 		  AND p.owner_session_id > ?
@@ -812,7 +830,7 @@ func (s *Store) PendingMailboxOwners(ctx context.Context, afterOwner string, lim
 	return owners, rows.Err()
 }
 
-// MarkMailboxDelivered generation-safely marks a complete batch delivered.
+// MarkMailboxDelivered generation-safely acknowledges a typed delivery batch.
 func (s *Store) MarkMailboxDelivered(ctx context.Context, ids []string, expectedGeneration uint64, deliveredAt time.Time) error {
 	if len(ids) == 0 {
 		return nil
@@ -828,7 +846,7 @@ func (s *Store) MarkMailboxDelivered(ctx context.Context, ids []string, expected
 	defer func() { _ = tx.Rollback() }()
 	for _, id := range ids {
 		result, err := tx.ExecContext(ctx, `
-			UPDATE parent_mailbox SET delivered_at = ?
+			UPDATE subagent_parent_deliveries SET delivered_at = ?
 			WHERE id = ? AND generation = ? AND delivered_at IS NULL`, formatTimestamp(deliveredAt), id, expectedGeneration)
 		if err != nil {
 			return err
@@ -836,7 +854,7 @@ func (s *Store) MarkMailboxDelivered(ctx context.Context, ids []string, expected
 		if count, _ := result.RowsAffected(); count != 1 {
 			var existing sql.NullString
 			var generation uint64
-			if err := tx.QueryRowContext(ctx, `SELECT delivered_at, generation FROM parent_mailbox WHERE id = ?`, id).Scan(&existing, &generation); err != nil {
+			if err := tx.QueryRowContext(ctx, `SELECT delivered_at, generation FROM subagent_parent_deliveries WHERE id = ?`, id).Scan(&existing, &generation); err != nil {
 				return mapSubagentNotFound(err)
 			}
 			if !existing.Valid || generation != expectedGeneration {
@@ -857,17 +875,17 @@ func insertMailbox(ctx context.Context, tx *sql.Tx, task subagent.Task, state su
 		return subagent.MailboxItem{}, err
 	}
 	item := subagent.MailboxItem{
-		ID: id, OwnerSessionID: task.OwnerSessionID, ConversationID: task.ConversationID,
+		ID: id, Kind: subagent.ParentDeliveryTask, OwnerSessionID: task.OwnerSessionID, ConversationID: task.ConversationID,
 		TaskID: task.ID, AgentName: conversation.Agent.Name, State: state,
 		Summary: boundedSubagentSummary(summary), Error: boundedSubagentSummary(terminalError),
 		CreatedAt: at, Generation: 1,
 	}
 	_, err = tx.ExecContext(ctx, `
-		INSERT INTO parent_mailbox(
-			id, owner_session_id, conversation_id, task_id, agent_name, task_state,
+		INSERT INTO subagent_parent_deliveries(
+			id, owner_session_id, kind, task_id, agent_name, task_state,
 			summary, terminal_error, generation, created_at
-		) VALUES (?, ?, ?, ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), 1, ?)
-		ON CONFLICT(task_id) DO NOTHING`, item.ID, item.OwnerSessionID, item.ConversationID,
+		) VALUES (?, ?, 'task', ?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), 1, ?)
+		ON CONFLICT(task_id) DO NOTHING`, item.ID, item.OwnerSessionID,
 		item.TaskID, item.AgentName, item.State, item.Summary, item.Error, formatTimestamp(at))
 	if err != nil {
 		return subagent.MailboxItem{}, err
@@ -878,19 +896,19 @@ func insertMailbox(ctx context.Context, tx *sql.Tx, task subagent.Task, state su
 func loadMailboxByTask(ctx context.Context, queryer interface {
 	QueryRowContext(context.Context, string, ...any) *sql.Row
 }, taskID subagent.TaskID) (subagent.MailboxItem, error) {
-	return scanMailbox(queryer.QueryRowContext(ctx, `
-		SELECT id, owner_session_id, conversation_id, task_id, agent_name,
-		       task_state, COALESCE(summary, ''), COALESCE(terminal_error, ''),
-		       created_at, delivered_at, generation
-		FROM parent_mailbox WHERE task_id = ?`, taskID))
+	return scanMailbox(queryer.QueryRowContext(ctx, `SELECT `+parentDeliveryColumns+`
+		FROM subagent_parent_deliveries d
+		JOIN subagent_tasks t ON t.id = d.task_id
+		LEFT JOIN subagent_requests r ON r.id = d.request_id
+		WHERE d.task_id = ?`, taskID))
 }
 
 func scanMailbox(scanner rowScanner) (subagent.MailboxItem, error) {
 	var item subagent.MailboxItem
 	var created string
 	var delivered sql.NullString
-	if err := scanner.Scan(&item.ID, &item.OwnerSessionID, &item.ConversationID, &item.TaskID,
-		&item.AgentName, &item.State, &item.Summary, &item.Error, &created, &delivered, &item.Generation); err != nil {
+	if err := scanner.Scan(&item.ID, &item.Kind, &item.OwnerSessionID, &item.ConversationID, &item.TaskID,
+		&item.RequestID, &item.AgentName, &item.State, &item.Summary, &item.Error, &created, &delivered, &item.Generation); err != nil {
 		return subagent.MailboxItem{}, err
 	}
 	var err error
@@ -982,7 +1000,7 @@ func scanSubagentTask(scanner rowScanner) (subagent.Task, error) {
 	if err := scanner.Scan(&task.ID, &task.ConversationID, &task.OwnerSessionID, &task.Sequence,
 		&task.Message, &task.State, &task.RetryOf, &task.ChildTurnID,
 		&task.CancellationGeneration, &queued, &started, &finished,
-		&task.ResultSummary, &task.Error); err != nil {
+		&task.ResultSummary, &task.Error, &task.Origin, &task.RequestID); err != nil {
 		return subagent.Task{}, err
 	}
 	var err error
@@ -1061,13 +1079,18 @@ func archiveOwnedSubagents(ctx context.Context, tx *sql.Tx, ownerSessionID strin
 		WHERE owner_session_id = ?`, formatTimestamp(archivedAt), formatTimestamp(archivedAt), ownerSessionID); err != nil {
 		return err
 	}
+	if err := settleArchivedOwnerRequests(ctx, tx, ownerSessionID, archivedAt); err != nil {
+		return err
+	}
 	for _, previous := range running {
 		task, err := loadSubagentTask(ctx, tx, previous.ID)
 		if err != nil {
 			return err
 		}
-		if _, err := insertMailbox(ctx, tx, task, subagent.TaskAborted, "", reason, archivedAt); err != nil {
-			return err
+		if task.Origin == subagent.TaskOriginParent {
+			if _, err := insertMailbox(ctx, tx, task, subagent.TaskAborted, "", reason, archivedAt); err != nil {
+				return err
+			}
 		}
 		if err := insertSubagentEvent(ctx, tx, ownerSessionID, task.ConversationID, task.ID, "task.aborted", archivedAt); err != nil {
 			return err

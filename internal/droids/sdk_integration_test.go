@@ -1605,3 +1605,44 @@ func (p *compactionProviders) model() droids.Model {
 		ContextWindow: 1_000, MaxInputTokens: 900, MaxOutputTokens: 64,
 	}
 }
+
+func TestSDKUncountedInboxReactionsDoNotExhaustAutonomousChain(t *testing.T) {
+	providers := &reactionProviders{}
+	droid, err := droids.Spawn(t.Context(), "conversation_inbox_independent", droids.Config{
+		Store: droids.NewMemoryStore(), Model: resolvedTestModel(providers, "test/reaction"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = droid.Close() })
+	for index := range 20 {
+		id := fmt.Sprintf("inbox_%032x", index)
+		if err := droid.Inform(t.Context(), droids.BoundaryMessage{
+			ID: id, Kind: "subagent_inbox", Source: "subagent",
+			Content: []droids.InputContent{droids.TextInput{Text: "independent sibling message"}},
+		}); err != nil {
+			t.Fatal(err)
+		}
+		handle, replayed, err := droid.ReactUncounted(t.Context(), "inbox:"+id)
+		if err != nil || replayed {
+			t.Fatalf("inbox %d admission = %v, replayed %v", index, err, replayed)
+		}
+		if outcome, err := handle.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+			t.Fatalf("inbox %d outcome = %#v, %v", index, outcome, err)
+		}
+	}
+	id := "mail_ffffffffffffffffffffffffffffffff"
+	if err := droid.Inform(t.Context(), droids.BoundaryMessage{
+		ID: id, Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "counted result"}},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	handle, _, err := droid.React(t.Context(), "mailbox:"+id)
+	if err != nil {
+		t.Fatalf("first counted reaction after inbox traffic = %v", err)
+	}
+	if outcome, err := handle.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("counted outcome = %#v, %v", outcome, err)
+	}
+}

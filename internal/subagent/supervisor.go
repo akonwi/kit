@@ -21,6 +21,7 @@ var (
 // Supervisor owns daemon-wide fair scheduling and independently cancelable workers.
 type Supervisor struct {
 	repository Repository
+	requests   RequestRepository
 	factory    ChildRuntimeFactory
 	limits     Limits
 	sink       EventSink
@@ -83,8 +84,9 @@ func NewSupervisor(repository Repository, factory ChildRuntimeFactory, limits Li
 		return nil, err
 	}
 	ctx, cancel := context.WithCancelCause(context.Background())
+	requests, _ := repository.(RequestRepository)
 	return &Supervisor{
-		repository: repository, factory: factory, limits: limits, sink: sink,
+		repository: repository, requests: requests, factory: factory, limits: limits, sink: sink,
 		ctx: ctx, cancel: cancel, wake: make(chan struct{}, 1), done: make(chan struct{}),
 		running: make(map[TaskID]*worker), live: make(map[ConversationID]*liveEventJournal),
 		deletingOwners:    make(map[string]struct{}),
@@ -203,13 +205,45 @@ func (s *Supervisor) Wake() {
 
 func (s *Supervisor) scheduleLoop() {
 	defer close(s.done)
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
 	for {
 		select {
 		case <-s.ctx.Done():
 			return
 		case <-s.wake:
-			s.schedule()
+		case <-ticker.C:
 		}
+		if s.requests != nil {
+			_, _ = s.requests.SettleSubagentRequests(s.ctx, time.Now().UTC(), 256)
+			owners, err := s.requests.PendingSubagentDeliveryOwners(s.ctx, 1024)
+			if err == nil {
+				admitted := 0
+				for admitted < 32 {
+					progress := false
+					for _, owner := range owners {
+						if err := s.beginOwnerOperation(owner); err != nil {
+							continue
+						}
+						task, err := s.requests.AdmitPendingSubagentDelivery(s.ctx, owner, s.limits)
+						s.endOwnerOperation(owner)
+						if err != nil {
+							continue
+						}
+						admitted++
+						progress = true
+						s.emitChanged(task.OwnerSessionID, task.ConversationID, task.ID)
+						if admitted >= 32 {
+							break
+						}
+					}
+					if !progress {
+						break
+					}
+				}
+			}
+		}
+		s.schedule()
 	}
 }
 
@@ -1043,4 +1077,36 @@ func (s *Supervisor) emitChanged(owner string, conversationID ConversationID, ta
 	if s.sink != nil {
 		s.sink.SubagentChanged(context.Background(), owner, conversationID, taskID)
 	}
+}
+
+// SendRequest admits a durable request while holding the owner's deletion gate.
+func (s *Supervisor) SendRequest(ctx context.Context, admission RequestAdmission) (Request, error) {
+	if s.requests == nil {
+		return Request{}, ErrNotFound
+	}
+	if err := s.beginOwnerOperation(admission.OwnerSessionID); err != nil {
+		return Request{}, err
+	}
+	defer s.endOwnerOperation(admission.OwnerSessionID)
+	request, err := s.requests.CreateSubagentRequest(ctx, admission)
+	if err == nil {
+		s.Wake()
+	}
+	return request, err
+}
+
+// ReplyRequest commits a recipient's explicit reply under the owner's deletion gate.
+func (s *Supervisor) ReplyRequest(ctx context.Context, owner string, recipient ConversationID, receipt, callIdentity, message string) (Request, error) {
+	if s.requests == nil {
+		return Request{}, ErrNotFound
+	}
+	if err := s.beginOwnerOperation(owner); err != nil {
+		return Request{}, err
+	}
+	defer s.endOwnerOperation(owner)
+	request, err := s.requests.ReplySubagentRequest(ctx, recipient, receipt, callIdentity, message)
+	if err == nil {
+		s.Wake()
+	}
+	return request, err
 }

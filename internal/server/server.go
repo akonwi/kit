@@ -189,7 +189,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		return fmt.Errorf("create subagent supervisor: %w", err)
 	}
 	subagentTools := &subagent.ToolService{
-		Supervisor: subagents, Owners: store,
+		Supervisor: subagents, Requests: store, Owners: store, Definitions: subagentLoader,
 		ResolveConfiguration: func(ctx context.Context, selector, thinking string) (string, string, error) {
 			model, err := resolveSubagentModel(providers, selector, providerAvailability(ctx))
 			if err != nil {
@@ -255,6 +255,10 @@ func Run(ctx context.Context, options RunOptions) error {
 	}
 	childFactory.PluginInterceptors = sessionManager.PluginInterceptors
 	childFactory.MCPTools = sessionManager.MCPTools
+	childFactory.SiblingTools = &subagent.SiblingToolService{
+		Repository: store, Supervisor: subagents,
+		ResolveRecipient: subagentTools.ResolveConfiguredRecipient,
+	}
 	annotationService.SetObserver(sessionManager)
 	peerTools.Service = sessionManager
 	sessionTools.Service = modelSessionService{

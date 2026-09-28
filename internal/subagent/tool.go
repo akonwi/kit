@@ -24,7 +24,9 @@ func RedactInternalIdentities(text string) string {
 // ToolService constructs model-facing asynchronous delegation tools.
 type ToolService struct {
 	Supervisor           *Supervisor
+	Requests             RequestRepository
 	Owners               OwnerResolver
+	Definitions          Loader
 	ResolveConfiguration func(context.Context, string, string) (string, string, error)
 
 	catalogMu              sync.RWMutex
@@ -43,17 +45,17 @@ func (s *ToolService) Tool(ownerSessionID string, catalog Catalog) (droids.AnyTo
 	}
 	return droids.NewTool(droids.Tool[toolArguments]{
 		Name:        "subagent",
-		Description: "Work with durable named child-agent sessions. Address subagents only by configured agent name. Messages steer a running subagent at its next model boundary or start a new turn when it is idle. Wait blocks until the named subagent has no active or queued work. Actions: list_agents, start, message, inspect, wait, cancel, dismiss.",
+		Description: "Work with durable named child-agent sessions. Address subagents only by configured agent name. Ask waits for an explicit reply; send returns a reply-capable receipt immediately. Messages steer a running child or start a turn when idle. Actions: list_agents, start, message, inspect, wait, cancel, dismiss, ask, send, inspect_request.",
 		Parameters:  modelToolParameters(),
 		Mode:        droids.ModeSequential,
-		Execute: func(ctx context.Context, _ droids.ToolContext, arguments toolArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
+		Execute: func(ctx context.Context, call droids.ToolContext, arguments toolArguments, _ droids.ToolUpdate) (droids.ToolResult, error) {
 			catalog, err := s.effectiveCatalog(ownerSessionID, copied)
 			if err != nil {
 				result := droids.ToolText(err.Error())
 				result.IsError = true
 				return result, nil
 			}
-			return s.execute(ctx, ownerSessionID, catalog, arguments), nil
+			return s.execute(ctx, ownerSessionID, catalog, call, arguments), nil
 		},
 	})
 }
@@ -101,13 +103,47 @@ func (s *ToolService) effectiveCatalog(sessionID string, base Catalog) (Catalog,
 	return NewCatalog(definitions...)
 }
 
+// ResolveConfiguredRecipient resolves only an owner's configured, unstarted
+// sibling. The child tool receives this narrow capability, never lifecycle tools.
+func (s *ToolService) ResolveConfiguredRecipient(ctx context.Context, ownerID, name string) (Definition, Owner, string, string, error) {
+	if s == nil || s.Owners == nil || s.Definitions == nil || s.ResolveConfiguration == nil {
+		return Definition{}, Owner{}, "", "", ErrNotFound
+	}
+	owner, err := s.Owners.SubagentOwner(ctx, ownerID)
+	if err != nil {
+		return Definition{}, Owner{}, "", "", err
+	}
+	if !owner.Persistent {
+		return Definition{}, Owner{}, "", "", ErrTemporaryUnavailable
+	}
+	loaded, err := s.Definitions.Load(ctx, owner.CWD)
+	if err != nil {
+		return Definition{}, Owner{}, "", "", err
+	}
+	catalog, err := s.effectiveCatalog(ownerID, loaded.Catalog)
+	if err != nil {
+		return Definition{}, Owner{}, "", "", err
+	}
+	definition, ok := catalog.Lookup(name)
+	if !ok {
+		return Definition{}, Owner{}, "", "", ErrNotFound
+	}
+	model, thinking, _, err := resolveChildConfiguration(ctx, definition.Name, definition.Model,
+		owner.Model, owner.ThinkingLevel, s.ResolveConfiguration)
+	if err != nil {
+		return Definition{}, Owner{}, "", "", err
+	}
+	return definition, owner, model, thinking, nil
+}
+
 func modelToolParameters() map[string]any {
 	return map[string]any{
 		"type": "object",
 		"properties": map[string]any{
-			"action":  map[string]any{"type": "string", "enum": []string{"list_agents", "start", "message", "inspect", "wait", "cancel", "dismiss"}},
+			"action":  map[string]any{"type": "string", "enum": []string{"list_agents", "start", "message", "inspect", "wait", "cancel", "dismiss", "ask", "send", "inspect_request"}},
 			"agent":   map[string]any{"type": "string", "description": "Configured agent name."},
-			"message": map[string]any{"type": "string", "description": "Initial instructions or a live steering message."},
+			"message": map[string]any{"type": "string", "description": "Initial instructions, steering message, or reply-capable request."},
+			"receipt": map[string]any{"type": "string", "description": "Receipt for inspect_request."},
 		},
 		"required":             []string{"action"},
 		"additionalProperties": false,
@@ -118,6 +154,7 @@ type toolArguments struct {
 	Action  string `json:"action"`
 	Agent   string `json:"agent,omitempty"`
 	Message string `json:"message,omitempty"`
+	Receipt string `json:"receipt,omitempty"`
 }
 
 type agentMetadata struct {
@@ -140,6 +177,9 @@ type toolResponse struct {
 	Agents       []agentMetadata    `json:"agents,omitempty"`
 	Conversation *modelConversation `json:"conversation,omitempty"`
 	Dismissed    bool               `json:"dismissed,omitempty"`
+	Receipt      string             `json:"receipt,omitempty"`
+	Reply        string             `json:"reply,omitempty"`
+	RequestState RequestState       `json:"requestState,omitempty"`
 	Warning      string             `json:"warning,omitempty"`
 	Error        string             `json:"error,omitempty"`
 }
@@ -151,7 +191,7 @@ func projectModelConversation(conversation Conversation) modelConversation {
 	}
 }
 
-func (s *ToolService) execute(ctx context.Context, ownerSessionID string, catalog Catalog, arguments toolArguments) droids.ToolResult {
+func (s *ToolService) execute(ctx context.Context, ownerSessionID string, catalog Catalog, call droids.ToolContext, arguments toolArguments) droids.ToolResult {
 	response := toolResponse{Action: arguments.Action}
 	var err error
 	switch arguments.Action {
@@ -184,6 +224,24 @@ func (s *ToolService) execute(ctx context.Context, ownerSessionID string, catalo
 		err = s.cancel(ctx, ownerSessionID, arguments.Agent, &response)
 	case "dismiss":
 		err = s.dismiss(ctx, ownerSessionID, arguments.Agent, &response)
+	case "ask", "send":
+		err = s.requestModel(ctx, ownerSessionID, catalog, call, arguments, &response)
+	case "inspect_request":
+		if s.Requests == nil {
+			err = ErrNotFound
+		} else {
+			var request Request
+			request, err = s.Requests.InspectSubagentRequest(ctx, ownerSessionID, "", arguments.Receipt)
+			if err == nil {
+				response.Receipt, response.RequestState, response.Reply = request.ID, request.State, request.Reply
+				if request.DeliveryPending {
+					response.Warning = "Reply is awaiting delivery through the parent mailbox."
+				}
+				if request.Failure != "" {
+					response.Error = request.Failure
+				}
+			}
+		}
 	default:
 		err = fmt.Errorf("%w: unsupported subagent action %q", ErrInvalidInput, arguments.Action)
 	}
@@ -516,3 +574,58 @@ func (s *ToolService) Dismiss(ctx context.Context, owner, agent string, conversa
 }
 
 var _ ParentToolFactory = (*ToolService)(nil)
+
+func (s *ToolService) requestModel(ctx context.Context, ownerID string, catalog Catalog, call droids.ToolContext, arguments toolArguments, response *toolResponse) error {
+	if s.Requests == nil {
+		return ErrNotFound
+	}
+	definition, ok := catalog.Lookup(strings.TrimSpace(arguments.Agent))
+	if !ok {
+		return ErrNotFound
+	}
+	owner, err := s.Owners.SubagentOwner(ctx, ownerID)
+	if err != nil {
+		return err
+	}
+	if !owner.Persistent {
+		return ErrTemporaryUnavailable
+	}
+	model, thinking, _, err := resolveChildConfiguration(ctx, definition.Name, definition.Model, owner.Model, owner.ThinkingLevel, s.ResolveConfiguration)
+	if err != nil {
+		return err
+	}
+	mode := arguments.Action
+	admission := RequestAdmission{
+		OwnerSessionID: ownerID, RecipientName: definition.Name, NewRecipient: &definition,
+		CWD: owner.CWD, Model: model, ThinkingLevel: thinking,
+		CallIdentity: siblingCallIdentity(call), DeliveryMode: mode, Message: arguments.Message,
+	}
+	request, err := s.Supervisor.SendRequest(ctx, admission)
+	if err != nil {
+		return err
+	}
+	response.Receipt, response.RequestState = request.ID, request.State
+	if mode == "send" {
+		return nil
+	}
+	wait, cancel := context.WithDeadline(ctx, request.DeadlineAt)
+	defer cancel()
+	ticker := time.NewTicker(100 * time.Millisecond)
+	defer ticker.Stop()
+	for request.State == RequestOpen {
+		select {
+		case <-wait.Done():
+			return fmt.Errorf("request %s is still pending: %w", request.ID, wait.Err())
+		case <-ticker.C:
+			request, err = s.Requests.InspectSubagentRequest(wait, ownerID, "", request.ID)
+			if err != nil {
+				return err
+			}
+		}
+	}
+	response.RequestState, response.Reply = request.State, request.Reply
+	if request.State != RequestReplied {
+		return fmt.Errorf("subagent request %s: %s", request.State, request.Failure)
+	}
+	return nil
+}
