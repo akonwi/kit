@@ -5,9 +5,9 @@
     <meta name="viewport" content="width=device-width, initial-scale=1" />
     <meta
       name="description"
-      content="Kit is a terminal-first coding agent that stays focused on your code and gets out of your way."
+      content="Kit is a development environment for working with coding agents: the agent, your files, diffs, review notes, and a shared scratchpad in one workspace, from the terminal or the Mac app."
     />
-    <title>Kit — a terminal-first coding agent</title>
+    <title>Kit — a workspace for you and agents</title>
     <link rel="icon" href="./assets/kit/app-icon.svg" type="image/svg+xml" />
     <link
       rel="stylesheet"
@@ -25,6 +25,11 @@
             </picture></a>
           <nav aria-label="Primary navigation">
             <m-hstack gap="lg" wrap>
+              <a class="nav-section" href="#workspace">Workspace</a>
+              <a class="nav-section" href="#sessions">Sessions</a>
+              <a class="nav-section" href="#agents">Agents</a>
+              <a class="nav-section" href="#extend">Extend</a>
+              <a href="#get-kit">Get Kit</a>
               <a href="https://github.com/akonwi/kit">GitHub</a>
             </m-hstack>
           </nav>
@@ -33,177 +38,396 @@
 
       <main>
         <section class="hero" aria-labelledby="hero-title">
-          <m-switcher gap="xl" threshold="lg">
+          <m-vstack gap="2xl">
             <m-vstack class="hero-copy" gap="lg" align="start">
-              <h1 id="hero-title">A coding agent that gets out of your way.</h1>
+              <h1 id="hero-title">A workspace for you and agents to work in.</h1>
               <p class="lede">
-                Kit is a fast, keyboard-first workspace for coding with agents. Keep the
-                conversation, tools, diffs, and review loop where the work already happens.
+                Kit puts the agent, your files, diffs, and review notes side by side. Read
+                what it changed, annotate the lines that matter, and send that feedback
+                straight back from the terminal or the Mac app.
               </p>
               <m-hstack class="hero-actions" gap="sm" wrap>
-                <a class="btn primary" href="#install">Install Kit</a>
+                <a class="btn primary" href="#get-kit">Get Kit</a>
                 <a class="btn" href="https://github.com/akonwi/kit">View on GitHub</a>
               </m-hstack>
-              <p class="requirement">Install with <a href="https://brew.sh">Homebrew</a></p>
+              <p class="requirement">macOS and Linux · one native executable · bring your own model provider</p>
             </m-vstack>
 
-            <div class="terminal" aria-label="An example of Kit's session interface">
-              <header class="terminal-header">
-                <m-hstack justify="between">
-                  <span>Refresh the Kit website</span>
-                  <span class="terminal-model">Sonnet · medium · 41%</span>
-                </m-hstack>
+            <figure class="mock" role="img" aria-label="Kit's workspace with a diff open. A three-line change is annotated with a review note, and two notes wait above the composer to be sent with the next message.">
+              <header class="mock-bar">
+                <span class="mock-session">Harden cwd receipts</span>
+                <span class="mock-meta">model · high · <span class="mock-progress">41%</span></span>
               </header>
-              <div class="terminal-transcript">
-                <div class="terminal-user">Use Mica, but keep the site unmistakably Kit.</div>
-                <div class="terminal-assistant">
-                  <strong>Changes</strong>
-                  <p>
-                    I’ll preserve the terminal-first visual language and use Mica for the
-                    responsive layout, spacing, and controls.
-                  </p>
+              <nav class="mock-tabs" aria-hidden="true">
+                <span>Agent</span>
+                <span class="is-active">Diff · working tree</span>
+                <span>cwd.go</span>
+                <span>Scratchpad</span>
+              </nav>
+              <div class="mock-diff" aria-hidden="true">
+                <div class="diff-file"><span>internal/session/cwd.go</span><span><span class="diff-add-count">+6</span> <span class="diff-del-count">−2</span></span></div>
+                <div class="diff-hunk">@@ -38,9 +38,13 @@ func (s *Session) ChangeCwd(</div>
+                <div class="diff-line"><span class="ln">38</span><span class="code">	target, err := s.resolve(path)</span></div>
+                <div class="diff-line"><span class="ln">39</span><span class="code">	if err != nil {</span></div>
+                <div class="diff-line"><span class="ln">40</span><span class="code">		return err</span></div>
+                <div class="diff-line"><span class="ln">41</span><span class="code">	}</span></div>
+                <div class="diff-line del"><span class="ln">42</span><span class="code">-	s.publish(target)</span></div>
+                <div class="diff-line del"><span class="ln">43</span><span class="code">-	return s.store.SaveCwd(ctx, target)</span></div>
+                <div class="diff-line add is-selected"><span class="ln">42</span><span class="code">+	receipt := newReceipt(requestID, target)</span></div>
+                <div class="diff-line add is-selected"><span class="ln">43</span><span class="code">+	if err := s.store.SaveCwd(ctx, receipt); err != nil {</span></div>
+                <div class="diff-line add is-selected"><span class="ln">44</span><span class="code">+		return err</span></div>
+                <div class="diff-note">
+                  <span class="note-glyph">🗨</span>
+                  <span><strong>L42–44</strong> Check for an existing receipt first, or a retried request moves twice.</span>
                 </div>
-                <div class="terminal-tools">
-                  <span>›</span>
-                  <span>4 tool calls</span>
-                  <span class="terminal-tool-names">read · grep · edit · bash</span>
-                </div>
-                <div class="terminal-user">Make the preview match Kit’s actual session UI.</div>
-                <div class="terminal-assistant">
-                  <p>
-                    Updated the shell anatomy: session header, message cards, tool activity,
-                    composer, and repository status.
-                  </p>
-                </div>
+                <div class="diff-line add"><span class="ln">45</span><span class="code">+	}</span></div>
+                <div class="diff-line add"><span class="ln">46</span><span class="code">+	s.publish(target)</span></div>
+                <div class="diff-line"><span class="ln">47</span><span class="code">	return nil</span></div>
               </div>
-              <div class="terminal-composer">
-                <span class="terminal-cursor" aria-hidden="true"></span>
-                <span>Ask Kit to do something…</span>
+              <div class="mock-pending" aria-hidden="true">
+                <div><span class="note-glyph">🗨</span> internal/session/cwd.go L42–44 <span class="mock-x">×</span></div>
+                <div><span class="note-glyph">🗨</span> internal/session/cwd_test.go L12–19 <span class="mock-x">×</span></div>
               </div>
-              <m-hstack class="terminal-status" justify="between">
+              <div class="mock-composer" aria-hidden="true">
+                <span>Address these and add a retry test</span><span class="mock-cursor"></span>
+              </div>
+              <footer class="mock-bar mock-status" aria-hidden="true">
                 <span></span>
-                <span>~/Developer/kit (main*)</span>
-              </m-hstack>
-            </div>
-          </m-switcher>
-        </section>
-
-        <section id="why-kit" class="section" aria-labelledby="why-title">
-          <m-vstack class="why-content" gap="xl">
-            <h2 id="why-title">Built for the terminal, not squeezed into it.</h2>
-            <p class="section-intro">
-              Kit is a standalone TUI, not a browser tab or an editor sidebar. The interface
-              stays quick, legible, and close to your repository.
-            </p>
-            <ul class="check-list">
-              <li>Keyboard-driven with thoughtful mouse support</li>
-              <li>Persistent, project-aware sessions</li>
-              <li>Diff browsing and inline code review</li>
-              <li>Headless print mode for scripts and pipelines</li>
-            </ul>
+                <span>~/code/kit (cwd-receipts*)</span>
+              </footer>
+            </figure>
           </m-vstack>
         </section>
 
-        <section id="features" class="section" aria-labelledby="features-title">
+        <section id="workspace" class="section" aria-labelledby="loop-title">
+          <m-switcher class="split" gap="2xl" threshold="lg">
+            <m-vstack gap="lg">
+              <h2 id="loop-title">Review the work where it happened.</h2>
+              <p class="section-intro">
+                An agent's changes are only as good as your review of them. Kit keeps that
+                review next to the conversation instead of in another app.
+              </p>
+              <ol class="steps">
+                <li>
+                  <h3>The agent works in its tab</h3>
+                  <p>Tool activity stays compact and inline. Long answers split into sections you can jump between.</p>
+                </li>
+                <li>
+                  <h3>You read the changes</h3>
+                  <p>Open the working tree, a recent commit, or your branch against its base as one continuous diff, unified or split.</p>
+                </li>
+                <li>
+                  <h3>You annotate, it responds</h3>
+                  <p>Select a line or range in a file or diff and leave a note. Notes collect above the composer and go with your next message as a structured review.</p>
+                </li>
+              </ol>
+            </m-vstack>
+
+            <figure class="mock mock-compact" role="img" aria-label="The Agent tab after sending two review notes. The agent reads, edits, and tests, then reports the fix.">
+              <header class="mock-bar">
+                <span class="mock-session">Harden cwd receipts</span>
+                <span class="mock-meta">model · high · <span class="mock-progress">44%</span></span>
+              </header>
+              <nav class="mock-tabs" aria-hidden="true">
+                <span class="is-active">Agent</span>
+                <span>Diff · working tree</span>
+                <span>Scratchpad</span>
+              </nav>
+              <div class="mock-transcript" aria-hidden="true">
+                <div class="mock-user">
+                  Address these and add a retry test
+                  <div class="mock-user-notes">
+                    <div><span class="note-glyph">🗨</span> cwd.go L42–44 · Check for an existing receipt first…</div>
+                    <div><span class="note-glyph">🗨</span> cwd_test.go L12–19 · Cover an interrupted retry</div>
+                  </div>
+                </div>
+                <div class="mock-tools"><span>›</span><span>5 tool calls</span><span class="mock-dim">read · edit · edit · bash · bash</span></div>
+                <div class="mock-assistant">
+                  <strong>Receipts</strong>
+                  <p>ChangeCwd now returns the stored receipt when a request ID repeats, so a retry can't move twice. Added <code>TestChangeCwdRetryIsIdempotent</code>; <code>go test ./internal/session</code> passes.</p>
+                </div>
+              </div>
+              <div class="mock-composer" aria-hidden="true">
+                <span class="mock-cursor"></span><span class="mock-dim">Ask Kit to do something…</span>
+              </div>
+            </figure>
+          </m-switcher>
+        </section>
+
+        <section class="section" aria-labelledby="tabs-title">
           <m-vstack gap="xl">
             <header class="section-heading">
-              <h2 id="features-title">Everything you need to stay productive.</h2>
+              <h2 id="tabs-title">One workspace, many tabs.</h2>
+              <p class="section-intro">
+                Everything opens as a tab beside the agent, so you never lose the thread.
+              </p>
             </header>
             <m-grid class="feature-grid" min="sm" gap="md">
               <article class="feature-card">
-                <h3>Code review, built in</h3>
+                <h3>Files</h3>
                 <p>
-                  Inspect working trees, commits, and branches. Leave file, line, or range
-                  notes, then attach the structured review to your next message.
+                  Open any file in the project with syntax highlighting built in. Mention files
+                  in a message with <code>@</code>, and open any file the agent touched from
+                  its tool activity.
                 </p>
               </article>
               <article class="feature-card">
-                <h3>Sessions that move</h3>
+                <h3>Diffs</h3>
                 <p>
-                  Use <code>/cd</code> to move the same session, or let the agent call
-                  <code>change_cwd</code> when the work shifts. Kit keeps the transcript and
-                  reloads project context for the new repo or package.
+                  The working tree updates live as the agent edits. Switch to a commit or to
+                  your branch against its base, with pinned file headers and hunk-by-hunk
+                  navigation.
                 </p>
               </article>
               <article class="feature-card">
-                <h3>A shared scratchpad</h3>
+                <h3>Annotations</h3>
                 <p>
-                  Keep autosaved notes beside the conversation. Share working context with the agent and subagents without losing it in
-                  the transcript.
+                  Notes on files and diffs are saved with the session. If the code moves,
+                  stale notes are flagged so you can re-anchor them before sending.
                 </p>
               </article>
               <article class="feature-card">
-                <h3>Long responses, made readable</h3>
+                <h3>Scratchpad</h3>
                 <p>
-                  Navigate long agent responses section by section, and jump back to the
-                  latest message when you’re ready to continue.
+                  Autosaved notes you share with the agent, its subagents, and every fork of
+                  the session. Plans and findings live here instead of getting buried in the
+                  transcript.
                 </p>
               </article>
               <article class="feature-card">
-                <h3>Extensible with plugins</h3>
+                <h3>Subagent conversations</h3>
                 <p>
-                  Add user or project plugins in any language that register commands and agent
-                  tools, react to runtime events, enforce tool policies, and contribute to
-                  Kit’s interface over JSON-RPC.
+                  Open any subagent's transcript as a live tab to watch it work, without
+                  switching away from the main conversation.
                 </p>
               </article>
             </m-grid>
           </m-vstack>
         </section>
 
-        <section id="install" class="section install-section" aria-labelledby="install-title">
-          <m-switcher gap="xl" threshold="md">
-            <m-vstack gap="md">
-              <h2 id="install-title">Install once. Start anywhere.</h2>
+        <section id="sessions" class="section" aria-labelledby="sessions-title">
+          <m-switcher class="split" gap="2xl" threshold="lg">
+            <m-vstack gap="lg">
+              <h2 id="sessions-title">Work keeps going when you step away.</h2>
               <p class="section-intro">
-                Kit resumes the latest session for the current project, or starts a new one.
+                Sessions live in a local Kit server, not in the window you opened them from.
+                Close the terminal and the agent keeps running; come back from any client and
+                pick up where it is.
               </p>
+              <ul class="check-list">
+                <li>Run many sessions at once, each with its own directory and model</li>
+                <li><code>kit</code> resumes the latest session for the directory you're in</li>
+                <li>Queue follow-ups while the agent works, or steer it mid-turn</li>
+                <li><code>/fork</code> branches a session to try another approach</li>
+                <li><code>/cd</code> moves a session to another repo without losing its transcript</li>
+                <li>Long sessions compact automatically and keep the recent work verbatim</li>
+                <li><code>--temp</code> runs a throwaway session that disappears on exit</li>
+              </ul>
             </m-vstack>
-            <m-vstack class="commands" gap="sm">
-              <div class="command-block">
-                <span class="prompt" aria-hidden="true">$</span>
-                <span class="command-text">brew install akonwi/tap/kit</span>
+
+            <figure class="topology" role="img" aria-label="The terminal UI, the Mac app, and kit print all connect to one local Kit server, which runs several sessions at once.">
+              <div class="topology-clients" aria-hidden="true">
+                <span>Terminal</span>
+                <span>Mac app</span>
+                <span><code>kit print</code></span>
               </div>
-              <div class="command-block">
-                <span class="prompt" aria-hidden="true">$</span>
-                <span class="command-text">kit</span>
+              <div class="topology-link" aria-hidden="true"></div>
+              <div class="topology-server" aria-hidden="true">
+                <div class="topology-title">Kit server <span class="mock-dim">local</span></div>
+                <div class="topology-session"><span>Harden cwd receipts</span><span class="state running">running</span></div>
+                <div class="topology-session"><span>Docs refresh</span><span class="state waiting">needs input</span></div>
+                <div class="topology-session"><span>Flaky SSE test</span><span class="state">idle</span></div>
+                <div class="topology-session sub"><span>↳ scout</span><span class="state running">running</span></div>
               </div>
-            </m-vstack>
+            </figure>
           </m-switcher>
         </section>
 
-        <section class="section usage-section" aria-labelledby="usage-title">
-          <m-vstack gap="lg">
-            <h2 id="usage-title" class="visually-subtle">A few ways to run Kit</h2>
-            <div class="command-list">
-              <div class="command-row">
-                <div class="command-invocation">
+        <section id="agents" class="section" aria-labelledby="agents-title">
+          <m-vstack gap="xl">
+            <header class="section-heading">
+              <h2 id="agents-title">Agents that work together.</h2>
+              <p class="section-intro">
+                Delegate without blocking. Kit supervises parallel work and brings the
+                results back to you.
+              </p>
+            </header>
+            <m-switcher class="split" gap="xl" threshold="lg">
+              <m-vstack gap="md">
+                <article class="feature-card flat">
+                  <h3>Subagents</h3>
+                  <p>
+                    Start subagents that run concurrently with their own context. Their state
+                    survives restarts, and when one finishes its result comes back through a
+                    mailbox. An idle parent session wakes up to act on it.
+                  </p>
+                </article>
+                <article class="feature-card flat">
+                  <h3>Sessions that talk to each other</h3>
+                  <p>
+                    A session can ask another session a question and get just the answer back,
+                    not its whole transcript. It can also open a new session in another
+                    directory to take on separate work.
+                  </p>
+                </article>
+              </m-vstack>
+              <figure class="code-file">
+                <figcaption>.kit/agents/scout.md</figcaption>
+<pre><code><span class="tok-dim">---</span>
+<span class="tok-key">name:</span> scout
+<span class="tok-key">description:</span> Inspects a repository and
+  reports concise evidence.
+<span class="tok-key">model:</span> provider/fast-model
+<span class="tok-dim">---</span>
+Read only what you need. Cite files and
+line numbers for every claim. Don't edit.</code></pre>
+              </figure>
+            </m-switcher>
+          </m-vstack>
+        </section>
+
+        <section id="extend" class="section" aria-labelledby="extend-title">
+          <m-vstack gap="xl">
+            <header class="section-heading">
+              <h2 id="extend-title">Make it fit your projects.</h2>
+              <p class="section-intro">
+                Configure Kit per user in <code>~/.kit</code> or per project in the repo.
+                Kit can even help configure itself.
+              </p>
+            </header>
+            <m-grid class="feature-grid extend-grid" min="sm" gap="md">
+              <article class="feature-card">
+                <h3>AGENTS.md</h3>
+                <p>Project guidance from every <code>AGENTS.md</code> between the repo root and your working directory, plus your own in <code>~/.kit</code>.</p>
+              </article>
+              <article class="feature-card">
+                <h3>Skills</h3>
+                <p>Reusable instructions in <code>SKILL.md</code> files that the agent loads only when it needs them.</p>
+              </article>
+              <article class="feature-card">
+                <h3>Prompt commands</h3>
+                <p>Markdown prompts that become commands, with <code>$1</code> and <code>$ARGUMENTS</code> placeholders.</p>
+              </article>
+              <article class="feature-card">
+                <h3>MCP servers</h3>
+                <p>Local and remote servers, including OAuth. Existing <code>.mcp.json</code> files work, and tool definitions load on demand so they don't crowd the context.</p>
+              </article>
+              <article class="feature-card">
+                <h3>Plugins in any language</h3>
+                <p>Child processes that speak JSON-RPC to add tools and commands, approve or block tool calls, ask questions, and add status to the footer.</p>
+              </article>
+              <article class="feature-card">
+                <h3>Themes</h3>
+                <p>Kit matches your terminal's colors by default. Custom themes are JSON files shared by the terminal and the Mac app.</p>
+              </article>
+            </m-grid>
+          </m-vstack>
+        </section>
+
+        <section id="get-kit" class="section" aria-labelledby="clients-title">
+          <m-vstack gap="xl">
+            <header class="section-heading">
+              <h2 id="clients-title">Use it from wherever you work.</h2>
+              <p class="section-intro">
+                One Kit server, several ways in. Every client works with the same sessions.
+              </p>
+            </header>
+
+            <m-switcher class="install-split" gap="xl" threshold="lg">
+              <m-vstack gap="md">
+                <h3 class="client-title">Terminal</h3>
+                <p class="client-copy">
+                  One native executable with the CLI, the server, and a keyboard-driven
+                  terminal UI with mouse support. No Node or other runtime required.
+                </p>
+                <div class="command-block">
+                  <span class="prompt" aria-hidden="true">$</span>
+                  <span class="command-text">brew install akonwi/tap/kit</span>
+                </div>
+                <div class="command-block">
                   <span class="prompt" aria-hidden="true">$</span>
                   <span class="command-text">kit</span>
                 </div>
-                <span class="command-description">Resume or start a session in the current directory</span>
-              </div>
-              <div class="command-row">
-                <div class="command-invocation">
-                  <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit sessions</span>
+                <p class="fine-print">
+                  macOS and Linux. Sign in on first run with an API key or an existing AI
+                  subscription. Archives for manual install are on
+                  <a href="https://github.com/akonwi/kit/releases/latest">GitHub Releases</a>.
+                </p>
+              </m-vstack>
+
+              <div class="command-list" aria-label="A few ways to run Kit">
+                <div class="command-row">
+                  <div class="command-invocation"><span class="prompt" aria-hidden="true">$</span><span class="command-text">kit</span></div>
+                  <span class="command-description">Resume or start a session in this directory</span>
                 </div>
-                <span class="command-description">Open the session picker</span>
-              </div>
-              <div class="command-row">
-                <div class="command-invocation">
-                  <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit --session abc123</span>
+                <div class="command-row">
+                  <div class="command-invocation"><span class="prompt" aria-hidden="true">$</span><span class="command-text">kit sessions</span></div>
+                  <span class="command-description">Browse, rename, and open sessions</span>
                 </div>
-                <span class="command-description">Open a specific session</span>
-              </div>
-              <div class="command-row">
-                <div class="command-invocation">
-                  <span class="prompt" aria-hidden="true">$</span>
-                  <span class="command-text">kit print "review this"</span>
+                <div class="command-row">
+                  <div class="command-invocation"><span class="prompt" aria-hidden="true">$</span><span class="command-text">kit new --name "Spike"</span></div>
+                  <span class="command-description">Start a fresh named session</span>
                 </div>
-                <span class="command-description">Run once without the TUI</span>
+                <div class="command-row">
+                  <div class="command-invocation"><span class="prompt" aria-hidden="true">$</span><span class="command-text">kit --temp</span></div>
+                  <span class="command-description">Work in a throwaway session</span>
+                </div>
+                <div class="command-row">
+                  <div class="command-invocation"><span class="prompt" aria-hidden="true">$</span><span class="command-text">git diff | kit print "review"</span></div>
+                  <span class="command-description">Run one headless turn; only the answer goes to stdout</span>
+                </div>
               </div>
+            </m-switcher>
+
+            <div class="mac-app">
+              <m-switcher gap="xl" threshold="lg">
+                <m-vstack class="mac-copy" gap="md" align="start">
+                  <h3 class="client-title">Mac app</h3>
+                  <p class="client-copy">
+                    A native Mac client for the same sessions, with window tabs, split panes,
+                    drag-to-annotate diffs, and a scratchpad editor. It restores your windows
+                    on launch and shares your theme and model settings with the terminal.
+                  </p>
+                  <m-hstack gap="sm" wrap>
+                    <a
+                      class="btn primary"
+                      id="mac-download"
+                      href="https://github.com/akonwi/kit/releases?q=macos-v&amp;expanded=true"
+                    >Download for Mac</a>
+                  </m-hstack>
+                  <div class="command-block">
+                    <span class="prompt" aria-hidden="true">$</span>
+                    <span class="command-text">brew install --cask akonwi/tap/kit-app</span>
+                  </div>
+                  <p class="fine-print">
+                    Requires Apple Silicon and macOS 15 or later. The app connects to a
+                    running Kit server, so install the CLI too.
+                  </p>
+                </m-vstack>
+
+                <figure class="mac-window" role="img" aria-label="Illustration of the Kit Mac app: a window with two session tabs, the agent conversation on the left, and a diff pane on the right.">
+                  <div class="mac-titlebar" aria-hidden="true">
+                    <span class="mac-lights"><i></i><i></i><i></i></span>
+                    <span class="mac-tab is-active">Harden cwd receipts</span>
+                    <span class="mac-tab">Docs refresh</span>
+                  </div>
+                  <div class="mac-body" aria-hidden="true">
+                    <div class="mac-pane">
+                      <div class="mock-user">Address these and add a retry test</div>
+                      <div class="mock-tools"><span>›</span><span>5 tool calls</span></div>
+                      <p class="mac-text">ChangeCwd now returns the stored receipt when a request ID repeats.</p>
+                      <div class="mac-composer">Ask Kit to do something…</div>
+                    </div>
+                    <div class="mac-pane mac-diff">
+                      <div class="diff-file"><span>cwd.go</span><span><span class="diff-add-count">+6</span> <span class="diff-del-count">−2</span></span></div>
+                      <div class="diff-line del"><span class="code">- s.publish(target)</span></div>
+                      <div class="diff-line add"><span class="code">+ receipt := newReceipt(…)</span></div>
+                      <div class="diff-line add"><span class="code">+ if err := s.store.Save…</span></div>
+                      <div class="diff-line"><span class="code">  return nil</span></div>
+                    </div>
+                  </div>
+                </figure>
+              </m-switcher>
             </div>
           </m-vstack>
         </section>
@@ -227,5 +451,31 @@
         </m-hstack>
       </footer>
     </m-center>
+
+    <script>
+      // Mac app releases are tagged macos-vX.Y.Z and never marked Latest, so
+      // resolve the newest one and link its archive directly. The static href
+      // (app releases on GitHub) remains the fallback.
+      (async () => {
+        const link = document.getElementById("mac-download");
+        try {
+          const response = await fetch(
+            "https://api.github.com/repos/akonwi/kit/releases?per_page=30",
+            { headers: { Accept: "application/vnd.github+json" } },
+          );
+          if (!response.ok) return;
+          const releases = await response.json();
+          const release = releases.find(
+            (r) => !r.draft && !r.prerelease && r.tag_name.startsWith("macos-v"),
+          );
+          const asset = release?.assets.find((a) => a.name.endsWith(".zip"));
+          if (!asset) return;
+          link.href = asset.browser_download_url;
+          link.textContent = `Download for Mac · ${release.tag_name.slice("macos-v".length)}`;
+        } catch {
+          // Keep the fallback link.
+        }
+      })();
+    </script>
   </body>
 </html>
