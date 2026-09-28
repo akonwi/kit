@@ -1,0 +1,708 @@
+{
+  "components": {
+    "schemas": {
+      "Scratchpad": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "ownerSessionId": {
+            "type": "string"
+          },
+          "revision": {
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "ownerSessionId",
+          "content",
+          "revision",
+          "updatedAt"
+        ],
+        "type": "object"
+      },
+      "ScratchpadErrorDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "scratchpad": {
+            "$ref": "#/components/schemas/Scratchpad"
+          }
+        },
+        "type": "object"
+      },
+      "ScratchpadTypedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_invalid_content",
+              "scratchpad_too_large",
+              "scratchpad_revision_conflict",
+              "scratchpad_revision_exhausted",
+              "scratchpad_migration_required",
+              "scratchpad_unsupported",
+              "scratchpad_unavailable"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/ScratchpadErrorDetails"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object"
+      },
+      "ScratchpadTypedErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ScratchpadTypedError"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "StringErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "error"
+        ],
+        "type": "object"
+      },
+      "UpdateScratchpadInput": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "expectedRevision": {
+            "pattern": "^[1-9][0-9]*$",
+            "type": "string"
+          }
+        },
+        "required": [
+          "expectedRevision",
+          "content"
+        ],
+        "type": "object"
+      }
+    },
+    "securitySchemes": {
+      "daemonBearer": {
+        "scheme": "bearer",
+        "type": "http"
+      }
+    }
+  },
+  "info": {
+    "title": "Kit Session API",
+    "version": "41"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/sessions/{sessionID}/scratchpad": {
+      "get": {
+        "operationId": "getScratchpad",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scratchpad"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_migration_required"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad migration is required"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_unsupported"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad is unsupported for this session"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_unavailable"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad is unavailable"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "scratchpad"
+        ]
+      },
+      "put": {
+        "operationId": "updateScratchpad",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/UpdateScratchpadInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Scratchpad"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_invalid_content"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad content is invalid"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_revision_conflict"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "properties": {
+                                "scratchpad": {
+                                  "$ref": "#/components/schemas/Scratchpad"
+                                }
+                              },
+                              "required": [
+                                "scratchpad"
+                              ],
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad revision conflict"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_revision_exhausted"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad revision is exhausted"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_migration_required"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad migration is required"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_unsupported"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad is unsupported for this session"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "scratchpad_too_large"
+                          ],
+                          "type": "string"
+                        },
+                        "details": {
+                          "additionalProperties": false,
+                          "type": "object"
+                        },
+                        "message": {
+                          "enum": [
+                            "scratchpad content is too large"
+                          ],
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message",
+                        "details"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "oneOf": [
+                    {
+                      "additionalProperties": false,
+                      "properties": {
+                        "error": {
+                          "additionalProperties": false,
+                          "properties": {
+                            "code": {
+                              "enum": [
+                                "scratchpad_unavailable"
+                              ],
+                              "type": "string"
+                            },
+                            "details": {
+                              "additionalProperties": false,
+                              "type": "object"
+                            },
+                            "message": {
+                              "enum": [
+                                "scratchpad is unavailable"
+                              ],
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "code",
+                            "message",
+                            "details"
+                          ],
+                          "type": "object"
+                        }
+                      },
+                      "required": [
+                        "error"
+                      ],
+                      "type": "object"
+                    },
+                    {
+                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                    }
+                  ]
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "scratchpad"
+        ]
+      }
+    }
+  }
+}
