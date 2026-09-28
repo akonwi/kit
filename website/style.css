@@ -161,18 +161,12 @@ h3 {
   max-inline-size: 52ch;
 }
 
-.eyebrow,
 .requirement,
 .fine-print {
   margin: 0;
   color: var(--color-text-muted);
   font-family: var(--font-mono);
   font-size: 0.78rem;
-}
-
-.eyebrow {
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
 }
 
 .fine-print {
