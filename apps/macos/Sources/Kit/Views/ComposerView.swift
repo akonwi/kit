@@ -11,10 +11,15 @@ struct ComposerView: View {
     @State private var pickerAnchor = ComposerPickerAnchor()
     @State private var focused = false
     @State private var attachmentDropTargeted = false
+    @State private var modelPickerPresented = false
 
-    private var activeModelName: String {
-        state.configuration.models.first(where: { $0.id == state.model })?.name
-            ?? String(state.model.split(separator: "/", maxSplits: 1).last ?? "")
+    static func modelLabel(_ model: WireModelCapability) -> String {
+        "\(model.name) · \(model.provider)"
+    }
+
+    static func activeModelLabel(id: String, models: [WireModelCapability]) -> String {
+        models.first(where: { $0.id == id })?.name
+            ?? String(id.split(separator: "/", maxSplits: 1).last ?? "")
     }
 
     var body: some View {
@@ -88,16 +93,28 @@ struct ComposerView: View {
                 } else {
                     Button { chooseAttachment() } label: { Image(systemName: "plus") }
                         .buttonStyle(.plain).accessibilityLabel("Add attachment").disabled(state.unavailable)
-                    Menu {
-                        ForEach(state.configuration.models, id: \.id) { model in
-                            Button(model.name) { Task { await state.configure(model: model.id) } }
+                    Button { modelPickerPresented = true } label: {
+                        HStack(spacing: 4) {
+                            Text(Self.activeModelLabel(id: state.model, models: state.configuration.models))
+                            Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
                         }
-                        if state.configuration.models.isEmpty {
-                            Button("Reload models") { Task { await state.loadComposer() } }
-                        }
-                    } label: { Text(activeModelName) }
-                        .menuStyle(.borderlessButton).tint(theme.text).fixedSize()
-                        .disabled(state.unavailable || state.configuration.changing || state.running)
+                    }
+                    .buttonStyle(.borderless).tint(theme.text).fixedSize()
+                    .help(state.configuration.models.first(where: { $0.id == state.model }).map(Self.modelLabel) ?? state.model)
+                    .accessibilityLabel("Model: \(state.configuration.models.first(where: { $0.id == state.model }).map(Self.modelLabel) ?? state.model)")
+                    .popover(isPresented: $modelPickerPresented, arrowEdge: .bottom) {
+                        ComposerModelPicker(models: state.configuration.models, selectedID: state.model,
+                            select: { id in
+                                modelPickerPresented = false
+                                Task { await state.configure(model: id) }
+                            }, reload: {
+                                modelPickerPresented = false
+                                Task { await state.loadComposer() }
+                            }, dismiss: { modelPickerPresented = false })
+                            .environment(\.mica, theme)
+                            .preferredColorScheme(theme.dark ? .dark : .light)
+                    }
+                    .disabled(state.unavailable || state.configuration.changing || state.running)
                     Rectangle().fill(theme.border).frame(width: 1, height: 14)
                     Menu {
                         ForEach(state.thinkingLevels, id: \.self) { value in
@@ -136,6 +153,7 @@ struct ComposerView: View {
         .padding(.horizontal, 28)
         .task(id: state.selectedID) { await state.loadComposer() }
         .onChange(of: state.selected?.cwd) { mentions.reset() }
+        .onChange(of: state.selectedID) { modelPickerPresented = false }
         .onChange(of: state.ui.draft) {
             if !state.ui.draft.isEmpty { state.operations.clearAcknowledgement() }
         }

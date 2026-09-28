@@ -1,4 +1,6 @@
+import AppKit
 import Foundation
+import SwiftUI
 import Testing
 @testable import Kit
 
@@ -94,6 +96,40 @@ private actor ComposerMock: ComposerClient {
     @Test func attachmentIdentityDeduplicationPreservesPresentationOrder() {
         #expect(ComposerAttachments.uniqueIDs(["attachment_z", "attachment_a", "attachment_z", "attachment_b"]) ==
             ["attachment_z", "attachment_a", "attachment_b"])
+    }
+    @Test func composerModelSelectorShowsProviderIdentity() throws {
+        let models = try JSONDecoder().decode([WireModelCapability].self, from: Data(#"""
+        [{"id":"first/echo","name":"Echo","provider":"first","api":"test","contextWindow":10000,"available":true},
+         {"id":"second/echo","name":"Echo","provider":"second","api":"test","contextWindow":10000,"available":true}]
+        """#.utf8))
+        #expect(models.map(ComposerView.modelLabel) == ["Echo · first", "Echo · second"])
+        #expect(models.map(ComposerModelPicker.rowDescription) ==
+            ["first/echo · 10k context", "second/echo · 10k context"])
+        #expect(ComposerView.activeModelLabel(id: "second/echo", models: models) == "Echo")
+        #expect(ComposerView.activeModelLabel(id: "third/echo", models: models) == "echo")
+    }
+    @Test func composerModelPickerFormatsContextLikeTUI() {
+        #expect(ComposerModelPicker.contextLabel(0) == nil)
+        #expect(ComposerModelPicker.contextLabel(999) == "999")
+        #expect(ComposerModelPicker.contextLabel(1_000) == "1k")
+        #expect(ComposerModelPicker.contextLabel(131_072) == "131k")
+        #expect(ComposerModelPicker.contextLabel(999_999) == "999k")
+        #expect(ComposerModelPicker.contextLabel(1_000_000) == "1.0M")
+        #expect(ComposerModelPicker.contextLabel(1_048_576) == "1.0M")
+    }
+    @Test func composerModelPickerCapsVisibleHeight() throws {
+        #expect(ComposerModelPicker.listHeight(count: 0) == 38)
+        #expect(ComposerModelPicker.listHeight(count: 3) == 98)
+        #expect(ComposerModelPicker.listHeight(count: 100) == 300)
+        let data = "[" + (0..<100).map { index in
+            "{\"id\":\"provider/model\(index)\",\"name\":\"Model \(index)\",\"provider\":\"provider\",\"api\":\"test\",\"contextWindow\":10000,\"available\":true}"
+        }.joined(separator: ",") + "]"
+        let models = try JSONDecoder().decode([WireModelCapability].self, from: Data(data.utf8))
+        let theme = ThemeConfiguration.decode("").theme(dark: false)
+        let host = NSHostingView(rootView: ComposerModelPicker(models: models, selectedID: "provider/model50",
+            select: { _ in }, reload: {}, dismiss: {}).environment(\.mica, theme))
+        #expect(host.fittingSize.width == 320)
+        #expect(host.fittingSize.height == 300)
     }
     @Test func configurationConflictRefreshesAuthoritativeMetadata() async throws {
         let configuration = ComposerConfiguration()
