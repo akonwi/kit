@@ -30,12 +30,12 @@ The app requires a separately installed, running **compatible** Kit server.
 It discovers the registered loopback server without starting, replacing, or
 restarting it. It authenticates health, checks registry/health identity and
 database readiness, then negotiates the protocol and release policy used by the
-Go client. For protocol 40, differing canonical stable releases at or above
-`0.37.0` are compatible; equal labels attach, but equal `dev` labels alone do
+Go client. For protocol 41, differing canonical stable releases at or above
+`0.38.0` are compatible; equal labels attach, but equal `dev` labels alone do
 not guarantee compatibility across different builds. Differing dev/prerelease
 labels or protocol versions do not attach. The bundle's separate
 `KitClientRelease` identity names the stable Kit protocol contract implemented
-by that build (`0.37.0` for the initial protocol-40 app), not the app's
+by that build (`0.38.0` for the protocol-41 app), not the app's
 `CFBundleShortVersionString`. The packaging check pins and verifies this value;
 changing the wire contract requires a reviewed compatibility update. Release
 notes and the Cask description disclose the external-server requirement and

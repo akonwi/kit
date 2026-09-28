@@ -58,7 +58,7 @@ func (e *DaemonCompatibilityError) Unwrap() error { return ErrIncompatibleDaemon
 
 // CheckCompatibility compares the verified daemon registry with this client.
 // Callers must authenticate and verify the registry against daemon health first.
-// Stable releases starting at 0.37.0 share the protocol-40 compatibility promise;
+// Stable releases starting at 0.38.0 share the protocol-41 compatibility promise;
 // development and prerelease builds do not establish that promise.
 func CheckCompatibility(registry Registry) error {
 	return compatibleWithVersion(registry, version.Version)
@@ -89,15 +89,15 @@ func compatibleWithVersion(registry Registry, clientVersion string) error {
 }
 
 // coveredSessionReleasePair limits cross-release attachment to the protocol
-// whose baseline contract begins with stable Kit 0.37.0. A future protocol
+// whose baseline contract begins with stable Kit 0.38.0. A future protocol
 // number must explicitly establish its own release eligibility.
 func coveredSessionReleasePair(protocol int, clientVersion, daemonVersion string) bool {
-	return protocol == 40 && protocol40Release(clientVersion) && protocol40Release(daemonVersion)
+	return protocol == 41 && protocol41Release(clientVersion) && protocol41Release(daemonVersion)
 }
 
-// protocol40Release recognizes canonical stable releases covered by the first
-// protocol-40 release. RC and development labels remain outside the promise.
-func protocol40Release(release string) bool {
+// protocol41Release recognizes canonical stable releases covered by the first
+// protocol-41 release. RC and development labels remain outside the promise.
+func protocol41Release(release string) bool {
 	if len(release) == 0 || len(release) > 64 {
 		return false
 	}
@@ -121,5 +121,5 @@ func protocol40Release(release string) bool {
 		}
 		numbers[index] = number
 	}
-	return numbers[0] > 0 || numbers[0] == 0 && numbers[1] >= 37
+	return numbers[0] > 0 || numbers[0] == 0 && numbers[1] >= 38
 }

@@ -10,14 +10,14 @@ if [[ ! "$tag" =~ ^macos-v([0-9]+\.[0-9]+\.[0-9]+)$ ]]; then
 fi
 version="${BASH_REMATCH[1]}"
 # The app is versioned independently; this source implements Kit's stable
-# protocol-40 client contract beginning with Kit release 0.37.0.
-client_release="0.37.0"
+# protocol-41 client contract beginning with Kit release 0.38.0.
+client_release="0.38.0"
 # Require a canonical app version before stamping a bundle.
 python3 - "$version" <<'PYVERSION'
 import sys
 v = sys.argv[1]
 if len(v) > 64:
-    sys.exit("App version exceeds the protocol-40 release limit")
+    sys.exit("App version exceeds the canonical release limit")
 parts = v.split(".")
 if (len(parts) != 3 or any(not p or (len(p) > 1 and p[0] == "0") or
                            not p.isascii() or not p.isdecimal() or

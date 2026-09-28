@@ -37,8 +37,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [~] CORE-PROTO-001 — From the first tagged protocol-40 release onward,
-  separately built client and daemon releases with the same session protocol
+- [~] CORE-PROTO-001 — Within each tagged protocol baseline (40 from v0.37.0,
+  41 from v0.38.0), separately built client and daemon releases with the same session protocol
   interoperate in both directions without replacing an active daemon. Verify
   baseline session operations, transcript/context-boundary projections,
   snapshots, errors, event replay and resynchronization, SSE, and mutation
