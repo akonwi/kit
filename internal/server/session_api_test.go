@@ -35,12 +35,50 @@ type eventStreamTestService struct {
 	err   error
 }
 
+type scratchpadWireTestService struct {
+	sessionService
+	record protocol.Scratchpad
+}
+
+func (service scratchpadWireTestService) Scratchpad(context.Context, string) (protocol.Scratchpad, error) {
+	return service.record, nil
+}
+
+func (service scratchpadWireTestService) UpdateScratchpad(_ context.Context, _ string, _ protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
+	return service.record, nil
+}
+
 func (service eventStreamTestService) Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error) {
 	return service.batch, service.err
 }
 
 func (eventStreamTestService) WaitEvents(ctx context.Context, _ string, _ string, _ int64) (protocol.SessionEventBatch, error) {
 	return protocol.SessionEventBatch{}, ctx.Err()
+}
+
+func TestScratchpadCatalogHandlersPreserveWireBytes(t *testing.T) {
+	t.Parallel()
+	record := protocol.Scratchpad{OwnerSessionID: "session_0123456789abcdef0123456789abcdef", Content: "shared", Revision: 2, UpdatedAt: "2026-03-23T12:34:56Z"}
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, scratchpadWireTestService{record: record})
+	var contractErr error
+	handler := scratchpadConformanceMiddleware(t, mux, func(err error) { contractErr = err })
+	want := "{\"ownerSessionId\":\"session_0123456789abcdef0123456789abcdef\",\"content\":\"shared\",\"revision\":\"2\",\"updatedAt\":\"2026-03-23T12:34:56Z\"}\n"
+	for _, test := range []struct{ method, body string }{
+		{http.MethodGet, ""},
+		{http.MethodPut, `{"expectedRevision":"1","content":"shared"}`},
+	} {
+		request := httptest.NewRequest(test.method, "/v1/sessions/session_child/scratchpad", strings.NewReader(test.body))
+		addContractRequestHeaders(request)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if contractErr != nil {
+			t.Fatalf("%s contract validation: %v", test.method, contractErr)
+		}
+		if response.Code != http.StatusOK || response.Body.String() != want || response.Header().Get("Content-Type") != "application/json" || response.Header().Get("Cache-Control") != "no-store" {
+			t.Fatalf("%s response = %d %#v %q", test.method, response.Code, response.Header(), response.Body.String())
+		}
+	}
 }
 
 func TestProjectedScratchpadEventPageUsesWireByteLimit(t *testing.T) {
