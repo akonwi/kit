@@ -56,7 +56,6 @@ func TestFilesystemLoaderReportsMalformedDefinitionsAndContinues(t *testing.T) {
 		"missing-name.md":        "---\ndescription: missing\n---\nDo work.",
 		"missing-description.md": "---\nname: no-description\n---\nDo work.",
 		"missing-body.md":        "---\nname: no-body\ndescription: empty body\n---\n",
-		"unknown-field.md":       "---\nname: unknown\ndescription: unknown\nextra: no\n---\nDo work.",
 		"production-model.md":    "---\nname: model\ndescription: production model\nmodel: gpt-5\n---\nDo work.",
 		"valid.md":               "---\nname: valid\ndescription: valid agent\n---\nDo work.",
 	}
@@ -80,13 +79,71 @@ func TestFilesystemLoaderReportsMalformedDefinitionsAndContinues(t *testing.T) {
 	if len(definitions) != 2 || definitions[0].Name != "model" || definitions[0].Model != "gpt-5" || definitions[1].Name != "valid" {
 		t.Fatalf("definitions = %#v", definitions)
 	}
-	if len(result.Diagnostics) != 7 {
-		t.Fatalf("diagnostic count = %d, want 7: %#v", len(result.Diagnostics), result.Diagnostics)
+	if len(result.Diagnostics) != 6 {
+		t.Fatalf("diagnostic count = %d, want 6: %#v", len(result.Diagnostics), result.Diagnostics)
 	}
 	for _, diagnostic := range result.Diagnostics {
 		if diagnostic.Severity != subagent.DiagnosticWarning || diagnostic.Code == "" || diagnostic.Message == "" || diagnostic.Source.Path == "" {
 			t.Fatalf("invalid diagnostic %#v", diagnostic)
 		}
+	}
+}
+
+func TestFilesystemLoaderProjectsMultilineParseErrorsAsSingleLineDiagnostics(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	directory := filepath.Join(cwd, ".kit", "agents")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	path := filepath.Join(directory, "tester.md")
+	content := "---\nname: [tester]\ndescription: tests\n---\nTest things."
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := newLoader(t, home).Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	canonicalPath, err := filepath.EvalSymlinks(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []subagent.Diagnostic{{
+		Severity: subagent.DiagnosticWarning,
+		Code:     "subagents.invalid_frontmatter",
+		Message:  "Could not parse agent frontmatter: yaml: unmarshal errors: line 1: cannot unmarshal !!seq into string",
+		Source:   subagent.Source{Kind: subagent.SourceProject, Path: canonicalPath},
+	}}
+	if !slices.Equal(result.Diagnostics, want) {
+		t.Fatalf("diagnostics = %#v, want %#v", result.Diagnostics, want)
+	}
+}
+
+func TestFilesystemLoaderIgnoresUnrecognizedFrontmatterFields(t *testing.T) {
+	home := t.TempDir()
+	cwd := t.TempDir()
+	directory := filepath.Join(cwd, ".kit", "agents")
+	if err := os.MkdirAll(directory, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	content := "---\nname: tester\ndescription: tests things\ntools: bash, read\nmodel: openai/gpt-5\ncolor: blue\n---\nTest things."
+	if err := os.WriteFile(filepath.Join(directory, "tester.md"), []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	result, err := newLoader(t, home).Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(result.Diagnostics) != 0 {
+		t.Fatalf("diagnostics = %#v, want none", result.Diagnostics)
+	}
+	tester, ok := result.Catalog.Lookup("tester")
+	if !ok || tester.Name != "tester" || tester.Description != "tests things" || tester.Model != "openai/gpt-5" ||
+		tester.Instructions != "Test things." || tester.Source.Kind != subagent.SourceProject {
+		t.Fatalf("tester = %#v, %v", tester, ok)
 	}
 }
 

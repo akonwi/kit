@@ -14,7 +14,8 @@ Kit discovers non-recursive Markdown definitions from:
 Files are loaded in sorted filename order and the first definition for a name
 wins, so user definitions override project definitions. A definition requires
 frontmatter `name` and `description`, accepts an optional model selector, and
-uses its Markdown body as child instructions. Both canonical `provider/model`
+uses its Markdown body as child instructions. Unrecognized frontmatter fields,
+such as a `tools` list written for another agent harness, are ignored. Both canonical `provider/model`
 selectors and production-compatible model IDs are retained during discovery.
 At delegation time, a bare model ID selects the first matching available provider
 in provider registration order. An explicit `provider/model` selects only that

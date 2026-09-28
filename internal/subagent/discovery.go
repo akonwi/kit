@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/apphome"
@@ -260,10 +261,10 @@ func parseDefinition(content string) (definitionFrontmatter, string, error) {
 	if end < 0 {
 		return definitionFrontmatter{}, "", errors.New("closing delimiter is missing")
 	}
-	decoder := yaml.NewDecoder(strings.NewReader(remainder[:end]))
-	decoder.KnownFields(true)
+	// Unrecognized fields are ignored so definitions written for other agent
+	// harnesses (for example with a tools list) remain loadable.
 	var metadata definitionFrontmatter
-	if err := decoder.Decode(&metadata); err != nil {
+	if err := yaml.NewDecoder(strings.NewReader(remainder[:end])).Decode(&metadata); err != nil {
 		return definitionFrontmatter{}, "", err
 	}
 	metadata.Name = strings.TrimSpace(metadata.Name)
@@ -297,8 +298,8 @@ func (s *discoveryState) warn(code, message string, source Source) {
 	if len(s.diagnostics) >= maxDiscoveryDiagnostics {
 		return
 	}
-	message = boundedDiagnostic(message)
-	source.Path = boundedDiagnostic(source.Path)
+	message = boundedDiagnostic(strings.Join(strings.Fields(rendererSafeDiagnostic(message)), " "))
+	source.Path = boundedDiagnostic(rendererSafeDiagnostic(source.Path))
 	if source.Path == "" {
 		digest := sha256.Sum256([]byte(message))
 		source.Path = "diagnostic:" + hex.EncodeToString(digest[:])
@@ -306,8 +307,22 @@ func (s *discoveryState) warn(code, message string, source Source) {
 	s.diagnostics = append(s.diagnostics, Diagnostic{Severity: DiagnosticWarning, Code: code, Message: message, Source: source})
 }
 
+// rendererSafeDiagnostic replaces invalid UTF-8, NUL, and other control or
+// format characters, which the protocol rejects in renderer text. Parser errors
+// such as YAML unmarshal failures routinely span multiple lines.
+func rendererSafeDiagnostic(value string) string {
+	return strings.Map(func(character rune) rune {
+		if character == 0 {
+			return '�'
+		}
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return ' '
+		}
+		return character
+	}, strings.ToValidUTF8(value, "�"))
+}
+
 func boundedDiagnostic(value string) string {
-	value = strings.ReplaceAll(strings.ToValidUTF8(value, "�"), "\x00", "�")
 	if len(value) <= maxDiagnosticBytes {
 		return value
 	}
