@@ -1,5 +1,25 @@
 import Foundation
 
+/// The server rejected annotation evidence from an out-of-date file or diff view.
+enum AnnotationEvidenceConflict: String, LocalizedError {
+    case staleFile = "stale_file"
+    case staleWorkspace = "stale_workspace"
+    case staleTarget = "stale_target"
+
+    var errorDescription: String? {
+        switch self {
+        case .staleFile: "The file changed. Refresh it and select the range again."
+        case .staleWorkspace: "The workspace changed. Reopen the file or diff and select the range again."
+        case .staleTarget: "The diff changed. Refresh it and select the range again."
+        }
+    }
+}
+
+struct AnnotationEvidenceConflictEnvelope: Decodable {
+    let error: Detail
+    struct Detail: Decodable { let code: String }
+}
+
 protocol AnnotationClient: SessionClient {
     func annotations(_ session: String) async throws -> [FileAnnotation]
     func createAnnotation(_ session: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation

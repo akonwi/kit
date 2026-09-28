@@ -190,20 +190,44 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return try await post("v1/sessions/" + id + "/" + suffix, input: input)
     }
 
-    private func post<Input: Encodable, Output: Decodable>(_ path: String, input: Input, status: [Int] = [200, 202]) async throws -> Output {
+    private func post<Input: Encodable, Output: Decodable>(_ path: String, input: Input, status: [Int] = [200, 202],
+        annotationEvidence: Bool = false) async throws -> Output {
         var request = try request(path)
         request.httpMethod = "POST"
         request.setValue("application/json", forHTTPHeaderField: "Content-Type")
         request.httpBody = try JSONEncoder().encode(input)
-        return try await send(request, status: status)
+        return try await send(request, status: status, annotationEvidence: annotationEvidence)
     }
 
-    private func send<Output: Decodable>(_ request: URLRequest, status: [Int]) async throws -> Output {
+    private func send<Output: Decodable>(_ request: URLRequest, status: [Int],
+        annotationEvidence: Bool = false) async throws -> Output {
         let (bytes, response) = try await session.bytes(for: request)
         defer { bytes.task.cancel() }
         return try await withTaskCancellationHandler {
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-            guard status.contains(response.statusCode) else { throw ClientError.http(response.statusCode) }
+            guard status.contains(response.statusCode) else {
+                if annotationEvidence && response.statusCode == 409 {
+                    var body = Data()
+                    // The status is already a definite rejection; a truncated error body
+                    // must not turn it into an ambiguous mutation failure.
+                    do {
+                        for try await byte in bytes {
+                            guard body.count < 4096 else { break }
+                            body.append(byte)
+                        }
+                    } catch {
+                        if Task.isCancelled || error is CancellationError || (error as? URLError)?.code == .cancelled {
+                            throw CancellationError()
+                        }
+                        throw ClientError.http(409)
+                    }
+                    if let envelope = try? JSONDecoder().decode(AnnotationEvidenceConflictEnvelope.self, from: body),
+                       let conflict = AnnotationEvidenceConflict(rawValue: envelope.error.code) {
+                        throw conflict
+                    }
+                }
+                throw ClientError.http(response.statusCode)
+            }
             var data = Data()
             for try await byte in bytes {
                 guard data.count < 32 * 1024 * 1024 else { throw ClientError.oversized }
@@ -302,7 +326,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     func createAnnotation(_ id: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation {
         guard FileAnnotation.validBody(input.body) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
-        let record: WireAnnotation = try await post(annotationPath(id), input: input, status: [201])
+        let record: WireAnnotation = try await post(annotationPath(id), input: input, status: [201], annotationEvidence: true)
         return try FileAnnotation(record, session: id)
     }
 

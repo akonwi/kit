@@ -285,6 +285,12 @@ struct NativeTranscript: NSViewRepresentable {
     }
 
     private static let headerID = "native-transcript-header"
+
+    static func row(from message: TranscriptMessage) -> TranscriptMessage {
+        TranscriptMessage(id: "message:" + message.id, role: message.role, text: message.text,
+            tools: message.tools, attachments: message.attachments, annotations: message.annotations, bash: message.bash)
+    }
+
     private var header: some View {
         VStack(spacing: 24) {
             if input.hasHistory || input.historyError != nil {
@@ -335,9 +341,7 @@ struct NativeTranscript: NSViewRepresentable {
             text: "\(next.hasHistory)|\(next.historyLoading)|\(next.historyError ?? "")", tools: [])
         // Namespace message identities separately from container-owned rows.
         let headers = next.hasHistory || next.historyError != nil ? [header] : []
-        messages = headers + next.messages.map {
-            TranscriptMessage(id: "message:" + $0.id, role: $0.role, text: $0.text, tools: $0.tools, attachments: $0.attachments, bash: $0.bash)
-        }
+        messages = headers + next.messages.map(Self.row(from:))
         indices = Dictionary(uniqueKeysWithValues: messages.enumerated().map { ($0.element.id, $0.offset) })
         let diff = messages.map(\.id).difference(from: old.map(\.id))
         var removals = IndexSet(), insertions = IndexSet()

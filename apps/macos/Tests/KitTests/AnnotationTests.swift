@@ -217,7 +217,7 @@ private actor AnnotationStreamProbe {
 }
 
 extension AnnotationTests {
-    @Test func annotationOnlyTranscriptUsesFrozenStructuredEvidence() throws {
+    @Test @MainActor func annotationOnlyTranscriptUsesFrozenStructuredEvidence() throws {
         let payload = #"[{"id":"message_test","turnId":"turn_test","sequence":1,"role":"user","createdAt":"2026-09-17T00:00:00Z","content":[{"kind":"annotations","annotations":[{"originalAnnotationId":4,"anchor":{"kind":"workspace_file","workspaceFile":{"workspaceId":"workspace_test","path":"main.swift","fileRevision":"file_old","startLine":1,"endLine":1}},"body":"Preserve this","preview":{"startLine":1,"endLine":1,"text":"original source"}}]}]}]"#
         let source = try JSONDecoder().decode([WireTranscriptMessage].self, from: Data(payload.utf8))
         let messages = try SessionProjection.transcript(source)
@@ -226,6 +226,11 @@ extension AnnotationTests {
         #expect(messages[0].annotations?.map(\.body) == ["Preserve this"])
         #expect(messages[0].annotations?.map(\.source) == ["original source"])
         #expect(messages[0].annotations?.map(\.revision) == ["file_old"])
+        let row = NativeTranscriptCoordinator.row(from: messages[0])
+        #expect(row.id == "message:message_test")
+        #expect(row.annotations?.map(\.body) == ["Preserve this"])
+        #expect(row.annotations?.map(\.source) == ["original source"])
+        #expect(row.annotations?.map(\.revision) == ["file_old"])
     }
 }
 

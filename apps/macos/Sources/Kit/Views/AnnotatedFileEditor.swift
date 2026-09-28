@@ -16,9 +16,10 @@ struct AnnotatedFileEditor: NSViewControllerRepresentable {
     let client: any AnnotationClient
     let session: String
 
-    init(file: WireWorkspaceFileRead, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String) {
+    init(file: WireWorkspaceFileRead, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String,
+         canAnnotate: Bool = true) {
         document = AnnotationDocument(file: file); _position = position
-        self.annotations = annotations; self.client = client; self.session = session
+        self.annotations = annotations; self.client = client; self.session = session; self.canAnnotate = canAnnotate
     }
     init(diff: DiffDocument, position: Binding<SourceEditorState>, annotations: AnnotationState, client: any AnnotationClient, session: String, canAnnotate: Bool, contentHeightChanged: ((CGFloat) -> Void)? = nil, wrapLines: Bool = false, splitAlignment: DiffSplitAlignment? = nil) {
         document = AnnotationDocument(diff: diff); _position = position

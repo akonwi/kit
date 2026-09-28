@@ -64,7 +64,9 @@ struct ReviewPane: View {
                 }
                 if state.annotationState.selectionDraft != nil || state.annotationState.replacement?.isDiff == true {
                     HStack {
-                        Text("Select a new diff range for your comment.")
+                        Text(state.annotationState.evidenceConflict == .staleTarget ?
+                            "Refreshing the changed diff. Select a new range for your comment." :
+                            "Select a new diff range for your comment.")
                         Spacer()
                         Button("Cancel") { state.annotationState.cancelEditor() }
                     }.font(.kit(size: 11)).padding(12)
@@ -96,6 +98,13 @@ struct ReviewPane: View {
             .onChange(of: state.annotationState.revealToken) {
                 if let path = model.selectedPath { proxy.scrollTo(path, anchor: .top) }
             }
+        }
+        .onChange(of: state.annotationState.evidenceConflict) {
+            guard active, state.annotationState.selectionDraft != nil,
+                  state.annotationState.evidenceConflict == .staleTarget || state.annotationState.evidenceConflict == .staleWorkspace,
+                  let client else { return }
+            let model = model, session = state.selectedID
+            Task { await model.refresh(client: client, session: session) }
         }
         .task(id: state.selectedID + String(active) + (state.selected?.cwd ?? "")) {
             guard active, let client else { return }

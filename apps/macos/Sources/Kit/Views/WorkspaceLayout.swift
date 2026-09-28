@@ -266,7 +266,8 @@ struct FilePane: View {
                     Button(state.annotationState.replacement == nil && state.annotationState.selectionDraft == nil ? "Annotate selection" : "Use selected range") { beginAnnotation() }
                         .font(.kit(size: 11)).buttonStyle(.plain)
                         .help("Annotate up to 200 selected lines")
-                        .disabled(selectedLines == nil || state.annotationState.pending || state.annotationState.editor != nil)
+                        .disabled(selectedLines == nil || loading || entry?.stale == true ||
+                            state.annotationState.pending || state.annotationState.editor != nil)
                 }
                 Button { revision += 1 } label: { Image(systemName: "arrow.clockwise") }
                     .buttonStyle(.plain).accessibilityLabel("Refresh file").help("Refresh file").disabled(loading)
@@ -300,7 +301,9 @@ struct FilePane: View {
             }
             if state.annotationState.replacement?.path == path || state.annotationState.selectionDraft?.path == path {
                 HStack {
-                    Text("Select a new source range for your comment.")
+                    Text(state.annotationState.evidenceConflict == .staleFile ?
+                        "Refreshing the changed file. Select a new source range for your comment." :
+                        "Select a new source range for your comment.")
                     Spacer()
                     Button("Cancel") { state.annotationState.cancelEditor() }
                 }.font(.kit(size: 11)).foregroundStyle(theme.muted).padding(12)
@@ -308,7 +311,7 @@ struct FilePane: View {
             if let preview {
                 if let client = state.catalogClient as? any AnnotationClient {
                     AnnotatedFileEditor(file: preview, position: $position, annotations: state.annotationState,
-                        client: client, session: state.selectedID)
+                        client: client, session: state.selectedID, canAnnotate: !loading && entry?.stale == false)
                         .id(preview.workspace.workspaceId + preview.revision).clipped()
                 } else {
                     ReadOnlyFileEditor(path: path, source: preview.content, position: $position)
@@ -321,6 +324,10 @@ struct FilePane: View {
             }
             Text((entry?.stale == true && preview != nil ? "Read-only · Preview may be out of date" : "Read-only") + (preview?.truncated == true ? " · Preview truncated" : ""))
                 .font(.kit(size: 10)).foregroundStyle(theme.muted).padding(12)
+        }.onChange(of: state.annotationState.evidenceConflict) {
+            guard active, state.annotationState.selectionDraft?.path == path,
+                  state.annotationState.evidenceConflict == .staleFile || state.annotationState.evidenceConflict == .staleWorkspace else { return }
+            workspace.filePreviews.invalidate(path)
         }.task(id: request) {
             guard active, !state.isDemo, let client = state.catalogClient as? any WorkspaceFileClient else { return }
             guard let cwd = state.selected?.cwd else { return }

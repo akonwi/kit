@@ -6,6 +6,7 @@ import Observation
     private(set) var records: [FileAnnotation] = []
     private(set) var pending = false
     private(set) var error: String?
+    private(set) var evidenceConflict: AnnotationEvidenceConflict?
     private(set) var uncertain = false
     private var observed: [FileAnnotation] = []
     private var generation = 0
@@ -23,7 +24,11 @@ import Observation
         let path: String
     }
     func reselectEditor() {
-        guard !pending, let editor, let path = editor.anchor.workspaceFile?.path ?? editor.anchor.workingTreeDiff?.path else { return }
+        guard !pending else { return }
+        stageReselection()
+    }
+    private func stageReselection() {
+        guard let editor, let path = editor.anchor.workspaceFile?.path ?? editor.anchor.workingTreeDiff?.path else { return }
         selectionDraft = SelectionDraft(body: draft, replacing: acknowledgedCreation?.id ?? editor.editing ?? editor.replacing, path: path)
         self.editor = nil
     }
@@ -41,6 +46,7 @@ import Observation
             return
         }
         acknowledgedCreation = nil
+        evidenceConflict = nil; error = nil
         if let editing { draft = editing.body }
         else if let selectionDraft { draft = selectionDraft.body }
         else if let replacement { draft = replacement.body }
@@ -50,7 +56,7 @@ import Observation
 
     func cancelEditor() {
         guard !pending else { return }
-        editor = nil; replacement = nil; selectionDraft = nil; draft = ""; acknowledgedCreation = nil
+        editor = nil; replacement = nil; selectionDraft = nil; draft = ""; acknowledgedCreation = nil; evidenceConflict = nil
     }
 
     func reveal(_ note: FileAnnotation) {
@@ -78,7 +84,7 @@ import Observation
     func save(client: any AnnotationClient, session: String, anchor: WireAnnotationAnchor,
               editing: UInt64? = nil, replacing: UInt64? = nil) async -> Bool {
         guard !pending, !uncertain, FileAnnotation.validBody(draft) else { return false }
-        pending = true; error = nil
+        pending = true; error = nil; evidenceConflict = nil
         defer { pending = false }
         var acknowledged = false
         do {
@@ -99,6 +105,10 @@ import Observation
             editor = nil; replacement = nil; selectionDraft = nil; acknowledgedCreation = nil
             return true
         } catch {
+            if let conflict = error as? AnnotationEvidenceConflict {
+                evidenceConflict = conflict
+                stageReselection()
+            }
             self.error = "Couldn’t save the annotation. Your comment is preserved. " + error.localizedDescription
             uncertain = acknowledged || Self.ambiguous(error)
             try? await refresh(client: client, session: session)
@@ -124,7 +134,7 @@ import Observation
     func acknowledgeUncertainty() { uncertain = false; error = nil }
 
     private static func ambiguous(_ error: Error) -> Bool {
-        if error is MutationNotSent { return false }
+        if error is MutationNotSent || error is AnnotationEvidenceConflict { return false }
         if case ClientError.http(let status) = error, (400..<500).contains(status) { return false }
         return true
     }
