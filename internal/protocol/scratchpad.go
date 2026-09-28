@@ -164,13 +164,38 @@ func (details ScratchpadErrorDetails) Validate(code ScratchpadErrorCode) error {
 	return nil
 }
 
+// Values returns every permitted scratchpad error code.
+func (ScratchpadErrorCode) Values() []ScratchpadErrorCode {
+	return []ScratchpadErrorCode{
+		ScratchpadInvalidContent, ScratchpadTooLarge, ScratchpadRevisionConflict, ScratchpadRevisionExhausted,
+		ScratchpadMigrationRequired, ScratchpadUnsupported, ScratchpadUnavailable,
+	}
+}
+
+// EnumValues returns the string values for contract reflection.
+func (ScratchpadErrorCode) EnumValues() []string {
+	values := ScratchpadErrorCode("").Values()
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+// Valid reports whether code is permitted.
+func (code ScratchpadErrorCode) Valid() bool {
+	for _, value := range code.Values() {
+		if code == value {
+			return true
+		}
+	}
+	return false
+}
+
 // Validate checks a stable scratchpad error code.
 func (code ScratchpadErrorCode) Validate() error {
-	switch code {
-	case ScratchpadInvalidContent, ScratchpadTooLarge, ScratchpadRevisionConflict, ScratchpadRevisionExhausted,
-		ScratchpadMigrationRequired, ScratchpadUnsupported, ScratchpadUnavailable:
-		return nil
-	default:
+	if !code.Valid() {
 		return fmt.Errorf("scratchpad error code %q is invalid", code)
 	}
+	return nil
 }
