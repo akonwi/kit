@@ -12,11 +12,12 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/apphome"
+	"github.com/akonwi/kit/internal/httpapi"
 )
 
 const (
-	instanceHeader = "X-Kit-Instance-ID"
-	protocolHeader = "X-Kit-Protocol-Version"
+	instanceHeader = httpapi.InstanceHeader
+	protocolHeader = httpapi.ProtocolHeader
 )
 
 // Health is returned by an authenticated local daemon health check.

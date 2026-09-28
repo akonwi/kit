@@ -18,6 +18,7 @@ import (
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/fileindex"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
@@ -2189,38 +2190,35 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
-		record, err := service.Scratchpad(request.Context(), request.PathValue("sessionID"))
+	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, WriteError: func(writer http.ResponseWriter, err error) {
+		var requestErr *httpapi.RequestError
+		if errors.As(err, &requestErr) {
+			err = fmt.Errorf("%w: %v", errInvalidSessionRequest, requestErr)
+		}
+		writeSessionError(writer, err)
+	}}
+	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
+		record, err := service.Scratchpad(ctx, params.SessionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, err
 		}
 		if err := record.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid scratchpad result: %w", err))
-			return
+			return protocol.Scratchpad{}, fmt.Errorf("invalid scratchpad result: %w", err)
 		}
-		writeJSON(writer, http.StatusOK, record)
+		return record, nil
 	})
-	mux.HandleFunc("PUT /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.UpdateScratchpadInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.UpdateScratchpad, func(ctx context.Context, params httpapi.SessionPath, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
 		if err := validateScratchpadInput(input); err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, err
 		}
-		record, err := service.UpdateScratchpad(request.Context(), request.PathValue("sessionID"), input)
+		record, err := service.UpdateScratchpad(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, err
 		}
 		if err := record.ValidateApplied(input); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid scratchpad update result: %w", err))
-			return
+			return protocol.Scratchpad{}, fmt.Errorf("invalid scratchpad update result: %w", err)
 		}
-		writeJSON(writer, http.StatusOK, record)
+		return record, nil
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/configure", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ConfigureSessionInput

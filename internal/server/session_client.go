@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/scratchpad"
@@ -23,42 +24,7 @@ import (
 const maxSessionResponseBytes = 8 << 20
 
 // APIError is a non-success response from the local session protocol.
-type APIError struct {
-	StatusCode         int
-	Code               string
-	Message            string
-	Details            map[string]string
-	CurrentScratchpad  *protocol.Scratchpad
-	scratchpadError    *protocol.ScratchpadError
-	pluginCommandError *protocol.PluginCommandError
-}
-
-func (e *APIError) Error() string {
-	return fmt.Sprintf("daemon returned HTTP %d: %s", e.StatusCode, e.Message)
-}
-
-// IncompatibleDaemon reports an HTTP protocol-version rejection. Authentication,
-// missing sessions, and transient transport failures are not compatibility errors.
-func (e *APIError) IncompatibleDaemon() bool {
-	return e != nil && e.StatusCode == http.StatusUpgradeRequired
-}
-
-// UserMessage returns the bounded server-provided explanation without transport details.
-func (e *APIError) UserMessage() string { return e.Message }
-
-// Unwrap exposes stable typed domain errors carried by the HTTP envelope.
-func (e *APIError) Unwrap() error {
-	if e == nil {
-		return nil
-	}
-	if e.pluginCommandError != nil {
-		return e.pluginCommandError
-	}
-	if e.scratchpadError != nil {
-		return e.scratchpadError
-	}
-	return nil
-}
+type APIError = httpapi.APIError
 
 // CreateSession creates a persisted or temporary session through the local daemon.
 func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
@@ -597,9 +563,8 @@ func (c *Client) ConfigureSession(ctx context.Context, sessionID string, input p
 
 // GetScratchpad reads the authoritative shared scratchpad through one bound session identity.
 func (c *Client) GetScratchpad(ctx context.Context, sessionID string) (protocol.Scratchpad, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/scratchpad"
-	var output protocol.Scratchpad
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetScratchpad, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.Scratchpad{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -621,9 +586,8 @@ func (c *Client) UpdateScratchpad(ctx context.Context, sessionID string, input p
 		}
 		return protocol.Scratchpad{}, &protocol.ScratchpadError{Code: code, Message: message}
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/scratchpad"
-	var output protocol.Scratchpad
-	if err := c.sessionJSON(ctx, http.MethodPut, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.UpdateScratchpad, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.Scratchpad{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {
@@ -837,68 +801,7 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 }
 
 func decodeAPIError(statusCode int, body []byte) error {
-	var envelope struct {
-		Error json.RawMessage `json:"error"`
-	}
-	message := strings.TrimSpace(string(body))
-	apiError := &APIError{StatusCode: statusCode}
-	if json.Unmarshal(body, &envelope) == nil && len(envelope.Error) > 0 {
-		var plain string
-		if json.Unmarshal(envelope.Error, &plain) == nil {
-			apiError.Message = plain
-			return apiError
-		}
-		var typed struct {
-			Code    string          `json:"code"`
-			Message string          `json:"message"`
-			Details json.RawMessage `json:"details"`
-		}
-		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
-			var stringDetails map[string]string
-			_ = json.Unmarshal(typed.Details, &stringDetails)
-			workspaceError := protocol.WorkspaceError{Code: protocol.WorkspaceErrorCode(typed.Code), Message: typed.Message, Details: stringDetails}
-			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: stringDetails}
-			annotationError := protocol.AnnotationEvidenceError{Code: protocol.AnnotationEvidenceErrorCode(typed.Code), Message: typed.Message}
-			annotationErrorValid := annotationError.Validate() == nil && len(stringDetails) == 0
-			scratchpadCode := protocol.ScratchpadErrorCode(typed.Code)
-			var scratchpadDetails protocol.ScratchpadErrorDetails
-			scratchpadErrorValid := decodeStrictJSONObject(typed.Details, &scratchpadDetails) == nil
-			typedScratchpadError := &protocol.ScratchpadError{Code: scratchpadCode, Message: typed.Message, Current: scratchpadDetails.Scratchpad}
-			scratchpadErrorValid = scratchpadErrorValid && typedScratchpadError.Validate() == nil && scratchpadStatusMatches(scratchpadCode, statusCode)
-			pluginError := protocol.PluginCommandError{Code: typed.Code, Message: typed.Message}
-			pluginErrorValid := pluginError.Validate() == nil && (len(typed.Details) == 0 || bytes.Equal(bytes.TrimSpace(typed.Details), []byte("{}"))) && ((typed.Code == protocol.PluginCommandUnavailable && statusCode == http.StatusConflict) || (typed.Code == protocol.PluginCommandFailed && statusCode == http.StatusUnprocessableEntity))
-			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationErrorValid && !scratchpadErrorValid && !pluginErrorValid {
-				return fmt.Errorf("daemon returned malformed typed error")
-			}
-			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, stringDetails
-			if pluginErrorValid {
-				apiError.pluginCommandError = &pluginError
-			}
-			if scratchpadErrorValid {
-				apiError.CurrentScratchpad = scratchpadDetails.Scratchpad
-				apiError.scratchpadError = typedScratchpadError
-			}
-			return apiError
-		}
-	}
-	apiError.Message = message
-	return apiError
-}
-
-func scratchpadStatusMatches(code protocol.ScratchpadErrorCode, status int) bool {
-	switch code {
-	case protocol.ScratchpadInvalidContent:
-		return status == http.StatusBadRequest
-	case protocol.ScratchpadTooLarge:
-		return status == http.StatusRequestEntityTooLarge
-	case protocol.ScratchpadRevisionConflict, protocol.ScratchpadRevisionExhausted,
-		protocol.ScratchpadMigrationRequired, protocol.ScratchpadUnsupported:
-		return status == http.StatusConflict
-	case protocol.ScratchpadUnavailable:
-		return status == http.StatusServiceUnavailable
-	default:
-		return false
-	}
+	return httpapi.DecodeError(statusCode, body)
 }
 
 func decodeStrictJSONObject(data []byte, target any) error {
@@ -1134,25 +1037,37 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	return response.Body, nil
 }
 
-func (c *Client) sessionJSON(
-	ctx context.Context,
-	method string,
-	path string,
-	input any,
-	expectedStatus int,
-	output any,
-) error {
+// DoSessionRequest performs an authenticated, compatibility-checked session request.
+func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body io.Reader, hasJSONBody bool) (*http.Response, error) {
 	registry, err := LoadRegistry(c.paths)
 	if err != nil {
-		return err
+		return nil, err
 	}
 	if err := compatible(registry); err != nil {
-		return err
+		return nil, err
 	}
 	token, err := loadToken(c.paths)
 	if err != nil {
-		return err
+		return nil, err
 	}
+	request, err := http.NewRequestWithContext(ctx, method, registry.URL+path, body)
+	if err != nil {
+		return nil, fmt.Errorf("create daemon session request: %w", err)
+	}
+	request.Header.Set("Authorization", "Bearer "+token)
+	request.Header.Set(instanceHeader, registry.InstanceID)
+	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
+	if hasJSONBody {
+		request.Header.Set("Content-Type", "application/json")
+	}
+	response, err := c.sessionHTTP.Do(request)
+	if err != nil {
+		return nil, fmt.Errorf("contact daemon session API: %w", err)
+	}
+	return response, nil
+}
+
+func (c *Client) sessionJSON(ctx context.Context, method, path string, input any, expectedStatus int, output any) error {
 	var body io.Reader
 	if input != nil {
 		encoded, err := json.Marshal(input)
@@ -1161,19 +1076,9 @@ func (c *Client) sessionJSON(
 		}
 		body = bytes.NewReader(encoded)
 	}
-	request, err := http.NewRequestWithContext(ctx, method, registry.URL+path, body)
+	response, err := c.DoSessionRequest(ctx, method, path, body, input != nil)
 	if err != nil {
-		return fmt.Errorf("create daemon session request: %w", err)
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set(instanceHeader, registry.InstanceID)
-	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
-	if input != nil {
-		request.Header.Set("Content-Type", "application/json")
-	}
-	response, err := c.sessionHTTP.Do(request)
-	if err != nil {
-		return fmt.Errorf("contact daemon session API: %w", err)
+		return err
 	}
 	defer response.Body.Close()
 	limited := io.LimitReader(response.Body, maxSessionResponseBytes)
