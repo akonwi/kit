@@ -33,7 +33,8 @@ struct InteractionCard: View {
                     if flow.question.kind == .text {
                         InteractionTextInput(text: $flow.answers[flow.step].text, prompt: flow.request?.placeholder ?? flow.question.prompt,
                             submit: { submitStep() }, previous: { flow.step = max(0, flow.step - 1) }, cancel: { finish(true) })
-                            .frame(height: 64).padding(12)
+                            .id(flow.step)
+                            .frame(height: 40)
                             .background(theme.surface, in: RoundedRectangle(cornerRadius: 10))
                             .overlay(RoundedRectangle(cornerRadius: 10).strokeBorder(theme.focusBorder))
                     } else {

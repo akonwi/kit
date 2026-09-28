@@ -10,39 +10,34 @@ struct InteractionTextInput: NSViewRepresentable {
     let previous: () -> Void
     let cancel: () -> Void
 
-    func makeNSView(context: Context) -> NSTextView {
-        let view = NSTextView()
-        view.isRichText = false
-        view.drawsBackground = false
-        view.delegate = context.coordinator
-        view.textContainerInset = .zero
-        view.textContainer?.lineFragmentPadding = 0
-        view.textContainer?.widthTracksTextView = true
-        view.isHorizontallyResizable = false
-        DispatchQueue.main.async { [weak view] in
-            guard let view else { return }
-            view.window?.makeFirstResponder(view)
+    func makeNSView(context: Context) -> InteractionInputBox {
+        let box = InteractionInputBox()
+        box.field.delegate = context.coordinator
+        DispatchQueue.main.async { [weak box] in
+            guard let box else { return }
+            box.window?.makeFirstResponder(box.field)
         }
-        return view
+        return box
     }
 
-    func updateNSView(_ view: NSTextView, context: Context) {
+    func updateNSView(_ box: InteractionInputBox, context: Context) {
         context.coordinator.parent = self
-        if view.string != text { view.string = text }
-        view.font = Typography.shared.font(size: 13)
-        view.textColor = NSColor(theme.text)
-        view.insertionPointColor = NSColor(theme.text)
-        view.setAccessibilityLabel(prompt)
+        let field = box.field
+        if field.stringValue != text { field.stringValue = text }
+        field.font = Typography.shared.font(size: 13)
+        field.textColor = NSColor(theme.text)
+        field.isEnabled = context.environment.isEnabled
+        field.setAccessibilityLabel(prompt)
     }
 
     func makeCoordinator() -> Coordinator { Coordinator(self) }
-    final class Coordinator: NSObject, NSTextViewDelegate {
+    final class Coordinator: NSObject, NSTextFieldDelegate {
         var parent: InteractionTextInput
         init(_ parent: InteractionTextInput) { self.parent = parent }
-        func textDidChange(_ notification: Notification) {
-            if let view = notification.object as? NSTextView { parent.text = view.string }
+        func controlTextDidChange(_ notification: Notification) {
+            if let field = notification.object as? NSTextField { parent.text = field.stringValue }
         }
-        func textView(_ textView: NSTextView, doCommandBy selector: Selector) -> Bool {
+        func control(_ control: NSControl, textView: NSTextView, doCommandBy selector: Selector) -> Bool {
             switch selector {
             case #selector(NSResponder.insertNewline(_:)), #selector(NSResponder.insertTab(_:)):
                 parent.submit()
@@ -52,5 +47,35 @@ struct InteractionTextInput: NSViewRepresentable {
             }
             return true
         }
+    }
+}
+
+/// The box owns its padding so clicks beside the single-line field still focus it.
+final class InteractionInputBox: NSView {
+    let field = NSTextField()
+
+    override init(frame frameRect: NSRect) {
+        super.init(frame: frameRect)
+        field.isBordered = false
+        field.drawsBackground = false
+        field.focusRingType = .none
+        field.usesSingleLineMode = true
+        field.cell?.wraps = false
+        field.cell?.isScrollable = true
+        field.translatesAutoresizingMaskIntoConstraints = false
+        addSubview(field)
+        NSLayoutConstraint.activate([
+            field.leadingAnchor.constraint(equalTo: leadingAnchor, constant: 12),
+            field.trailingAnchor.constraint(equalTo: trailingAnchor, constant: -12),
+            field.centerYAnchor.constraint(equalTo: centerYAnchor)
+        ])
+    }
+
+    required init?(coder: NSCoder) { fatalError("init(coder:) has not been implemented") }
+
+    override func mouseDown(with event: NSEvent) {
+        guard field.isEnabled else { return }
+        window?.makeFirstResponder(field)
+        field.selectText(nil)
     }
 }
