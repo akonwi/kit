@@ -38,14 +38,15 @@ type eventStreamTestService struct {
 type scratchpadWireTestService struct {
 	sessionService
 	record protocol.Scratchpad
+	err    error
 }
 
 func (service scratchpadWireTestService) Scratchpad(context.Context, string) (protocol.Scratchpad, error) {
-	return service.record, nil
+	return service.record, service.err
 }
 
 func (service scratchpadWireTestService) UpdateScratchpad(_ context.Context, _ string, _ protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
-	return service.record, nil
+	return service.record, service.err
 }
 
 func (service eventStreamTestService) Events(context.Context, string, string, int64) (protocol.SessionEventBatch, error) {
