@@ -33,8 +33,17 @@ html {
   scroll-padding-block-start: 5rem;
 }
 
+body {
+  background: var(--color-surface);
+}
+
 a {
   text-underline-offset: 0.2em;
+}
+
+code {
+  font-family: var(--font-mono);
+  font-size: 0.88em;
 }
 
 .site-shell {
@@ -42,12 +51,15 @@ a {
   --gutter: clamp(var(--space-md), 4vw, var(--space-xl));
 }
 
+/* --- Header and footer ------------------------------------------------ */
+
 .site-header {
   padding-block: var(--space-md);
   border-block-end: 1px solid var(--color-border);
 }
 
 .site-header > m-hstack {
+  align-items: center;
   min-block-size: 2.5rem;
 }
 
@@ -84,29 +96,23 @@ a {
   color: var(--color-text);
 }
 
-.hero {
-  padding-block: clamp(4rem, 10vw, 8rem);
+.site-footer {
+  padding-block: var(--space-lg) var(--space-2xl);
+  border-block-start: 1px solid var(--color-border);
 }
 
-.hero > m-switcher {
-  align-items: center;
-  --threshold: 62rem;
-}
-
-.hero > m-switcher > * {
-  min-inline-size: 0;
-}
-
-.hero-copy {
-  max-inline-size: 39rem;
-}
-
-.requirement {
-  margin-block-start: var(--space-xs);
+.site-footer p {
   color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.78rem;
+  font-size: 0.9rem;
 }
+
+.footer-credit {
+  display: flex;
+  align-items: center;
+  gap: var(--space-sm);
+}
+
+/* --- Type ---------------------------------------------------------------- */
 
 h1,
 h2,
@@ -116,21 +122,21 @@ p {
 }
 
 h1 {
-  max-inline-size: 14ch;
+  max-inline-size: 17ch;
   margin: 0;
-  font-size: clamp(2.8rem, 7vw, 5.5rem);
+  font-size: clamp(2.6rem, 6.5vw, 5rem);
   font-weight: 500;
-  letter-spacing: -0.055em;
-  line-height: 0.96;
+  letter-spacing: -0.05em;
+  line-height: 0.98;
 }
 
 h2 {
   max-inline-size: 18ch;
   margin: 0;
-  font-size: clamp(2rem, 4vw, 3.5rem);
+  font-size: clamp(2rem, 4vw, 3.25rem);
   font-weight: 500;
   letter-spacing: -0.045em;
-  line-height: 1.02;
+  line-height: 1.04;
 }
 
 h3 {
@@ -141,13 +147,46 @@ h3 {
 
 .lede,
 .section-intro {
+  margin: 0;
   color: var(--color-text-muted);
   font-size: clamp(1.05rem, 2vw, 1.2rem);
   line-height: 1.7;
 }
 
 .lede {
-  max-inline-size: 56ch;
+  max-inline-size: 60ch;
+}
+
+.section-intro {
+  max-inline-size: 52ch;
+}
+
+.eyebrow,
+.requirement,
+.fine-print {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+}
+
+.eyebrow {
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+.fine-print {
+  line-height: 1.6;
+}
+
+/* --- Layout -------------------------------------------------------------- */
+
+.hero {
+  padding-block: clamp(3.5rem, 9vw, 7rem) clamp(4rem, 9vw, 7rem);
+}
+
+.hero-copy {
+  max-inline-size: 48rem;
 }
 
 .hero-actions .btn {
@@ -155,101 +194,327 @@ h3 {
   justify-content: center;
 }
 
-.terminal {
-  min-inline-size: 0;
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: clamp(0.8rem, 1.3vw, 0.85rem);
-}
-
-.terminal-header,
-.terminal-composer,
-.terminal-status {
-  position: relative;
-  border-block-start: 1px solid var(--color-border);
-  padding: 0.55rem 0.75rem;
-  color: var(--color-text-muted);
-  font-size: 0.75rem;
-}
-
-.terminal-header > m-hstack {
-  flex-wrap: wrap;
-  gap: 0.35rem 1rem;
-}
-
-.terminal-model {
-  margin-inline-start: auto;
-}
-
-.terminal-transcript {
-  min-block-size: 18rem;
-  padding: clamp(1rem, 3vw, 1.5rem) 0.75rem;
-}
-
-.terminal-user {
-  margin-block: 0 1.5rem;
-  padding: 0.65rem 0.75rem;
-  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
-  color: var(--color-text);
-}
-
-.terminal-assistant {
-  margin-block-end: 1.25rem;
-  color: var(--color-text);
-  line-height: 1.55;
-}
-
-.terminal-assistant strong {
-  display: block;
-  margin-block-end: 0.5rem;
-  color: var(--color-accent);
-}
-
-.terminal-assistant p {
-  margin: 0;
-}
-
-.terminal-tools {
-  display: flex;
-  gap: 0.55rem;
-  margin-block: 0 1.5rem;
-  padding: 0.3rem 0.55rem;
-  background: var(--color-surface-raised);
-  color: var(--color-text-muted);
-}
-
-.terminal-tool-names {
-  color: var(--color-text-muted);
-
-}
-
-.terminal-composer {
-  display: flex;
-  align-items: center;
-  min-block-size: 3rem;
-  margin-block-end: 0.5rem;
-  color: var(--color-text-muted);
-}
-
-.terminal-cursor {
-  inline-size: 0.45rem;
-  block-size: 1rem;
-  margin-inline-end: 0.2rem;
-  background: var(--color-text);
-}
-
-.terminal-status {
-  min-block-size: 1.8rem;
-}
-
 .section {
   padding-block: clamp(4rem, 9vw, 7rem);
   border-block-start: 1px solid var(--color-border);
 }
 
-.why-content {
-  max-inline-size: 48rem;
+.section-heading {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: end;
+  justify-content: space-between;
+  gap: var(--space-md) var(--space-xl);
+}
+
+.split,
+.install-split,
+.mac-app > m-switcher {
+  align-items: center;
+  --threshold: 60rem;
+}
+
+.split > *,
+.install-split > *,
+.mac-app > m-switcher > * {
+  min-inline-size: 0;
+}
+
+.install-split {
+  align-items: start;
+}
+
+/* --- Workspace mockups ----------------------------------------------------
+   Illustrations of Kit's session shell: session name top-left, model and
+   context top-right, workspace tabs, composer, and cwd/VCS bottom-right. */
+
+.mock {
+  margin: 0;
+  min-inline-size: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  color: var(--color-text);
+  font-family: var(--font-mono);
+  font-size: clamp(0.7rem, 1.2vw, 0.8rem);
+  font-variant-ligatures: none;
+  line-height: 1.55;
+}
+
+.mock-bar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.25rem 1rem;
+  padding: 0.5rem 0.8rem;
+  border-block-end: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.mock-session {
+  color: var(--color-text);
+}
+
+.mock-progress {
+  color: var(--color-success-text);
+}
+
+.mock-dim {
+  color: var(--color-text-muted);
+}
+
+.mock-tabs {
+  display: flex;
+  overflow: hidden;
+  border-block-end: 1px solid var(--color-border);
+  white-space: nowrap;
+}
+
+.mock-tabs span {
+  padding: 0.4rem 0.9rem;
+  border-inline-end: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.mock-tabs .is-active {
+  background: var(--color-surface);
+  box-shadow: inset 0 -2px 0 var(--color-accent);
+  color: var(--color-text);
+}
+
+.mock-diff {
+  padding-block: 0.25rem 0.75rem;
+  background: var(--color-surface);
+  overflow-x: auto;
+}
+
+.diff-file {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.4rem 0.8rem;
+  border-block-end: 1px solid var(--color-border);
+  font-weight: 500;
+}
+
+.diff-add-count {
+  color: var(--color-success-text);
+}
+
+.diff-del-count {
+  color: var(--color-danger-text);
+}
+
+.diff-hunk {
+  padding: 0.3rem 0.8rem;
+  color: var(--color-accent);
+  white-space: pre;
+}
+
+.diff-line {
+  display: flex;
+  white-space: pre;
+}
+
+.diff-line .ln {
+  flex: none;
+  inline-size: 3.2rem;
+  padding-inline-end: 0.8rem;
+  color: var(--color-text-muted);
+  text-align: end;
+  user-select: none;
+}
+
+.diff-line .code {
+  flex: 1;
+  padding-inline-end: 0.8rem;
+  tab-size: 4;
+}
+
+.diff-line.add {
+  background: var(--color-success-surface);
+}
+
+.diff-line.add .code {
+  color: var(--color-success-text);
+}
+
+.diff-line.del {
+  background: var(--color-danger-surface);
+}
+
+.diff-line.del .code {
+  color: var(--color-danger-text);
+}
+
+.diff-line.is-selected .ln {
+  box-shadow: inset 3px 0 0 var(--color-accent);
+  color: var(--color-text);
+}
+
+.diff-note {
+  display: flex;
+  gap: 0.6rem;
+  margin: 0.35rem 0.8rem 0.35rem 3.2rem;
+  padding: 0.5rem 0.7rem;
+  border: 1px solid var(--color-accent);
+  background: var(--color-surface-raised);
+  font-family: var(--font-body);
+  font-size: 0.85rem;
+  line-height: 1.45;
+}
+
+.diff-note strong {
+  margin-inline-end: 0.35rem;
+  font-family: var(--font-mono);
+  font-size: 0.78rem;
+  font-weight: 500;
+}
+
+.note-glyph {
+  color: var(--color-accent);
+}
+
+.mock-pending {
+  padding: 0.4rem 0.8rem;
+  border-block-start: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.mock-x {
+  margin-inline-start: 0.5rem;
+}
+
+.mock-composer {
+  display: flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  padding: 0.5rem 0.8rem;
+  border-block-start: 1px solid var(--color-border);
+}
+
+.mock-cursor {
+  inline-size: 0.5em;
+  block-size: 1.15em;
+  margin-inline: 0.1rem 0.3rem;
+  background: var(--color-text);
+}
+
+.mock-status {
+  border-block: 1px solid var(--color-border) 0;
+}
+
+.mock-transcript {
+  display: grid;
+  gap: 1.1rem;
+  padding: 1.1rem 0.8rem;
+  background: var(--color-surface);
+}
+
+.mock-user {
+  padding: 0.55rem 0.75rem;
+  background: color-mix(in srgb, var(--color-accent) 10%, transparent);
+}
+
+.mock-user-notes {
+  display: grid;
+  gap: 0.15rem;
+  margin-block-start: 0.45rem;
+  color: var(--color-text-muted);
+}
+
+.mock-tools {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.55rem;
+  padding: 0.3rem 0.55rem;
+  background: var(--color-surface-raised);
+  color: var(--color-text-muted);
+}
+
+.mock-assistant strong {
+  display: block;
+  margin-block-end: 0.35rem;
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
+.mock-assistant p {
+  margin: 0;
+}
+
+.mock-assistant code {
+  color: var(--color-success-text);
+  font-size: 1em;
+}
+
+/* --- Review steps ------------------------------------------------------ */
+
+.steps {
+  display: grid;
+  gap: var(--space-lg);
+  margin: var(--space-sm) 0 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: step;
+}
+
+.steps li {
+  position: relative;
+  padding-inline-start: 3rem;
+  counter-increment: step;
+}
+
+.steps li::before {
+  position: absolute;
+  inset-inline-start: 0;
+  inset-block-start: 0.05rem;
+  color: var(--color-accent);
+  content: counter(step, decimal-leading-zero);
+  font-family: var(--font-mono);
+  font-size: 0.9rem;
+}
+
+.steps p {
+  margin: var(--space-2xs) 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+/* --- Cards -------------------------------------------------------------- */
+
+.feature-grid {
+  --min: 18rem;
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.feature-card {
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-start;
+  grid-column: span 2;
+  min-block-size: 12rem;
+  padding: var(--space-lg);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+}
+
+.feature-card:hover {
+  border-color: var(--color-border-strong);
+}
+
+.feature-grid:not(.extend-grid) > .feature-card:nth-last-child(-n+2) {
+  grid-column: span 3;
+}
+
+.feature-card p {
+  margin: var(--space-sm) 0 0;
+  color: var(--color-text-muted);
+  line-height: 1.6;
+}
+
+.feature-card.flat {
+  min-block-size: 0;
 }
 
 .check-list {
@@ -274,60 +539,129 @@ h3 {
   font-family: var(--font-mono);
 }
 
-.section-heading {
-  display: flex;
-  align-items: end;
-  justify-content: space-between;
-  gap: var(--space-lg);
+/* --- Session topology -------------------------------------------------- */
+
+.topology {
+  display: grid;
+  margin: 0;
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
 }
 
-.feature-grid {
-  --min: 18rem;
-  grid-template-columns: repeat(6, minmax(0, 1fr));
+.topology-clients {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: var(--space-sm);
 }
 
-.feature-card {
-  display: flex;
-  flex-direction: column;
-  justify-content: flex-start;
-  grid-column: span 2;
-  min-block-size: 14rem;
-  padding: var(--space-lg);
-  border: 1px solid var(--color-border);
+.topology-clients span {
+  padding: 0.6rem;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  text-align: center;
+}
+
+.topology-link {
+  block-size: 2.25rem;
+  margin-inline: auto;
+  border-inline-start: 1px dashed var(--color-border-strong);
+}
+
+.topology-server {
+  display: grid;
+  border: 1px solid var(--color-accent);
   background: var(--color-surface-raised);
 }
 
-.feature-card:hover {
-  border-color: var(--color-border-strong);
+.topology-title {
+  padding: 0.6rem 0.8rem;
+  border-block-end: 1px solid var(--color-border);
 }
 
-.feature-card:nth-last-child(-n+2) {
-  grid-column: span 3;
+.topology-session {
+  display: flex;
+  justify-content: space-between;
+  gap: 1rem;
+  padding: 0.5rem 0.8rem;
+  border-block-end: 1px solid var(--color-border);
 }
 
-.feature-card p:last-child {
-  margin-block-start: var(--space-sm);
+.topology-session:last-child {
+  border-block-end: 0;
+}
+
+.topology-session.sub {
+  padding-inline-start: 1.6rem;
   color: var(--color-text-muted);
+}
+
+.state {
+  color: var(--color-text-muted);
+}
+
+.state.running {
+  color: var(--color-success-text);
+}
+
+.state.waiting {
+  color: var(--color-warn-text);
+}
+
+/* --- Code file ----------------------------------------------------------- */
+
+.code-file {
+  margin: 0;
+  border: 1px solid var(--color-border-strong);
+  background: var(--color-surface-raised);
+  font-family: var(--font-mono);
+  font-size: 0.82rem;
+}
+
+.code-file figcaption {
+  padding: 0.5rem 0.9rem;
+  border-block-end: 1px solid var(--color-border);
+  color: var(--color-text-muted);
+}
+
+.code-file pre {
+  margin: 0;
+  font-variant-ligatures: none;
+  padding: 1rem 0.9rem;
+  overflow-x: auto;
+  background: var(--color-surface);
   line-height: 1.6;
 }
 
-.install-section > m-switcher {
-  align-items: end;
-  --threshold: 50rem;
+.code-file code {
+  font-size: 1em;
 }
 
-.install-section > m-switcher > * {
-  min-inline-size: 0;
+.tok-dim {
+  color: var(--color-text-muted);
 }
 
-.commands {
-  inline-size: 100%;
+.tok-key {
+  color: var(--color-accent);
+}
+
+/* --- Get Kit ----------------------------------------------------------- */
+
+.client-title {
+  font-size: 1.35rem;
+}
+
+.client-copy {
+  margin: 0;
+  color: var(--color-text-muted);
+  line-height: 1.65;
 }
 
 .command-block {
   display: flex;
   gap: var(--space-md);
-  padding: 1rem 1.1rem;
+  inline-size: 100%;
+  box-sizing: border-box;
+  padding: 0.9rem 1.1rem;
   border: 1px solid var(--color-border-strong);
   background: var(--color-surface-raised);
   overflow-x: auto;
@@ -336,28 +670,12 @@ h3 {
 
 .command-text {
   color: var(--color-success-text);
-  background: transparent;
   font-family: var(--font-mono);
 }
 
 .prompt {
   color: var(--color-text-muted);
   font-family: var(--font-mono);
-}
-
-.usage-section {
-  padding-block-start: clamp(2rem, 5vw, 4rem);
-}
-
-.visually-subtle {
-  max-inline-size: none;
-  color: var(--color-text-muted);
-  font-family: var(--font-mono);
-  font-size: 0.8rem;
-  font-weight: 400;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  white-space: nowrap;
 }
 
 .command-list {
@@ -367,11 +685,16 @@ h3 {
 
 .command-row {
   display: grid;
-  grid-template-columns: minmax(13rem, 0.65fr) 1fr;
+  grid-template-columns: minmax(15rem, 0.8fr) 1fr;
   align-items: baseline;
   gap: var(--space-lg);
   padding: var(--space-md);
   border-block-end: 1px solid var(--color-border);
+}
+
+.install-split .command-row {
+  grid-template-columns: 1fr;
+  gap: var(--space-2xs);
 }
 
 .command-row:last-child {
@@ -388,34 +711,133 @@ h3 {
   color: var(--color-text-muted);
 }
 
-.site-footer {
-  padding-block: var(--space-lg) var(--space-2xl);
-  border-block-start: 1px solid var(--color-border);
+.mac-app {
+  padding: clamp(var(--space-lg), 4vw, var(--space-2xl));
+  border: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
 }
 
-.site-footer p {
-  color: var(--color-text-muted);
-  font-size: 0.9rem;
+.mac-copy {
+  max-inline-size: 34rem;
 }
 
-.footer-credit {
+.mac-copy .command-block {
+  background: var(--color-surface);
+}
+
+/* Illustration slot for the Mac app; replace with a screenshot later. */
+.mac-window {
+  margin: 0;
+  overflow: hidden;
+  border: 1px solid var(--color-border-strong);
+  border-radius: var(--radius-lg);
+  background: var(--color-surface);
+  box-shadow: 0 1.5rem 3rem -1.5rem color-mix(in srgb, black 35%, transparent);
+  font-size: 0.78rem;
+}
+
+.mac-titlebar {
   display: flex;
   align-items: center;
-  gap: var(--space-sm);
+  gap: 0.35rem;
+  padding: 0.45rem 0.7rem;
+  border-block-end: 1px solid var(--color-border);
+  background: var(--color-surface-raised);
+  white-space: nowrap;
+  overflow: hidden;
 }
+
+.mac-lights {
+  display: flex;
+  gap: 0.4rem;
+  margin-inline-end: 0.6rem;
+}
+
+.mac-lights i {
+  inline-size: 0.7rem;
+  block-size: 0.7rem;
+  border-radius: 50%;
+  background: #ff5f57;
+}
+
+.mac-lights i:nth-child(2) {
+  background: #febc2e;
+}
+
+.mac-lights i:nth-child(3) {
+  background: #28c840;
+}
+
+.mac-tab {
+  padding: 0.2rem 0.8rem;
+  border-radius: var(--radius-sm);
+  color: var(--color-text-muted);
+}
+
+.mac-tab.is-active {
+  background: var(--color-surface);
+  color: var(--color-text);
+}
+
+.mac-body {
+  display: grid;
+  grid-template-columns: 1.1fr 1fr;
+  min-block-size: 15rem;
+}
+
+.mac-pane {
+  display: flex;
+  flex-direction: column;
+  gap: 0.7rem;
+  padding: 0.8rem;
+  min-inline-size: 0;
+}
+
+.mac-pane .mock-tools {
+  font-family: var(--font-mono);
+  font-size: 0.72rem;
+}
+
+.mac-text {
+  margin: 0;
+  line-height: 1.5;
+}
+
+.mac-composer {
+  margin-block-start: auto;
+  padding: 0.5rem 0.65rem;
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-md);
+  color: var(--color-text-muted);
+}
+
+.mac-diff {
+  gap: 0;
+  padding: 0;
+  border-inline-start: 1px solid var(--color-border);
+  font-family: var(--font-mono);
+  font-size: 0.7rem;
+  overflow: hidden;
+}
+
+.mac-diff .diff-line .code {
+  padding-inline: 0.8rem;
+}
+
+/* --- Responsive ---------------------------------------------------------- */
 
 @media (max-width: 64rem) {
   .feature-grid {
     grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 
-  .feature-grid > .feature-card {
+  .feature-grid > .feature-card,
+  .feature-grid:not(.extend-grid) > .feature-card:nth-last-child(-n+2) {
     grid-column: auto;
-    justify-content: flex-start;
     min-block-size: auto;
   }
 
-  .feature-card:last-child {
+  .feature-grid:not(.extend-grid) > .feature-card:last-child {
     grid-column: 1 / -1;
   }
 }
@@ -437,24 +859,49 @@ h3 {
     font-size: 0.82rem;
   }
 
-  .hero {
-    padding-block-start: 3.5rem;
+  .site-header .nav-section {
+    display: none;
   }
 
   .feature-grid {
     grid-template-columns: 1fr;
   }
 
-  .feature-grid > .feature-card {
+  .feature-grid > .feature-card,
+  .feature-grid:not(.extend-grid) > .feature-card:last-child {
     grid-column: auto;
   }
 
+  .mock-pending,
+  .mock-user-notes {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+  }
+
+  .mac-body {
+    grid-template-columns: 1fr;
+  }
+
+  .mac-diff {
+    border-inline-start: 0;
+    border-block-start: 1px solid var(--color-border);
+  }
 }
 
-@media (max-width: 32rem) {
+@media (max-width: 36rem) {
   .command-row {
     grid-template-columns: 1fr;
     gap: var(--space-xs);
+  }
+
+  .diff-line .ln {
+    inline-size: 2.2rem;
+    padding-inline-end: 0.5rem;
+  }
+
+  .diff-note {
+    margin-inline-start: 0.8rem;
   }
 }
 
