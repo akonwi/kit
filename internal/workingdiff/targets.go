@@ -14,6 +14,7 @@ import (
 	"strings"
 	"time"
 	"unicode"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/protocol"
 )
@@ -213,7 +214,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 			}
 			base := protocol.DiffEndpoint{Kind: "commit", OID: mergeBase}
 			head := protocol.DiffEndpoint{Kind: "commit", OID: currentOID}
-			add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: current + " vs " + baseChoice.name, RefName: current, BaseRefName: baseChoice.name, Abbreviated: abbreviate(currentOID)})
+			add(protocol.DiffTargetBranch, base, head, protocol.DiffTargetMetadata{Label: branchTargetLabel(current, baseChoice.name), RefName: current, BaseRefName: baseChoice.name, Abbreviated: abbreviate(currentOID)})
 		}
 	}
 	commits, err := s.recentCommits(ctx, repo, headOID)
@@ -226,7 +227,7 @@ func (s *Service) ListTargets(ctx context.Context, session, cwd string, in proto
 			base = protocol.DiffEndpoint{Kind: "commit", OID: commit.parent}
 		}
 		head := protocol.DiffEndpoint{Kind: "commit", OID: commit.oid}
-		add(protocol.DiffTargetCommit, base, head, protocol.DiffTargetMetadata{Label: abbreviate(commit.oid) + "  " + commit.subject, Subject: commit.subject, Abbreviated: abbreviate(commit.oid), CommittedAt: commit.committedAt})
+		add(protocol.DiffTargetCommit, base, head, protocol.DiffTargetMetadata{Label: truncateTargetLabel(abbreviate(commit.oid)+"  "+commit.subject, protocol.MaxDiffTargetLabelBytes), Subject: commit.subject, Abbreviated: abbreviate(commit.oid), CommittedAt: commit.committedAt})
 	}
 	if err := s.verifyCatalogSnapshot(ctx, repo, headOID, unborn, branches, current); err != nil {
 		return protocol.DiffTargetCatalog{}, err
@@ -492,6 +493,36 @@ func parseCommit(oid string, raw []byte) (commitInfo, bool) {
 		return commitInfo{}, false
 	}
 	return info, true
+}
+
+// truncateTargetLabel bounds display text in bytes without splitting a UTF-8 rune.
+func truncateTargetLabel(value string, limit int) string {
+	if len(value) <= limit {
+		return value
+	}
+	const ellipsis = "…"
+	end := 0
+	for end < len(value) {
+		_, size := utf8.DecodeRuneInString(value[end:])
+		if end+size > limit-len(ellipsis) {
+			break
+		}
+		end += size
+	}
+	return value[:end] + ellipsis
+}
+
+func branchTargetLabel(current, base string) string {
+	const separator = " vs "
+	limit := protocol.MaxDiffTargetLabelBytes
+	if len(current)+len(separator)+len(base) <= limit {
+		return current + separator + base
+	}
+	available := limit - len(separator)
+	currentLimit := min(len(current), available/2)
+	baseLimit := min(len(base), available-currentLimit)
+	currentLimit = min(len(current), available-baseLimit)
+	return truncateTargetLabel(current, currentLimit) + separator + truncateTargetLabel(base, baseLimit)
 }
 
 func safeDisplayText(value string) bool {

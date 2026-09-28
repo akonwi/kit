@@ -14,6 +14,7 @@ import (
 	"strings"
 	"testing"
 	"time"
+	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/workspace"
@@ -79,6 +80,38 @@ func TestTargetCatalogAndRootCommitObservation(t *testing.T) {
 	file, err := service.ReadFile(t.Context(), "session_test", dir, protocol.ReadFileDiffInput{TargetID: page.Observation.Target.ID, TargetRevision: page.Observation.Revision, Path: "a.txt", ExpectedFileRevision: page.Files[0].FileRevision})
 	if err != nil || len(file.Hunks) != 1 || file.Hunks[0].Lines[0].Kind != "addition" {
 		t.Fatalf("root diff = %+v, %v", file, err)
+	}
+}
+
+func TestTargetCatalogBoundsGeneratedLabels(t *testing.T) {
+	dir, service, workspaceID := targetFixture(t)
+	baseName := "base-" + strings.Repeat("b", 110)
+	currentName := "feature-" + strings.Repeat("c", 110)
+	git(t, dir, "checkout", "-qb", baseName)
+	git(t, dir, "commit", "--allow-empty", "-qm", "base change")
+	git(t, dir, "checkout", "-qb", currentName)
+	git(t, dir, "commit", "--allow-empty", "-qm", strings.Repeat("é", 100))
+
+	catalog, err := service.ListTargets(t.Context(), "session_test", dir, protocol.ListDiffTargetsInput{WorkspaceID: workspaceID})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := catalog.Validate(); err != nil {
+		t.Fatalf("generated catalog is invalid: %v", err)
+	}
+	branch := findTarget(t, catalog, protocol.DiffTargetBranch, func(entry protocol.DiffTargetEntry) bool {
+		return entry.Metadata.BaseRefName == baseName
+	})
+	wantBranchLabel := currentName[:75] + "… vs " + baseName[:75] + "…"
+	if branch.Metadata.RefName != currentName || branch.Metadata.Label != wantBranchLabel {
+		t.Fatalf("branch metadata = %+v, want label %q", branch.Metadata, wantBranchLabel)
+	}
+	commit := findTarget(t, catalog, protocol.DiffTargetCommit, func(entry protocol.DiffTargetEntry) bool {
+		return entry.Metadata.Subject == strings.Repeat("é", 100)
+	})
+	wantCommitLabel := commit.Metadata.Abbreviated + "  " + strings.Repeat("é", 71) + "…"
+	if commit.Metadata.Label != wantCommitLabel || !utf8.ValidString(commit.Metadata.Label) {
+		t.Fatalf("commit label = %q, want %q", commit.Metadata.Label, wantCommitLabel)
 	}
 }
 

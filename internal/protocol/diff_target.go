@@ -15,6 +15,7 @@ const (
 	MaxDiffTargets           = 42 // working tree, current branch, 20 local choices, and 20 commits.
 	MaxDiffTargetDiagnostics = 20
 	MaxDiffTargetReference   = 2048
+	MaxDiffTargetLabelBytes  = 160
 )
 
 // DiffEndpoint is one pinned side of a diff target. Empty trees have no OID.
@@ -126,7 +127,7 @@ func (e DiffEndpoint) validate() error {
 }
 
 func (e DiffTargetEntry) Validate() error {
-	if !validTargetReference(e.Reference) || !validDiffToken(e.TargetID, "difftarget_") || e.Base.validate() != nil || e.Head.validate() != nil || !validRendererText(e.Metadata.Label, 160) || !validOptionalRendererText(e.Metadata.RefName, 256) || !validOptionalRendererText(e.Metadata.BaseRefName, 256) || !validOptionalRendererText(e.Metadata.Subject, 256) || len(e.Metadata.Abbreviated) > 16 || e.Metadata.Abbreviated != "" && !validHexPrefix(e.Metadata.Abbreviated) || e.Metadata.CommittedAt < 0 {
+	if !validTargetReference(e.Reference) || !validDiffToken(e.TargetID, "difftarget_") || e.Base.validate() != nil || e.Head.validate() != nil || !validRendererText(e.Metadata.Label, MaxDiffTargetLabelBytes) || !validOptionalRendererText(e.Metadata.RefName, 256) || !validOptionalRendererText(e.Metadata.BaseRefName, 256) || !validOptionalRendererText(e.Metadata.Subject, 256) || len(e.Metadata.Abbreviated) > 16 || e.Metadata.Abbreviated != "" && !validHexPrefix(e.Metadata.Abbreviated) || e.Metadata.CommittedAt < 0 {
 		return fmt.Errorf("diff target entry is invalid")
 	}
 	switch e.Kind {
