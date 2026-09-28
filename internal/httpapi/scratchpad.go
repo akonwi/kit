@@ -20,6 +20,7 @@ var (
 			{Status: http.StatusNotFound, Bodies: []reflect.Type{stringErrorType}},
 			{Status: http.StatusConflict, Bodies: scratchpadErrorBodies, ScratchpadCodes: []protocol.ScratchpadErrorCode{protocol.ScratchpadMigrationRequired, protocol.ScratchpadUnsupported}},
 			{Status: http.StatusServiceUnavailable, Bodies: scratchpadErrorBodies, ScratchpadCodes: []protocol.ScratchpadErrorCode{protocol.ScratchpadUnavailable}},
+			{Status: http.StatusInternalServerError, Bodies: []reflect.Type{stringErrorType}},
 		},
 	}
 	// UpdateScratchpad applies one revision-guarded replacement.
@@ -31,6 +32,7 @@ var (
 			{Status: http.StatusRequestEntityTooLarge, Bodies: []reflect.Type{typedScratchpadErrorType}, ScratchpadCodes: []protocol.ScratchpadErrorCode{protocol.ScratchpadTooLarge}},
 			{Status: http.StatusConflict, Bodies: scratchpadErrorBodies, ScratchpadCodes: []protocol.ScratchpadErrorCode{protocol.ScratchpadRevisionConflict, protocol.ScratchpadRevisionExhausted, protocol.ScratchpadMigrationRequired, protocol.ScratchpadUnsupported}},
 			{Status: http.StatusServiceUnavailable, Bodies: scratchpadErrorBodies, ScratchpadCodes: []protocol.ScratchpadErrorCode{protocol.ScratchpadUnavailable}},
+			{Status: http.StatusInternalServerError, Bodies: []reflect.Type{stringErrorType}},
 		},
 	}
 )

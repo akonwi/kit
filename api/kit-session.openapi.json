@@ -136,6 +136,9 @@
             "name": "X-Kit-Protocol-Version",
             "required": true,
             "schema": {
+              "enum": [
+                41
+              ],
               "type": "integer"
             }
           },
@@ -265,6 +268,16 @@
             },
             "description": "Conflict"
           },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
           "503": {
             "content": {
               "application/json": {
@@ -341,6 +354,9 @@
             "name": "X-Kit-Protocol-Version",
             "required": true,
             "schema": {
+              "enum": [
+                41
+              ],
               "type": "integer"
             }
           },
@@ -642,6 +658,16 @@
               }
             },
             "description": "Request Entity Too Large"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                }
+              }
+            },
+            "description": "Internal Server Error"
           },
           "503": {
             "content": {
