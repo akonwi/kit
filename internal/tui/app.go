@@ -265,8 +265,7 @@ type appState struct {
 	annotationPicker                 annotationPickerController
 	sessionExplorer                  sessionExplorerController
 	authReturnReady                  bool
-	authFilter                       string
-	authSelection                    int
+	authPicker                       pickerKeyModel // login provider picker query and highlighted option
 	authProviderID                   string
 	authAPIKey                       string
 	authPending                      bool
@@ -1215,8 +1214,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AnnotationPicker:              annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
 		SessionExplorer:               s.sessionExplorer.Snapshot(),
 		AuthReturnReady:               s.authReturnReady,
-		AuthFilter:                    s.authFilter,
-		AuthSelection:                 s.authSelection,
+		AuthQuery:                     s.authPicker.Query,
+		AuthSelection:                 s.authPicker.Selection,
 		AuthProviderID:                s.authProviderID,
 		AuthAPIKey:                    s.authAPIKey,
 		AuthCode:                      s.authCode,
@@ -1335,7 +1334,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.enterAuthSelect(false)
 			}
 		},
-		SelectProvider:            s.selectProvider,
+		SelectProvider:            s.activateAuthProvider,
 		RetryTranscriptHistory:    s.retryTranscriptHistory,
 		TranscriptHistoryScrollUp: s.noteTranscriptHistoryScrollUp,
 		ResumeTranscriptFollow:    s.resumeTranscriptFollow,
@@ -1352,15 +1351,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 			})
 			s.jumpSubagentReading(conversationID, section)
-		},
-		MoveProviderSelection: func(_ ui.EventContext, delta int) {
-			s.moveProviderSelection(delta)
-		},
-		AuthFilterChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() {
-				s.authFilter = value
-				s.authSelection = 0
-			})
 		},
 		AuthAPIKeyChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.authAPIKey = value })
@@ -2067,6 +2057,9 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			s.activateWorkspacePickerSelection(ctx, catalog)
 		}
 		return ui.EventHandled
+	}
+	if owner == inputAuth && s.phase == phaseAuthSelect {
+		return s.handleAuthPickerKey(ctx, key)
 	}
 	if owner == inputTheme {
 		var result pickerKeyResult
@@ -3966,19 +3959,6 @@ func (s *appState) selectProvider(ctx ui.EventContext, providerID string) {
 	})
 }
 
-func (s *appState) moveProviderSelection(delta int) {
-	providers := filteredAuthProviders(s.authFilter)
-	if len(providers) == 0 {
-		return
-	}
-	s.SetState(func() {
-		s.authSelection = (s.authSelection + delta) % len(providers)
-		if s.authSelection < 0 {
-			s.authSelection += len(providers)
-		}
-	})
-}
-
 func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 	options := s.Widget().(app).Options
 	provider, ok := authProviderByID(s.authProviderID)
@@ -4063,7 +4043,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 		s.phase = phaseAuthWaiting
 		s.errorText = ""
 		s.instructions = auth.OpenAICodexDeviceInstructions{}
-		s.authFilter = ""
+		s.authPicker.Query = ""
 		s.authProviderID = ""
 		s.authAPIKey = ""
 		s.authPending = true
@@ -4143,7 +4123,7 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 		s.browserInstructions = auth.AnthropicLoginInstructions{}
 		s.authCode = ""
 		s.authCodeInput = manualCode
-		s.authFilter = ""
+		s.authPicker.Query = ""
 		s.authProviderID = anthropicOAuthOptionID
 		s.authPending = true
 	})
@@ -6478,8 +6458,7 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 		s.phase = phaseAuthSelect
 		s.authReturnReady = returnReady
 		s.errorText = ""
-		s.authFilter = ""
-		s.authSelection = 0
+		s.authPicker = newAuthProviderPicker()
 	})
 }
 
@@ -7081,8 +7060,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			s.phase = authSelectionDismissTarget(s.authReturnReady)
 			s.authReturnReady = false
 			s.errorText = ""
-			s.authFilter = ""
-			s.authSelection = 0
+			s.authPicker = pickerKeyModel{}
 		})
 	case phaseAuthAPIKey:
 		if s.authPending {

@@ -23,8 +23,8 @@ the TUI.
 | --- | --- | --- |
 | Probing | Client discovers/starts daemon and reads auth state | Wordmark plus quiet status; spinner only after a short delay |
 | Gate | No valid provider credential | Header, centered connection prompt, hint footer; no composer |
-| Provider selection | User activates the gate | Main-branch dialog and picker composition over the unchanged gate |
-| Provider interaction | OAuth/device/API-key work is active | Same dialog frame, with method-specific content |
+| Provider selection | User activates the gate | Palette picker over the unchanged gate |
+| Provider interaction | OAuth/device/API-key work is active | Auth dialog with method-specific content |
 | Ready, new | Credential saved and no session was selected or resumed | Empty transcript plus focused composer |
 | Ready, resumed | Credential saved and startup resolved a requested or current-directory session | Restored transcript plus focused composer |
 | Degraded gate | Credential exists but no model is usable | Gate with persistent warning and corrective actions |
@@ -179,35 +179,39 @@ viewport-native narrow variant is:
 
 ## Provider selection
 
-The vaxis client preserves the main-branch `Dialog.Root` plus `Picker`
-composition rather than inventing a separate auth card. At wide sizes the
-surface uses 70% of the available width, bounded to 48–96 columns:
+Provider selection is a palette picker (see "Picker terminology" in
+`v2-ui-direction.md`): the shared `palettePicker` frame, size, search field,
+rows, and keys used by every centered modal picker.
 
 ```text
-        ┌──────────────────────────────────────────────────────────┐
-        │ Connect a provider                                        │
-        │                                                          │
-        │ Filter providers                                         │
-        │ >                                                        │
-        │                                                          │
-        │ OpenAI Codex                  ChatGPT plan · device code  │
-        │ Anthropic                     API key                     │
-        │ OpenAI                        API key                     │
-        │ Claude                        Pro or Max plan · browser   │
-        │                                                          │
-        │ ↑ up · ↓ down · Enter select · Esc close                 │
-        └──────────────────────────────────────────────────────────┘
+        ┌──────────────────────────────────────────────────────────────┐
+        │ Connect a provider                                           │
+        │                                                              │
+        │ Search providers…                                            │
+        ├──────────────────────────────────────────────────────────────┤
+        │▌OpenAI Codex  ChatGPT plan · device code                     │
+        │ Anthropic     API key                                        │
+        │ OpenAI        API key                                        │
+        │ OpenCode Go   API key                                        │
+        │ Claude        Pro or Max plan · browser                      │
+        │                                                              │
+        ├──────────────────────────────────────────────────────────────┤
+        │ ↑↓ move · enter select · esc close                           │
+        └──────────────────────────────────────────────────────────────┘
 ```
 
 The list is derived from the providers currently supported by Droids: OpenAI
-Codex device login, Anthropic API key, OpenAI API key, and Claude Pro/Max
-browser OAuth. The focused picker row uses the full-width picker selection background and foreground; provider
-name and method share one row. The header contains only
-the task title—an option count merely repeats what the list already shows. The
-filter remains visible, and the body owns bounded height and scrolling. The
-dialog uses the shell background so its border cells do not reveal a conflicting
-surface tint. The surrounding shell is not dimmed or recolored. A trapped focus
-scope, not a visual scrim, establishes modality.
+Codex device login, Anthropic API key, OpenAI API key, OpenCode Go API key,
+and Claude Pro/Max browser OAuth. Each row is one login option keyed by option,
+so the Anthropic API key and the Claude plan stay distinct although both
+connect the anthropic provider. The provider name is the label and the login
+method is the description; the query matches both, so "browser" finds Claude.
+The header contains only the task title—an option count merely repeats what
+the list already shows. A failed login returns to the picker with its error in
+the footer status, before `esc close`. Escape returns to the surface that
+opened the picker: the gate on first run, the conversation otherwise. The
+surrounding shell is not dimmed or recolored. A trapped focus scope, not a
+visual scrim, establishes modality.
 
 The single command palette decision does not change this dialog: provider
 selection is one bounded step inside an active task, not global navigation.
@@ -326,7 +330,7 @@ they are not promoted into first-run chrome.
 | Gate | `Connect an AI provider to get started.` |
 | Gate action | `Connect a provider` |
 | Provider dialog title | `Connect a provider` |
-| Provider filter | `Filter providers` |
+| Provider search | `Search providers…` |
 | Login dialog title | `Complete login` |
 | Device wait | `Waiting for approval — expires in {m:ss}` |
 | Expiring code | `Code expires in {m:ss} — esc to get a new code` |

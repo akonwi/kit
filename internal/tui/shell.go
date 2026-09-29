@@ -43,8 +43,8 @@ type shellSnapshot struct {
 	AnnotationPicker              annotationPickerSnapshot
 	SessionExplorer               sessionExplorerSnapshot
 	AuthReturnReady               bool
-	AuthFilter                    string
-	AuthSelection                 int
+	AuthQuery                     string
+	AuthSelection                 string
 	AuthProviderID                string
 	AuthAPIKey                    string
 	AuthCode                      string
@@ -149,8 +149,6 @@ type shellCallbacks struct {
 	ShowDiffNotice              func(string)
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
-	MoveProviderSelection       selectionMovedCallback
-	AuthFilterChanged           ui.TextChangedCallback
 	AuthAPIKeyChanged           ui.TextChangedCallback
 	SubmitAPIKey                ui.TextChangedCallback
 	AuthCodeChanged             ui.TextChangedCallback
@@ -267,10 +265,6 @@ func (copyCodeIntent) IntentType() ui.IntentType { return "kit.auth.copy-code" }
 type retryIntent struct{}
 
 func (retryIntent) IntentType() ui.IntentType { return "kit.retry" }
-
-type moveProviderIntent struct{ Delta int }
-
-func (moveProviderIntent) IntentType() ui.IntentType { return "kit.auth.move-provider" }
 
 type openPaletteIntent struct{}
 
@@ -591,16 +585,6 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
-			}
-			return ui.EventHandled
-		}
-	}
-	if w.Snapshot.Phase == phaseAuthSelect {
-		shortcuts["Up"] = moveProviderIntent{Delta: -1}
-		shortcuts["Down"] = moveProviderIntent{Delta: 1}
-		actions[moveProviderIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.MoveProviderSelection != nil {
-				w.Callbacks.MoveProviderSelection(ctx, intent.(moveProviderIntent).Delta)
 			}
 			return ui.EventHandled
 		}
@@ -1350,14 +1334,10 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 	switch w.Snapshot.Phase {
 	case phaseAuthSelect:
-		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
-			theme,
-			"Connect a provider",
-			"",
-			w.providerSelectionBody(theme),
-			ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}},
-			false,
-		))}
+		return []ui.OverlayEntry{modalDialogEntry(authProviderPickerSurface{
+			Query: w.Snapshot.AuthQuery, Selection: w.Snapshot.AuthSelection,
+			Error: w.Snapshot.Error, Pending: w.Snapshot.AuthPending, Select: w.Callbacks.SelectProvider,
+		})}
 	case phaseAuthWaiting:
 		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
 			theme,
@@ -1402,81 +1382,6 @@ func modalDialogEntry(child ui.Widget) ui.OverlayEntry {
 			Children: []ui.Widget{selectionFeedbackArea{Child: child}, modalFocusAnchor{}},
 		}},
 	}
-}
-
-func (w shellView) providerSelectionBody(theme ui.Theme) ui.Widget {
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	children := []ui.Widget{}
-	if w.Snapshot.Error != "" {
-		children = append(children,
-			ui.Text{Value: w.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-			ui.SizedBox{Height: 1},
-		)
-	}
-	children = append(children,
-		ui.Text{Value: "Filter providers", Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-			ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-			textInput(fieldTheme, textInputConfig{
-				Value:       w.Snapshot.AuthFilter,
-				OnChanged:   w.Callbacks.AuthFilterChanged,
-				OnSubmitted: func(ctx ui.EventContext, _ string) { w.selectHighlightedProvider(ctx) },
-				AutoFocus:   true,
-			}),
-		}},
-		ui.SizedBox{Height: 1},
-	)
-	providers := filteredAuthProviders(w.Snapshot.AuthFilter)
-	if len(providers) == 0 {
-		children = append(children, ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}})
-	} else {
-		selection := max(0, min(w.Snapshot.AuthSelection, len(providers)-1))
-		for index, provider := range providers {
-			provider := provider
-			children = append(children, providerOptionRow(theme, provider, index == selection, func(ctx ui.EventContext) {
-				if w.Callbacks.SelectProvider != nil {
-					w.Callbacks.SelectProvider(ctx, provider.ID)
-				}
-			}))
-		}
-	}
-	return ui.SizedBox{Height: 15, Child: ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children,
-	}}
-}
-
-func (w shellView) selectHighlightedProvider(ctx ui.EventContext) {
-	providers := filteredAuthProviders(w.Snapshot.AuthFilter)
-	if len(providers) == 0 || w.Callbacks.SelectProvider == nil {
-		return
-	}
-	selection := max(0, min(w.Snapshot.AuthSelection, len(providers)-1))
-	w.Callbacks.SelectProvider(ctx, providers[selection].ID)
-}
-
-func providerOptionRow(theme ui.Theme, provider authProviderOption, selected bool, onPressed ui.VoidCallback) ui.Widget {
-	primary := ui.Style{Foreground: theme.Foreground, Background: theme.Background}
-	secondary := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
-	if selected {
-		primary = ui.Style{Foreground: theme.Background, Background: theme.Foreground}
-		secondary.Background = theme.Foreground
-	}
-	return ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
-		ui.Decoration{Style: primary},
-		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.SizedBox{Width: 12, Child: ui.Text{
-				Value: provider.Name, Style: primary, OnPressed: onPressed,
-				ClickAffordance: ui.ClickAffordanceNone, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}},
-			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{
-				Value: provider.Method, Style: secondary, OnPressed: onPressed,
-				ClickAffordance: ui.ClickAffordanceNone, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
-		}},
-	)}
 }
 
 func (w shellView) apiKeyBody(theme ui.Theme) ui.Widget {

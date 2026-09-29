@@ -782,7 +782,9 @@ func TestCommandPaletteSupportsFullRowMouseAndBlocksBackgroundFocus(t *testing.T
 func TestPaletteLaunchedAuthKeepsConversationVisible(t *testing.T) {
 	t.Parallel()
 
-	const width, height = 120, 20
+	// The palette picker keeps a fixed height, so the viewport leaves room for
+	// the conversation around it.
+	const width, height = 120, 30
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseAuthSelect, AuthReturnReady: true,
 		Session:  protocol.SessionInfo{Name: "Attached session", Model: "openai/gpt-5.3-codex"},

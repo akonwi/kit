@@ -1604,96 +1604,6 @@ func TestAuthGateEnterOpensProviderSelection(t *testing.T) {
 	}
 }
 
-func TestProviderDialogMatchesMainBranchStructure(t *testing.T) {
-	t.Parallel()
-
-	const width, height = 100, 30
-	app := uitest.New(shellView{Snapshot: shellSnapshot{Phase: phaseAuthSelect}})
-	app.Pump(width, height)
-	rows := paintedRows(app, width, height)
-	text := strings.Join(rows, "\n")
-	for _, expected := range []string{
-		"Connect a provider", "Filter providers", ">",
-		"OpenAI Codex", "ChatGPT plan · device code",
-		"Anthropic", "API key", "OpenAI",
-		"↑↓ move · enter select · esc close",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("provider dialog missing %q:\n%s", expected, text)
-		}
-	}
-	if strings.Contains(text, "login option") {
-		t.Fatalf("provider dialog includes a noisy option count:\n%s", text)
-	}
-	for _, row := range rows {
-		left := strings.Index(row, "┌")
-		right := strings.LastIndex(row, "┐")
-		if left < 0 || right < left {
-			continue
-		}
-		if got := len([]rune(row[left : right+len("┐")])); got != 70 {
-			t.Fatalf("dialog width = %d, want 70%% of %d", got, width)
-		}
-		return
-	}
-	t.Fatal("provider dialog border not found")
-}
-
-func TestProviderDialogEnterSelectsFocusedResult(t *testing.T) {
-	t.Parallel()
-
-	selected := ""
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect},
-		Callbacks: shellCallbacks{SelectProvider: func(_ ui.EventContext, providerID string) {
-			selected = providerID
-		}},
-	})
-	app.Pump(80, 30)
-	app.Enter()
-	if selected != auth.OpenAICodexProviderID {
-		t.Fatalf("selected provider = %q, want %q", selected, auth.OpenAICodexProviderID)
-	}
-}
-
-func TestProviderDialogArrowKeysMoveSelection(t *testing.T) {
-	t.Parallel()
-
-	moved := 0
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect},
-		Callbacks: shellCallbacks{MoveProviderSelection: func(_ ui.EventContext, delta int) {
-			moved += delta
-		}},
-	})
-	app.Pump(80, 30)
-	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-	if moved != 1 {
-		t.Fatalf("selection delta = %d, want 1", moved)
-	}
-	app.Send(vaxis.Key{Keycode: vaxis.KeyUp})
-	if moved != 0 {
-		t.Fatalf("selection delta after Up = %d, want 0", moved)
-	}
-}
-
-func TestProviderDialogSelectsHighlightedAPIKeyProvider(t *testing.T) {
-	t.Parallel()
-
-	selected := ""
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect, AuthSelection: 1},
-		Callbacks: shellCallbacks{SelectProvider: func(_ ui.EventContext, providerID string) {
-			selected = providerID
-		}},
-	})
-	app.Pump(80, 30)
-	app.Enter()
-	if selected != auth.AnthropicProviderID {
-		t.Fatalf("selected provider = %q, want %q", selected, auth.AnthropicProviderID)
-	}
-}
-
 func TestAPIKeyDialogObscuresSecret(t *testing.T) {
 	t.Parallel()
 
@@ -1736,18 +1646,19 @@ func TestPaletteLaunchedAuthBlocksConversationInput(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 80, 20
-	state := &authModalHarnessState{}
+	state := newAuthModalHarnessState(true)
 	app := uitest.New(authModalHarness{State: state})
 	app.Pump(width, height)
 	app.Click(2, height-3)
-	app.Key("x")
+	// "zzz" matches no provider, so Enter has nothing to activate.
+	app.Key("zzz")
 	app.Enter()
 	app.Pump(width, height)
 	if state.composer != "" || state.submissions != 0 {
 		t.Fatalf("background composer=%q submissions=%d", state.composer, state.submissions)
 	}
-	if state.filter != "x" {
-		t.Fatalf("provider filter = %q, want focused overlay input", state.filter)
+	if state.phase != phaseAuthSelect || state.authPicker.Query != "zzz" {
+		t.Fatalf("phase=%v provider query=%q, want the picker to own the typed query", state.phase, state.authPicker.Query)
 	}
 }
 
@@ -1836,37 +1747,53 @@ func (s *authWaitingFocusHarnessState) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
+// authModalHarness renders the palette-launched login provider picker from
+// appState and routes input through the application input owner.
 type authModalHarness struct{ State *authModalHarnessState }
 
 func (w authModalHarness) CreateState() ui.State { return w.State }
 
 type authModalHarnessState struct {
-	ui.StateBase
-	composer    string
-	filter      string
+	appState
 	submissions int
 	scroll      ui.ScrollController
 }
 
+func (*authModalHarnessState) InitState() {}
+func (*authModalHarnessState) Dispose()   {}
+func (s *authModalHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
+
 func (s *authModalHarnessState) Build(ui.BuildContext) ui.Widget {
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
 	return shellView{
 		Snapshot: shellSnapshot{
-			Phase: phaseAuthSelect, AuthReturnReady: true,
-			Composer: s.composer, AuthFilter: s.filter, Scroll: &s.scroll,
+			Phase: s.phase, AuthReturnReady: s.authReturnReady, Error: s.errorText,
+			AuthQuery: s.authPicker.Query, AuthSelection: s.authPicker.Selection,
+			AuthProviderID: s.authProviderID, AuthPending: s.authPending,
+			Composer: s.composer, Scroll: &s.scroll,
 			Session: protocol.SessionInfo{Name: "Attached", Model: "openai/gpt-5.3-codex"},
 		},
 		Callbacks: shellCallbacks{
+			InputOwner: s.inputOwner, Dismiss: s.dismiss, SelectProvider: s.activateAuthProvider,
 			ComposerChanged: func(_ ui.EventContext, value string) {
 				s.SetState(func() { s.composer = value })
 			},
 			Submit: func(ui.EventContext, string) {
 				s.SetState(func() { s.submissions++ })
 			},
-			AuthFilterChanged: func(_ ui.EventContext, value string) {
-				s.SetState(func() { s.filter = value })
-			},
 		},
 	}
+}
+
+// newAuthModalHarnessState opens the login provider picker as the palette
+// (returnReady) or the first-run auth gate would.
+func newAuthModalHarnessState(returnReady bool) *authModalHarnessState {
+	return &authModalHarnessState{appState: appState{
+		phase: phaseAuthSelect, authReturnReady: returnReady, authPicker: newAuthProviderPicker(),
+	}}
 }
 
 func TestAuthDialogsFitNarrowViewport(t *testing.T) {
@@ -1874,7 +1801,7 @@ func TestAuthDialogsFitNarrowViewport(t *testing.T) {
 
 	const width, height = 46, 20
 	for name, snapshot := range map[string]shellSnapshot{
-		"provider": {Phase: phaseAuthSelect},
+		"provider": {Phase: phaseAuthSelect, AuthSelection: auth.OpenAICodexProviderID},
 		"device": {
 			Phase: phaseAuthWaiting,
 			Instructions: auth.OpenAICodexDeviceInstructions{

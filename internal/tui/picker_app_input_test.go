@@ -32,12 +32,13 @@ func (s *pickerAppHarnessState) Build(ui.BuildContext) ui.Widget {
 	s.renderedInput = s.inputToken()
 	return shellView{
 		Snapshot: shellSnapshot{
-			Phase: phaseReady, Session: s.session, Scroll: &s.scroll, CurrentWorkspaceID: s.workspaceID,
+			Phase: s.phase, Session: s.session, Scroll: &s.scroll, CurrentWorkspaceID: s.workspaceID,
 			PaletteOpen: s.palette.Open, PaletteQuery: s.palette.Query, PaletteSelection: s.palette.Selection,
 			ConfigurationPicker: s.configurationPicker.Snapshot(), ThemePicker: s.themePicker.Snapshot(),
 			SessionExplorer: s.sessionExplorer.Snapshot(), WorkspaceFilePicker: s.workspaceFilePicker, IndexedFiles: s.indexedFiles,
 			Workspace: s.workspace.Snapshot(), WorkspacePickerOpen: s.workspacePickerOpen,
 			WorkspacePickerQuery: s.workspacePickerQuery, WorkspacePickerSelection: s.workspacePickerSelection,
+			AuthReturnReady: s.authReturnReady, AuthQuery: s.authPicker.Query, AuthSelection: s.authPicker.Selection,
 		},
 		Callbacks: shellCallbacks{InputOwner: s.inputOwner, Dismiss: s.dismiss},
 	}
@@ -132,6 +133,15 @@ func TestPalettePickersEditQueriesThroughTheAppInputPath(t *testing.T) {
 				"OAuth              /repo/oauth                  2026-06-02",
 				glyphLeftBar + "    Providers        /repo/providers              2026-06-05",
 			},
+		},
+		{
+			name: "login provider",
+			open: func(s *pickerAppHarnessState) {
+				s.phase, s.authReturnReady, s.authPicker = phaseAuthSelect, true, newAuthProviderPicker()
+			},
+			typed: "brow", paste: "ser",
+			query: func(s *pickerAppHarnessState) string { return s.authPicker.Query },
+			rows:  []string{glyphLeftBar + "Claude        Pro or Max plan · browser"},
 		},
 	} {
 		t.Run(test.name, func(t *testing.T) {

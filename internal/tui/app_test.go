@@ -909,14 +909,6 @@ func TestSupportedAuthProvidersMatchDroidsProviders(t *testing.T) {
 			t.Fatalf("provider option %d = %#v, want id %q, method %q, and a default model", index, got, want.id, want.method)
 		}
 	}
-	filtered := filteredAuthProviders("anth")
-	if len(filtered) != 1 || filtered[0].ID != "anthropic" {
-		t.Fatalf("filtered providers = %#v", filtered)
-	}
-	filtered = filteredAuthProviders("Claude")
-	if len(filtered) != 1 || filtered[0].ID != anthropicOAuthOptionID {
-		t.Fatalf("Claude filtered providers = %#v", filtered)
-	}
 }
 
 func TestAPIKeyProviderSelectionSubmitsObscuredCredential(t *testing.T) {

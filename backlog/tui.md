@@ -34,10 +34,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   (`internal/tui/palette_picker.go`), its items (`internal/tui/picker.go`),
   and the shared key model (`internal/tui/picker_keys.go`) are the contract
   for all palette pickers, including the session explorer's hierarchy.
-- [ ] TUI-PICK-007 — Render the login provider picker ("Connect a provider")
-  as a palette picker: search field without the `>` marker or "Filter
-  providers" label, provider rows, and keys through `pickerKeyModel` on the
-  auth input path.
 - [ ] TUI-PICK-008 — Add the inline picker for lists anchored to the composer
   or another point in the UI, sharing `pickerItem`, `filterPickerItems`, row
   rendering, and navigation keys with the palette picker while the composer
