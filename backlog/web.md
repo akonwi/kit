@@ -17,9 +17,6 @@ interaction, security, and accessibility.
   reconnect, replay, snapshot fallback, and stale asynchronous-result guards.
   Depends on `CORE-PROTO-003` and `CORE-PROTO-006`.
 
-- [ ] WEB-PROTO-001 — Generate TypeScript types and a typed fetch client from
-  the published OpenAPI contract at build time. Depends on `CORE-PROTO-008`.
-
 ### Product experience
 
 - [ ] WEB-SHELL-001 — Present transcript, streaming activity, tool state,

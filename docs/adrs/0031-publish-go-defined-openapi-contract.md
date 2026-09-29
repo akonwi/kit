@@ -6,12 +6,12 @@ Proposed
 
 ## Context
 
-Kit's session server is consumed by the native TUI, the native macOS client,
-and a future semantic browser client. Each client must agree with the server on
-routes, methods, path and query parameters, request and response bodies,
-status codes, typed error bodies, and SSE payloads. The canonical record types
-live in `internal/protocol` and carry `Validate` methods that enforce semantic
-invariants at every process or network boundary.
+Kit's session server is consumed by the native TUI and the native macOS
+client. Each client must agree with the server on routes, methods, path and
+query parameters, request and response bodies, status codes, typed error
+bodies, and SSE payloads. The canonical record types live in `internal/protocol`
+and carry `Validate` methods that enforce semantic invariants at every process
+or network boundary.
 
 A contract that is expressed only as Go types leaves each non-Go client to
 reconstruct operations, parameters, and error shapes by hand, and leaves the Go
@@ -81,8 +81,6 @@ contract.
   `swift-openapi-generator`, run ahead of time with committed output and a
   staleness check. A Kit-owned transport preserves the client's loopback-only,
   no-redirect, bearer-token, and instance-header policy.
-- The browser client generates TypeScript types and a typed fetch client from
-  the same document at build time.
 - Generated code is a transport and type layer only. Client-side semantic
   validation that the schema cannot express remains hand-written in each client.
 

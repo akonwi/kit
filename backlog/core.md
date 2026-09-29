@@ -157,9 +157,8 @@ its operations and schemas are in the catalog under the domain's tag; the Go
 server and session client use the catalog; its wire shapes are tightened (one
 error body per ADR 0034, non-null collections, explicit required zero values,
 and ADR 0033 names where applicable); and the macOS client (`MAC-PROTO-001`)
-consumes the domain through generated code. TypeScript generation
-(`WEB-PROTO-001`) remains deferred with the browser client. Record any
-slice-specific wire change in an ADR before implementing it. Wire changes bump
+consumes the domain through generated code. Record any slice-specific wire
+change in an ADR before implementing it. Wire changes bump
 `SessionProtocolVersion` at most once per release. Every slice depends on
 `CORE-PROTO-008`.
 
