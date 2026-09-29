@@ -1,7 +1,7 @@
 name: macOS
 on:
   pull_request:
-    paths: ['apps/macos/**', 'internal/protocol/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
+    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'internal/protocol/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
 jobs:
   test:
     runs-on: macos-latest
@@ -10,7 +10,9 @@ jobs:
         with:
           fetch-depth: 0
       - name: Verify generated protocol
-        run: python3 apps/macos/script/generate_wire.py --check
+        run: |
+          python3 apps/macos/script/generate_wire.py --check
+          apps/macos/script/generate_openapi.sh --check
       - name: Build clean app without private fixtures
         run: apps/macos/script/build_and_run.sh --build
       - name: Test
