@@ -38,7 +38,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
 ### Daemon, sessions, and runtime
 
 - [~] CORE-PROTO-001 — Within each tagged protocol baseline (40 from v0.37.0,
-  41 from v0.38.0), separately built client and daemon releases with the same session protocol
+  41 from v0.38.0, 42 from v0.39.0), separately built client and daemon releases with the same session protocol
   interoperate in both directions without replacing an active daemon. Verify
   baseline session operations, transcript/context-boundary projections,
   snapshots, errors, event replay and resynchronization, SSE, and mutation
@@ -163,16 +163,6 @@ slice-specific wire change in an ADR before implementing it. Wire changes bump
 `SessionProtocolVersion` at most once per release. Every slice depends on
 `CORE-PROTO-008`.
 
-- [ ] CORE-PROTO-010 — Scratchpad slice wire cleanup: adopt the error body of
-  [ADR 0034](../docs/adrs/0034-use-one-error-body-for-the-session-api.md) for
-  the scratchpad read and update operations, which currently return both
-  `{"error": "<message>"}` and `{"error": {"code", "message", "details"}}`
-  (update 400, and 409 and 503 on both, can carry either). The catalog, Go
-  server and client, conformance tests, and generated macOS client for
-  scratchpad are in place.
-- [ ] CORE-PROTO-023 — Return the ADR 0034 error body with generic codes for
-  requests rejected before routing (host, origin, bearer token, daemon
-  instance, and protocol mismatch).
 - [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
   stream from newline-delimited JSON to SSE and establishing the stream pattern
   reused by `CORE-PROTO-020`.
