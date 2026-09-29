@@ -107,8 +107,6 @@ func TestSessionMentionSurfaceMouseSelection(t *testing.T) {
 		"┌" + strings.Repeat("─", 78) + "┐",
 		"│▌Design review  /repo/design                                          unknown │",
 		"│ Tests          /repo/tests                                           unknown │",
-		"├" + strings.Repeat("─", 78) + "┤",
-		"│ ↑↓ move · enter insert · esc close                                           │",
 		"└" + strings.Repeat("─", 78) + "┘",
 	})
 	row := findPaintedRow(rows, "/repo/tests")

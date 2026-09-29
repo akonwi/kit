@@ -6,21 +6,25 @@ import "go.rockorager.dev/vaxis/ui"
 // behind overflow rows.
 const inlinePickerMaxRows = 10
 
-// inlinePickerChromeRows are the rows around an inline picker's list: the top
-// border, the footer divider, the footer, and the bottom border.
-const inlinePickerChromeRows = 4
+// inlinePickerBorderRows are the top and bottom border rows around an inline
+// picker's list; inlinePickerStatusRows are the divider and status row added
+// while a status is shown.
+const (
+	inlinePickerBorderRows = 2
+	inlinePickerStatusRows = 2
+)
 
 // inlinePicker is the canonical non-modal list attached to the composer. Its
-// fields are the whole contract: callers describe the query, catalog, and
-// footer, and where the composer is; the inline picker owns filtering,
+// fields are the whole contract: callers describe the query, catalog, any
+// status, and where the composer is; the inline picker owns filtering,
 // placement, width, height, the frame, rows, highlight, overflow rows, the
-// footer divider, and pointer activation.
+// status divider, and pointer activation.
 //
 // The composer text is the query and the composer keeps focus and the cursor,
-// so an inline picker has no title or search field and never takes focus.
-// Keys reach it only through pickerKeyModel.HandleNavigationKey on the app
-// input-owner route. Rows, filtering, and the footer are shared with
-// palettePicker.
+// so an inline picker has no title, search field, or footer hints, and never
+// takes focus. Keys reach it only through pickerKeyModel.HandleNavigationKey
+// on the app input-owner route. Rows, filtering, and the frame are shared
+// with palettePicker.
 //
 // The picker is as wide as a palette picker and rests on the composer line
 // where it was opened, aligned with that point and moved left only as far as
@@ -44,8 +48,9 @@ type inlinePicker struct {
 	// "No results".
 	Message     string
 	MessageTone pickerTone
-	Footer      string
-	// Status is a footer message shown before the final hint.
+	// Status is a message, such as a failed refresh, shown below the list
+	// behind a full-width divider. Inline pickers have no footer hints; the
+	// keys are the composer's familiar ones.
 	Status     string
 	StatusTone pickerTone
 	OnActivate func(ui.EventContext, string)
@@ -87,9 +92,15 @@ func (s *inlinePickerState) Build(ctx ui.BuildContext) ui.Widget {
 		Message: w.Message, MessageTone: w.MessageTone,
 		Rows: rows, Reveal: moved, OnActivate: w.OnActivate,
 	}, s.SetState, s.MarkNeedsBuild)
+	height := rows + inlinePickerBorderRows
+	var footer ui.Widget
+	if w.Status != "" {
+		height += inlinePickerStatusRows
+		footer = pickerFooter(theme, "", w.Status, w.StatusTone)
+	}
 	return inlinePickerPositioner{
-		Anchor: w.Anchor, Height: rows + inlinePickerChromeRows,
-		Child: pickerFrame(theme, nil, list, pickerFooter(theme, w.Footer, w.Status, w.StatusTone)),
+		Anchor: w.Anchor, Height: height,
+		Child: pickerFrame(theme, nil, list, footer),
 	}
 }
 

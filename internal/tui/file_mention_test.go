@@ -138,13 +138,12 @@ func TestFileMentionSurfaceShowsTheSharedIndexStates(t *testing.T) {
 	cases := []struct {
 		name   string
 		source indexedFileSource
-		list   string
-		footer string
+		want   []string
 	}{
-		{name: "loading", source: indexedFileSource{Loading: true}, list: "│ " + spinnerFrames[0] + " Loading files…", footer: "│ ↑↓ move · enter insert · esc close"},
-		{name: "error", source: indexedFileSource{Error: "index unavailable"}, list: "│ Could not load files: index unavailable", footer: "│ ↑↓ move · enter insert · esc close"},
-		{name: "stale error", source: indexedFileSource{Entries: entries, Error: "refresh failed"}, list: "│▌main.go", footer: "│ Refresh failed: refresh failed"},
-		{name: "truncated", source: indexedFileSource{Entries: entries, Truncated: true}, list: "│▌main.go", footer: "│ Showing first 4,000 indexed paths"},
+		{name: "loading", source: indexedFileSource{Loading: true}, want: []string{"│ " + spinnerFrames[0] + " Loading files…"}},
+		{name: "error", source: indexedFileSource{Error: "index unavailable"}, want: []string{"│ Could not load files: index unavailable"}},
+		{name: "stale error", source: indexedFileSource{Entries: entries, Error: "refresh failed"}, want: []string{"│▌main.go", "├", "│ Refresh failed: refresh failed"}},
+		{name: "truncated", source: indexedFileSource{Entries: entries, Truncated: true}, want: []string{"│▌main.go", "├", "│ Showing first 4,000 indexed paths"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -155,8 +154,13 @@ func TestFileMentionSurfaceShowsTheSharedIndexStates(t *testing.T) {
 			application := uitest.New(view)
 			application.Pump(80, 24)
 			_, box := inlinePickerBox(t, paintedRows(application, 80, 24))
-			if len(box) != 5 || !strings.HasPrefix(box[1], test.list) || !strings.HasPrefix(box[3], test.footer) {
-				t.Fatalf("picker =\n%s\nwant list %q and footer %q", strings.Join(box, "\n"), test.list, test.footer)
+			inner := box[1 : len(box)-1]
+			matches := len(inner) == len(test.want)
+			for index := 0; matches && index < len(inner); index++ {
+				matches = strings.HasPrefix(inner[index], test.want[index])
+			}
+			if !matches {
+				t.Fatalf("picker =\n%s\nwant rows starting %q", strings.Join(box, "\n"), test.want)
 			}
 		})
 	}

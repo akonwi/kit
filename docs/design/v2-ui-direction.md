@@ -275,14 +275,15 @@ their terminal's native workflow.
   its query and the composer owns the cursor, so an inline picker has no title
   or search field. Every inline picker renders through the shared
   `inlinePicker` widget (`internal/tui/inline_picker.go`). It shares the
-  palette picker's items, filter, row rendering, and navigation keys, and
-  shows footer hints below a full-width divider. Its width follows the
-  palette picker rule. It rests on the composer line where it was opened,
-  with its left edge at that point (a mention's trigger, or the start of the
-  composer for history), shifted left only to stay on screen; its height fits
-  the content up to 10 rows and grows upward so the edge next to the composer
-  never moves. Other attached lists, such as the
-  transcript reading section list, use the same presentation without a query.
+  palette picker's items, filter, row rendering, and navigation keys. It has
+  no footer hints; a status, such as a failed refresh, shows below a
+  full-width divider only while present. Its width follows the palette picker
+  rule. It rests on the composer line where it was opened, with its left edge
+  at that point (a mention's trigger, or the start of the composer for
+  history), shifted left only to stay on screen; its height fits the content
+  up to 10 rows and grows upward so the edge next to the composer never
+  moves. Other attached lists, such as the transcript reading section list,
+  use the same presentation without a query.
 - A workspace pane that lists items, such as Subagents, is neither; it is a
   pane.
 

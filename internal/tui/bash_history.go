@@ -200,8 +200,8 @@ func (w bashHistorySurface) Build(ui.BuildContext) ui.Widget {
 	catalog := w.Controller.catalog()
 	picker := inlinePicker{
 		Query: model.Query, Catalog: catalog, Filter: model.Filter, Selection: model.Selection,
-		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
-		Anchor: w.Anchor,
+		OnActivate: w.OnSelect,
+		Anchor:     w.Anchor,
 	}
 	// The first durable page is in flight, so an empty list is not yet an
 	// answer and must not be presented as one.

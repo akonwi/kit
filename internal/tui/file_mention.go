@@ -164,8 +164,8 @@ func (w fileMentionSurface) Build(ui.BuildContext) ui.Widget {
 	}
 	picker := inlinePicker{
 		Query: model.Query, Catalog: catalog, Selection: model.Selection,
-		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
-		Anchor: w.Anchor,
+		OnActivate: w.OnSelect,
+		Anchor:     w.Anchor,
 	}
 	switch {
 	case len(catalog) == 0 && w.Source.Loading:

@@ -70,19 +70,24 @@ func pickerTitledSearchField(theme ui.Theme, title ui.Widget, config textInputCo
 }
 
 // pickerDialogContent owns the shared border and fixed footer structure for
-// picker-style dialogs. Callers own the body above the divider.
+// picker-style dialogs. Callers own the body above the divider. A nil footer
+// leaves out the divider and footer, so the body ends at the bottom border.
 func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {
 	borderStyle := ui.Style{Foreground: theme.Border, Background: theme.Background}
+	children := []ui.Widget{ui.Expanded(body), ui.SizedBox{Height: 1}}
+	if footer != nil {
+		children = []ui.Widget{
+			ui.Expanded(body),
+			dialogDivider{Style: borderStyle},
+			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
+		}
+	}
 	return ui.DecoratedBox(
 		ui.Decoration{
 			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
 			Border: ui.BorderAll(borderStyle),
 		},
-		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.Expanded(body),
-			dialogDivider{Style: borderStyle},
-			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
-		}},
+		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children},
 	)
 }
 

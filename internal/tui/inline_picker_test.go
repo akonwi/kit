@@ -96,22 +96,19 @@ func anchorAt(x, y int) func(ui.Size) ui.Point {
 	return func(ui.Size) ui.Point { return ui.Point{X: x, Y: y} }
 }
 
-func TestInlinePickerSharesPaletteRowsAndFooterRestingOnItsAnchor(t *testing.T) {
+func TestInlinePickerSharesPaletteRowsWithoutFooterHintsRestingOnItsAnchor(t *testing.T) {
 	t.Parallel()
 	_, rows := renderInlinePicker(inlinePicker{
-		Catalog: pickerTestItems(), Selection: "main", Footer: "↑↓ move · enter insert · esc close",
+		Catalog: pickerTestItems(), Selection: "main",
 		Anchor: anchorAt(2, 21),
 	}, 80, 24)
-	// No title or search field: the rows start under the top border, and the
-	// footer sits below a divider that joins both borders.
+	// No title, search field, or footer hints: the rows fill the border.
 	assertInlinePickerRows(t, rows, []string{
 		"┌──────────────────────────────────────────────────────────────┐",
 		"│ Working tree                    Uncommitted chang…  2 drafts │",
 		"│▌main                   736efa9  docs(backlog): re…           │",
 		"│ feat/openapi-contract  5ada7e8  feat(protocol): p…   1 draft │",
 		"│ locked                          ⊘ idle only · Nee…           │",
-		"├──────────────────────────────────────────────────────────────┤",
-		"│ ↑↓ move · enter insert · esc close                           │",
 		"└──────────────────────────────────────────────────────────────┘",
 	})
 	// The left edge sits on the anchor's column and the bottom edge on the
@@ -133,7 +130,7 @@ func TestInlinePickerWidthFollowsThePalettePickerRuleAndStaysOnScreen(t *testing
 		{name: "anchor near the right edge", width: 80, anchor: 40, wantLeft: 16, wantWidth: 64},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, rows := renderInlinePicker(inlinePicker{Catalog: pickerTestItems(), Footer: "esc close", Anchor: anchorAt(test.anchor, 24)}, test.width, 24)
+			_, rows := renderInlinePicker(inlinePicker{Catalog: pickerTestItems(), Anchor: anchorAt(test.anchor, 24)}, test.width, 24)
 			_, left, box := inlinePickerFrame(t, rows)
 			if width := len([]rune(box[0])); left != test.wantLeft || width != test.wantWidth {
 				t.Fatalf("picker left = %d width = %d, want %d and %d", left, width, test.wantLeft, test.wantWidth)
@@ -146,7 +143,7 @@ func TestInlinePickerGrowsUpwardWithAFixedBottomEdgeWhileFiltering(t *testing.T)
 	t.Parallel()
 	render := func(query string) []string {
 		_, rows := renderInlinePicker(inlinePicker{
-			Query: query, Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", Anchor: anchorAt(0, 21),
+			Query: query, Catalog: pickerTestItems(), Selection: "main", Anchor: anchorAt(0, 21),
 		}, 80, 24)
 		return rows
 	}
@@ -155,17 +152,17 @@ func TestInlinePickerGrowsUpwardWithAFixedBottomEdgeWhileFiltering(t *testing.T)
 		top   int
 		want  []string
 	}{
-		{query: "", top: 13, want: []string{
+		{query: "", top: 15, want: []string{
 			"│ Working tree                    Uncommitted chang…  2 drafts │",
 			"│▌main                   736efa9  docs(backlog): re…           │",
 			"│ feat/openapi-contract  5ada7e8  feat(protocol): p…   1 draft │",
 			"│ locked                          ⊘ idle only · Nee…           │",
 		}},
 		// Columns keep the whole catalog's widths while filtered.
-		{query: "main", top: 16, want: []string{
+		{query: "main", top: 18, want: []string{
 			"│▌main                   736efa9  docs(backlog): re…           │",
 		}},
-		{query: "unmatched", top: 16, want: []string{
+		{query: "unmatched", top: 18, want: []string{
 			"│ No results                                                   │",
 		}},
 	} {
@@ -175,11 +172,7 @@ func TestInlinePickerGrowsUpwardWithAFixedBottomEdgeWhileFiltering(t *testing.T)
 			t.Fatalf("query %q top border row = %d, want %d", test.query, top, test.top)
 		}
 		want := append([]string{"┌" + strings.Repeat("─", 62) + "┐"}, test.want...)
-		want = append(want,
-			"├"+strings.Repeat("─", 62)+"┤",
-			"│ esc close                                                    │",
-			"└"+strings.Repeat("─", 62)+"┘",
-		)
+		want = append(want, "└"+strings.Repeat("─", 62)+"┘")
 		assertInlinePickerRows(t, rows, want)
 	}
 }
@@ -192,13 +185,14 @@ func inlinePickerNumberedItems(count int) []pickerItem {
 	return items
 }
 
-// inlinePickerListRows returns the list rows between the top border and the
-// footer divider, without their borders and trailing spaces.
+// inlinePickerListRows returns the list rows between the top and bottom
+// borders of a picker without a status, without their borders and trailing
+// spaces.
 func inlinePickerListRows(t *testing.T, rows []string) []string {
 	t.Helper()
 	_, box := inlinePickerBox(t, rows)
 	list := []string{}
-	for _, row := range box[1 : len(box)-3] {
+	for _, row := range box[1 : len(box)-1] {
 		runes := []rune(row)
 		list = append(list, strings.TrimRight(string(runes[1:len(runes)-1]), " "))
 	}
@@ -208,7 +202,7 @@ func inlinePickerListRows(t *testing.T, rows []string) []string {
 func TestInlinePickerFitsTenRowsAndOverflowRowsScrollAPage(t *testing.T) {
 	t.Parallel()
 	items := inlinePickerNumberedItems(30)
-	application, rows := renderInlinePicker(inlinePicker{Catalog: items, Selection: "0", Footer: "esc close", Anchor: anchorAt(0, 21)}, 80, 24)
+	application, rows := renderInlinePicker(inlinePicker{Catalog: items, Selection: "0", Anchor: anchorAt(0, 21)}, 80, 24)
 	want := []string{"▌Item 00", " Item 01", " Item 02", " Item 03", " Item 04", " Item 05", " Item 06", " Item 07", " Item 08", " " + glyphEllipsis}
 	if got := inlinePickerListRows(t, rows); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("list = %q, want %q", got, want)
@@ -222,7 +216,7 @@ func TestInlinePickerFitsTenRowsAndOverflowRowsScrollAPage(t *testing.T) {
 	}
 
 	// A selection at the end is revealed with the hidden rows above it.
-	_, rows = renderInlinePicker(inlinePicker{Catalog: items[:14], Selection: "13", Footer: "esc close"}, 80, 24)
+	_, rows = renderInlinePicker(inlinePicker{Catalog: items[:14], Selection: "13"}, 80, 24)
 	want = []string{" " + glyphEllipsis, " Item 05", " Item 06", " Item 07", " Item 08", " Item 09", " Item 10", " Item 11", " Item 12", "▌Item 13"}
 	if got := inlinePickerListRows(t, rows); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("revealed list = %q, want %q", got, want)
@@ -234,7 +228,7 @@ func TestInlinePickerHighlightHoverAndClicks(t *testing.T) {
 	theme := ui.DefaultThemeSet().Dark
 	var activated []string
 	application := uitest.New(inlinePickerHarness{Theme: theme, Picker: inlinePicker{
-		Catalog: pickerTestItems(), Selection: "main", Footer: "esc close",
+		Catalog: pickerTestItems(), Selection: "main",
 		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
 	}})
 	application.Pump(80, 24)
@@ -274,32 +268,35 @@ func TestInlinePickerHighlightHoverAndClicks(t *testing.T) {
 	}
 }
 
-func TestInlinePickerMessagesAndStatusReplaceOneRow(t *testing.T) {
+func TestInlinePickerMessagesReplaceTheRowsAndStatusShowsBelowADivider(t *testing.T) {
 	t.Parallel()
+	rule := strings.Repeat("─", 62)
 	for _, test := range []struct {
 		name   string
 		picker inlinePicker
 		want   []string
 	}{
-		{name: "loading", picker: inlinePicker{Message: "Loading files…", MessageTone: pickerToneLoading, Footer: "↑↓ move · esc close"},
-			want: []string{"│ " + spinnerFrames[0] + " Loading files…", "│ ↑↓ move · esc close"}},
-		{name: "error", picker: inlinePicker{Catalog: pickerTestItems(), Message: "Could not load files: offline", MessageTone: pickerToneDanger, Footer: "esc close"},
-			want: []string{"│ Could not load files: offline", "│ esc close"}},
-		{name: "status", picker: inlinePicker{Catalog: pickerTestItems()[:1], Footer: "↑↓ move · enter insert · esc close", Status: "Showing first 4,000 indexed paths"},
-			want: []string{"│ Working tree", "│ Showing first 4,000 indexed paths", "esc close │"}},
+		{name: "loading", picker: inlinePicker{Message: "Loading files…", MessageTone: pickerToneLoading}, want: []string{
+			"┌" + rule + "┐",
+			"│ " + spinnerFrames[0] + " Loading files…                                             │",
+			"└" + rule + "┘",
+		}},
+		{name: "error", picker: inlinePicker{Catalog: pickerTestItems(), Message: "Could not load files: offline", MessageTone: pickerToneDanger}, want: []string{
+			"┌" + rule + "┐",
+			"│ Could not load files: offline                                │",
+			"└" + rule + "┘",
+		}},
+		{name: "status", picker: inlinePicker{Catalog: pickerTestItems()[:1], Status: "Showing first 4,000 indexed paths"}, want: []string{
+			"┌" + rule + "┐",
+			"│ Working tree  Uncommitted changes                   2 drafts │",
+			"├" + rule + "┤",
+			"│ Showing first 4,000 indexed paths                            │",
+			"└" + rule + "┘",
+		}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			_, rows := renderInlinePicker(test.picker, 80, 24)
-			_, box := inlinePickerBox(t, rows)
-			if len(box) != 5 {
-				t.Fatalf("picker rows = %d, want one list row:\n%s", len(box), strings.Join(box, "\n"))
-			}
-			if !strings.HasPrefix(box[1], test.want[0]) || !strings.HasPrefix(box[3], test.want[1]) {
-				t.Fatalf("picker =\n%s\nwant list %q and footer %q", strings.Join(box, "\n"), test.want[0], test.want[1])
-			}
-			if len(test.want) > 2 && !strings.HasSuffix(box[3], test.want[2]) {
-				t.Fatalf("footer = %q, want it to end with %q", box[3], test.want[2])
-			}
+			assertInlinePickerRows(t, rows, test.want)
 		})
 	}
 }
@@ -326,7 +323,7 @@ func (s *inlinePickerHostState) update(change func(*inlinePicker)) {
 func TestInlinePickerKeepsItsBottomEdgeAndSelectionWhileTheCatalogChanges(t *testing.T) {
 	t.Parallel()
 	host := &inlinePickerHostState{picker: inlinePicker{
-		Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", Anchor: anchorAt(0, 21),
+		Catalog: pickerTestItems(), Selection: "main", Anchor: anchorAt(0, 21),
 	}}
 	application := uitest.New(inlinePickerHost{state: host})
 	pump := func() []string {

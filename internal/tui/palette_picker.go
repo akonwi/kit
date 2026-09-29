@@ -113,8 +113,8 @@ const (
 
 // pickerFrame is the bordered structure shared by palette and inline
 // pickers: a header (a blank row under the top border when nil), the list
-// inset one cell from each border, and the footer below a full-width divider
-// that joins the borders.
+// inset one cell from each border, and the footer, when not nil, below a
+// full-width divider that joins the borders.
 func pickerFrame(theme ui.Theme, header, list, footer ui.Widget) ui.Widget {
 	if header == nil {
 		header = ui.SizedBox{Height: 1}

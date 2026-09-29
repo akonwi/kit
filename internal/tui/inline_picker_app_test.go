@@ -144,18 +144,14 @@ func fileMentionTestIndex() indexedFileSource {
 }
 
 // inlineMenuBox frames list rows (62 cells wide) in the 64-column inline
-// picker drawn at 80 columns, with the shared footer.
+// picker drawn at 80 columns.
 func inlineMenuBox(list ...string) []string {
 	rule := strings.Repeat("─", 62)
 	box := []string{"┌" + rule + "┐"}
 	for _, row := range list {
 		box = append(box, "│"+row+strings.Repeat(" ", max(0, 62-len([]rune(row))))+"│")
 	}
-	return append(box,
-		"├"+rule+"┤",
-		"│ ↑↓ move · enter insert · esc close                           │",
-		"└"+rule+"┘",
-	)
+	return append(box, "└"+rule+"┘")
 }
 
 // assertInlineMenuAnchor asserts the picker's left edge sits on the column

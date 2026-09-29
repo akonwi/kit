@@ -150,7 +150,7 @@ func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
 	model := w.Controller.keys()
 	return inlinePicker{
 		Query: model.Query, Catalog: w.Controller.catalog(), Filter: model.Filter, Selection: model.Selection,
-		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
-		Anchor: w.Anchor,
+		OnActivate: w.OnSelect,
+		Anchor:     w.Anchor,
 	}
 }

@@ -352,8 +352,6 @@ func TestBashHistoryPickerShowsLoadingUntilDurableAnswer(t *testing.T) {
 	assertInlinePickerRows(t, rows, []string{
 		"┌───────────────────────────────────────────────────────┐",
 		"│ " + spinnerFrames[0] + " Loading history…                                    │",
-		"├───────────────────────────────────────────────────────┤",
-		"│ ↑↓ move · enter insert · esc close                    │",
 		"└───────────────────────────────────────────────────────┘",
 	})
 }
