@@ -278,6 +278,11 @@ const (
 	VCSHeadUnborn   VCSHeadKind = "unborn"
 )
 
+// EnumValues returns the permitted head kinds for contract reflection.
+func (VCSHeadKind) EnumValues() []string {
+	return []string{string(VCSHeadBranch), string(VCSHeadDetached), string(VCSHeadUnborn)}
+}
+
 // VCSHead is renderer-neutral checked-out head metadata.
 type VCSHead struct {
 	Kind VCSHeadKind `json:"kind"`
