@@ -194,21 +194,6 @@ func (c *currentSessionRenameController) Snapshot() sessionRenameSnapshot {
 	}
 }
 
-func sessionExplorerRenameSnapshot(snapshot sessionExplorerSnapshot) sessionRenameSnapshot {
-	target := shortSessionID(snapshot.RenameSessionID)
-	for _, session := range snapshot.Sessions {
-		if session.ID == snapshot.RenameSessionID {
-			target = sessionExplorerItemLabel(session)
-			break
-		}
-	}
-	return sessionRenameSnapshot{
-		Open: snapshot.RenameOpen, Target: target, Text: snapshot.RenameText,
-		CursorOffset: len((ui.LayoutContext{}).Characters(snapshot.RenameText)),
-		CursorEnd:    snapshot.RenameCursorEnd, Pending: snapshot.RenamePending, Error: snapshot.RenameError,
-	}
-}
-
 type sessionRenameSurface struct {
 	Snapshot  sessionRenameSnapshot
 	Callbacks sessionRenameCallbacks

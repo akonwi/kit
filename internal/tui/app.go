@@ -587,9 +587,6 @@ func (s *appState) TickFrame(now time.Time) bool {
 		}
 	}
 	s.sessionRename.TickFrame()
-	if s.sessionExplorer.TickFrame() {
-		keepTicking = true
-	}
 	if s.subagentRevealPending {
 		if s.activityScroll.Attached() {
 			s.activityScroll.ScrollToOffset(s.subagentRevealOffset)
@@ -1811,8 +1808,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ToggleSessionTree: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.ToggleExpanded(sessionID) })
 		},
-		SelectSession: func(_ ui.EventContext, sessionID string) {
+		ActivateSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
+			if s.sessionExplorer.Selection == sessionID {
+				s.switchSelectedSession()
+			}
 		},
 		SessionRenameChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.sessionRename.SetText(value) })
@@ -2159,20 +2159,17 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			}
 			return ui.EventIgnored
 		}
-		if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+		var result pickerKeyResult
+		s.SetState(func() { result = s.sessionExplorer.HandleKey(key) })
+		if !result.Handled {
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.dismiss(ctx)
+		} else if result.Activate {
 			s.switchSelectedSession()
-			return ui.EventHandled
 		}
-		var handled bool
-		s.SetState(func() {
-			handled = s.sessionExplorer.HandleKey(key)
-			if !handled {
-				handled = s.sessionExplorer.HandleEditorKey(key)
-			}
-		})
-		if handled {
-			return ui.EventHandled
-		}
+		return ui.EventHandled
 	}
 	if owner == inputSessionMention {
 		var entry protocol.SessionInfo

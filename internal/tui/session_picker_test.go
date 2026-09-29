@@ -4,6 +4,7 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -17,7 +18,7 @@ func TestSessionPickerHeightIsBoundedByContent(t *testing.T) {
 	if got := sessionPickerHeight(sessionExplorerSnapshot{Loading: true}); got != sessionPickerMinHeight {
 		t.Fatalf("loading height = %d", got)
 	}
-	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 8)}); got != 8+sessionExplorerChromeRows {
+	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 8)}); got != 8+sessionPickerChromeRows {
 		t.Fatalf("content height = %d", got)
 	}
 	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 40)}); got != sessionPickerMaxHeight {
@@ -81,7 +82,7 @@ func TestStandaloneSessionPickerSelectsAndCancelsFromFocusedRoot(t *testing.T) {
 	}
 }
 
-func TestStandaloneSessionPickerMouseSelectsAcrossBoundedPositioner(t *testing.T) {
+func TestStandaloneSessionPickerClickOpensSession(t *testing.T) {
 	t.Parallel()
 	const second = "session_22222222222222222222222222222222"
 	result := &sessionPickerResult{}
@@ -95,52 +96,44 @@ func TestStandaloneSessionPickerMouseSelectsAcrossBoundedPositioner(t *testing.T
 		},
 	})
 	application.Pump(80, sessionPickerMinHeight)
-	// Border, header, spacer, search field, and divider precede the first session row.
-	application.Click(20, 6)
-	application.Enter()
-	if result.selectedSession() != second {
-		t.Fatalf("mouse-selected session = %q", result.selectedSession())
+	application.Pump(80, sessionPickerMinHeight)
+	column, row := findTextCell(t, paintedRows(application, 80, sessionPickerMinHeight), "Second")
+	application.Click(column, row)
+	if !application.ShouldQuit() || result.selectedSession() != second {
+		t.Fatalf("quit = %t selection = %q", application.ShouldQuit(), result.selectedSession())
 	}
 }
 
-func TestStandaloneSessionPickerIsCenteredAndWidthBounded(t *testing.T) {
+func TestStandaloneSessionPickerRendersTheCanonicalPicker(t *testing.T) {
 	t.Parallel()
-	application := uitest.New(sessionPickerSurfaceHarness{})
-	application.Pump(160, sessionPickerMinHeight)
-	rows := paintedRows(application, 160, sessionPickerMinHeight)
-	left, right := -1, -1
-	for column := 0; column < 160; column++ {
-		switch application.Cell(column, 0).Grapheme {
-		case "┌":
-			left = column
-		case "┐":
-			right = column
-		}
+	now := time.Now()
+	result := &sessionPickerResult{}
+	application := uitest.New(sessionPicker{
+		Options:    SessionPickerOptions{Context: context.Background(), Server: &fakeServer{}},
+		Result:     result,
+		initialSet: true,
+		initialSessions: []protocol.SessionInfo{
+			{ID: "session_parent", Name: "Parent", CWD: "/repo", UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339Nano)},
+			{ID: "session_child", Name: "Child", CWD: "/repo/sub", ParentSessionID: "session_parent", UpdatedAt: now.Add(-3 * time.Hour).Format(time.RFC3339Nano)},
+		},
+	})
+	const width = 120
+	height := sessionPickerMinHeight + 1
+	application.Pump(width, height)
+	application.Pump(width, height)
+	rows := paintedRows(application, width, height)
+	if top := findPaintedRow(rows, "┌"); top != 0 {
+		t.Fatalf("picker top row = %d, want the region's first row:\n%s", top, strings.Join(rows, "\n"))
 	}
-	if left != 20 || right-left+1 != 120 {
-		t.Fatalf("picker geometry left=%d width=%d\n%s", left, right-left+1, strings.Join(rows, "\n"))
-	}
-}
+	_, searchRow := assertPickerSearchField(t, rows, "Search sessions…")
+	assertPickerTitleSpacing(t, rows, "Sessions", searchRow)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                                          2 sessions │")
+	assertDialogRow(t, rows, "Parent", "│▌Parent   ▸ 1          /repo                                                           2h ago │")
+	assertPickerFooter(t, rows, "←→ expand · enter open · ctrl+r rename · ctrl+d delete · esc close")
 
-func TestStandaloneSessionPickerUsesOpenActionHints(t *testing.T) {
-	t.Parallel()
-	got := sessionExplorerActionHintText(100, "open")
-	want := "↑↓ move · page up/down · enter open · ctrl+r rename · ctrl+d delete · esc close"
-	if got != want {
-		t.Fatalf("standalone hints = %q, want %q", got, want)
-	}
-}
-
-type sessionPickerSurfaceHarness struct{}
-
-func (sessionPickerSurfaceHarness) Build(ctx ui.BuildContext) ui.Widget {
-	snapshot := sessionExplorerSnapshot{
-		Open: true, Sessions: []sessionExplorerItem{{ID: "session_0123456789abcdef", Name: "Session"}},
-		Selection: "session_0123456789abcdef", Layout: &pickerDialogLayoutState{},
-	}
-	surface := sessionExplorerSurface{Snapshot: snapshot, Action: "open"}
-	return boundedHorizontalCenter{
-		Percent: 85, MinWidth: 44, MaxWidth: 120,
-		Child: ui.SizedBox{Height: sessionPickerMinHeight, Child: surface.content(ctx)},
-	}
+	application.Send(ui.Key{Keycode: vaxis.KeyRight})
+	application.Pump(width, height)
+	rows = paintedRows(application, width, height)
+	assertDialogRow(t, rows, "Parent", "│▌Parent   ▾ 1          /repo                                                           2h ago │")
+	assertDialogRow(t, rows, "Child", "│   Child               /repo/sub                                                       3h ago │")
 }

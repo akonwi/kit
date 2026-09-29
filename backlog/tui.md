@@ -32,15 +32,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   must both remain listed and runnable.
 - [x] TUI-PICK-001 — The canonical picker widget (`internal/tui/picker.go`)
   and its shared key model (`internal/tui/picker_keys.go`) are the contract
-  for modal pickers. Retained while TUI-PICK-003 to TUI-PICK-005 migrate onto
-  it.
-- [ ] TUI-PICK-005 — Render the session explorer with the canonical picker:
-  working directory as description, updated time as metadata, children
-  indented, and the collapse/expand disclosure in the hint column. Left/Right
-  toggle the tree while the query is empty; clicking the disclosure toggles it.
-  Page keys are removed. Extend the canonical picker as part of this port with
-  typed hierarchy (depth, disclosure, child count) and a title metadata status
-  that can show a spinner while switching.
+  for all modal pickers, including the session explorer's hierarchy.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline

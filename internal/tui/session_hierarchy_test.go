@@ -1,14 +1,11 @@
 package tui
 
 import (
-	"fmt"
 	"reflect"
-	"strings"
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis/ui"
-	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
 func hierarchyFixture() []sessionExplorerItem {
@@ -164,65 +161,6 @@ func TestSessionHierarchyRepairsMissingParentsAndCycles(t *testing.T) {
 	assertVisibleSessions(t, c, "a", "orphan", "self")
 }
 
-func TestSessionHierarchyExactRowsAndDisclosureClick(t *testing.T) {
-	for _, test := range []struct {
-		name    string
-		item    sessionExplorerItem
-		current bool
-		want    string
-	}{
-		{name: "collapsed", item: sessionExplorerItem{Name: "Authentication", Tree: true, ChildCount: 2}, want: "  ▸ Authentication · 2 children"},
-		{name: "expanded", item: sessionExplorerItem{Name: "Authentication", Tree: true, ChildCount: 2, Expanded: true}, want: "  ▾ Authentication"},
-		{name: "child", item: sessionExplorerItem{Name: "OAuth", Tree: true, Depth: 1, ChildCount: 1}, want: "    ▸ OAuth · 1 child"},
-		{name: "current grandchild", item: sessionExplorerItem{Name: "Providers", Tree: true, Depth: 2}, current: true, want: "✓       Providers"},
-		{name: "missing parent", item: sessionExplorerItem{Name: "Tokens", Tree: true, MissingParent: true, ParentSessionName: "Authentication"}, want: "    Tokens · from Authentication"},
-		{name: "unnamed parent", item: sessionExplorerItem{Name: "Tokens", Tree: true, MissingParent: true, ParentSessionID: "session_123456789"}, want: "    Tokens · from 12345678"},
-		{name: "invalid parent", item: sessionExplorerItem{Name: "Broken", InvalidParent: true}, want: "  Broken · invalid parent"},
-		{name: "deep", item: sessionExplorerItem{Name: "Deep", Tree: true, Depth: 20}, want: "              ⋯   Deep"},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			selected, toggled := 0, 0
-			app := uitest.New(sessionExplorerRow{Session: test.item, Current: test.current, Interactive: true,
-				OnPressed: func(ui.EventContext) { selected++ }, OnToggle: func(ui.EventContext) { toggled++ },
-			})
-			app.Pump(39, 1)
-			got := paintedRows(app, 39, 1)[0]
-			if want := fmt.Sprintf("%-39s", test.want); got != want {
-				t.Fatalf("row = %q, want %q", got, want)
-			}
-			if test.item.ChildCount > 0 {
-				app.Click(2+test.item.Depth*2, 0)
-				if toggled != 1 || selected != 0 {
-					t.Fatalf("disclosure click toggled=%d selected=%d", toggled, selected)
-				}
-			}
-			app.Click(strings.Index(got, test.item.Name), 0)
-			if selected != 1 {
-				t.Fatalf("label click = %d", selected)
-			}
-		})
-	}
-}
-
-func TestSessionHierarchyFooter(t *testing.T) {
-	for _, test := range []struct {
-		width int
-		want  string
-	}{
-		{100, "↑↓ move · ←→ fold · enter switch · ctrl+r rename · ctrl+d delete · esc close"},
-		{66, "←→ fold · enter switch · ctrl+r rename · ctrl+d delete · esc close"},
-		{60, "←→ fold · enter switch · ctrl+r rename · esc close"},
-		{39, "←→ fold · enter switch · esc close"},
-	} {
-		app := uitest.New(sessionExplorerHints{Tree: true})
-		app.Pump(test.width, 1)
-		app.Pump(test.width, 1)
-		if got := strings.TrimSpace(paintedRows(app, test.width, 1)[0]); got != test.want {
-			t.Fatalf("footer width %d = %q, want %q", test.width, got, test.want)
-		}
-	}
-}
-
 func TestSessionHierarchyOrphansHaveMetadataWithoutTreeAffordances(t *testing.T) {
 	c := &sessionExplorerController{}
 	c.Resolve(c.Begin(""), []sessionExplorerItem{{ID: "orphan", ParentSessionID: "missing"}, {ID: "self", ParentSessionID: "self"}}, nil)
@@ -230,30 +168,5 @@ func TestSessionHierarchyOrphansHaveMetadataWithoutTreeAffordances(t *testing.T)
 	got := c.Snapshot().Sessions
 	if got[0].Tree || !got[0].MissingParent || got[1].Tree || !got[1].InvalidParent {
 		t.Fatalf("orphan projection = %+v", got)
-	}
-}
-
-func TestSessionHierarchyRevealsVisibleIndexAfterCollapseAndResize(t *testing.T) {
-	c := sessionExplorerController{}
-	items := hierarchyFixture()
-	for i := 0; i < 20; i++ {
-		items = append(items, sessionExplorerItem{ID: fmt.Sprintf("session_extra%02d", i), Name: fmt.Sprintf("Extra %02d", i), ParentSessionID: "session_root"})
-	}
-	c.Resolve(c.Begin("session_other"), items, nil)
-	state := &sessionExplorerHarnessState{controller: c}
-	app := uitest.New(sessionExplorerHarness{State: state})
-	pumpSessionExplorerFrames(app, state, 80, 10, 6)
-	state.SetState(func() { state.controller.ToggleExpanded("session_root"); state.controller.Select("session_other") })
-	// Keep exactly one result row beneath the explorer chrome.
-	short := sessionExplorerChromeRows + 1
-	pumpSessionExplorerFrames(app, state, 80, short, 6)
-	rows := paintedRows(app, 80, short)
-	findTextCell(t, rows, "✓   Release")
-	state.SetState(func() { state.controller.ToggleExpanded("session_root") })
-	pumpSessionExplorerFrames(app, state, 80, short, 6)
-	rows = paintedRows(app, 80, short)
-	findTextCell(t, rows, "▸ Authentication · 22 children")
-	if state.controller.Selection != "session_root" || state.controller.needsReveal {
-		t.Fatalf("collapsed reveal = %+v", state.controller)
 	}
 }

@@ -235,7 +235,7 @@ type shellCallbacks struct {
 	ConfigurationQuery          ui.TextChangedCallback
 	SelectConfiguration         func(ui.EventContext, string)
 	ApplyConfiguration          ui.VoidCallback
-	SelectSession               func(ui.EventContext, string)
+	ActivateSession             func(ui.EventContext, string)
 	SessionQueryChanged         ui.TextChangedCallback
 	ToggleSessionTree           func(ui.EventContext, string)
 	SessionRenameChanged        ui.TextChangedCallback
@@ -408,20 +408,12 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner.root() == inputSessions {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
-			Snapshot:  w.Snapshot.SessionExplorer,
-			Callbacks: sessionExplorerCallbacks{QueryChanged: w.Callbacks.SessionQueryChanged, Select: w.Callbacks.SelectSession, Toggle: w.Callbacks.ToggleSessionTree},
+			Snapshot: w.Snapshot.SessionExplorer,
+			Callbacks: sessionExplorerCallbacks{
+				QueryChanged: w.Callbacks.SessionQueryChanged, Activate: w.Callbacks.ActivateSession, Toggle: w.Callbacks.ToggleSessionTree,
+				RenameChanged: w.Callbacks.RenameSessionChanged, RenameSubmitted: w.Callbacks.SubmitSessionRename,
+			},
 		}))
-		if owner == inputSessionRename {
-			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
-				Snapshot: sessionExplorerRenameSnapshot(w.Snapshot.SessionExplorer),
-				Callbacks: sessionRenameCallbacks{
-					Changed: w.Callbacks.RenameSessionChanged, Submitted: w.Callbacks.SubmitSessionRename,
-				},
-			}))
-		}
-		if owner == inputSessionDelete {
-			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
-		}
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputFiles {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{

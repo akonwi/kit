@@ -3,35 +3,55 @@ package tui
 import (
 	"strings"
 
-	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
-// filteredSessions searches only explicit session names, never IDs or paths.
-// Matching children are independent results, even under collapsed ancestors.
-func (c *sessionExplorerController) filteredSessions() []sessionExplorerItem {
-	query := strings.ToLower(strings.TrimSpace(c.Query))
-	matches := make([]sessionExplorerItem, 0)
+// filteredSessions fuzzy-matches only explicit session names, never IDs or
+// paths. Matches are flat results, even under collapsed ancestors, and keep
+// their parent as a lineage note.
+func (c *sessionExplorerController) filteredSessions(query string) []sessionExplorerItem {
+	named := make([]sessionExplorerItem, 0, len(c.Sessions))
 	for _, item := range c.Sessions {
-		if strings.TrimSpace(item.Name) == "" || !strings.Contains(strings.ToLower(item.Name), query) {
-			continue
+		if strings.TrimSpace(item.Name) != "" {
+			named = append(named, item)
 		}
-		item.Tree, item.Expanded = false, false
-		item.Depth, item.ChildCount = 0, 0
-		item.MissingParent = item.ParentSessionID != ""
-		matches = append(matches, item)
+	}
+	matches := ui.DefaultFuzzySelectFilter(query, named, func(item sessionExplorerItem) ui.FuzzySelectItem {
+		return ui.FuzzySelectItem{Title: item.Name}
+	})
+	for index, match := range matches {
+		match = flatSessionExplorerItem(match)
+		if match.ParentSessionName == "" {
+			if parent := sessionIndex(c.Sessions, match.ParentSessionID); parent >= 0 {
+				match.ParentSessionName = c.Sessions[parent].Name
+			}
+		}
+		matches[index] = match
 	}
 	return matches
 }
 
+// flatSessionExplorerItem is a session shown outside the tree.
+func flatSessionExplorerItem(item sessionExplorerItem) sessionExplorerItem {
+	item.Tree, item.Expanded = false, false
+	item.Depth, item.ChildCount = 0, 0
+	item.MissingParent = item.MissingParent || item.ParentSessionID != ""
+	return item
+}
+
+// SetQuery filters the sessions. A non-blank query highlights the first match;
+// clearing it restores the previous selection or its nearest visible ancestor.
 func (c *sessionExplorerController) SetQuery(query string) {
 	if !c.Open || c.Switching || c.RenameOpen || c.DeleteOpen || c.Query == query {
 		return
 	}
 	c.Query = query
-	c.reconcileVisibleSelection()
+	if strings.TrimSpace(query) != "" {
+		c.Selection = firstEnabledPickerKey(c.pickerItems(query))
+	} else {
+		c.reconcileVisibleSelection()
+	}
 	c.SwitchError, c.DeleteError = "", ""
-	c.requestReveal()
 }
 
 func (c *sessionExplorerController) reconcileVisibleSelection() {
@@ -56,64 +76,4 @@ func (c *sessionExplorerController) reconcileVisibleSelection() {
 	if len(visible) > 0 {
 		c.Selection = visible[0].ID
 	}
-}
-
-// HandleEditorKey follows the command palette's controller-owned query input,
-// including input delivered before the newly opened field has painted.
-func (c *sessionExplorerController) HandleEditorKey(key ui.Key) bool {
-	if !c.Open || key.EventType == ui.EventRelease || key.MatchString("Escape") || key.MatchString("Ctrl+c") {
-		return false
-	}
-	if c.Switching || c.RenameOpen || c.DeleteOpen {
-		return true
-	}
-	query := c.Query
-	if key.EventType == vaxis.EventPaste {
-		c.SetQuery(query + palettePasteText(key))
-		return true
-	}
-	if key.MatchString("Ctrl+u") {
-		c.SetQuery("")
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
-	switch {
-	case key.MatchString("Backspace"):
-		runes := []rune(query)
-		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
-		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
-	}
-	c.SetQuery(query)
-	return true
-}
-
-func (w sessionExplorerSurface) queryField(theme ui.Theme, header ui.Widget) ui.Widget {
-	cursor := len(w.Snapshot.Query)
-	return pickerTitledSearchField(theme, header, textInputConfig{
-		Value: w.Snapshot.Query, Placeholder: "Filter session names…", CursorOffset: &cursor,
-		AutoFocus: true, OnChanged: w.Callbacks.QueryChanged,
-	})
-}
-
-func sessionFilterHintText(width int, action string) string {
-	if action == "" {
-		action = "switch"
-	}
-	for _, candidate := range []string{
-		"↑↓ move · enter " + action + " · ctrl+d delete · ctrl+u clear · esc close",
-		"enter " + action + " · ctrl+d delete · ctrl+u clear · esc close",
-	} {
-		if len([]rune(candidate)) <= width {
-			return candidate
-		}
-	}
-	return "enter " + action + " · ctrl+u clear · esc close"
 }

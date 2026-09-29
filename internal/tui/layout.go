@@ -86,54 +86,41 @@ func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {
 	)
 }
 
-type pickerDialogLayoutState struct{ AvailableRows int }
-
 // pickerDialogPositioner gives picker-style dialogs their shared width bounds,
-// minimum height, and top-quarter placement. State is optional and reports the
-// rows left after a caller's fixed body chrome.
+// minimum height, and top-quarter placement.
 type pickerDialogPositioner struct {
-	Percent      int
-	MinWidth     int
-	MaxWidth     int
-	Height       int
-	ReservedRows int
-	State        *pickerDialogLayoutState
-	Child        ui.Widget
+	Percent  int
+	MinWidth int
+	MaxWidth int
+	Height   int
+	Child    ui.Widget
 }
 
 func (w pickerDialogPositioner) WidgetChild() ui.Widget { return w.Child }
 
 func (w pickerDialogPositioner) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderPickerDialogPositioner{
-		Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth,
-		Height: w.Height, ReservedRows: w.ReservedRows, State: w.State,
-	}
+	return &renderPickerDialogPositioner{Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth, Height: w.Height}
 }
 
 func (w pickerDialogPositioner) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
 	render := object.(*renderPickerDialogPositioner)
-	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth &&
-		render.Height == w.Height && render.ReservedRows == w.ReservedRows && render.State == w.State {
+	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth && render.Height == w.Height {
 		return
 	}
 	render.Percent = w.Percent
 	render.MinWidth = w.MinWidth
 	render.MaxWidth = w.MaxWidth
 	render.Height = w.Height
-	render.ReservedRows = w.ReservedRows
-	render.State = w.State
 	render.MarkNeedsLayout()
 }
 
 type renderPickerDialogPositioner struct {
 	ui.SingleChildRenderObject
-	Percent      int
-	MinWidth     int
-	MaxWidth     int
-	Height       int
-	ReservedRows int
-	State        *pickerDialogLayoutState
-	offset       ui.Offset
+	Percent  int
+	MinWidth int
+	MaxWidth int
+	Height   int
+	offset   ui.Offset
 }
 
 func (r *renderPickerDialogPositioner) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
@@ -142,9 +129,6 @@ func (r *renderPickerDialogPositioner) Layout(ctx ui.LayoutContext, constraints 
 	width = max(r.MinWidth, min(r.MaxWidth, width))
 	width = min(size.Width, width)
 	height := min(size.Height, r.Height)
-	if r.State != nil {
-		r.State.AvailableRows = max(0, height-r.ReservedRows)
-	}
 	if child := r.Child(); child != nil {
 		child.Layout(ctx, ui.Tight(ui.Size{Width: width, Height: height}))
 		r.offset = ui.Offset{X: max(0, (size.Width-width)/2), Y: pickerTopOffset(size.Height, height)}
