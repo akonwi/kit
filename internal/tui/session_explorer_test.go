@@ -285,7 +285,8 @@ func TestSessionExplorerRendersTheCanonicalPicker(t *testing.T) {
 	assertDialogRow(t, rows, "Tokens", "│   Tokens                             /repo/tokens                 2026-06-03 │")
 	assertDialogRow(t, rows, "OAuth", "│▌  OAuth         ▸ 1                  /repo/oauth                  2026-06-02 │")
 	assertDialogRow(t, rows, "Release", "│ Release                              /repo/release                2026-06-04 │")
-	assertPickerFooter(t, rows, "←→ expand · enter switch · ctrl+r rename · ctrl+d delete · esc close")
+	assertPickerFooter(t, rows, "←→ expand · enter switch · ctrl+r rename · ctrl+d delete")
+	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete                     │")
 
 	column, row := findTextCell(t, rows, "OAuth")
 	if cell := application.Cell(column, row); cell.Style.Foreground != theme.PrimaryText {
@@ -345,7 +346,7 @@ func TestSessionExplorerMessagesReplaceTheList(t *testing.T) {
 		{name: "loading", snapshot: sessionExplorerSnapshot{Open: true, Loading: true}, row: "⠋ Loading sessions…", footer: "esc close"},
 		{name: "error", snapshot: sessionExplorerSnapshot{Open: true, Error: "offline"}, row: "Could not load sessions: offline", footer: "esc close"},
 		{name: "empty", snapshot: sessionExplorerSnapshot{Open: true}, row: "No sessions", footer: "esc close"},
-		{name: "no matches", snapshot: sessionExplorerSnapshot{Open: true, Query: "zzz", All: explorerFixture()}, row: "No matching sessions", footer: "←→ expand · enter switch · ctrl+r rename · ctrl+d delete · esc close"},
+		{name: "no matches", snapshot: sessionExplorerSnapshot{Open: true, Query: "zzz", All: explorerFixture()}, row: "No matching sessions", footer: "←→ expand · enter switch · ctrl+r rename · ctrl+d delete"},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			application := uitest.New(shellView{Snapshot: shellSnapshot{
@@ -571,6 +572,9 @@ func TestSessionExplorerAppAppliesKeysTypedBeforePaintAndCatalog(t *testing.T) {
 		t.Fatalf("selection after catalog = %s, want the first match", state.sessionExplorer.Selection)
 	}
 	assertDialogRow(t, rows, "/repo/release", "│▌Release                          /repo/release    2026-06-04 │")
+
+	// The whole footer fits the 80-column terminal's picker.
+	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete     │")
 
 	// Ctrl+r opens the rename prompt in the same frame; Esc returns.
 	application.send(vaxis.Key{Keycode: 'r', Modifiers: vaxis.ModCtrl, EventType: vaxis.EventPress})

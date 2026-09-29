@@ -485,7 +485,7 @@ func (w sessionExplorerSurface) picker(now time.Time) picker {
 		Items:      sessionExplorerPickerItems(snapshot.Sessions, snapshot.CurrentSessionID, now),
 		Catalog:    sessionExplorerPickerCatalog(snapshot.All, snapshot.CurrentSessionID, now),
 		Selection:  snapshot.Selection,
-		Footer:     "←→ expand · enter " + action + " · ctrl+r rename · ctrl+d delete · esc close",
+		Footer:     "←→ expand · enter " + action + " · ctrl+r rename · ctrl+d delete",
 		OnActivate: w.Callbacks.Activate,
 		OnToggle:   w.Callbacks.Toggle,
 	}
@@ -522,8 +522,10 @@ func (w sessionExplorerSurface) picker(now time.Time) picker {
 		result.Footer = "enter confirm " + glyphMiddleDot + " esc cancel"
 	case snapshot.SwitchError != "":
 		result.Status, result.StatusTone = "Switch failed: "+snapshot.SwitchError+" "+glyphMiddleDot+" enter retry", pickerToneDanger
+		result.Footer = "esc close"
 	case snapshot.DeleteError != "":
 		result.Status, result.StatusTone = snapshot.DeleteError, pickerToneDanger
+		result.Footer = "esc close"
 	}
 	return result
 }

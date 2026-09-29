@@ -129,7 +129,7 @@ func TestStandaloneSessionPickerRendersTheCanonicalPicker(t *testing.T) {
 	assertPickerTitleSpacing(t, rows, "Sessions", searchRow)
 	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                                          2 sessions │")
 	assertDialogRow(t, rows, "Parent", "│▌Parent   ▸ 1          /repo                                                           2h ago │")
-	assertPickerFooter(t, rows, "←→ expand · enter open · ctrl+r rename · ctrl+d delete · esc close")
+	assertPickerFooter(t, rows, "←→ expand · enter open · ctrl+r rename · ctrl+d delete")
 
 	application.Send(ui.Key{Keycode: vaxis.KeyRight})
 	application.Pump(width, height)
