@@ -165,7 +165,10 @@ slice-specific wire change in an ADR before implementing it. Wire changes bump
 
 - [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
   stream from newline-delimited JSON to SSE and establishing the stream pattern
-  reused by `CORE-PROTO-020`.
+  reused by `CORE-PROTO-020`. First, change the emitter to publish one shared
+  error-variant schema per code per ADR 0034, replacing the per-operation,
+  per-status variants such as `UpdateScratchpad409InstanceMismatchError`, and
+  regenerate the macOS client.
 - [ ] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
   prompts, prompt commands, follow-ups, turn status and abort, interaction
   responses, event pages and stream, message and transcript pages. Adopts the

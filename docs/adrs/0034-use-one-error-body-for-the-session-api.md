@@ -91,6 +91,11 @@ before routing, has `Content-Type: application/json` and this body:
   error body. Where any permitted code for that status defines details, `error`
   is a union discriminated by `code`. Otherwise `code` is an enum of the
   permitted codes.
+- Union variants are named component schemas, one per code, shared by every
+  operation that declares the code (for example `InstanceMismatchError` and
+  `ScratchpadRevisionConflictError`). When the same code has different details
+  in different domains, each domain's variant carries a domain prefix. Variant
+  schemas are never specific to one operation or status.
 - Stream operations use this body for failures before the stream starts.
   Failures after a stream starts are stream records and are out of scope here.
 - Kit does not use RFC 9457 problem details. Its `type` URI and
