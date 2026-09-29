@@ -14,20 +14,28 @@ struct ScratchpadRecord: Codable, Equatable, Sendable {
     }
 
     init(_ wire: WireScratchpad) throws {
-        guard !wire.ownerSessionId.isEmpty,
-              let revision = Int64(wire.revision), revision > 0,
-              String(revision) == wire.revision,
-              Self.validContent(wire.content),
-              wire.updatedAt.hasSuffix("Z") else { throw ClientError.invalidPayload }
+        try self.init(ownerSessionId: wire.ownerSessionId, content: wire.content, revision: wire.revision, updatedAt: wire.updatedAt)
+    }
+
+    init(_ wire: Components.Schemas.Scratchpad) throws {
+        try self.init(ownerSessionId: wire.ownerSessionId, content: wire.content, revision: wire.revision, updatedAt: wire.updatedAt)
+    }
+
+    private init(ownerSessionId: String, content: String, revision encodedRevision: String, updatedAt: String) throws {
+        guard !ownerSessionId.isEmpty,
+              let revision = Int64(encodedRevision), revision > 0,
+              String(revision) == encodedRevision,
+              Self.validContent(content),
+              updatedAt.hasSuffix("Z") else { throw ClientError.invalidPayload }
         let formatter = ISO8601DateFormatter()
         formatter.formatOptions = [.withInternetDateTime, .withFractionalSeconds]
-        guard formatter.date(from: wire.updatedAt) != nil || ISO8601DateFormatter().date(from: wire.updatedAt) != nil else {
+        guard formatter.date(from: updatedAt) != nil || ISO8601DateFormatter().date(from: updatedAt) != nil else {
             throw ClientError.invalidPayload
         }
-        owner = wire.ownerSessionId
-        content = wire.content
+        owner = ownerSessionId
+        self.content = content
         self.revision = revision
-        updatedAt = wire.updatedAt
+        self.updatedAt = updatedAt
     }
 
     static func validContent(_ content: String) -> Bool {
