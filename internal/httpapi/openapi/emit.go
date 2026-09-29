@@ -47,6 +47,11 @@ func Emit() ([]byte, error) {
 			"parameters": operationParameters(descriptor), "responses": responses,
 			"security": []any{map[string]any{"daemonBearer": []any{}}},
 		}
+		if stream := descriptor.Stream; stream != nil {
+			operation["x-kit-stream"] = map[string]any{
+				"records": stream.Records, "resumable": stream.Resumable, "maxRecordBytes": stream.MaxRecordBytes,
+			}
+		}
 		if descriptor.Input != reflect.TypeOf(httpapi.NoBody{}) {
 			operation["requestBody"] = map[string]any{"required": true, "content": jsonContent(schemaRef(descriptor.Input))}
 		}
@@ -91,7 +96,13 @@ func operationParameters(descriptor httpapi.Descriptor) []any {
 }
 
 func operationResponses(descriptor httpapi.Descriptor, components map[string]any) (map[string]any, error) {
-	responses := map[string]any{fmt.Sprint(descriptor.Success): map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}}
+	success := map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}
+	if descriptor.Stream != nil {
+		// Every record's data line decodes as the payload schema (ADR 0035).
+		success = map[string]any{"description": "Server-sent event stream; each record's data is one payload object",
+			"content": map[string]any{"text/event-stream": map[string]any{"schema": schemaRef(descriptor.Output)}}}
+	}
+	responses := map[string]any{fmt.Sprint(descriptor.Success): success}
 	for _, response := range descriptor.Errors {
 		schema, err := errorEnvelopeSchema(descriptor.Tag, response, components)
 		if err != nil {
