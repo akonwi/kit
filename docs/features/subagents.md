@@ -70,8 +70,8 @@ and returns immediately when it is already settled. A message after interruption
 creates a new internal task linked to the interrupted task; Kit never
 automatically retries interrupted work.
 
-Only persisted sessions can delegate. Temporary sessions return
-`SUBAGENT_UNAVAILABLE_TEMPORARY_SESSION` because their process-local lifecycle
+Only persisted sessions expose configured subagents and the `subagent` tool.
+Temporary sessions omit that capability because their process-local lifecycle
 cannot provide the durability promised by this feature.
 
 ## Scheduling and recovery

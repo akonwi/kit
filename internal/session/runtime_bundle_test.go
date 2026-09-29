@@ -164,7 +164,7 @@ func TestRuntimeBundleBuilderOwnsMatchingSubagentCatalogAndTool(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	record := session.SessionRecord{ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir()}
+	record := session.SessionRecord{ID: "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", CWD: t.TempDir(), Persistent: true}
 	bundle, err := builder.Build(t.Context(), record, nil)
 	if err != nil {
 		t.Fatal(err)
@@ -184,6 +184,42 @@ func TestRuntimeBundleBuilderOwnsMatchingSubagentCatalogAndTool(t *testing.T) {
 	copy[0].Name = "mutated"
 	if definition, ok := bundle.Subagents.Catalog.Lookup("scout"); !ok || definition.Name != "scout" {
 		t.Fatalf("catalog was mutable: %#v, %v", definition, ok)
+	}
+}
+
+func TestTemporaryRuntimeBundleOmitsSubagentCapability(t *testing.T) {
+	registry, err := skills.NewRegistry()
+	if err != nil {
+		t.Fatal(err)
+	}
+	catalog, err := subagent.NewCatalog(subagent.Definition{
+		Name: "scout", Description: "finds things", Instructions: "Inspect.",
+		Source: subagent.Source{Kind: subagent.SourceUser, Path: "/tmp/scout.md"},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	loader := &fixedSubagentLoader{result: subagent.LoadResult{Catalog: catalog}}
+	factory := &recordingSubagentToolFactory{}
+	builder, err := session.NewRuntimeBundleBuilder(session.RuntimeBundleOptions{
+		Core: "core", Registry: registry, SubagentLoader: loader, SubagentToolFactory: factory,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	bundle, err := builder.Build(t.Context(), session.SessionRecord{
+		ID: "session_bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb", CWD: t.TempDir(), Persistent: false,
+	}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range bundle.Tools {
+		if tool.Name() == "subagent" {
+			t.Fatal("temporary bundle exposes subagent tool")
+		}
+	}
+	if bundle.Subagents.Catalog.Len() != 0 || factory.owner != "" || strings.Contains(bundle.Prompt.Prompt, "<available_subagents>") {
+		t.Fatalf("temporary bundle retains subagent capability: definitions=%d owner=%q prompt=%q", bundle.Subagents.Catalog.Len(), factory.owner, bundle.Prompt.Prompt)
 	}
 }
 

@@ -346,6 +346,16 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	if err != nil || len(listed.Definitions) != 1 || listed.Definitions[0].Name != "scout" {
 		t.Fatalf("Subagent(list_agents) = %#v, %v", listed, err)
 	}
+	temporaryID := "session_88888888888888888888888888888888"
+	if _, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{
+		ID: temporaryID, CWD: t.TempDir(), Model: "test/echo", ThinkingLevel: "off", Temporary: true,
+	}); err != nil {
+		t.Fatalf("CreateSession(temporary) error = %v", err)
+	}
+	temporaryListed, err := client.Subagent(t.Context(), temporaryID, protocol.SubagentOperationInput{Action: protocol.SubagentListAgents})
+	if err != nil || len(temporaryListed.Definitions) != 0 {
+		t.Fatalf("Subagent(list_agents temporary) = %#v, %v; want no definitions", temporaryListed, err)
+	}
 	eventSnapshot, err := client.GetSessionSnapshot(t.Context(), sessionID)
 	if err != nil {
 		t.Fatal(err)
