@@ -1,0 +1,8 @@
+generate:
+  - types
+  - client
+accessModifier: internal
+namingStrategy: idiomatic
+filter:
+  tags:
+    - scratchpad
