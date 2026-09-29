@@ -55,9 +55,12 @@ published contract.
 
 - A union schema is a `oneOf` with a `kind` discriminator and an explicit
   mapping from every kind value to one variant schema.
-- Each variant schema is emitted inline and complete: the common fields, the
-  variant fields, `kind` constrained to one value, and
-  `additionalProperties: false`. Variants do not use `allOf` composition.
+- Each variant is a named component schema that the union references through
+  its discriminator mapping. Anonymous variants are not used because generated
+  clients cannot name them.
+- Each variant schema is complete: the common fields, the variant fields,
+  `kind` constrained to one value, and `additionalProperties: false`. Variants
+  do not use `allOf` composition.
 - A field is `required` when every valid record of that kind carries it on the
   wire. A field whose zero value the current protocol omits stays optional and
   declares its default.

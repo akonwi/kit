@@ -31,9 +31,9 @@ server separately. Discovery authenticates the registered server, checks its
 identity and readiness, and negotiates protocol/release compatibility. For
 protocol 42, the app's `KitClientRelease` identity (`0.39.0` for this build)
 can attach to canonical stable server versions >= 0.39.0 that retain protocol 42,
-without requiring the app and CLI to share an exact version. App version `0.1.2`
-is independent of that client compatibility identity. App 0.1.1 uses protocol 41
-and cannot attach to a protocol-42 server. Incompatible running
+without requiring the app and CLI to share an exact version. App version `0.1.3`
+is independent of that client compatibility identity. Apps 0.1.1 and 0.1.2 use
+protocol 41 and cannot attach to a protocol-42 server. Incompatible running
 servers are left alone; update to compatible releases rather than restarting or
 replacing one from the app.
 
