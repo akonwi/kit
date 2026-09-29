@@ -1173,7 +1173,7 @@ func (s *workspaceDiffPaneState) handleTargetPickerKey(key ui.Key) ui.EventResul
 func (s *workspaceDiffPaneState) targetPicker(ui.BuildContext, ui.Theme) ui.Widget {
 	items := s.targetPickerItems(s.targetQuery)
 	cursor := len(s.targetQuery)
-	result := picker{
+	result := palettePicker{
 		Title: "Select diff target",
 		Search: &textInputConfig{
 			Value: s.targetQuery, Placeholder: "Filter branch, subject, or object ID…", CursorOffset: &cursor, AutoFocus: true,

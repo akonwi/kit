@@ -116,7 +116,7 @@ func (w shellView) workspacePickerDialog(ui.BuildContext, ui.Theme) ui.Widget {
 		}
 	}
 	cursor := len(w.Snapshot.WorkspacePickerQuery)
-	return picker{
+	return palettePicker{
 		Title: "Open workspace tab",
 		Search: &textInputConfig{
 			Value: w.Snapshot.WorkspacePickerQuery, Placeholder: "Search workspace tabs…", CursorOffset: &cursor,

@@ -23,7 +23,7 @@ func (w themePickerSurface) Build(ui.BuildContext) ui.Widget {
 	catalog := themePickerItems(snapshot.Names, snapshot.CommittedName)
 	items := themePickerItems(filterThemeNames(snapshot.Query, snapshot.Names), snapshot.CommittedName)
 	cursor := len(snapshot.Query)
-	result := picker{
+	result := palettePicker{
 		Title: "Theme",
 		Search: &textInputConfig{
 			Value: snapshot.Query, Placeholder: "Search themes…", CursorOffset: &cursor,

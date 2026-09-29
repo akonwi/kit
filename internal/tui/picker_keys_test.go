@@ -120,7 +120,7 @@ func TestPaletteAndModelPickerShareTheKeyModel(t *testing.T) {
 	var palette paletteController
 	palette.OpenFor(true)
 	palette.HandleKey(true, ui.Key{Text: "c", Keycode: 'c'})
-	if want := paletteCommandID(firstEnabledPickerKey(palettePickerItems(true, "c", nil))); palette.Selection != want || want == paletteCommandCD {
+	if want := paletteCommandID(firstEnabledPickerKey(commandPaletteItems(true, "c", nil))); palette.Selection != want || want == paletteCommandCD {
 		t.Fatalf("running palette selection = %q, want first enabled match %q", palette.Selection, want)
 	}
 	if _, run, handled := palette.HandleKey(true, ui.Key{Keycode: vaxis.KeyEsc}); run || !handled || palette.Open {

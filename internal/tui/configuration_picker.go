@@ -332,14 +332,14 @@ func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 	}
 	if snapshot.EditingContext {
 		cursor := len(snapshot.EditValue)
-		return pickerPrompt{
+		return palettePickerPrompt{
 			Title: "Context window", TitleMeta: snapshot.EditModel,
 			Input: textInputConfig{Value: snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true},
 			Error: snapshot.Error, Footer: "enter save · blank clears · esc back",
 		}
 	}
 	queryCursor := len(snapshot.Query)
-	result := picker{
+	result := palettePicker{
 		Title: "Select model", Footer: footer, Selection: snapshot.Selection,
 		Search: &textInputConfig{
 			Value: snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,

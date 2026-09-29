@@ -69,7 +69,7 @@ type commandPaletteSurface struct {
 // argument hint, description, and the source of non-built-in commands as
 // trailing metadata.
 func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
-	items := palettePickerItems(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
+	items := commandPaletteItems(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
 	selection := string(w.Snapshot.Selection)
 	if pickerItemIndex(items, selection) < 0 {
 		selection = firstEnabledPickerKey(items)
@@ -80,7 +80,7 @@ func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
 		catalogItems = append(catalogItems, palettePickerItem(command, w.Snapshot.Running, w.Snapshot.Contributions))
 	}
 	queryCursor := len(w.Snapshot.Query)
-	return picker{
+	return palettePicker{
 		Search: &textInputConfig{
 			Value: w.Snapshot.Query, Placeholder: "Search commands…", CursorOffset: &queryCursor,
 			OnChanged: w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery, AutoFocus: true,
@@ -95,10 +95,10 @@ func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
-// palettePickerItems maps the commands matching query onto picker items: name
+// commandPaletteItems maps the commands matching query onto picker items: name
 // as label, argument hint, description, and the source of non-built-in
 // commands as trailing metadata.
-func palettePickerItems(running bool, query string, contributions []paletteCommand) []pickerItem {
+func commandPaletteItems(running bool, query string, contributions []paletteCommand) []pickerItem {
 	commands := filteredPaletteCommands(running, query, contributions)
 	items := make([]pickerItem, 0, len(commands))
 	for _, command := range commands {
@@ -146,7 +146,7 @@ func (p *paletteController) SetContributions(commands []paletteCommand, running 
 func (p *paletteController) keys(running bool) (pickerKeyModel, pickerItemsFunc) {
 	model := pickerKeyModel{Query: p.Query, Selection: string(p.Selection)}
 	contributions := p.Contributions
-	return model, func(query string) []pickerItem { return palettePickerItems(running, query, contributions) }
+	return model, func(query string) []pickerItem { return commandPaletteItems(running, query, contributions) }
 }
 
 func (p *paletteController) apply(model pickerKeyModel) {

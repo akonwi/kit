@@ -469,14 +469,14 @@ func (w sessionExplorerSurface) Build(ui.BuildContext) ui.Widget {
 	return w.picker(time.Now())
 }
 
-func (w sessionExplorerSurface) picker(now time.Time) picker {
+func (w sessionExplorerSurface) picker(now time.Time) palettePicker {
 	snapshot := w.Snapshot
 	action := w.Action
 	if action == "" {
 		action = "switch"
 	}
 	cursor := len(snapshot.Query)
-	result := picker{
+	result := palettePicker{
 		Title: "Sessions",
 		Search: &textInputConfig{
 			Value: snapshot.Query, Placeholder: "Search sessions…", CursorOffset: &cursor,
@@ -532,10 +532,10 @@ func (w sessionExplorerSurface) picker(now time.Time) picker {
 	return result
 }
 
-func (w sessionExplorerSurface) renamePrompt() pickerPrompt {
+func (w sessionExplorerSurface) renamePrompt() palettePickerPrompt {
 	snapshot := w.Snapshot
 	cursor := len((ui.LayoutContext{}).Characters(snapshot.RenameText))
-	prompt := pickerPrompt{
+	prompt := palettePickerPrompt{
 		Title: "Rename session", TitleMeta: sessionExplorerTargetLabel(snapshot.All, snapshot.RenameSessionID),
 		Input: textInputConfig{
 			Value: snapshot.RenameText, Placeholder: "Enter new session name…",

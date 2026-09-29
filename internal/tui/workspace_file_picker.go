@@ -17,7 +17,7 @@ func (w workspaceFilePickerSurface) Build(ui.BuildContext) ui.Widget {
 	items := w.Controller.pickerItems(w.Source, w.Controller.Query)
 	catalog := w.Controller.pickerItems(w.Source, "")
 	cursor := len(w.Controller.Query)
-	result := picker{
+	result := palettePicker{
 		Title: "Open file",
 		Search: &textInputConfig{
 			Value: w.Controller.Query, Placeholder: "Search indexed project paths…", CursorOffset: &cursor,

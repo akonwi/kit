@@ -35,7 +35,7 @@ func TestResolveListWindowSpendsRowsOnOverflowOnlyWhenItemsAreHidden(t *testing.
 
 type pickerTestHarness struct {
 	Theme  ui.Theme
-	Picker picker
+	Picker palettePicker
 }
 
 // Build fills the screen so every painted cell maps to one column of the
@@ -57,7 +57,7 @@ func pickerTestItems() []pickerItem {
 
 func TestPickerRowsAlignUniformColumns(t *testing.T) {
 	t.Parallel()
-	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
 		Title: "Select diff target", TitleMeta: "4 targets", Search: &textInputConfig{Placeholder: "Filter targets…"},
 		Items: pickerTestItems(), Selection: "main", Footer: "↑↓ move · enter select · esc close",
 	}})
@@ -81,7 +81,7 @@ func TestPickerHighlightKeepsTextColorsAndCurrentAccent(t *testing.T) {
 	focus := semanticFallback(theme).Token(kittheme.TokenPickerFocusedBackground)
 	tint := blendPickerColor(focus, theme.Background, pickerHighlightPercent, theme.SurfaceHovered)
 	render := func(selection string) (*uitest.App, []string) {
-		application := uitest.New(pickerTestHarness{Theme: theme, Picker: picker{Items: pickerTestItems(), Selection: selection}})
+		application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{Items: pickerTestItems(), Selection: selection}})
 		application.Pump(80, 24)
 		application.Pump(80, 24)
 		return application, paintedRows(application, 80, 24)
@@ -118,7 +118,7 @@ func TestPickerRowsActivateOnClickAndIgnoreDisabledRows(t *testing.T) {
 	t.Parallel()
 	theme := ui.DefaultThemeSet().Dark
 	var activated []string
-	application := uitest.New(pickerTestHarness{Theme: theme, Picker: picker{
+	application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{
 		Items: pickerTestItems(), Selection: "working",
 		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
 	}})
@@ -151,7 +151,7 @@ func TestPickerOverflowRowsScrollAPageWhenClicked(t *testing.T) {
 	for index := range items {
 		items[index] = pickerItem{Key: fmt.Sprint(index), Label: fmt.Sprintf("Item %02d", index)}
 	}
-	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{Items: items, Selection: "0"}})
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{Items: items, Selection: "0"}})
 	pump := func() []string {
 		application.Pump(80, 24)
 		application.Pump(80, 24)
@@ -195,12 +195,12 @@ func TestPickerMessagesReplaceTheListAndStatusKeepsTheCloseHint(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
 		name   string
-		picker picker
+		picker palettePicker
 		want   []string
 	}{
-		{name: "empty", picker: picker{Footer: "↑↓ move · esc close"}, want: []string{"│ No results", "│ ↑↓ move · esc close"}},
-		{name: "error", picker: picker{Message: "Could not load models.", MessageTone: pickerToneDanger, Footer: "esc close"}, want: []string{"│ Could not load models.", "│ esc close"}},
-		{name: "status", picker: picker{Items: pickerTestItems(), Footer: "↑↓ move · enter apply · esc close", Status: "Apply failed: offline", StatusTone: pickerToneDanger}, want: []string{"│ Apply failed: offline", "esc close │"}},
+		{name: "empty", picker: palettePicker{Footer: "↑↓ move · esc close"}, want: []string{"│ No results", "│ ↑↓ move · esc close"}},
+		{name: "error", picker: palettePicker{Message: "Could not load models.", MessageTone: pickerToneDanger, Footer: "esc close"}, want: []string{"│ Could not load models.", "│ esc close"}},
+		{name: "status", picker: palettePicker{Items: pickerTestItems(), Footer: "↑↓ move · enter apply · esc close", Status: "Apply failed: offline", StatusTone: pickerToneDanger}, want: []string{"│ Apply failed: offline", "esc close │"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: test.picker})
@@ -227,7 +227,7 @@ func pickerHierarchyItems() []pickerItem {
 
 func TestPickerHierarchyIndentsLabelsAndShowsDisclosureInTheHintColumn(t *testing.T) {
 	t.Parallel()
-	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
 		Title: "Sessions", TitleMeta: "5 sessions", Items: pickerHierarchyItems(), Selection: "oauth",
 	}})
 	application.Pump(80, 24)
@@ -245,7 +245,7 @@ func TestPickerHierarchyIndentsLabelsAndShowsDisclosureInTheHintColumn(t *testin
 func TestPickerDisclosureClickTogglesAndRowClickActivates(t *testing.T) {
 	t.Parallel()
 	var activated, toggled []string
-	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
 		Items: pickerHierarchyItems(), Selection: "auth",
 		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
 		OnToggle:   func(_ ui.EventContext, key string) { toggled = append(toggled, key) },
@@ -275,7 +275,7 @@ func TestPickerDisclosureClickTogglesAndRowClickActivates(t *testing.T) {
 func TestPickerTitleMetaShowsSpinnerWhileLoading(t *testing.T) {
 	t.Parallel()
 	theme := ui.DefaultThemeSet().Dark
-	application := uitest.New(pickerTestHarness{Theme: theme, Picker: picker{
+	application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{
 		Title: "Sessions", TitleMeta: "switching…", TitleMetaTone: pickerToneLoading, Items: pickerHierarchyItems(),
 	}})
 	application.Pump(80, 24)
