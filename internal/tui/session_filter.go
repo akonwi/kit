@@ -1,37 +1,56 @@
 package tui
 
-import (
-	"strings"
+import "time"
 
-	"go.rockorager.dev/vaxis"
-	"go.rockorager.dev/vaxis/ui"
-)
+// Session explorer rows are filtered by filterPickerTree, the picker filter
+// hook for hierarchies: matches rank like every picker's items, by label and
+// working directory, but each is shown under its ancestors and families move
+// together. The explorer needs this because a child session is meaningless
+// without the parent it was forked from.
 
-// filteredSessions searches only explicit session names, never IDs or paths.
-// Matching children are independent results, even under collapsed ancestors.
-func (c *sessionExplorerController) filteredSessions() []sessionExplorerItem {
-	query := strings.ToLower(strings.TrimSpace(c.Query))
-	matches := make([]sessionExplorerItem, 0)
-	for _, item := range c.Sessions {
-		if strings.TrimSpace(item.Name) == "" || !strings.Contains(strings.ToLower(item.Name), query) {
-			continue
-		}
-		item.Tree, item.Expanded = false, false
-		item.Depth, item.ChildCount = 0, 0
-		item.MissingParent = item.ParentSessionID != ""
-		matches = append(matches, item)
-	}
-	return matches
+// pickerCatalog returns every session in tree order as picker items, with
+// the remembered expansion as each parent's disclosure.
+func (c *sessionExplorerController) pickerCatalog(now time.Time) []pickerItem {
+	return sessionExplorerPickerItems(c.treeSessions(), c.CurrentSessionID, now)
 }
 
+// treeSessions returns the catalog with the remembered expansion applied.
+func (c *sessionExplorerController) treeSessions() []sessionExplorerItem {
+	sessions := make([]sessionExplorerItem, len(c.Sessions))
+	for index, item := range c.Sessions {
+		item.Expanded = c.expanded[item.ID]
+		sessions[index] = item
+	}
+	return sessions
+}
+
+// keyModel returns the explorer's canonical picker key model.
+func (c *sessionExplorerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: c.Query, Selection: c.Selection, Filter: filterPickerTree}
+}
+
+// bestSessionMatch returns the best-ranked session for a non-blank query. It
+// is highlighted even when its ancestors are listed above it.
+func (c *sessionExplorerController) bestSessionMatch(query string) string {
+	if matches := filterPickerItems(query, c.pickerCatalog(time.Time{})); len(matches) > 0 {
+		return matches[0].Key
+	}
+	return ""
+}
+
+// SetQuery filters the sessions. A non-blank query highlights the first match;
+// clearing it restores the previous selection or its nearest visible ancestor.
 func (c *sessionExplorerController) SetQuery(query string) {
 	if !c.Open || c.Switching || c.RenameOpen || c.DeleteOpen || c.Query == query {
 		return
 	}
 	c.Query = query
-	c.reconcileVisibleSelection()
+	if !pickerQueryBlank(query) {
+		c.Selection = c.bestSessionMatch(query)
+	} else {
+		c.reconcileVisibleSelection()
+	}
 	c.SwitchError, c.DeleteError = "", ""
-	c.requestReveal()
 }
 
 func (c *sessionExplorerController) reconcileVisibleSelection() {
@@ -56,68 +75,4 @@ func (c *sessionExplorerController) reconcileVisibleSelection() {
 	if len(visible) > 0 {
 		c.Selection = visible[0].ID
 	}
-}
-
-// HandleEditorKey follows the command palette's controller-owned query input,
-// including input delivered before the newly opened field has painted.
-func (c *sessionExplorerController) HandleEditorKey(key ui.Key) bool {
-	if !c.Open || key.EventType == ui.EventRelease || key.MatchString("Escape") || key.MatchString("Ctrl+c") {
-		return false
-	}
-	if c.Switching || c.RenameOpen || c.DeleteOpen {
-		return true
-	}
-	query := c.Query
-	if key.EventType == vaxis.EventPaste {
-		c.SetQuery(query + palettePasteText(key))
-		return true
-	}
-	if key.MatchString("Ctrl+u") {
-		c.SetQuery("")
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
-	switch {
-	case key.MatchString("Backspace"):
-		runes := []rune(query)
-		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
-		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
-	}
-	c.SetQuery(query)
-	return true
-}
-
-func (w sessionExplorerSurface) queryField(theme ui.Theme) ui.Widget {
-	theme.Surface, theme.SurfaceHovered = theme.Background, theme.Background
-	cursor := len(w.Snapshot.Query)
-	return ui.Padding(ui.Insets{Left: 2, Right: 2}, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-		ui.Text{Value: "> ", Style: ui.Style{Foreground: theme.MutedForeground}},
-		textInput(theme, textInputConfig{
-			Value: w.Snapshot.Query, Placeholder: "Filter session names…", CursorOffset: &cursor,
-			AutoFocus: true, OnChanged: w.Callbacks.QueryChanged,
-		}),
-	}})
-}
-
-func sessionFilterHintText(width int, action string) string {
-	if action == "" {
-		action = "switch"
-	}
-	for _, candidate := range []string{
-		"↑↓ move · enter " + action + " · ctrl+d delete · ctrl+u clear · esc close",
-		"enter " + action + " · ctrl+d delete · ctrl+u clear · esc close",
-	} {
-		if len([]rune(candidate)) <= width {
-			return candidate
-		}
-	}
-	return "enter " + action + " · ctrl+u clear · esc close"
 }

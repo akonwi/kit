@@ -524,7 +524,7 @@ func TestPresentToolCallUsesTypedTitlesAndSummaries(t *testing.T) {
 
 func TestTruncateToolPathTailPreservesInformativeEnd(t *testing.T) {
 	t.Parallel()
-	if got := truncateToolPathTail("docs/design/0012-native-macos-client.md", 24); got != "⋯/native-macos-client.md" {
+	if got := truncateToolPathTail("docs/design/0012-native-macos-client.md", 24); got != "…/native-macos-client.md" {
 		t.Fatalf("tail path = %q", got)
 	}
 }

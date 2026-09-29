@@ -1,10 +1,6 @@
 package tui
 
-import (
-	"strings"
-
-	"github.com/akonwi/kit/internal/auth"
-)
+import "github.com/akonwi/kit/internal/auth"
 
 const anthropicOAuthOptionID = "anthropic-oauth"
 
@@ -37,21 +33,6 @@ var authProviderOptions = []authProviderOption{
 		ID: anthropicOAuthOptionID, ProviderID: auth.AnthropicProviderID, Name: "Claude",
 		Method: "Pro or Max plan · browser", DefaultModel: "anthropic/claude-sonnet-4-6",
 	},
-}
-
-func filteredAuthProviders(query string) []authProviderOption {
-	query = strings.ToLower(strings.TrimSpace(query))
-	if query == "" {
-		return append([]authProviderOption(nil), authProviderOptions...)
-	}
-	result := make([]authProviderOption, 0, len(authProviderOptions))
-	for _, provider := range authProviderOptions {
-		haystack := strings.ToLower(provider.Name + " " + provider.Method)
-		if strings.Contains(haystack, query) {
-			result = append(result, provider)
-		}
-	}
-	return result
 }
 
 func authProviderByID(providerID string) (authProviderOption, bool) {

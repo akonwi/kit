@@ -13,11 +13,11 @@ const (
 	inputBase inputOwner = iota
 	inputFileMention
 	inputSessionMention
+	inputBashHistory
+	inputMessageHistory
 	inputInteraction
 	inputAuth
 	inputPane
-	inputBashHistory
-	inputMessageHistory
 	inputConfiguration
 	inputSessionDetails
 	inputMCPStatus
@@ -36,7 +36,19 @@ const (
 )
 
 func (o inputOwner) permitsRoot() bool {
-	return o == inputBase || o == inputFileMention || o == inputSessionMention
+	return o == inputBase || o.inlinePicker()
+}
+
+// inlinePicker reports whether the owner is an inline picker attached to the
+// composer. The composer keeps focus and receives every key the picker's
+// navigation model leaves unhandled.
+func (o inputOwner) inlinePicker() bool {
+	switch o {
+	case inputFileMention, inputSessionMention, inputBashHistory, inputMessageHistory:
+		return true
+	default:
+		return false
+	}
 }
 
 func (o inputOwner) modal() bool      { return o >= inputAuth }
@@ -178,15 +190,12 @@ func (s *appState) reconcileInputOwner() {
 	snapshot := shellSnapshot{Phase: s.phase, Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot(), PaneInput: s.paneInput}
 	if s.paneInput.Kind != paneInputNone && !s.paneInput.active(snapshot) {
 		s.paneInput = paneInputOwner{}
+		s.paneInputKeyHandler = nil
+		s.paneInputKeyHandlerOwner = paneInputOwner{}
 		s.inputGeneration++
 	}
 	if len(s.pendingInteractions) > 0 || !composerOwnsWorkspaceInput(s.workspace.Snapshot()) {
-		s.fileMention.Close()
-		if s.sessionMention.Open {
-			s.closeSessionMention()
-		}
-		s.bashHistory.Close()
-		s.messageHistory.Close()
+		s.closeInlinePickers()
 	}
 	owner := s.inputOwner()
 	view := shellView{Snapshot: shellSnapshot{Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot()}}
@@ -216,11 +225,32 @@ func (s *appState) admitRootModal() bool {
 		return false
 	}
 	s.inputGeneration++
+	s.closeInlinePickers()
+	return true
+}
+
+// closeInlinePickers closes every picker attached to the composer, leaving
+// the composer text as it is.
+func (s *appState) closeInlinePickers() {
 	s.fileMention.Close()
 	if s.sessionMention.Open {
 		s.closeSessionMention()
 	}
-	return true
+	s.bashHistory.Close()
+	s.messageHistory.Close()
+}
+
+// composerKeepsInput reports whether a key the input owner ignored may reach
+// the composer although the current owner has not been painted yet. Inline
+// pickers never move focus from the composer, so switching between them and
+// the base owner does not change where a key lands.
+func (s *appState) composerKeepsInput() bool {
+	current, rendered := s.inputToken(), s.renderedInput
+	if !current.owner.permitsRoot() || !rendered.owner.permitsRoot() || (!current.owner.inlinePicker() && !rendered.owner.inlinePicker()) {
+		return false
+	}
+	current.owner, current.generation = rendered.owner, rendered.generation
+	return current == rendered
 }
 
 // deliverPaste never dispatches pasted Enter/Space to a button or shortcut.
@@ -281,5 +311,5 @@ func renderedInputTarget(ctx ui.EventContext) inputOwner {
 func (s *appState) targetOwnsInput(ctx ui.EventContext) bool {
 	target := renderedInputTarget(ctx)
 	owner := s.inputOwner()
-	return target == owner || (target == inputBase && (owner == inputFileMention || owner == inputSessionMention))
+	return target == owner || (target == inputBase && owner.inlinePicker())
 }

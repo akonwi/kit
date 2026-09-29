@@ -349,8 +349,6 @@ func (s *appState) loadBashHistory() {
 		return
 	}
 	operation := s.operation
-	query := s.bashHistory.Query
-	selection := s.bashHistory.Selection
 	runtime := s.Context().Runtime()
 	// The read outlives this function, so its deadline belongs to the goroutine
 	// that performs it, not to this function's scope.
@@ -392,11 +390,13 @@ func (s *appState) loadBashHistory() {
 				if !s.bashHistory.Open {
 					return
 				}
-				s.bashHistory.Query = query
+				// The query follows the composer, which may have changed
+				// while the page was in flight.
+				selection := s.bashHistory.Selection
 				s.bashHistory.Entries = entries
 				s.bashHistory.HasMore, s.bashHistory.OlderBefore = hasMore, before
 				s.bashHistory.Loading = false
-				s.bashHistory.Selection = firstBashHistoryID(s.bashHistory.filtered())
+				s.bashHistory.Selection = s.bashHistory.newest()
 				if _, ok := s.bashHistory.Selected(); !ok {
 					s.bashHistory.Selection = selection
 				}
@@ -509,14 +509,15 @@ func (s *appState) bashHistoryEntries() []bashHistoryEntry {
 	return entries
 }
 
+// selectBashHistory puts the execution with executionID into the composer,
+// from Enter or a click.
 func (s *appState) selectBashHistory(_ ui.EventContext, executionID string) {
-	entry, ok := s.bashHistory.Selected()
-	if executionID != "" && (!ok || entry.ID != executionID) {
-		for _, candidate := range s.bashHistory.Entries {
-			if candidate.ID == executionID {
-				entry, ok = candidate, true
-				break
-			}
+	var entry bashHistoryEntry
+	ok := false
+	for _, candidate := range s.bashHistory.Entries {
+		if candidate.ID == executionID {
+			entry, ok = candidate, true
+			break
 		}
 	}
 	if !ok {

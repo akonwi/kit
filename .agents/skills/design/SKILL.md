@@ -160,7 +160,7 @@ Examples: settings, login, session exploration, command palette, workspace file 
 
 OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Keep dialog and border-cell backgrounds continuous; do not add decorative inner borders to compensate.
 
-Compose picker behavior with `Picker.Root`, `Picker.Header`, `Picker.Body`, and `Picker.Footer`. Put that composition inside `InlinePicker` for a transient picker or `Dialog.Root` for a modal picker; do not fork picker interaction and selection styling.
+Palette pickers use `palettePicker`; inline pickers use `inlinePicker`. Do not fork picker interaction and selection styling.
 
 ### Interaction dock
 
@@ -234,7 +234,7 @@ want simultaneous session views compose Kit clients with terminal tabs, panes,
 tmux, or another native terminal workflow.
 
 - Keep session exploration and switching available on demand through the
-  universal command palette and session explorer; it is not persistent shell
+  command palette and session explorer; it is not persistent shell
   navigation.
 - Global chrome describes only the attached session and its active run.
 - The daemon's multi-session capability should make attach/detach and terminal
@@ -403,13 +403,16 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 ### Interactive elements
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
-- **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
-  Hover and selection backgrounds cover the entire row, including text,
-  metadata, gaps, and padding. Let the row surface own its background rather
-  than painting an idle background over it in child text spans.
-- **Searchable modal pickers:** use the shared `>` search marker and input
-  spacing, a scrollbar for overflow, and keep keyboard selection visible when
-  navigating, filtering, or resizing.
+- **Pickers:** a centered modal list is a *palette picker* and must render
+  through `palettePicker` (`internal/tui/palette_picker.go`), which owns the
+  frame, filtering, the display-only search field, rows, selection, and
+  overflow presentation. Pass the query and catalog, not filtered items or a
+  search `textInputConfig`; edit the query only through `pickerKeyModel`.
+  Custom matching goes through one documented `pickerFilter` hook built on
+  `filterPickerItems`. A list anchored to
+  the composer or another point is an *inline picker* and renders through
+  `inlinePicker` (`internal/tui/inline_picker.go`). See "Picker
+  terminology" in `docs/design/v2-ui-direction.md`.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render
   unavailable rows with disabled/muted text plus a concise reason such as

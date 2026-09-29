@@ -1,5 +1,7 @@
 package tui
 
+import "go.rockorager.dev/vaxis/ui"
+
 // paneInputKind identifies a pane-local surface that temporarily owns shell
 // input. It is intentionally limited to explicit pane children rather than an
 // arbitrary overlay stack.
@@ -44,15 +46,40 @@ func (o paneInputOwner) samePane(other paneInputOwner) bool {
 	return o.SessionID == other.SessionID && o.WorkspaceID == other.WorkspaceID && o.Pane == other.Pane && o.Generation == other.Generation
 }
 
-func (s *appState) setPaneInputOwner(descriptor workspacePaneDescriptor, kind paneInputKind, active bool) bool {
+func (s *appState) paneInputCandidate(descriptor workspacePaneDescriptor, kind paneInputKind) (paneInputOwner, bool) {
 	identity, err := workspacePaneIdentityFor(descriptor)
 	if err != nil {
-		return false
+		return paneInputOwner{}, false
 	}
-	candidate := paneInputOwner{
+	return paneInputOwner{
 		Kind: kind, SessionID: s.session.ID, WorkspaceID: s.workspaceID,
 		Pane: identity, Generation: descriptor.OpenGeneration,
+	}, true
+}
+
+func (s *appState) setPaneInputKeyHandler(descriptor workspacePaneDescriptor, handler func(ui.Key) ui.EventResult) {
+	candidate, ok := s.paneInputCandidate(descriptor, paneInputDiffTarget)
+	if !ok {
+		return
 	}
+	if handler != nil {
+		if s.paneInput != candidate {
+			return
+		}
+		s.paneInputKeyHandler, s.paneInputKeyHandlerOwner = handler, candidate
+		return
+	}
+	if s.paneInputKeyHandlerOwner == candidate {
+		s.paneInputKeyHandler, s.paneInputKeyHandlerOwner = nil, paneInputOwner{}
+	}
+}
+
+func (s *appState) setPaneInputOwner(descriptor workspacePaneDescriptor, kind paneInputKind, active bool) bool {
+	candidate, ok := s.paneInputCandidate(descriptor, kind)
+	if !ok {
+		return false
+	}
+	identity := candidate.Pane
 	if active {
 		if s.paneInput == candidate {
 			return true
@@ -70,6 +97,9 @@ func (s *appState) setPaneInputOwner(descriptor workspacePaneDescriptor, kind pa
 				return
 			}
 			s.paneInput = paneInputOwner{}
+			if s.paneInputKeyHandlerOwner == candidate {
+				s.paneInputKeyHandler, s.paneInputKeyHandlerOwner = nil, paneInputOwner{}
+			}
 		}
 		s.inputGeneration++
 	})

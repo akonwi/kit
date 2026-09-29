@@ -67,7 +67,7 @@ func TestPluginFooterReservesCompleteOverflowLabelWithLocation(t *testing.T) {
 	app := uitest.New(ui.SizedBox{Width: 16, Height: 1, Child: pluginFooterView{Location: "~/very-long-project", Footer: footer}})
 	app.Pump(16, 1)
 	app.Pump(16, 1)
-	if got := strings.TrimSpace(paintedRows(app, 16, 1)[0]); got != glyphEllipsis+"ject · … 1 more" {
+	if got := strings.TrimSpace(paintedRows(app, 16, 1)[0]); got != glyphTruncation+"ject · … 1 more" {
 		t.Fatalf("reserved overflow label = %q", got)
 	}
 }
@@ -261,12 +261,12 @@ func TestFooterLocationKeepsCompleteVCSMetadataAtNarrowWidths(t *testing.T) {
 		footer *protocol.PluginFooter
 		want   string
 	}{
-		{name: "no plugins", width: 28, want: glyphEllipsis + "/project (feature* · PR #8)"},
-		{name: "one plugin", width: 32, footer: &protocol.PluginFooter{Items: []protocol.PluginFooterItem{{Content: []protocol.PluginFooterSegment{{Text: "Ready"}}}}}, want: glyphEllipsis + "ject (feature* · PR #8) · Ready"},
+		{name: "no plugins", width: 28, want: glyphTruncation + "/project (feature* · PR #8)"},
+		{name: "one plugin", width: 32, footer: &protocol.PluginFooter{Items: []protocol.PluginFooterItem{{Content: []protocol.PluginFooterSegment{{Text: "Ready"}}}}}, want: glyphTruncation + "ject (feature* · PR #8) · Ready"},
 		{name: "overflow", width: 29, footer: &protocol.PluginFooter{Items: []protocol.PluginFooterItem{{Content: []protocol.PluginFooterSegment{{Text: "Very long status"}}}, {Content: []protocol.PluginFooterSegment{{Text: "Second"}}}}}, want: "(feature* · PR #8) · … 2 more"},
 		{name: "suffix only", width: 18, want: "(feature* · PR #8)"},
 		{name: "PR only", width: 7, want: "(PR #8)"},
-		{name: "too narrow for PR", width: 6, want: glyphEllipsis},
+		{name: "too narrow for PR", width: 6, want: glyphTruncation},
 		{name: "hidden", width: 32, footer: &protocol.PluginFooter{LocationHidden: true}, want: ""},
 	} {
 		t.Run(test.name, func(t *testing.T) {
@@ -305,7 +305,7 @@ func TestFooterLocationTruncatesUnicodeCWDByCellsBeforeVCS(t *testing.T) {
 	app := uitest.New(ui.SizedBox{Width: width, Height: 1, Child: view})
 	app.Pump(width, 1)
 	app.Pump(width, 1)
-	if got, want := strings.TrimSpace(footerPaintedRow(app, width)), glyphEllipsis+"ロ ジ ェ ク ト  (界 界 * · PR #42)"; got != want {
+	if got, want := strings.TrimSpace(footerPaintedRow(app, width)), glyphTruncation+"ロ ジ ェ ク ト  (界 界 * · PR #42)"; got != want {
 		t.Fatalf("footer = %q, want %q", got, want)
 	}
 }
@@ -316,9 +316,9 @@ func TestFooterLocationWithoutPRKeepsBranchWhole(t *testing.T) {
 		width int
 		want  string
 	}{
-		{20, glyphEllipsis + "e (feature-branch*)"},
+		{20, glyphTruncation + "e (feature-branch*)"},
 		{17, "(feature-branch*)"},
-		{16, glyphEllipsis + "ath/to/worktree"},
+		{16, glyphTruncation + "ath/to/worktree"},
 	} {
 		app := uitest.New(ui.SizedBox{Width: test.width, Height: 1, Child: pluginFooterView{Location: cwd + " (feature-branch*)", LocationBase: cwd}})
 		app.Pump(test.width, 1)

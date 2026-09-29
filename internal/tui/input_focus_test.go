@@ -77,15 +77,33 @@ type ownershipFocusHarnessState struct {
 	scroll                  ui.ScrollController
 }
 
+// HandleEvent routes modal keys to the palette's key model, the only route
+// that edits a picker query; Escape is left to the shell's dismissal.
+func (s *ownershipFocusHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	key, ok := event.(ui.Key)
+	if ctx.Phase() != ui.CapturePhase || !ok || !s.modal {
+		return ui.EventIgnored
+	}
+	model := pickerKeyModel{Query: s.query, Filter: filterPaletteItems}
+	var result pickerKeyResult
+	s.SetState(func() {
+		result = model.HandleKey(key, paletteCatalog(false, nil))
+		s.query = model.Query
+	})
+	if !result.Handled || result.Dismiss {
+		return ui.EventIgnored
+	}
+	return ui.EventHandled
+}
+
 func (s *ownershipFocusHarnessState) Build(ui.BuildContext) ui.Widget {
 	snapshot := shellSnapshot{Phase: phaseReady, Session: protocol.SessionInfo{ID: "session", Name: "Focus test"}, Scroll: &s.scroll, PaletteOpen: s.modal, PaletteQuery: s.query, Composer: s.composer}
 	if s.pending {
 		snapshot.PendingInteractions = []protocol.InteractionRequest{{ID: "request", Kind: protocol.InteractionInput, Title: "Answer"}}
 	}
 	return shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
-		ComposerChanged:     func(_ ui.EventContext, value string) { s.SetState(func() { s.composer = value }) },
-		PaletteQueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.query = value }) },
-		Dismiss:             func(ui.EventContext) { s.SetState(func() { s.modal = false }) },
+		ComposerChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.composer = value }) },
+		Dismiss:         func(ui.EventContext) { s.SetState(func() { s.modal = false }) },
 		RespondInteraction: func(_ ui.EventContext, response protocol.InteractionResponse, done func(error)) {
 			s.SetState(func() {
 				if response.Value != nil {

@@ -3,7 +3,6 @@ package tui
 import (
 	"sort"
 	"strings"
-	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -11,8 +10,6 @@ import (
 )
 
 const (
-	paletteMaxNameWidth = 32
-
 	paletteCommandCD            paletteCommandID = "cd"
 	paletteCommandCompact       paletteCommandID = "compact"
 	paletteCommandLogin         paletteCommandID = "login"
@@ -41,10 +38,13 @@ type paletteCommand struct {
 	DisabledReason string
 	Plugin         *protocol.PluginCommand
 	ArgumentHint   string
-	ID             paletteCommandID
-	Name           string
-	Description    string
-	Aliases        []string
+	// Source names where a non-built-in command comes from: user or project
+	// for prompt commands, and the owning plugin for plugin commands.
+	Source      string
+	ID          paletteCommandID
+	Name        string
+	Description string
+	Aliases     []string
 }
 
 type paletteSnapshot struct {
@@ -55,9 +55,7 @@ type paletteSnapshot struct {
 }
 
 type paletteCallbacks struct {
-	QueryChanged ui.TextChangedCallback
-	RunQuery     ui.TextChangedCallback
-	RunCommand   func(ui.EventContext, paletteCommandID)
+	RunCommand func(ui.EventContext, paletteCommandID)
 }
 
 type commandPaletteSurface struct {
@@ -65,154 +63,53 @@ type commandPaletteSurface struct {
 	Callbacks paletteCallbacks
 }
 
-func (commandPaletteSurface) CreateState() ui.State {
-	return &commandPaletteSurfaceState{selection: -1}
-}
-
-type commandPaletteSurfaceState struct {
-	ui.StateBase
-	scroll      ui.ScrollController
-	list        ui.SliverListController
-	selection   int
-	query       string
-	count       int
-	viewport    int
-	needsReveal bool
-}
-
-func (s *commandPaletteSurfaceState) TickFrame(_ time.Time) bool {
-	viewport := s.scroll.Metrics().ViewportHeight
-	if viewport != s.viewport {
-		s.viewport = viewport
-		s.needsReveal = true
+// Build maps palette commands onto the canonical picker: name as label,
+// argument hint, description, and the source of non-built-in commands as
+// trailing metadata. A selection hidden by the query falls back to the first
+// enabled match.
+func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
+	catalog := paletteCatalog(w.Snapshot.Running, w.Snapshot.Contributions)
+	model := pickerKeyModel{Query: w.Snapshot.Query, Selection: string(w.Snapshot.Selection), Filter: filterPaletteItems}
+	items := model.Items(catalog)
+	if pickerItemIndex(items, model.Selection) < 0 {
+		model.Selection = firstEnabledPickerKey(items)
 	}
-	if !s.needsReveal || viewport <= 0 || !s.list.Attached() {
-		return false
-	}
-	s.needsReveal = false
-	return s.list.RevealIndex(s.selection)
-}
-
-func (s *commandPaletteSurfaceState) Build(ctx ui.BuildContext) ui.Widget {
-	return s.build(ctx, s.Widget().(commandPaletteSurface))
-}
-
-func (s *commandPaletteSurfaceState) build(ctx ui.BuildContext, w commandPaletteSurface) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	commands := filteredPaletteCommands(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
-	selection, hasSelection := paletteSelectionIndex(w.Snapshot.Selection, commands)
-	if !hasSelection {
-		selection = 0
-	}
-	if selection != s.selection || w.Snapshot.Query != s.query || len(commands) != s.count {
-		s.selection, s.query, s.count = selection, w.Snapshot.Query, len(commands)
-		s.needsReveal = true
-	}
-	catalog := paletteCommands(w.Snapshot.Contributions)
-	nameWidth := paletteNameWidth(catalog)
-	for _, command := range catalog {
-		if paletteCommandDisabledReason(command.ID, w.Snapshot.Running, w.Snapshot.Contributions) != "" {
-			nameWidth = min(nameWidth, 16)
-			break
-		}
-	}
-
-	var sliver ui.Widget
-	if len(commands) == 0 {
-		sliver = ui.SliverToBox{Child: ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}}}
-	} else {
-		sliver = ui.SliverListBuilder{Controller: &s.list, Count: len(commands), ItemExtent: 1,
-			Builder: func(_ ui.BuildContext, index int) ui.Widget {
-				command := commands[index]
-				return paletteOptionRow{
-					Command: command, NameWidth: nameWidth, DisabledReason: paletteCommandDisabledReason(command.ID, w.Snapshot.Running, w.Snapshot.Contributions),
-					Selected: hasSelection && index == selection,
-					OnPressed: func(event ui.EventContext) {
-						if w.Callbacks.RunCommand != nil {
-							w.Callbacks.RunCommand(event, command.ID)
-						}
-					},
-				}
-			},
-		}
-	}
-
-	queryCursor := len(w.Snapshot.Query)
-	query := pickerSearchInput(theme, textInputConfig{
-		Value: w.Snapshot.Query, Placeholder: "Search commands…",
-		CursorOffset: &queryCursor,
-		OnChanged:    w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery,
-		AutoFocus: true,
-	})
-	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch,
-		Children: []ui.Widget{
-			query,
-			ui.SizedBox{Height: 1},
-			ui.Expanded(ui.Scrollbar{Child: ui.CustomScrollView{Controller: &s.scroll, Slivers: []ui.Widget{sliver}}}),
+	return palettePicker{
+		Query: model.Query, Search: &pickerSearch{Placeholder: "Search commands…"},
+		Catalog: catalog, Filter: model.Filter, Selection: model.Selection,
+		Footer: "↑↓ move · enter run · esc close",
+		OnActivate: func(ctx ui.EventContext, key string) {
+			if w.Callbacks.RunCommand != nil {
+				w.Callbacks.RunCommand(ctx, paletteCommandID(key))
+			}
 		},
-	})
-	footer := ui.Text{
-		Value:    "↑↓ move · enter run · esc close",
-		Style:    ui.Style{Foreground: theme.MutedForeground},
-		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-	}
-	content := pickerDialogContent(theme, body, footer)
-	return pickerDialogPositioner{
-		Percent: 80, MinWidth: 48, MaxWidth: 96, Height: pickerModalMinHeight,
-		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content},
 	}
 }
 
-type paletteOptionRow struct {
-	Command        paletteCommand
-	NameWidth      int
-	Selected       bool
-	DisabledReason string
-	OnPressed      ui.VoidCallback
+// filterPaletteItems is the command palette's filter hook. The query is a
+// command followed by its arguments, so only the command word is matched with
+// the shared filter; "review auth module" keeps showing review.
+func filterPaletteItems(query string, catalog []pickerItem) []pickerItem {
+	return filterPickerItems(paletteFilterQuery(query), catalog)
 }
 
-func (w paletteOptionRow) Build(ctx ui.BuildContext) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	presentation := resolvePickerRowPresentation(ctx, theme)
-	rowTheme := presentation.Theme
-	primary := presentation.ItemText
-	if w.Selected {
-		primary = presentation.FocusedText
+// paletteCatalog maps every palette command onto a picker item.
+func paletteCatalog(running bool, contributions []paletteCommand) []pickerItem {
+	commands := paletteCommands(contributions)
+	items := make([]pickerItem, 0, len(commands))
+	for _, command := range commands {
+		items = append(items, palettePickerItem(command, running, contributions))
 	}
-	if w.DisabledReason != "" {
-		primary = theme.DisabledForeground
-		rowTheme.Primary = theme.SurfaceHovered
-		rowTheme.PrimaryHovered = theme.SurfaceHovered
+	return items
+}
+
+func palettePickerItem(command paletteCommand, running bool, contributions []paletteCommand) pickerItem {
+	return pickerItem{
+		Key: string(command.ID), Label: command.Name, Hint: command.ArgumentHint,
+		Description: command.Description, Meta: command.Source,
+		DisabledReason: paletteCommandDisabledReason(command.ID, running, contributions),
+		SearchText:     command.Description, SearchAliases: command.Aliases,
 	}
-	secondary := theme.MutedForeground
-	if w.Selected {
-		secondary = presentation.FocusedText
-	}
-	if w.DisabledReason != "" {
-		secondary = theme.DisabledForeground
-	}
-	description := w.Command.Description
-	if w.DisabledReason != "" {
-		description = glyphCircleSlash + " " + w.DisabledReason + " · " + description
-	}
-	// ListTile owns the full-row background, including hover and selection.
-	// Opaque child spans would mask it over the label and description.
-	content := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.SizedBox{Width: w.NameWidth, Child: ui.RichText{
-			Spans:    paletteCommandNameSpans(w.Command, ui.Style{Foreground: primary}, ui.Style{Foreground: secondary}),
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}},
-		ui.SizedBox{Width: 1},
-		ui.Expanded(ui.Text{
-			Value: description, Style: ui.Style{Foreground: secondary},
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}),
-	}}
-	return ui.Provider[ui.Theme]{Value: rowTheme, Child: ui.ListTile{
-		Title: content, Selected: w.Selected, Disabled: w.DisabledReason != "", OnPressed: w.OnPressed,
-		Padding: ui.Insets{Right: 1}, MinHeight: 1,
-	}}
 }
 
 type paletteController struct {
@@ -227,8 +124,7 @@ func (p *paletteController) OpenFor(running bool) {
 		return
 	}
 	p.Open = true
-	p.Query = ""
-	p.Selection = firstEnabledPaletteCommandID(filteredPaletteCommands(running, "", p.Contributions), running)
+	p.SetQuery(running, "")
 }
 
 func (p *paletteController) Close() {
@@ -239,30 +135,34 @@ func (p *paletteController) Close() {
 func (p *paletteController) SetContributions(commands []paletteCommand, running bool) {
 	p.Contributions = append([]paletteCommand(nil), commands...)
 	if p.Open && !paletteCommandExists(p.Selection, p.Contributions) && !strings.HasPrefix(string(p.Selection), "plugin:") {
-		p.Selection = firstEnabledPaletteCommandID(filteredPaletteCommands(running, p.Query, p.Contributions), running)
+		p.SetQuery(running, p.Query)
 	}
 }
 
+// keys returns the palette's canonical picker key model and catalog.
+func (p *paletteController) keys(running bool) (pickerKeyModel, []pickerItem) {
+	model := pickerKeyModel{Query: p.Query, Selection: string(p.Selection), Filter: filterPaletteItems}
+	return model, paletteCatalog(running, p.Contributions)
+}
+
+func (p *paletteController) apply(model pickerKeyModel) {
+	p.Query, p.Selection = model.Query, paletteCommandID(model.Selection)
+}
+
+// SetQuery replaces the query and highlights the first enabled match.
 func (p *paletteController) SetQuery(running bool, query string) {
-	p.Query = query
-	p.Selection = firstPaletteCommandID(filteredPaletteCommands(running, query, p.Contributions))
+	model, catalog := p.keys(running)
+	model.SetQuery(query, catalog)
+	p.apply(model)
 }
 
 func (p *paletteController) Move(running bool, delta int) {
-	commands := filteredPaletteCommands(running, p.Query, p.Contributions)
-	if !p.Open || len(commands) == 0 {
+	if !p.Open {
 		return
 	}
-	selection, ok := paletteSelectionIndex(p.Selection, commands)
-	if !ok {
-		p.Selection = commands[0].ID
-		return
-	}
-	selection = (selection + delta) % len(commands)
-	if selection < 0 {
-		selection += len(commands)
-	}
-	p.Selection = commands[selection].ID
+	model, catalog := p.keys(running)
+	model.Move(catalog, delta)
+	p.apply(model)
 }
 
 func (p *paletteController) Selected(running bool, query string) (paletteCommand, bool) {
@@ -278,65 +178,27 @@ func (p *paletteController) Selected(running bool, query string) (paletteCommand
 	return paletteCommand{}, false
 }
 
-// HandleKey applies navigation against current controller state so events do
-// not depend on whether a newly opened palette has painted yet.
+// HandleKey applies one key through the canonical picker key model against
+// current controller state, so keys do not depend on whether a newly opened
+// palette has painted yet. It returns the command to run on activation.
 func (p *paletteController) HandleKey(running bool, key ui.Key) (paletteCommand, bool, bool) {
-	if !p.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+	if !p.Open {
 		return paletteCommand{}, false, false
 	}
+	model, catalog := p.keys(running)
+	result := model.HandleKey(key, catalog)
+	p.apply(model)
 	switch {
-	case key.MatchString("Escape"):
+	case result.Dismiss:
 		p.Close()
-		return paletteCommand{}, false, true
-	case key.MatchString("Up"):
-		p.Move(running, -1)
-		return paletteCommand{}, false, true
-	case key.MatchString("Down"):
-		p.Move(running, 1)
-		return paletteCommand{}, false, true
-	case key.MatchString("Enter"):
+	case result.Activate:
 		command, ok := p.Selected(running, p.Query)
 		if !ok && strings.HasPrefix(string(p.Selection), "plugin:") {
 			return paletteCommand{ID: p.Selection}, true, true
 		}
 		return command, ok, true
-	default:
-		return paletteCommand{}, false, false
 	}
-}
-
-// HandleEditorKey routes text that arrives before the palette field is painted
-// without allowing the still-focused composer editor to mutate.
-func (p *paletteController) HandleEditorKey(running bool, key ui.Key) bool {
-	if !p.Open {
-		return false
-	}
-	if key.EventType == ui.EventRelease {
-		return false
-	}
-	query := p.Query
-	if key.EventType == vaxis.EventPaste {
-		query += palettePasteText(key)
-		p.SetQuery(running, query)
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
-	switch {
-	case key.MatchString("Backspace"):
-		runes := []rune(query)
-		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
-		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
-	}
-	p.SetQuery(running, query)
-	return true
+	return paletteCommand{}, false, result.Handled
 }
 
 // HandleComposerChange is a fallback for renderers that deliver the slash to
@@ -376,22 +238,6 @@ func palettePasteText(key ui.Key) string {
 		}
 		return character
 	}, text)
-}
-
-func firstPaletteCommandID(commands []paletteCommand) paletteCommandID {
-	if len(commands) == 0 {
-		return ""
-	}
-	return commands[0].ID
-}
-
-func firstEnabledPaletteCommandID(commands []paletteCommand, running bool) paletteCommandID {
-	for _, command := range commands {
-		if paletteCommandDisabledReason(command.ID, running, commands) == "" {
-			return command.ID
-		}
-	}
-	return firstPaletteCommandID(commands)
 }
 
 func paletteCommands(contributions ...[]paletteCommand) []paletteCommand {
@@ -475,13 +321,24 @@ func paletteCommandDisabledToast(commandID paletteCommandID, running bool) (toas
 	return toastInput{Title: "Command unavailable", Subtitle: "Available when the session is idle.", Variant: toastWarning}, true
 }
 
-func filteredPaletteCommands(_ bool, query string, contributions ...[]paletteCommand) []paletteCommand {
-	commands := paletteCommands(contributions...)
-	return ui.DefaultFuzzySelectFilter(paletteFilterQuery(query), commands, func(command paletteCommand) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{
-			Title: command.Name, Description: command.Description, Aliases: command.Aliases,
-		}
-	})
+// filteredPaletteCommands returns the commands the palette shows for query,
+// in display order.
+func filteredPaletteCommands(running bool, query string, contributions ...[]paletteCommand) []paletteCommand {
+	var extra []paletteCommand
+	if len(contributions) > 0 {
+		extra = contributions[0]
+	}
+	commands := paletteCommands(extra)
+	byID := make(map[string]paletteCommand, len(commands))
+	for _, command := range commands {
+		byID[string(command.ID)] = command
+	}
+	items := filterPaletteItems(query, paletteCatalog(running, extra))
+	result := make([]paletteCommand, 0, len(items))
+	for _, item := range items {
+		result = append(result, byID[item.Key])
+	}
+	return result
 }
 
 func scratchpadPaletteCommand() paletteCommand {
@@ -492,7 +349,7 @@ func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
 	result := make([]paletteCommand, 0, len(commands))
 	for _, command := range commands {
 		result = append(result, paletteCommand{
-			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name,
+			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name, Source: string(command.Source),
 			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{command.Source, command.Location},
 		})
 	}
@@ -518,42 +375,6 @@ func splitPaletteQuery(value string) (string, string) {
 	return value[:separator], strings.TrimSpace(value[separator+1:])
 }
 
-func paletteSelectionIndex(selection paletteCommandID, commands []paletteCommand) (int, bool) {
-	for index, command := range commands {
-		if command.ID == selection {
-			return index, true
-		}
-	}
-	return 0, false
-}
-
-func paletteNameWidth(commands []paletteCommand) int {
-	width := 0
-	for _, command := range commands {
-		commandWidth := 0
-		for _, character := range vaxis.Characters(paletteCommandLabel(command)) {
-			commandWidth += character.Width
-		}
-		width = max(width, commandWidth)
-	}
-	return min(width, paletteMaxNameWidth)
-}
-
-func paletteCommandLabel(command paletteCommand) string {
-	if command.ArgumentHint == "" {
-		return command.Name
-	}
-	return command.Name + " " + command.ArgumentHint
-}
-
-func paletteCommandNameSpans(command paletteCommand, primary, secondary ui.Style) []ui.TextSpan {
-	spans := []ui.TextSpan{{Text: command.Name, Style: primary}}
-	if command.ArgumentHint != "" {
-		spans = append(spans, ui.TextSpan{Text: " " + command.ArgumentHint, Style: secondary})
-	}
-	return spans
-}
-
 func pluginPaletteCommands(commands []protocol.PluginCommand) []paletteCommand {
 	result := make([]paletteCommand, 0, len(commands))
 	for _, command := range commands {
@@ -561,7 +382,7 @@ func pluginPaletteCommands(commands []protocol.PluginCommand) []paletteCommand {
 		if command.ArgName != "" {
 			hint = "<" + command.ArgName + ">"
 		}
-		result = append(result, paletteCommand{ID: paletteCommandID("plugin:" + command.Instance + ":" + command.ID), Name: command.ID, Description: command.Description, ArgumentHint: hint, Aliases: []string{command.LocalID, command.PluginID, command.Category}, Plugin: &command})
+		result = append(result, paletteCommand{ID: paletteCommandID("plugin:" + command.Instance + ":" + command.ID), Name: command.ID, Source: command.PluginID, Description: command.Description, ArgumentHint: hint, Aliases: []string{command.LocalID, command.PluginID, command.Category}, Plugin: &command})
 	}
 	return result
 }

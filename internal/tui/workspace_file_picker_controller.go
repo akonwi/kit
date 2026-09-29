@@ -14,19 +14,12 @@ type workspaceFileKey struct {
 
 type workspaceFilePickerRowKind uint8
 
-const (
-	workspaceFilePickerEntryRow workspaceFilePickerRowKind = iota
-	workspaceFilePickerLoadingRow
-	workspaceFilePickerEmptyRow
-	workspaceFilePickerTruncatedRow
-	workspaceFilePickerErrorRow
-)
+const workspaceFilePickerEntryRow workspaceFilePickerRowKind = 0
 
 type workspaceFilePickerRow struct {
 	Kind  workspaceFilePickerRowKind
 	Key   workspaceFileKey
 	Entry protocol.FileIndexEntry
-	Text  string
 }
 
 type workspaceFilePickerController struct {
@@ -48,99 +41,86 @@ func (c *workspaceFilePickerController) close() {
 	*c = workspaceFilePickerController{Generation: generation}
 }
 
-func (c workspaceFilePickerController) rows(source indexedFileSource) []workspaceFilePickerRow {
-	workspaceID := c.Workspace.WorkspaceID
-	if c.WorkspaceError != "" {
-		return []workspaceFilePickerRow{{Kind: workspaceFilePickerErrorRow, Text: c.WorkspaceError}}
+func workspaceFilePickerKeyString(key workspaceFileKey) string {
+	if key.WorkspaceID == "" || key.Path == "" {
+		return ""
 	}
-	if workspaceID == "" {
-		return []workspaceFilePickerRow{{Kind: workspaceFilePickerLoadingRow, Text: "Loading workspace…"}}
-	}
-	if source.Error != "" && len(source.Entries) == 0 {
-		return []workspaceFilePickerRow{{Kind: workspaceFilePickerErrorRow, Text: source.Error}}
-	}
-	entries := ui.DefaultFuzzySelectFilter(c.Query, source.Entries, func(entry protocol.FileIndexEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: strings.TrimSuffix(entry.Path, "/")}
-	})
-	rows := make([]workspaceFilePickerRow, 0, len(entries)+1)
-	for _, entry := range entries {
-		rows = append(rows, workspaceFilePickerRow{Kind: workspaceFilePickerEntryRow, Key: workspaceFileKey{WorkspaceID: workspaceID, Path: entry.Path}, Entry: entry})
-	}
-	if len(rows) == 0 {
-		switch {
-		case source.Loading:
-			return []workspaceFilePickerRow{{Kind: workspaceFilePickerLoadingRow, Text: "Loading indexed files…"}}
-		case strings.TrimSpace(c.Query) != "":
-			return []workspaceFilePickerRow{{Kind: workspaceFilePickerEmptyRow, Text: "No matching files"}}
-		default:
-			return []workspaceFilePickerRow{{Kind: workspaceFilePickerEmptyRow, Text: "No indexed files"}}
-		}
-	}
-	if source.Loading {
-		rows = append(rows, workspaceFilePickerRow{Kind: workspaceFilePickerLoadingRow, Text: "Refreshing indexed files…"})
-	}
-	if source.Error != "" {
-		rows = append(rows, workspaceFilePickerRow{Kind: workspaceFilePickerErrorRow, Text: source.Error})
-	}
-	if source.Truncated {
-		rows = append(rows, workspaceFilePickerRow{Kind: workspaceFilePickerTruncatedRow, Text: "Showing first 4,000 indexed paths"})
-	}
-	return rows
+	return key.WorkspaceID + "\x00" + key.Path
 }
 
-func (c workspaceFilePickerController) selectedIndex(rows []workspaceFilePickerRow) int {
-	for index, row := range rows {
-		if row.Kind == workspaceFilePickerEntryRow && row.Key == c.Selection {
-			return index
+// pickerCatalog maps every indexed path onto a picker item.
+func (c workspaceFilePickerController) pickerCatalog(source indexedFileSource) []pickerItem {
+	if c.Workspace.WorkspaceID == "" {
+		return nil
+	}
+	items := make([]pickerItem, 0, len(source.Entries))
+	for _, entry := range source.Entries {
+		item := pickerItem{
+			Key:   workspaceFilePickerKeyString(workspaceFileKey{WorkspaceID: c.Workspace.WorkspaceID, Path: entry.Path}),
+			Label: entry.Path,
+		}
+		if entry.IsDir {
+			item.Meta = "directory"
+		}
+		items = append(items, item)
+	}
+	return items
+}
+
+// keyModel returns the file picker's canonical key model.
+func (c workspaceFilePickerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: c.Query, Selection: workspaceFilePickerKeyString(c.Selection), Filter: filterWorkspaceFileItems}
+}
+
+// filterWorkspaceFileItems is the file picker's filter hook. Indexed
+// directories are listed with a trailing slash, which is not part of the name
+// a user types: matching the bare path lets "internal" rank the internal/
+// directory as an exact match rather than a prefix of it. Scoring is the shared
+// filter's.
+func filterWorkspaceFileItems(query string, catalog []pickerItem) []pickerItem {
+	return filterPickerItemsBy(query, catalog, func(item pickerItem) ui.FuzzySelectItem {
+		match := pickerFuzzyItem(item)
+		match.Title = strings.TrimSuffix(match.Title, "/")
+		return match
+	})
+}
+
+func (c workspaceFilePickerController) rowByPickerKey(source indexedFileSource, key string) (workspaceFilePickerRow, bool) {
+	for _, entry := range source.Entries {
+		rowKey := workspaceFileKey{WorkspaceID: c.Workspace.WorkspaceID, Path: entry.Path}
+		if workspaceFilePickerKeyString(rowKey) == key {
+			return workspaceFilePickerRow{Kind: workspaceFilePickerEntryRow, Key: rowKey, Entry: entry}, true
 		}
 	}
-	for index, row := range rows {
-		if workspaceFilePickerRowSelectable(row) {
-			return index
-		}
+	return workspaceFilePickerRow{}, false
+}
+
+func (c *workspaceFilePickerController) HandleKey(source indexedFileSource, key ui.Key) pickerKeyResult {
+	if !c.Open {
+		return pickerKeyResult{}
 	}
-	return 0
+	model := c.keyModel()
+	result := model.HandleKey(key, c.pickerCatalog(source))
+	c.Query = model.Query
+	if row, ok := c.rowByPickerKey(source, model.Selection); ok {
+		c.Selection = row.Key
+	} else {
+		c.Selection = workspaceFileKey{}
+	}
+	return result
 }
 
 func (c *workspaceFilePickerController) ensureSelection(source indexedFileSource) {
-	rows := c.rows(source)
-	for _, row := range rows {
-		if row.Kind == workspaceFilePickerEntryRow && row.Key == c.Selection {
-			return
-		}
-	}
-	c.Selection = workspaceFileKey{}
-	for _, row := range rows {
-		if workspaceFilePickerRowSelectable(row) {
-			c.Selection = row.Key
-			return
-		}
-	}
-}
-
-func (c *workspaceFilePickerController) move(source indexedFileSource, delta int) {
-	rows := c.rows(source)
-	selectable := make([]workspaceFilePickerRow, 0, len(rows))
-	for _, row := range rows {
-		if workspaceFilePickerRowSelectable(row) {
-			selectable = append(selectable, row)
-		}
-	}
-	if len(selectable) == 0 || delta == 0 {
+	items := c.keyModel().Items(c.pickerCatalog(source))
+	current := workspaceFilePickerKeyString(c.Selection)
+	if pickerItemIndex(items, current) >= 0 {
 		return
 	}
-	index := 0
-	for candidate, row := range selectable {
-		if row.Key == c.Selection {
-			index = candidate
-			break
-		}
+	if row, ok := c.rowByPickerKey(source, firstEnabledPickerKey(items)); ok {
+		c.Selection = row.Key
+	} else {
+		c.Selection = workspaceFileKey{}
 	}
-	index = (index + delta) % len(selectable)
-	if index < 0 {
-		index += len(selectable)
-	}
-	c.Selection = selectable[index].Key
 }
 
 func workspaceFilePickerRowSelectable(row workspaceFilePickerRow) bool {

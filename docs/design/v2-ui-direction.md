@@ -42,9 +42,10 @@ The first review established these constraints:
   users compose one-session Kit clients through terminal tabs, panes, or tmux;
 - preserve subagent oversight through a modal roster/status picker and retained
   tabs for explicitly opened durable conversations;
-- keep one universal command palette rather than adding a separate noun
-  switcher or shortcut;
-- rank palette results in one list instead of grouping them visibly;
+- keep one command palette rather than adding a separate noun switcher or
+  shortcut;
+- rank palette commands in one list by fuzzy score instead of grouping them
+  visibly;
 - preserve the main-branch shell chrome roles: session name top-left, model
   settings, context percentage, and conditional release/update contributions
   top-right, transient status bottom-left, and working-directory/Git context
@@ -137,7 +138,6 @@ of input.
   global cross-session chrome.
 - The command palette mixes commands, prompt content, plugins, and navigation in
   one alphabetical list.
-- Fixed-height dialogs leave large empty regions for narrow result sets.
 - Clipped descriptions and separators can resemble rendering errors; truncation
   does not always communicate omission.
 - Model configuration such as `medium` is shown without a label.
@@ -170,11 +170,13 @@ The transcript explains what happened. High-frequency events, raw tool updates,
 and diagnostics belong in Activity unless they are necessary to understand the
 conversation.
 
-### 4. One palette is the universal find-and-act surface
+### 4. One palette finds and runs commands
 
-`Ctrl+P` finds actions, files, panes, prompts, plugins, and on-demand explorers
-such as Sessions and Subagents in one ranked list. Result metadata explains
-type and scope without splitting the list into permanent visual groups.
+`Ctrl+P` lists built-in, prompt, and plugin commands in one list ranked by fuzzy
+score. Files, panes, sessions, and subagents are not palette results; commands
+such as `files`, `tabs`, `sessions`, and `subagents` open their own pickers.
+Result metadata explains a command's source without splitting the list into
+permanent visual groups.
 
 ### 5. Density follows activity
 
@@ -233,7 +235,7 @@ TUI client
 │   │   └── explicitly opened subagent conversation tabs
 │   └── subagent lineage + mailbox
 └── on-demand surfaces
-    ├── universal ranked palette
+    ├── command palette
     ├── session explorer
     └── settings / auth
 ```
@@ -249,9 +251,41 @@ their terminal's native workflow.
 | --- | --- | --- |
 | Persistent chrome | Session name top-left; model/thinking/context and update contributions top-right; transient status bottom-left; cwd/Git bottom-right; composer | Fixed rows with established ownership |
 | Workspace surface | Agent transcript and retained task context | Full-width tabs with labeled overflow and a modal pane picker |
-| Transient overlay | Universal palette, contextual pickers, toasts, context menus | No heavy frame; content-hugging within bounds |
+| Transient overlay | Inline pickers, toasts, context menus | No heavy frame; anchored to the point that opened them |
+| Palette picker | Command palette and every other centered modal list | One fixed-size frame shaped like the command palette |
 | Dialog | Settings, login, guided questions, destructive confirmation | Centered modal with bounded content |
 | Takeover | Pager, fatal errors, migration/recovery | Full viewport with fixed header/footer |
+
+### Picker terminology
+
+- A **palette picker** is a centered modal list shaped like the command
+  palette: the command palette, model, thinking, theme, file, workspace tab,
+  diff target, and session pickers, and the login provider picker. Every
+  palette picker renders through the shared `palettePicker` widget
+  (`internal/tui/palette_picker.go`). Callers pass the query and the
+  unfiltered catalog; the widget derives the visible rows with the shared
+  filter (`filterPickerItems` in `internal/tui/picker.go`) and shows the query
+  in a display-only search field. The query is edited only through
+  `pickerKeyModel` on the input-owner route, which filters with the same
+  function. A picker that cannot use the shared filter supplies one
+  documented `pickerFilter` hook built on it, used by both the widget and the
+  key model.
+- An **inline picker** is a non-modal list attached to the composer: the file
+  and session mention menus and message and bash history. The composer text is
+  its query and the composer owns the cursor, so an inline picker has no title
+  or search field. Every inline picker renders through the shared
+  `inlinePicker` widget (`internal/tui/inline_picker.go`). It shares the
+  palette picker's items, filter, row rendering, and navigation keys. It has
+  no footer hints; a status, such as a failed refresh, shows below a
+  full-width divider only while present. Its width follows the palette picker
+  rule. It rests on the composer line where it was opened, with its left edge
+  at that point (a mention's trigger, or the start of the composer for
+  history), shifted left only to stay on screen; its height fits the content
+  up to 10 rows and grows upward so the edge next to the composer never
+  moves. Other attached lists, such as the transcript reading section list,
+  use the same presentation without a query.
+- A workspace pane that lists items, such as Subagents, is neither; it is a
+  pane.
 
 ## Visual grammar
 
@@ -269,18 +303,24 @@ their terminal's native workflow.
   using semantic progress color thresholds. The header separator is structural,
   not a progress bar. Omit context at zero or when unavailable.
 - Do not add an elapsed-turn timer.
-- Overlays hug their result count until reaching a named maximum height. The
-  command palette keeps its input near the top quarter so filtering changes only
-  its bottom edge instead of moving the whole surface.
-- Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
-  unexplained glyph.
+- Palette pickers keep a fixed height within viewport bounds so filtering
+  never moves or resizes the surface.
+- Overflow says what was hidden (`3 more`) instead of showing an unexplained
+  glyph.
+- `…` marks text or content shortened to fit: truncated labels and paths
+  (`…/tui/picker.go`, `internal/tui…`) and labels or notices that summarize
+  what was left out, such as the workspace tab strip's `… 3 more`, the
+  composer's `… 3 more annotations`, and `… 12 more lines`.
+- `⋯` stands alone for hidden content with no text: picker overflow rows and
+  the gap between edits in a multi-edit diff. A truncated label therefore
+  never looks like a picker overflow row.
 - Animation is limited to meaningful progress, entry/exit, and state change;
   motion never substitutes for a status label.
 
 ## Navigation model to test
 
 ```text
-Ctrl+P       universal palette: actions, explorers, files, panes, prompts
+Ctrl+P       command palette: built-in, prompt, and plugin commands
 Tab          move focus between selected content and composer
 Shift+Tab    move focus in the reverse direction
 Escape       cancel the innermost reversible interaction
@@ -300,12 +340,13 @@ candidate v2 states:
 2. active streaming run with queue and transcript subagent activity;
 3. modal Subagents picker and retained conversation tab;
 4. narrow terminal;
-5. single ranked, content-hugging command palette.
+5. single fuzzy-ranked, fixed-height command palette.
 
 ## Decisions to make before implementation
 
-1. How should one ranked palette balance relevance, recency, exact matching,
-   type, and scope without visible result groups?
-2. Which additional pane bindings, if any, deserve defaults?
-3. Which v0.34 interactions are R1 requirements versus deliberate v2
+1. Which additional pane bindings, if any, deserve defaults?
+2. Which v0.34 interactions are R1 requirements versus deliberate v2
    simplifications?
+
+Palette ranking is decided: commands rank by fuzzy score alone, without recency,
+type, or scope weighting. See `TUI-CMD-010` in `backlog/tui.md`.

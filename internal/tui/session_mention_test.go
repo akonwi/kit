@@ -56,8 +56,11 @@ func TestSessionMentionSearchAndStableInsertion(t *testing.T) {
 	controller.Observe("See  next", "See # next", false)
 	controller.Observe("See # next", "See #beta next", false)
 	controller.ensureSelection(entries)
-	entry, selected, handled := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyEnter})
-	if !selected || !handled {
+	if result := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyEnter}); !result.Handled || !result.Activate {
+		t.Fatalf("Enter = %+v, want activation", result)
+	}
+	entry, selected := controller.Selected(entries, controller.Selection)
+	if !selected {
 		t.Fatal("Enter did not select")
 	}
 	text, cursor, ok := controller.Insert("See #beta next", entry)
@@ -100,12 +103,13 @@ func TestSessionMentionSurfaceMouseSelection(t *testing.T) {
 	}, Callbacks: shellCallbacks{SelectSessionMention: func(_ ui.EventContext, id string) { selected = id }}})
 	app.Pump(100, 24)
 	rows := paintedRows(app, 100, 24)
-	for _, want := range []string{"Design review · /repo/design", "Tests · /repo/tests", "↑↓ move · enter insert · esc close"} {
-		if !strings.Contains(strings.Join(rows, "\n"), want) {
-			t.Fatalf("missing %q:\n%s", want, strings.Join(rows, "\n"))
-		}
-	}
-	row := findPaintedRow(rows, "Tests · /repo/tests")
+	assertInlinePickerRows(t, rows, []string{
+		"┌" + strings.Repeat("─", 78) + "┐",
+		"│▌Design review  /repo/design                                          unknown │",
+		"│ Tests          /repo/tests                                           unknown │",
+		"└" + strings.Repeat("─", 78) + "┘",
+	})
+	row := findPaintedRow(rows, "/repo/tests")
 	_, col := markdownCellPosition([]string{rows[row]}, "Tests")
 	app.Click(col, row)
 	if selected != "session_beta" {
@@ -169,8 +173,9 @@ func TestSessionMentionAsyncLoadAndAppKeyboardInsertion(t *testing.T) {
 	if len(state.sessionMentions.Entries) != 1 || state.sessionMentions.Entries[0].ID != target.ID {
 		t.Fatalf("picker catalog = %+v", state.sessionMentions.Entries)
 	}
-	if !application.Contains("Mention target · /other") {
-		t.Fatal("target row missing")
+	_, box := inlinePickerBox(t, paintedRows(application, 100, 24))
+	if got, want := box[1], "│▌Mention target  /other                                               unknown │"; got != want {
+		t.Fatalf("target row = %q, want %q", got, want)
 	}
 	application.Enter()
 	application.Pump(100, 24)

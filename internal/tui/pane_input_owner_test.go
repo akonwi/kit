@@ -207,6 +207,13 @@ func TestWorkspaceDiffTargetPickerOwnsShellInput(t *testing.T) {
 	if !application.Contains("featurepastex") || state.interactionResponses != 0 {
 		t.Fatalf("dock displaced pane owner: responses=%d\n%s", state.interactionResponses, application.Text())
 	}
+	// Backspace edits the query through the pane's key route too.
+	application.Send(ui.Key{Keycode: vaxis.KeyBackspace})
+	application.Pump(100, 28)
+	rows := paintedRows(application, 100, 28)
+	if _, row := findTextCell(t, rows, "featurepaste"); dialogRowText(rows, row) != "featurepaste" {
+		t.Fatalf("target query after backspace = %q, want featurepaste", dialogRowText(rows, row))
+	}
 	application.Tab()
 	if state.workspaceFocusMoves != 0 {
 		t.Fatalf("pane-owner Tab moved workspace focus %d times", state.workspaceFocusMoves)
@@ -315,6 +322,9 @@ func (s *paneInputHarnessState) Build(ui.BuildContext) ui.Widget {
 			InputOwner: s.inputOwner, PaneInputChanged: func(descriptor workspacePaneDescriptor, kind paneInputKind, active bool) bool {
 				s.paneChanges++
 				return s.setPaneInputOwner(descriptor, kind, active)
+			},
+			PaneInputHandlerChanged: func(descriptor workspacePaneDescriptor, handler func(ui.Key) ui.EventResult) {
+				s.setPaneInputKeyHandler(descriptor, handler)
 			},
 			OpenPalette:           func(ui.EventContext) { s.paletteOpens++ },
 			MoveWorkspaceFocus:    func(ui.EventContext) { s.workspaceFocusMoves++ },

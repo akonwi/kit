@@ -5,7 +5,6 @@ import (
 
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
-	"go.rockorager.dev/vaxis/ui"
 )
 
 func (s *appState) openWorkspaceFilePicker() {
@@ -24,8 +23,6 @@ func (s *appState) openWorkspaceFilePicker() {
 	s.workspaceFilePickerContext, s.workspaceFilePickerCancel = ctx, cancel
 	s.SetState(func() {
 		s.workspaceFilePicker.reset()
-		s.workspaceFilePickerScroll = ui.ScrollController{}
-		s.workspaceFilePickerRevealPending = false
 	})
 	s.ensureIndexedFiles(s.Context().Runtime(), false)
 	s.loadWorkspaceFilePickerRef(ctx, files, s.workspaceFilePicker.Generation)
@@ -69,9 +66,6 @@ func (s *appState) closeWorkspaceFilePicker() {
 	}
 	s.workspaceFilePickerContext, s.workspaceFilePickerCancel = nil, nil
 	s.workspaceFilePicker.close()
-	s.workspaceFilePickerScroll = ui.ScrollController{}
-	s.workspaceFilePickerRevealPending = false
-	s.workspaceFilePickerRevealOffset = 0
 }
 
 func (s *appState) reconcileWorkspaceIdentity(workspace *protocol.WorkspaceRef) {
@@ -130,24 +124,6 @@ func workspaceFilePickerErrorText(err error) string {
 		return "Could not load files"
 	}
 	return err.Error()
-}
-
-func (s *appState) requestWorkspaceFilePickerReveal() {
-	rows := s.workspaceFilePicker.rows(s.indexedFiles)
-	selection := s.workspaceFilePicker.selectedIndex(rows)
-	viewport := s.workspaceFilePickerScroll.Metrics().ViewportHeight
-	offset := max(0, selection-5)
-	if viewport > 0 {
-		current := s.workspaceFilePickerScroll.Metrics().ScrollOffset
-		offset = current
-		if selection < current {
-			offset = selection
-		} else if selection >= current+viewport {
-			offset = selection - viewport + 1
-		}
-	}
-	s.workspaceFilePickerRevealOffset = max(0, offset)
-	s.workspaceFilePickerRevealPending = true
 }
 
 func (s *appState) workspaceFilePickerActivationCurrent(row workspaceFilePickerRow) bool {

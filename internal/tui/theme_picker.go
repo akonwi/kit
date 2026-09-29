@@ -1,11 +1,10 @@
 package tui
 
 import (
-	"errors"
-	"fmt"
 	"sort"
 
 	kittheme "github.com/akonwi/kit/internal/theme"
+	"go.rockorager.dev/vaxis/ui"
 )
 
 // ThemeService is the narrow discovery, loading, and persistence boundary used
@@ -17,27 +16,33 @@ type ThemeService interface {
 }
 
 type themePickerSnapshot struct {
-	Open        bool
-	Loading     bool
-	Pending     bool
-	Names       []string
-	Selection   int
-	Diagnostics []kittheme.Diagnostic
-	Error       string
+	Open           bool
+	Loading        bool
+	PreviewLoading bool
+	Pending        bool
+	Names          []string
+	Query          string
+	Selection      string
+	CommittedName  string
+	Diagnostics    []kittheme.Diagnostic
+	Error          string
 }
 
 type themePickerController struct {
 	Open                bool
 	Loading             bool
+	PreviewLoading      bool
 	Pending             bool
 	Names               []string
-	Selection           int
+	Query               string
+	Selection           string
 	CommittedName       string
 	CommittedDefinition kittheme.Definition
 	PreviewDefinition   kittheme.Definition
 	Diagnostics         []kittheme.Diagnostic
 	Err                 error
 	previewValid        bool
+	commitOnPreview     string
 }
 
 func (p *themePickerController) Snapshot() themePickerSnapshot {
@@ -45,23 +50,17 @@ func (p *themePickerController) Snapshot() themePickerSnapshot {
 	if p.Err != nil {
 		errorText = p.Err.Error()
 	}
-	return themePickerSnapshot{Open: p.Open, Loading: p.Loading, Pending: p.Pending, Names: append([]string(nil), p.Names...), Selection: p.Selection,
-		Diagnostics: append([]kittheme.Diagnostic(nil), p.Diagnostics...), Error: errorText}
+	return themePickerSnapshot{
+		Open: p.Open, Loading: p.Loading, PreviewLoading: p.PreviewLoading, Pending: p.Pending,
+		Names: append([]string(nil), p.Names...), Query: p.Query, Selection: p.Selection,
+		CommittedName: p.CommittedName, Diagnostics: append([]kittheme.Diagnostic(nil), p.Diagnostics...), Error: errorText,
+	}
 }
 
-func (p *themePickerController) OpenPicker(service ThemeService, currentName string, current kittheme.Definition) error {
-	if service == nil {
-		return errors.New("theme picker is unavailable")
-	}
-	names, err := service.Discover()
-	if err != nil {
-		return fmt.Errorf("discover themes: %w", err)
-	}
-	p.OpenNames(names, currentName, current)
-	return nil
-}
-
-func (p *themePickerController) OpenNames(names []string, currentName string, current kittheme.Definition) {
+// OpenNames installs the discovered catalog without discarding a query typed
+// while discovery was in flight. It reports whether the resulting selection
+// needs to be previewed.
+func (p *themePickerController) OpenNames(names []string, currentName string, current kittheme.Definition) bool {
 	if currentName == "" {
 		currentName = kittheme.SystemName
 	}
@@ -75,95 +74,106 @@ func (p *themePickerController) OpenNames(names []string, currentName string, cu
 			sort.Strings(names)
 		}
 	}
+	query := p.Query
 	p.Open = true
 	p.Loading = false
+	p.PreviewLoading = false
 	p.Names = append([]string{kittheme.SystemName}, names...)
-	p.Selection = 0
-	for index, name := range p.Names {
-		if name == currentName {
-			p.Selection = index
-			break
-		}
-	}
 	p.CommittedName = currentName
 	p.CommittedDefinition = current
 	p.PreviewDefinition = current
 	p.Diagnostics = nil
 	p.Err = nil
 	p.previewValid = true
+	p.commitOnPreview = ""
+	selection := currentName
+	if query != "" {
+		selection = firstEnabledPickerKey(pickerKeyModel{Query: query}.Items(p.pickerCatalog()))
+	}
+	p.applyKeyState(query, selection)
+	return selection != "" && selection != currentName
 }
 
-func (p *themePickerController) Move(service ThemeService, delta int, apply func(kittheme.Definition)) {
-	if !p.Open || len(p.Names) == 0 {
-		return
-	}
-	p.Selection = (p.Selection + delta) % len(p.Names)
-	if p.Selection < 0 {
-		p.Selection += len(p.Names)
-	}
-	p.preview(service, apply)
+func (p *themePickerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: p.Query, Selection: p.Selection}
 }
 
-func (p *themePickerController) Select(service ThemeService, index int, apply func(kittheme.Definition)) {
-	if !p.Open || index < 0 || index >= len(p.Names) {
-		return
-	}
-	p.Selection = index
-	p.preview(service, apply)
+func (p *themePickerController) applyKeyModel(model pickerKeyModel) {
+	p.applyKeyState(model.Query, model.Selection)
 }
 
-func (p *themePickerController) preview(service ThemeService, apply func(kittheme.Definition)) {
-	name := p.Names[p.Selection]
-	definition := kittheme.Definition{}
-	var diagnostics []kittheme.Diagnostic
-	var err error
-	if name != kittheme.SystemName {
-		definition, diagnostics, err = service.Load(name)
+func (p *themePickerController) applyKeyState(query, selection string) {
+	if p.Query != query || p.Selection != selection {
+		p.commitOnPreview = ""
 	}
-	p.Diagnostics = diagnostics
-	p.Err = err
-	p.previewValid = err == nil
-	if err != nil {
-		return
-	}
-	p.PreviewDefinition = definition
-	if apply != nil {
-		apply(definition)
-	}
+	p.Query, p.Selection = query, selection
 }
 
-func (p *themePickerController) Commit(service ThemeService, apply func(kittheme.Definition)) (string, kittheme.Definition, error) {
-	if !p.Open || len(p.Names) == 0 {
-		return "", kittheme.Definition{}, errors.New("theme picker is not open")
-	}
-	if !p.previewValid {
-		return "", kittheme.Definition{}, errors.New("selected theme could not be previewed")
-	}
-	name := p.Names[p.Selection]
-	if err := service.Save(name); err != nil {
-		p.Err = err
-		p.PreviewDefinition = p.CommittedDefinition
-		p.previewValid = false
-		if apply != nil {
-			apply(p.CommittedDefinition)
-		}
-		return "", kittheme.Definition{}, fmt.Errorf("save theme %q: %w", name, err)
-	}
-	definition := p.PreviewDefinition
-	p.Close()
-	return name, definition, nil
+func (p *themePickerController) selectForPreview(name string) {
+	p.applyKeyState(p.Query, name)
 }
 
-func (p *themePickerController) Cancel(apply func(kittheme.Definition)) {
+// requestCommit marks a pointer-activated theme to be committed after its
+// asynchronous preview succeeds. It reports whether the current preview can be
+// committed immediately.
+func (p *themePickerController) requestCommit(name string) bool {
+	if !p.Open || p.Loading || p.Pending {
+		return false
+	}
+	if name == p.Selection && p.previewValid && !p.PreviewLoading {
+		p.commitOnPreview = ""
+		return true
+	}
+	p.selectForPreview(name)
+	p.commitOnPreview = name
+	return false
+}
+
+func (p *themePickerController) completePreview(name string, succeeded bool) bool {
+	if p.commitOnPreview != name || p.Selection != name {
+		return false
+	}
+	p.commitOnPreview = ""
+	return succeeded
+}
+
+func (p *themePickerController) pickerCatalog() []pickerItem {
+	return themePickerItems(p.Names, p.CommittedName)
+}
+
+// HandleKey routes theme-picker input through the canonical picker key model.
+// It reports the model result and whether a newly highlighted theme needs a
+// live preview.
+func (p *themePickerController) HandleKey(key ui.Key) (pickerKeyResult, bool) {
 	if !p.Open {
-		return
+		return pickerKeyResult{}, false
 	}
-	if apply != nil {
-		apply(p.CommittedDefinition)
+	previous := p.Selection
+	model := p.keyModel()
+	result := model.HandleKey(key, p.pickerCatalog())
+	if p.Pending {
+		return result, false
 	}
-	p.Close()
+	p.applyKeyModel(model)
+	if result.QueryChanged {
+		p.Err = nil
+		p.Diagnostics = nil
+	}
+	return result, p.Selection != previous && p.Selection != ""
 }
 
 func (p *themePickerController) Close() {
 	*p = themePickerController{}
+}
+
+func themePickerItems(names []string, current string) []pickerItem {
+	items := make([]pickerItem, 0, len(names))
+	for _, name := range names {
+		item := pickerItem{Key: name, Label: name, Current: name == current}
+		if name == kittheme.SystemName {
+			item.Description = "Terminal colors"
+		}
+		items = append(items, item)
+	}
+	return items
 }

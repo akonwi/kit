@@ -3,16 +3,13 @@ package tui
 import (
 	"strings"
 
-	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
-
-const bashHistoryMaxVisible = 10
 
 const (
 	// bashHistoryInitialLimit bounds the first durable history read so opening
 	// the picker costs one bounded request.
-	bashHistoryInitialLimit = bashHistoryMaxVisible
+	bashHistoryInitialLimit = inlinePickerMaxRows
 	// bashHistoryPageLimit bounds each subsequent older-entry read.
 	bashHistoryPageLimit = 100
 	// bashHistoryMaxPages bounds total older-entry loads while the picker is
@@ -26,6 +23,9 @@ type bashHistoryEntry struct {
 	ExcludeFromContext bool
 }
 
+// bashHistoryController is the bash history inline picker. Entries are newest
+// first; the picker lists them oldest first so the newest sits nearest the
+// composer. The composer text after its leading "!" is the query.
 type bashHistoryController struct {
 	Open      bool
 	Query     string
@@ -54,9 +54,8 @@ func (h *bashHistoryController) OpenFor(entries []bashHistoryEntry, composer str
 		return false
 	}
 	h.Open = true
-	h.Query = strings.TrimLeft(strings.TrimLeft(composer, "!"), " \t")
 	h.Entries = append([]bashHistoryEntry(nil), entries...)
-	h.Selection = firstBashHistoryID(h.filtered())
+	h.SetQuery(bashHistoryQuery(composer))
 	// The first durable page is in flight, so an empty list is not yet an
 	// answer and must not be presented as one.
 	h.Loading = true
@@ -66,17 +65,43 @@ func (h *bashHistoryController) OpenFor(entries []bashHistoryEntry, composer str
 
 func (h *bashHistoryController) Close() { *h = bashHistoryController{} }
 
+// bashHistoryQuery is the composer text after its "!" or "!!" prefix, so
+// "!git" filters by "git".
+func bashHistoryQuery(composer string) string {
+	return strings.TrimLeft(strings.TrimLeft(composer, "!"), " \t")
+}
+
+// ObserveComposer follows a composer edit: the picker closes when the text
+// leaves bash mode and otherwise filters by the command typed after "!".
+func (h *bashHistoryController) ObserveComposer(composer string) {
+	if !h.Open {
+		return
+	}
+	if !strings.HasPrefix(composer, "!") {
+		h.Close()
+		return
+	}
+	if query := bashHistoryQuery(composer); query != h.Query {
+		h.SetQuery(query)
+	}
+}
+
+// atOldest reports whether the highlight is on the oldest loaded match, or
+// nothing matches, while older durable history remains within the page
+// bound. Up there loads older entries instead of wrapping.
+func (h *bashHistoryController) atOldest() bool {
+	if !h.Open || !h.HasMore || h.PagesLoaded >= bashHistoryMaxPages {
+		return false
+	}
+	items := h.keys().Items(h.catalog())
+	return len(items) == 0 || items[0].Key == h.Selection
+}
+
 // Exhausted reports whether navigation reached the oldest matching loaded
-// entry (or found no matches) while older durable history remains.
+// entry (or found no matches) while older durable history remains and can be
+// requested now.
 func (h *bashHistoryController) Exhausted() bool {
-	if !h.Open || h.Loading || !h.HasMore || h.OnExhausted == nil {
-		return false
-	}
-	if h.PagesLoaded >= bashHistoryMaxPages {
-		return false
-	}
-	entries := h.filtered()
-	return len(entries) == 0 || entries[len(entries)-1].ID == h.Selection
+	return !h.Loading && h.OnExhausted != nil && h.atOldest()
 }
 
 // MergeOlder appends an older page while preserving the current query and
@@ -98,44 +123,44 @@ func (h *bashHistoryController) MergeOlder(entries []bashHistoryEntry, before ui
 	}
 	h.HasMore, h.OlderBefore, h.PagesLoaded, h.Loading = hasMore, before, h.PagesLoaded+1, false
 	if h.Selection == "" {
-		h.Selection = firstBashHistoryID(h.filtered())
+		h.Selection = h.newest()
 	}
 }
 
+// SetQuery filters by query and highlights the newest match.
 func (h *bashHistoryController) SetQuery(query string) {
 	h.Query = query
-	h.Selection = firstBashHistoryID(h.filtered())
+	h.Selection = h.newest()
 }
 
-func (h *bashHistoryController) Move(delta int) {
-	if !h.Open {
-		return
-	}
-	// Up moves toward older entries; request the next page at the oldest row
-	// or when no loaded entry matches the current query.
-	if h.Exhausted() && delta < 0 {
-		if request := h.OnExhausted; request != nil {
-			request()
-		}
-		return
-	}
-	entries := h.filtered()
-	if len(entries) == 0 {
-		return
-	}
-	index := 0
-	for candidate, entry := range entries {
-		if entry.ID == h.Selection {
-			index = candidate
-			break
-		}
-	}
-	index = max(0, min(index-delta, len(entries)-1))
-	h.Selection = entries[index].ID
+// newest is the key of the newest entry matching the query.
+func (h *bashHistoryController) newest() string {
+	return lastPickerKey(h.keys().Items(h.catalog()))
 }
 
+// catalog lists entries oldest first, as the picker shows them. Each row is
+// the composer text it inserts, so "!!" marks output excluded from context;
+// the command is matched.
+func (h *bashHistoryController) catalog() []pickerItem {
+	items := make([]pickerItem, 0, len(h.Entries))
+	for index := len(h.Entries) - 1; index >= 0; index-- {
+		entry := h.Entries[index]
+		items = append(items, pickerItem{Key: entry.ID, Label: bashHistoryComposerText(entry), SearchText: entry.Command})
+	}
+	return items
+}
+
+// keys returns the picker's navigation key model.
+func (h *bashHistoryController) keys() pickerKeyModel {
+	return pickerKeyModel{Query: h.Query, Selection: h.Selection, Filter: filterPickerItemsInOrder}
+}
+
+// Selected returns the highlighted entry when it matches the query.
 func (h *bashHistoryController) Selected() (bashHistoryEntry, bool) {
-	for _, entry := range h.filtered() {
+	if pickerItemIndex(h.keys().Items(h.catalog()), h.Selection) < 0 {
+		return bashHistoryEntry{}, false
+	}
+	for _, entry := range h.Entries {
 		if entry.ID == h.Selection {
 			return entry, true
 		}
@@ -143,177 +168,45 @@ func (h *bashHistoryController) Selected() (bashHistoryEntry, bool) {
 	return bashHistoryEntry{}, false
 }
 
-func (h *bashHistoryController) filtered() []bashHistoryEntry {
-	matches := ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry bashHistoryEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: entry.Command}
-	})
-	// Keep fuzzy matching, but present matches chronologically rather than by
-	// score so the newest match remains nearest the composer.
-	if h.Query == "" {
-		return matches
+// HandleKey applies one key through the navigation-only picker key model.
+// Up from the oldest loaded match requests the next older page instead of
+// wrapping. Unhandled keys belong to the composer, which owns the query.
+func (h *bashHistoryController) HandleKey(key ui.Key) pickerKeyResult {
+	if !h.Open {
+		return pickerKeyResult{}
 	}
-	matched := make(map[string]bool, len(matches))
-	for _, entry := range matches {
-		matched[entry.ID] = true
-	}
-	ordered := make([]bashHistoryEntry, 0, len(matches))
-	for _, entry := range h.Entries {
-		if matched[entry.ID] {
-			ordered = append(ordered, entry)
+	atOldest, exhausted := h.atOldest(), h.Exhausted()
+	model := h.keys()
+	result := model.HandleNavigationKey(key, h.catalog())
+	if result.Moved < 0 && atOldest {
+		if request := h.OnExhausted; exhausted && request != nil {
+			request()
 		}
+		return result
 	}
-	return ordered
+	h.Selection = model.Selection
+	return result
 }
 
-func (h *bashHistoryController) HandleKey(key ui.Key) (bashHistoryEntry, bool, bool) {
-	if !h.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
-		return bashHistoryEntry{}, false, false
-	}
-	switch {
-	case key.MatchString("Up"):
-		h.Move(-1)
-		return bashHistoryEntry{}, false, true
-	case key.MatchString("Down"):
-		h.Move(1)
-		return bashHistoryEntry{}, false, true
-	case key.MatchString("Enter"):
-		entry, ok := h.Selected()
-		return entry, ok, true
-	default:
-		return bashHistoryEntry{}, false, false
-	}
-}
-
-func (h *bashHistoryController) HandleEditorKey(key ui.Key) bool {
-	if !h.Open || key.EventType == ui.EventRelease {
-		return false
-	}
-	query := h.Query
-	if key.EventType == vaxis.EventPaste {
-		query += palettePasteText(key)
-		h.SetQuery(query)
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
-	switch {
-	case key.MatchString("Backspace"):
-		runes := []rune(query)
-		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
-		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
-	}
-	h.SetQuery(query)
-	return true
-}
-
-func firstBashHistoryID(entries []bashHistoryEntry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	return entries[0].ID
-}
-
+// bashHistorySurface maps bash history onto the inline picker.
 type bashHistorySurface struct {
-	Controller     *bashHistoryController
-	Composer       string
-	BottomInset    int
-	PrimaryPercent int
-	OnQuery        ui.TextChangedCallback
-	OnSelect       func(ui.EventContext, string)
+	Controller bashHistoryController
+	Anchor     func(ui.Size) ui.Point
+	OnSelect   func(ui.EventContext, string)
 }
 
-func (w bashHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	rowPresentation := resolvePickerRowPresentation(ctx, theme)
-	entries := w.Controller.filtered()
-	selection := 0
-	for index, entry := range entries {
-		if entry.ID == w.Controller.Selection {
-			selection = index
-			break
-		}
+func (w bashHistorySurface) Build(ui.BuildContext) ui.Widget {
+	model := w.Controller.keys()
+	catalog := w.Controller.catalog()
+	picker := inlinePicker{
+		Query: model.Query, Catalog: catalog, Filter: model.Filter, Selection: model.Selection,
+		OnActivate: w.OnSelect,
+		Anchor:     w.Anchor,
 	}
-	if len(entries) > bashHistoryMaxVisible {
-		offset := max(0, min(selection-bashHistoryMaxVisible/2, len(entries)-bashHistoryMaxVisible))
-		entries = entries[offset : offset+bashHistoryMaxVisible]
+	// The first durable page is in flight, so an empty list is not yet an
+	// answer and must not be presented as one.
+	if w.Controller.Loading && len(model.Items(catalog)) == 0 {
+		picker.Message, picker.MessageTone = "Loading history…", pickerToneLoading
 	}
-	rows := make([]ui.Widget, 0, max(1, len(entries)))
-	if len(entries) == 0 {
-		label := "No results"
-		if w.Controller.Loading {
-			label = "Loading history…"
-		}
-		rows = append(rows, ui.Text{Value: label, Style: ui.Style{Foreground: theme.MutedForeground}})
-	}
-	for index := len(entries) - 1; index >= 0; index-- {
-		entry := entries[index]
-		prefix := "!"
-		description := "included in context"
-		if entry.ExcludeFromContext {
-			prefix = "!!"
-			description = "excluded from context"
-		}
-		selected := entry.ID == w.Controller.Selection
-		style := ui.Style{Foreground: rowPresentation.ItemText}
-		secondary := ui.Style{Foreground: theme.MutedForeground}
-		if selected {
-			style = ui.Style{Foreground: rowPresentation.FocusedText, Background: rowPresentation.FocusedBg}
-			secondary = style
-		}
-		row := ui.DecoratedBox(ui.Decoration{Style: style}, ui.Flex{
-			Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-				ui.SizedBox{Width: 2, Child: ui.Text{Value: prefix, Style: style, MaxLines: 1}},
-				ui.SizedBox{Width: 1},
-				ui.Expanded(ui.Text{Value: entry.Command, Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-				ui.SizedBox{Width: 1},
-				ui.SizedBox{Width: 21, Child: ui.Text{Value: description, Style: secondary, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-			},
-		})
-		rows = append(rows, mouseActivator{Child: ui.SizedBox{Height: 1, Child: row}, OnPressed: func(event ui.EventContext) {
-			if w.OnSelect != nil {
-				w.OnSelect(event, entry.ID)
-			}
-		}})
-	}
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	cursor := len(w.Controller.Query)
-	content := ui.Padding(ui.All(1), ui.Flex{
-		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
-		Children: []ui.Widget{
-			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-				ui.Text{Value: ">", Style: ui.Style{Foreground: theme.SuccessText}},
-				ui.SizedBox{Width: 1},
-				textInput(fieldTheme, textInputConfig{
-					Value: w.Controller.Query, Placeholder: "Search bash history…", CursorOffset: &cursor,
-					OnChanged: w.OnQuery, AutoFocus: true,
-				}),
-			}},
-			ui.SizedBox{Height: 1},
-			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows},
-			ui.SizedBox{Height: 1},
-			ui.Text{Value: "↑↓ move · enter insert · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		},
-	})
-	anchor := strings.Index(w.Composer, "!")
-	if anchor < 0 {
-		anchor = 0
-	}
-	return composerOverlayPositioner{
-		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor,
-		Child: proportionalWidth{Percent: 80, Min: 48, Max: composerOverlayMaxWidth, Child: ui.FocusScope{
-			Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
-				ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})},
-				content,
-			),
-		}},
-	}
+	return picker
 }

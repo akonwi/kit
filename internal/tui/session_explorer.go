@@ -13,12 +13,9 @@ import (
 )
 
 const (
-	sessionExplorerMaxVisible = 14
-	sessionUpdatedColumnWidth = 10
-	sessionCWDCompactWidth    = 32
-	sessionCWDExpandedWidth   = 40
-	sessionIDColumnWidth      = 8
-	sessionExplorerChromeRows = 6
+	// sessionCWDMaxWidth bounds working directories, keeping their tails.
+	sessionCWDMaxWidth   = 40
+	sessionIDColumnWidth = 8
 )
 
 type sessionExplorerItem struct {
@@ -49,36 +46,6 @@ func projectSessionExplorerItems(sessions []protocol.SessionInfo) []sessionExplo
 }
 
 type sessionExplorerController struct {
-	Open                bool
-	Loading             bool
-	Error               string
-	Switching           bool
-	SwitchError         string
-	RenameOpen          bool
-	RenameSessionID     string
-	RenameText          string
-	RenameCursorEnd     uint64
-	RenamePending       bool
-	RenameError         string
-	DeleteOpen          bool
-	DeleteSessionID     string
-	DeletePending       bool
-	DeleteError         string
-	Query               string
-	expanded            map[string]bool
-	Sessions            []sessionExplorerItem
-	Selection           string
-	CurrentSessionID    string
-	scroll              ui.ScrollController
-	list                ui.SliverListController
-	layout              pickerDialogLayoutState
-	viewportRows        int
-	needsReveal         bool
-	revealPendingLayout bool
-	generation          uint64
-}
-
-type sessionExplorerSnapshot struct {
 	Open             bool
 	Loading          bool
 	Error            string
@@ -95,13 +62,36 @@ type sessionExplorerSnapshot struct {
 	DeletePending    bool
 	DeleteError      string
 	Query            string
-	TotalSessions    int
+	expanded         map[string]bool
 	Sessions         []sessionExplorerItem
 	Selection        string
 	CurrentSessionID string
-	Scroll           *ui.ScrollController
-	List             *ui.SliverListController
-	Layout           *pickerDialogLayoutState
+	generation       uint64
+}
+
+type sessionExplorerSnapshot struct {
+	Open            bool
+	Loading         bool
+	Error           string
+	Switching       bool
+	SwitchError     string
+	RenameOpen      bool
+	RenameSessionID string
+	RenameText      string
+	RenameCursorEnd uint64
+	RenamePending   bool
+	RenameError     string
+	DeleteOpen      bool
+	DeleteSessionID string
+	DeletePending   bool
+	DeleteError     string
+	Query           string
+	// All is the ordered catalog with remembered expansion; Sessions are the
+	// rows the query shows.
+	All              []sessionExplorerItem
+	Sessions         []sessionExplorerItem
+	Selection        string
+	CurrentSessionID string
 }
 
 func (c *sessionExplorerController) Begin(currentSessionID string) uint64 {
@@ -113,15 +103,11 @@ func (c *sessionExplorerController) Begin(currentSessionID string) uint64 {
 	c.Sessions = nil
 	c.Selection = currentSessionID
 	c.CurrentSessionID = currentSessionID
-	c.scroll = ui.ScrollController{}
-	c.list = ui.SliverListController{}
-	c.layout = pickerDialogLayoutState{}
-	c.viewportRows = 0
-	c.needsReveal = false
-	c.revealPendingLayout = false
 	return c.generation
 }
 
+// Resolve installs the loaded catalog. A query typed while loading is kept and
+// its first match is highlighted.
 func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessionExplorerItem, err error) bool {
 	if !c.Open || generation != c.generation {
 		return false
@@ -139,6 +125,10 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 	}
 	c.expandAncestors(c.CurrentSessionID)
 	c.expandAncestors(c.Selection)
+	if !pickerQueryBlank(c.Query) {
+		c.Selection = c.bestSessionMatch(c.Query)
+		return true
+	}
 	if sessionIndex(c.Sessions, c.Selection) < 0 {
 		if sessionIndex(c.Sessions, c.CurrentSessionID) >= 0 {
 			c.Selection = c.CurrentSessionID
@@ -149,7 +139,6 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 		}
 	}
 	c.reconcileVisibleSelection()
-	c.requestReveal()
 	return true
 }
 
@@ -162,8 +151,8 @@ func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 		RenamePending: c.RenamePending, RenameError: c.RenameError,
 		DeleteOpen: c.DeleteOpen, DeleteSessionID: c.DeleteSessionID,
 		DeletePending: c.DeletePending, DeleteError: c.DeleteError,
-		Query: c.Query, TotalSessions: len(c.Sessions), Sessions: c.visibleSessions(), Selection: c.Selection,
-		CurrentSessionID: c.CurrentSessionID, Scroll: &c.scroll, List: &c.list, Layout: &c.layout,
+		Query: c.Query, All: c.treeSessions(), Sessions: c.visibleSessions(), Selection: c.Selection,
+		CurrentSessionID: c.CurrentSessionID,
 	}
 }
 
@@ -180,7 +169,6 @@ func (c *sessionExplorerController) Select(sessionID string) {
 		c.Selection = sessionID
 		c.SwitchError = ""
 		c.DeleteError = ""
-		c.requestReveal()
 	}
 }
 
@@ -197,7 +185,6 @@ func (c *sessionExplorerController) ApplyExternalRename(sessionID, name string) 
 	}
 	c.Sessions = orderedSessions(c.Sessions)
 	c.reconcileVisibleSelection()
-	c.requestReveal()
 	return true
 }
 
@@ -262,7 +249,6 @@ func (c *sessionExplorerController) ResolveRename(generation uint64, session pro
 	c.Sessions = orderedSessions(c.Sessions)
 	c.expandAncestors(c.Selection)
 	c.reconcileVisibleSelection()
-	c.requestReveal()
 	c.RenameOpen = false
 	c.RenameSessionID = ""
 	c.RenameText = ""
@@ -330,7 +316,6 @@ func (c *sessionExplorerController) ResolveDelete(generation uint64, err error) 
 	} else {
 		index = max(0, min(visibleIndex, len(visible)-1))
 		c.Selection = visible[index].ID
-		c.requestReveal()
 	}
 	c.DeleteOpen = false
 	c.DeleteSessionID = ""
@@ -388,112 +373,57 @@ func (c *sessionExplorerController) ResolveSwitch(generation uint64, err error) 
 	return true
 }
 
+// Move highlights the visible session delta rows away, wrapping like every
+// picker.
 func (c *sessionExplorerController) Move(delta int) {
-	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen || len(c.visibleSessions()) == 0 || delta == 0 {
+	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen {
 		return
 	}
-	visible := c.visibleSessions()
-	index := sessionIndex(visible, c.Selection)
-	if index < 0 {
-		index = 0
-	}
-	index = max(0, min(len(visible)-1, index+delta))
-	if next := visible[index].ID; next != c.Selection {
-		c.Selection = next
-		c.SwitchError = ""
-		c.DeleteError = ""
-		c.requestReveal()
-	}
+	model := c.keyModel()
+	model.Move(c.pickerCatalog(time.Now()), delta)
+	c.Select(model.Selection)
 }
 
-func (c *sessionExplorerController) requestReveal() {
-	if c.Selection == "" {
-		return
-	}
-	c.needsReveal = true
-	c.revealPendingLayout = true
-}
-
-func (c *sessionExplorerController) TickFrame() bool {
-	if !c.Open {
-		return false
-	}
-	if c.layout.AvailableRows <= 0 {
-		c.viewportRows = 0
-		c.needsReveal = c.Selection != ""
-		return false
-	}
-	if !c.scroll.Attached() {
-		return c.needsReveal
-	}
-	metrics := c.scroll.Metrics()
-	viewportRows := metrics.ViewportHeight
-	if viewportRows <= 0 {
-		c.viewportRows = viewportRows
-		return false
-	}
-	if viewportRows != c.viewportRows {
-		c.viewportRows = viewportRows
-		c.needsReveal = c.Selection != ""
-	}
-	if !c.needsReveal {
-		return false
-	}
-	if c.revealPendingLayout {
-		c.revealPendingLayout = false
-		return true
-	}
-	if !c.list.Attached() {
-		return true
-	}
-	first, last, rangeAvailable := c.list.VisibleRange()
-	index := sessionIndex(c.visibleSessions(), c.Selection)
-	if index < 0 {
-		c.needsReveal = false
-		return false
-	}
-	c.list.ScrollToIndex(index, ui.ScrollAlignCenter)
-	first, last, rangeAvailable = c.list.VisibleRange()
-	if rangeAvailable && index >= first && index < last {
-		c.needsReveal = false
-		return false
-	}
-	return true
-}
-
-// HandleKey updates navigation from controller state so rapid input does not
-// depend on whether the newly opened dialog has painted yet.
-func (c *sessionExplorerController) HandleKey(key ui.Key) bool {
+// HandleKey routes explorer keys through the canonical picker key model from
+// controller state, so keys typed before the first paint or before the catalog
+// arrives are applied like later ones. Left and Right fold the tree while the
+// query is empty; Ctrl+r and Ctrl+d are explorer shortcuts offered only after
+// the model leaves a key unhandled.
+func (c *sessionExplorerController) HandleKey(key ui.Key) pickerKeyResult {
 	if !c.Open || key.EventType == ui.EventRelease {
-		return false
+		return pickerKeyResult{}
 	}
-	if key.EventType == vaxis.EventPaste {
-		return false
+	pressed := key.EventType != vaxis.EventPaste
+	if c.Switching || c.RenameOpen || c.DeleteOpen {
+		if pressed && key.MatchString("Escape") {
+			return pickerKeyResult{Handled: true, Dismiss: true}
+		}
+		return pickerKeyResult{Handled: true}
 	}
-	if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
-		return false
+	if pressed && strings.TrimSpace(c.Query) == "" && (key.MatchString("Left") || key.MatchString("Right")) {
+		c.NavigateTree(key.MatchString("Right"))
+		return pickerKeyResult{Handled: true}
+	}
+	model := c.keyModel()
+	result := model.HandleKey(key, c.pickerCatalog(time.Now()))
+	switch {
+	case result.QueryChanged:
+		c.SetQuery(model.Query)
+	case model.Selection != c.Selection:
+		c.Select(model.Selection)
+	}
+	if result.Handled || !pressed {
+		return result
 	}
 	switch {
-	case key.MatchString("Up"):
-		c.Move(-1)
-	case key.MatchString("Down"):
-		c.Move(1)
-	case key.MatchString("Page_Up"):
-		c.Move(-sessionExplorerMaxVisible)
-	case key.MatchString("Page_Down"):
-		c.Move(sessionExplorerMaxVisible)
-	case key.MatchString("Right"):
-		c.NavigateTree(true)
-	case key.MatchString("Left"):
-		c.NavigateTree(false)
 	case key.MatchString("Ctrl+r"):
 		c.BeginRename()
 	case key.MatchString("Ctrl+d"):
 		c.BeginDelete()
 	default:
-		return false
+		return result
 	}
-	return true
+	return pickerKeyResult{Handled: true}
 }
 
 func sessionTimestamp(raw string) time.Time {
@@ -510,266 +440,153 @@ func sessionIndex(sessions []sessionExplorerItem, sessionID string) int {
 	return -1
 }
 
-type sessionExplorerHints struct {
-	Filtering bool
-	Empty     bool
-	Tree      bool
-	Style     ui.Style
-	Action    string
-}
-
-func (sessionExplorerHints) CreateState() ui.State { return &sessionExplorerHintsState{} }
-
-type sessionExplorerHintsState struct {
-	ui.StateBase
-	width int
-}
-
-func (s *sessionExplorerHintsState) Build(ui.BuildContext) ui.Widget {
-	widget := s.Widget().(sessionExplorerHints)
-	value := sessionExplorerActionHintText(s.width, widget.Action)
-	if widget.Tree {
-		value = sessionExplorerTreeHintText(s.width, widget.Action)
-	}
-	if widget.Filtering {
-		value = sessionFilterHintText(s.width, widget.Action)
-		if widget.Empty {
-			value = "ctrl+u clear · esc close"
-		}
-	}
-	return widthProbe{
-		WidthChanged: func(width int) {
-			if width != s.width {
-				s.width = width
-				s.MarkNeedsBuild()
-			}
-		},
-		Child: ui.Text{Value: value, Style: widget.Style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-	}
-}
-
-func sessionExplorerHintText(width int) string {
-	return sessionExplorerActionHintText(width, "switch")
-}
-
-func sessionExplorerActionHintText(width int, action string) string {
-	if action == "" {
-		action = "switch"
-	}
-	switch {
-	case width >= 81:
-		return "↑↓ move · page up/down · enter " + action + " · ctrl+r rename · ctrl+d delete · esc close"
-	case width >= 56:
-		return "enter " + action + " · ctrl+r rename · ctrl+d delete · esc close"
-	default:
-		return "enter " + action + " · ctrl+d delete · esc close"
-	}
-}
-
 type sessionExplorerCallbacks struct {
-	QueryChanged ui.TextChangedCallback
-	Select       func(ui.EventContext, string)
-	Toggle       func(ui.EventContext, string)
+	// Activate highlights and opens a clicked session.
+	Activate func(ui.EventContext, string)
+	// Toggle expands or collapses a clicked disclosure.
+	Toggle          func(ui.EventContext, string)
+	RenameChanged   ui.TextChangedCallback
+	RenameSubmitted ui.TextChangedCallback
 }
 
+// sessionExplorerSurface renders the explorer and its rename and delete steps
+// in the canonical picker frame. Action names what Enter does to a session.
 type sessionExplorerSurface struct {
 	Snapshot  sessionExplorerSnapshot
 	Callbacks sessionExplorerCallbacks
 	Action    string
 }
 
-func (w sessionExplorerSurface) Build(ctx ui.BuildContext) ui.Widget {
-	layout := w.Snapshot.Layout
-	if layout == nil {
-		layout = &pickerDialogLayoutState{}
-		w.Snapshot.Layout = layout
+func (w sessionExplorerSurface) Build(ui.BuildContext) ui.Widget {
+	if w.Snapshot.RenameOpen {
+		return w.renamePrompt()
 	}
-	return pickerDialogPositioner{
-		Percent: 85, MinWidth: 44, MaxWidth: 120, Height: pickerModalMinHeight,
-		ReservedRows: sessionExplorerChromeRows, State: layout, Child: w.content(ctx),
-	}
+	return w.picker(time.Now())
 }
 
-func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	meta := ""
-	metaStyle := ui.Style{Foreground: theme.MutedForeground}
+func (w sessionExplorerSurface) picker(now time.Time) palettePicker {
+	snapshot := w.Snapshot
+	action := w.Action
+	if action == "" {
+		action = "switch"
+	}
+	result := palettePicker{
+		Title: "Sessions", Query: snapshot.Query, Search: &pickerSearch{Placeholder: "Search sessions…"},
+		Catalog: sessionExplorerPickerItems(snapshot.All, snapshot.CurrentSessionID, now), Filter: filterPickerTree,
+		Selection:  snapshot.Selection,
+		Footer:     "←→ expand · enter " + action + " · ctrl+r rename · ctrl+d delete",
+		OnActivate: w.Callbacks.Activate,
+		OnToggle:   w.Callbacks.Toggle,
+	}
+	// A single session needs no count; the list shows it.
+	if len(snapshot.All) > 1 {
+		result.TitleMeta = sessionCountLabel(len(snapshot.All))
+	}
 	switch {
-	case w.Snapshot.Loading:
-		meta = "Loading…"
-	case w.Snapshot.Error != "":
-		meta = "Unavailable"
-	case w.Snapshot.Switching:
-		meta = "Switching…"
-	case w.Snapshot.SwitchError != "":
-		meta = "Switch failed"
-		metaStyle = ui.Style{Foreground: theme.DangerText}
-	case strings.TrimSpace(w.Snapshot.Query) != "":
-		meta = strconv.Itoa(len(w.Snapshot.Sessions)) + " of " + sessionCountLabel(w.Snapshot.TotalSessions)
-	case max(w.Snapshot.TotalSessions, len(w.Snapshot.Sessions)) > 1:
-		meta = sessionCountLabel(max(w.Snapshot.TotalSessions, len(w.Snapshot.Sessions)))
+	case snapshot.Loading:
+		result.Message, result.MessageTone = "Loading sessions…", pickerToneLoading
+		result.Footer = "esc close"
+	case snapshot.Error != "":
+		result.Message, result.MessageTone = "Could not load sessions: "+snapshot.Error, pickerToneDanger
+		result.Footer = "esc close"
+	case len(snapshot.Sessions) == 0 && !pickerQueryBlank(snapshot.Query):
+		result.Message = "No matching sessions"
+	case len(snapshot.Sessions) == 0:
+		result.Message = "No sessions"
+		result.Footer = "esc close"
 	}
-	headerChildren := []ui.Widget{
-		ui.Expanded(ui.Text{Value: "Session Explorer", Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-	}
-	if w.Snapshot.Switching {
-		headerChildren = append(headerChildren,
-			spinner{Style: metaStyle}, ui.SizedBox{Width: 1},
-			ui.Text{Value: meta, Style: metaStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		)
-	} else if meta != "" {
-		headerChildren = append(headerChildren, ui.Text{
-			Value: meta, Style: metaStyle,
-			Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		})
-	}
-	header := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: headerChildren}
-	mutedStyle := ui.Style{Foreground: theme.MutedForeground}
-	var footer ui.Widget = sessionExplorerHints{Empty: len(w.Snapshot.Sessions) == 0, Filtering: strings.TrimSpace(w.Snapshot.Query) != "", Style: mutedStyle, Action: w.Action, Tree: len(w.Snapshot.Sessions) > 0 && w.Snapshot.Sessions[0].Tree}
+	target := sessionExplorerTargetLabel(snapshot.All, snapshot.DeleteSessionID)
 	switch {
-	case w.Snapshot.Switching:
-		footer = ui.Text{Value: "esc cancel", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
-	case w.Snapshot.DeleteError != "" && !w.Snapshot.DeleteOpen:
-		footer = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Expanded(ui.Text{
-				Value: w.Snapshot.DeleteError, Style: ui.Style{Foreground: theme.WarningText},
-				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
-			ui.SizedBox{Width: 2},
-			ui.Text{Value: "esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		}}
-	case w.Snapshot.SwitchError != "":
-		footer = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Expanded(ui.Text{
-				Value: "Switch failed: " + w.Snapshot.SwitchError, Style: ui.Style{Foreground: theme.DangerText},
-				Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
-			ui.SizedBox{Width: 2},
-			ui.Text{Value: "enter retry · esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		}}
-	case w.Snapshot.Loading || w.Snapshot.Error != "" || (len(w.Snapshot.Sessions) == 0 && strings.TrimSpace(w.Snapshot.Query) == ""):
-		footer = ui.Text{Value: "esc close", Style: mutedStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
+	case snapshot.Switching:
+		result.TitleMeta, result.TitleMetaTone = "switching…", pickerToneLoading
+		result.Footer = "esc cancel"
+	case snapshot.DeleteOpen && snapshot.DeletePending:
+		result.TitleMeta, result.TitleMetaTone = "deleting…", pickerToneLoading
+		result.Status, result.Footer = "Deleting \""+target+"\"…", ""
+	case snapshot.DeleteOpen && snapshot.DeleteError != "":
+		result.Status, result.StatusTone = "Delete failed: "+snapshot.DeleteError+" "+glyphMiddleDot+" enter retry", pickerToneDanger
+		result.Footer = "enter retry " + glyphMiddleDot + " esc cancel"
+	case snapshot.DeleteOpen:
+		result.Status, result.StatusTone = "Delete \""+target+"\"? enter confirm", pickerToneDanger
+		result.Footer = "enter confirm " + glyphMiddleDot + " esc cancel"
+	case snapshot.SwitchError != "":
+		result.Status, result.StatusTone = "Switch failed: "+snapshot.SwitchError+" "+glyphMiddleDot+" enter retry", pickerToneDanger
+		result.Footer = "esc close"
+	case snapshot.DeleteError != "":
+		result.Status, result.StatusTone = snapshot.DeleteError, pickerToneDanger
+		result.Footer = "esc close"
 	}
-	scroll := w.Snapshot.Scroll
-	if scroll == nil {
-		scroll = &ui.ScrollController{}
-	}
-	list := w.Snapshot.List
-	if list == nil {
-		list = &ui.SliverListController{}
-	}
-	layout := w.Snapshot.Layout
-	if layout == nil {
-		layout = &pickerDialogLayoutState{}
-	}
-	body := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, header),
-		w.queryField(theme),
-		ui.Expanded(sessionExplorerBodyClip{Layout: layout, Child: ui.Padding(
-			ui.Insets{Right: 2, Left: 2}, w.body(theme, scroll, list, layout),
-		)}),
-	}}
-	return pickerDialogContent(theme, body, footer)
+	return result
 }
 
-func (w sessionExplorerSurface) body(theme ui.Theme, scroll *ui.ScrollController, list *ui.SliverListController, layout *pickerDialogLayoutState) ui.Widget {
-	if w.Snapshot.Loading {
-		return sessionExplorerStateBody(spinnerWithLabel("Loading sessions…", ui.Style{Foreground: theme.MutedForeground}))
+func (w sessionExplorerSurface) renamePrompt() palettePickerPrompt {
+	snapshot := w.Snapshot
+	cursor := len((ui.LayoutContext{}).Characters(snapshot.RenameText))
+	prompt := palettePickerPrompt{
+		Title: "Rename session", TitleMeta: sessionExplorerTargetLabel(snapshot.All, snapshot.RenameSessionID),
+		Input: textInputConfig{
+			Value: snapshot.RenameText, Placeholder: "Enter new session name…",
+			OnChanged: w.Callbacks.RenameChanged, OnSubmitted: w.Callbacks.RenameSubmitted,
+			InitialCursorOffset: &cursor, InitialCursorGeneration: snapshot.RenameCursorEnd, AutoFocus: true,
+		},
+		Footer: "enter save " + glyphMiddleDot + " esc cancel",
 	}
-	if w.Snapshot.Error != "" {
-		return sessionExplorerStateBody(ui.Text{Value: "Could not load sessions.", Style: ui.Style{Foreground: theme.DangerText}})
+	if snapshot.RenameError != "" {
+		prompt.Error = "Rename failed: " + snapshot.RenameError
 	}
-	if len(w.Snapshot.Sessions) == 0 {
-		message := "No sessions"
-		if strings.TrimSpace(w.Snapshot.Query) != "" {
-			message = "No matching sessions"
+	if snapshot.RenamePending {
+		prompt.TitleMeta, prompt.TitleMetaTone = "saving…", pickerToneLoading
+		prompt.Footer = ""
+	}
+	return prompt
+}
+
+func sessionExplorerTargetLabel(sessions []sessionExplorerItem, sessionID string) string {
+	if index := sessionIndex(sessions, sessionID); index >= 0 {
+		return sessionExplorerItemLabel(sessions[index])
+	}
+	return shortSessionID(sessionID)
+}
+
+// sessionExplorerPickerItems projects visible sessions onto picker rows: the
+// working directory is the description, the updated time is the metadata, and
+// hierarchy and lineage notes share the hint column.
+func sessionExplorerPickerItems(sessions []sessionExplorerItem, currentSessionID string, now time.Time) []pickerItem {
+	items := make([]pickerItem, 0, len(sessions))
+	for _, session := range sessions {
+		item := pickerItem{
+			Key: session.ID, Label: sessionExplorerItemLabel(session), Hint: sessionLineageNote(session),
+			Description: sessionDisplayCWD(session.CWD, sessionCWDMaxWidth), ParentKey: session.TreeParentID,
+			SearchText: sessionDisplayCWD(session.CWD, sessionCWDMaxWidth),
+			Meta:       formatSessionUpdated(session.UpdatedAt, now),
+			Current:    session.ID == currentSessionID, Depth: session.Depth, ChildCount: session.ChildCount,
 		}
-		return sessionExplorerStateBody(ui.Text{Value: message, Style: ui.Style{Foreground: theme.MutedForeground}})
+		if session.ChildCount > 0 {
+			item.Disclosure = pickerDisclosureCollapsed
+			if session.Expanded {
+				item.Disclosure = pickerDisclosureExpanded
+			}
+		}
+		items = append(items, item)
 	}
-	return ui.Scrollbar{Child: ui.CustomScrollView{
-		Controller: scroll,
-		Slivers: []ui.Widget{ui.SliverListBuilder{
-			Controller: list, Count: len(w.Snapshot.Sessions), ItemExtent: 1, Overscan: 2,
-			Builder: func(_ ui.BuildContext, index int) ui.Widget {
-				session := w.Snapshot.Sessions[index]
-				return sessionExplorerRow{
-					Session: session, Current: session.ID == w.Snapshot.CurrentSessionID,
-					Selected:     session.ID == w.Snapshot.Selection,
-					Interactive:  !w.Snapshot.RenameOpen && !w.Snapshot.DeleteOpen && !w.Snapshot.Switching,
-					SessionCount: len(w.Snapshot.Sessions), Layout: layout,
-					OnToggle: func(event ui.EventContext) {
-						if w.Callbacks.Toggle != nil {
-							w.Callbacks.Toggle(event, session.ID)
-						}
-					},
-					OnPressed: func(event ui.EventContext) {
-						if w.Callbacks.Select != nil {
-							w.Callbacks.Select(event, session.ID)
-						}
-					},
-				}
-			},
-		}},
-	}}
+	return items
 }
 
-func sessionExplorerStateBody(child ui.Widget) ui.Widget { return ui.Center(child) }
-
-type sessionExplorerBodyClip struct {
-	Layout *pickerDialogLayoutState
-	Child  ui.Widget
-}
-
-func (w sessionExplorerBodyClip) WidgetChild() ui.Widget { return w.Child }
-
-func (w sessionExplorerBodyClip) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderSessionExplorerBodyClip{State: w.Layout}
-}
-
-func (w sessionExplorerBodyClip) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
-	object.(*renderSessionExplorerBodyClip).State = w.Layout
-}
-
-type renderSessionExplorerBodyClip struct {
-	ui.SingleChildRenderObject
-	State *pickerDialogLayoutState
-}
-
-func (r *renderSessionExplorerBodyClip) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
-	if r.State != nil && r.State.AvailableRows <= 0 {
-		r.SetSize(ui.Size{Width: sessionExplorerBodyWidth(constraints)})
-		return
-	}
-	if child := r.Child(); child != nil {
-		child.Layout(ctx, constraints)
-	}
-	r.SetSize(constraints.Constrain(ui.Size{Width: constraints.MaxWidth, Height: constraints.MaxHeight}))
-}
-
-func (r *renderSessionExplorerBodyClip) DryLayout(_ ui.LayoutContext, constraints ui.Constraints) ui.Size {
-	if r.State != nil && r.State.AvailableRows <= 0 {
-		return ui.Size{Width: sessionExplorerBodyWidth(constraints)}
-	}
-	return constraints.Constrain(ui.Size{Width: constraints.MaxWidth, Height: constraints.MaxHeight})
-}
-
-func sessionExplorerBodyWidth(constraints ui.Constraints) int {
-	if constraints.HasBoundedWidth() {
-		return constraints.MaxWidth
-	}
-	return constraints.MinWidth
-}
-
-func (r *renderSessionExplorerBodyClip) Paint(painter *ui.Painter, offset ui.Offset) {
-	if r.State != nil && r.State.AvailableRows <= 0 {
-		return
-	}
-	if child := r.Child(); child != nil {
-		child.Paint(painter, offset)
+// sessionLineageNote explains a session whose parent is not shown above it.
+func sessionLineageNote(session sessionExplorerItem) string {
+	switch {
+	case session.InvalidParent:
+		return "invalid parent"
+	case session.MissingParent:
+		parent := strings.TrimSpace(session.ParentSessionName)
+		if parent == "" {
+			parent = shortSessionID(session.ParentSessionID)
+		}
+		return "from " + parent
+	default:
+		return ""
 	}
 }
-
-func (*renderSessionExplorerBodyClip) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
 
 func sessionCountLabel(count int) string {
 	if count == 1 {
@@ -802,6 +619,9 @@ func formatSessionUpdated(raw string, now time.Time) string {
 }
 
 func sessionDisplayCWD(cwd string, width int) string {
+	if strings.TrimSpace(cwd) == "" {
+		return ""
+	}
 	display := filepath.Clean(cwd)
 	if home, err := os.UserHomeDir(); err == nil {
 		if relative, err := filepath.Rel(home, display); err == nil {
@@ -814,31 +634,6 @@ func sessionDisplayCWD(cwd string, width int) string {
 		}
 	}
 	return truncateStartCells(display, width)
-}
-
-func truncateStartCells(value string, maximum int) string {
-	if maximum <= 0 {
-		return ""
-	}
-	characters := (ui.LayoutContext{}).Characters(value)
-	width := 0
-	for _, character := range characters {
-		width += character.Width
-	}
-	if width <= maximum {
-		return value
-	}
-	remaining := maximum - 1
-	start := len(characters)
-	for start > 0 && characters[start-1].Width <= remaining {
-		start--
-		remaining -= characters[start].Width
-	}
-	var suffix strings.Builder
-	for _, character := range characters[start:] {
-		suffix.WriteString(character.Grapheme)
-	}
-	return glyphEllipsis + suffix.String()
 }
 
 func sessionExplorerItemLabel(session sessionExplorerItem) string {
@@ -856,202 +651,3 @@ func shortSessionID(id string) string {
 	}
 	return id
 }
-
-type sessionExplorerRow struct {
-	Session      sessionExplorerItem
-	Current      bool
-	Selected     bool
-	Interactive  bool
-	SessionCount int
-	Layout       *pickerDialogLayoutState
-	OnPressed    ui.VoidCallback
-	OnToggle     ui.VoidCallback
-}
-
-func (w sessionExplorerRow) WidgetKey() ui.KeyValue {
-	return ui.KeyValue("session-explorer-row:" + w.Session.ID)
-}
-
-func (sessionExplorerRow) CreateState() ui.State { return &sessionExplorerRowState{} }
-
-type sessionExplorerRowState struct {
-	ui.StateBase
-	hovered bool
-}
-
-func (s *sessionExplorerRowState) Build(ctx ui.BuildContext) ui.Widget {
-	row := s.Widget().(sessionExplorerRow)
-	theme := ui.MustDepend[ui.Theme](ctx)
-	presentation := resolvePickerRowPresentation(ctx, theme)
-	background := theme.Background
-	primary := presentation.ItemText
-	secondary := theme.MutedForeground
-	if row.Current {
-		primary = theme.PrimaryText
-	}
-	if row.Selected {
-		background = presentation.FocusedBg
-		primary = presentation.FocusedText
-		secondary = presentation.FocusedText
-	} else if row.Interactive && s.hovered {
-		background = theme.SurfaceHovered
-	}
-	marker := "  "
-	if row.Current {
-		marker = glyphCheck + " "
-	}
-	primaryStyle := ui.Style{Foreground: primary, Background: background}
-	secondaryStyle := ui.Style{Foreground: secondary, Background: background}
-	shortID := ""
-	if strings.TrimSpace(row.Session.Name) != "" {
-		shortID = shortSessionID(row.Session.ID)
-	}
-	content := sessionExplorerRowLayout{SessionCount: row.SessionCount, Layout: row.Layout, Children: []ui.Widget{
-		ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-			ui.Text{Value: marker, Style: primaryStyle},
-			sessionTreeDisclosure(row, primaryStyle),
-			ui.Expanded(ui.RichText{Spans: sessionExplorerLabelSpans(row.Session, primaryStyle, secondaryStyle), Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		}},
-		ui.Text{Value: formatSessionUpdated(row.Session.UpdatedAt, time.Now()), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		ui.Text{Value: sessionDisplayCWD(row.Session.CWD, sessionCWDCompactWidth), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		ui.Text{Value: sessionDisplayCWD(row.Session.CWD, sessionCWDExpandedWidth), Style: secondaryStyle, Align: ui.TextAlignRight, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		ui.Text{Value: shortID, Style: secondaryStyle, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-	}}
-	rowWidget := ui.Widget(ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
-		ui.Decoration{Style: ui.Style{Background: background}}, content,
-	)})
-	if !row.Interactive {
-		return rowWidget
-	}
-	return mouseActivator{
-		OnPressed: row.OnPressed,
-		OnHover: func(ui.EventContext) {
-			if !s.hovered {
-				s.SetState(func() { s.hovered = true })
-			}
-		},
-		OnHoverExit: func(ui.EventContext) {
-			if s.hovered {
-				s.SetState(func() { s.hovered = false })
-			}
-		},
-		Child: rowWidget,
-	}
-}
-
-type sessionExplorerRowLayout struct {
-	SessionCount int
-	Layout       *pickerDialogLayoutState
-	Children     []ui.Widget
-}
-
-func (w sessionExplorerRowLayout) WidgetChildren() []ui.Widget { return w.Children }
-
-func (w sessionExplorerRowLayout) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderSessionExplorerRowLayout{SessionCount: w.SessionCount, State: w.Layout}
-}
-
-func (w sessionExplorerRowLayout) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
-	render := object.(*renderSessionExplorerRowLayout)
-	if render.SessionCount == w.SessionCount && render.State == w.Layout {
-		return
-	}
-	render.SessionCount = w.SessionCount
-	render.State = w.Layout
-	render.MarkNeedsLayout()
-}
-
-type sessionExplorerRowParentData struct {
-	Offset  ui.Offset
-	Visible bool
-}
-
-func (data sessionExplorerRowParentData) RenderOffset() ui.Offset { return data.Offset }
-
-type renderSessionExplorerRowLayout struct {
-	ui.MultiChildRenderObject
-	SessionCount int
-	State        *pickerDialogLayoutState
-}
-
-func (r *renderSessionExplorerRowLayout) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
-	r.SetSize(r.layoutChildren(ctx, constraints, false))
-}
-
-func (r *renderSessionExplorerRowLayout) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
-	return r.layoutChildren(ctx, constraints, true)
-}
-
-func (r *renderSessionExplorerRowLayout) layoutChildren(ctx ui.LayoutContext, constraints ui.Constraints, dry bool) ui.Size {
-	width := constraints.MinWidth
-	if constraints.HasBoundedWidth() {
-		width = constraints.MaxWidth
-	}
-	contentWidth := width
-	if r.State != nil && r.SessionCount > max(1, r.State.AvailableRows) {
-		contentWidth = max(0, contentWidth-1)
-	}
-	showUpdated := contentWidth >= 40
-	showCWD := contentWidth >= 68
-	showExpandedCWD := showCWD && contentWidth >= 76
-	showID := contentWidth >= 104
-	columnWidths := []int{0, 0, 0, 0, 0}
-	visible := []bool{true, showUpdated, showCWD && !showExpandedCWD, showExpandedCWD, showID}
-	if showUpdated {
-		columnWidths[1] = sessionUpdatedColumnWidth
-	}
-	if showCWD && !showExpandedCWD {
-		columnWidths[2] = sessionCWDCompactWidth
-	}
-	if showExpandedCWD {
-		columnWidths[3] = sessionCWDExpandedWidth
-	}
-	if showID {
-		columnWidths[4] = sessionIDColumnWidth
-	}
-	metadataWidth := 0
-	visibleMetadata := 0
-	for index := 1; index < len(columnWidths); index++ {
-		if visible[index] {
-			metadataWidth += columnWidths[index]
-			visibleMetadata++
-		}
-	}
-	columnWidths[0] = max(0, contentWidth-metadataWidth-visibleMetadata)
-	x := 0
-	children := r.Children()
-	for index, child := range children {
-		isVisible := index < len(visible) && visible[index]
-		childWidth := 0
-		if index < len(columnWidths) {
-			childWidth = columnWidths[index]
-		}
-		childConstraints := ui.Tight(ui.Size{Width: childWidth, Height: 1})
-		if dry {
-			ui.DryLayout(ctx, child, childConstraints)
-		} else {
-			child.Layout(ctx, childConstraints)
-			child.Base().SetParentData(sessionExplorerRowParentData{Offset: ui.Offset{X: x}, Visible: isVisible})
-		}
-		if isVisible {
-			x += childWidth + 1
-		}
-	}
-	return constraints.Constrain(ui.Size{Width: width, Height: 1})
-}
-
-func (r *renderSessionExplorerRowLayout) Paint(painter *ui.Painter, offset ui.Offset) {
-	for _, child := range r.Children() {
-		data, _ := child.Base().ParentData().(sessionExplorerRowParentData)
-		if data.Visible {
-			child.Paint(painter, offset.Add(data.Offset))
-		}
-	}
-}
-
-func (r *renderSessionExplorerRowLayout) ChildOffset(child ui.RenderObject) ui.Offset {
-	data, _ := child.Base().ParentData().(sessionExplorerRowParentData)
-	return data.Offset
-}
-
-func (*renderSessionExplorerRowLayout) HitTest(*ui.HitTestResult, ui.Point) bool { return false }

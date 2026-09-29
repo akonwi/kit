@@ -62,16 +62,11 @@ func mentionableSessions(entries []protocol.SessionInfo, activeID string) []prot
 	}
 	return result
 }
+
+// selectSessionMention inserts a reference to the session with id, from Enter
+// or a click.
 func (s *appState) selectSessionMention(_ ui.EventContext, id string) {
-	var entry protocol.SessionInfo
-	found := false
-	for _, candidate := range s.sessionMention.filtered(s.sessionMentions.Entries) {
-		if candidate.ID == id {
-			entry = candidate
-			found = true
-			break
-		}
-	}
+	entry, found := s.sessionMention.Selected(s.sessionMentions.Entries, id)
 	if !found || id == s.session.ID {
 		return
 	}

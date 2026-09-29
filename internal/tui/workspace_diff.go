@@ -111,34 +111,29 @@ func (openWorkspaceDiffTargetPickerIntent) IntentType() ui.IntentType {
 	return "kit.workspace-diff.open-target-picker"
 }
 
-type moveWorkspaceDiffTargetIntent struct{ delta int }
-
-func (moveWorkspaceDiffTargetIntent) IntentType() ui.IntentType {
-	return "kit.workspace-diff.move-target"
-}
-
 type workspaceDiffPane struct {
-	Descriptor          workspacePaneDescriptor
-	CurrentWorkspaceID  string
-	Diff                sessionclient.DiffSession
-	Highlighter         highlight.Highlighter
-	Dispatch            func(func())
-	Presentation        workspacePanePresentation
-	Annotations         []protocol.AnnotationSummary
-	InitialWrapLines    bool
-	OnWrapLinesChanged  func(bool)
-	OnFollowCWDChanged  func(bool)
-	MouseGestures       *workspaceMouseGestureController
-	OnFocusRequest      ui.VoidCallback
-	OnInputOwnerChanged func(paneInputKind, bool) bool
-	OnCreateAnnotation  func(protocol.AnnotationAnchor, string, func(error))
-	OnLoadAnnotation    func(uint64, func(string, error)) func()
-	OnUpdateAnnotation  func(uint64, string, func(error))
-	OnRemoveAnnotation  func(ui.EventContext, uint64)
-	OnWarning           func(string)
-	OnNotice            func(string)
-	RefreshInterval     time.Duration
-	testState           *workspaceDiffPaneState
+	Descriptor            workspacePaneDescriptor
+	CurrentWorkspaceID    string
+	Diff                  sessionclient.DiffSession
+	Highlighter           highlight.Highlighter
+	Dispatch              func(func())
+	Presentation          workspacePanePresentation
+	Annotations           []protocol.AnnotationSummary
+	InitialWrapLines      bool
+	OnWrapLinesChanged    func(bool)
+	OnFollowCWDChanged    func(bool)
+	MouseGestures         *workspaceMouseGestureController
+	OnFocusRequest        ui.VoidCallback
+	OnInputOwnerChanged   func(paneInputKind, bool) bool
+	OnInputHandlerChanged func(func(ui.Key) ui.EventResult)
+	OnCreateAnnotation    func(protocol.AnnotationAnchor, string, func(error))
+	OnLoadAnnotation      func(uint64, func(string, error)) func()
+	OnUpdateAnnotation    func(uint64, string, func(error))
+	OnRemoveAnnotation    func(ui.EventContext, uint64)
+	OnWarning             func(string)
+	OnNotice              func(string)
+	RefreshInterval       time.Duration
+	testState             *workspaceDiffPaneState
 }
 
 func (w workspaceDiffPane) CreateState() ui.State {
@@ -230,7 +225,7 @@ type workspaceDiffPaneState struct {
 	pendingCatalog          *workspaceDiffCatalogResult
 	targetPickerOpen        bool
 	targetQuery             string
-	targetSelection         int
+	targetSelection         string
 	pinnedEvidence          bool
 }
 
@@ -258,20 +253,19 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 	}
 	s.syncPolling(w)
 	if s.isFrozen(w) {
+		s.setTargetPickerOpen(false)
 		s.stopWork()
 		s.stopCatalog()
 		return
 	}
 	if previous.Presentation.Active && !w.Presentation.Active || previous.Presentation.Visible && !w.Presentation.Visible {
-		s.targetPickerOpen = false
-		s.targetQuery = ""
+		s.setTargetPickerOpen(false)
 		s.stopWork()
 		s.stopCatalog()
 		return
 	}
 	if w.Descriptor.OpenGeneration != s.appliedOpen {
-		s.targetPickerOpen = false
-		s.targetQuery = ""
+		s.setTargetPickerOpen(false)
 		s.appliedOpen = w.Descriptor.OpenGeneration
 		if w.Presentation.Active {
 			s.startDescriptorLoad()
@@ -299,6 +293,7 @@ func (s *workspaceDiffPaneState) DidUpdateWidget(old ui.Widget) {
 }
 
 func (s *workspaceDiffPaneState) Dispose() {
+	s.setTargetPickerOpen(false)
 	s.disposed = true
 	s.stopPolling()
 	for _, section := range s.sections {
@@ -800,6 +795,13 @@ func (s *workspaceDiffPaneState) setTargetPickerOpen(open bool) bool {
 		return false
 	}
 	s.targetPickerOpen = open
+	if handlerChanged := s.Widget().(workspaceDiffPane).OnInputHandlerChanged; handlerChanged != nil {
+		if open {
+			handlerChanged(s.handleTargetPickerKey)
+		} else {
+			handlerChanged(nil)
+		}
+	}
 	if !open {
 		s.targetQuery = ""
 		if callback != nil {
@@ -854,36 +856,15 @@ func (s *workspaceDiffPaneState) toggleTarget() {
 	s.warning("The current HEAD commit is not available")
 }
 
-func (s *workspaceDiffPaneState) filteredTargets() []protocol.DiffTargetEntry {
-	query := strings.ToLower(strings.TrimSpace(s.targetQuery))
-	if query == "" {
-		return append([]protocol.DiffTargetEntry(nil), s.catalog...)
-	}
-	result := make([]protocol.DiffTargetEntry, 0, len(s.catalog))
-	for _, target := range s.catalog {
-		haystack := strings.ToLower(strings.Join([]string{target.Metadata.Label, target.Metadata.Subject, target.Metadata.RefName, target.Metadata.BaseRefName, target.Metadata.Abbreviated}, " "))
-		if strings.Contains(haystack, query) {
-			result = append(result, target)
-		}
-	}
-	return result
-}
-
 func (s *workspaceDiffPaneState) ensureTargetSelection() {
-	targets := s.filteredTargets()
-	if len(targets) == 0 {
-		s.targetSelection = 0
+	items := s.targetKeyModel().Items(s.targetPickerCatalog())
+	if s.targetQuery == "" && pickerItemIndex(items, s.activeTarget.TargetID) >= 0 {
+		s.targetSelection = s.activeTarget.TargetID
 		return
 	}
-	if strings.TrimSpace(s.targetQuery) == "" {
-		for index, target := range targets {
-			if target.TargetID == s.activeTarget.TargetID {
-				s.targetSelection = index
-				return
-			}
-		}
+	if pickerItemIndex(items, s.targetSelection) < 0 {
+		s.targetSelection = firstEnabledPickerKey(items)
 	}
-	s.targetSelection = min(max(0, s.targetSelection), len(targets)-1)
 }
 
 func workspaceDiffErrorText(err error) string {
@@ -1106,21 +1087,18 @@ func (s *workspaceDiffPaneState) targetLabel() string {
 	return "Working tree"
 }
 
-func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Theme) ui.Widget {
-	targets := s.filteredTargets()
-	presentation := resolvePickerRowPresentation(ctx, theme)
-	rows := make([]ui.Widget, 0, max(1, len(targets)))
-	for index, target := range targets {
-		index, target := index, target
-		selected := index == s.targetSelection
-		foreground, background := presentation.ItemText, theme.Background
-		rowTheme := presentation.Theme
-		if selected {
-			foreground, background = presentation.FocusedText, presentation.FocusedBg
+// targetPickerCatalog maps every diff target onto a picker item. The label,
+// commit subject, branch names, and abbreviated object ID are matched.
+func (s *workspaceDiffPaneState) targetPickerCatalog() []pickerItem {
+	items := make([]pickerItem, 0, len(s.catalog))
+	for _, target := range s.catalog {
+		label := target.Metadata.Label
+		if label == "" {
+			label = target.Metadata.Abbreviated
 		}
-		marker := "  "
-		if target.TargetID == s.activeTarget.TargetID {
-			marker = glyphCheck + " "
+		detail := target.Metadata.Subject
+		if target.Kind == protocol.DiffTargetBranch && target.Metadata.RefName != "" {
+			detail = target.Metadata.RefName + " vs " + target.Metadata.BaseRefName
 		}
 		draftCount := 0
 		if target.AnnotationCount != nil {
@@ -1132,58 +1110,82 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 				}
 			}
 		}
-		draft := ""
+		meta := target.Metadata.Abbreviated
 		if draftCount > 0 {
-			draft = fmt.Sprintf("  %s %d", glyphCircleFilled, draftCount)
+			meta = fmt.Sprintf("%s %d", glyphCircleFilled, draftCount)
 		}
-		label := target.Metadata.Label
-		if label == "" {
-			label = target.Metadata.Abbreviated + "  " + target.Metadata.Subject
-		}
-		rows = append(rows, ui.Provider[ui.Theme]{Value: rowTheme, Child: ui.ListTile{Selected: selected, MinHeight: 1, Padding: ui.Insets{Left: 1, Right: 1}, OnPressed: func(ui.EventContext) {
-			s.SetState(func() { s.targetSelection = index; s.switchTarget(target) })
-		}, Title: ui.Text{Value: marker + label + draft, Style: ui.Style{Foreground: foreground, Background: background}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis}}})
+		items = append(items, pickerItem{
+			Key: target.TargetID, Label: label, Description: detail, Meta: meta,
+			Current:    target.TargetID == s.activeTarget.TargetID,
+			SearchText: strings.Join([]string{target.Metadata.Subject, target.Metadata.RefName, target.Metadata.BaseRefName, target.Metadata.Abbreviated}, " "),
+		})
 	}
-	if s.catalogLoading && len(rows) == 0 {
-		rows = append(rows, ui.Center(spinnerWithLabel("Loading diff targets…", ui.Style{Foreground: theme.MutedForeground})))
-	} else if s.catalogError != "" {
-		rows = append(rows, ui.Text{Value: glyphCross + " " + s.catalogError, Style: ui.Style{Foreground: theme.DangerText}, MaxLines: 2})
-	} else if len(rows) == 0 {
-		rows = append(rows, ui.Center(ui.Text{Value: "No matching targets", Style: ui.Style{Foreground: theme.MutedForeground}}))
-	}
-	cursor := len(s.targetQuery)
-	fieldTheme := theme
-	fieldTheme.Surface, fieldTheme.SurfaceHovered = theme.Background, theme.Background
-	query := ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{ui.Text{Value: ">"}, ui.SizedBox{Width: 1}, textInput(fieldTheme, textInputConfig{Value: s.targetQuery, Placeholder: "Filter branch, subject, or object ID…", CursorOffset: &cursor, AutoFocus: true, OnChanged: func(_ ui.EventContext, value string) {
-		s.SetState(func() { s.targetQuery = value; s.targetSelection = 0 })
-	}, OnSubmitted: func(ui.EventContext, string) {
-		filtered := s.filteredTargets()
-		if len(filtered) > 0 {
-			s.SetState(func() { s.switchTarget(filtered[s.targetSelection]) })
+	return items
+}
+
+func (s *workspaceDiffPaneState) targetByKey(key string) (protocol.DiffTargetEntry, bool) {
+	for _, target := range s.catalog {
+		if target.TargetID == key {
+			return target, true
 		}
-	}})}}
-	body := ui.Padding(ui.Insets{Top: 1, Left: 2, Right: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Text{Value: "Select diff target", Style: ui.Style{Foreground: theme.Foreground}}, ui.SizedBox{Height: 1}, query, ui.SizedBox{Height: 1}, ui.Expanded(ui.ScrollView{Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}}),
-	}})
-	content := pickerDialogContent(theme, body, ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
-	actions := map[ui.IntentType]ui.ActionFunc{
+	}
+	return protocol.DiffTargetEntry{}, false
+}
+
+func (s *workspaceDiffPaneState) targetKeyModel() pickerKeyModel {
+	return pickerKeyModel{Query: s.targetQuery, Selection: s.targetSelection}
+}
+
+func (s *workspaceDiffPaneState) handleTargetPickerKey(key ui.Key) ui.EventResult {
+	var result pickerKeyResult
+	s.SetState(func() {
+		model := s.targetKeyModel()
+		result = model.HandleKey(key, s.targetPickerCatalog())
+		s.targetQuery, s.targetSelection = model.Query, model.Selection
+	})
+	if !result.Handled {
+		return ui.EventIgnored
+	}
+	if result.Dismiss {
+		s.SetState(func() { s.setTargetPickerOpen(false) })
+	} else if result.Activate {
+		if target, ok := s.targetByKey(s.targetSelection); ok {
+			s.SetState(func() { s.switchTarget(target) })
+		}
+	}
+	return ui.EventHandled
+}
+
+func (s *workspaceDiffPaneState) targetPicker(ui.BuildContext, ui.Theme) ui.Widget {
+	result := palettePicker{
+		Title: "Select diff target",
+		Query: s.targetQuery, Search: &pickerSearch{Placeholder: "Filter branch, subject, or object ID…"},
+		Catalog: s.targetPickerCatalog(), Selection: s.targetSelection,
+		Footer: "↑↓ move · enter select · esc close", OnKey: s.handleTargetPickerKey,
+		OnActivate: func(_ ui.EventContext, key string) {
+			if target, ok := s.targetByKey(key); ok {
+				s.SetState(func() { s.targetSelection = key; s.switchTarget(target) })
+			}
+		},
+	}
+	items := result.items()
+	switch {
+	case s.catalogLoading && len(items) == 0:
+		result.Message, result.MessageTone = "Loading diff targets…", pickerToneLoading
+	case s.catalogError != "" && len(items) == 0:
+		result.Message, result.MessageTone = s.catalogError, pickerToneDanger
+	case len(items) == 0:
+		result.Message = "No matching targets"
+	case s.catalogLoading:
+		result.Status, result.StatusTone = "Refreshing diff targets…", pickerToneLoading
+	case s.catalogError != "":
+		result.Status, result.StatusTone = s.catalogError, pickerToneDanger
+	}
+	content := ui.Widget(result)
+	content = ui.Actions{Bindings: map[ui.IntentType]ui.ActionFunc{
 		inputTargetIntent{}.IntentType(): inputTargetAction(inputPane),
-		moveWorkspaceDiffTargetIntent{}.IntentType(): func(_ ui.EventContext, intent ui.Intent) ui.EventResult {
-			s.SetState(func() {
-				targets := s.filteredTargets()
-				if len(targets) > 0 {
-					s.targetSelection = (s.targetSelection + intent.(moveWorkspaceDiffTargetIntent).delta + len(targets)) % len(targets)
-				}
-			})
-			return ui.EventHandled
-		},
-		ui.DismissIntentType: func(ui.EventContext, ui.Intent) ui.EventResult {
-			s.SetState(func() { s.setTargetPickerOpen(false) })
-			return ui.EventHandled
-		},
-	}
-	content = ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: ui.ShortcutMap{"Up": moveWorkspaceDiffTargetIntent{delta: -1}, "Down": moveWorkspaceDiffTargetIntent{delta: 1}}, Child: content}}
-	return pickerDialogPositioner{Percent: 70, MinWidth: 48, MaxWidth: 96, Height: pickerModalMinHeight, Child: ui.FocusScope{Trap: true, AutoFocus: true, ReclaimFocus: true, Child: content}}
+	}, Child: content}
+	return content
 }
 
 func (s *workspaceDiffPaneState) Build(ctx ui.BuildContext) ui.Widget {

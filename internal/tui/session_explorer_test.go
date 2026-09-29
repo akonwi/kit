@@ -40,12 +40,12 @@ func TestSessionExplorerControllerLoadsAllSessionsAndKeepsIdentitySelection(t *t
 		t.Fatalf("selection after Up = %q", controller.Selection)
 	}
 	controller.Move(-1)
-	if controller.Selection != "session_newest" {
-		t.Fatalf("selection moved above first row = %q", controller.Selection)
+	if controller.Selection != "session_current" {
+		t.Fatalf("selection did not wrap from the first row = %q", controller.Selection)
 	}
 	controller.Move(1)
-	if controller.Selection != "session_current" {
-		t.Fatalf("selection after Down = %q", controller.Selection)
+	if controller.Selection != "session_newest" {
+		t.Fatalf("selection did not wrap from the last row = %q", controller.Selection)
 	}
 }
 
@@ -182,535 +182,6 @@ func TestSessionExplorerControllerConfirmsAndRemovesDeletedSession(t *testing.T)
 	}
 }
 
-func TestSessionExplorerControllerHandlesRapidNavigationAndConsumesModalInput(t *testing.T) {
-	t.Parallel()
-
-	controller := sessionExplorerController{}
-	generation := controller.Begin("session_00")
-	sessions := make([]sessionExplorerItem, 20)
-	for index := range sessions {
-		sessions[index] = sessionExplorerItem{
-			ID:        "session_" + fmt.Sprintf("%02d", index),
-			UpdatedAt: time.Date(2026, time.June, 5, 12, 0, index, 0, time.UTC).Format(time.RFC3339Nano),
-		}
-	}
-	controller.Resolve(generation, sessions, nil)
-	controller.Selection = controller.Sessions[0].ID
-	if !controller.HandleKey(ui.Key{Keycode: vaxis.KeyPgDown}) || controller.Selection != controller.Sessions[sessionExplorerMaxVisible].ID {
-		t.Fatalf("PageDown selection = %q", controller.Selection)
-	}
-	if !controller.HandleKey(ui.Key{Keycode: vaxis.KeyDown}) || controller.Selection != controller.Sessions[sessionExplorerMaxVisible+1].ID {
-		t.Fatalf("Down selection = %q", controller.Selection)
-	}
-	if !controller.HandleEditorKey(ui.Key{Text: "x", Keycode: 'x'}) {
-		t.Fatal("modal text input was not consumed")
-	}
-	controller.SetQuery("")
-	if !controller.HandleKey(ui.Key{Keycode: 'r', Modifiers: vaxis.ModCtrl}) || !controller.RenameOpen {
-		t.Fatal("rename key did not open the rename dialog")
-	}
-	controller.CancelRename()
-	if !controller.HandleKey(ui.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl}) || !controller.DeleteOpen {
-		t.Fatal("delete key did not open the confirmation dialog")
-	}
-	controller.CancelDelete()
-	if controller.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}) {
-		t.Fatal("Escape should remain available to the root dismiss intent")
-	}
-}
-
-func TestSessionExplorerRowsRevealMetadataAtResponsiveWidths(t *testing.T) {
-	t.Parallel()
-
-	updated := time.Now().Add(-2*time.Hour - 5*time.Minute).Format(time.RFC3339Nano)
-	row := sessionExplorerRow{Session: sessionExplorerItem{
-		ID: "session_0123456789abcdef", Name: "Named session", CWD: "/tmp/project", UpdatedAt: updated,
-	}}
-	for _, test := range []struct {
-		width int
-		want  string
-	}{
-		{width: 39, want: fmt.Sprintf("%-39s", "  Named session")},
-		{width: 40, want: fmt.Sprintf("%-29s %10s", "  Named session", "2h ago")},
-		{width: 68, want: fmt.Sprintf("%-24s %10s %32s", "  Named session", "2h ago", "/tmp/project")},
-		{width: 76, want: fmt.Sprintf("%-24s %10s %40s", "  Named session", "2h ago", "/tmp/project")},
-		{width: 104, want: fmt.Sprintf("%-43s %10s %40s %8s", "  Named session", "2h ago", "/tmp/project", "01234567")},
-	} {
-		t.Run(fmt.Sprintf("width_%d", test.width), func(t *testing.T) {
-			application := uitest.New(row)
-			application.Pump(test.width, 1)
-			got := paintedRows(application, test.width, 1)[0]
-			if got != test.want {
-				t.Fatalf("row = %q\nwant  %q", got, test.want)
-			}
-		})
-	}
-}
-
-func TestSessionExplorerRowsKeepMixedLabelsAlignedAndReserveScrollbarInsideHighlight(t *testing.T) {
-	t.Parallel()
-
-	updated := time.Now().Add(-2*time.Hour - 5*time.Minute).Format(time.RFC3339Nano)
-	layout := &pickerDialogLayoutState{AvailableRows: 1}
-	rowsWidget := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		sessionExplorerRow{
-			Session:  sessionExplorerItem{ID: "session_named0000", Name: "Named", CWD: "/tmp/project", UpdatedAt: updated},
-			Selected: true, SessionCount: 2, Layout: layout,
-		},
-		sessionExplorerRow{
-			Session:      sessionExplorerItem{ID: "session_unnamed00", CWD: "/tmp/project", UpdatedAt: updated},
-			SessionCount: 2, Layout: layout,
-		},
-	}}
-	application := uitest.New(rowsWidget)
-	application.Pump(104, 2)
-	rows := paintedRows(application, 104, 2)
-	if namedTime, unnamedTime := strings.Index(rows[0], "2h ago"), strings.Index(rows[1], "2h ago"); namedTime != unnamedTime {
-		t.Fatalf("mixed timestamp columns = %d and %d:\n%s", namedTime, unnamedTime, strings.Join(rows, "\n"))
-	}
-	if namedCWD, unnamedCWD := strings.Index(rows[0], "/tmp/project"), strings.Index(rows[1], "/tmp/project"); namedCWD != unnamedCWD {
-		t.Fatalf("mixed cwd columns = %d and %d:\n%s", namedCWD, unnamedCWD, strings.Join(rows, "\n"))
-	}
-	if application.Cell(0, 0).Style.Background != application.Cell(103, 0).Style.Background {
-		t.Fatal("scrollbar reserve escaped the selected-row highlight")
-	}
-}
-
-func TestSessionExplorerPresentationShowsCurrentSessionAndStableDialog(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now()
-	sessions := []protocol.SessionInfo{
-		{ID: "session_0123456789abcdef", Name: "Current session", CWD: "/workspace/Developer/agent/kit-v2", UpdatedAt: now.Add(-2 * time.Hour).Format(time.RFC3339Nano)},
-		{ID: "session_fedcba9876543210", Name: "Other workspace", CWD: "/tmp/other", UpdatedAt: now.Add(-24 * time.Hour).Format(time.RFC3339Nano)},
-	}
-	selected := ""
-	application := uitest.New(shellView{
-		Snapshot: shellSnapshot{
-			Phase: phaseReady, Session: sessions[0], Scroll: &ui.ScrollController{},
-			SessionExplorer: sessionExplorerSnapshot{
-				Open: true, Sessions: projectSessionExplorerItems(sessions), Selection: sessions[0].ID, CurrentSessionID: sessions[0].ID,
-				Scroll: &ui.ScrollController{},
-			},
-		},
-		Callbacks: shellCallbacks{SelectSession: func(_ ui.EventContext, sessionID string) { selected = sessionID }},
-	})
-	application.Pump(140, 24)
-	application.Pump(140, 24)
-	rows := paintedRows(application, 140, 24)
-	text := strings.Join(rows, "\n")
-	for _, expected := range []string{
-		"Session Explorer", "2 sessions", "✓ Current session", "Other workspace",
-		"/workspace/Developer/agent/kit-v2", "01234567", "fedcba98",
-		"↑↓ move · page up/down", "enter switch · ctrl+r rename · ctrl+d delete · esc close",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("session explorer missing %q:\n%s", expected, text)
-		}
-	}
-	left, right, top := sessionDialogBorder(rows)
-	bottom := dialogBottom(rows)
-	if right-left+1 != 119 || top != 4 || bottom-top+1 != pickerModalMinHeight {
-		t.Fatalf("dialog geometry left=%d right=%d top=%d bottom=%d", left, right, top, bottom)
-	}
-	assertPickerFooter(t, rows, "enter switch · ctrl+r rename · ctrl+d delete · esc close")
-	currentColumn, currentRow := findTextCell(t, rows, "✓ Current session")
-	currentColumn += len([]rune("✓ "))
-	otherColumn, otherRow := findTextCell(t, rows, "Other workspace")
-	selectedBackground := application.Cell(currentColumn, currentRow).Style.Background
-	if selectedBackground == application.Cell(otherColumn, otherRow).Style.Background {
-		t.Fatalf("selected session row is not visually distinct: current=%+v other=%+v", application.Cell(currentColumn, currentRow).Style, application.Cell(otherColumn, otherRow).Style)
-	}
-	selectedLeft, selectedRight := currentColumn, currentColumn
-	for selectedLeft > 0 && application.Cell(selectedLeft-1, currentRow).Style.Background == selectedBackground {
-		selectedLeft--
-	}
-	for selectedRight+1 < 140 && application.Cell(selectedRight+1, currentRow).Style.Background == selectedBackground {
-		selectedRight++
-	}
-	if leftGap, rightGap := selectedLeft-left, right-selectedRight; leftGap != 2 || rightGap != leftGap {
-		t.Fatalf("selected row horizontal gaps = %d left and %d right", leftGap, rightGap)
-	}
-	application.Click(otherColumn, otherRow)
-	if selected != sessions[1].ID {
-		t.Fatalf("dialog row click selected %q", selected)
-	}
-}
-
-func TestSessionExplorerSharesCommandPaletteTopPlacement(t *testing.T) {
-	t.Parallel()
-
-	const width, height = 100, 24
-	palette := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, PaletteOpen: true, Scroll: &ui.ScrollController{},
-	}})
-	palette.Pump(width, height)
-	_, _, paletteTop := paletteBorder(paintedRows(palette, width, height))
-
-	explorer := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Scroll: &ui.ScrollController{},
-		SessionExplorer: sessionExplorerSnapshot{Open: true, Loading: true},
-	}})
-	explorer.Pump(width, height)
-	_, _, explorerTop := sessionDialogBorder(paintedRows(explorer, width, height))
-
-	if paletteTop != 4 || explorerTop != paletteTop {
-		t.Fatalf("picker modal tops: palette=%d explorer=%d, want shared row 4", paletteTop, explorerTop)
-	}
-}
-
-func TestSessionExplorerPresentationHasExplicitLoadingErrorAndEmptyStates(t *testing.T) {
-	t.Parallel()
-
-	states := []struct {
-		name     string
-		snapshot sessionExplorerSnapshot
-		want     string
-	}{
-		{name: "loading", snapshot: sessionExplorerSnapshot{Open: true, Loading: true}, want: "Loading sessions…"},
-		{name: "error", snapshot: sessionExplorerSnapshot{Open: true, Error: "offline"}, want: "Could not load sessions."},
-		{name: "empty", snapshot: sessionExplorerSnapshot{Open: true}, want: "No sessions"},
-	}
-	for _, test := range states {
-		t.Run(test.name, func(t *testing.T) {
-			application := uitest.New(shellView{Snapshot: shellSnapshot{
-				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
-			}})
-			application.Pump(80, 16)
-			text := strings.Join(paintedRows(application, 80, 16), "\n")
-			if !strings.Contains(text, test.want) {
-				t.Fatalf("%s state =\n%s", test.name, text)
-			}
-			assertPickerFooter(t, paintedRows(application, 80, 16), "esc close")
-		})
-	}
-}
-
-func TestSessionExplorerHintsPreserveKeyActionsAtResponsiveWidths(t *testing.T) {
-	t.Parallel()
-
-	for _, test := range []struct {
-		width int
-		want  string
-	}{
-		{width: 38, want: "enter switch · ctrl+d delete · esc close"},
-		{width: 56, want: "enter switch · ctrl+r rename · ctrl+d delete · esc close"},
-		{width: 81, want: "↑↓ move · page up/down · enter switch · ctrl+r rename · ctrl+d delete · esc close"},
-	} {
-		if got := sessionExplorerHintText(test.width); got != test.want {
-			t.Fatalf("sessionExplorerHintText(%d) = %q, want %q", test.width, got, test.want)
-		}
-	}
-}
-
-func TestSessionExplorerPresentationCommunicatesSwitchProgressAndRetry(t *testing.T) {
-	t.Parallel()
-
-	base := sessionExplorerSnapshot{
-		Open: true, Sessions: []sessionExplorerItem{{ID: "session_target", Name: "Target"}}, Selection: "session_target",
-	}
-	for _, test := range []struct {
-		name     string
-		snapshot sessionExplorerSnapshot
-		want     []string
-	}{
-		{name: "switching", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.Switching = true
-			return snapshot
-		}(), want: []string{"⠋ Switching…", "esc cancel"}},
-		{name: "retry", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.SwitchError = "offline"
-			return snapshot
-		}(), want: []string{"Switch failed", "Switch failed: offline", "enter retry · esc close"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			application := uitest.New(shellView{Snapshot: shellSnapshot{
-				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
-			}})
-			application.Pump(100, 24)
-			text := strings.Join(paintedRows(application, 100, 24), "\n")
-			for _, want := range test.want {
-				if !strings.Contains(text, want) {
-					t.Fatalf("%s state missing %q:\n%s", test.name, want, text)
-				}
-			}
-		})
-	}
-
-	narrowApplication := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: base,
-	}})
-	narrowApplication.Pump(44, 24)
-	narrowApplication.Pump(44, 24)
-	assertPickerFooter(t, paintedRows(narrowApplication, 44, 24), "enter switch · ctrl+d delete · esc close")
-
-	narrow := base
-	narrow.SwitchError = strings.Repeat("connection unavailable ", 8)
-	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: narrow,
-	}})
-	application.Pump(44, 24)
-	assertPickerFooter(t, paintedRows(application, 44, 24), "enter retry · esc close")
-}
-
-func TestSessionRenamePresentationShowsInputFailureAndPendingStates(t *testing.T) {
-	t.Parallel()
-
-	longName := "A deliberately long session name that proves full width"
-	base := sessionExplorerSnapshot{
-		Open: true, RenameOpen: true, RenameSessionID: "session_target", RenameText: longName,
-		Sessions:         []sessionExplorerItem{{ID: "session_target", Name: "Before", CWD: "/repo"}},
-		Selection:        "session_target",
-		CurrentSessionID: "session_target",
-	}
-	for _, test := range []struct {
-		name     string
-		snapshot sessionExplorerSnapshot
-		want     []string
-	}{
-		{name: "editing", snapshot: base, want: []string{"Session Explorer", "Rename session", longName, "enter save · esc cancel"}},
-		{name: "failed", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.RenameError = "offline"
-			return snapshot
-		}(), want: []string{"Rename failed: offline", "enter save · esc cancel"}},
-		{name: "pending", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.RenamePending = true
-			return snapshot
-		}(), want: []string{"Session Explorer", "Rename session", "⠋ Saving…"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			application := uitest.New(shellView{Snapshot: shellSnapshot{
-				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
-			}})
-			application.Pump(100, 24)
-			application.Pump(100, 24)
-			text := strings.Join(paintedRows(application, 100, 24), "\n")
-			for _, want := range test.want {
-				if !strings.Contains(text, want) {
-					t.Fatalf("%s rename state missing %q:\n%s", test.name, want, text)
-				}
-			}
-			if count := strings.Count(text, "┌"); count != 3 {
-				t.Fatalf("%s rename state rendered %d bordered surfaces, want explorer, dialog, and input:\n%s", test.name, count, text)
-			}
-		})
-	}
-}
-
-func TestSessionDeletePresentationShowsConfirmationFailureAndPendingStates(t *testing.T) {
-	t.Parallel()
-
-	base := sessionExplorerSnapshot{
-		Open: true, DeleteOpen: true, DeleteSessionID: "session_target",
-		Sessions:  []sessionExplorerItem{{ID: "session_current", Name: "Current"}, {ID: "session_target", Name: "Target"}},
-		Selection: "session_target", CurrentSessionID: "session_current",
-	}
-	for _, test := range []struct {
-		name     string
-		snapshot sessionExplorerSnapshot
-		want     []string
-	}{
-		{name: "confirm", snapshot: base, want: []string{"Delete session?", "Target", "Stored history and data will be permanently deleted. This cannot", "be undone.", "enter confirm · esc cancel"}},
-		{name: "failed", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.DeleteError = "session is busy"
-			return snapshot
-		}(), want: []string{"Delete failed: session is busy", "enter retry · esc cancel"}},
-		{name: "pending", snapshot: func() sessionExplorerSnapshot {
-			snapshot := base
-			snapshot.DeletePending = true
-			return snapshot
-		}(), want: []string{"Delete session?", "⠋ Deleting…"}},
-	} {
-		t.Run(test.name, func(t *testing.T) {
-			application := uitest.New(shellView{Snapshot: shellSnapshot{
-				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
-			}})
-			application.Pump(100, 24)
-			text := strings.Join(paintedRows(application, 100, 24), "\n")
-			for _, want := range test.want {
-				if !strings.Contains(text, want) {
-					t.Fatalf("%s delete state missing %q:\n%s", test.name, want, text)
-				}
-			}
-		})
-	}
-
-	guarded := base
-	guarded.DeleteOpen = false
-	guarded.DeleteError = "Cannot delete the attached session"
-	application := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: guarded,
-	}})
-	application.Pump(80, 24)
-	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	if !strings.Contains(text, "Cannot delete the attached session") || !strings.Contains(text, "esc close") {
-		t.Fatalf("delete guard presentation:\n%s", text)
-	}
-}
-
-func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UTC()
-	controller := sessionExplorerController{}
-	generation := controller.Begin("session_11")
-	items := make([]sessionExplorerItem, 12)
-	for index := range items {
-		items[index] = sessionExplorerItem{
-			ID: "session_" + fmt.Sprintf("%02d", index), Name: fmt.Sprintf("Session %02d", index),
-			CWD: "/tmp", UpdatedAt: now.Add(-time.Duration(index) * time.Minute).Format(time.RFC3339Nano),
-		}
-	}
-	controller.Resolve(generation, items, nil)
-	state := &sessionExplorerHarnessState{controller: controller}
-	application := uitest.New(sessionExplorerHarness{State: state})
-	for range 6 {
-		application.Pump(80, 7)
-		state.TickFrame(time.Now())
-	}
-	application.Pump(80, 7)
-	rows := paintedRows(application, 80, 7)
-	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Session Explorer", "✓ Session 11", "enter switch · ctrl+r rename · ctrl+d delete · esc close"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("short explorer missing %q (reveal=%t layout=%t attached=%t metrics=%+v):\n%s", expected, state.controller.needsReveal, state.controller.revealPendingLayout, state.controller.scroll.Attached(), state.controller.scroll.Metrics(), text)
-		}
-	}
-	if !strings.Contains(rows[0], "┌") || !strings.Contains(rows[len(rows)-1], "└") {
-		t.Fatalf("short explorer chrome =\n%s", text)
-	}
-}
-
-func TestSessionExplorerRevealsSelectionAfterViewportShrinks(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UTC()
-	controller := sessionExplorerController{}
-	generation := controller.Begin("session_11")
-	items := make([]sessionExplorerItem, 12)
-	for index := range items {
-		items[index] = sessionExplorerItem{
-			ID: "session_" + fmt.Sprintf("%02d", index), Name: fmt.Sprintf("Session %02d", index),
-			UpdatedAt: now.Add(-time.Duration(index) * time.Minute).Format(time.RFC3339Nano),
-		}
-	}
-	controller.Resolve(generation, items, nil)
-	state := &sessionExplorerHarnessState{controller: controller}
-	application := uitest.New(sessionExplorerHarness{State: state})
-	pumpSessionExplorerFrames(application, state, 80, 19, 5)
-	pumpSessionExplorerFrames(application, state, 80, 8, 6)
-	text := strings.Join(paintedRows(application, 80, 8), "\n")
-	if !strings.Contains(text, "✓ Session 11") || !strings.Contains(text, "ctrl+d delete") {
-		t.Fatalf("resized explorer lost selection or chrome:\n%s", text)
-	}
-}
-
-func pumpSessionExplorerFrames(application *uitest.App, state *sessionExplorerHarnessState, width, height, frames int) {
-	for range frames {
-		application.Pump(width, height)
-		state.TickFrame(time.Now())
-	}
-	application.Pump(width, height)
-}
-
-func TestSessionExplorerRestoresSelectionAfterZeroBodyResize(t *testing.T) {
-	t.Parallel()
-
-	now := time.Now().UTC()
-	controller := sessionExplorerController{}
-	generation := controller.Begin("session_25")
-	items := make([]sessionExplorerItem, 30)
-	for index := range items {
-		items[index] = sessionExplorerItem{
-			ID: "session_" + fmt.Sprintf("%02d", index), Name: fmt.Sprintf("Session %02d", index),
-			UpdatedAt: now.Add(-time.Duration(index) * time.Minute).Format(time.RFC3339Nano),
-		}
-	}
-	controller.Resolve(generation, items, nil)
-	state := &sessionExplorerHarnessState{controller: controller}
-	application := uitest.New(sessionExplorerHarness{State: state})
-	pumpSessionExplorerFrames(application, state, 80, 19, 6)
-	pumpSessionExplorerFrames(application, state, 80, 6, 1)
-	pumpSessionExplorerFrames(application, state, 80, 19, 6)
-	text := strings.Join(paintedRows(application, 80, 19), "\n")
-	if !strings.Contains(text, "✓ Session 25") || !strings.Contains(text, "ctrl+d delete") {
-		t.Fatalf("zero-body resize lost selection or chrome:\n%s", text)
-	}
-}
-
-func TestSessionExplorerSuspendsRevealWhenViewportHasNoAvailableRows(t *testing.T) {
-	t.Parallel()
-
-	controller := sessionExplorerController{}
-	generation := controller.Begin("session_current")
-	controller.Resolve(generation, []sessionExplorerItem{{
-		ID: "session_current", Name: "Current session", UpdatedAt: time.Now().Format(time.RFC3339Nano),
-	}}, nil)
-	state := &sessionExplorerHarnessState{controller: controller}
-	application := uitest.New(sessionExplorerHarness{State: state})
-	application.Pump(80, 6)
-	if state.TickFrame(time.Now()) || state.controller.layout.AvailableRows != 0 {
-		t.Fatalf("zero-body reveal kept ticking: body=%d reveal=%t", state.controller.layout.AvailableRows, state.controller.needsReveal)
-	}
-	rows := paintedRows(application, 80, 6)
-	if !strings.Contains(rows[0], "┌") || !strings.Contains(rows[1], "Session Explorer") ||
-		!strings.Contains(rows[len(rows)-2], "ctrl+d delete") || !strings.Contains(rows[len(rows)-1], "└") {
-		t.Fatalf("six-row explorer boundary =\n%s", strings.Join(rows, "\n"))
-	}
-}
-
-func TestSessionExplorerUsesShortIDsForUnnamedSessions(t *testing.T) {
-	t.Parallel()
-
-	first := sessionExplorerItemLabel(sessionExplorerItem{ID: "session_0123456789abcdef"})
-	second := sessionExplorerItemLabel(sessionExplorerItem{ID: "session_fedcba9876543210"})
-	if first != "01234567" || second != "fedcba98" {
-		t.Fatalf("unnamed labels = %q and %q", first, second)
-	}
-	row := sessionExplorerRow{Session: sessionExplorerItem{
-		ID: "session_0123456789abcdef", CWD: "/tmp/project",
-		UpdatedAt: time.Now().Add(-2*time.Hour - 5*time.Minute).Format(time.RFC3339Nano),
-	}}
-	application := uitest.New(row)
-	application.Pump(104, 1)
-	want := fmt.Sprintf("%-43s %10s %40s %8s", "  01234567", "2h ago", "/tmp/project", "")
-	if got := paintedRows(application, 104, 1)[0]; got != want {
-		t.Fatalf("unnamed row = %q\nwant          %q", got, want)
-	}
-}
-
-func TestSessionExplorerCWDTruncationPreservesUnicodePathTailByCellWidth(t *testing.T) {
-	t.Parallel()
-
-	display := truncateStartCells("/tmp/資料/📁/a-significantly-longer-workspace-filename.go", sessionCWDExpandedWidth)
-	width := (ui.LayoutContext{}).MeasureText(display, ui.Style{}).Width
-	if width > sessionCWDExpandedWidth || !strings.HasPrefix(display, glyphEllipsis) || !strings.HasSuffix(display, "filename.go") {
-		t.Fatalf("truncated cwd = %q (%d cells)", display, width)
-	}
-}
-
-func TestSessionExplorerRowsSupportFullRowMouseSelection(t *testing.T) {
-	t.Parallel()
-
-	selected := ""
-	row := sessionExplorerRow{
-		Session:     sessionExplorerItem{ID: "session_target", Name: "Target session"},
-		Interactive: true,
-		OnPressed:   func(ui.EventContext) { selected = "session_target" },
-	}
-	application := uitest.New(row)
-	application.Pump(60, 1)
-	application.Click(50, 0)
-	if selected != "session_target" {
-		t.Fatalf("mouse selection = %q", selected)
-	}
-}
-
 func TestSessionRenameFieldPlacesInitialCursorAtEndWithoutPinningIt(t *testing.T) {
 	t.Parallel()
 
@@ -750,6 +221,21 @@ func (s *sessionRenameFieldHarnessState) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
+// explorerFixture is hierarchyFixture with working directories.
+func explorerFixture() []sessionExplorerItem {
+	items := hierarchyFixture()
+	for index := range items {
+		items[index].CWD = "/repo/" + strings.ToLower(items[index].Name)
+	}
+	return items
+}
+
+func openExplorer(currentSessionID string, items []sessionExplorerItem) sessionExplorerController {
+	controller := sessionExplorerController{}
+	controller.Resolve(controller.Begin(currentSessionID), items, nil)
+	return controller
+}
+
 type sessionExplorerHarness struct{ State *sessionExplorerHarnessState }
 
 func (w sessionExplorerHarness) CreateState() ui.State { return w.State }
@@ -757,26 +243,380 @@ func (w sessionExplorerHarness) CreateState() ui.State { return w.State }
 type sessionExplorerHarnessState struct {
 	ui.StateBase
 	controller sessionExplorerController
-}
-
-func (s *sessionExplorerHarnessState) TickFrame(time.Time) bool {
-	return s.controller.TickFrame()
+	activated  []string
 }
 
 func (s *sessionExplorerHarnessState) Build(ui.BuildContext) ui.Widget {
-	return shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Session: protocol.SessionInfo{ID: s.controller.CurrentSessionID},
-		Scroll: &ui.ScrollController{}, SessionExplorer: s.controller.Snapshot(),
-	}}
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Session: protocol.SessionInfo{ID: s.controller.CurrentSessionID},
+			Scroll: &ui.ScrollController{}, SessionExplorer: s.controller.Snapshot(),
+		},
+		Callbacks: shellCallbacks{
+			ActivateSession: func(_ ui.EventContext, id string) { s.activated = append(s.activated, id) },
+			ToggleSessionTree: func(_ ui.EventContext, id string) {
+				s.SetState(func() { s.controller.ToggleExpanded(id) })
+			},
+		},
+	}
 }
 
-func sessionDialogBorder(rows []string) (int, int, int) {
-	for rowIndex, row := range rows {
-		left := strings.Index(row, "┌")
-		right := strings.LastIndex(row, "┐")
-		if left >= 0 && right >= left {
-			return len([]rune(row[:left])), len([]rune(row[:right])), rowIndex
+func renderExplorer(t *testing.T, controller sessionExplorerController, width, height int) (*uitest.App, *sessionExplorerHarnessState, []string) {
+	t.Helper()
+	state := &sessionExplorerHarnessState{controller: controller}
+	application := uitest.New(sessionExplorerHarness{State: state})
+	application.Pump(width, height)
+	application.Pump(width, height)
+	return application, state, paintedRows(application, width, height)
+}
+
+func TestSessionExplorerRendersTheCanonicalPicker(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultThemeSet().Dark
+	controller := openExplorer("session_child", explorerFixture())
+	application, _, rows := renderExplorer(t, controller, 100, 24)
+
+	_, searchRow := assertPickerSearchField(t, rows, "Search sessions…")
+	assertPickerTitleSpacing(t, rows, "Sessions", searchRow)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                          5 sessions │")
+	// Children are indented under their parent with the disclosure in the
+	// hint column; the working directory and updated time share columns.
+	assertDialogRow(t, rows, "Authentication", "│ Authentication  ▾ 2  /repo/authentication                         2026-06-01 │")
+	assertDialogRow(t, rows, "Tokens", "│   Tokens             /repo/tokens                                 2026-06-03 │")
+	assertDialogRow(t, rows, "OAuth", "│▌  OAuth         ▸ 1  /repo/oauth                                  2026-06-02 │")
+	assertDialogRow(t, rows, "Release", "│ Release              /repo/release                                2026-06-04 │")
+	assertPickerFooter(t, rows, "←→ expand · enter switch · ctrl+r rename · ctrl+d delete")
+	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete                     │")
+
+	column, row := findTextCell(t, rows, "OAuth")
+	if cell := application.Cell(column, row); cell.Style.Foreground != theme.PrimaryText {
+		t.Fatalf("current session label style = %+v, want accent %v", cell.Style, theme.PrimaryText)
+	}
+}
+
+func TestSessionExplorerShowsLineageNotesInTheHintColumn(t *testing.T) {
+	t.Parallel()
+	items := append(explorerFixture(),
+		sessionExplorerItem{ID: "session_orphan", Name: "Orphan", CWD: "/repo/orphan", ParentSessionID: "session_gone", ParentSessionName: "Gone", UpdatedAt: "2026-06-04T00:00:00Z"},
+		sessionExplorerItem{ID: "session_unnamed_parent", Name: "Adopted", CWD: "/repo/adopted", ParentSessionID: "session_0123456789", UpdatedAt: "2026-06-04T00:00:00Z"},
+		sessionExplorerItem{ID: "session_self", Name: "Loop", CWD: "/repo/loop", ParentSessionID: "session_self", UpdatedAt: "2026-06-04T00:00:00Z"},
+	)
+	controller := openExplorer("session_other", items)
+	_, _, rows := renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Orphan", "│ Orphan          from Gone       /repo/orphan                      2026-06-04 │")
+	assertDialogRow(t, rows, "Adopted", "│ Adopted         from 01234567   /repo/adopted                     2026-06-04 │")
+	assertDialogRow(t, rows, "Loop", "│ Loop            invalid parent  /repo/loop                        2026-06-04 │")
+
+	// A filtered match stays under its ancestors, and an orphan keeps its
+	// lineage note.
+	for _, test := range []struct {
+		query string
+		want  []string
+	}{
+		{query: "prov", want: []string{
+			"│ Authentication                  /repo/authentication              2026-06-01 │",
+			"│   OAuth                         /repo/oauth                       2026-06-02 │",
+			"│▌    Providers                   /repo/providers                   2026-06-05 │",
+		}},
+		{query: "orph", want: []string{
+			"│▌Orphan          from Gone       /repo/orphan                      2026-06-04 │",
+		}},
+	} {
+		controller.SetQuery(test.query)
+		_, _, rows = renderExplorer(t, controller, 100, 24)
+		if got := pickerListRows(rows); strings.Join(got, "\n") != strings.Join(test.want, "\n") {
+			t.Fatalf("%q rows =\n%s\nwant\n%s", test.query, strings.Join(got, "\n"), strings.Join(test.want, "\n"))
 		}
 	}
-	return -1, -1, -1
+}
+
+// pickerListRows returns the dialog rows between the search divider and the
+// footer divider, without trailing blank rows.
+func pickerListRows(rows []string) []string {
+	left, right, _ := paletteBorder(rows)
+	result := []string{}
+	for row := findPaintedRow(rows, "├") + 1; row < len(rows) && !strings.Contains(rows[row], "├"); row++ {
+		cells := []rune(rows[row])
+		result = append(result, string(cells[left:right+1]))
+	}
+	for len(result) > 0 && strings.TrimSpace(strings.Trim(result[len(result)-1], "│")) == "" {
+		result = result[:len(result)-1]
+	}
+	return result
+}
+
+func TestSessionExplorerTitleShowsSwitchingSpinnerAndFooterStatus(t *testing.T) {
+	t.Parallel()
+	controller := openExplorer("session_other", explorerFixture())
+	controller.Select("session_root")
+	if _, _, ok := controller.BeginSwitch(); !ok {
+		t.Fatal("switch did not start")
+	}
+	_, _, rows := renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                        ⠋ switching… │")
+	assertDialogRow(t, rows, "esc cancel", "│ esc cancel                                                                   │")
+
+	controller.CancelSwitch()
+	controller.SwitchError = "offline"
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                          5 sessions │")
+	assertDialogRow(t, rows, "Switch failed", "│ Switch failed: offline · enter retry                               esc close │")
+}
+
+func TestSessionExplorerMessagesReplaceTheList(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		name     string
+		snapshot sessionExplorerSnapshot
+		row      string
+		footer   string
+	}{
+		{name: "loading", snapshot: sessionExplorerSnapshot{Open: true, Loading: true}, row: "⠋ Loading sessions…", footer: "esc close"},
+		{name: "error", snapshot: sessionExplorerSnapshot{Open: true, Error: "offline"}, row: "Could not load sessions: offline", footer: "esc close"},
+		{name: "empty", snapshot: sessionExplorerSnapshot{Open: true}, row: "No sessions", footer: "esc close"},
+		{name: "no matches", snapshot: sessionExplorerSnapshot{Open: true, Query: "zzz", All: explorerFixture()}, row: "No matching sessions", footer: "←→ expand · enter switch · ctrl+r rename · ctrl+d delete"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			application := uitest.New(shellView{Snapshot: shellSnapshot{
+				Phase: phaseReady, Scroll: &ui.ScrollController{}, SessionExplorer: test.snapshot,
+			}})
+			application.Pump(100, 24)
+			application.Pump(100, 24)
+			rows := paintedRows(application, 100, 24)
+			search := "Search sessions…"
+			if test.snapshot.Query != "" {
+				search = test.snapshot.Query
+			}
+			_, searchRow := assertPickerSearchField(t, rows, search)
+			if got := dialogRowText(rows, searchRow+2); got != test.row {
+				t.Fatalf("first list row = %q, want %q:\n%s", got, test.row, strings.Join(rows, "\n"))
+			}
+			assertPickerFooter(t, rows, test.footer)
+		})
+	}
+}
+
+func TestSessionExplorerDeleteConfirmationStaysInTheFrame(t *testing.T) {
+	t.Parallel()
+	controller := openExplorer("session_other", explorerFixture())
+	controller.Select("session_root")
+	if !controller.BeginDelete() {
+		t.Fatal("delete did not open")
+	}
+	application, _, rows := renderExplorer(t, controller, 100, 24)
+	// The target stays highlighted in the list while the footer asks.
+	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▸ 2  /repo/authentication                         2026-06-01 │")
+	assertDialogRow(t, rows, "Delete", "│ Delete \"Authentication\"? enter confirm                            esc cancel │")
+	column, row := findTextCell(t, rows, "Delete \"")
+	if cell := application.Cell(column, row); cell.Style.Foreground != ui.DefaultThemeSet().Dark.DangerText {
+		t.Fatalf("delete prompt style = %+v, want danger text", cell.Style)
+	}
+
+	generation, _, ok := controller.BeginDeleteConfirm()
+	if !ok {
+		t.Fatal("delete confirm did not start")
+	}
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                         ⠋ deleting… │")
+	assertDialogRow(t, rows, "Deleting", "│ Deleting \"Authentication\"…                                                   │")
+
+	controller.ResolveDelete(generation, errors.New("session is busy"))
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Delete failed", "│ Delete failed: session is busy · enter retry                      esc cancel │")
+
+	controller.CancelDelete()
+	controller.Select("session_other")
+	controller.BeginDelete()
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Cannot delete", "│ Cannot delete the attached session                                 esc close │")
+}
+
+func TestSessionExplorerRenameUsesThePromptInTheSameFrame(t *testing.T) {
+	t.Parallel()
+	controller := openExplorer("session_other", explorerFixture())
+	controller.Select("session_root")
+	if !controller.BeginRename() || controller.RenameText != "Authentication" {
+		t.Fatalf("rename did not open with the current name: %+v", controller)
+	}
+	controller.SetRenameText("Auth v2")
+	_, _, rows := renderExplorer(t, controller, 100, 24)
+	_, inputRow := assertPickerSearchField(t, rows, "Auth v2")
+	assertPickerTitleSpacing(t, rows, "Rename session", inputRow)
+	assertDialogRow(t, rows, "Rename session", "│ Rename session                                                Authentication │")
+	assertPickerFooter(t, rows, "enter save · esc cancel")
+
+	controller.SetRenameText("Auth")
+	generation, _, _, ok := controller.BeginRenameSave()
+	if !ok {
+		t.Fatal("rename save did not start")
+	}
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Rename session", "│ Rename session                                                     ⠋ saving… │")
+
+	controller.ResolveRename(generation, protocol.SessionInfo{}, errors.New("offline"))
+	_, _, rows = renderExplorer(t, controller, 100, 24)
+	assertDialogRow(t, rows, "Rename failed", "│ Rename failed: offline                                                       │")
+}
+
+func TestSessionExplorerDisclosureClickTogglesAndRowClickActivates(t *testing.T) {
+	t.Parallel()
+	controller := openExplorer("session_other", explorerFixture())
+	application, state, rows := renderExplorer(t, controller, 100, 24)
+	column, row := findTextCell(t, rows, glyphTriangleRight+" 2")
+	application.Click(column, row)
+	application.Pump(100, 24)
+	rows = paintedRows(application, 100, 24)
+	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▾ 2  /repo/authentication                         2026-06-01 │")
+	assertVisibleSessions(t, &state.controller, "session_root", "session_sibling", "session_child", "session_other")
+
+	column, row = findTextCell(t, rows, "Release")
+	application.Click(column, row)
+	if got := strings.Join(state.activated, ","); got != "session_other" {
+		t.Fatalf("activated = %q, want the clicked session", got)
+	}
+}
+
+func TestSessionExplorerKeysRouteThroughThePickerModel(t *testing.T) {
+	t.Parallel()
+	explorer := openExplorer("session_other", explorerFixture())
+	c := &explorer
+	press := func(key ui.Key) pickerKeyResult {
+		t.Helper()
+		return c.HandleKey(key)
+	}
+	// Up and Down wrap; page keys no longer move.
+	press(ui.Key{Keycode: vaxis.KeyDown})
+	if c.Selection != "session_root" {
+		t.Fatalf("down from the last row = %s, want wrap to the first", c.Selection)
+	}
+	if result := press(ui.Key{Keycode: vaxis.KeyPgDown}); !result.Handled || c.Selection != "session_root" {
+		t.Fatalf("page down = %+v selection %s, want swallowed", result, c.Selection)
+	}
+	// Left and Right fold the tree while the query is empty.
+	press(ui.Key{Keycode: vaxis.KeyRight})
+	assertVisibleSessions(t, c, "session_root", "session_sibling", "session_child", "session_other")
+	press(ui.Key{Keycode: vaxis.KeyLeft})
+	assertVisibleSessions(t, c, "session_root", "session_other")
+
+	// Typing filters and highlights the first match.
+	for _, character := range "tok" {
+		press(ui.Key{Keycode: character, Text: string(character)})
+	}
+	if c.Query != "tok" || c.Selection != "session_sibling" {
+		t.Fatalf("typed query = %q selection = %s", c.Query, c.Selection)
+	}
+	assertVisibleSessions(t, c, "session_root", "session_sibling")
+	// With a query, Left and Right are swallowed and leave the tree alone.
+	if result := press(ui.Key{Keycode: vaxis.KeyRight}); !result.Handled || c.Query != "tok" || c.expanded["session_sibling"] || c.Selection != "session_sibling" {
+		t.Fatalf("right with a query = %+v controller %+v", result, c)
+	}
+	// Clearing the query restores the nearest visible ancestor.
+	for range 3 {
+		press(ui.Key{Keycode: vaxis.KeyBackspace})
+	}
+	if c.Query != "" || c.Selection != "session_root" {
+		t.Fatalf("cleared query = %q selection = %s", c.Query, c.Selection)
+	}
+	assertVisibleSessions(t, c, "session_root", "session_other")
+
+	if result := press(ui.Key{Keycode: vaxis.KeyEnter}); !result.Activate || c.Selection != "session_root" {
+		t.Fatalf("enter = %+v", result)
+	}
+	if result := press(ui.Key{Keycode: vaxis.KeyEsc}); !result.Dismiss {
+		t.Fatalf("escape = %+v", result)
+	}
+	// Explorer shortcuts run after the model leaves modified keys unhandled.
+	if result := press(ui.Key{Keycode: 'r', Modifiers: vaxis.ModCtrl}); !result.Handled || !c.RenameOpen || c.RenameSessionID != "session_root" {
+		t.Fatalf("ctrl+r = %+v controller %+v", result, c)
+	}
+	if result := press(ui.Key{Keycode: 'x', Text: "x"}); !result.Handled || c.Query != "" {
+		t.Fatalf("typing during rename = %+v query %q", result, c.Query)
+	}
+	c.CancelRename()
+	if result := press(ui.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl}); !result.Handled || !c.DeleteOpen || c.DeleteSessionID != "session_root" {
+		t.Fatalf("ctrl+d = %+v controller %+v", result, c)
+	}
+	c.CancelDelete()
+	if result := press(ui.Key{Keycode: 'k', Modifiers: vaxis.ModCtrl}); result.Handled {
+		t.Fatalf("unrelated shortcut = %+v, want it left for the app", result)
+	}
+}
+
+type sessionExplorerAppHarness struct{ state *sessionExplorerAppState }
+
+func (w sessionExplorerAppHarness) CreateState() ui.State { return w.state }
+
+type sessionExplorerAppState struct {
+	appState
+	scroll ui.ScrollController
+}
+
+func (*sessionExplorerAppState) InitState() {}
+func (*sessionExplorerAppState) Dispose()   {}
+func (s *sessionExplorerAppState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
+func (s *sessionExplorerAppState) Build(ui.BuildContext) ui.Widget {
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Session: s.session, Scroll: &s.scroll, SessionExplorer: s.sessionExplorer.Snapshot(),
+		},
+		Callbacks: shellCallbacks{
+			InputOwner: s.inputOwner,
+			Dismiss:    s.dismiss,
+		},
+	}
+}
+
+func TestSessionExplorerAppAppliesKeysTypedBeforePaintAndCatalog(t *testing.T) {
+	t.Parallel()
+	state := &sessionExplorerAppState{appState: appState{phase: phaseReady, session: protocol.SessionInfo{ID: "session_other", Name: "Release"}}}
+	backend := &themePickerBackend{events: make(chan ui.Event), dispatches: make(chan func(), 8)}
+	runner := ui.NewRunner(ui.NewApp(sessionExplorerAppHarness{state: state}), backend, ui.NewFrameScheduler(time.Second/60))
+	application := &themePickerTestApp{runner: runner, backend: backend, now: time.Now()}
+	runner.Start(application.now)
+	application.pump(t)
+
+	// Open the explorer and type before it paints or its catalog arrives.
+	var generation uint64
+	state.SetState(func() { generation = state.sessionExplorer.Begin("session_other") })
+	application.key("rel")
+	application.send(vaxis.Key{Keycode: vaxis.KeyDown, EventType: vaxis.EventPress})
+	if state.sessionExplorer.Query != "rel" {
+		t.Fatalf("pre-paint query = %q", state.sessionExplorer.Query)
+	}
+	application.pump(t)
+	rows := application.rows()
+	assertDialogRow(t, rows, "│ rel", "│ rel                                                          │")
+	assertDialogRow(t, rows, "Loading", "│ ⠋ Loading sessions…                                          │")
+
+	state.SetState(func() { state.sessionExplorer.Resolve(generation, explorerFixture(), nil) })
+	application.pump(t)
+	rows = application.rows()
+	if state.sessionExplorer.Selection != "session_other" {
+		t.Fatalf("selection after catalog = %s, want the first match", state.sessionExplorer.Selection)
+	}
+	assertDialogRow(t, rows, "/repo/release", "│▌Release              /repo/release                2026-06-04 │")
+
+	// The whole footer fits the 80-column terminal's picker.
+	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete     │")
+
+	// Ctrl+r opens the rename prompt in the same frame; Esc returns.
+	application.send(vaxis.Key{Keycode: 'r', Modifiers: vaxis.ModCtrl, EventType: vaxis.EventPress})
+	application.pump(t)
+	assertDialogRow(t, application.rows(), "Rename session", "│ Rename session                                       Release │")
+	application.send(vaxis.Key{Keycode: vaxis.KeyEsc, EventType: vaxis.EventPress})
+	application.pump(t)
+	if state.sessionExplorer.RenameOpen || !state.sessionExplorer.Open {
+		t.Fatalf("escape from rename = %+v", state.sessionExplorer.Snapshot())
+	}
+
+	// Enter on the attached session closes the explorer; nothing to switch.
+	application.send(vaxis.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	application.pump(t)
+	if state.sessionExplorer.Open {
+		t.Fatalf("enter on the attached session left the explorer open: %+v", state.sessionExplorer.Snapshot())
+	}
 }

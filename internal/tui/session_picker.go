@@ -7,7 +7,6 @@ import (
 	"io"
 	"os"
 	"sync"
-	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
@@ -138,10 +137,6 @@ func (s *sessionPickerState) Dispose() {
 	}
 }
 
-func (s *sessionPickerState) TickFrame(_ time.Time) bool {
-	return s.controller.TickFrame()
-}
-
 func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 	widget := s.Widget().(sessionPicker)
 	snapshot := s.controller.Snapshot()
@@ -149,121 +144,44 @@ func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 	if widget.Result != nil {
 		widget.Result.setRegionHeight(height)
 	}
-	if snapshot.Layout != nil {
-		snapshot.Layout.AvailableRows = max(0, height-sessionExplorerChromeRows)
-	}
 	surface := sessionExplorerSurface{
 		Snapshot: snapshot, Action: "open",
-		Callbacks: sessionExplorerCallbacks{QueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.controller.SetQuery(value) }) }, Toggle: func(_ ui.EventContext, sessionID string) {
-			s.SetState(func() { s.controller.ToggleExpanded(sessionID) })
-		}, Select: func(_ ui.EventContext, sessionID string) {
-			s.SetState(func() { s.controller.Select(sessionID) })
-		}},
-	}
-	theme := ui.MustDepend[ui.Theme](ctx)
-	content := ui.Widget(ui.DecoratedBox(
-		ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}},
-		boundedHorizontalCenter{
-			Percent: 85, MinWidth: 44, MaxWidth: 120,
-			Child: ui.SizedBox{Height: height, Child: surface.content(ctx)},
-		},
-	))
-	children := []ui.Widget{content}
-	if snapshot.RenameOpen {
-		children = append(children, sessionRenameSurface{
-			Snapshot: sessionExplorerRenameSnapshot(snapshot),
-			Callbacks: sessionRenameCallbacks{
-				Changed: func(_ ui.EventContext, value string) {
-					s.SetState(func() { s.controller.SetRenameText(value) })
-				},
-				Submitted: func(_ ui.EventContext, value string) {
-					s.rename(value, widget.Options.Server)
-				},
+		Callbacks: sessionExplorerCallbacks{
+			Toggle: func(_ ui.EventContext, sessionID string) {
+				s.SetState(func() { s.controller.ToggleExpanded(sessionID) })
 			},
-		})
+			Activate: func(ctx ui.EventContext, sessionID string) {
+				s.SetState(func() { s.controller.Select(sessionID) })
+				if s.controller.Selection == sessionID {
+					s.open(ctx)
+				}
+			},
+			RenameChanged: func(_ ui.EventContext, value string) {
+				s.SetState(func() { s.controller.SetRenameText(value) })
+			},
+			RenameSubmitted: func(_ ui.EventContext, value string) {
+				s.rename(value, widget.Options.Server)
+			},
+		},
 	}
-	if snapshot.DeleteOpen {
-		children = append(children, sessionDeleteSurface{Snapshot: snapshot})
-	}
+	// The canonical picker is centered at its standard width in this region.
+	theme := ui.MustDepend[ui.Theme](ctx)
 	return ui.FocusScope{
 		AutoFocus: true, Trap: true,
-		Child: ui.Focus(&s.focus, ui.Stack{Alignment: ui.CenterAlign, Children: children}),
+		Child: ui.Focus(&s.focus, ui.DecoratedBox(
+			ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}},
+			ui.SizedBox{Height: height, Child: surface},
+		)),
 	}
 }
 
-type boundedHorizontalCenter struct {
-	Percent  int
-	MinWidth int
-	MaxWidth int
-	Child    ui.Widget
-}
-
-func (w boundedHorizontalCenter) WidgetChild() ui.Widget { return w.Child }
-
-func (w boundedHorizontalCenter) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderBoundedHorizontalCenter{Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth}
-}
-
-func (w boundedHorizontalCenter) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
-	render := object.(*renderBoundedHorizontalCenter)
-	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth {
-		return
-	}
-	render.Percent = w.Percent
-	render.MinWidth = w.MinWidth
-	render.MaxWidth = w.MaxWidth
-	render.MarkNeedsLayout()
-}
-
-type renderBoundedHorizontalCenter struct {
-	ui.SingleChildRenderObject
-	Percent  int
-	MinWidth int
-	MaxWidth int
-	offset   ui.Offset
-}
-
-func (r *renderBoundedHorizontalCenter) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
-	r.SetSize(r.layout(ctx, constraints, false))
-}
-
-func (r *renderBoundedHorizontalCenter) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
-	return r.layout(ctx, constraints, true)
-}
-
-func (r *renderBoundedHorizontalCenter) layout(ctx ui.LayoutContext, constraints ui.Constraints, dry bool) ui.Size {
-	available := constraints.MinWidth
-	if constraints.HasBoundedWidth() {
-		available = constraints.MaxWidth
-	}
-	width := available * r.Percent / 100
-	width = max(r.MinWidth, min(r.MaxWidth, width))
-	width = min(available, width)
-	childConstraints := ui.Constraints{MinWidth: width, MaxWidth: width, MaxHeight: constraints.MaxHeight}
-	height := 0
-	if child := r.Child(); child != nil {
-		if dry {
-			height = ui.DryLayout(ctx, child, childConstraints).Height
-		} else {
-			child.Layout(ctx, childConstraints)
-			height = child.Base().Size().Height
-		}
-	}
-	if !dry {
-		r.offset = ui.Offset{X: max(0, (available-width)/2)}
-	}
-	return constraints.Constrain(ui.Size{Width: available, Height: height})
-}
-
-func (r *renderBoundedHorizontalCenter) Paint(painter *ui.Painter, offset ui.Offset) {
-	if child := r.Child(); child != nil {
-		child.Paint(painter, offset.Add(r.offset))
+// open returns the highlighted session to the caller and ends the picker.
+func (s *sessionPickerState) open(ctx ui.EventContext) {
+	if sessionID, ok := s.controller.ActivatableSelection(); ok {
+		s.Widget().(sessionPicker).Result.selectSession(sessionID)
+		ctx.Quit()
 	}
 }
-
-func (r *renderBoundedHorizontalCenter) ChildOffset(ui.RenderObject) ui.Offset { return r.offset }
-
-func (*renderBoundedHorizontalCenter) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
 
 func clearSessionPickerRegion(result *sessionPickerResult) error {
 	if result == nil || result.visibleRegionHeight(sessionPickerMaxHeight) == 0 {
@@ -292,8 +210,12 @@ func writeSessionPickerCleanup(writer io.Writer, regionHeight int) error {
 	return err
 }
 
+// sessionPickerChromeRows are the canonical picker rows around its list: the
+// borders, title and its spacer, search field, dividers, and footer.
+const sessionPickerChromeRows = 9
+
 func sessionPickerHeight(snapshot sessionExplorerSnapshot) int {
-	rows := len(snapshot.Sessions) + sessionExplorerChromeRows
+	rows := len(snapshot.Sessions) + sessionPickerChromeRows
 	if snapshot.Loading || snapshot.Error != "" || len(snapshot.Sessions) == 0 {
 		rows = sessionPickerMinHeight
 	}
@@ -318,17 +240,11 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 		}
 		return ui.EventHandled
 	}
-	if key.EventType == vaxis.EventPaste {
-		if !s.controller.DeleteOpen && !s.controller.RenamePending {
-			ctx.Invoke(ui.InsertTextIntent{Text: pastedKeyText(key)})
-		}
-		return ui.EventHandled
-	}
 	if s.controller.DeleteOpen {
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled
 		}
-		if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+		if key.EventType != vaxis.EventPaste && key.MatchString("Escape") {
 			s.SetState(func() { s.controller.CancelDelete() })
 			return ui.EventHandled
 		}
@@ -341,11 +257,17 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 		if key.EventType == ui.EventRelease {
 			return ui.EventHandled
 		}
-		if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+		if key.EventType == vaxis.EventPaste {
+			if !s.controller.RenamePending {
+				ctx.Invoke(ui.InsertTextIntent{Text: pastedKeyText(key)})
+			}
+			return ui.EventHandled
+		}
+		if key.MatchString("Escape") {
 			s.SetState(func() { s.controller.CancelRename() })
 			return ui.EventHandled
 		}
-		if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+		if key.MatchString("Enter") {
 			s.rename(s.controller.RenameText, s.Widget().(sessionPicker).Options.Server)
 			return ui.EventHandled
 		}
@@ -354,31 +276,19 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 		}
 		return ui.EventIgnored
 	}
-	if key.EventType == ui.EventRelease {
-		return ui.EventIgnored
-	}
-	if key.MatchString("Escape") || key.MatchString("Ctrl+c") {
+	if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Escape") {
 		ctx.Quit()
 		return ui.EventHandled
 	}
-	if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
-		if sessionID, ok := s.controller.ActivatableSelection(); ok {
-			s.Widget().(sessionPicker).Result.selectSession(sessionID)
-			ctx.Quit()
-		}
-		return ui.EventHandled
+	var result pickerKeyResult
+	s.SetState(func() { result = s.controller.HandleKey(key) })
+	if !result.Handled {
+		return ui.EventIgnored
 	}
-	var handled bool
-	s.SetState(func() {
-		handled = s.controller.HandleKey(key)
-		if !handled {
-			handled = s.controller.HandleEditorKey(key)
-		}
-	})
-	if handled {
-		return ui.EventHandled
+	if result.Activate {
+		s.open(ctx)
 	}
-	return ui.EventIgnored
+	return ui.EventHandled
 }
 
 func (s *sessionPickerState) rename(value string, server sessionclient.Server) {

@@ -217,7 +217,7 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	}})
 	modelApp.Pump(100, 24)
 	modelText := modelApp.Text()
-	for _, expected := range []string{"Select model", "Search models…", "✓ GPT Large", "openai/gpt-large", "128k context"} {
+	for _, expected := range []string{"Select model", "Search models…", "GPT Large", "openai/gpt-large", "128k context"} {
 		if !strings.Contains(modelText, expected) {
 			t.Fatalf("model picker missing %q:\n%s", expected, modelText)
 		}
@@ -244,7 +244,7 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	}}))
 	thinkingApp.Pump(80, 24)
 	thinkingText := thinkingApp.Text()
-	for _, expected := range []string{"Thinking level", "off", "✓ high"} {
+	for _, expected := range []string{"Thinking level", "Search effort levels…", "off", "high"} {
 		if !strings.Contains(thinkingText, expected) {
 			t.Fatalf("thinking picker missing %q:\n%s", expected, thinkingText)
 		}
@@ -264,13 +264,17 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 			break
 		}
 	}
-	if dialogWidth != 48 {
-		t.Fatalf("thinking picker width = %d, want compact 48-cell dialog", dialogWidth)
+	if dialogWidth != 64 {
+		t.Fatalf("thinking picker width = %d, want the shared 64-cell picker at 80 columns", dialogWidth)
 	}
-	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "✓ high")
+	// The current level keeps its accent label while highlighted.
+	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "high")
 	selectedStyle := thinkingApp.Cell(selectedColumn, selectedRow).Style
-	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Selection {
-		t.Fatalf("selected thinking label style = %+v, want foreground %v on background %v", selectedStyle, thinkingTheme.Background, thinkingTheme.Selection)
+	if selectedStyle.Foreground != thinkingTheme.PrimaryText || selectedStyle.Background == thinkingTheme.Background {
+		t.Fatalf("selected current thinking label style = %+v, want accent foreground %v on a highlight fill", selectedStyle, thinkingTheme.PrimaryText)
+	}
+	if bar := thinkingApp.Cell(selectedColumn-1, selectedRow); bar.Character.Grapheme != glyphLeftBar {
+		t.Fatalf("selected thinking gutter = %q, want %q", bar.Character.Grapheme, glyphLeftBar)
 	}
 	longQuery := "anthropic-model-query-with-full-width"
 	queryApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
@@ -1261,7 +1265,7 @@ func TestTranscriptUserEntryPreservesSubmittedAnnotationEvidence(t *testing.T) {
 	}
 	expanded := uitest.New(transcriptUserEntry(ui.DefaultTheme(), message, nil, true, nil))
 	expanded.Pump(72, 10)
-	for _, want := range []string{"main.go  L8–9", "frozen source " + glyphEllipsis, "Keep this frozen explanation literal."} {
+	for _, want := range []string{"main.go  L8–9", "frozen source " + glyphTruncation, "Keep this frozen explanation literal."} {
 		if !expanded.Contains(want) {
 			t.Fatalf("expanded annotation evidence missing %q:\n%s", want, expanded.Text())
 		}
@@ -1397,7 +1401,7 @@ func TestActivityToolRowUsesTwoLinesAndTailPathAtNarrowWidth(t *testing.T) {
 	app.Pump(40, 18)
 	app.Pump(40, 18)
 	rows := paintedRows(app, 40, 18)
-	summaryRow := findPaintedRow(rows, "⋯/0012-native-macos-client.md")
+	summaryRow := findPaintedRow(rows, "…/0012-native-macos-client.md")
 	if summaryRow < 1 || !strings.Contains(rows[summaryRow-1], "Write 2 lines") {
 		t.Fatalf("narrow typed tool row missing:\n%s", strings.Join(rows, "\n"))
 	}
@@ -1600,150 +1604,23 @@ func TestAuthGateEnterOpensProviderSelection(t *testing.T) {
 	}
 }
 
-func TestProviderDialogMatchesMainBranchStructure(t *testing.T) {
-	t.Parallel()
-
-	const width, height = 100, 30
-	app := uitest.New(shellView{Snapshot: shellSnapshot{Phase: phaseAuthSelect}})
-	app.Pump(width, height)
-	rows := paintedRows(app, width, height)
-	text := strings.Join(rows, "\n")
-	for _, expected := range []string{
-		"Connect a provider", "Filter providers", ">",
-		"OpenAI Codex", "ChatGPT plan · device code",
-		"Anthropic", "API key", "OpenAI",
-		"↑↓ move · enter select · esc close",
-	} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("provider dialog missing %q:\n%s", expected, text)
-		}
-	}
-	if strings.Contains(text, "login option") {
-		t.Fatalf("provider dialog includes a noisy option count:\n%s", text)
-	}
-	for _, row := range rows {
-		left := strings.Index(row, "┌")
-		right := strings.LastIndex(row, "┐")
-		if left < 0 || right < left {
-			continue
-		}
-		if got := len([]rune(row[left : right+len("┐")])); got != 70 {
-			t.Fatalf("dialog width = %d, want 70%% of %d", got, width)
-		}
-		return
-	}
-	t.Fatal("provider dialog border not found")
-}
-
-func TestProviderDialogEnterSelectsFocusedResult(t *testing.T) {
-	t.Parallel()
-
-	selected := ""
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect},
-		Callbacks: shellCallbacks{SelectProvider: func(_ ui.EventContext, providerID string) {
-			selected = providerID
-		}},
-	})
-	app.Pump(80, 30)
-	app.Enter()
-	if selected != auth.OpenAICodexProviderID {
-		t.Fatalf("selected provider = %q, want %q", selected, auth.OpenAICodexProviderID)
-	}
-}
-
-func TestProviderDialogArrowKeysMoveSelection(t *testing.T) {
-	t.Parallel()
-
-	moved := 0
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect},
-		Callbacks: shellCallbacks{MoveProviderSelection: func(_ ui.EventContext, delta int) {
-			moved += delta
-		}},
-	})
-	app.Pump(80, 30)
-	app.Send(vaxis.Key{Keycode: vaxis.KeyDown})
-	if moved != 1 {
-		t.Fatalf("selection delta = %d, want 1", moved)
-	}
-	app.Send(vaxis.Key{Keycode: vaxis.KeyUp})
-	if moved != 0 {
-		t.Fatalf("selection delta after Up = %d, want 0", moved)
-	}
-}
-
-func TestProviderDialogSelectsHighlightedAPIKeyProvider(t *testing.T) {
-	t.Parallel()
-
-	selected := ""
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{Phase: phaseAuthSelect, AuthSelection: 1},
-		Callbacks: shellCallbacks{SelectProvider: func(_ ui.EventContext, providerID string) {
-			selected = providerID
-		}},
-	})
-	app.Pump(80, 30)
-	app.Enter()
-	if selected != auth.AnthropicProviderID {
-		t.Fatalf("selected provider = %q, want %q", selected, auth.AnthropicProviderID)
-	}
-}
-
-func TestAPIKeyDialogObscuresSecret(t *testing.T) {
-	t.Parallel()
-
-	const secret = "secret-api-key"
-	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseAuthAPIKey, AuthProviderID: auth.OpenAIProviderID, AuthAPIKey: secret,
-	}})
-	app.Pump(80, 20)
-	text := strings.Join(paintedRows(app, 80, 20), "\n")
-	if !strings.Contains(text, "Connect OpenAI") || !strings.Contains(text, "API key") {
-		t.Fatalf("API-key dialog missing provider context:\n%s", text)
-	}
-	if strings.Contains(text, secret) {
-		t.Fatalf("API-key dialog exposed secret:\n%s", text)
-	}
-}
-
-func TestAPIKeySaveCannotBeVisuallyCanceledAfterCommitStarts(t *testing.T) {
-	t.Parallel()
-
-	dismissed := false
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{
-			Phase: phaseAuthAPIKey, AuthProviderID: auth.OpenAIProviderID, AuthPending: true,
-		},
-		Callbacks: shellCallbacks{Dismiss: func(ui.EventContext) { dismissed = true }},
-	})
-	app.Pump(80, 20)
-	text := strings.Join(paintedRows(app, 80, 20), "\n")
-	if !strings.Contains(text, "Saving…") || strings.Contains(text, "esc cancel") || strings.Contains(text, "esc back") {
-		t.Fatalf("pending API-key footer offers misleading cancellation:\n%s", text)
-	}
-	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if dismissed {
-		t.Fatal("Escape dismissed API-key save after commit started")
-	}
-}
-
 func TestPaletteLaunchedAuthBlocksConversationInput(t *testing.T) {
 	t.Parallel()
 
 	const width, height = 80, 20
-	state := &authModalHarnessState{}
+	state := newAuthModalHarnessState(true)
 	app := uitest.New(authModalHarness{State: state})
 	app.Pump(width, height)
 	app.Click(2, height-3)
-	app.Key("x")
+	// "zzz" matches no provider, so Enter has nothing to activate.
+	app.Key("zzz")
 	app.Enter()
 	app.Pump(width, height)
 	if state.composer != "" || state.submissions != 0 {
 		t.Fatalf("background composer=%q submissions=%d", state.composer, state.submissions)
 	}
-	if state.filter != "x" {
-		t.Fatalf("provider filter = %q, want focused overlay input", state.filter)
+	if state.phase != phaseAuthSelect || state.authPicker.Query != "zzz" {
+		t.Fatalf("phase=%v provider query=%q, want the picker to own the typed query", state.phase, state.authPicker.Query)
 	}
 }
 
@@ -1832,37 +1709,53 @@ func (s *authWaitingFocusHarnessState) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
+// authModalHarness renders the palette-launched login provider picker from
+// appState and routes input through the application input owner.
 type authModalHarness struct{ State *authModalHarnessState }
 
 func (w authModalHarness) CreateState() ui.State { return w.State }
 
 type authModalHarnessState struct {
-	ui.StateBase
-	composer    string
-	filter      string
+	appState
 	submissions int
 	scroll      ui.ScrollController
 }
 
+func (*authModalHarnessState) InitState() {}
+func (*authModalHarnessState) Dispose()   {}
+func (s *authModalHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
+
 func (s *authModalHarnessState) Build(ui.BuildContext) ui.Widget {
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
 	return shellView{
 		Snapshot: shellSnapshot{
-			Phase: phaseAuthSelect, AuthReturnReady: true,
-			Composer: s.composer, AuthFilter: s.filter, Scroll: &s.scroll,
+			Phase: s.phase, AuthReturnReady: s.authReturnReady, Error: s.errorText,
+			AuthQuery: s.authPicker.Query, AuthSelection: s.authPicker.Selection,
+			AuthProviderID: s.authProviderID, AuthAPIKey: s.authAPIKey, AuthPending: s.authPending,
+			Composer: s.composer, Scroll: &s.scroll,
 			Session: protocol.SessionInfo{Name: "Attached", Model: "openai/gpt-5.3-codex"},
 		},
 		Callbacks: shellCallbacks{
+			InputOwner: s.inputOwner, Dismiss: s.dismiss, SelectProvider: s.activateAuthProvider,
 			ComposerChanged: func(_ ui.EventContext, value string) {
 				s.SetState(func() { s.composer = value })
 			},
 			Submit: func(ui.EventContext, string) {
 				s.SetState(func() { s.submissions++ })
 			},
-			AuthFilterChanged: func(_ ui.EventContext, value string) {
-				s.SetState(func() { s.filter = value })
-			},
 		},
 	}
+}
+
+// newAuthModalHarnessState opens the login provider picker as the palette
+// (returnReady) or the first-run auth gate would.
+func newAuthModalHarnessState(returnReady bool) *authModalHarnessState {
+	return &authModalHarnessState{appState: appState{
+		phase: phaseAuthSelect, authReturnReady: returnReady, authPicker: newAuthProviderPicker(),
+	}}
 }
 
 func TestAuthDialogsFitNarrowViewport(t *testing.T) {
@@ -1870,7 +1763,7 @@ func TestAuthDialogsFitNarrowViewport(t *testing.T) {
 
 	const width, height = 46, 20
 	for name, snapshot := range map[string]shellSnapshot{
-		"provider": {Phase: phaseAuthSelect},
+		"provider": {Phase: phaseAuthSelect, AuthSelection: auth.OpenAICodexProviderID},
 		"device": {
 			Phase: phaseAuthWaiting,
 			Instructions: auth.OpenAICodexDeviceInstructions{
@@ -2025,5 +1918,15 @@ func TestTranscriptUserQuoteInheritsAccentWash(t *testing.T) {
 		if got := app.Cell(col, row).Foreground; got != theme.Border {
 			t.Fatalf("quote gutter foreground = %#v, want %#v", got, theme.Border)
 		}
+	}
+}
+
+func TestComposerAnnotationOverflowRowMarksShortenedChipList(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultThemeSet().Dark
+	application := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: composerAnnotationOverflowRow(theme, 3, nil)})
+	application.Pump(24, 1)
+	if got, want := paintedRows(application, 24, 1)[0], "… 3 more annotations"; got != want {
+		t.Fatalf("overflow row = %q, want %q", got, want)
 	}
 }

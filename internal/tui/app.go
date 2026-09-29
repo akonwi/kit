@@ -189,15 +189,17 @@ type subagentDiagnosticToastKey struct {
 func (a app) CreateState() ui.State { return &appState{} }
 
 type appState struct {
-	inputControl       *controlFocusState
-	pasteControl       *controlFocusState
-	inputReturn        shellFocusReturn
-	paneInput          paneInputOwner
-	replacingPalette   bool
-	renderedInput      inputToken
-	inputGeneration    uint64
-	previousInputOwner inputOwner
-	pasteOwner         inputToken
+	inputControl             *controlFocusState
+	pasteControl             *controlFocusState
+	inputReturn              shellFocusReturn
+	paneInput                paneInputOwner
+	paneInputKeyHandler      func(ui.Key) ui.EventResult
+	paneInputKeyHandlerOwner paneInputOwner
+	replacingPalette         bool
+	renderedInput            inputToken
+	inputGeneration          uint64
+	previousInputOwner       inputOwner
+	pasteOwner               inputToken
 	ui.StateBase
 
 	ctx                     context.Context
@@ -263,8 +265,7 @@ type appState struct {
 	annotationPicker                 annotationPickerController
 	sessionExplorer                  sessionExplorerController
 	authReturnReady                  bool
-	authFilter                       string
-	authSelection                    int
+	authPicker                       pickerKeyModel // login provider picker query and highlighted option
 	authProviderID                   string
 	authAPIKey                       string
 	authPending                      bool
@@ -369,19 +370,13 @@ type appState struct {
 	toolFileNavigationGeneration     uint64
 	toolFileNavigationCancel         context.CancelFunc
 	workspaceFilePicker              workspaceFilePickerController
-	workspaceFilePickerScroll        ui.ScrollController
 	workspaceFilePickerContext       context.Context
 	workspaceFilePickerCancel        context.CancelFunc
 	filePickerRefreshHook            func()
 	filePickerLoadHook               func(string, string)
-	workspaceFilePickerRevealPending bool
-	workspaceFilePickerRevealOffset  int
 	workspacePickerOpen              bool
 	workspacePickerQuery             string
-	workspacePickerSelection         int
-	workspacePickerScroll            ui.ScrollController
-	workspacePickerRevealPending     bool
-	workspacePickerRevealOffset      int
+	workspacePickerSelection         string
 	workspaceLayout                  workspaceLayoutState
 	activitySourceID                 string
 	activityConversationID           string
@@ -591,25 +586,6 @@ func (s *appState) TickFrame(now time.Time) bool {
 		}
 	}
 	s.sessionRename.TickFrame()
-	if s.sessionExplorer.TickFrame() {
-		keepTicking = true
-	}
-	if s.workspaceFilePickerRevealPending {
-		if s.workspaceFilePickerScroll.Attached() {
-			s.workspaceFilePickerScroll.ScrollToOffset(s.workspaceFilePickerRevealOffset)
-			s.workspaceFilePickerRevealPending = false
-		} else {
-			keepTicking = true
-		}
-	}
-	if s.workspacePickerRevealPending {
-		if s.workspacePickerScroll.Attached() {
-			s.workspacePickerScroll.ScrollToOffset(s.workspacePickerRevealOffset)
-			s.workspacePickerRevealPending = false
-		} else {
-			keepTicking = true
-		}
-	}
 	if s.subagentRevealPending {
 		if s.activityScroll.Attached() {
 			s.activityScroll.ScrollToOffset(s.subagentRevealOffset)
@@ -618,7 +594,7 @@ func (s *appState) TickFrame(now time.Time) bool {
 			keepTicking = true
 		}
 	}
-	return keepTicking || (s.needsScroll && !s.transcriptInitialLoading) || s.transcriptHistoryRestore != 0 || s.workspaceFilePickerRevealPending || s.workspacePickerRevealPending || s.subagentRevealPending || s.providerRetry != nil
+	return keepTicking || (s.needsScroll && !s.transcriptInitialLoading) || s.transcriptHistoryRestore != 0 || s.subagentRevealPending || s.providerRetry != nil
 }
 
 // Keep pagination disabled until measured layout confirms the recent tail at
@@ -1238,8 +1214,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		AnnotationPicker:              annotationPickerSnapshot{Open: s.annotationPicker.Open, Selection: s.annotationPicker.Selection, Annotations: append([]protocol.AnnotationSummary(nil), s.annotations...)},
 		SessionExplorer:               s.sessionExplorer.Snapshot(),
 		AuthReturnReady:               s.authReturnReady,
-		AuthFilter:                    s.authFilter,
-		AuthSelection:                 s.authSelection,
+		AuthQuery:                     s.authPicker.Query,
+		AuthSelection:                 s.authPicker.Selection,
 		AuthProviderID:                s.authProviderID,
 		AuthAPIKey:                    s.authAPIKey,
 		AuthCode:                      s.authCode,
@@ -1277,11 +1253,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		CurrentWorkspaceID:            s.workspaceID,
 		PaneInput:                     s.paneInput,
 		WorkspaceFilePicker:           s.workspaceFilePicker,
-		WorkspaceFilePickerScroll:     &s.workspaceFilePickerScroll,
 		WorkspacePickerOpen:           s.workspacePickerOpen,
 		WorkspacePickerQuery:          s.workspacePickerQuery,
 		WorkspacePickerSelection:      s.workspacePickerSelection,
-		WorkspacePickerScroll:         &s.workspacePickerScroll,
 		WorkspaceLayout:               &s.workspaceLayout,
 		ActivitySourceID:              s.activitySourceID,
 		ActivityConversationID:        s.activityConversationID,
@@ -1336,10 +1310,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			target.CWD = snapshot.Session.CWD
 			s.openToolFile(target)
 		},
-		InputOwner:       s.inputOwner,
-		PaneInputChanged: s.setPaneInputOwner,
-		WorkspaceMouse:   &s.workspaceMouse,
-		SetDiffWrapLines: s.setDiffWrapLines,
+		InputOwner:              s.inputOwner,
+		PaneInputChanged:        s.setPaneInputOwner,
+		PaneInputHandlerChanged: s.setPaneInputKeyHandler,
+		WorkspaceMouse:          &s.workspaceMouse,
+		SetDiffWrapLines:        s.setDiffWrapLines,
 		SetDiffFollowCWD: func(workspaceID string, follow bool) {
 			s.SetState(func() {
 				s.workspace.SetDiffFollowCWD(workspaceID, follow)
@@ -1359,7 +1334,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.enterAuthSelect(false)
 			}
 		},
-		SelectProvider:            s.selectProvider,
+		SelectProvider:            s.activateAuthProvider,
 		RetryTranscriptHistory:    s.retryTranscriptHistory,
 		TranscriptHistoryScrollUp: s.noteTranscriptHistoryScrollUp,
 		ResumeTranscriptFollow:    s.resumeTranscriptFollow,
@@ -1377,19 +1352,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 			s.jumpSubagentReading(conversationID, section)
 		},
-		MoveProviderSelection: func(_ ui.EventContext, delta int) {
-			s.moveProviderSelection(delta)
-		},
-		AuthFilterChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() {
-				s.authFilter = value
-				s.authSelection = 0
-			})
-		},
-		AuthAPIKeyChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.authAPIKey = value })
-		},
-		SubmitAPIKey: s.submitAPIKey,
 		AuthCodeChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.authCode = value })
 		},
@@ -1424,19 +1386,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				}
 			})
 		},
-		ShowTranscript: func(ctx ui.EventContext) {
-			s.cancelPendingSubagentToolOpen()
-			if s.activityFocus.HasFocus() {
-				ctx.FocusNext()
-			}
-			s.SetState(func() {
-				s.clearSubagentActivityForConversationChange("")
-				s.workspace.SelectAgent()
-				s.syncWorkspaceSelection()
-				s.activitySelected = false
-				s.subagentPaneID = ""
-			})
-		},
+		ShowTranscript: s.showTranscript,
 		CloseActivity: func(ctx ui.EventContext) {
 			if s.activityFocus.HasFocus() {
 				ctx.FocusNext()
@@ -1533,59 +1483,26 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			}
 			if s.workspacePickerOpen {
 				s.SetState(func() {
-					s.workspacePickerSelection = min(s.workspacePickerSelection, len(s.workspace.Panes()))
-					s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+					if _, ok := workspacePickerItemByKey(s.workspacePickerCatalog(), s.workspacePickerSelection); !ok {
+						s.workspacePickerSelection = firstEnabledPickerKey(workspacePickerRows(s.workspacePickerCatalog(), s.workspace.SelectedIdentity()))
+					}
 				})
 			}
 		},
-		ScratchpadChanged:        func(_ ui.EventContext, value string) { s.changeScratchpad(value) },
-		RetryScratchpad:          func(ui.EventContext) { s.saveScratchpad(false, nil) },
-		ReviewScratchpad:         func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = true }) },
-		KeepEditingScratchpad:    func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = false }) },
-		UseSharedScratchpad:      func(ui.EventContext) { s.useSharedScratchpad() },
-		ReplaceSharedScratchpad:  func(ui.EventContext) { s.replaceSharedScratchpad() },
-		OpenWorkspaceFilePicker:  func(ui.EventContext) { s.openWorkspaceFilePicker() },
-		CloseWorkspaceFilePicker: func(ui.EventContext) { s.SetState(func() { s.closeWorkspaceFilePicker() }) },
-		WorkspaceFilePickerQuery: func(_ ui.EventContext, query string) {
-			s.SetState(func() {
-				s.workspaceFilePicker.Query = query
-				s.workspaceFilePicker.ensureSelection(s.indexedFiles)
-				s.requestWorkspaceFilePickerReveal()
-			})
-		},
-		MoveWorkspaceFilePicker: func(_ ui.EventContext, delta int) {
-			s.SetState(func() {
-				s.workspaceFilePicker.move(s.indexedFiles, delta)
-				s.requestWorkspaceFilePickerReveal()
-			})
-		},
+		ScratchpadChanged:           func(_ ui.EventContext, value string) { s.changeScratchpad(value) },
+		RetryScratchpad:             func(ui.EventContext) { s.saveScratchpad(false, nil) },
+		ReviewScratchpad:            func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = true }) },
+		KeepEditingScratchpad:       func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = false }) },
+		UseSharedScratchpad:         func(ui.EventContext) { s.useSharedScratchpad() },
+		ReplaceSharedScratchpad:     func(ui.EventContext) { s.replaceSharedScratchpad() },
+		OpenWorkspaceFilePicker:     func(ui.EventContext) { s.openWorkspaceFilePicker() },
 		ActivateWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) { s.activateWorkspaceFilePickerRow(row) },
-		SelectWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) {
-			if workspaceFilePickerRowSelectable(row) {
-				s.SetState(func() { s.workspaceFilePicker.Selection = row.Key })
-			}
-		},
-		RefreshWorkspaceFilePicker: func(ui.EventContext) { s.refreshWorkspaceFilePicker() },
-		OpenWorkspacePicker:        func(ui.EventContext) { s.openWorkspacePicker() },
+		OpenWorkspacePicker:         func(ui.EventContext) { s.openWorkspacePicker() },
 		CloseWorkspacePicker: func(ui.EventContext) {
 			s.SetState(func() {
 				s.workspacePickerOpen = false
 				s.workspacePickerQuery = ""
-				s.workspacePickerSelection = 0
-				s.workspacePickerRevealPending = false
-			})
-		},
-		WorkspacePickerQuery: func(_ ui.EventContext, query string) {
-			s.SetState(func() {
-				s.workspacePickerQuery = query
-				s.workspacePickerSelection = 0
-				s.requestWorkspacePickerReveal(0)
-			})
-		},
-		WorkspacePickerSelection: func(_ ui.EventContext, selection int) {
-			s.SetState(func() {
-				s.workspacePickerSelection = max(0, selection)
-				s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+				s.workspacePickerSelection = ""
 			})
 		},
 		MoveWorkspaceFocus: func(ui.EventContext) {
@@ -1680,17 +1597,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenBashHistory: func(_ ui.EventContext, delta int) bool {
 			return s.openBashHistory(delta)
 		},
-		BashHistoryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.bashHistory.SetQuery(value) })
-		},
 		SelectBashHistory: func(ctx ui.EventContext, executionID string) {
 			s.selectBashHistory(ctx, executionID)
 		},
 		RecallMessages: func(ui.EventContext) {
 			s.recallMessageHistory()
-		},
-		MessageHistoryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.messageHistory.SetQuery(value) })
 		},
 		SelectMessageHistory: func(ctx ui.EventContext, messageID string) {
 			s.selectMessageHistory(ctx, messageID)
@@ -1717,10 +1628,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
-				s.fileMention.Observe(s.composer, value, true)
-				s.sessionMention.Observe(s.composer, value, true)
-				if !s.sessionMention.Open {
-					s.closeSessionMention()
+				if !s.observeHistoryComposer(value) {
+					s.fileMention.Observe(s.composer, value, true)
+					s.sessionMention.Observe(s.composer, value, true)
+					if !s.sessionMention.Open {
+						s.closeSessionMention()
+					}
 				}
 				s.composer = value
 				s.composerDraftGeneration++
@@ -1791,6 +1704,15 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			openedFileMention := false
 			openedSessionMention := false
 			s.SetState(func() {
+				// An open history picker filters by the composer text, so the
+				// text opens neither the palette nor a mention.
+				if s.observeHistoryComposer(value) {
+					s.composer = value
+					if followTranscript {
+						s.requestTranscriptScroll()
+					}
+					return
+				}
 				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.hasActiveWork())
 				if intercepted {
 					return
@@ -1823,21 +1745,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenPalette: func(ui.EventContext) {
 			s.openPalette()
 		},
-		PaletteQueryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.palette.SetQuery(s.hasActiveWork(), value) })
-		},
 		MovePaletteSelection: func(_ ui.EventContext, delta int) {
 			s.movePaletteSelection(delta)
 		},
-		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
-		SelectTheme: func(_ ui.EventContext, index int) {
-			if index == s.themePicker.Selection && s.themePicker.previewValid && !s.themePicker.Loading {
-				s.commitTheme()
-				return
-			}
-			s.selectTheme(index)
-		},
+		SelectTheme:       func(_ ui.EventContext, name string) { s.activateTheme(name) },
 		OpenSessionRename: func(ui.EventContext) {
 			s.openCurrentSessionRename()
 		},
@@ -1847,13 +1759,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenThinking: func(ui.EventContext) {
 			s.openConfigurationPicker(configurationPickerThinking)
 		},
-		ConfigurationQuery: func(_ ui.EventContext, value string) {
+		ConfigurationContextChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() {
 				if s.configurationPicker.EditingContext {
 					s.configurationPicker.EditValue = value
 					s.configurationPicker.Error = ""
-				} else {
-					s.configurationPicker.SetQuery(value)
 				}
 			})
 		},
@@ -1863,12 +1773,14 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ApplyConfiguration: func(ui.EventContext) {
 			s.applyConfigurationSelection()
 		},
-		SessionQueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.sessionExplorer.SetQuery(value) }) },
 		ToggleSessionTree: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.ToggleExpanded(sessionID) })
 		},
-		SelectSession: func(_ ui.EventContext, sessionID string) {
+		ActivateSession: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.Select(sessionID) })
+			if s.sessionExplorer.Selection == sessionID {
+				s.switchSelectedSession()
+			}
 		},
 		SessionRenameChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.sessionRename.SetText(value) })
@@ -1986,7 +1898,7 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return s.deliverPaste(ctx, key)
 	}
 	result := s.handleKey(ctx, key)
-	if result == ui.EventIgnored && !key.MatchString("Super+c") && (s.inputToken() != s.renderedInput || !s.targetOwnsInput(ctx)) {
+	if result == ui.EventIgnored && !key.MatchString("Super+c") && ((s.inputToken() != s.renderedInput && !s.composerKeepsInput()) || !s.targetOwnsInput(ctx)) {
 		return ui.EventHandled
 	}
 	return result
@@ -2012,6 +1924,18 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	}
 	if owner.trapsFocus() && key.EventType != vaxis.EventPaste && (key.MatchString("Ctrl+p") || key.MatchString("Ctrl+]") || key.MatchString("Ctrl+[") || (key.MatchString("Ctrl+o") && owner != inputConfiguration)) {
 		return ui.EventHandled
+	}
+	if owner == inputPane && s.paneInputKeyHandler != nil {
+		result := s.paneInputKeyHandler(key)
+		if result == ui.EventHandled && key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Escape") {
+			s.SetState(func() {
+				s.paneInput = paneInputOwner{}
+				s.paneInputKeyHandler = nil
+				s.paneInputKeyHandlerOwner = paneInputOwner{}
+				s.inputGeneration++
+			})
+		}
+		return result
 	}
 	if owner == inputSubagentDismiss {
 		if key.EventType == ui.EventRelease {
@@ -2094,19 +2018,68 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
+	if owner == inputFiles {
+		var result pickerKeyResult
+		s.SetState(func() { result = s.workspaceFilePicker.HandleKey(s.indexedFiles, key) })
+		if !result.Handled {
+			if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+r") {
+				s.requestWorkspaceFilePickerRefresh()
+				return ui.EventHandled
+			}
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.SetState(func() { s.closeWorkspaceFilePicker() })
+		} else if result.Activate {
+			if row, ok := s.workspaceFilePicker.rowByPickerKey(s.indexedFiles, workspaceFilePickerKeyString(s.workspaceFilePicker.Selection)); ok {
+				s.activateWorkspaceFilePickerRow(row)
+			}
+		}
+		return ui.EventHandled
+	}
+	if owner == inputTabs {
+		catalog := s.workspacePickerCatalog()
+		var result pickerKeyResult
+		s.SetState(func() {
+			controller := workspacePickerController{Query: s.workspacePickerQuery, Selection: s.workspacePickerSelection}
+			result = controller.HandleKey(key, catalog, s.workspace.SelectedIdentity())
+			s.workspacePickerQuery, s.workspacePickerSelection = controller.Query, controller.Selection
+		})
+		if !result.Handled {
+			if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Ctrl+d") {
+				s.closeWorkspacePickerSelection(catalog)
+				return ui.EventHandled
+			}
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.SetState(func() { s.closeWorkspacePicker() })
+		} else if result.Activate {
+			s.activateWorkspacePickerSelection(ctx, catalog)
+		}
+		return ui.EventHandled
+	}
+	if owner == inputAuth && s.phase == phaseAuthSelect {
+		return s.handleAuthPickerKey(ctx, key)
+	}
+	if owner == inputAuth && s.phase == phaseAuthAPIKey {
+		return s.handleAPIKeyPromptKey(ctx, key)
+	}
 	if owner == inputTheme {
-		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+		var result pickerKeyResult
+		preview := false
+		s.SetState(func() { result, preview = s.themePicker.HandleKey(key) })
+		if !result.Handled {
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.cancelThemePicker()
 			return ui.EventHandled
 		}
-		count := len(s.themePicker.Names)
-		switch {
-		case key.MatchString("Escape") || key.MatchString("Ctrl+c"):
-			return ui.EventIgnored
-		case key.MatchString("Up") && count > 0:
-			s.selectTheme((s.themePicker.Selection - 1 + count) % count)
-		case key.MatchString("Down") && count > 0:
-			s.selectTheme((s.themePicker.Selection + 1) % count)
-		case key.MatchString("Enter"):
+		if preview {
+			s.selectTheme(s.themePicker.Selection)
+		}
+		if result.Activate {
 			s.commitTheme()
 		}
 		return ui.EventHandled
@@ -2121,12 +2094,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		var apply, handled bool
-		s.SetState(func() {
-			apply, handled = s.configurationPicker.HandleKey(key)
-			if !handled {
-				handled = s.configurationPicker.HandleEditorKey(key)
-			}
-		})
+		s.SetState(func() { apply, handled = s.configurationPicker.HandleKey(key) })
 		if !handled {
 			return ui.EventIgnored
 		}
@@ -2165,93 +2133,89 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			}
 			return ui.EventIgnored
 		}
-		if key.EventType != ui.EventRelease && key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
+		var result pickerKeyResult
+		s.SetState(func() { result = s.sessionExplorer.HandleKey(key) })
+		if !result.Handled {
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.dismiss(ctx)
+		} else if result.Activate {
 			s.switchSelectedSession()
-			return ui.EventHandled
-		}
-		var handled bool
-		s.SetState(func() {
-			handled = s.sessionExplorer.HandleKey(key)
-			if !handled {
-				handled = s.sessionExplorer.HandleEditorKey(key)
-			}
-		})
-		if handled {
-			return ui.EventHandled
-		}
-	}
-	if owner == inputSessionMention {
-		var entry protocol.SessionInfo
-		var selectEntry, handled bool
-		s.SetState(func() { entry, selectEntry, handled = s.sessionMention.HandleKey(s.sessionMentions.Entries, key) })
-		if handled {
-			if selectEntry {
-				s.selectSessionMention(ctx, entry.ID)
-			}
-			return ui.EventHandled
-		}
-	}
-	if owner == inputFileMention {
-		var entry protocol.FileIndexEntry
-		var selectEntry, handled bool
-		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(s.indexedFiles.Entries, key) })
-		if handled {
-			if selectEntry {
-				s.selectFileMention(ctx, entry.Path)
-			}
-			return ui.EventHandled
-		}
-	}
-	if owner == inputMessageHistory {
-		var entry messageHistoryEntry
-		var selectEntry, handled bool
-		s.SetState(func() {
-			entry, selectEntry, handled = s.messageHistory.HandleKey(key)
-			if !handled {
-				handled = s.messageHistory.HandleEditorKey(key)
-			}
-		})
-		if !handled {
-			return ui.EventIgnored
-		}
-		if selectEntry {
-			s.selectMessageHistory(ctx, entry.ID)
 		}
 		return ui.EventHandled
 	}
-	if owner == inputBashHistory {
-		var entry bashHistoryEntry
-		var selectEntry, handled bool
-		s.SetState(func() {
-			entry, selectEntry, handled = s.bashHistory.HandleKey(key)
-			if !handled {
-				handled = s.bashHistory.HandleEditorKey(key)
-			}
-		})
-		if !handled {
-			return ui.EventIgnored
-		}
-		if selectEntry {
-			s.selectBashHistory(ctx, entry.ID)
-		}
-		return ui.EventHandled
+	if owner.inlinePicker() {
+		return s.handleInlinePickerKey(ctx, owner, key)
 	}
 	if owner != inputPalette {
 		return ui.EventIgnored
 	}
 	var command paletteCommand
 	var run, handled bool
-	s.SetState(func() {
-		command, run, handled = s.palette.HandleKey(s.hasActiveWork(), key)
-		if !handled {
-			handled = s.palette.HandleEditorKey(s.hasActiveWork(), key)
-		}
-	})
+	s.SetState(func() { command, run, handled = s.palette.HandleKey(s.hasActiveWork(), key) })
 	if !handled {
 		return ui.EventIgnored
 	}
 	if run {
 		s.runPaletteCommand(ctx, command.ID)
+	}
+	return ui.EventHandled
+}
+
+// observeHistoryComposer makes an open history picker follow a composer edit
+// and reports whether one was open. Message history filters by the whole
+// text; bash history filters by the command after "!" and closes when the
+// text leaves bash mode.
+func (s *appState) observeHistoryComposer(composer string) bool {
+	switch {
+	case s.messageHistory.Open:
+		s.messageHistory.SetQuery(composer)
+		return true
+	case s.bashHistory.Open:
+		s.bashHistory.ObserveComposer(composer)
+		return true
+	default:
+		return false
+	}
+}
+
+// handleInlinePickerKey routes a key to the open inline picker through its
+// navigation-only key model, whatever has been painted, so keys typed before
+// the picker's first frame are applied. Keys it leaves unhandled reach the
+// composer, which owns the query.
+func (s *appState) handleInlinePickerKey(ctx ui.EventContext, owner inputOwner, key ui.Key) ui.EventResult {
+	var result pickerKeyResult
+	var selection string
+	s.SetState(func() {
+		switch owner {
+		case inputSessionMention:
+			result, selection = s.sessionMention.HandleKey(s.sessionMentions.Entries, key), s.sessionMention.Selection
+		case inputFileMention:
+			result, selection = s.fileMention.HandleKey(s.indexedFiles.Entries, key), s.fileMention.Selection
+		case inputMessageHistory:
+			result, selection = s.messageHistory.HandleKey(key), s.messageHistory.Selection
+		case inputBashHistory:
+			result, selection = s.bashHistory.HandleKey(key), s.bashHistory.Selection
+		}
+	})
+	if !result.Handled {
+		return ui.EventIgnored
+	}
+	switch {
+	case result.Dismiss:
+		s.dismiss(ctx)
+	case result.Activate && selection != "":
+		switch owner {
+		case inputSessionMention:
+			s.selectSessionMention(ctx, selection)
+		case inputFileMention:
+			s.selectFileMention(ctx, selection)
+		case inputMessageHistory:
+			s.selectMessageHistory(ctx, selection)
+		case inputBashHistory:
+			s.selectBashHistory(ctx, selection)
+		}
 	}
 	return ui.EventHandled
 }
@@ -4003,19 +3967,6 @@ func (s *appState) selectProvider(ctx ui.EventContext, providerID string) {
 	})
 }
 
-func (s *appState) moveProviderSelection(delta int) {
-	providers := filteredAuthProviders(s.authFilter)
-	if len(providers) == 0 {
-		return
-	}
-	s.SetState(func() {
-		s.authSelection = (s.authSelection + delta) % len(providers)
-		if s.authSelection < 0 {
-			s.authSelection += len(providers)
-		}
-	})
-}
-
 func (s *appState) submitAPIKey(_ ui.EventContext, value string) {
 	options := s.Widget().(app).Options
 	provider, ok := authProviderByID(s.authProviderID)
@@ -4100,7 +4051,7 @@ func (s *appState) startLogin(_ ui.EventContext) {
 		s.phase = phaseAuthWaiting
 		s.errorText = ""
 		s.instructions = auth.OpenAICodexDeviceInstructions{}
-		s.authFilter = ""
+		s.authPicker.Query = ""
 		s.authProviderID = ""
 		s.authAPIKey = ""
 		s.authPending = true
@@ -4180,7 +4131,7 @@ func (s *appState) startAnthropicLogin(_ ui.EventContext) {
 		s.browserInstructions = auth.AnthropicLoginInstructions{}
 		s.authCode = ""
 		s.authCodeInput = manualCode
-		s.authFilter = ""
+		s.authPicker.Query = ""
 		s.authProviderID = anthropicOAuthOptionID
 		s.authPending = true
 	})
@@ -4469,11 +4420,35 @@ func (s *appState) openWorkingTreeDiff() {
 	}
 }
 
+type themeServiceProvider interface {
+	themeService() ThemeService
+}
+
+func (w app) themeService() ThemeService { return w.Options.ThemeService }
+
+func (s *appState) themeService() ThemeService {
+	provider, ok := s.Widget().(themeServiceProvider)
+	if !ok {
+		return nil
+	}
+	return provider.themeService()
+}
+
+func (s *appState) activateTheme(name string) {
+	commit := false
+	s.SetState(func() { commit = s.themePicker.requestCommit(name) })
+	if commit {
+		s.commitTheme()
+		return
+	}
+	s.selectTheme(name)
+}
+
 func (s *appState) openThemePicker() {
 	if !s.admitRootModal() {
 		return
 	}
-	service := s.Widget().(app).Options.ThemeService
+	service := s.themeService()
 	if service == nil {
 		s.showToast(toastInput{Title: "Theme picker unavailable", Variant: toastWarning})
 		return
@@ -4491,29 +4466,32 @@ func (s *appState) openThemePicker() {
 			if generation != s.themeGeneration || !s.themePicker.Open {
 				return
 			}
+			preview := false
 			s.SetState(func() {
 				if err != nil {
 					s.themePicker.Loading = false
 					s.themePicker.Err = fmt.Errorf("discover themes: %w", err)
 					return
 				}
-				s.themePicker.OpenNames(names, s.themeName, s.themeDefinition)
+				preview = s.themePicker.OpenNames(names, s.themeName, s.themeDefinition)
 			})
+			if preview {
+				s.selectTheme(s.themePicker.Selection)
+			}
 		})
 	}()
 }
 
-func (s *appState) selectTheme(index int) {
-	service := s.Widget().(app).Options.ThemeService
-	if service == nil || !s.themePicker.Open || s.themePicker.Pending || index < 0 || index >= len(s.themePicker.Names) {
+func (s *appState) selectTheme(name string) {
+	service := s.themeService()
+	if service == nil || !s.themePicker.Open || s.themePicker.Pending || stringIndex(s.themePicker.Names, name) < 0 {
 		return
 	}
 	s.themeGeneration++
 	generation := s.themeGeneration
-	name := s.themePicker.Names[index]
 	s.SetState(func() {
-		s.themePicker.Selection = index
-		s.themePicker.Loading = name != kittheme.SystemName
+		s.themePicker.selectForPreview(name)
+		s.themePicker.PreviewLoading = name != kittheme.SystemName
 		s.themePicker.Err = nil
 		s.themePicker.Diagnostics = nil
 		s.themePicker.previewValid = name == kittheme.SystemName
@@ -4523,6 +4501,11 @@ func (s *appState) selectTheme(index int) {
 	})
 	if name == kittheme.SystemName {
 		s.applyTheme(kittheme.Definition{})
+		commit := false
+		s.SetState(func() { commit = s.themePicker.completePreview(name, true) })
+		if commit {
+			s.commitTheme()
+		}
 		return
 	}
 	if s.themeLoadActive {
@@ -4534,34 +4517,39 @@ func (s *appState) selectTheme(index int) {
 		definition, diagnostics, err := service.Load(name)
 		runtime.Dispatch(func() {
 			s.themeLoadActive = false
-			if generation != s.themeGeneration || !s.themePicker.Open || s.themePicker.Selection != index {
-				if s.themePicker.Open && len(s.themePicker.Names) > 0 {
+			if generation != s.themeGeneration || !s.themePicker.Open || s.themePicker.Selection != name {
+				if s.themePicker.Open && s.themePicker.Selection != "" {
 					s.selectTheme(s.themePicker.Selection)
 				}
 				return
 			}
+			commit := false
 			s.SetState(func() {
-				s.themePicker.Loading = false
+				s.themePicker.PreviewLoading = false
 				s.themePicker.Diagnostics = diagnostics
 				s.themePicker.Err = err
 				s.themePicker.previewValid = err == nil
 				if err == nil {
 					s.themePicker.PreviewDefinition = definition
 				}
+				commit = s.themePicker.completePreview(name, err == nil)
 			})
 			if err == nil {
 				s.applyTheme(definition)
+				if commit {
+					s.commitTheme()
+				}
 			}
 		})
 	}()
 }
 
 func (s *appState) commitTheme() {
-	service := s.Widget().(app).Options.ThemeService
-	if service == nil || !s.themePicker.Open || s.themePicker.Loading || s.themePicker.Pending || !s.themePicker.previewValid || len(s.themePicker.Names) == 0 {
+	service := s.themeService()
+	if service == nil || !s.themePicker.Open || s.themePicker.Loading || s.themePicker.PreviewLoading || s.themePicker.Pending || !s.themePicker.previewValid || s.themePicker.Selection == "" {
 		return
 	}
-	name := s.themePicker.Names[s.themePicker.Selection]
+	name := s.themePicker.Selection
 	definition := s.themePicker.PreviewDefinition
 	s.themeGeneration++
 	generation := s.themeGeneration
@@ -5119,40 +5107,76 @@ func (s *appState) openWorkspacePicker() {
 	s.SetState(func() {
 		s.workspacePickerOpen = true
 		s.workspacePickerQuery = ""
-		s.workspacePickerSelection = s.workspaceSelectedIndex()
-		s.workspacePickerScroll = ui.ScrollController{}
-		s.requestWorkspacePickerReveal(s.workspacePickerSelection)
+		s.workspacePickerSelection = string(s.workspace.SelectedIdentity())
 	})
 }
 
-func (s *appState) requestWorkspacePickerReveal(selection int) {
-	viewport := s.workspacePickerScroll.Metrics().ViewportHeight
-	offset := max(0, selection-5)
-	if viewport > 0 {
-		current := s.workspacePickerScroll.Metrics().ScrollOffset
-		offset = current
-		if selection < current {
-			offset = selection
-		} else if selection >= current+viewport {
-			offset = selection - viewport + 1
-		}
-	}
-	s.workspacePickerRevealOffset = max(0, offset)
-	s.workspacePickerRevealPending = true
+func (s *appState) workspacePickerCatalog() []workspacePickerItem {
+	_, scratchpadAvailable := s.bound.(sessionclient.ScratchpadSession)
+	return workspacePickerCatalog(shellSnapshot{
+		Workspace: s.workspace.Snapshot(), ScratchpadAvailable: scratchpadAvailable,
+		SubagentConversations: s.subagentConversations,
+	})
 }
 
-func (s *appState) workspaceSelectedIndex() int {
-	selected := s.workspace.SelectedIdentity()
-	if selected == workspaceAgentIdentity {
-		return 0
+func (s *appState) closeWorkspacePicker() {
+	s.workspacePickerOpen = false
+	s.workspacePickerQuery = ""
+	s.workspacePickerSelection = ""
+}
+
+func (s *appState) activateWorkspacePickerSelection(ctx ui.EventContext, catalog []workspacePickerItem) {
+	item, ok := workspacePickerItemByKey(catalog, s.workspacePickerSelection)
+	if !ok || !item.Available {
+		return
 	}
-	for index, pane := range s.workspace.Panes() {
-		identity, err := workspacePaneIdentityFor(pane)
-		if err == nil && identity == selected {
-			return index + 1
-		}
+	if item.Identity == workspaceAgentIdentity {
+		s.showTranscript(ctx)
+	} else if item.Descriptor.Kind == workspacePaneSubagentConversation {
+		s.openSubagentConversation(item.Descriptor.ResourceID)
+	} else {
+		s.SetState(func() {
+			s.workspace.Select(item.Identity)
+			s.syncWorkspaceSelection()
+		})
 	}
-	return 0
+	s.SetState(func() { s.closeWorkspacePicker() })
+}
+
+func (s *appState) showTranscript(ctx ui.EventContext) {
+	s.cancelPendingSubagentToolOpen()
+	if s.activityFocus.HasFocus() {
+		ctx.FocusNext()
+	}
+	s.SetState(func() {
+		s.clearSubagentActivityForConversationChange("")
+		s.workspace.SelectAgent()
+		s.syncWorkspaceSelection()
+		s.activitySelected = false
+		s.subagentPaneID = ""
+	})
+}
+
+func (s *appState) closeWorkspacePickerSelection(catalog []workspacePickerItem) {
+	item, ok := workspacePickerItemByKey(catalog, s.workspacePickerSelection)
+	if !ok || !item.Closable {
+		return
+	}
+	if item.Descriptor.Kind == workspacePaneScratchpad {
+		s.closeScratchpad()
+	} else if item.Descriptor.Kind == workspacePaneSubagentConversation {
+		s.closeSubagentConversation(item.Descriptor.ResourceID)
+	} else {
+		s.SetState(func() {
+			s.workspace.Close(item.Identity)
+			s.syncWorkspaceSelection()
+		})
+	}
+	if _, exists := workspacePickerItemByKey(s.workspacePickerCatalog(), s.workspacePickerSelection); !exists {
+		s.SetState(func() {
+			s.workspacePickerSelection = firstEnabledPickerKey(pickerKeyModel{Query: s.workspacePickerQuery}.Items(workspacePickerRows(s.workspacePickerCatalog(), s.workspace.SelectedIdentity())))
+		})
+	}
 }
 
 func (s *appState) syncTranscriptVisibility(visible bool) {
@@ -5180,8 +5204,7 @@ func (s *appState) syncWorkspaceSelection() {
 	if !s.workspace.StripVisible() {
 		s.workspacePickerOpen = false
 		s.workspacePickerQuery = ""
-		s.workspacePickerSelection = 0
-		s.workspacePickerRevealPending = false
+		s.workspacePickerSelection = ""
 	}
 	pane, selected := s.workspace.SelectedPane()
 	if !selected || pane.Kind != workspacePaneSubagentConversation {
@@ -6371,10 +6394,7 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.indexedFiles.reset()
 	s.workspacePickerOpen = false
 	s.workspacePickerQuery = ""
-	s.workspacePickerSelection = 0
-	s.workspacePickerScroll = ui.ScrollController{}
-	s.workspacePickerRevealPending = false
-	s.workspacePickerRevealOffset = 0
+	s.workspacePickerSelection = ""
 	s.activitySourceID = ""
 	s.activityConversationID = ""
 	s.activitySelected = false
@@ -6446,8 +6466,7 @@ func (s *appState) enterAuthSelect(returnReady bool) {
 		s.phase = phaseAuthSelect
 		s.authReturnReady = returnReady
 		s.errorText = ""
-		s.authFilter = ""
-		s.authSelection = 0
+		s.authPicker = newAuthProviderPicker()
 	})
 }
 
@@ -7022,7 +7041,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 		s.SetState(func() {
 			s.workspacePickerOpen = false
 			s.workspacePickerQuery = ""
-			s.workspacePickerRevealPending = false
+			s.workspacePickerSelection = ""
 		})
 		return
 	case inputSubagents:
@@ -7031,7 +7050,16 @@ func (s *appState) dismiss(_ ui.EventContext) {
 	case inputInteraction:
 		return // The dock's local dismiss action owns cancellation.
 	case inputPane:
-		return // The pane-local child owns dismissal after it is rendered.
+		if s.paneInputKeyHandler != nil {
+			s.paneInputKeyHandler(ui.Key{Keycode: vaxis.KeyEsc})
+		}
+		s.SetState(func() {
+			s.paneInput = paneInputOwner{}
+			s.paneInputKeyHandler = nil
+			s.paneInputKeyHandlerOwner = paneInputOwner{}
+			s.inputGeneration++
+		})
+		return
 	}
 
 	switch s.phase {
@@ -7040,8 +7068,7 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			s.phase = authSelectionDismissTarget(s.authReturnReady)
 			s.authReturnReady = false
 			s.errorText = ""
-			s.authFilter = ""
-			s.authSelection = 0
+			s.authPicker = pickerKeyModel{}
 		})
 	case phaseAuthAPIKey:
 		if s.authPending {

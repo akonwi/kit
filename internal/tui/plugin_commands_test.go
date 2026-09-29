@@ -34,10 +34,8 @@ func TestPluginCommandPalettePresentationAndLiteralArguments(t *testing.T) {
 	application := uitest.New(paletteHarness{State: state})
 	application.Pump(100, 24)
 	rows := paintedRows(application, 100, 24)
+	assertDialogRow(t, rows, "Echo a message", "│▌plugin-demo.echo  <message>  Echo a message                      plugin-demo │")
 	row := findPaintedRow(rows, "Echo a message")
-	if row < 0 || !strings.Contains(rows[row], "plugin-demo.echo <message>") {
-		t.Fatalf("plugin row =\n%s", strings.Join(rows, "\n"))
-	}
 	application.Click(40, row)
 	application.Pump(100, 24)
 	if state.executed != selected.ID || state.palette.Open {

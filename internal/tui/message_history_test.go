@@ -4,6 +4,8 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
+	"go.rockorager.dev/vaxis"
+	"go.rockorager.dev/vaxis/ui"
 )
 
 func TestMessageHistoryEntriesKeepNewestUniqueUserText(t *testing.T) {
@@ -25,13 +27,13 @@ func TestMessageHistorySelectionFillsComposerWithoutSubmitting(t *testing.T) {
 	t.Parallel()
 
 	var history messageHistoryController
-	if history.OpenFor(nil) {
+	if history.OpenFor(nil, "") {
 		t.Fatal("OpenFor() opened an empty history")
 	}
-	if !history.OpenFor([]messageHistoryEntry{{ID: "message_1", Text: "first"}, {ID: "message_2", Text: "second"}}) {
+	if !history.OpenFor([]messageHistoryEntry{{ID: "message_1", Text: "first"}, {ID: "message_2", Text: "second"}}, "") {
 		t.Fatal("OpenFor() did not open")
 	}
-	history.Move(-1)
+	history.HandleKey(ui.Key{Keycode: vaxis.KeyUp})
 	selected, ok := history.Selected()
 	if !ok || selected.Text != "second" {
 		t.Fatalf("selected = %+v, %t", selected, ok)

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -914,7 +915,7 @@ func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing
 	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
 	application.Pump(100, 26)
 	text := application.Text()
-	for _, expected := range []string{"Select diff target", "✓ Working tree", "a1b2c3d  Fix parser bounds", glyphCircleFilled + " 2", "Filter branch, subject, or object ID", "↑↓ move · enter select · esc close"} {
+	for _, expected := range []string{"Select diff target", glyphLeftBar + "Working tree", "a1b2c3d  Fix parser bounds", glyphCircleFilled + " 2", "Filter branch, subject, or object ID", "Refreshing diff targets…", "esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("target picker missing %q:\n%s", expected, text)
 		}
@@ -931,7 +932,7 @@ func TestWorkspaceDiffTargetPickerPresentsSelectionDraftsAndFiltering(t *testing
 	}
 	application.Pump(100, 26)
 	text = application.Text()
-	if !strings.Contains(text, "Fix parser bounds") || strings.Contains(text, "✓ Working tree") {
+	if !strings.Contains(text, "Fix parser bounds") || strings.Contains(text, glyphLeftBar+"Working tree") {
 		t.Fatalf("filtered picker presentation is incoherent:\n%s", text)
 	}
 }
@@ -969,8 +970,8 @@ func TestWorkspaceDiffTargetPickerShowsLoadingErrorAndEmptyStates(t *testing.T) 
 			Presentation: workspacePanePresentation{Active: true, Visible: true, Focused: true}})
 		pumpDiffUntil(t, application, dispatch, 90, 25, "Could not list diff targets")
 		application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
-		text := strings.Join(pumpDiffUntil(t, application, dispatch, 90, 25, glyphCross+" Could not load diff"), "\n")
-		if !strings.Contains(text, glyphCross+" Could not load diff") {
+		text := strings.Join(pumpDiffUntil(t, application, dispatch, 90, 25, "Could not load diff"), "\n")
+		if !strings.Contains(text, "Could not load diff") {
 			t.Fatalf("error picker:\n%s", text)
 		}
 	})
@@ -1242,7 +1243,7 @@ func TestWorkspaceDiffAnnotationActivationReplacesPriorTargetExactly(t *testing.
 	}
 	application.Send(vaxis.Key{Text: "G", Keycode: 'g', Modifiers: vaxis.ModShift})
 	application.Pump(100, 25)
-	if text := application.Text(); !strings.Contains(text, glyphCheck+" b1b2b3b  Pinned review") {
+	if text := application.Text(); !strings.Contains(text, glyphLeftBar+"b1b2b3b  Pinned review") {
 		t.Fatalf("annotation target was not selected in picker:\n%s", text)
 	}
 	application.Send(vaxis.Key{Keycode: vaxis.KeyUp})
@@ -1285,19 +1286,20 @@ func TestWorkspaceDiffTargetSwitchBlockedByRangeWithWarning(t *testing.T) {
 }
 
 func TestWorkspaceDiffTargetFilteringMatchesAllCatalogMetadata(t *testing.T) {
+	drafts := 0
 	state := workspaceDiffPaneState{catalog: []protocol.DiffTargetEntry{
-		{Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}},
-		{Metadata: protocol.DiffTargetMetadata{RefName: "feature/review", BaseRefName: "main", Subject: "Parser bounds", Abbreviated: "abcdef1"}},
+		{TargetID: "working", Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}, AnnotationCount: &drafts},
+		{TargetID: "review", Metadata: protocol.DiffTargetMetadata{RefName: "feature/review", BaseRefName: "main", Subject: "Parser bounds", Abbreviated: "abcdef1"}, AnnotationCount: &drafts},
 	}}
 	for _, query := range []string{"feature", "MAIN", "parser", "abcdef1"} {
 		state.targetQuery = query
-		if got := state.filteredTargets(); len(got) != 1 || got[0].Metadata.RefName != "feature/review" {
-			t.Fatalf("query %q = %+v", query, got)
+		if got := pickerItemKeys(state.targetKeyModel().Items(state.targetPickerCatalog())); !reflect.DeepEqual(got, []string{"review"}) {
+			t.Fatalf("query %q = %v, want [review]", query, got)
 		}
 	}
 	state.targetQuery = "missing"
-	if got := state.filteredTargets(); len(got) != 0 {
-		t.Fatalf("missing query = %+v", got)
+	if got := pickerItemKeys(state.targetKeyModel().Items(state.targetPickerCatalog())); len(got) != 0 {
+		t.Fatalf("missing query = %v", got)
 	}
 }
 

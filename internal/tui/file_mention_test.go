@@ -64,14 +64,14 @@ func TestFileMentionSelectionAndInsertion(t *testing.T) {
 	controller.ensureSelection(entries)
 	controller.Observe("say @", "say @tui", false)
 	controller.ensureSelection(entries)
-	if got := controller.filtered(entries); len(got) != 2 {
+	if got := controller.keys().Items(fileMentionCatalog(entries)); len(got) != 2 {
 		t.Fatalf("filtered entries = %+v, want two tui files", got)
 	}
 	first, ok := controller.Selected(entries)
 	if !ok || first.Path != "internal/tui/app.go" {
 		t.Fatalf("selected = %+v, %v", first, ok)
 	}
-	controller.Move(entries, 1)
+	controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyDown})
 	selected, ok := controller.Selected(entries)
 	if !ok || selected.Path != "internal/tui/shell.go" {
 		t.Fatalf("selected after move = %+v, %v", selected, ok)
@@ -95,57 +95,73 @@ func TestFileMentionKeyNavigation(t *testing.T) {
 	t.Parallel()
 	entries := []protocol.FileIndexEntry{{Path: "a.go"}, {Path: "b.go"}}
 	controller := fileMentionController{Open: true, Selection: "a.go"}
-	_, _, handled := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyDown})
-	if !handled || controller.Selection != "b.go" {
-		t.Fatalf("down handled = %v, selection = %q", handled, controller.Selection)
+	result := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyDown})
+	if !result.Handled || controller.Selection != "b.go" {
+		t.Fatalf("down = %+v, selection = %q", result, controller.Selection)
 	}
-	entry, selected, handled := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyEnter})
-	if !handled || !selected || entry.Path != "b.go" {
-		t.Fatalf("enter = %+v, selected %v, handled %v", entry, selected, handled)
+	result = controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyDown})
+	if !result.Handled || controller.Selection != "a.go" {
+		t.Fatalf("wrapping down = %+v, selection = %q", result, controller.Selection)
+	}
+	result = controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyEnter})
+	if !result.Handled || !result.Activate {
+		t.Fatalf("enter = %+v, want activation", result)
+	}
+	if result := controller.HandleKey(entries, ui.Key{Keycode: vaxis.KeyLeft}); result.Handled {
+		t.Fatalf("left = %+v, want it left to the composer", result)
 	}
 }
 
-func TestFileMentionSurfaceShowsPathsAndDirectoryDescription(t *testing.T) {
+func TestFileMentionCatalogLabelsRowsWithFullPaths(t *testing.T) {
 	t.Parallel()
-	view := shellView{Snapshot: shellSnapshot{
-		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Mention files"}, Composer: "see @src",
-		FileMention: fileMentionController{Open: true, Anchor: len("see "), Query: "src", Selection: "src/"},
-		IndexedFiles: indexedFileSource{Entries: []protocol.FileIndexEntry{
-			{Path: "src/", IsDir: true}, {Path: "src/main.go"},
-		}},
-	}}
-	application := uitest.New(view)
-	application.Pump(100, 24)
-	rows := paintedRows(application, 100, 24)
-	painted := strings.Join(rows, "\n")
-	for _, want := range []string{"src/", "directory", "src/main.go", "↑↓ move · enter insert · esc close"} {
-		if !strings.Contains(painted, want) {
-			t.Fatalf("file mention picker missing %q:\n%s", want, painted)
+	catalog := fileMentionCatalog([]protocol.FileIndexEntry{
+		{Path: "src/", IsDir: true}, {Path: "src/main.go"}, {Path: "go.mod"},
+	})
+	want := []pickerItem{
+		{Key: "src/", Label: "src/", LabelTruncation: pickerLabelTruncationStart},
+		{Key: "src/main.go", Label: "src/main.go", LabelTruncation: pickerLabelTruncationStart},
+		{Key: "go.mod", Label: "go.mod", LabelTruncation: pickerLabelTruncationStart},
+	}
+	if len(catalog) != len(want) {
+		t.Fatalf("catalog = %+v, want %+v", catalog, want)
+	}
+	for index := range want {
+		if got := catalog[index]; got.Key != want[index].Key || got.Label != want[index].Label || got.LabelTruncation != want[index].LabelTruncation || got.Description != "" {
+			t.Fatalf("item %d = %+v, want %+v", index, got, want[index])
 		}
 	}
-	column, row := findTextCell(t, rows, "src/")
-	if wantColumn := view.Snapshot.FileMention.Anchor + 2; column != wantColumn {
-		t.Fatalf("file mention path column = %d, want %d aligned near trigger", column, wantColumn)
-	}
-	_, triggerRow := findTextCell(t, rows, "@src")
-	if triggerRow-row != 5 {
-		t.Fatalf("picker selected row = %d and trigger row = %d; picker is not immediately above trigger", row, triggerRow)
-	}
-	if application.Cell(column, row).Style.Background == application.Cell(column, row+1).Style.Background {
-		t.Fatal("selected file mention row does not have a distinct background")
-	}
 }
 
-func TestFileMentionSurfaceShowsSharedIndexErrorAndTruncation(t *testing.T) {
+func TestFileMentionPickerKeepsLongPathFileNamesVisible(t *testing.T) {
 	t.Parallel()
+	_, rows := renderInlinePicker(inlinePicker{
+		Catalog: fileMentionCatalog([]protocol.FileIndexEntry{
+			{Path: "internal/very/long/directory/structure/with/many/levels/tui/inline_picker.go"},
+			{Path: "go.mod"},
+		}),
+		Selection: "internal/very/long/directory/structure/with/many/levels/tui/inline_picker.go",
+		Anchor:    anchorAt(0, 21),
+	}, 80, 24)
+	assertInlinePickerRows(t, rows, []string{
+		"┌──────────────────────────────────────────────────────────────┐",
+		"│▌…g/directory/structure/with/many/levels/tui/inline_picker.go │",
+		"│ go.mod                                                       │",
+		"└──────────────────────────────────────────────────────────────┘",
+	})
+}
+
+func TestFileMentionSurfaceShowsTheSharedIndexStates(t *testing.T) {
+	t.Parallel()
+	entries := []protocol.FileIndexEntry{{Path: "main.go"}}
 	cases := []struct {
 		name   string
 		source indexedFileSource
-		want   string
+		want   []string
 	}{
-		{name: "error", source: indexedFileSource{Error: "index unavailable"}, want: "Could not load files: index unavailable"},
-		{name: "stale error", source: indexedFileSource{Entries: []protocol.FileIndexEntry{{Path: "main.go"}}, Error: "refresh failed"}, want: "Refresh failed: refresh failed"},
-		{name: "truncated", source: indexedFileSource{Entries: []protocol.FileIndexEntry{{Path: "main.go"}}, Truncated: true}, want: "Showing first 4,000 indexed paths"},
+		{name: "loading", source: indexedFileSource{Loading: true}, want: []string{"│ " + spinnerFrames[0] + " Loading files…"}},
+		{name: "error", source: indexedFileSource{Error: "index unavailable"}, want: []string{"│ Could not load files: index unavailable"}},
+		{name: "stale error", source: indexedFileSource{Entries: entries, Error: "refresh failed"}, want: []string{"│▌main.go", "├", "│ Refresh failed: refresh failed"}},
+		{name: "truncated", source: indexedFileSource{Entries: entries, Truncated: true}, want: []string{"│▌main.go", "├", "│ Showing first 4,000 indexed paths"}},
 	}
 	for _, test := range cases {
 		t.Run(test.name, func(t *testing.T) {
@@ -155,8 +171,14 @@ func TestFileMentionSurfaceShowsSharedIndexErrorAndTruncation(t *testing.T) {
 			}}
 			application := uitest.New(view)
 			application.Pump(80, 24)
-			if text := strings.Join(paintedRows(application, 80, 24), "\n"); !strings.Contains(text, test.want) {
-				t.Fatalf("mention state missing %q:\n%s", test.want, text)
+			_, box := inlinePickerBox(t, paintedRows(application, 80, 24))
+			inner := box[1 : len(box)-1]
+			matches := len(inner) == len(test.want)
+			for index := 0; matches && index < len(inner); index++ {
+				matches = strings.HasPrefix(inner[index], test.want[index])
+			}
+			if !matches {
+				t.Fatalf("picker =\n%s\nwant rows starting %q", strings.Join(box, "\n"), test.want)
 			}
 		})
 	}

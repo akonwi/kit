@@ -43,8 +43,8 @@ type shellSnapshot struct {
 	AnnotationPicker              annotationPickerSnapshot
 	SessionExplorer               sessionExplorerSnapshot
 	AuthReturnReady               bool
-	AuthFilter                    string
-	AuthSelection                 int
+	AuthQuery                     string
+	AuthSelection                 string
 	AuthProviderID                string
 	AuthAPIKey                    string
 	AuthCode                      string
@@ -82,11 +82,9 @@ type shellSnapshot struct {
 	CurrentWorkspaceID            string
 	PaneInput                     paneInputOwner
 	WorkspaceFilePicker           workspaceFilePickerController
-	WorkspaceFilePickerScroll     *ui.ScrollController
 	WorkspacePickerOpen           bool
 	WorkspacePickerQuery          string
-	WorkspacePickerSelection      int
-	WorkspacePickerScroll         *ui.ScrollController
+	WorkspacePickerSelection      string
 	WorkspaceLayout               *workspaceLayoutState
 	ActivitySourceID              string
 	ActivityConversationID        string
@@ -143,6 +141,7 @@ type shellCallbacks struct {
 	OpenActivityFile            func(ui.EventContext, toolFileTarget)
 	InputOwner                  func() inputOwner
 	PaneInputChanged            func(workspacePaneDescriptor, paneInputKind, bool) bool
+	PaneInputHandlerChanged     func(workspacePaneDescriptor, func(ui.Key) ui.EventResult)
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
 	SetDiffFollowCWD            func(string, bool)
@@ -150,10 +149,6 @@ type shellCallbacks struct {
 	ShowDiffNotice              func(string)
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
-	MoveProviderSelection       selectionMovedCallback
-	AuthFilterChanged           ui.TextChangedCallback
-	AuthAPIKeyChanged           ui.TextChangedCallback
-	SubmitAPIKey                ui.TextChangedCallback
 	AuthCodeChanged             ui.TextChangedCallback
 	SubmitAuthCode              ui.TextChangedCallback
 	OpenURL                     ui.TextChangedCallback
@@ -186,16 +181,9 @@ type shellCallbacks struct {
 	UseSharedScratchpad         ui.VoidCallback
 	ReplaceSharedScratchpad     ui.VoidCallback
 	OpenWorkspaceFilePicker     ui.VoidCallback
-	CloseWorkspaceFilePicker    ui.VoidCallback
-	WorkspaceFilePickerQuery    ui.TextChangedCallback
-	MoveWorkspaceFilePicker     func(ui.EventContext, int)
 	ActivateWorkspaceFilePicker func(ui.EventContext, workspaceFilePickerRow)
-	SelectWorkspaceFilePicker   func(ui.EventContext, workspaceFilePickerRow)
-	RefreshWorkspaceFilePicker  ui.VoidCallback
 	OpenWorkspacePicker         ui.VoidCallback
 	CloseWorkspacePicker        ui.VoidCallback
-	WorkspacePickerQuery        ui.TextChangedCallback
-	WorkspacePickerSelection    func(ui.EventContext, int)
 	MoveWorkspaceFocus          ui.VoidCallback
 	FocusWorkspaceContent       ui.VoidCallback
 	FocusWorkspaceComposer      ui.VoidCallback
@@ -208,10 +196,8 @@ type shellCallbacks struct {
 	ToggleBashOutput            func(ui.EventContext, string)
 	ToggleTranscriptAnnotations func(ui.EventContext, string)
 	OpenBashHistory             func(ui.EventContext, int) bool
-	BashHistoryChanged          ui.TextChangedCallback
 	SelectBashHistory           func(ui.EventContext, string)
 	RecallMessages              ui.VoidCallback
-	MessageHistoryChanged       ui.TextChangedCallback
 	SelectMessageHistory        func(ui.EventContext, string)
 	SelectFileMention           func(ui.EventContext, string)
 	SelectSessionMention        func(ui.EventContext, string)
@@ -229,19 +215,17 @@ type shellCallbacks struct {
 	CopySelection               func(string)
 	DismissToast                func(uint64)
 	OpenPalette                 ui.VoidCallback
-	PaletteQueryChanged         ui.TextChangedCallback
 	MovePaletteSelection        selectionMovedCallback
-	RunPaletteQuery             ui.TextChangedCallback
 	RunPaletteCommand           func(ui.EventContext, paletteCommandID)
-	SelectTheme                 func(ui.EventContext, int)
+	SelectTheme                 func(ui.EventContext, string)
 	OpenSessionRename           ui.VoidCallback
 	OpenModel                   ui.VoidCallback
 	OpenThinking                ui.VoidCallback
-	ConfigurationQuery          ui.TextChangedCallback
+	// ConfigurationContextChanged edits the context-window override prompt.
+	ConfigurationContextChanged ui.TextChangedCallback
 	SelectConfiguration         func(ui.EventContext, string)
 	ApplyConfiguration          ui.VoidCallback
-	SelectSession               func(ui.EventContext, string)
-	SessionQueryChanged         ui.TextChangedCallback
+	ActivateSession             func(ui.EventContext, string)
 	ToggleSessionTree           func(ui.EventContext, string)
 	SessionRenameChanged        ui.TextChangedCallback
 	SubmitCurrentSessionRename  ui.TextChangedCallback
@@ -277,10 +261,6 @@ func (copyCodeIntent) IntentType() ui.IntentType { return "kit.auth.copy-code" }
 type retryIntent struct{}
 
 func (retryIntent) IntentType() ui.IntentType { return "kit.retry" }
-
-type moveProviderIntent struct{ Delta int }
-
-func (moveProviderIntent) IntentType() ui.IntentType { return "kit.auth.move-provider" }
 
 type openPaletteIntent struct{}
 
@@ -343,46 +323,12 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		},
 	))
 	overlays := w.authOverlays(theme)
-	if w.Snapshot.Phase == phaseReady && owner == inputFileMention {
-		controller := w.Snapshot.FileMention
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
-			Controller: &controller, Source: w.Snapshot.IndexedFiles, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnSelect: w.Callbacks.SelectFileMention,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputSessionMention {
-		controller := w.Snapshot.SessionMention
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: sessionMentionSurface{
-			Controller: &controller, Source: w.Snapshot.SessionMentions, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100, OnSelect: w.Callbacks.SelectSessionMention,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputMessageHistory {
-		controller := w.Snapshot.MessageHistory
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: messageHistorySurface{
-			Controller: &controller, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnQuery:  w.Callbacks.MessageHistoryChanged,
-			OnSelect: w.Callbacks.SelectMessageHistory,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputBashHistory {
-		controller := w.Snapshot.BashHistory
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: bashHistorySurface{
-			Controller: &controller, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnQuery:  w.Callbacks.BashHistoryChanged,
-			OnSelect: w.Callbacks.SelectBashHistory,
-		}})
+	if w.Snapshot.Phase == phaseReady && owner.inlinePicker() {
+		overlays = append(overlays, ui.OverlayEntry{Child: w.inlinePickerSurface(owner)})
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputConfiguration {
 		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
-			Snapshot: w.Snapshot.ConfigurationPicker, QueryChanged: w.Callbacks.ConfigurationQuery,
+			Snapshot: w.Snapshot.ConfigurationPicker, ContextChanged: w.Callbacks.ConfigurationContextChanged,
 			Select: w.Callbacks.SelectConfiguration, Apply: w.Callbacks.ApplyConfiguration,
 		}))
 	}
@@ -413,31 +359,18 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner.root() == inputSessions {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
-			Snapshot:  w.Snapshot.SessionExplorer,
-			Callbacks: sessionExplorerCallbacks{QueryChanged: w.Callbacks.SessionQueryChanged, Select: w.Callbacks.SelectSession, Toggle: w.Callbacks.ToggleSessionTree},
+			Snapshot: w.Snapshot.SessionExplorer,
+			Callbacks: sessionExplorerCallbacks{
+				Activate: w.Callbacks.ActivateSession, Toggle: w.Callbacks.ToggleSessionTree,
+				RenameChanged: w.Callbacks.RenameSessionChanged, RenameSubmitted: w.Callbacks.SubmitSessionRename,
+			},
 		}))
-		if owner == inputSessionRename {
-			overlays = append(overlays, modalDialogEntry(sessionRenameSurface{
-				Snapshot: sessionExplorerRenameSnapshot(w.Snapshot.SessionExplorer),
-				Callbacks: sessionRenameCallbacks{
-					Changed: w.Callbacks.RenameSessionChanged, Submitted: w.Callbacks.SubmitSessionRename,
-				},
-			}))
-		}
-		if owner == inputSessionDelete {
-			overlays = append(overlays, modalDialogEntry(sessionDeleteSurface{Snapshot: w.Snapshot.SessionExplorer}))
-		}
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputFiles {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
-			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
+			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles,
 			Callbacks: workspaceFilePickerCallbacks{
-				QueryChanged: w.Callbacks.WorkspaceFilePickerQuery,
-				Move:         w.Callbacks.MoveWorkspaceFilePicker,
-				Activate:     w.Callbacks.ActivateWorkspaceFilePicker,
-				Select:       w.Callbacks.SelectWorkspaceFilePicker,
-				Refresh:      w.Callbacks.RefreshWorkspaceFilePicker,
-				Close:        w.Callbacks.CloseWorkspaceFilePicker,
+				Activate: w.Callbacks.ActivateWorkspaceFilePicker,
 			},
 		}))
 	}
@@ -457,8 +390,10 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputTheme {
 		overlays = append(overlays, ui.OverlayEntry{Modal: true, Barrier: clearModalBarrier{}, Child: themePickerSurface{
-			Snapshot:  w.Snapshot.ThemePicker,
-			Callbacks: themePickerCallbacks{Select: w.Callbacks.SelectTheme},
+			Snapshot: w.Snapshot.ThemePicker,
+			Callbacks: themePickerCallbacks{
+				Select: w.Callbacks.SelectTheme,
+			},
 		}})
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputPalette {
@@ -470,9 +405,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 					Running: w.Snapshot.Running, Contributions: w.Snapshot.PaletteCommands,
 				},
 				Callbacks: paletteCallbacks{
-					QueryChanged: w.Callbacks.PaletteQueryChanged,
-					RunQuery:     w.Callbacks.RunPaletteQuery,
-					RunCommand:   w.Callbacks.RunPaletteCommand,
+					RunCommand: w.Callbacks.RunPaletteCommand,
 				},
 			},
 		})
@@ -614,16 +547,6 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 				w.Callbacks.CloseActivity(ctx)
 			} else if w.Callbacks.Dismiss != nil {
 				w.Callbacks.Dismiss(ctx)
-			}
-			return ui.EventHandled
-		}
-	}
-	if w.Snapshot.Phase == phaseAuthSelect {
-		shortcuts["Up"] = moveProviderIntent{Delta: -1}
-		shortcuts["Down"] = moveProviderIntent{Delta: 1}
-		actions[moveProviderIntent{}.IntentType()] = func(ctx ui.EventContext, intent ui.Intent) ui.EventResult {
-			if w.Callbacks.MoveProviderSelection != nil {
-				w.Callbacks.MoveProviderSelection(ctx, intent.(moveProviderIntent).Delta)
 			}
 			return ui.EventHandled
 		}
@@ -1031,7 +954,7 @@ func submittedAnnotationRow(theme ui.Theme, annotation protocol.SubmittedAnnotat
 	}
 	preview := annotation.Preview.Text
 	if annotation.Preview.Truncated {
-		preview += " " + glyphEllipsis
+		preview += " " + glyphTruncation
 	}
 	location := fmt.Sprintf("%s  L%d–%d", path, start, end)
 	if side != "" {
@@ -1234,6 +1157,70 @@ func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 	return ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})
 }
 
+// inlinePickerSurface maps the open inline picker onto the composer. Only
+// one inline picker owns input at a time. Mentions rest on their trigger;
+// history pickers rest on the start of the composer.
+func (w shellView) inlinePickerSurface(owner inputOwner) ui.Widget {
+	composer := w.Snapshot.Composer
+	switch owner {
+	case inputFileMention:
+		return fileMentionSurface{
+			Controller: w.Snapshot.FileMention, Source: w.Snapshot.IndexedFiles,
+			Anchor: composerPickerAnchor(composer, w.Snapshot.FileMention.Anchor), OnSelect: w.Callbacks.SelectFileMention,
+		}
+	case inputSessionMention:
+		return sessionMentionSurface{
+			Controller: w.Snapshot.SessionMention, Source: w.Snapshot.SessionMentions,
+			Anchor: composerPickerAnchor(composer, w.Snapshot.SessionMention.Anchor), OnSelect: w.Callbacks.SelectSessionMention,
+		}
+	case inputMessageHistory:
+		return messageHistorySurface{Controller: w.Snapshot.MessageHistory, Anchor: composerPickerAnchor(composer, 0), OnSelect: w.Callbacks.SelectMessageHistory}
+	default:
+		return bashHistorySurface{Controller: w.Snapshot.BashHistory, Anchor: composerPickerAnchor(composer, 0), OnSelect: w.Callbacks.SelectBashHistory}
+	}
+}
+
+// composerPickerAnchor locates byte offset in the composer on screen, so an
+// inline picker rests on the composer line where it was opened. The composer
+// sits above its divider and the footer, spans the overlay width with one
+// cell of padding on each side, soft-wraps, and shows its last lines when
+// taller than composerMaxHeight.
+func composerPickerAnchor(composer string, offset int) func(ui.Size) ui.Point {
+	return func(size ui.Size) ui.Point {
+		layout := ui.LayoutText(
+			[]ui.TextSpan{{Text: composer}},
+			ui.Constraints{MaxWidth: max(1, size.Width-2)},
+			ui.TextLayoutOptions{SoftWrap: true},
+		)
+		lines := max(1, len(layout.Lines))
+		height := min(composerMaxHeight, lines)
+		top := size.Height - 2 - height
+		row, column, ok := composerTextCell(layout, min(max(0, offset), len(composer)))
+		if !ok {
+			return ui.Point{X: 0, Y: top}
+		}
+		visible := min(max(0, row-(lines-height)), height-1)
+		return ui.Point{X: column + 1, Y: top + visible}
+	}
+}
+
+// composerTextCell finds the cell of the character at byte offset. A
+// character that starts a wrapped line is found on that line, not at the end
+// of the line before it; an offset with no character, such as the end of the
+// text, falls back to the cursor position.
+func composerTextCell(layout ui.TextLayout, offset int) (row, column int, ok bool) {
+	for row, line := range layout.Lines {
+		column := line.Offset
+		for _, cell := range line.Cells {
+			if cell.Position.ByteOffset == offset {
+				return row, column, true
+			}
+			column += cell.Width
+		}
+	}
+	return layout.CellForPosition(ui.TextPosition{ByteOffset: offset})
+}
+
 func (w shellView) composerSeparatorColor(theme ui.Theme) ui.Color {
 	if strings.HasPrefix(w.Snapshot.Composer, "!") {
 		return theme.SuccessText
@@ -1278,7 +1265,7 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 
 func composerAnnotationOverflowRow(theme ui.Theme, hidden int, open ui.VoidCallback) ui.Widget {
 	content := ui.Widget(ui.Text{
-		Value: fmt.Sprintf("%s %d more annotations", glyphEllipsis, hidden), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
+		Value: fmt.Sprintf("%s %d more annotations", glyphTruncation, hidden), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
 	})
 	if open != nil {
 		content = mouseActivator{Child: content, OnPressed: open}
@@ -1373,14 +1360,10 @@ func (w shellView) footer(theme ui.Theme) ui.Widget {
 func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 	switch w.Snapshot.Phase {
 	case phaseAuthSelect:
-		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
-			theme,
-			"Connect a provider",
-			"",
-			w.providerSelectionBody(theme),
-			ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}},
-			false,
-		))}
+		return []ui.OverlayEntry{modalDialogEntry(authProviderPickerSurface{
+			Query: w.Snapshot.AuthQuery, Selection: w.Snapshot.AuthSelection,
+			Error: w.Snapshot.Error, Pending: w.Snapshot.AuthPending, Select: w.Callbacks.SelectProvider,
+		})}
 	case phaseAuthWaiting:
 		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
 			theme,
@@ -1400,19 +1383,10 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			false,
 		))}
 	case phaseAuthAPIKey:
-		provider, _ := authProviderByID(w.Snapshot.AuthProviderID)
-		footer := "enter save · esc back"
-		if w.Snapshot.AuthPending {
-			footer = "Saving…"
-		}
-		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
-			theme,
-			"Connect "+provider.Name,
-			"",
-			w.apiKeyBody(theme),
-			ui.Text{Value: footer, Style: ui.Style{Foreground: theme.MutedForeground}},
-			false,
-		))}
+		return []ui.OverlayEntry{modalDialogEntry(authAPIKeyPrompt{
+			ProviderID: w.Snapshot.AuthProviderID, APIKey: w.Snapshot.AuthAPIKey,
+			Error: w.Snapshot.Error, Pending: w.Snapshot.AuthPending,
+		})}
 	default:
 		return nil
 	}
@@ -1425,104 +1399,6 @@ func modalDialogEntry(child ui.Widget) ui.OverlayEntry {
 			Children: []ui.Widget{selectionFeedbackArea{Child: child}, modalFocusAnchor{}},
 		}},
 	}
-}
-
-func (w shellView) providerSelectionBody(theme ui.Theme) ui.Widget {
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	children := []ui.Widget{}
-	if w.Snapshot.Error != "" {
-		children = append(children,
-			ui.Text{Value: w.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-			ui.SizedBox{Height: 1},
-		)
-	}
-	children = append(children,
-		ui.Text{Value: "Filter providers", Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-			ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-			textInput(fieldTheme, textInputConfig{
-				Value:       w.Snapshot.AuthFilter,
-				OnChanged:   w.Callbacks.AuthFilterChanged,
-				OnSubmitted: func(ctx ui.EventContext, _ string) { w.selectHighlightedProvider(ctx) },
-				AutoFocus:   true,
-			}),
-		}},
-		ui.SizedBox{Height: 1},
-	)
-	providers := filteredAuthProviders(w.Snapshot.AuthFilter)
-	if len(providers) == 0 {
-		children = append(children, ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}})
-	} else {
-		selection := max(0, min(w.Snapshot.AuthSelection, len(providers)-1))
-		for index, provider := range providers {
-			provider := provider
-			children = append(children, providerOptionRow(theme, provider, index == selection, func(ctx ui.EventContext) {
-				if w.Callbacks.SelectProvider != nil {
-					w.Callbacks.SelectProvider(ctx, provider.ID)
-				}
-			}))
-		}
-	}
-	return ui.SizedBox{Height: 15, Child: ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children,
-	}}
-}
-
-func (w shellView) selectHighlightedProvider(ctx ui.EventContext) {
-	providers := filteredAuthProviders(w.Snapshot.AuthFilter)
-	if len(providers) == 0 || w.Callbacks.SelectProvider == nil {
-		return
-	}
-	selection := max(0, min(w.Snapshot.AuthSelection, len(providers)-1))
-	w.Callbacks.SelectProvider(ctx, providers[selection].ID)
-}
-
-func providerOptionRow(theme ui.Theme, provider authProviderOption, selected bool, onPressed ui.VoidCallback) ui.Widget {
-	primary := ui.Style{Foreground: theme.Foreground, Background: theme.Background}
-	secondary := ui.Style{Foreground: theme.MutedForeground, Background: theme.Background}
-	if selected {
-		primary = ui.Style{Foreground: theme.Background, Background: theme.Foreground}
-		secondary.Background = theme.Foreground
-	}
-	return ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
-		ui.Decoration{Style: primary},
-		ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.SizedBox{Width: 12, Child: ui.Text{
-				Value: provider.Name, Style: primary, OnPressed: onPressed,
-				ClickAffordance: ui.ClickAffordanceNone, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}},
-			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{
-				Value: provider.Method, Style: secondary, OnPressed: onPressed,
-				ClickAffordance: ui.ClickAffordanceNone, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-			}),
-		}},
-	)}
-}
-
-func (w shellView) apiKeyBody(theme ui.Theme) ui.Widget {
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	children := []ui.Widget{}
-	if w.Snapshot.Error != "" {
-		children = append(children,
-			ui.Text{Value: w.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-			ui.SizedBox{Height: 1},
-		)
-	}
-	children = append(children,
-		ui.Text{Value: "API key", Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, Children: []ui.Widget{
-			textInput(fieldTheme, textInputConfig{
-				Value: w.Snapshot.AuthAPIKey, OnChanged: w.Callbacks.AuthAPIKeyChanged,
-				OnSubmitted: w.Callbacks.SubmitAPIKey, ObscureText: true, AutoFocus: true,
-			}),
-		}},
-	)
-	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }
 
 func (w shellView) browserLoginBody(theme ui.Theme) ui.Widget {

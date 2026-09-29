@@ -313,15 +313,6 @@ func TestWorkspaceControllerMovesLogicalFocusAndResets(t *testing.T) {
 	}
 }
 
-func TestWorkspacePickerRevealDefersLateSelectionUntilLayout(t *testing.T) {
-	t.Parallel()
-	state := &appState{}
-	state.requestWorkspacePickerReveal(20)
-	if !state.workspacePickerRevealPending || state.workspacePickerRevealOffset != 15 {
-		t.Fatalf("reveal state = pending:%t offset:%d, want pending at 15", state.workspacePickerRevealPending, state.workspacePickerRevealOffset)
-	}
-}
-
 func TestSubagentWorkspaceActivityContract(t *testing.T) {
 	t.Parallel()
 	definition := workspacePaneDefinitions[workspacePaneSubagentConversation]

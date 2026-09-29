@@ -24,7 +24,7 @@ func (w workspaceTabStrip) WidgetChildren() []ui.Widget {
 	for hidden := 1; hidden < len(w.Tabs); hidden++ {
 		for activity := workspacePaneActivityNone; activity < workspacePaneActivityCount; activity++ {
 			children = append(children, workspaceTab{
-				Label: fmt.Sprintf("⋯ %d more", hidden), Activity: activity, OnSelect: w.OnOverflow,
+				Label: fmt.Sprintf("%s %d more", glyphTruncation, hidden), Activity: activity, OnSelect: w.OnOverflow,
 			})
 		}
 	}

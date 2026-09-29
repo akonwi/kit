@@ -11,8 +11,29 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   linked child returned by the server, optionally submit the message as its
   first new prompt, and expose recoverable failures. Depends on
   `CORE-FORK-001`.
-- [~] TUI-CMD-001 — Complete palette filtering, completion, arguments, nested
-  pickers, keyboard/mouse behavior, and required command sources.
+- [ ] TUI-CMD-004 — Tab completes the selected command's name in the palette
+  query followed by a space and keeps the palette open. The list stays pinned
+  to that command while arguments are typed, until the command name is edited.
+- [ ] TUI-CMD-005 — Edit the palette query conventionally: move the cursor with
+  Left/Right/Home/End, insert and delete at the cursor, and delete by word.
+  List navigation keeps its current keys; no additional bindings are added.
+- [ ] TUI-CMD-007 — Show argument hints for built-in commands that accept
+  arguments (`cd`, `name`, `fork`). Running a command without a required
+  argument (such as `cd`) prompts for it in the palette's dialog frame instead
+  of closing the palette.
+- [ ] TUI-CMD-008 — Commands whose follow-up is a simple list or text prompt
+  (`model`, `thinking`, `theme`, `name` without an argument, and `logout` once
+  `TUI-CMD-002` adds it) continue in the palette's dialog frame, with the same
+  position and size, instead of closing it and opening a separately sized
+  modal. Esc closes the dialog.
+- [ ] TUI-CMD-009 — Show plugin commands in the palette by their short command
+  name instead of the full canonical ID, keeping the owning plugin in the
+  metadata column. Commands from different plugins that share a short name
+  must both remain listed and runnable.
+- [x] TUI-PICK-001 — The palette picker widget
+  (`internal/tui/palette_picker.go`), its items (`internal/tui/picker.go`),
+  and the shared key model (`internal/tui/picker_keys.go`) are the contract
+  for all palette pickers, including the session explorer's hierarchy.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
@@ -39,6 +60,10 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   keyboard access to every essential action remain required. Any future
   configurable-keybinding work requires a new stable `TUI-KEY-*` requirement.
 
+- [-] `TUI-CMD-010` — A universal palette that also ranks files, panes,
+  sessions, and subagents is not planned. The palette lists commands ranked by
+  fuzzy score; explorers remain commands that open their own pickers.
+
 ## Deferred scope
 
 - [ ] TUI-GPT6-001 — Present live steering submissions as queued, applied, or
@@ -58,6 +83,15 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   and model switching. Depends on `CORE-GPT6-007` in the
   [core backlog](core.md); effort history is already described in the
   [feature guide](../docs/features/reasoning-effort-history.md).
+
+- [ ] TUI-PICK-009 — Render the transcript reading section list as an inline
+  picker attached to its message, without a query.
+- [ ] TUI-PICK-006 — Route diff target picker keys through the app input
+  owner so keys typed after Shift+g but before the picker first paints are
+  not lost. The picker's query, selection, and catalog live in the diff pane
+  state and reach `pickerKeyModel` through the canonical picker's `OnKey`
+  hook, which only exists once the picker is painted. Moving that state to
+  the app would require the app to own diff-specific picker state.
 
 - [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
   bounded recorded output and explicit truncated-content and omitted-detail

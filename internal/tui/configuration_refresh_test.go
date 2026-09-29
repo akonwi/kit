@@ -48,7 +48,9 @@ func mountConfigurationRefresh(t *testing.T) (*uitest.App, *configurationRefresh
 	state.ctx = ctx
 	generation := state.configurationPicker.Begin(configurationPickerModel, "test/current", "high")
 	state.configurationPicker.Resolve(generation, refreshCatalog(128000), nil)
-	state.configurationPicker.SetQuery("Test")
+	for _, character := range "Test" {
+		state.configurationPicker.HandleKey(ui.Key{Text: string(character), Keycode: character})
+	}
 	state.configurationPicker.Select("test/other")
 	application := uitest.New(configurationRefreshHarness{state})
 	application.Pump(110, 30)

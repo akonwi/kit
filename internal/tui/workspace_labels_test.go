@@ -4,7 +4,6 @@ import (
 	"strings"
 	"testing"
 
-	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
@@ -32,7 +31,7 @@ func TestDuplicateFileLabelsAppearInTabsAndPanePicker(t *testing.T) {
 	snapshot := shellSnapshot{
 		Phase:               phaseReady,
 		Workspace:           workspaceControllerSnapshot{Panes: []workspacePaneDescriptor{first, second}, Selected: firstID},
-		WorkspacePickerOpen: true, WorkspacePickerScroll: &ui.ScrollController{},
+		WorkspacePickerOpen: true,
 	}
 	application := uitest.New(shellView{Snapshot: snapshot})
 	application.Pump(100, 24)

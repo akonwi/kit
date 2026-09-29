@@ -15,7 +15,9 @@ const (
 	glyphTriangleRight  = "▸"
 	glyphTriangleDown   = "▾"
 	glyphTriangleUp     = "▲"
-	glyphEllipsis       = "⋯"
+	glyphEllipsis       = "⋯" // standalone marker for hidden rows or lines
+	glyphTruncation     = "…" // text or content shortened to fit
+	glyphLeftBar        = "▌"
 	glyphBullet         = "•"
 	glyphTaskUnchecked  = "☐"
 	glyphTaskChecked    = "☑"

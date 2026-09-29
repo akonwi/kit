@@ -2,15 +2,9 @@ package tui
 
 import (
 	"sort"
-	"strconv"
 	"strings"
 	"time"
-
-	"github.com/rockorager/go-uucode"
-	"go.rockorager.dev/vaxis/ui"
 )
-
-const sessionTreeMaxIndentDepth = 6
 
 // orderedSessions projects a forest without discarding sessions whose parents
 // are unavailable. Broken cycles are rooted deterministically by session ID.
@@ -107,21 +101,23 @@ func orderedSessions(sessions []sessionExplorerItem) []sessionExplorerItem {
 }
 
 func (c *sessionExplorerController) visibleSessions() []sessionExplorerItem {
-	if strings.TrimSpace(c.Query) != "" {
-		return c.filteredSessions()
-	}
-	visible := make([]sessionExplorerItem, 0, len(c.Sessions))
-	hiddenBelow := -1
-	for _, item := range c.Sessions {
-		if hiddenBelow >= 0 && item.Depth > hiddenBelow {
-			continue
+	return c.sessionsFor(c.Query)
+}
+
+// sessionsFor returns the sessions a query shows, in display order: the tree
+// with remembered expansion when the query is blank, otherwise matches under
+// their ancestors without disclosures.
+func (c *sessionExplorerController) sessionsFor(query string) []sessionExplorerItem {
+	tree := c.treeSessions()
+	rows := filterPickerTree(query, sessionExplorerPickerItems(tree, c.CurrentSessionID, time.Time{}))
+	filtered := !pickerQueryBlank(query)
+	visible := make([]sessionExplorerItem, 0, len(rows))
+	for _, row := range rows {
+		item := tree[sessionIndex(tree, row.Key)]
+		if filtered {
+			item.Expanded, item.ChildCount = false, 0
 		}
-		hiddenBelow = -1
-		item.Expanded = c.expanded[item.ID]
 		visible = append(visible, item)
-		if item.ChildCount > 0 && !item.Expanded {
-			hiddenBelow = item.Depth
-		}
 	}
 	return visible
 }
@@ -179,68 +175,4 @@ func (c *sessionExplorerController) ToggleExpanded(id string) {
 		c.expanded = make(map[string]bool)
 	}
 	c.expanded[id] = !c.expanded[id]
-	c.requestReveal()
-}
-
-func sessionTreePrefix(item sessionExplorerItem) string {
-	if !item.Tree {
-		return ""
-	}
-	// Preserve label space even for unusually deep lineages on narrow terminals.
-	prefix := strings.Repeat("  ", min(item.Depth, sessionTreeMaxIndentDepth))
-	if item.Depth > sessionTreeMaxIndentDepth {
-		prefix += glyphEllipsis + " "
-	}
-	if item.ChildCount == 0 {
-		return prefix + "  "
-	}
-	if item.Expanded {
-		return prefix + glyphTriangleDown + " "
-	}
-	return prefix + glyphTriangleRight + " "
-}
-
-func sessionExplorerLabelSpans(item sessionExplorerItem, primary, secondary ui.Style) []ui.TextSpan {
-	spans := []ui.TextSpan{{Text: sessionExplorerItemLabel(item), Style: primary}}
-	if item.ChildCount > 0 && !item.Expanded {
-		label := " children"
-		if item.ChildCount == 1 {
-			label = " child"
-		}
-		spans = append(spans, ui.TextSpan{Text: " · " + strconv.Itoa(item.ChildCount) + label, Style: secondary})
-	}
-	if item.InvalidParent {
-		spans = append(spans, ui.TextSpan{Text: " · invalid parent", Style: secondary})
-	} else if item.MissingParent {
-		parent := strings.TrimSpace(item.ParentSessionName)
-		if parent == "" {
-			parent = shortSessionID(item.ParentSessionID)
-		}
-		spans = append(spans, ui.TextSpan{Text: " · from " + parent, Style: secondary})
-	}
-	return spans
-}
-
-func sessionTreeDisclosure(row sessionExplorerRow, style ui.Style) ui.Widget {
-	text := ui.Text{Value: sessionTreePrefix(row.Session), Style: style, MaxLines: 1}
-	if !row.Interactive || row.Session.ChildCount == 0 {
-		return text
-	}
-	return mouseActivator{OnPressed: row.OnToggle, Child: text}
-}
-
-func sessionExplorerTreeHintText(width int, action string) string {
-	if action == "" {
-		action = "switch"
-	}
-	for _, candidate := range []string{
-		"↑↓ move · ←→ fold · enter " + action + " · ctrl+r rename · ctrl+d delete · esc close",
-		"←→ fold · enter " + action + " · ctrl+r rename · ctrl+d delete · esc close",
-		"←→ fold · enter " + action + " · ctrl+r rename · esc close",
-	} {
-		if uucode.StringWidth(candidate) <= width {
-			return candidate
-		}
-	}
-	return "←→ fold · enter " + action + " · esc close"
 }

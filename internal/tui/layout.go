@@ -33,82 +33,99 @@ func resolvePickerRowPresentation(ctx ui.BuildContext, theme ui.Theme) pickerRow
 	}
 }
 
-// pickerSearchInput gives searchable modal pickers one marker, spacing and
-// transparent input surface. The caller supplies its query and callbacks.
-func pickerSearchInput(theme ui.Theme, config textInputConfig) ui.Widget {
-	theme.Surface = theme.Background
-	theme.SurfaceHovered = theme.Background
-	return ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-		textInput(theme, config),
+// pickerSearchField is the shared search section of picker dialogs: an
+// unmarked, transparent input aligned with the result column, followed by a
+// full-width divider that joins the dialog border. Place it directly in a
+// pickerDialogContent body, outside horizontal padding, so the divider reaches
+// both borders. Callers own vertical spacing above it and the results below.
+func pickerSearchField(theme ui.Theme, config textInputConfig) ui.Widget {
+	fieldTheme := theme
+	fieldTheme.Surface = theme.Background
+	fieldTheme.SurfaceHovered = theme.Background
+	// Drop the field's leading pad so typed text starts in the result column;
+	// keep a trailing cell for the cursor at the end of the query.
+	config.Padding = ui.Insets{Right: 1}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Padding(ui.Insets{Right: pickerContentInset, Left: pickerContentInset}, ui.Flex{
+			Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter,
+			Children: []ui.Widget{textInput(fieldTheme, config)},
+		}),
+		dialogDivider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
+	}}
+}
+
+// pickerContentInset is the horizontal inset of picker dialog content from the
+// dialog's outer edge, including its border cell.
+const pickerContentInset = 2
+
+// pickerTitledSearchField places a picker's title row directly below the
+// dialog's top border and separates it from the shared search field by one
+// blank row. The title may carry trailing metadata; it receives the standard
+// content inset.
+func pickerTitledSearchField(theme ui.Theme, title ui.Widget, config textInputConfig) ui.Widget {
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Padding(ui.Insets{Top: 1, Right: pickerContentInset, Bottom: 1, Left: pickerContentInset}, title),
+		pickerSearchField(theme, config),
 	}}
 }
 
 // pickerDialogContent owns the shared border and fixed footer structure for
-// picker-style dialogs. Callers own the body above the divider.
+// picker-style dialogs. Callers own the body above the divider. A nil footer
+// leaves out the divider and footer, so the body ends at the bottom border.
 func pickerDialogContent(theme ui.Theme, body, footer ui.Widget) ui.Widget {
 	borderStyle := ui.Style{Foreground: theme.Border, Background: theme.Background}
+	children := []ui.Widget{ui.Expanded(body), ui.SizedBox{Height: 1}}
+	if footer != nil {
+		children = []ui.Widget{
+			ui.Expanded(body),
+			dialogDivider{Style: borderStyle},
+			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
+		}
+	}
 	return ui.DecoratedBox(
 		ui.Decoration{
 			Style:  ui.Style{Foreground: theme.Foreground, Background: theme.Background},
 			Border: ui.BorderAll(borderStyle),
 		},
-		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.Expanded(body),
-			dialogDivider{Style: borderStyle},
-			ui.Padding(ui.Insets{Right: 2, Bottom: 1, Left: 2}, footer),
-		}},
+		ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children},
 	)
 }
 
-type pickerDialogLayoutState struct{ AvailableRows int }
-
 // pickerDialogPositioner gives picker-style dialogs their shared width bounds,
-// minimum height, and top-quarter placement. State is optional and reports the
-// rows left after a caller's fixed body chrome.
+// minimum height, and top-quarter placement.
 type pickerDialogPositioner struct {
-	Percent      int
-	MinWidth     int
-	MaxWidth     int
-	Height       int
-	ReservedRows int
-	State        *pickerDialogLayoutState
-	Child        ui.Widget
+	Percent  int
+	MinWidth int
+	MaxWidth int
+	Height   int
+	Child    ui.Widget
 }
 
 func (w pickerDialogPositioner) WidgetChild() ui.Widget { return w.Child }
 
 func (w pickerDialogPositioner) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderPickerDialogPositioner{
-		Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth,
-		Height: w.Height, ReservedRows: w.ReservedRows, State: w.State,
-	}
+	return &renderPickerDialogPositioner{Percent: w.Percent, MinWidth: w.MinWidth, MaxWidth: w.MaxWidth, Height: w.Height}
 }
 
 func (w pickerDialogPositioner) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
 	render := object.(*renderPickerDialogPositioner)
-	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth &&
-		render.Height == w.Height && render.ReservedRows == w.ReservedRows && render.State == w.State {
+	if render.Percent == w.Percent && render.MinWidth == w.MinWidth && render.MaxWidth == w.MaxWidth && render.Height == w.Height {
 		return
 	}
 	render.Percent = w.Percent
 	render.MinWidth = w.MinWidth
 	render.MaxWidth = w.MaxWidth
 	render.Height = w.Height
-	render.ReservedRows = w.ReservedRows
-	render.State = w.State
 	render.MarkNeedsLayout()
 }
 
 type renderPickerDialogPositioner struct {
 	ui.SingleChildRenderObject
-	Percent      int
-	MinWidth     int
-	MaxWidth     int
-	Height       int
-	ReservedRows int
-	State        *pickerDialogLayoutState
-	offset       ui.Offset
+	Percent  int
+	MinWidth int
+	MaxWidth int
+	Height   int
+	offset   ui.Offset
 }
 
 func (r *renderPickerDialogPositioner) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
@@ -117,9 +134,6 @@ func (r *renderPickerDialogPositioner) Layout(ctx ui.LayoutContext, constraints 
 	width = max(r.MinWidth, min(r.MaxWidth, width))
 	width = min(size.Width, width)
 	height := min(size.Height, r.Height)
-	if r.State != nil {
-		r.State.AvailableRows = max(0, height-r.ReservedRows)
-	}
 	if child := r.Child(); child != nil {
 		child.Layout(ctx, ui.Tight(ui.Size{Width: width, Height: height}))
 		r.offset = ui.Offset{X: max(0, (size.Width-width)/2), Y: pickerTopOffset(size.Height, height)}
@@ -160,8 +174,6 @@ func (*renderPickerDialogPositioner) HitTest(*ui.HitTestResult, ui.Point) bool {
 
 // proportionalWidth gives a child a viewport-relative width bounded by named
 // minimum and maximum dimensions.
-const composerOverlayMaxWidth = 68
-
 type proportionalWidth struct {
 	Percent int
 	Min     int
