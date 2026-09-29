@@ -34,12 +34,17 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   (`internal/tui/palette_picker.go`), its items (`internal/tui/picker.go`),
   and the shared key model (`internal/tui/picker_keys.go`) are the contract
   for all palette pickers, including the session explorer's hierarchy.
-- [ ] TUI-PICK-008 — Add the inline picker for lists anchored to the composer
-  or another point in the UI, sharing `pickerItem`, `filterPickerItems`, row
-  rendering, and navigation keys with the palette picker while the composer
-  owns the query.
-  Migrate the file and session mention menus, message and bash history, and
-  the transcript reading section list.
+- [ ] TUI-PICK-008 — Add the inline picker for lists attached to the
+  composer, and move the file mention, session mention, message history, and
+  bash history menus onto it. It shares `pickerItem`, `filterPickerItems`, row
+  rendering (columns, highlight, hover, disabled rows, `⋯` overflow, clicks),
+  and navigation keys with the palette picker. It has no title or search
+  field: the composer text is the query and the composer owns the cursor, so
+  message and bash history drop their own search fields (`!git` then Up
+  filters bash history by "git"). Footer hints sit below a full-width divider.
+  Width follows the palette picker rule, left-aligned with the composer. The
+  height fits the content up to 10 rows and grows upward, so the edge next to
+  the composer never moves.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
@@ -90,6 +95,8 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   [core backlog](core.md); effort history is already described in the
   [feature guide](../docs/features/reasoning-effort-history.md).
 
+- [ ] TUI-PICK-009 — Render the transcript reading section list as an inline
+  picker attached to its message, without a query, once TUI-PICK-008 lands.
 - [ ] TUI-PICK-006 — Route diff target picker keys through the app input
   owner so keys typed after Shift+g but before the picker first paints are
   not lost. The picker's query, selection, and catalog live in the diff pane
