@@ -162,11 +162,8 @@ change in an ADR before implementing it. Wire changes bump
 `SessionProtocolVersion` at most once per release. Every slice depends on
 `CORE-PROTO-008`.
 
-- [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
-  stream from newline-delimited JSON to SSE per
-  [ADR 0035](../docs/adrs/0035-describe-server-push-streams-in-the-session-contract.md)
-  and establishing the `internal/httpapi` stream operation, writer, and reader
-  and the streaming macOS transport path reused by `CORE-PROTO-020`.
+- [x] CORE-PROTO-011 — VCS slice, with the shared `internal/httpapi` SSE stream
+  operation, writer, and reader and the streaming macOS transport path.
 - [ ] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
   prompts, prompt commands, follow-ups, turn status and abort, interaction
   responses, event pages and stream, message and transcript pages. Adopts the
@@ -188,7 +185,8 @@ change in an ADR before implementing it. Wire changes bump
   with a closed ADR 0033 vocabulary so `SubagentLiveEvent` becomes a
   discriminated union.
 - [ ] CORE-PROTO-020 — Plugins slice: plugin commands and the toast stream,
-  delivered over SSE.
+  delivered over SSE through the stream machinery and macOS streaming
+  transport from `CORE-PROTO-011`.
 - [ ] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
   require catalog completeness and remove non-catalog route registration.
 
