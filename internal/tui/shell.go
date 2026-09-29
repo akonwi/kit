@@ -954,7 +954,7 @@ func submittedAnnotationRow(theme ui.Theme, annotation protocol.SubmittedAnnotat
 	}
 	preview := annotation.Preview.Text
 	if annotation.Preview.Truncated {
-		preview += " " + glyphEllipsis
+		preview += " " + glyphTruncation
 	}
 	location := fmt.Sprintf("%s  L%d–%d", path, start, end)
 	if side != "" {

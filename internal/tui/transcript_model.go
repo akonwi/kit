@@ -916,7 +916,7 @@ func truncateToolPathTail(value string, maxCells int) string {
 	if maxCells < 2 || workspaceTextWidth(value) <= maxCells {
 		return value
 	}
-	budget := maxCells - workspaceTextWidth(glyphEllipsis+"/")
+	budget := maxCells - workspaceTextWidth(glyphTruncation+"/")
 	runes := []rune(value)
 	start := len(runes)
 	used := 0
@@ -929,7 +929,7 @@ func truncateToolPathTail(value string, maxCells int) string {
 		start--
 	}
 	tail := strings.TrimLeft(string(runes[start:]), "/")
-	return glyphEllipsis + "/" + tail
+	return glyphTruncation + "/" + tail
 }
 
 func toolPatternScope(arguments map[string]any) string {
@@ -978,7 +978,7 @@ func fallbackToolArguments(call transcriptToolCall) string {
 		return "no arguments"
 	}
 	if utf8.RuneCountInString(raw) > maxToolArgSummaryLength {
-		raw = truncateRunes(raw, maxToolArgSummaryLength-1) + glyphEllipsis
+		raw = truncateRunes(raw, maxToolArgSummaryLength-1) + glyphTruncation
 	}
 	if call.ArgumentsTruncated {
 		raw += " " + glyphMiddleDot + " truncated"

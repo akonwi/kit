@@ -1265,7 +1265,7 @@ func TestTranscriptUserEntryPreservesSubmittedAnnotationEvidence(t *testing.T) {
 	}
 	expanded := uitest.New(transcriptUserEntry(ui.DefaultTheme(), message, nil, true, nil))
 	expanded.Pump(72, 10)
-	for _, want := range []string{"main.go  L8–9", "frozen source " + glyphEllipsis, "Keep this frozen explanation literal."} {
+	for _, want := range []string{"main.go  L8–9", "frozen source " + glyphTruncation, "Keep this frozen explanation literal."} {
 		if !expanded.Contains(want) {
 			t.Fatalf("expanded annotation evidence missing %q:\n%s", want, expanded.Text())
 		}
@@ -1401,7 +1401,7 @@ func TestActivityToolRowUsesTwoLinesAndTailPathAtNarrowWidth(t *testing.T) {
 	app.Pump(40, 18)
 	app.Pump(40, 18)
 	rows := paintedRows(app, 40, 18)
-	summaryRow := findPaintedRow(rows, "⋯/0012-native-macos-client.md")
+	summaryRow := findPaintedRow(rows, "…/0012-native-macos-client.md")
 	if summaryRow < 1 || !strings.Contains(rows[summaryRow-1], "Write 2 lines") {
 		t.Fatalf("narrow typed tool row missing:\n%s", strings.Join(rows, "\n"))
 	}

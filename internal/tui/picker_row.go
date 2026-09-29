@@ -103,7 +103,7 @@ func truncateStartCells(value string, maximum int) string {
 	for _, character := range characters[start:] {
 		suffix.WriteString(character.Grapheme)
 	}
-	return glyphEllipsis + suffix.String()
+	return glyphTruncation + suffix.String()
 }
 
 // pickerStartTruncatedText paints a single line whose suffix remains visible

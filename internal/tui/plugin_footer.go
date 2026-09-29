@@ -108,7 +108,7 @@ func footerLocation(location, cwd, linkText string, width int) string {
 		if uucode.StringWidth(pr) <= width {
 			return pr
 		}
-		return glyphEllipsis
+		return glyphTruncation
 	}
 	return truncateStartCells(cwd, width)
 }

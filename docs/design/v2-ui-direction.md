@@ -307,6 +307,9 @@ their terminal's native workflow.
   never moves or resizes the surface.
 - Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
   unexplained glyph.
+- Text shortened to fit uses `…` at the cut (`…/tui/picker.go`,
+  `internal/tui…`). `⋯` marks hidden items or lines, such as picker overflow
+  rows, so a truncated label never looks like an overflow marker.
 - Animation is limited to meaningful progress, entry/exit, and state change;
   motion never substitutes for a status label.
 

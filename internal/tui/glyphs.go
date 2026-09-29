@@ -15,7 +15,8 @@ const (
 	glyphTriangleRight  = "▸"
 	glyphTriangleDown   = "▾"
 	glyphTriangleUp     = "▲"
-	glyphEllipsis       = "⋯"
+	glyphEllipsis       = "⋯" // hidden items or lines
+	glyphTruncation     = "…" // text shortened to fit
 	glyphLeftBar        = "▌"
 	glyphBullet         = "•"
 	glyphTaskUnchecked  = "☐"

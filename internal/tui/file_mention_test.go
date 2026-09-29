@@ -144,7 +144,7 @@ func TestFileMentionPickerKeepsLongPathFileNamesVisible(t *testing.T) {
 	}, 80, 24)
 	assertInlinePickerRows(t, rows, []string{
 		"┌──────────────────────────────────────────────────────────────┐",
-		"│▌⋯g/directory/structure/with/many/levels/tui/inline_picker.go │",
+		"│▌…g/directory/structure/with/many/levels/tui/inline_picker.go │",
 		"│ go.mod                                                       │",
 		"└──────────────────────────────────────────────────────────────┘",
 	})
