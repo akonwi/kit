@@ -212,7 +212,7 @@ private actor ReloadClient: SessionReloadClient {
         #expect(await client.calls == 1)
         store.select("s")
         originalFeedback.visible?.action?()
-        for _ in 0..<100 where originalFeedback.visible?.actionTitle != nil { try await Task.sleep(for: .milliseconds(10)) }
+        for _ in 0..<100 where originalFeedback.visible?.title != "Session context reloaded" { try await Task.sleep(for: .milliseconds(10)) }
         #expect(originalFeedback.visible?.title == "Session context reloaded")
         #expect(await client.calls == 1)
     }

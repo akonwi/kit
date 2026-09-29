@@ -291,7 +291,7 @@ extension InlineAnnotationEditorTests {
                 #expect(deletion.redComponent > deletion.greenComponent)
                 #expect(addition.greenComponent > addition.redComponent)
             }
-            let second = try #require(rendered.last)
+            var second = try #require(rendered.last)
             let gutter = try #require(second.view.subviews.compactMap { $0 as? AnnotationGutterOverlay }.first)
             let button = try #require(gutter.buttonRect(for: 3))
             let point = gutter.convert(NSPoint(x: button.midX, y: button.midY), to: nil)
@@ -302,7 +302,15 @@ extension InlineAnnotationEditorTests {
             }
             gutter.mouseDown(with: try click(.leftMouseDown))
             gutter.mouseUp(with: try click(.leftMouseUp))
-            try await Task.sleep(for: .milliseconds(250))
+            let editorDeadline = clock.now.advanced(by: .seconds(3))
+            while clock.now < editorDeadline {
+                host.layoutSubtreeIfNeeded()
+                second = editors(in: host).last ?? second
+                if second.view.frame.height > 180,
+                   abs(second.view.frame.height - second.textView.layoutManager.estimatedHeight() - 8) < 2,
+                   Self.input(in: host) != nil { break }
+                try await Task.sleep(for: .milliseconds(20))
+            }
             #expect(state.annotationState.editor?.anchor.workingTreeDiff?.path == "greeting.swift")
             #expect(second.view.frame.height > 180)
             #expect(abs(second.view.frame.height - second.textView.layoutManager.estimatedHeight() - 8) < 2)
