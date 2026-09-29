@@ -155,19 +155,24 @@ IDs but must not redefine server, persistence, or protocol semantics.
 Contract slices migrate the API one domain at a time. A slice is complete when
 its operations and schemas are in the catalog under the domain's tag; the Go
 server and session client use the catalog; its wire shapes are tightened (one
-error-body shape, non-null collections, explicit required zero values, and ADR
-0033 names where applicable); and the macOS client (`MAC-PROTO-001`) consumes
-the domain through generated code. TypeScript generation (`WEB-PROTO-001`)
-remains deferred with the browser client. Record any slice-specific wire change
-in an ADR before implementing it. Wire changes bump `SessionProtocolVersion` at
-most once per release. Every slice depends on `CORE-PROTO-008`.
+error body per ADR 0034, non-null collections, explicit required zero values,
+and ADR 0033 names where applicable); and the macOS client (`MAC-PROTO-001`)
+consumes the domain through generated code. TypeScript generation
+(`WEB-PROTO-001`) remains deferred with the browser client. Record any
+slice-specific wire change in an ADR before implementing it. Wire changes bump
+`SessionProtocolVersion` at most once per release. Every slice depends on
+`CORE-PROTO-008`.
 
-- [ ] CORE-PROTO-010 — Scratchpad slice wire cleanup: record the protocol-wide
-  error-body shape in an ADR and adopt it for the scratchpad read and update
-  operations, which currently return both `{"error": "<message>"}` and
-  `{"error": {"code", "message", "details"}}` (update 400, and 409 and 503 on
-  both, can carry either). The catalog, Go server and client, conformance tests,
-  and generated macOS client for scratchpad are in place.
+- [ ] CORE-PROTO-010 — Scratchpad slice wire cleanup: adopt the error body of
+  [ADR 0034](../docs/adrs/0034-use-one-error-body-for-the-session-api.md) for
+  the scratchpad read and update operations, which currently return both
+  `{"error": "<message>"}` and `{"error": {"code", "message", "details"}}`
+  (update 400, and 409 and 503 on both, can carry either). The catalog, Go
+  server and client, conformance tests, and generated macOS client for
+  scratchpad are in place.
+- [ ] CORE-PROTO-023 — Return the ADR 0034 error body with generic codes for
+  requests rejected before routing (host, origin, bearer token, daemon
+  instance, and protocol mismatch).
 - [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
   stream from newline-delimited JSON to SSE and establishing the stream pattern
   reused by `CORE-PROTO-020`.
