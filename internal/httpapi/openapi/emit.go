@@ -38,9 +38,13 @@ func Emit() ([]byte, error) {
 	}
 	paths := map[string]any{}
 	for _, descriptor := range descriptors {
+		responses, err := operationResponses(descriptor, components)
+		if err != nil {
+			return nil, err
+		}
 		operation := map[string]any{
 			"operationId": descriptor.ID, "tags": []string{descriptor.Tag},
-			"parameters": operationParameters(descriptor), "responses": operationResponses(descriptor, components),
+			"parameters": operationParameters(descriptor), "responses": responses,
 			"security": []any{map[string]any{"daemonBearer": []any{}}},
 		}
 		if descriptor.Input != reflect.TypeOf(httpapi.NoBody{}) {
@@ -86,62 +90,79 @@ func operationParameters(descriptor httpapi.Descriptor) []any {
 	return parameters
 }
 
-func operationResponses(descriptor httpapi.Descriptor, components map[string]any) map[string]any {
+func operationResponses(descriptor httpapi.Descriptor, components map[string]any) (map[string]any, error) {
 	responses := map[string]any{fmt.Sprint(descriptor.Success): map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}}
 	for _, response := range descriptor.Errors {
-		responses[fmt.Sprint(response.Status)] = map[string]any{"description": http.StatusText(response.Status), "content": jsonContent(errorEnvelopeSchema(descriptor.ID, response, components))}
+		schema, err := errorEnvelopeSchema(descriptor.Tag, response, components)
+		if err != nil {
+			return nil, fmt.Errorf("operation %s status %d: %w", descriptor.ID, response.Status, err)
+		}
+		responses[fmt.Sprint(response.Status)] = map[string]any{"description": http.StatusText(response.Status), "content": jsonContent(schema)}
 	}
-	return responses
+	return responses, nil
 }
 
 func jsonContent(schema any) map[string]any {
 	return map[string]any{"application/json": map[string]any{"schema": schema}}
 }
 
-func errorEnvelopeSchema(operationID string, response httpapi.ErrorResponse, components map[string]any) map[string]any {
-	message := map[string]any{"type": "string", "minLength": 1, "maxLength": 1024}
-	var errorSchema any
-	if len(response.Details) == 0 {
-		codes := make([]string, len(response.Codes))
-		for i, code := range response.Codes {
-			codes[i] = string(code)
-		}
-		errorSchema = map[string]any{"type": "object", "additionalProperties": false,
-			"required": []string{"code", "message"}, "properties": map[string]any{
-				"code": map[string]any{"type": "string", "enum": codes}, "message": message,
-			}}
-	} else {
-		variants := make([]any, 0, len(response.Codes))
-		mapping := make(map[string]any, len(response.Codes))
-		for _, code := range response.Codes {
-			required := []string{"code", "message"}
-			properties := map[string]any{
-				"code": map[string]any{"type": "string", "enum": []string{string(code)}}, "message": message,
+// errorEnvelopeSchema publishes every error status as a union of shared,
+// per-code variant schemas discriminated by code (ADR 0034).
+func errorEnvelopeSchema(tag string, response httpapi.ErrorResponse, components map[string]any) (map[string]any, error) {
+	variants := make([]any, 0, len(response.Codes))
+	mapping := make(map[string]any, len(response.Codes))
+	for _, code := range response.Codes {
+		details, hasDetails := response.Details[code]
+		name := errorVariantName(tag, code, hasDetails)
+		variant := errorVariantSchema(code, details, hasDetails)
+		if existing, ok := components[name]; ok {
+			if !reflect.DeepEqual(existing, variant) {
+				return nil, fmt.Errorf("error variant %s is declared with conflicting schemas", name)
 			}
-			if details, ok := response.Details[code]; ok {
-				required = append(required, "details")
-				properties["details"] = schemaRef(details)
-			}
-			name := errorVariantName(operationID, response.Status, code)
-			components[name] = map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": properties}
-			ref := "#/components/schemas/" + name
-			variants = append(variants, map[string]any{"$ref": ref})
-			mapping[string(code)] = ref
+		} else {
+			components[name] = variant
 		}
-		errorSchema = map[string]any{"oneOf": variants, "discriminator": map[string]any{"propertyName": "code", "mapping": mapping}}
+		ref := "#/components/schemas/" + name
+		variants = append(variants, map[string]any{"$ref": ref})
+		mapping[string(code)] = ref
 	}
+	errorSchema := map[string]any{"oneOf": variants, "discriminator": map[string]any{"propertyName": "code", "mapping": mapping}}
 	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"error"},
-		"properties": map[string]any{"error": errorSchema}}
+		"properties": map[string]any{"error": errorSchema}}, nil
 }
 
-func errorVariantName(operationID string, status int, code httpapi.ErrorCode) string {
-	name := strings.ToUpper(operationID[:1]) + operationID[1:] + fmt.Sprint(status)
-	for _, part := range strings.Split(string(code), "_") {
-		if part != "" {
-			name += strings.ToUpper(part[:1]) + part[1:]
+func errorVariantSchema(code httpapi.ErrorCode, details reflect.Type, hasDetails bool) map[string]any {
+	required := []string{"code", "message"}
+	properties := map[string]any{
+		"code":    map[string]any{"type": "string", "enum": []string{string(code)}},
+		"message": map[string]any{"type": "string", "minLength": 1, "maxLength": 1024},
+	}
+	if hasDetails {
+		required = append(required, "details")
+		properties["details"] = schemaRef(details)
+	}
+	return map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": properties}
+}
+
+// errorVariantName names generic codes without a prefix and always prefixes
+// domain codes with their operation tag unless the code already begins with it.
+// A generic code that carries details is a domain use of that code.
+func errorVariantName(tag string, code httpapi.ErrorCode, hasDetails bool) string {
+	name := pascal(string(code))
+	if hasDetails || !httpapi.IsGenericErrorCode(code) {
+		if !strings.HasPrefix(string(code), tag+"_") {
+			name = pascal(tag) + name
 		}
 	}
 	return name + "Error"
+}
+
+func pascal(value string) string {
+	var name strings.Builder
+	for _, part := range strings.FieldsFunc(value, func(r rune) bool { return r == '_' || r == '-' || r == '.' }) {
+		name.WriteString(strings.ToUpper(part[:1]) + part[1:])
+	}
+	return name.String()
 }
 
 func schemaRef(typ reflect.Type) map[string]any {

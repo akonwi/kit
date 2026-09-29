@@ -241,6 +241,10 @@ func validErrorMessage(message string) bool {
 	return true
 }
 
+// IsGenericErrorCode reports whether code is one of the protocol-wide generic
+// error codes defined by ADR 0034.
+func IsGenericErrorCode(code ErrorCode) bool { return genericStatus(code) != 0 }
+
 func genericStatus(code ErrorCode) int {
 	return map[ErrorCode]int{
 		ErrorInvalidRequest: http.StatusBadRequest, ErrorUnauthorized: http.StatusUnauthorized,

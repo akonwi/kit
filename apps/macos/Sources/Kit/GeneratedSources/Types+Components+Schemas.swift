@@ -12,6 +12,342 @@ import struct Foundation.Date
 extension Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     internal enum Schemas {
+        /// - Remark: Generated from `#/components/schemas/ForbiddenError`.
+        internal struct ForbiddenError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ForbiddenError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case forbidden = "forbidden"
+            }
+            /// - Remark: Generated from `#/components/schemas/ForbiddenError/code`.
+            internal var code: Components.Schemas.ForbiddenError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ForbiddenError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ForbiddenError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ForbiddenError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ForbiddenError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InstanceMismatchError`.
+        internal struct InstanceMismatchError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InstanceMismatchError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case instanceMismatch = "instance_mismatch"
+            }
+            /// - Remark: Generated from `#/components/schemas/InstanceMismatchError/code`.
+            internal var code: Components.Schemas.InstanceMismatchError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/InstanceMismatchError/message`.
+            internal var message: Swift.String
+            /// Creates a new `InstanceMismatchError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.InstanceMismatchError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.InstanceMismatchError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InternalError`.
+        internal struct InternalError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InternalError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case _internal = "internal"
+            }
+            /// - Remark: Generated from `#/components/schemas/InternalError/code`.
+            internal var code: Components.Schemas.InternalError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/InternalError/message`.
+            internal var message: Swift.String
+            /// Creates a new `InternalError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.InternalError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.InternalError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InvalidHostError`.
+        internal struct InvalidHostError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InvalidHostError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case invalidHost = "invalid_host"
+            }
+            /// - Remark: Generated from `#/components/schemas/InvalidHostError/code`.
+            internal var code: Components.Schemas.InvalidHostError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/InvalidHostError/message`.
+            internal var message: Swift.String
+            /// Creates a new `InvalidHostError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.InvalidHostError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.InvalidHostError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InvalidRequestError`.
+        internal struct InvalidRequestError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InvalidRequestError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case invalidRequest = "invalid_request"
+            }
+            /// - Remark: Generated from `#/components/schemas/InvalidRequestError/code`.
+            internal var code: Components.Schemas.InvalidRequestError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/InvalidRequestError/message`.
+            internal var message: Swift.String
+            /// Creates a new `InvalidRequestError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.InvalidRequestError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.InvalidRequestError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/LimitExceededError`.
+        internal struct LimitExceededError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/LimitExceededError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case limitExceeded = "limit_exceeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/LimitExceededError/code`.
+            internal var code: Components.Schemas.LimitExceededError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/LimitExceededError/message`.
+            internal var message: Swift.String
+            /// Creates a new `LimitExceededError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.LimitExceededError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.LimitExceededError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/NotFoundError`.
+        internal struct NotFoundError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/NotFoundError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case notFound = "not_found"
+            }
+            /// - Remark: Generated from `#/components/schemas/NotFoundError/code`.
+            internal var code: Components.Schemas.NotFoundError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/NotFoundError/message`.
+            internal var message: Swift.String
+            /// Creates a new `NotFoundError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.NotFoundError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.NotFoundError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError`.
+        internal struct ProtocolMismatchError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case protocolMismatch = "protocol_mismatch"
+            }
+            /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError/code`.
+            internal var code: Components.Schemas.ProtocolMismatchError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ProtocolMismatchError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ProtocolMismatchError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ProtocolMismatchError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/Scratchpad`.
         internal struct Scratchpad: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/Scratchpad/content`.
@@ -97,23 +433,23 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError`.
-        internal struct UpdateScratchpad409InstanceMismatchError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/code`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadInvalidContentError`.
+        internal struct ScratchpadInvalidContentError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadInvalidContentError/code`.
             internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case instanceMismatch = "instance_mismatch"
+                case scratchpadInvalidContent = "scratchpad_invalid_content"
             }
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/code`.
-            internal var code: Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/message`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadInvalidContentError/code`.
+            internal var code: Components.Schemas.ScratchpadInvalidContentError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadInvalidContentError/message`.
             internal var message: Swift.String
-            /// Creates a new `UpdateScratchpad409InstanceMismatchError`.
+            /// Creates a new `ScratchpadInvalidContentError`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - message:
             internal init(
-                code: Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload,
+                code: Components.Schemas.ScratchpadInvalidContentError.CodePayload,
                 message: Swift.String
             ) {
                 self.code = code
@@ -126,7 +462,7 @@ extension Components {
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
-                    Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload.self,
+                    Components.Schemas.ScratchpadInvalidContentError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -139,23 +475,23 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError`.
-        internal struct UpdateScratchpad409ScratchpadMigrationRequiredError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/code`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadMigrationRequiredError`.
+        internal struct ScratchpadMigrationRequiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadMigrationRequiredError/code`.
             internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case scratchpadMigrationRequired = "scratchpad_migration_required"
             }
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/code`.
-            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/message`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadMigrationRequiredError/code`.
+            internal var code: Components.Schemas.ScratchpadMigrationRequiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadMigrationRequiredError/message`.
             internal var message: Swift.String
-            /// Creates a new `UpdateScratchpad409ScratchpadMigrationRequiredError`.
+            /// Creates a new `ScratchpadMigrationRequiredError`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - message:
             internal init(
-                code: Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload,
+                code: Components.Schemas.ScratchpadMigrationRequiredError.CodePayload,
                 message: Swift.String
             ) {
                 self.code = code
@@ -168,7 +504,7 @@ extension Components {
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
-                    Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload.self,
+                    Components.Schemas.ScratchpadMigrationRequiredError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -181,26 +517,26 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError`.
-        internal struct UpdateScratchpad409ScratchpadRevisionConflictError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/code`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionConflictError`.
+        internal struct ScratchpadRevisionConflictError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionConflictError/code`.
             internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case scratchpadRevisionConflict = "scratchpad_revision_conflict"
             }
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/code`.
-            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/details`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionConflictError/code`.
+            internal var code: Components.Schemas.ScratchpadRevisionConflictError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionConflictError/details`.
             internal var details: Components.Schemas.ScratchpadErrorDetails
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/message`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionConflictError/message`.
             internal var message: Swift.String
-            /// Creates a new `UpdateScratchpad409ScratchpadRevisionConflictError`.
+            /// Creates a new `ScratchpadRevisionConflictError`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - details:
             ///   - message:
             internal init(
-                code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload,
+                code: Components.Schemas.ScratchpadRevisionConflictError.CodePayload,
                 details: Components.Schemas.ScratchpadErrorDetails,
                 message: Swift.String
             ) {
@@ -216,7 +552,7 @@ extension Components {
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
-                    Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload.self,
+                    Components.Schemas.ScratchpadRevisionConflictError.CodePayload.self,
                     forKey: .code
                 )
                 self.details = try container.decode(
@@ -234,23 +570,23 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError`.
-        internal struct UpdateScratchpad409ScratchpadRevisionExhaustedError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/code`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionExhaustedError`.
+        internal struct ScratchpadRevisionExhaustedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionExhaustedError/code`.
             internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
                 case scratchpadRevisionExhausted = "scratchpad_revision_exhausted"
             }
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/code`.
-            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/message`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionExhaustedError/code`.
+            internal var code: Components.Schemas.ScratchpadRevisionExhaustedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadRevisionExhaustedError/message`.
             internal var message: Swift.String
-            /// Creates a new `UpdateScratchpad409ScratchpadRevisionExhaustedError`.
+            /// Creates a new `ScratchpadRevisionExhaustedError`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - message:
             internal init(
-                code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload,
+                code: Components.Schemas.ScratchpadRevisionExhaustedError.CodePayload,
                 message: Swift.String
             ) {
                 self.code = code
@@ -263,7 +599,7 @@ extension Components {
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
-                    Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload.self,
+                    Components.Schemas.ScratchpadRevisionExhaustedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -276,23 +612,23 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError`.
-        internal struct UpdateScratchpad409ScratchpadUnsupportedError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/code`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadTooLargeError`.
+        internal struct ScratchpadTooLargeError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadTooLargeError/code`.
             internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case scratchpadUnsupported = "scratchpad_unsupported"
+                case scratchpadTooLarge = "scratchpad_too_large"
             }
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/code`.
-            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/message`.
+            /// - Remark: Generated from `#/components/schemas/ScratchpadTooLargeError/code`.
+            internal var code: Components.Schemas.ScratchpadTooLargeError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadTooLargeError/message`.
             internal var message: Swift.String
-            /// Creates a new `UpdateScratchpad409ScratchpadUnsupportedError`.
+            /// Creates a new `ScratchpadTooLargeError`.
             ///
             /// - Parameters:
             ///   - code:
             ///   - message:
             internal init(
-                code: Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload,
+                code: Components.Schemas.ScratchpadTooLargeError.CodePayload,
                 message: Swift.String
             ) {
                 self.code = code
@@ -305,7 +641,133 @@ extension Components {
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
-                    Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload.self,
+                    Components.Schemas.ScratchpadTooLargeError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScratchpadUnavailableError`.
+        internal struct ScratchpadUnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadUnavailable = "scratchpad_unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnavailableError/code`.
+            internal var code: Components.Schemas.ScratchpadUnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ScratchpadUnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ScratchpadUnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ScratchpadUnavailableError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ScratchpadUnsupportedError`.
+        internal struct ScratchpadUnsupportedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnsupportedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadUnsupported = "scratchpad_unsupported"
+            }
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnsupportedError/code`.
+            internal var code: Components.Schemas.ScratchpadUnsupportedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ScratchpadUnsupportedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ScratchpadUnsupportedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ScratchpadUnsupportedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ScratchpadUnsupportedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UnauthorizedError`.
+        internal struct UnauthorizedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UnauthorizedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case unauthorized = "unauthorized"
+            }
+            /// - Remark: Generated from `#/components/schemas/UnauthorizedError/code`.
+            internal var code: Components.Schemas.UnauthorizedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UnauthorizedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UnauthorizedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UnauthorizedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UnauthorizedError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(

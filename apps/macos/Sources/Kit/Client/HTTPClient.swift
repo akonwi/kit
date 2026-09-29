@@ -845,10 +845,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         case .forbidden: throw ClientError.http(403)
         case .notFound: throw ClientError.http(404)
         case .conflict(let response):
-            let error = try response.body.json.error
-            switch error.code {
-            case .scratchpadMigrationRequired, .scratchpadUnsupported:
-                throw ScratchpadFailure.rejected(error.message)
+            switch try response.body.json.error {
+            case .scratchpadMigrationRequired(let error): throw ScratchpadFailure.rejected(error.message)
+            case .scratchpadUnsupported(let error): throw ScratchpadFailure.rejected(error.message)
             case .instanceMismatch: throw ClientError.http(409)
             }
         case .misdirectedRequest: throw ClientError.http(421)
@@ -876,7 +875,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         switch output {
         case .ok(let response): result = try ScratchpadRecord(response.body.json)
         case .badRequest(let response):
-            switch try response.body.json.error.code {
+            switch try response.body.json.error {
             case .invalidRequest, .scratchpadInvalidContent: throw ClientError.http(400)
             }
         case .unauthorized: throw ClientError.http(401)
@@ -892,7 +891,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             case .instanceMismatch: throw ClientError.http(409)
             }
         case .contentTooLarge(let response):
-            switch try response.body.json.error.code {
+            switch try response.body.json.error {
             case .scratchpadTooLarge, .limitExceeded: throw ClientError.http(413)
             }
         case .misdirectedRequest: throw ClientError.http(421)

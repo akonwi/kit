@@ -1,6 +1,174 @@
 {
   "components": {
     "schemas": {
+      "ForbiddenError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "forbidden"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "InstanceMismatchError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "instance_mismatch"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "InternalError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "internal"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "InvalidHostError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_host"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "InvalidRequestError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_request"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "LimitExceededError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "limit_exceeded"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "NotFoundError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "not_found"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ProtocolMismatchError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "protocol_mismatch"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "Scratchpad": {
         "additionalProperties": false,
         "properties": {
@@ -38,12 +206,12 @@
         ],
         "type": "object"
       },
-      "UpdateScratchpad409InstanceMismatchError": {
+      "ScratchpadInvalidContentError": {
         "additionalProperties": false,
         "properties": {
           "code": {
             "enum": [
-              "instance_mismatch"
+              "scratchpad_invalid_content"
             ],
             "type": "string"
           },
@@ -59,7 +227,7 @@
         ],
         "type": "object"
       },
-      "UpdateScratchpad409ScratchpadMigrationRequiredError": {
+      "ScratchpadMigrationRequiredError": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -80,7 +248,7 @@
         ],
         "type": "object"
       },
-      "UpdateScratchpad409ScratchpadRevisionConflictError": {
+      "ScratchpadRevisionConflictError": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -105,7 +273,7 @@
         ],
         "type": "object"
       },
-      "UpdateScratchpad409ScratchpadRevisionExhaustedError": {
+      "ScratchpadRevisionExhaustedError": {
         "additionalProperties": false,
         "properties": {
           "code": {
@@ -126,12 +294,75 @@
         ],
         "type": "object"
       },
-      "UpdateScratchpad409ScratchpadUnsupportedError": {
+      "ScratchpadTooLargeError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_too_large"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ScratchpadUnavailableError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_unavailable"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "ScratchpadUnsupportedError": {
         "additionalProperties": false,
         "properties": {
           "code": {
             "enum": [
               "scratchpad_unsupported"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "UnauthorizedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "unauthorized"
             ],
             "type": "string"
           },
@@ -228,25 +459,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "invalid_request"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -265,25 +488,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "unauthorized"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -302,25 +517,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "forbidden"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -339,25 +546,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "not_found"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -376,27 +575,25 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "scratchpad_migration_required",
-                            "scratchpad_unsupported",
-                            "instance_mismatch"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "scratchpad_migration_required": "#/components/schemas/ScratchpadMigrationRequiredError",
+                          "scratchpad_unsupported": "#/components/schemas/ScratchpadUnsupportedError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadMigrationRequiredError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ScratchpadUnsupportedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -415,25 +612,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "invalid_host"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -452,25 +641,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "protocol_mismatch"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -489,25 +670,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "internal"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -526,25 +699,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "scratchpad_unavailable"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "scratchpad_unavailable": "#/components/schemas/ScratchpadUnavailableError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadUnavailableError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -625,26 +790,21 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "invalid_request",
-                            "scratchpad_invalid_content"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_request": "#/components/schemas/InvalidRequestError",
+                          "scratchpad_invalid_content": "#/components/schemas/ScratchpadInvalidContentError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ScratchpadInvalidContentError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -663,25 +823,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "unauthorized"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -700,25 +852,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "forbidden"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -737,25 +881,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "not_found"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -776,29 +912,29 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "instance_mismatch": "#/components/schemas/UpdateScratchpad409InstanceMismatchError",
-                          "scratchpad_migration_required": "#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError",
-                          "scratchpad_revision_conflict": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError",
-                          "scratchpad_revision_exhausted": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError",
-                          "scratchpad_unsupported": "#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError"
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "scratchpad_migration_required": "#/components/schemas/ScratchpadMigrationRequiredError",
+                          "scratchpad_revision_conflict": "#/components/schemas/ScratchpadRevisionConflictError",
+                          "scratchpad_revision_exhausted": "#/components/schemas/ScratchpadRevisionExhaustedError",
+                          "scratchpad_unsupported": "#/components/schemas/ScratchpadUnsupportedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
-                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError"
+                          "$ref": "#/components/schemas/ScratchpadRevisionConflictError"
                         },
                         {
-                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError"
+                          "$ref": "#/components/schemas/ScratchpadRevisionExhaustedError"
                         },
                         {
-                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError"
+                          "$ref": "#/components/schemas/ScratchpadMigrationRequiredError"
                         },
                         {
-                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError"
+                          "$ref": "#/components/schemas/ScratchpadUnsupportedError"
                         },
                         {
-                          "$ref": "#/components/schemas/UpdateScratchpad409InstanceMismatchError"
+                          "$ref": "#/components/schemas/InstanceMismatchError"
                         }
                       ]
                     }
@@ -819,26 +955,21 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "scratchpad_too_large",
-                            "limit_exceeded"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/LimitExceededError",
+                          "scratchpad_too_large": "#/components/schemas/ScratchpadTooLargeError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadTooLargeError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/LimitExceededError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -857,25 +988,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "invalid_host"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -894,25 +1017,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "protocol_mismatch"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -931,25 +1046,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "internal"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
                     }
                   },
                   "required": [
@@ -968,25 +1075,17 @@
                   "additionalProperties": false,
                   "properties": {
                     "error": {
-                      "additionalProperties": false,
-                      "properties": {
-                        "code": {
-                          "enum": [
-                            "scratchpad_unavailable"
-                          ],
-                          "type": "string"
+                      "discriminator": {
+                        "mapping": {
+                          "scratchpad_unavailable": "#/components/schemas/ScratchpadUnavailableError"
                         },
-                        "message": {
-                          "maxLength": 1024,
-                          "minLength": 1,
-                          "type": "string"
-                        }
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "code",
-                        "message"
-                      ],
-                      "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ScratchpadUnavailableError"
+                        }
+                      ]
                     }
                   },
                   "required": [

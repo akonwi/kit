@@ -128,45 +128,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case invalidRequest = "invalid_request"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/400/content/json/error`.
@@ -246,45 +235,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case unauthorized = "unauthorized"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/401/content/json/error`.
@@ -364,45 +342,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case forbidden = "forbidden"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/403/content/json/error`.
@@ -482,45 +449,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case notFound = "not_found"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/404/content/json/error`.
@@ -600,47 +556,46 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case scratchpadMigrationRequired = "scratchpad_migration_required"
-                                case scratchpadUnsupported = "scratchpad_unsupported"
-                                case instanceMismatch = "instance_mismatch"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.Conflict.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.Conflict.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/ScratchpadMigrationRequiredError`.
+                            case scratchpadMigrationRequired(Components.Schemas.ScratchpadMigrationRequiredError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error/ScratchpadUnsupportedError`.
+                            case scratchpadUnsupported(Components.Schemas.ScratchpadUnsupportedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.Conflict.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "instance_mismatch":
+                                    self = .instanceMismatch(try .init(from: decoder))
+                                case "scratchpad_migration_required":
+                                    self = .scratchpadMigrationRequired(try .init(from: decoder))
+                                case "scratchpad_unsupported":
+                                    self = .scratchpadUnsupported(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .scratchpadMigrationRequired(value):
+                                    try value.encode(to: encoder)
+                                case let .scratchpadUnsupported(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/409/content/json/error`.
@@ -720,45 +675,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case invalidHost = "invalid_host"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/421/content/json/error`.
@@ -838,45 +782,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case protocolMismatch = "protocol_mismatch"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/426/content/json/error`.
@@ -956,45 +889,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case _internal = "internal"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/500/content/json/error`.
@@ -1074,45 +996,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case scratchpadUnavailable = "scratchpad_unavailable"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error/code`.
-                            internal var code: Operations.GetScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.GetScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error/ScratchpadUnavailableError`.
+                            case scratchpadUnavailable(Components.Schemas.ScratchpadUnavailableError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.GetScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "scratchpad_unavailable":
+                                    self = .scratchpadUnavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .scratchpadUnavailable(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/GET/responses/503/content/json/error`.
@@ -1343,46 +1254,40 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case invalidRequest = "invalid_request"
-                                case scratchpadInvalidContent = "scratchpad_invalid_content"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error/InvalidRequestError`.
+                            case invalidRequest(Components.Schemas.InvalidRequestError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error/ScratchpadInvalidContentError`.
+                            case scratchpadInvalidContent(Components.Schemas.ScratchpadInvalidContentError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.BadRequest.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "invalid_request":
+                                    self = .invalidRequest(try .init(from: decoder))
+                                case "scratchpad_invalid_content":
+                                    self = .scratchpadInvalidContent(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidRequest(value):
+                                    try value.encode(to: encoder)
+                                case let .scratchpadInvalidContent(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/400/content/json/error`.
@@ -1462,45 +1367,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case unauthorized = "unauthorized"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error/UnauthorizedError`.
+                            case unauthorized(Components.Schemas.UnauthorizedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.Unauthorized.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "unauthorized":
+                                    self = .unauthorized(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unauthorized(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/401/content/json/error`.
@@ -1580,45 +1474,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case forbidden = "forbidden"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error/ForbiddenError`.
+                            case forbidden(Components.Schemas.ForbiddenError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.Forbidden.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "forbidden":
+                                    self = .forbidden(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .forbidden(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/403/content/json/error`.
@@ -1698,45 +1581,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case notFound = "not_found"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error/NotFoundError`.
+                            case notFound(Components.Schemas.NotFoundError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.NotFound.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "not_found":
+                                    self = .notFound(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .notFound(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/404/content/json/error`.
@@ -1817,16 +1689,16 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/UpdateScratchpad409InstanceMismatchError`.
-                            case instanceMismatch(Components.Schemas.UpdateScratchpad409InstanceMismatchError)
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/UpdateScratchpad409ScratchpadMigrationRequiredError`.
-                            case scratchpadMigrationRequired(Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError)
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/UpdateScratchpad409ScratchpadRevisionConflictError`.
-                            case scratchpadRevisionConflict(Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError)
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/UpdateScratchpad409ScratchpadRevisionExhaustedError`.
-                            case scratchpadRevisionExhausted(Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError)
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/UpdateScratchpad409ScratchpadUnsupportedError`.
-                            case scratchpadUnsupported(Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/InstanceMismatchError`.
+                            case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/ScratchpadMigrationRequiredError`.
+                            case scratchpadMigrationRequired(Components.Schemas.ScratchpadMigrationRequiredError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/ScratchpadRevisionConflictError`.
+                            case scratchpadRevisionConflict(Components.Schemas.ScratchpadRevisionConflictError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/ScratchpadRevisionExhaustedError`.
+                            case scratchpadRevisionExhausted(Components.Schemas.ScratchpadRevisionExhaustedError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/409/content/json/error/ScratchpadUnsupportedError`.
+                            case scratchpadUnsupported(Components.Schemas.ScratchpadUnsupportedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -1947,46 +1819,40 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case scratchpadTooLarge = "scratchpad_too_large"
-                                case limitExceeded = "limit_exceeded"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error/LimitExceededError`.
+                            case limitExceeded(Components.Schemas.LimitExceededError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error/ScratchpadTooLargeError`.
+                            case scratchpadTooLarge(Components.Schemas.ScratchpadTooLargeError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.ContentTooLarge.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "limit_exceeded":
+                                    self = .limitExceeded(try .init(from: decoder))
+                                case "scratchpad_too_large":
+                                    self = .scratchpadTooLarge(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .limitExceeded(value):
+                                    try value.encode(to: encoder)
+                                case let .scratchpadTooLarge(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/413/content/json/error`.
@@ -2066,45 +1932,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case invalidHost = "invalid_host"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error/InvalidHostError`.
+                            case invalidHost(Components.Schemas.InvalidHostError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.MisdirectedRequest.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "invalid_host":
+                                    self = .invalidHost(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .invalidHost(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/421/content/json/error`.
@@ -2184,45 +2039,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case protocolMismatch = "protocol_mismatch"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error/ProtocolMismatchError`.
+                            case protocolMismatch(Components.Schemas.ProtocolMismatchError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.UpgradeRequired.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "protocol_mismatch":
+                                    self = .protocolMismatch(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .protocolMismatch(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/426/content/json/error`.
@@ -2302,45 +2146,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case _internal = "internal"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error/InternalError`.
+                            case _internal(Components.Schemas.InternalError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.InternalServerError.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "internal":
+                                    self = ._internal(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let ._internal(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/500/content/json/error`.
@@ -2420,45 +2253,34 @@ internal enum Operations {
                     /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json`.
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error`.
-                        internal struct _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error/code`.
-                            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                                case scratchpadUnavailable = "scratchpad_unavailable"
-                            }
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error/code`.
-                            internal var code: Operations.UpdateScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error/message`.
-                            internal var message: Swift.String
-                            /// Creates a new `_ErrorPayload`.
-                            ///
-                            /// - Parameters:
-                            ///   - code:
-                            ///   - message:
-                            internal init(
-                                code: Operations.UpdateScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload,
-                                message: Swift.String
-                            ) {
-                                self.code = code
-                                self.message = message
-                            }
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error/ScratchpadUnavailableError`.
+                            case scratchpadUnavailable(Components.Schemas.ScratchpadUnavailableError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
-                                case message
                             }
                             internal init(from decoder: any Swift.Decoder) throws {
                                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                                self.code = try container.decode(
-                                    Operations.UpdateScratchpad.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.CodePayload.self,
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
                                     forKey: .code
                                 )
-                                self.message = try container.decode(
-                                    Swift.String.self,
-                                    forKey: .message
-                                )
-                                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                                    "code",
-                                    "message"
-                                ])
+                                switch discriminator {
+                                case "scratchpad_unavailable":
+                                    self = .scratchpadUnavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .scratchpadUnavailable(value):
+                                    try value.encode(to: encoder)
+                                }
                             }
                         }
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/scratchpad/PUT/responses/503/content/json/error`.

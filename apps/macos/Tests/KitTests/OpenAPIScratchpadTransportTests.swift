@@ -38,6 +38,15 @@ private final class ScratchpadOpenAPIResponse: URLProtocol, @unchecked Sendable 
         case 19208:
             status = 426
             body = #"{"error":{"code":"protocol_mismatch","message":"session protocol mismatch"}}"#
+        case 19209:
+            status = 409
+            body = #"{"error":{"code":"scratchpad_migration_required","message":"scratchpad migration is required"}}"#
+        case 19210:
+            status = 400
+            body = #"{"error":{"code":"scratchpad_invalid_content","message":"scratchpad content is invalid"}}"#
+        case 19211:
+            status = 413
+            body = #"{"error":{"code":"limit_exceeded","message":"request body is too large"}}"#
         default:
             headers["Content-Length"] = "524289"
             body = ""
@@ -98,6 +107,15 @@ struct OpenAPIScratchpadTransportTests {
         catch ClientError.http(503) { /* Preserve the scratchpad unavailable presentation. */ }
         do { _ = try await client(19208).scratchpad(session: "s"); Issue.record("Expected protocol mismatch") }
         catch ClientError.http(426) { /* Pre-routing bodies retain status-based handling. */ }
+    }
+
+    @Test func generatedClientMapsErrorUnionsWithoutDetails() async throws {
+        do { _ = try await client(19209).scratchpad(session: "s"); Issue.record("Expected migration rejection") }
+        catch ScratchpadFailure.rejected(let message) { #expect(message == "scratchpad migration is required") }
+        do { _ = try await client(19210).updateScratchpad(session: "s", content: "changed", expectedRevision: 1); Issue.record("Expected invalid content") }
+        catch ClientError.http(400) { /* Invalid content keeps its status-based presentation. */ }
+        do { _ = try await client(19211).updateScratchpad(session: "s", content: "changed", expectedRevision: 1); Issue.record("Expected limit") }
+        catch ClientError.http(413) { /* Oversized requests keep their status-based presentation. */ }
     }
 
     @Test func generatedClientRejectsDriftAndOversizedResponses() async throws {
