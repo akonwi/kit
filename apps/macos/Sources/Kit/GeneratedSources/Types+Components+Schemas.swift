@@ -72,28 +72,249 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/StringErrorEnvelope`.
-        internal struct StringErrorEnvelope: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/StringErrorEnvelope/error`.
-            internal var error: Swift.String
-            /// Creates a new `StringErrorEnvelope`.
+        /// - Remark: Generated from `#/components/schemas/ScratchpadErrorDetails`.
+        internal struct ScratchpadErrorDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ScratchpadErrorDetails/scratchpad`.
+            internal var scratchpad: Components.Schemas.Scratchpad
+            /// Creates a new `ScratchpadErrorDetails`.
             ///
             /// - Parameters:
-            ///   - error:
-            internal init(error: Swift.String) {
-                self.error = error
+            ///   - scratchpad:
+            internal init(scratchpad: Components.Schemas.Scratchpad) {
+                self.scratchpad = scratchpad
             }
             internal enum CodingKeys: String, CodingKey {
-                case error
+                case scratchpad
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.error = try container.decode(
-                    Swift.String.self,
-                    forKey: .error
+                self.scratchpad = try container.decode(
+                    Components.Schemas.Scratchpad.self,
+                    forKey: .scratchpad
                 )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "error"
+                    "scratchpad"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError`.
+        internal struct UpdateScratchpad409InstanceMismatchError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case instanceMismatch = "instance_mismatch"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/code`.
+            internal var code: Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409InstanceMismatchError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UpdateScratchpad409InstanceMismatchError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UpdateScratchpad409InstanceMismatchError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError`.
+        internal struct UpdateScratchpad409ScratchpadMigrationRequiredError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadMigrationRequired = "scratchpad_migration_required"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/code`.
+            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UpdateScratchpad409ScratchpadMigrationRequiredError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UpdateScratchpad409ScratchpadMigrationRequiredError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError`.
+        internal struct UpdateScratchpad409ScratchpadRevisionConflictError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadRevisionConflict = "scratchpad_revision_conflict"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/code`.
+            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/details`.
+            internal var details: Components.Schemas.ScratchpadErrorDetails
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UpdateScratchpad409ScratchpadRevisionConflictError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload,
+                details: Components.Schemas.ScratchpadErrorDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UpdateScratchpad409ScratchpadRevisionConflictError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.ScratchpadErrorDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError`.
+        internal struct UpdateScratchpad409ScratchpadRevisionExhaustedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadRevisionExhausted = "scratchpad_revision_exhausted"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/code`.
+            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UpdateScratchpad409ScratchpadRevisionExhaustedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UpdateScratchpad409ScratchpadRevisionExhaustedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError`.
+        internal struct UpdateScratchpad409ScratchpadUnsupportedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case scratchpadUnsupported = "scratchpad_unsupported"
+            }
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/code`.
+            internal var code: Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UpdateScratchpad409ScratchpadUnsupportedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UpdateScratchpad409ScratchpadUnsupportedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }

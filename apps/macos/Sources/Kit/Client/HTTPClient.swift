@@ -841,8 +841,18 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         switch output {
         case .ok(let response): return try ScratchpadRecord(response.body.json)
         case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
         case .notFound: throw ClientError.http(404)
-        case .conflict: throw ClientError.http(409)
+        case .conflict(let response):
+            let error = try response.body.json.error
+            switch error.code {
+            case .scratchpadMigrationRequired, .scratchpadUnsupported:
+                throw ScratchpadFailure.rejected(error.message)
+            case .instanceMismatch: throw ClientError.http(409)
+            }
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented(let status, _): throw ClientError.http(status)
@@ -865,17 +875,28 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         let result: ScratchpadRecord
         switch output {
         case .ok(let response): result = try ScratchpadRecord(response.body.json)
-        case .badRequest: throw ClientError.http(400)
+        case .badRequest(let response):
+            switch try response.body.json.error.code {
+            case .invalidRequest, .scratchpadInvalidContent: throw ClientError.http(400)
+            }
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
         case .notFound: throw ClientError.http(404)
         case .conflict(let response):
-            switch try response.body.json {
-            case .case1(let envelope): throw ScratchpadFailure.conflict(try ScratchpadRecord(envelope.error.details.scratchpad))
-            case .case2(let envelope): throw ScratchpadFailure.rejected(envelope.error.message.rawValue)
-            case .case3(let envelope): throw ScratchpadFailure.rejected(envelope.error.message.rawValue)
-            case .case4(let envelope): throw ScratchpadFailure.rejected(envelope.error.message.rawValue)
-            case .StringErrorEnvelope(let envelope): throw ScratchpadFailure.rejected(envelope.error)
+            switch try response.body.json.error {
+            case .scratchpadRevisionConflict(let error):
+                throw ScratchpadFailure.conflict(try ScratchpadRecord(error.details.scratchpad))
+            case .scratchpadRevisionExhausted(let error): throw ScratchpadFailure.rejected(error.message)
+            case .scratchpadMigrationRequired(let error): throw ScratchpadFailure.rejected(error.message)
+            case .scratchpadUnsupported(let error): throw ScratchpadFailure.rejected(error.message)
+            case .instanceMismatch: throw ClientError.http(409)
             }
-        case .contentTooLarge: throw ClientError.http(413)
+        case .contentTooLarge(let response):
+            switch try response.body.json.error.code {
+            case .scratchpadTooLarge, .limitExceeded: throw ClientError.http(413)
+            }
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented(let status, _): throw ClientError.http(status)

@@ -11,7 +11,7 @@ private final class ScratchpadOpenAPIResponse: URLProtocol, @unchecked Sendable 
         #expect(url.path == "/v1/sessions/s/scratchpad")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
         #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "instance")
-        #expect(request.value(forHTTPHeaderField: "X-Kit-Protocol-Version") == "41")
+        #expect(request.value(forHTTPHeaderField: "X-Kit-Protocol-Version") == "42")
         var status = 200
         var headers = ["Content-Type": "application/json"]
         let body: String
@@ -32,6 +32,12 @@ private final class ScratchpadOpenAPIResponse: URLProtocol, @unchecked Sendable 
         case 19205:
             let content = String(repeating: #"\u003c"#, count: 65_536)
             body = #"{"ownerSessionId":"root","content":"\#(content)","revision":"1","updatedAt":"2026-03-23T12:34:56Z"}"#
+        case 19207:
+            status = 503
+            body = #"{"error":{"code":"scratchpad_unavailable","message":"scratchpad is unavailable"}}"#
+        case 19208:
+            status = 426
+            body = #"{"error":{"code":"protocol_mismatch","message":"session protocol mismatch"}}"#
         default:
             headers["Content-Length"] = "524289"
             body = ""
@@ -85,6 +91,13 @@ struct OpenAPIScratchpadTransportTests {
     @Test func generatedClientAcceptsMaximumEscapedContent() async throws {
         let result = try await client(19205).scratchpad(session: "s")
         #expect(result.content == String(repeating: "<", count: 65_536))
+    }
+
+    @Test func generatedClientMapsUnavailableAndPreRoutingErrorsByDeclaredCode() async throws {
+        do { _ = try await client(19207).scratchpad(session: "s"); Issue.record("Expected unavailable") }
+        catch ClientError.http(503) { /* Preserve the scratchpad unavailable presentation. */ }
+        do { _ = try await client(19208).scratchpad(session: "s"); Issue.record("Expected protocol mismatch") }
+        catch ClientError.http(426) { /* Pre-routing bodies retain status-based handling. */ }
     }
 
     @Test func generatedClientRejectsDriftAndOversizedResponses() async throws {
