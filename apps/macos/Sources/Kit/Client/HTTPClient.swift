@@ -1,4 +1,5 @@
 import Foundation
+import OpenAPIRuntime
 
 private struct EmptyInput: Encodable {}
 import CryptoKit
@@ -59,7 +60,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     private let token: String
     private let instance: String
     private let session: URLSession
-    private let scratchpadAPI: Client
+    private let api: Client
 
     init(endpoint: URL, token: String, instance: String, serverID: String,
          configuration: URLSessionConfiguration = .ephemeral) throws {
@@ -74,7 +75,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         configuration.timeoutIntervalForResource = .infinity
         let session = URLSession(configuration: configuration, delegate: NoRedirects(), delegateQueue: nil)
         self.session = session
-        scratchpadAPI = Client(serverURL: endpoint, transport: OpenAPITransport(endpoint: endpoint, token: token, instance: instance, session: session))
+        api = Client(serverURL: endpoint, transport: OpenAPITransport(endpoint: endpoint, token: token, instance: instance, session: session))
     }
 
     // URLSession retains its connections until explicitly invalidated, including
@@ -472,35 +473,47 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     /// Blocks on the server-pushed repository-status stream: latest snapshot
-    /// first, then deduplicated latest-only updates, with blank heartbeats.
-    /// Reconnection is the caller's policy; every frame is re-validated and
-    /// sanitized at this boundary before delivery.
+    /// first, then deduplicated latest-only `vcs.status` records, with comment
+    /// heartbeats. Reconnection is the caller's policy; every record is
+    /// strictly decoded and re-validated at this boundary before delivery.
     func watchVCS(_ id: String, receive: @escaping @Sendable (WireSessionVCSStatus) async -> Void) async throws {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let (bytes, response) = try await session.bytes(for: request("v1/sessions/" + id + "/vcs/events"))
-        defer { bytes.task.cancel() }
-        try await withTaskCancellationHandler {
-            try check(response)
-            guard response.mimeType == "application/x-ndjson" else { throw ClientError.invalidPayload }
-            var frame = Data()
-            for try await byte in bytes {
-                try Task.checkCancellation()
-                if byte == 10 {
-                    if frame.last == 13 { frame.removeLast() }
-                    if !frame.isEmpty {
-                        await receive(try VCSStreamFrame.decode(frame, session: id))
-                    }
-                    frame.removeAll(keepingCapacity: true)
-                } else {
-                    // Contract bounds one frame to 64KiB.
-                    guard frame.count < 64 * 1024 - 1 else { throw ClientError.oversized }
-                    frame.append(byte)
-                }
-            }
-            // A truncated frame is not an update; never deliver partial data.
-            if !frame.isEmpty { throw ClientError.invalidPayload }
-            throw ClientError.disconnected
-        } onCancel: { bytes.task.cancel() }
+        guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
+        guard let protocolVersion = Operations.StreamSessionVCS.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
+            throw ClientError.incompatible
+        }
+        let output: Operations.StreamSessionVCS.Output
+        do {
+            output = try await api.streamSessionVCS(
+                path: .init(sessionID: id),
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
+            )
+        } catch let error as OpenAPIRuntime.ClientError {
+            // Preserve the transport's terminal classifications, such as a
+            // stream response with the wrong content type.
+            throw (error.underlyingError as? ClientError) ?? error
+        }
+        let body: HTTPBody
+        switch output {
+        case .ok(let response): body = try response.body.textEventStream
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
+        for try await event in body.asDecodedServerSentEvents() {
+            try Task.checkCancellation()
+            if let status = try VCSStatusRecords.decode(event, session: id) { await receive(status) }
+        }
+        try Task.checkCancellation()
+        // A truncated record is not an update; the stream simply ended.
+        throw ClientError.disconnected
     }
 
     func watchPluginNotifications(_ id: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws {
@@ -632,10 +645,30 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func vcs(_ id: String) async throws -> WireSessionVCSStatus {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let result: WireSessionVCSStatus = try await get("v1/sessions/" + id + "/vcs")
-        guard result.sessionId == id, result.cwd.hasPrefix("/") else { throw ClientError.invalidPayload }
-        return PullRequestLink.sanitized(result)
+        guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
+        guard let protocolVersion = Operations.GetSessionVCS.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
+            throw ClientError.incompatible
+        }
+        let output = try await api.getSessionVCS(
+            path: .init(sessionID: id),
+            headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
+        )
+        let payload: Components.Schemas.SessionVCSStatus
+        switch output {
+        case .ok(let response): payload = try response.body.json
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
+        guard payload.sessionId == id, payload.cwd.hasPrefix("/") else { throw ClientError.invalidPayload }
+        return PullRequestLink.sanitized(WireSessionVCSStatus(payload))
     }
 
     func models() async throws -> [WireModelCapability] {
@@ -834,7 +867,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard let protocolVersion = Operations.GetScratchpad.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
             throw ClientError.incompatible
         }
-        let output = try await scratchpadAPI.getScratchpad(
+        let output = try await api.getScratchpad(
             path: .init(sessionID: id),
             headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
         )
@@ -866,7 +899,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard let protocolVersion = Operations.UpdateScratchpad.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
             throw ClientError.incompatible
         }
-        let output = try await scratchpadAPI.updateScratchpad(
+        let output = try await api.updateScratchpad(
             path: .init(sessionID: id),
             headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion),
             body: .json(.init(content: content, expectedRevision: String(expectedRevision)))

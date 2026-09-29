@@ -12,6 +12,90 @@ import struct Foundation.Date
 extension Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     internal enum Schemas {
+        /// - Remark: Generated from `#/components/schemas/CapacityExceededError`.
+        internal struct CapacityExceededError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case capacityExceeded = "capacity_exceeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.
+            internal var code: Components.Schemas.CapacityExceededError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/CapacityExceededError/message`.
+            internal var message: Swift.String
+            /// Creates a new `CapacityExceededError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.CapacityExceededError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.CapacityExceededError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ConflictError`.
+        internal struct ConflictError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ConflictError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case conflict = "conflict"
+            }
+            /// - Remark: Generated from `#/components/schemas/ConflictError/code`.
+            internal var code: Components.Schemas.ConflictError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/ConflictError/message`.
+            internal var message: Swift.String
+            /// Creates a new `ConflictError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.ConflictError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.ConflictError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ForbiddenError`.
         internal struct ForbiddenError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ForbiddenError/code`.
@@ -51,6 +135,44 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/GitHubPullRequest`.
+        internal struct GitHubPullRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/GitHubPullRequest/number`.
+            internal var number: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/GitHubPullRequest/url`.
+            internal var url: Swift.String
+            /// Creates a new `GitHubPullRequest`.
+            ///
+            /// - Parameters:
+            ///   - number:
+            ///   - url:
+            internal init(
+                number: Swift.Int,
+                url: Swift.String
+            ) {
+                self.number = number
+                self.url = url
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case number
+                case url
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.number = try container.decode(
+                    Swift.Int.self,
+                    forKey: .number
+                )
+                self.url = try container.decode(
+                    Swift.String.self,
+                    forKey: .url
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "number",
+                    "url"
                 ])
             }
         }
@@ -738,6 +860,55 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SessionVCSStatus`.
+        internal struct SessionVCSStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionVCSStatus/cwd`.
+            internal var cwd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionVCSStatus/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionVCSStatus/status`.
+            internal var status: Components.Schemas.VCSStatus?
+            /// Creates a new `SessionVCSStatus`.
+            ///
+            /// - Parameters:
+            ///   - cwd:
+            ///   - sessionId:
+            ///   - status:
+            internal init(
+                cwd: Swift.String,
+                sessionId: Swift.String,
+                status: Components.Schemas.VCSStatus? = nil
+            ) {
+                self.cwd = cwd
+                self.sessionId = sessionId
+                self.status = status
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cwd
+                case sessionId
+                case status
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cwd = try container.decode(
+                    Swift.String.self,
+                    forKey: .cwd
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.status = try container.decodeIfPresent(
+                    Components.Schemas.VCSStatus.self,
+                    forKey: .status
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cwd",
+                    "sessionId",
+                    "status"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/UnauthorizedError`.
         internal struct UnauthorizedError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/UnauthorizedError/code`.
@@ -768,6 +939,48 @@ extension Components {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
                 self.code = try container.decode(
                     Components.Schemas.UnauthorizedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UnavailableError`.
+        internal struct UnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case unavailable = "unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/UnavailableError/code`.
+            internal var code: Components.Schemas.UnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/UnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `UnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.UnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.UnavailableError.CodePayload.self,
                     forKey: .code
                 )
                 self.message = try container.decode(
@@ -815,6 +1028,121 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "content",
                     "expectedRevision"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/VCSHead`.
+        internal struct VCSHead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/VCSHead/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case branch = "branch"
+                case detached = "detached"
+                case unborn = "unborn"
+            }
+            /// - Remark: Generated from `#/components/schemas/VCSHead/kind`.
+            internal var kind: Components.Schemas.VCSHead.KindPayload
+            /// - Remark: Generated from `#/components/schemas/VCSHead/name`.
+            internal var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/VCSHead/oid`.
+            internal var oid: Swift.String?
+            /// Creates a new `VCSHead`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - name:
+            ///   - oid:
+            internal init(
+                kind: Components.Schemas.VCSHead.KindPayload,
+                name: Swift.String? = nil,
+                oid: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.name = name
+                self.oid = oid
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case name
+                case oid
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.VCSHead.KindPayload.self,
+                    forKey: .kind
+                )
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.oid = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .oid
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "name",
+                    "oid"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/VCSStatus`.
+        internal struct VCSStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/VCSStatus/dirty`.
+            internal var dirty: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/VCSStatus/head`.
+            internal var head: Components.Schemas.VCSHead
+            /// - Remark: Generated from `#/components/schemas/VCSStatus/pullRequest`.
+            internal var pullRequest: Components.Schemas.GitHubPullRequest?
+            /// - Remark: Generated from `#/components/schemas/VCSStatus/root`.
+            internal var root: Swift.String
+            /// Creates a new `VCSStatus`.
+            ///
+            /// - Parameters:
+            ///   - dirty:
+            ///   - head:
+            ///   - pullRequest:
+            ///   - root:
+            internal init(
+                dirty: Swift.Bool,
+                head: Components.Schemas.VCSHead,
+                pullRequest: Components.Schemas.GitHubPullRequest? = nil,
+                root: Swift.String
+            ) {
+                self.dirty = dirty
+                self.head = head
+                self.pullRequest = pullRequest
+                self.root = root
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case dirty
+                case head
+                case pullRequest
+                case root
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.dirty = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .dirty
+                )
+                self.head = try container.decode(
+                    Components.Schemas.VCSHead.self,
+                    forKey: .head
+                )
+                self.pullRequest = try container.decodeIfPresent(
+                    Components.Schemas.GitHubPullRequest.self,
+                    forKey: .pullRequest
+                )
+                self.root = try container.decode(
+                    Swift.String.self,
+                    forKey: .root
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "dirty",
+                    "head",
+                    "pullRequest",
+                    "root"
                 ])
             }
         }

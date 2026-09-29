@@ -17,6 +17,12 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/put(updateScratchpad)`.
     func updateScratchpad(_ input: Operations.UpdateScratchpad.Input) async throws -> Operations.UpdateScratchpad.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/get(getSessionVCS)`.
+    func getSessionVCS(_ input: Operations.GetSessionVCS.Input) async throws -> Operations.GetSessionVCS.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/events/get(streamSessionVCS)`.
+    func streamSessionVCS(_ input: Operations.StreamSessionVCS.Input) async throws -> Operations.StreamSessionVCS.Output
 }
 
 /// Convenience overloads for operation inputs.
@@ -43,6 +49,28 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/get(getSessionVCS)`.
+    internal func getSessionVCS(
+        path: Operations.GetSessionVCS.Input.Path,
+        headers: Operations.GetSessionVCS.Input.Headers
+    ) async throws -> Operations.GetSessionVCS.Output {
+        try await getSessionVCS(Operations.GetSessionVCS.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/events/get(streamSessionVCS)`.
+    internal func streamSessionVCS(
+        path: Operations.StreamSessionVCS.Input.Path,
+        headers: Operations.StreamSessionVCS.Input.Headers
+    ) async throws -> Operations.StreamSessionVCS.Output {
+        try await streamSessionVCS(Operations.StreamSessionVCS.Input(
+            path: path,
+            headers: headers
         ))
     }
 }
