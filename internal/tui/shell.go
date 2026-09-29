@@ -149,8 +149,6 @@ type shellCallbacks struct {
 	ShowDiffNotice              func(string)
 	OpenAuth                    ui.VoidCallback
 	SelectProvider              providerSelectedCallback
-	AuthAPIKeyChanged           ui.TextChangedCallback
-	SubmitAPIKey                ui.TextChangedCallback
 	AuthCodeChanged             ui.TextChangedCallback
 	SubmitAuthCode              ui.TextChangedCallback
 	OpenURL                     ui.TextChangedCallback
@@ -1357,19 +1355,10 @@ func (w shellView) authOverlays(theme ui.Theme) []ui.OverlayEntry {
 			false,
 		))}
 	case phaseAuthAPIKey:
-		provider, _ := authProviderByID(w.Snapshot.AuthProviderID)
-		footer := "enter save · esc back"
-		if w.Snapshot.AuthPending {
-			footer = "Saving…"
-		}
-		return []ui.OverlayEntry{modalDialogEntry(dialogSurface(
-			theme,
-			"Connect "+provider.Name,
-			"",
-			w.apiKeyBody(theme),
-			ui.Text{Value: footer, Style: ui.Style{Foreground: theme.MutedForeground}},
-			false,
-		))}
+		return []ui.OverlayEntry{modalDialogEntry(authAPIKeyPrompt{
+			ProviderID: w.Snapshot.AuthProviderID, APIKey: w.Snapshot.AuthAPIKey,
+			Error: w.Snapshot.Error, Pending: w.Snapshot.AuthPending,
+		})}
 	default:
 		return nil
 	}
@@ -1382,29 +1371,6 @@ func modalDialogEntry(child ui.Widget) ui.OverlayEntry {
 			Children: []ui.Widget{selectionFeedbackArea{Child: child}, modalFocusAnchor{}},
 		}},
 	}
-}
-
-func (w shellView) apiKeyBody(theme ui.Theme) ui.Widget {
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	children := []ui.Widget{}
-	if w.Snapshot.Error != "" {
-		children = append(children,
-			ui.Text{Value: w.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-			ui.SizedBox{Height: 1},
-		)
-	}
-	children = append(children,
-		ui.Text{Value: "API key", Style: ui.Style{Foreground: theme.MutedForeground}},
-		ui.Flex{Axis: ui.Horizontal, MainAxisSize: ui.MainAxisSizeMax, Children: []ui.Widget{
-			textInput(fieldTheme, textInputConfig{
-				Value: w.Snapshot.AuthAPIKey, OnChanged: w.Callbacks.AuthAPIKeyChanged,
-				OnSubmitted: w.Callbacks.SubmitAPIKey, ObscureText: true, AutoFocus: true,
-			}),
-		}},
-	)
-	return ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
 }
 
 func (w shellView) browserLoginBody(theme ui.Theme) ui.Widget {

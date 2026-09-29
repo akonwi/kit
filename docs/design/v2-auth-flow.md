@@ -24,7 +24,7 @@ the TUI.
 | Probing | Client discovers/starts daemon and reads auth state | Wordmark plus quiet status; spinner only after a short delay |
 | Gate | No valid provider credential | Header, centered connection prompt, hint footer; no composer |
 | Provider selection | User activates the gate | Palette picker over the unchanged gate |
-| Provider interaction | OAuth/device/API-key work is active | Auth dialog with method-specific content |
+| Provider interaction | OAuth/device/API-key work is active | API-key prompt in the palette picker frame; auth dialog with method-specific content for device and browser login |
 | Ready, new | Credential saved and no session was selected or resumed | Empty transcript plus focused composer |
 | Ready, resumed | Credential saved and startup resolved a requested or current-directory session | Restored transcript plus focused composer |
 | Degraded gate | Credential exists but no model is usable | Gate with persistent warning and corrective actions |
@@ -215,6 +215,30 @@ visual scrim, establishes modality.
 
 The single command palette decision does not change this dialog: provider
 selection is one bounded step inside an active task, not global navigation.
+
+## API-key entry
+
+Choosing an API-key option replaces the provider picker with a palette picker
+prompt in the same frame and size:
+
+```text
+        ┌──────────────────────────────────────────────────────────────┐
+        │ Connect OpenAI                                               │
+        │                                                              │
+        │ •••••••••                                                    │
+        ├──────────────────────────────────────────────────────────────┤
+        │ invalid API key                                              │
+        │                                                              │
+        ├──────────────────────────────────────────────────────────────┤
+        │ enter save · esc back                                        │
+        └──────────────────────────────────────────────────────────────┘
+```
+
+The key is masked and edited through the same key model as picker queries, so
+typing and paste that arrive before the prompt's first frame are kept. Enter
+saves; Escape returns to the provider picker. While the save is pending the
+title shows `saving…` with the spinner, the footer offers no hints, and keys
+other than Ctrl+C are ignored because the save cannot be canceled.
 
 ## Codex device-code wait
 

@@ -1604,44 +1604,6 @@ func TestAuthGateEnterOpensProviderSelection(t *testing.T) {
 	}
 }
 
-func TestAPIKeyDialogObscuresSecret(t *testing.T) {
-	t.Parallel()
-
-	const secret = "secret-api-key"
-	app := uitest.New(shellView{Snapshot: shellSnapshot{
-		Phase: phaseAuthAPIKey, AuthProviderID: auth.OpenAIProviderID, AuthAPIKey: secret,
-	}})
-	app.Pump(80, 20)
-	text := strings.Join(paintedRows(app, 80, 20), "\n")
-	if !strings.Contains(text, "Connect OpenAI") || !strings.Contains(text, "API key") {
-		t.Fatalf("API-key dialog missing provider context:\n%s", text)
-	}
-	if strings.Contains(text, secret) {
-		t.Fatalf("API-key dialog exposed secret:\n%s", text)
-	}
-}
-
-func TestAPIKeySaveCannotBeVisuallyCanceledAfterCommitStarts(t *testing.T) {
-	t.Parallel()
-
-	dismissed := false
-	app := uitest.New(shellView{
-		Snapshot: shellSnapshot{
-			Phase: phaseAuthAPIKey, AuthProviderID: auth.OpenAIProviderID, AuthPending: true,
-		},
-		Callbacks: shellCallbacks{Dismiss: func(ui.EventContext) { dismissed = true }},
-	})
-	app.Pump(80, 20)
-	text := strings.Join(paintedRows(app, 80, 20), "\n")
-	if !strings.Contains(text, "Saving…") || strings.Contains(text, "esc cancel") || strings.Contains(text, "esc back") {
-		t.Fatalf("pending API-key footer offers misleading cancellation:\n%s", text)
-	}
-	app.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if dismissed {
-		t.Fatal("Escape dismissed API-key save after commit started")
-	}
-}
-
 func TestPaletteLaunchedAuthBlocksConversationInput(t *testing.T) {
 	t.Parallel()
 
@@ -1772,7 +1734,7 @@ func (s *authModalHarnessState) Build(ui.BuildContext) ui.Widget {
 		Snapshot: shellSnapshot{
 			Phase: s.phase, AuthReturnReady: s.authReturnReady, Error: s.errorText,
 			AuthQuery: s.authPicker.Query, AuthSelection: s.authPicker.Selection,
-			AuthProviderID: s.authProviderID, AuthPending: s.authPending,
+			AuthProviderID: s.authProviderID, AuthAPIKey: s.authAPIKey, AuthPending: s.authPending,
 			Composer: s.composer, Scroll: &s.scroll,
 			Session: protocol.SessionInfo{Name: "Attached", Model: "openai/gpt-5.3-codex"},
 		},

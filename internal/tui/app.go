@@ -1352,10 +1352,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 			s.jumpSubagentReading(conversationID, section)
 		},
-		AuthAPIKeyChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.authAPIKey = value })
-		},
-		SubmitAPIKey: s.submitAPIKey,
 		AuthCodeChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() { s.authCode = value })
 		},
@@ -2060,6 +2056,9 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	}
 	if owner == inputAuth && s.phase == phaseAuthSelect {
 		return s.handleAuthPickerKey(ctx, key)
+	}
+	if owner == inputAuth && s.phase == phaseAuthAPIKey {
+		return s.handleAPIKeyPromptKey(ctx, key)
 	}
 	if owner == inputTheme {
 		var result pickerKeyResult
