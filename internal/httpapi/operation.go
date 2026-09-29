@@ -27,6 +27,9 @@ type Descriptor struct {
 	Success               int
 	Params, Input, Output reflect.Type
 	Errors                []ErrorResponse
+	// Stream is set for server-push operations whose Output is the payload
+	// schema of every record.
+	Stream *StreamDescriptor
 }
 
 // Describe projects a typed operation into its reflection-friendly form.

@@ -108,7 +108,17 @@ func WriteError(w http.ResponseWriter, apiError *APIError) {
 
 // DecodeOperationError decodes only codes declared by op for statusCode.
 func DecodeOperationError[Params, In, Out any](op Operation[Params, In, Out], statusCode int, body []byte) error {
-	responses := mergeErrorResponses(op.Errors, CommonErrorResponses)
+	return decodeDeclaredError(op.Errors, statusCode, body)
+}
+
+// DecodeStreamError decodes a pre-stream failure using only the codes op
+// declares for statusCode.
+func DecodeStreamError[Params, Payload any](op StreamOperation[Params, Payload], statusCode int, body []byte) error {
+	return decodeDeclaredError(op.Errors, statusCode, body)
+}
+
+func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) error {
+	responses := mergeErrorResponses(declared, CommonErrorResponses)
 	var declaration *ErrorResponse
 	for i := range responses {
 		if responses[i].Status == statusCode {

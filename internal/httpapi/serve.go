@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"reflect"
 	"sync"
+	"time"
 )
 
 // RequestError reports malformed HTTP input before an operation handler runs.
@@ -21,6 +22,9 @@ func (e *RequestError) Unwrap() error { return e.Err }
 type ServeOptions struct {
 	MaxRequestBytes int64
 	WriteError      func(http.ResponseWriter, error)
+	// StreamHeartbeat shortens the stream heartbeat interval for tests. Zero
+	// or values above StreamHeartbeatInterval use StreamHeartbeatInterval.
+	StreamHeartbeat time.Duration
 }
 
 var registered = struct {
@@ -28,11 +32,15 @@ var registered = struct {
 	ids map[string]int
 }{ids: make(map[string]int)}
 
+func registerOperation(id string) {
+	registered.Lock()
+	registered.ids[id]++
+	registered.Unlock()
+}
+
 // Handle registers a typed operation on mux. Semantic validation remains the handler's responsibility.
 func Handle[Params, In, Out any](mux *http.ServeMux, options ServeOptions, op Operation[Params, In, Out], fn func(context.Context, Params, In) (Out, error)) {
-	registered.Lock()
-	registered.ids[op.ID]++
-	registered.Unlock()
+	registerOperation(op.ID)
 	mux.HandleFunc(op.Method+" "+op.Path, func(w http.ResponseWriter, r *http.Request) {
 		var params Params
 		if err := bindPathParams(r, &params); err != nil {
