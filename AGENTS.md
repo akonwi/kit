@@ -98,9 +98,14 @@ go vet ./...
 go test ./...
 ```
 
-`gofmt -l .` must print nothing. Also run `go test -race ./...` for changes to
-daemon, session, subagent, plugin, or other concurrency-sensitive code when the
-platform supports it.
+`gofmt -l .` must print nothing outside ignored `ard-out/` build output. Also
+run `go test -race ./...` for changes to daemon, session, subagent, plugin, or
+other concurrency-sensitive code when the platform supports it.
+
+`apps/cli` is a separate Go module and Ard project that builds the `kit`
+executable alongside `cmd/kit`. Its `ffi/cli` package is a copy of
+`internal/cli`; mirror command-line changes in both while both entry points
+exist. For changes there, run the checks listed in `apps/cli/README.md`.
 
 When explicitly asked to change the browser client, run its formatting, lint,
 typecheck, unit, and browser suites defined by the web workspace. Bun is a
