@@ -21,7 +21,7 @@ existing sessions on their current server when compatible.
 ## Design language
 
 Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All
-TUI and web UI work must preserve its surface hierarchy, palette, layout,
+TUI and macOS UI work must preserve its surface hierarchy, palette, layout,
 interaction, and component conventions unless a new decision explicitly changes
 it.
 
