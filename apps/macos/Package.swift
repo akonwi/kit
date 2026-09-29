@@ -11,9 +11,9 @@ let package = Package(
         .package(url: "https://github.com/ChimeHQ/SwiftTreeSitter.git", exact: "0.25.0"),
         .package(path: "Vendor/CodeEditSourceEditor"),
         .package(url: "https://github.com/CodeEditApp/CodeEditLanguages.git", exact: "0.1.20"),
-        .package(url: "https://github.com/apple/swift-openapi-generator.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-openapi-runtime.git", from: "1.0.0"),
-        .package(url: "https://github.com/apple/swift-http-types.git", from: "1.0.0")
+        .package(url: "https://github.com/apple/swift-openapi-generator.git", exact: "1.13.1"),
+        .package(url: "https://github.com/apple/swift-openapi-runtime.git", exact: "1.12.1"),
+        .package(url: "https://github.com/apple/swift-http-types.git", exact: "1.8.0")
     ],
     targets: [
         .executableTarget(name: "Kit", dependencies: [
@@ -25,7 +25,7 @@ let package = Package(
             .product(name: "OpenAPIRuntime", package: "swift-openapi-runtime"),
             .product(name: "HTTPTypes", package: "swift-http-types"),
             .product(name: "HTTPTypesFoundation", package: "swift-http-types")
-        ], exclude: ["openapi.json", "openapi-generator-config.yaml"], resources: [.process("Resources")]),
+        ], exclude: ["openapi-generator-config.yaml"], resources: [.process("Resources")]),
         .testTarget(name: "KitTests", dependencies: ["Kit"])
     ]
 )
