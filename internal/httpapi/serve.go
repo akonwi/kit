@@ -36,13 +36,18 @@ func Handle[Params, In, Out any](mux *http.ServeMux, options ServeOptions, op Op
 	mux.HandleFunc(op.Method+" "+op.Path, func(w http.ResponseWriter, r *http.Request) {
 		var params Params
 		if err := bindPathParams(r, &params); err != nil {
-			options.WriteError(w, err)
+			options.WriteError(w, NewAPIError(http.StatusBadRequest, ErrorInvalidRequest, "invalid request", nil))
 			return
 		}
 		var input In
 		if typeOf[In]() != typeOf[NoBody]() {
 			if err := decodeJSON(w, r, options.MaxRequestBytes, &input); err != nil {
-				options.WriteError(w, &RequestError{Err: err})
+				var tooLarge *http.MaxBytesError
+				if errors.As(err, &tooLarge) {
+					options.WriteError(w, NewAPIError(http.StatusRequestEntityTooLarge, ErrorLimitExceeded, "request body is too large", nil))
+				} else {
+					options.WriteError(w, NewAPIError(http.StatusBadRequest, ErrorInvalidRequest, "invalid request", nil))
+				}
 				return
 			}
 		}

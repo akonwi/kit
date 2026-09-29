@@ -22,6 +22,7 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/scratchpad"
@@ -136,12 +137,12 @@ func TestWriteSessionErrorProjectsStableScratchpadFailures(t *testing.T) {
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			recorder := httptest.NewRecorder()
-			writeSessionError(recorder, test.err)
+			writeSessionError(recorder, scratchpadAPIError(test.err))
 			if recorder.Code != test.status {
 				t.Fatalf("status = %d, want %d", recorder.Code, test.status)
 			}
 			var apiError *APIError
-			if err := decodeAPIError(recorder.Code, recorder.Body.Bytes()); !errors.As(err, &apiError) || apiError.Code != string(test.code) {
+			if err := httpapi.DecodeOperationError(httpapi.UpdateScratchpad, recorder.Code, recorder.Body.Bytes()); !errors.As(err, &apiError) || apiError.Code != string(test.code) {
 				t.Fatalf("decoded error = %#v", err)
 			}
 		})

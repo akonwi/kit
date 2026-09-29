@@ -3,6 +3,7 @@ package server
 import (
 	"bytes"
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -82,19 +83,25 @@ func TestScratchpadErrorResponsesConformToContract(t *testing.T) {
 		name, method, body string
 		err                error
 		status             int
+		code               string
 	}{
-		{"get missing", http.MethodGet, "", kitsession.ErrNotFound, http.StatusNotFound},
-		{"get unsupported", http.MethodGet, "", kitscratchpad.ErrUnsupported, http.StatusConflict},
-		{"get unavailable", http.MethodGet, "", kitscratchpad.ErrUnavailable, http.StatusServiceUnavailable},
-		{"get internal", http.MethodGet, "", errors.New("boom"), http.StatusInternalServerError},
-		{"put generic invalid", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, errInvalidSessionRequest, http.StatusBadRequest},
-		{"put invalid", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrInvalidContent, http.StatusBadRequest},
-		{"put too large", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrContentTooLarge, http.StatusRequestEntityTooLarge},
-		{"put conflict", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, conflict, http.StatusConflict},
-		{"put exhausted", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrRevisionExhausted, http.StatusConflict},
-		{"put migration", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrMigrationRequired, http.StatusConflict},
-		{"put unsupported", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrUnsupported, http.StatusConflict},
-		{"put unavailable", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrUnavailable, http.StatusServiceUnavailable},
+		{"get invalid", http.MethodGet, "", kitsession.ErrInvalidInput, http.StatusBadRequest, "invalid_request"},
+		{"get missing", http.MethodGet, "", kitsession.ErrNotFound, http.StatusNotFound, "not_found"},
+		{"get migration", http.MethodGet, "", kitscratchpad.ErrMigrationRequired, http.StatusConflict, "scratchpad_migration_required"},
+		{"get unsupported", http.MethodGet, "", kitscratchpad.ErrUnsupported, http.StatusConflict, "scratchpad_unsupported"},
+		{"get unavailable", http.MethodGet, "", kitscratchpad.ErrUnavailable, http.StatusServiceUnavailable, "scratchpad_unavailable"},
+		{"get internal", http.MethodGet, "", errors.New("boom"), http.StatusInternalServerError, "internal"},
+		{"put generic invalid", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, errInvalidSessionRequest, http.StatusBadRequest, "invalid_request"},
+		{"put invalid", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrInvalidContent, http.StatusBadRequest, "scratchpad_invalid_content"},
+		{"put missing", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitsession.ErrNotFound, http.StatusNotFound, "not_found"},
+		{"put too large", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrContentTooLarge, http.StatusRequestEntityTooLarge, "scratchpad_too_large"},
+		{"put request limit", http.MethodPut, `{"expectedRevision":"1","content":"` + strings.Repeat("x", maxSessionRequestBytes) + `"}`, nil, http.StatusRequestEntityTooLarge, "limit_exceeded"},
+		{"put conflict", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, conflict, http.StatusConflict, "scratchpad_revision_conflict"},
+		{"put exhausted", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrRevisionExhausted, http.StatusConflict, "scratchpad_revision_exhausted"},
+		{"put migration", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrMigrationRequired, http.StatusConflict, "scratchpad_migration_required"},
+		{"put unsupported", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrUnsupported, http.StatusConflict, "scratchpad_unsupported"},
+		{"put unavailable", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, kitscratchpad.ErrUnavailable, http.StatusServiceUnavailable, "scratchpad_unavailable"},
+		{"put internal", http.MethodPut, `{"expectedRevision":"1","content":"current"}`, errors.New("boom"), http.StatusInternalServerError, "internal"},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
@@ -109,19 +116,81 @@ func TestScratchpadErrorResponsesConformToContract(t *testing.T) {
 			if contractErr != nil || response.Code != test.status {
 				t.Fatalf("response = %d contract=%v body=%s", response.Code, contractErr, response.Body.String())
 			}
+			var envelope struct {
+				Error struct {
+					Code    string          `json:"code"`
+					Message string          `json:"message"`
+					Details json.RawMessage `json:"details"`
+				} `json:"error"`
+			}
+			if err := json.Unmarshal(response.Body.Bytes(), &envelope); err != nil || envelope.Error.Code != test.code || envelope.Error.Message == "" {
+				t.Fatalf("error body = %s, want code %s", response.Body.String(), test.code)
+			}
+			if (test.code == "scratchpad_revision_conflict") != (len(envelope.Error.Details) > 0) {
+				t.Fatalf("details presence for %s = %s", test.code, envelope.Error.Details)
+			}
+			if test.status == http.StatusInternalServerError && envelope.Error.Message != "internal server error" {
+				t.Fatalf("internal message = %q", envelope.Error.Message)
+			}
 		})
 	}
 }
 
-func TestScratchpadConformanceRejectsDriftedResponse(t *testing.T) {
+func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
+	tests := []struct {
+		name   string
+		status int
+		code   string
+		mutate func(*http.Request)
+	}{
+		{"host", http.StatusMisdirectedRequest, "invalid_host", func(r *http.Request) { r.Host = "wrong.example" }},
+		{"origin", http.StatusForbidden, "forbidden", func(r *http.Request) { r.Header.Set("Origin", "http://wrong.example") }},
+		{"bearer", http.StatusUnauthorized, "unauthorized", func(r *http.Request) { r.Header.Set("Authorization", "Bearer wrong") }},
+		{"instance", http.StatusConflict, "instance_mismatch", func(r *http.Request) { r.Header.Set(instanceHeader, "wrong") }},
+		{"protocol", http.StatusUpgradeRequired, "protocol_mismatch", func(r *http.Request) { r.Header.Set(protocolHeader, "+42") }},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			next := newHandler(localHandlerOptions{
+				baseURL: "http://example.com", expectedHost: "example.com", token: "test",
+				registry: Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{},
+			})
+			var contractErr error
+			handler := scratchpadConformanceMiddleware(t, next, func(err error) { contractErr = err })
+			request := httptest.NewRequest(http.MethodGet, "http://example.com/v1/sessions/session_test/scratchpad", nil)
+			addContractRequestHeaders(request)
+			test.mutate(request)
+			response := httptest.NewRecorder()
+			handler.ServeHTTP(response, request)
+			if contractErr != nil || response.Code != test.status {
+				t.Fatalf("response = %d contract=%v body=%s", response.Code, contractErr, response.Body.String())
+			}
+			var envelope struct {
+				Error struct {
+					Code string `json:"code"`
+				} `json:"error"`
+			}
+			if json.Unmarshal(response.Body.Bytes(), &envelope) != nil || envelope.Error.Code != test.code {
+				t.Fatalf("body = %s, want code %s", response.Body.String(), test.code)
+			}
+			if test.status == http.StatusUnauthorized && response.Header().Get("WWW-Authenticate") != "Bearer" {
+				t.Fatalf("WWW-Authenticate = %q", response.Header().Get("WWW-Authenticate"))
+			}
+		})
+	}
+}
+
+func TestScratchpadConformanceRejectsDriftedErrorBody(t *testing.T) {
 	var validationErr error
 	handler := scratchpadConformanceMiddleware(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
-		writeJSON(w, http.StatusOK, map[string]any{"unexpected": true})
+		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
+			"code": "scratchpad_revision_exhausted", "message": "scratchpad revision is exhausted", "details": map[string]any{},
+		}})
 	}), func(err error) { validationErr = err })
-	request := httptest.NewRequest(http.MethodGet, "/v1/sessions/session_test/scratchpad", nil)
+	request := httptest.NewRequest(http.MethodPut, "/v1/sessions/session_test/scratchpad", strings.NewReader(`{"expectedRevision":"1","content":"current"}`))
 	addContractRequestHeaders(request)
 	handler.ServeHTTP(httptest.NewRecorder(), request)
 	if validationErr == nil {
-		t.Fatal("conformance middleware accepted drifted response")
+		t.Fatal("conformance middleware accepted drifted error response")
 	}
 }

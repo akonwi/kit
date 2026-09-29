@@ -3,11 +3,14 @@ package httpapi
 import (
 	"context"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
 	"testing"
+
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 type testInput struct {
@@ -45,14 +48,58 @@ func TestHandleBindsPathAndStrictlyDecodes(t *testing.T) {
 	request = httptest.NewRequest(http.MethodPut, "/items/id", strings.NewReader(`{"name":"kit","extra":true}`))
 	response = httptest.NewRecorder()
 	mux.ServeHTTP(response, request)
-	var requestErr *RequestError
-	if !errors.As(gotErr, &requestErr) || response.Code != http.StatusTeapot {
+	var apiErr *APIError
+	if !errors.As(gotErr, &apiErr) || apiErr.Code != string(ErrorInvalidRequest) || response.Code != http.StatusTeapot {
 		t.Fatalf("strict decode = %v/%d", gotErr, response.Code)
 	}
 }
 
+func TestDecodeOperationErrorUsesDeclaredStatusCodesAndTypedDetails(t *testing.T) {
+	body := []byte(`{"error":{"code":"scratchpad_revision_conflict","message":"scratchpad revision conflict","details":{"scratchpad":{"ownerSessionId":"session_0123456789abcdef0123456789abcdef","content":"shared","revision":"2","updatedAt":"2026-03-23T12:34:56Z"}}}}`)
+	err := DecodeOperationError(UpdateScratchpad, http.StatusConflict, body)
+	var apiErr *APIError
+	var scratchErr *protocol.ScratchpadError
+	if !errors.As(err, &apiErr) || !errors.As(err, &scratchErr) || apiErr.CurrentScratchpad == nil || apiErr.CurrentScratchpad.Content != "shared" {
+		t.Fatalf("typed conflict = %#v", err)
+	}
+	if details, ok := apiErr.TypedDetails.(protocol.ScratchpadErrorDetails); !ok || details.Scratchpad == nil {
+		t.Fatalf("typed details = %#v", apiErr.TypedDetails)
+	}
+	for _, body := range []string{
+		`{"error":{"code":"conflict","message":"wrong code"}}`,
+		`{"error":{"code":"scratchpad_revision_exhausted","message":"wrong details","details":{}}}`,
+	} {
+		if err := DecodeOperationError(UpdateScratchpad, http.StatusConflict, []byte(body)); errors.As(err, &apiErr) {
+			t.Fatalf("accepted drifted operation error: %#v", err)
+		}
+	}
+	if err := DecodeOperationError(UpdateScratchpad, http.StatusUpgradeRequired, []byte(`{"error":{"code":"protocol_mismatch","message":"session protocol mismatch"}}`)); !errors.As(err, &apiErr) || !apiErr.IncompatibleDaemon() {
+		t.Fatalf("protocol mismatch = %#v", err)
+	}
+}
+
+func TestLegacyDecoderAcceptsCommonPreRoutingErrors(t *testing.T) {
+	for _, test := range []struct {
+		status int
+		code   ErrorCode
+	}{
+		{http.StatusMisdirectedRequest, ErrorInvalidHost},
+		{http.StatusForbidden, ErrorForbidden},
+		{http.StatusUnauthorized, ErrorUnauthorized},
+		{http.StatusConflict, ErrorInstanceMismatch},
+		{http.StatusUpgradeRequired, ErrorProtocolMismatch},
+	} {
+		err := DecodeError(test.status, []byte(fmt.Sprintf(`{"error":{"code":%q,"message":"rejected"}}`, test.code)))
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) || apiErr.Code != string(test.code) || apiErr.StatusCode != test.status {
+			t.Fatalf("DecodeError(%s) = %#v", test.code, err)
+		}
+	}
+}
+
 func TestCallEscapesPathStrictlyDecodesAndPassesErrors(t *testing.T) {
-	op := Operation[SessionPath, testInput, testOutput]{ID: "test", Method: http.MethodPut, Path: "/items/{sessionID}", Success: http.StatusOK}
+	op := Operation[SessionPath, testInput, testOutput]{ID: "test", Method: http.MethodPut, Path: "/items/{sessionID}", Success: http.StatusOK,
+		Errors: []ErrorResponse{{Status: http.StatusNotFound, Codes: []ErrorCode{ErrorNotFound}}}}
 	transport := testTransport(func(_ context.Context, method, path string, body io.Reader, jsonBody bool) (*http.Response, error) {
 		encoded, _ := io.ReadAll(body)
 		if method != http.MethodPut || path != "/items/a%2Fb" || !jsonBody || string(encoded) != `{"name":"kit"}` {
@@ -66,11 +113,11 @@ func TestCallEscapesPathStrictlyDecodesAndPassesErrors(t *testing.T) {
 	}
 
 	transport = func(context.Context, string, string, io.Reader, bool) (*http.Response, error) {
-		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(`{"error":"missing"}`))}, nil
+		return &http.Response{StatusCode: http.StatusNotFound, Body: io.NopCloser(strings.NewReader(`{"error":{"code":"not_found","message":"missing"}}`))}, nil
 	}
 	_, err = Call(t.Context(), transport, op, SessionPath{}, testInput{})
 	var apiErr *APIError
-	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound || apiErr.Message != "missing" {
+	if !errors.As(err, &apiErr) || apiErr.StatusCode != http.StatusNotFound || apiErr.Code != string(ErrorNotFound) || apiErr.Message != "missing" {
 		t.Fatalf("error = %#v", err)
 	}
 

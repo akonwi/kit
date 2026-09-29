@@ -9,7 +9,6 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/invopop/jsonschema"
 )
@@ -30,7 +29,7 @@ func Emit() ([]byte, error) {
 			}
 		}
 		for _, response := range descriptor.Errors {
-			for _, typ := range response.Bodies {
+			for _, typ := range response.Details {
 				if _, err := addTypeSchema(components, typ); err != nil {
 					return nil, err
 				}
@@ -41,7 +40,7 @@ func Emit() ([]byte, error) {
 	for _, descriptor := range descriptors {
 		operation := map[string]any{
 			"operationId": descriptor.ID, "tags": []string{descriptor.Tag},
-			"parameters": operationParameters(descriptor), "responses": operationResponses(descriptor),
+			"parameters": operationParameters(descriptor), "responses": operationResponses(descriptor, components),
 			"security": []any{map[string]any{"daemonBearer": []any{}}},
 		}
 		if descriptor.Input != reflect.TypeOf(httpapi.NoBody{}) {
@@ -87,24 +86,10 @@ func operationParameters(descriptor httpapi.Descriptor) []any {
 	return parameters
 }
 
-func operationResponses(descriptor httpapi.Descriptor) map[string]any {
+func operationResponses(descriptor httpapi.Descriptor, components map[string]any) map[string]any {
 	responses := map[string]any{fmt.Sprint(descriptor.Success): map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}}
 	for _, response := range descriptor.Errors {
-		variants := make([]any, 0, len(response.Bodies)+len(response.ScratchpadCodes))
-		for _, typ := range response.Bodies {
-			if schemaName(typ) == "ScratchpadTypedErrorEnvelope" && len(response.ScratchpadCodes) > 0 {
-				for _, code := range response.ScratchpadCodes {
-					variants = append(variants, scratchpadErrorSchema(code))
-				}
-				continue
-			}
-			variants = append(variants, schemaRef(typ))
-		}
-		var schema any = variants[0]
-		if len(variants) > 1 {
-			schema = map[string]any{"oneOf": variants}
-		}
-		responses[fmt.Sprint(response.Status)] = map[string]any{"description": http.StatusText(response.Status), "content": jsonContent(schema)}
+		responses[fmt.Sprint(response.Status)] = map[string]any{"description": http.StatusText(response.Status), "content": jsonContent(errorEnvelopeSchema(descriptor.ID, response, components))}
 	}
 	return responses
 }
@@ -113,24 +98,52 @@ func jsonContent(schema any) map[string]any {
 	return map[string]any{"application/json": map[string]any{"schema": schema}}
 }
 
-func scratchpadErrorSchema(code protocol.ScratchpadErrorCode) map[string]any {
-	message := map[protocol.ScratchpadErrorCode]string{
-		protocol.ScratchpadInvalidContent: "scratchpad content is invalid", protocol.ScratchpadTooLarge: "scratchpad content is too large",
-		protocol.ScratchpadRevisionConflict: "scratchpad revision conflict", protocol.ScratchpadRevisionExhausted: "scratchpad revision is exhausted",
-		protocol.ScratchpadMigrationRequired: "scratchpad migration is required", protocol.ScratchpadUnsupported: "scratchpad is unsupported for this session",
-		protocol.ScratchpadUnavailable: "scratchpad is unavailable",
-	}[code]
-	details := map[string]any{"type": "object", "additionalProperties": false}
-	if code == protocol.ScratchpadRevisionConflict {
-		details["properties"] = map[string]any{"scratchpad": map[string]any{"$ref": "#/components/schemas/Scratchpad"}}
-		details["required"] = []string{"scratchpad"}
+func errorEnvelopeSchema(operationID string, response httpapi.ErrorResponse, components map[string]any) map[string]any {
+	message := map[string]any{"type": "string", "minLength": 1, "maxLength": 1024}
+	var errorSchema any
+	if len(response.Details) == 0 {
+		codes := make([]string, len(response.Codes))
+		for i, code := range response.Codes {
+			codes[i] = string(code)
+		}
+		errorSchema = map[string]any{"type": "object", "additionalProperties": false,
+			"required": []string{"code", "message"}, "properties": map[string]any{
+				"code": map[string]any{"type": "string", "enum": codes}, "message": message,
+			}}
+	} else {
+		variants := make([]any, 0, len(response.Codes))
+		mapping := make(map[string]any, len(response.Codes))
+		for _, code := range response.Codes {
+			required := []string{"code", "message"}
+			properties := map[string]any{
+				"code": map[string]any{"type": "string", "enum": []string{string(code)}}, "message": message,
+			}
+			if details, ok := response.Details[code]; ok {
+				required = append(required, "details")
+				properties["details"] = schemaRef(details)
+			}
+			name := errorVariantName(operationID, response.Status, code)
+			components[name] = map[string]any{"type": "object", "additionalProperties": false, "required": required, "properties": properties}
+			ref := "#/components/schemas/" + name
+			variants = append(variants, map[string]any{"$ref": ref})
+			mapping[string(code)] = ref
+		}
+		errorSchema = map[string]any{"oneOf": variants, "discriminator": map[string]any{"propertyName": "code", "mapping": mapping}}
 	}
-	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"error"}, "properties": map[string]any{
-		"error": map[string]any{"type": "object", "additionalProperties": false, "required": []string{"code", "message", "details"}, "properties": map[string]any{
-			"code": map[string]any{"type": "string", "enum": []string{string(code)}}, "message": map[string]any{"type": "string", "enum": []string{message}}, "details": details,
-		}},
-	}}
+	return map[string]any{"type": "object", "additionalProperties": false, "required": []string{"error"},
+		"properties": map[string]any{"error": errorSchema}}
 }
+
+func errorVariantName(operationID string, status int, code httpapi.ErrorCode) string {
+	name := strings.ToUpper(operationID[:1]) + operationID[1:] + fmt.Sprint(status)
+	for _, part := range strings.Split(string(code), "_") {
+		if part != "" {
+			name += strings.ToUpper(part[:1]) + part[1:]
+		}
+	}
+	return name + "Error"
+}
+
 func schemaRef(typ reflect.Type) map[string]any {
 	return map[string]any{"$ref": "#/components/schemas/" + schemaName(typ)}
 }
@@ -235,6 +248,9 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 	}
 	if typ.Kind() != reflect.Struct {
 		return
+	}
+	if typ.PkgPath() == "github.com/akonwi/kit/internal/protocol" && typ.Name() == "ScratchpadErrorDetails" {
+		schema["required"] = []string{"scratchpad"}
 	}
 	properties, _ := schema["properties"].(map[string]any)
 	for i := 0; i < typ.NumField(); i++ {

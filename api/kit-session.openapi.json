@@ -33,20 +33,59 @@
             "$ref": "#/components/schemas/Scratchpad"
           }
         },
+        "required": [
+          "scratchpad"
+        ],
         "type": "object"
       },
-      "ScratchpadTypedError": {
+      "UpdateScratchpad409InstanceMismatchError": {
         "additionalProperties": false,
         "properties": {
           "code": {
             "enum": [
-              "scratchpad_invalid_content",
-              "scratchpad_too_large",
-              "scratchpad_revision_conflict",
-              "scratchpad_revision_exhausted",
-              "scratchpad_migration_required",
-              "scratchpad_unsupported",
-              "scratchpad_unavailable"
+              "instance_mismatch"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "UpdateScratchpad409ScratchpadMigrationRequiredError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_migration_required"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "UpdateScratchpad409ScratchpadRevisionConflictError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_revision_conflict"
             ],
             "type": "string"
           },
@@ -54,6 +93,8 @@
             "$ref": "#/components/schemas/ScratchpadErrorDetails"
           },
           "message": {
+            "maxLength": 1024,
+            "minLength": 1,
             "type": "string"
           }
         },
@@ -64,27 +105,45 @@
         ],
         "type": "object"
       },
-      "ScratchpadTypedErrorEnvelope": {
+      "UpdateScratchpad409ScratchpadRevisionExhaustedError": {
         "additionalProperties": false,
         "properties": {
-          "error": {
-            "$ref": "#/components/schemas/ScratchpadTypedError"
-          }
-        },
-        "required": [
-          "error"
-        ],
-        "type": "object"
-      },
-      "StringErrorEnvelope": {
-        "additionalProperties": false,
-        "properties": {
-          "error": {
+          "code": {
+            "enum": [
+              "scratchpad_revision_exhausted"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
             "type": "string"
           }
         },
         "required": [
-          "error"
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "UpdateScratchpad409ScratchpadUnsupportedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "scratchpad_unsupported"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -115,7 +174,7 @@
   },
   "info": {
     "title": "Kit Session API",
-    "version": "41"
+    "version": "42"
   },
   "openapi": "3.1.0",
   "paths": {
@@ -137,7 +196,7 @@
             "required": true,
             "schema": {
               "enum": [
-                41
+                42
               ],
               "type": "integer"
             }
@@ -166,17 +225,145 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_request"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
             "description": "Bad Request"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "unauthorized"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "forbidden"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "not_found"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -186,93 +373,147 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
                       "additionalProperties": false,
                       "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_migration_required"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad migration is required"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
+                        "code": {
+                          "enum": [
+                            "scratchpad_migration_required",
+                            "scratchpad_unsupported",
+                            "instance_mismatch"
                           ],
-                          "type": "object"
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "error"
+                        "code",
+                        "message"
                       ],
                       "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_unsupported"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad is unsupported for this session"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "$ref": "#/components/schemas/StringErrorEnvelope"
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
             "description": "Conflict"
           },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_host"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "protocol_mismatch"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
           "500": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -282,47 +523,34 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
                       "additionalProperties": false,
                       "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_unavailable"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad is unavailable"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
+                        "code": {
+                          "enum": [
+                            "scratchpad_unavailable"
                           ],
-                          "type": "object"
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "error"
+                        "code",
+                        "message"
                       ],
                       "type": "object"
-                    },
-                    {
-                      "$ref": "#/components/schemas/StringErrorEnvelope"
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -355,7 +583,7 @@
             "required": true,
             "schema": {
               "enum": [
-                41
+                42
               ],
               "type": "integer"
             }
@@ -394,57 +622,146 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
                       "additionalProperties": false,
                       "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_invalid_content"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad content is invalid"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
+                        "code": {
+                          "enum": [
+                            "invalid_request",
+                            "scratchpad_invalid_content"
                           ],
-                          "type": "object"
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "error"
+                        "code",
+                        "message"
                       ],
                       "type": "object"
-                    },
-                    {
-                      "$ref": "#/components/schemas/StringErrorEnvelope"
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
             "description": "Bad Request"
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "unauthorized"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "forbidden"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
           "404": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "not_found"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -454,163 +771,42 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_revision_conflict"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "properties": {
-                                "scratchpad": {
-                                  "$ref": "#/components/schemas/Scratchpad"
-                                }
-                              },
-                              "required": [
-                                "scratchpad"
-                              ],
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad revision conflict"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
-                          ],
-                          "type": "object"
-                        }
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/UpdateScratchpad409InstanceMismatchError",
+                          "scratchpad_migration_required": "#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError",
+                          "scratchpad_revision_conflict": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError",
+                          "scratchpad_revision_exhausted": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError",
+                          "scratchpad_unsupported": "#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError"
+                        },
+                        "propertyName": "code"
                       },
-                      "required": [
-                        "error"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_revision_exhausted"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad revision is exhausted"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
-                          ],
-                          "type": "object"
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadRevisionExhaustedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadMigrationRequiredError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UpdateScratchpad409ScratchpadUnsupportedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UpdateScratchpad409InstanceMismatchError"
                         }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_migration_required"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad migration is required"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "additionalProperties": false,
-                      "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_unsupported"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad is unsupported for this session"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
-                          ],
-                          "type": "object"
-                        }
-                      },
-                      "required": [
-                        "error"
-                      ],
-                      "type": "object"
-                    },
-                    {
-                      "$ref": "#/components/schemas/StringErrorEnvelope"
+                      ]
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -627,25 +823,20 @@
                       "properties": {
                         "code": {
                           "enum": [
-                            "scratchpad_too_large"
+                            "scratchpad_too_large",
+                            "limit_exceeded"
                           ],
                           "type": "string"
                         },
-                        "details": {
-                          "additionalProperties": false,
-                          "type": "object"
-                        },
                         "message": {
-                          "enum": [
-                            "scratchpad content is too large"
-                          ],
+                          "maxLength": 1024,
+                          "minLength": 1,
                           "type": "string"
                         }
                       },
                       "required": [
                         "code",
-                        "message",
-                        "details"
+                        "message"
                       ],
                       "type": "object"
                     }
@@ -659,11 +850,112 @@
             },
             "description": "Request Entity Too Large"
           },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "invalid_host"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "protocol_mismatch"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
           "500": {
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/StringErrorEnvelope"
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "additionalProperties": false,
+                      "properties": {
+                        "code": {
+                          "enum": [
+                            "internal"
+                          ],
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "code",
+                        "message"
+                      ],
+                      "type": "object"
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },
@@ -673,47 +965,34 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "oneOf": [
-                    {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
                       "additionalProperties": false,
                       "properties": {
-                        "error": {
-                          "additionalProperties": false,
-                          "properties": {
-                            "code": {
-                              "enum": [
-                                "scratchpad_unavailable"
-                              ],
-                              "type": "string"
-                            },
-                            "details": {
-                              "additionalProperties": false,
-                              "type": "object"
-                            },
-                            "message": {
-                              "enum": [
-                                "scratchpad is unavailable"
-                              ],
-                              "type": "string"
-                            }
-                          },
-                          "required": [
-                            "code",
-                            "message",
-                            "details"
+                        "code": {
+                          "enum": [
+                            "scratchpad_unavailable"
                           ],
-                          "type": "object"
+                          "type": "string"
+                        },
+                        "message": {
+                          "maxLength": 1024,
+                          "minLength": 1,
+                          "type": "string"
                         }
                       },
                       "required": [
-                        "error"
+                        "code",
+                        "message"
                       ],
                       "type": "object"
-                    },
-                    {
-                      "$ref": "#/components/schemas/StringErrorEnvelope"
                     }
-                  ]
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
                 }
               }
             },

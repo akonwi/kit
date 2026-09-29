@@ -21,10 +21,10 @@ import (
 	"github.com/gofrs/flock"
 )
 
-// TestSubprocessProtocol41ReleaseGate tests separately compiled binaries from
+// TestSubprocessProtocol42ReleaseGate tests separately compiled binaries from
 // the same source. The current release gate rejects skew without disruption;
 // this is not evidence of compatibility across source revisions.
-func TestSubprocessProtocol41ReleaseGate(t *testing.T) {
+func TestSubprocessProtocol42ReleaseGate(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
 	}
@@ -32,42 +32,42 @@ func TestSubprocessProtocol41ReleaseGate(t *testing.T) {
 	runProtocolBinaryMatrix(t, [2]string{"release-a", "release-b"}, [2]string{root, root}, true, false)
 }
 
-// TestSubprocessProtocol41StableSkew checks two release-labeled binaries built
+// TestSubprocessProtocol42StableSkew checks two release-labeled binaries built
 // from the same source in both directions, including attachment during work.
 // The pinned-revision matrix separately checks source-level skew.
-func TestSubprocessProtocol41StableSkew(t *testing.T) {
+func TestSubprocessProtocol42StableSkew(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
 	}
 	root := protocolTestRoot(t)
-	runProtocolBinaryMatrix(t, [2]string{"0.38.0", "0.38.1"}, [2]string{root, root}, false, false)
+	runProtocolBinaryMatrix(t, [2]string{"0.39.0", "0.39.1"}, [2]string{root, root}, false, false)
 }
 
-// TestProtocol41TaggedReleaseMatrix checks bidirectional attachment with real
+// TestProtocol42TaggedReleaseMatrix checks bidirectional attachment with real
 // release labels. It must never use the development-version bypass.
-func TestProtocol41TaggedReleaseMatrix(t *testing.T) {
-	runProtocol41TaggedMatrix(t, false)
+func TestProtocol42TaggedReleaseMatrix(t *testing.T) {
+	runProtocol42TaggedMatrix(t, false)
 }
 
-// TestProtocol41TaggedWireSmoke uses dev-labeled *test clients* built from
+// TestProtocol42TaggedWireSmoke uses dev-labeled *test clients* built from
 // pinned revisions to inspect wire interoperability behind the current release
 // gate. This is not a release compatibility pass and cannot replace the
 // release-labeled matrix. Neither smoke test covers every protocol semantic.
-func TestProtocol41TaggedWireSmoke(t *testing.T) {
-	runProtocol41TaggedMatrix(t, true)
+func TestProtocol42TaggedWireSmoke(t *testing.T) {
+	runProtocol42TaggedMatrix(t, true)
 }
 
-// Run with KIT_PROTOCOL41_BASELINE_TAG, KIT_PROTOCOL41_CANDIDATE_VERSION, and
-// either KIT_PROTOCOL41_CANDIDATE_TAG or KIT_PROTOCOL41_CANDIDATE_COMMIT (a full
+// Run with KIT_PROTOCOL42_BASELINE_TAG, KIT_PROTOCOL42_CANDIDATE_VERSION, and
+// either KIT_PROTOCOL42_CANDIDATE_TAG or KIT_PROTOCOL42_CANDIDATE_COMMIT (a full
 // SHA). A commit candidate remains provisional until that commit is released.
-func runProtocol41TaggedMatrix(t *testing.T, wireOnly bool) {
+func runProtocol42TaggedMatrix(t *testing.T, wireOnly bool) {
 	t.Helper()
-	baseline := os.Getenv("KIT_PROTOCOL41_BASELINE_TAG")
-	candidate := os.Getenv("KIT_PROTOCOL41_CANDIDATE_VERSION")
-	candidateTag := os.Getenv("KIT_PROTOCOL41_CANDIDATE_TAG")
-	candidateCommit := os.Getenv("KIT_PROTOCOL41_CANDIDATE_COMMIT")
+	baseline := os.Getenv("KIT_PROTOCOL42_BASELINE_TAG")
+	candidate := os.Getenv("KIT_PROTOCOL42_CANDIDATE_VERSION")
+	candidateTag := os.Getenv("KIT_PROTOCOL42_CANDIDATE_TAG")
+	candidateCommit := os.Getenv("KIT_PROTOCOL42_CANDIDATE_COMMIT")
 	if baseline == "" && candidate == "" && candidateTag == "" && candidateCommit == "" {
-		t.Skip("requires a tagged protocol-41 baseline and candidate release version")
+		t.Skip("requires a tagged protocol-42 baseline and candidate release version")
 	}
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
@@ -170,8 +170,8 @@ func archiveProtocolRevision(t *testing.T, root, ref, label string) string {
 	if err != nil {
 		t.Fatalf("read protocol version for %s: %v", label, err)
 	}
-	if !regexp.MustCompile(`(?m)^\s*SessionProtocolVersion\s*=\s*41\s*$`).Match(metadata) {
-		t.Fatalf("revision %s does not declare session protocol 41", label)
+	if !regexp.MustCompile(`(?m)^\s*SessionProtocolVersion\s*=\s*42\s*$`).Match(metadata) {
+		t.Fatalf("revision %s does not declare session protocol 42", label)
 	}
 	// Compile one identical client contract against each release's own types
 	// and implementation. Keep the archive's runtime source unmodified.
@@ -448,11 +448,11 @@ func TestProtocolClientHelper(t *testing.T) {
 	}
 	settled, err := client.GetSessionSnapshot(ctx, created.ID)
 	if err != nil || len(settled.Messages) != 0 || len(settled.PendingBoundaries) != 1 || settled.PendingBoundaries[0].ID != bashID {
-		t.Fatalf("protocol-41 direct-bash context boundary: %+v, %v", settled, err)
+		t.Fatalf("protocol-42 direct-bash context boundary: %+v, %v", settled, err)
 	}
 	history, err := client.GetBashHistory(ctx, created.ID, 0, 10)
 	if err != nil || len(history.Entries) != 1 || history.Entries[0].ID != bashID || history.Entries[0].Command != command || history.Entries[0].Status != string(protocol.BashExecutionCompleted) {
-		t.Fatalf("protocol-41 bash history: %+v, %v", history, err)
+		t.Fatalf("protocol-42 bash history: %+v, %v", history, err)
 	}
 	listed, err := client.ListSessions(ctx, workspace)
 	if err != nil || len(listed) == 0 {

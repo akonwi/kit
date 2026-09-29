@@ -44,7 +44,7 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 	limited := io.LimitReader(response.Body, maxResponseBytes)
 	if response.StatusCode != op.Success {
 		encoded, _ := io.ReadAll(limited)
-		return zero, DecodeError(response.StatusCode, encoded)
+		return zero, DecodeOperationError(op, response.StatusCode, encoded)
 	}
 	decoder := json.NewDecoder(limited)
 	decoder.DisallowUnknownFields()

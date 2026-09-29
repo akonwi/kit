@@ -1,11 +1,7 @@
 // Package httpapi binds the typed session protocol catalog to net/http.
 package httpapi
 
-import (
-	"reflect"
-
-	"github.com/akonwi/kit/internal/protocol"
-)
+import "reflect"
 
 // Operation describes one typed HTTP operation.
 type Operation[Params, In, Out any] struct {
@@ -17,11 +13,12 @@ type Operation[Params, In, Out any] struct {
 	Errors  []ErrorResponse
 }
 
-// ErrorResponse describes one non-success response and its JSON body type.
+// ErrorResponse describes the codes permitted for one non-success status.
+// Details maps only codes that require a details object to its concrete type.
 type ErrorResponse struct {
-	Status          int
-	Bodies          []reflect.Type
-	ScratchpadCodes []protocol.ScratchpadErrorCode
+	Status  int
+	Codes   []ErrorCode
+	Details map[ErrorCode]reflect.Type
 }
 
 // Descriptor is the reflection-friendly form consumed by contract tooling.
@@ -35,7 +32,7 @@ type Descriptor struct {
 // Describe projects a typed operation into its reflection-friendly form.
 func (op Operation[Params, In, Out]) Describe() Descriptor {
 	return Descriptor{ID: op.ID, Tag: op.Tag, Method: op.Method, Path: op.Path, Success: op.Success,
-		Params: typeOf[Params](), Input: typeOf[In](), Output: typeOf[Out](), Errors: append([]ErrorResponse(nil), op.Errors...)}
+		Params: typeOf[Params](), Input: typeOf[In](), Output: typeOf[Out](), Errors: mergeErrorResponses(op.Errors, CommonErrorResponses)}
 }
 
 func typeOf[T any]() reflect.Type { return reflect.TypeOf((*T)(nil)).Elem() }

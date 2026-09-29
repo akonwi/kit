@@ -44,19 +44,19 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 		name, client, daemon string
 		compatible           bool
 	}{
-		{"baseline to next stable", "0.38.0", "0.38.1", true},
-		{"next stable to baseline", "0.38.1", "0.38.0", true},
-		{"future major stable", "1.0.0", "0.38.0", true},
-		{"same prerelease", "0.38.0-rc.1", "0.38.0-rc.1", true},
+		{"baseline to next stable", "0.39.0", "0.39.1", true},
+		{"next stable to baseline", "0.39.1", "0.39.0", true},
+		{"future major stable", "1.0.0", "0.39.0", true},
+		{"same prerelease", "0.39.0-rc.1", "0.39.0-rc.1", true},
 		{"same dev label remains local-only", "dev", "dev", true},
-		{"rc to stable", "0.38.0-rc.1", "0.38.0", false},
-		{"stable to rc", "0.38.0", "0.38.0-rc.1", false},
-		{"dev to stable", "dev", "0.38.0", false},
-		{"stable to dev", "0.38.0", "dev", false},
-		{"prebaseline to stable", "0.37.9", "0.38.0", false},
-		{"same prebaseline", "0.37.9", "0.37.9", true},
-		{"noncanonical leading zero", "0.038.0", "0.38.0", false},
-		{"build metadata", "0.38.0+local", "0.38.0", false},
+		{"rc to stable", "0.39.0-rc.1", "0.39.0", false},
+		{"stable to rc", "0.39.0", "0.39.0-rc.1", false},
+		{"dev to stable", "dev", "0.39.0", false},
+		{"stable to dev", "0.39.0", "dev", false},
+		{"prebaseline to stable", "0.38.9", "0.39.0", false},
+		{"same prebaseline", "0.38.9", "0.38.9", true},
+		{"noncanonical leading zero", "0.039.0", "0.39.0", false},
+		{"build metadata", "0.39.0+local", "0.39.0", false},
 		{"unverified labels", "release-a", "release-b", false},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
@@ -75,35 +75,35 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 	}
 }
 
-func TestProtocol41RejectsReleasedProtocol40Daemon(t *testing.T) {
+func TestProtocol42RejectsReleasedProtocol41Daemon(t *testing.T) {
 	t.Parallel()
-	err := compatibleWithVersion(Registry{ProtocolVersion: 40, KitVersion: "0.37.0"}, "0.38.0")
+	err := compatibleWithVersion(Registry{ProtocolVersion: 41, KitVersion: "0.38.0"}, "0.39.0")
 	var mismatch *DaemonCompatibilityError
 	if !errors.As(err, &mismatch) || mismatch.Reason != DaemonProtocolOlder {
-		t.Fatalf("protocol-40 daemon must be rejected without replacement: %v", err)
+		t.Fatalf("protocol-41 daemon must be rejected without replacement: %v", err)
 	}
 }
 
-func TestProtocol41ReleaseScope(t *testing.T) {
+func TestProtocol42ReleaseScope(t *testing.T) {
 	t.Parallel()
 	for _, tc := range []struct {
 		release string
 		want    bool
 	}{
-		{"0.37.99", false}, {"0.38.0", true}, {"0.38.1", true},
-		{"0.39.0", true}, {"1.0.0", true}, {"dev", false},
-		{"0.38.0-rc.1", false}, {"0.38.0+local", false},
-		{"v0.38.0", false}, {"00.38.0", false}, {"0.038.0", false},
-		{"0.38.00", false}, {"0.37", false}, {"0.38.0.0", false},
-		{"0.38.-1", false}, {"0.38.9999999999999999999999999999999", false},
+		{"0.38.99", false}, {"0.39.0", true}, {"0.39.1", true},
+		{"0.40.0", true}, {"1.0.0", true}, {"dev", false},
+		{"0.39.0-rc.1", false}, {"0.39.0+local", false},
+		{"v0.39.0", false}, {"00.39.0", false}, {"0.039.0", false},
+		{"0.39.00", false}, {"0.37", false}, {"0.39.0.0", false},
+		{"0.39.-1", false}, {"0.39.9999999999999999999999999999999", false},
 	} {
-		if got := protocol41Release(tc.release); got != tc.want {
-			t.Errorf("protocol41Release(%q) = %t, want %t", tc.release, got, tc.want)
+		if got := protocol42Release(tc.release); got != tc.want {
+			t.Errorf("protocol42Release(%q) = %t, want %t", tc.release, got, tc.want)
 		}
 	}
-	for _, protocol := range []int{40, 41, 42} {
-		want := protocol == 41
-		if got := coveredSessionReleasePair(protocol, "0.38.0", "0.38.1"); got != want {
+	for _, protocol := range []int{41, 42, 43} {
+		want := protocol == 42
+		if got := coveredSessionReleasePair(protocol, "0.39.0", "0.39.1"); got != want {
 			t.Errorf("protocol %d stable release skew = %t, want %t", protocol, got, want)
 		}
 	}
