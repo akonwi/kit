@@ -42,7 +42,7 @@ private func vcsScript(_ port: Int) -> VCSScript {
     case 19610: return VCSScript(chunks: Array(repeating: (0, paddedRecord(size: 60 * 1024)), count: 12))
     case 19611, 19613: return VCSScript(chunks: [(0, ": connected\n\n")], finish: false)
     case 19612:
-        return VCSScript(chunks: [(0, ": connected\n\n")] + Array(repeating: (100, ": heartbeat\n\n"), count: 8) + [(100, vcsRecord(vcsFrame))])
+        return VCSScript(chunks: [(0, ": connected\n\n")] + Array(repeating: (100, ": heartbeat\n\n"), count: 20) + [(100, vcsRecord(vcsFrame))])
     case 19614: return VCSScript(chunks: [(0, "event: vcs.status\ndata: {\"sessionId\":\"session_one\",\ndata: \"cwd\":\"/repo\"}\n\n")])
     case 19615: return VCSScript(chunks: [(0, "event: vcs.other\ndata: " + vcsFrame + "\n\n")])
     case 19617: return VCSScript(status: 404, contentType: "text/plain", chunks: [(0, "404 page not found\n")])
@@ -232,13 +232,14 @@ struct VCSStreamTests {
     @Test func idleBoundEndsSilentStreamsAndHeartbeatsResetIt() async throws {
         let started = ContinuousClock.now
         do {
-            _ = try await transportRecords(19611, idle: .milliseconds(300))
+            _ = try await transportRecords(19611, idle: .seconds(1))
             Issue.record("silent stream did not time out")
         } catch Kit.ClientError.disconnected {
-            #expect(ContinuousClock.now - started >= .milliseconds(300))
+            #expect(ContinuousClock.now - started >= .seconds(1))
         }
-        // Heartbeats every 100 ms keep a 300 ms idle bound open for 900 ms.
-        let events = try await transportRecords(19612, idle: .milliseconds(300))
+        // Heartbeats every 100 ms keep a 1 s idle bound open for about 2 s. The
+        // tenfold margin tolerates scheduling delays on loaded CI runners.
+        let events = try await transportRecords(19612, idle: .seconds(1))
         #expect(events.filter { $0.event == "vcs.status" }.count == 1)
     }
 
