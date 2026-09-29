@@ -98,6 +98,7 @@ final class EventStreamBody: @unchecked Sendable {
     private var lastBoundary = ContinuousClock.now
     private var timedOut = false
     private var finished = false
+    private var claimed = false
     private var recordBytes = 0
     private var watchdog: Task<Void, Never>?
 
@@ -120,9 +121,17 @@ final class EventStreamBody: @unchecked Sendable {
         task.cancel()
     }
 
-    /// The body's chunks. Iterating once consumes the response.
+    /// The body's chunks. Only the first call yields the response; later
+    /// calls fail, so one iterator owns the byte iterator and framing state.
+    /// The unfolding closure runs sequentially for that single iterator, and
+    /// the lock guards only the state shared with the watchdog.
     func chunks() -> AsyncThrowingStream<ArraySlice<UInt8>, any Error> {
-        AsyncThrowingStream(unfolding: { [self] in
+        let first = lock.withLock { () -> Bool in
+            defer { claimed = true }
+            return !claimed
+        }
+        guard first else { return AsyncThrowingStream { $0.finish(throwing: ClientError.invalidPayload) } }
+        return AsyncThrowingStream(unfolding: { [self] in
             try await withTaskCancellationHandler {
                 try await self.nextLine()
             } onCancel: {

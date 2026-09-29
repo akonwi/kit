@@ -72,12 +72,18 @@ private final class VCSResponse: URLProtocol, @unchecked Sendable {
         let script = vcsScript(port)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: script.status, httpVersion: nil,
             headerFields: ["Content-Type": script.contentType])!, cacheStoragePolicy: .notAllowed)
-        var delay = 0
-        for (after, chunk) in script.chunks {
-            delay += after
-            deliver(after: delay) { $0.client?.urlProtocol($0, didLoad: Data(chunk.utf8)) }
+        play(script.chunks[...], finish: script.finish)
+    }
+    /// Delivers chunks strictly in order, each after its delay, then finishes.
+    private func play(_ chunks: ArraySlice<(Int, String)>, finish: Bool) {
+        guard let (after, chunk) = chunks.first else {
+            if finish { client?.urlProtocolDidFinishLoading(self) }
+            return
         }
-        if script.finish { deliver(after: delay) { $0.client?.urlProtocolDidFinishLoading($0) } }
+        deliver(after: after) { this in
+            this.client?.urlProtocol(this, didLoad: Data(chunk.utf8))
+            this.play(chunks.dropFirst(), finish: finish)
+        }
     }
     override func stopLoading() {
         lock.withLock { halted = true }
@@ -216,6 +222,25 @@ struct VCSStreamTests {
         // Heartbeats every 100 ms keep a 300 ms idle bound open for 900 ms.
         let events = try await transportRecords(19612, idle: .milliseconds(300))
         #expect(events.filter { $0.event == "vcs.status" }.count == 1)
+    }
+
+    @Test func streamBodyAdmitsOnlyOneConsumer() async throws {
+        let session = URLSession(configuration: configuration())
+        var request = URLRequest(url: URL(string: "http://127.0.0.1:19608/v1/sessions/session_one/vcs/events")!)
+        request.setValue("Bearer test", forHTTPHeaderField: "Authorization")
+        request.setValue("server", forHTTPHeaderField: "X-Kit-Instance-ID")
+        request.setValue(String(kitWireVersion), forHTTPHeaderField: "X-Kit-Protocol-Version")
+        let (bytes, _) = try await session.bytes(for: request)
+        let body = EventStreamBody(bytes: bytes, bounds: .init(maxRecordBytes: 64 * 1024, idleTimeout: .seconds(5)))
+        let first = body.chunks()
+        do {
+            for try await _ in body.chunks() {}
+            Issue.record("second consumer was admitted")
+        } catch Kit.ClientError.invalidPayload {}
+        var lines = 0
+        for try await _ in first { lines += 1 }
+        #expect(lines == 3)
+        session.invalidateAndCancel()
     }
 
     @Test func cancellationClosesAnIdleStream() async throws {
