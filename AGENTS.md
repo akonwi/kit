@@ -25,8 +25,11 @@ TUI and macOS UI work must preserve its surface hierarchy, palette, layout,
 interaction, and component conventions unless a new decision explicitly changes
 it.
 
-The native TUI uses `go.rockorager.dev/vaxis/ui`. The maintained clients are
-the native TUI and the native macOS app (`apps/macos`).
+The native TUI is written in Ard with Cooper in `apps/cli`
+([ADR 0035](docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md)).
+Until that client replaces it, `internal/tui` (`go.rockorager.dev/vaxis/ui`)
+remains the shipped client. The maintained clients are the native TUI and the
+native macOS app (`apps/macos`).
 
 The semantic browser client (`apps/web`, `backlog/web.md`) is not actively
 maintained. Do not plan, update, validate, or add backlog items for it as part
