@@ -281,10 +281,10 @@ func TestSessionExplorerRendersTheCanonicalPicker(t *testing.T) {
 	assertDialogRow(t, rows, "Sessions", "│ Sessions                                                          5 sessions │")
 	// Children are indented under their parent with the disclosure in the
 	// hint column; the working directory and updated time share columns.
-	assertDialogRow(t, rows, "Authentication", "│ Authentication  ▾ 2                  /repo/authentication         2026-06-01 │")
-	assertDialogRow(t, rows, "Tokens", "│   Tokens                             /repo/tokens                 2026-06-03 │")
-	assertDialogRow(t, rows, "OAuth", "│▌  OAuth         ▸ 1                  /repo/oauth                  2026-06-02 │")
-	assertDialogRow(t, rows, "Release", "│ Release                              /repo/release                2026-06-04 │")
+	assertDialogRow(t, rows, "Authentication", "│ Authentication  ▾ 2  /repo/authentication                         2026-06-01 │")
+	assertDialogRow(t, rows, "Tokens", "│   Tokens             /repo/tokens                                 2026-06-03 │")
+	assertDialogRow(t, rows, "OAuth", "│▌  OAuth         ▸ 1  /repo/oauth                                  2026-06-02 │")
+	assertDialogRow(t, rows, "Release", "│ Release              /repo/release                                2026-06-04 │")
 	assertPickerFooter(t, rows, "←→ expand · enter switch · ctrl+r rename · ctrl+d delete")
 	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete                     │")
 
@@ -303,18 +303,46 @@ func TestSessionExplorerShowsLineageNotesInTheHintColumn(t *testing.T) {
 	)
 	controller := openExplorer("session_other", items)
 	_, _, rows := renderExplorer(t, controller, 100, 24)
-	assertDialogRow(t, rows, "Orphan", "│ Orphan          from Gone            /repo/orphan                 2026-06-04 │")
-	assertDialogRow(t, rows, "Adopted", "│ Adopted         from 01234567        /repo/adopted                2026-06-04 │")
-	assertDialogRow(t, rows, "Loop", "│ Loop            invalid parent       /repo/loop                   2026-06-04 │")
+	assertDialogRow(t, rows, "Orphan", "│ Orphan          from Gone       /repo/orphan                      2026-06-04 │")
+	assertDialogRow(t, rows, "Adopted", "│ Adopted         from 01234567   /repo/adopted                     2026-06-04 │")
+	assertDialogRow(t, rows, "Loop", "│ Loop            invalid parent  /repo/loop                        2026-06-04 │")
 
-	// Filtered results are flat; each match keeps its parent as a note.
-	controller.SetQuery("o")
-	_, _, rows = renderExplorer(t, controller, 100, 24)
-	assertDialogRow(t, rows, "│ o ", "│ o                                                                            │")
-	assertDialogRow(t, rows, "OAuth", "│▌OAuth           from Authentication  /repo/oauth                  2026-06-02 │")
-	assertDialogRow(t, rows, "Tokens", "│ Tokens          from Authentication  /repo/tokens                 2026-06-03 │")
-	assertDialogRow(t, rows, "Providers", "│ Providers       from OAuth           /repo/providers              2026-06-05 │")
-	assertDialogRow(t, rows, "Orphan", "│ Orphan          from Gone            /repo/orphan                 2026-06-04 │")
+	// A filtered match stays under its ancestors, and an orphan keeps its
+	// lineage note.
+	for _, test := range []struct {
+		query string
+		want  []string
+	}{
+		{query: "prov", want: []string{
+			"│ Authentication                  /repo/authentication              2026-06-01 │",
+			"│   OAuth                         /repo/oauth                       2026-06-02 │",
+			"│▌    Providers                   /repo/providers                   2026-06-05 │",
+		}},
+		{query: "orph", want: []string{
+			"│▌Orphan          from Gone       /repo/orphan                      2026-06-04 │",
+		}},
+	} {
+		controller.SetQuery(test.query)
+		_, _, rows = renderExplorer(t, controller, 100, 24)
+		if got := pickerListRows(rows); strings.Join(got, "\n") != strings.Join(test.want, "\n") {
+			t.Fatalf("%q rows =\n%s\nwant\n%s", test.query, strings.Join(got, "\n"), strings.Join(test.want, "\n"))
+		}
+	}
+}
+
+// pickerListRows returns the dialog rows between the search divider and the
+// footer divider, without trailing blank rows.
+func pickerListRows(rows []string) []string {
+	left, right, _ := paletteBorder(rows)
+	result := []string{}
+	for row := findPaintedRow(rows, "├") + 1; row < len(rows) && !strings.Contains(rows[row], "├"); row++ {
+		cells := []rune(rows[row])
+		result = append(result, string(cells[left:right+1]))
+	}
+	for len(result) > 0 && strings.TrimSpace(strings.Trim(result[len(result)-1], "│")) == "" {
+		result = result[:len(result)-1]
+	}
+	return result
 }
 
 func TestSessionExplorerTitleShowsSwitchingSpinnerAndFooterStatus(t *testing.T) {
@@ -377,7 +405,7 @@ func TestSessionExplorerDeleteConfirmationStaysInTheFrame(t *testing.T) {
 	}
 	application, _, rows := renderExplorer(t, controller, 100, 24)
 	// The target stays highlighted in the list while the footer asks.
-	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▸ 2                  /repo/authentication         2026-06-01 │")
+	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▸ 2  /repo/authentication                         2026-06-01 │")
 	assertDialogRow(t, rows, "Delete", "│ Delete \"Authentication\"? enter confirm                            esc cancel │")
 	column, row := findTextCell(t, rows, "Delete \"")
 	if cell := application.Cell(column, row); cell.Style.Foreground != ui.DefaultThemeSet().Dark.DangerText {
@@ -438,7 +466,7 @@ func TestSessionExplorerDisclosureClickTogglesAndRowClickActivates(t *testing.T)
 	application.Click(column, row)
 	application.Pump(100, 24)
 	rows = paintedRows(application, 100, 24)
-	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▾ 2                  /repo/authentication         2026-06-01 │")
+	assertDialogRow(t, rows, "Authentication", "│▌Authentication  ▾ 2  /repo/authentication                         2026-06-01 │")
 	assertVisibleSessions(t, &state.controller, "session_root", "session_sibling", "session_child", "session_other")
 
 	column, row = findTextCell(t, rows, "Release")
@@ -477,7 +505,7 @@ func TestSessionExplorerKeysRouteThroughThePickerModel(t *testing.T) {
 	if c.Query != "tok" || c.Selection != "session_sibling" {
 		t.Fatalf("typed query = %q selection = %s", c.Query, c.Selection)
 	}
-	assertVisibleSessions(t, c, "session_sibling")
+	assertVisibleSessions(t, c, "session_root", "session_sibling")
 	// With a query, Left and Right are swallowed and leave the tree alone.
 	if result := press(ui.Key{Keycode: vaxis.KeyRight}); !result.Handled || c.Query != "tok" || c.expanded["session_sibling"] || c.Selection != "session_sibling" {
 		t.Fatalf("right with a query = %+v controller %+v", result, c)
@@ -571,7 +599,7 @@ func TestSessionExplorerAppAppliesKeysTypedBeforePaintAndCatalog(t *testing.T) {
 	if state.sessionExplorer.Selection != "session_other" {
 		t.Fatalf("selection after catalog = %s, want the first match", state.sessionExplorer.Selection)
 	}
-	assertDialogRow(t, rows, "/repo/release", "│▌Release                          /repo/release    2026-06-04 │")
+	assertDialogRow(t, rows, "/repo/release", "│▌Release              /repo/release                2026-06-04 │")
 
 	// The whole footer fits the 80-column terminal's picker.
 	assertDialogRow(t, rows, "ctrl+d delete", "│ ←→ expand · enter switch · ctrl+r rename · ctrl+d delete     │")

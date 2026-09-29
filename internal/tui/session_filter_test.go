@@ -1,51 +1,58 @@
 package tui
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
-func TestSessionFilterMatchesOnlyNamesAndFindsCollapsedDescendants(t *testing.T) {
+func TestSessionFilterKeepsMatchesWithTheirAncestors(t *testing.T) {
 	c := &sessionExplorerController{}
-	items := append(hierarchyFixture(), sessionExplorerItem{ID: "session_providers", CWD: "/Providers", ParentSessionName: "Providers"})
-	c.Resolve(c.Begin("session_other"), items, nil)
+	c.Resolve(c.Begin("session_other"), append(explorerFixture(), sessionExplorerItem{ID: "session_abc12345", UpdatedAt: "2026-05-01T00:00:00Z"}), nil)
+
+	// A collapsed descendant is shown under its ancestors and highlighted.
 	c.SetQuery("  PROVID  ")
-	assertVisibleSessions(t, c, "session_leaf")
+	assertVisibleSessions(t, c, "session_root", "session_child", "session_leaf")
 	if c.Selection != "session_leaf" {
 		t.Fatalf("filtered selection = %s", c.Selection)
 	}
-	row := c.Snapshot().Sessions[0]
-	if row.Tree || row.Depth != 0 || row.ChildCount != 0 || !row.MissingParent || row.ParentSessionName != "OAuth" {
-		t.Fatalf("filtered row = %+v", row)
+	got := c.Snapshot().Sessions
+	if got[0].Depth != 0 || got[1].Depth != 1 || got[2].Depth != 2 || got[0].ChildCount != 0 || got[1].ChildCount != 0 {
+		t.Fatalf("filtered rows = %+v", got)
 	}
-	_, id, ok := c.BeginSwitch()
-	if !ok || id != "session_leaf" {
+	if _, id, ok := c.BeginSwitch(); !ok || id != "session_leaf" {
 		t.Fatalf("switch filtered descendant = %s %v", id, ok)
 	}
 	c.CancelSwitch()
-	c.SetQuery("")
-	assertVisibleSessions(t, c, "session_root", "session_other", "session_providers")
-	if c.Selection != "session_root" {
-		t.Fatalf("restored tree selection = %s", c.Selection)
+
+	// Families move as one group, placed by their best-ranked match.
+	ranked := &sessionExplorerController{}
+	ranked.Resolve(ranked.Begin("session_other"), hierarchyFixture(), nil)
+	ranked.SetQuery("re")
+	assertVisibleSessions(t, ranked, "session_other", "session_root", "session_child", "session_leaf")
+	if ranked.Selection != "session_other" {
+		t.Fatalf("best match selection = %s", ranked.Selection)
 	}
-	c.SetQuery("/Providers")
+	// Like other pickers, the description and a fallback label match too.
+	c.SetQuery("repo/tok")
+	assertVisibleSessions(t, c, "session_root", "session_sibling")
+	c.SetQuery("abc1")
+	assertVisibleSessions(t, c, "session_abc12345")
+
+	c.SetQuery("zzz")
 	assertVisibleSessions(t, c)
 	if _, ok := c.ActivatableSelection(); ok {
 		t.Fatal("empty result is activatable")
 	}
-	c.Move(1)
-	c.NavigateTree(true)
-	if c.Selection != "" {
-		t.Fatalf("empty selection = %s", c.Selection)
+	// Clearing the query restores the tree and the nearest visible ancestor.
+	c.SetQuery("provid")
+	c.SetQuery("")
+	assertVisibleSessions(t, c, "session_root", "session_other", "session_abc12345")
+	if c.Selection != "session_root" {
+		t.Fatalf("restored tree selection = %s", c.Selection)
 	}
-	c.SetQuery("OAuth")
-	assertVisibleSessions(t, c, "session_child") // Parent names must not match the leaf.
-	c.SetQuery("session_")
-	assertVisibleSessions(t, c)
-	c.SetQuery("   ")
-	assertVisibleSessions(t, c, "session_root", "session_other", "session_providers")
 }
 
 func TestSessionFilterMutationsKeepSelectionVisible(t *testing.T) {
@@ -91,10 +98,14 @@ func TestStandaloneSessionPickerFiltersTypedNames(t *testing.T) {
 	}
 	app.Pump(100, 20)
 	app.Pump(100, 20)
-	// Filtered results are flat and keep their parent as a lineage note.
+	// The match is shown under its parent.
 	rows := paintedRows(app, 100, 20)
-	assertPickerSearchField(t, rows, "Child")
-	assertDialogRow(t, rows, "from Parent", "│▌Child    from Parent                                                 unknown │")
+	_, searchRow := assertPickerSearchField(t, rows, "Child")
+	assertDialogRow(t, rows, "│ Parent", "│ Parent                                                               unknown │")
+	assertDialogRow(t, rows, "│▌  Child", "│▌  Child                                                              unknown │")
+	if findPaintedRow(rows, "│ Parent") != searchRow+2 {
+		t.Fatalf("parent is not the first result:\n%s", strings.Join(rows, "\n"))
+	}
 	app.Enter()
 	if got := result.selectedSession(); got != "session_child" {
 		t.Fatalf("selected result = %s", got)

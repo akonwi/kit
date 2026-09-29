@@ -105,7 +105,7 @@ func (c *sessionExplorerController) visibleSessions() []sessionExplorerItem {
 }
 
 // sessionsFor returns the visible rows for a query: the tree with remembered
-// expansion when the query is blank, otherwise flat name matches.
+// expansion when the query is blank, otherwise matches under their ancestors.
 func (c *sessionExplorerController) sessionsFor(query string) []sessionExplorerItem {
 	if strings.TrimSpace(query) != "" {
 		return c.filteredSessions(query)

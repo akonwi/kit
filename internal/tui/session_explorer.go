@@ -125,7 +125,7 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 	c.expandAncestors(c.CurrentSessionID)
 	c.expandAncestors(c.Selection)
 	if strings.TrimSpace(c.Query) != "" {
-		c.Selection = firstEnabledPickerKey(c.pickerItems(c.Query))
+		_, c.Selection = c.filterSessions(c.Query)
 		return true
 	}
 	if sessionIndex(c.Sessions, c.Selection) < 0 {
@@ -482,8 +482,10 @@ func (w sessionExplorerSurface) picker(now time.Time) picker {
 			Value: snapshot.Query, Placeholder: "Search sessions…", CursorOffset: &cursor,
 			OnChanged: w.Callbacks.QueryChanged, AutoFocus: true,
 		},
-		Items:      sessionExplorerPickerItems(snapshot.Sessions, snapshot.CurrentSessionID, now),
-		Catalog:    sessionExplorerPickerCatalog(snapshot.All, snapshot.CurrentSessionID, now),
+		Items: sessionExplorerPickerItems(snapshot.Sessions, snapshot.CurrentSessionID, now),
+		// Filtered rows are a subset of the tree without disclosures, so the
+		// tree sizes the columns for both.
+		Catalog:    sessionExplorerPickerItems(snapshot.All, snapshot.CurrentSessionID, now),
 		Selection:  snapshot.Selection,
 		Footer:     "←→ expand · enter " + action + " · ctrl+r rename · ctrl+d delete",
 		OnActivate: w.Callbacks.Activate,
@@ -580,17 +582,6 @@ func sessionExplorerPickerItems(sessions []sessionExplorerItem, currentSessionID
 		items = append(items, item)
 	}
 	return items
-}
-
-// sessionExplorerPickerCatalog sizes columns for both the tree and the flat
-// filtered results, so typing never shifts the columns.
-func sessionExplorerPickerCatalog(sessions []sessionExplorerItem, currentSessionID string, now time.Time) []pickerItem {
-	catalog := sessionExplorerPickerItems(sessions, currentSessionID, now)
-	flat := make([]sessionExplorerItem, len(sessions))
-	for index, session := range sessions {
-		flat[index] = flatSessionExplorerItem(session)
-	}
-	return append(catalog, sessionExplorerPickerItems(flat, currentSessionID, now)...)
 }
 
 // sessionLineageNote explains a session whose parent is not shown above it.
