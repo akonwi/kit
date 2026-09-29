@@ -32,8 +32,10 @@ ADR 0011. Newline-delimited JSON is not used.
   no meaning and clients ignore them.
 - Each record has an `event` field naming the record and a single `data` line
   holding one JSON object. Records never span multiple `data` lines.
-- Each stream declares a maximum encoded record size. The server ends the
-  stream rather than send a larger record, and clients reject larger records.
+- Each stream declares a maximum encoded record size: the bytes of the
+  record's field lines, including their line terminators and excluding the
+  blank line that ends the record. The server ends the stream rather than send
+  a larger record, and clients reject larger records.
 - A stream sets the `id` field only when it supports resumption. Its cursor
   semantics are defined by the stream, as ADR 0011 does for session events.
   Streams without resumption start fresh on every connection and do not replay.
@@ -61,9 +63,15 @@ ADR 0011. Newline-delimited JSON is not used.
   would violate its bounds. A stream may define a terminal record, such as
   `session.resync`, that tells the client how to recover before the server
   closes the response.
-- Clients treat an unexpected end, malformed framing, an oversized record, a
-  payload that fails decoding or validation, or an unknown record name as a
-  transport failure. They reconnect according to their own backoff policy.
+- A clean end of the response, an interrupted connection, an idle timeout,
+  and a declared retryable pre-stream status such as 429 or 503 are transient.
+  Clients reconnect according to their own backoff policy.
+- Malformed framing, a record truncated by the end of the response, a record
+  with more than one `data` line, an oversized record, an unknown record name,
+  a payload that fails decoding or validation, and a pre-stream response the
+  operation does not declare are protocol violations. Clients stop the stream
+  and report the failure rather than reconnect, because retrying cannot
+  succeed against the same server.
 
 ### Contract representation
 
@@ -78,7 +86,10 @@ ADR 0011. Newline-delimited JSON is not used.
   reader that parses records, enforces bounds, and decodes and validates
   payloads. Streams do not implement framing by hand.
 - Generated clients receive the raw body and decode it with their runtime's
-  SSE support using the published payload schema. Client transports bound each
+  SSE support using the published payload schema. Where that support is more
+  lenient than this ADR, for example by joining multiple `data` lines,
+  dropping a truncated final record, or ignoring unknown fields, the client
+  transport enforces these rules itself. Client transports bound each
   record and the time between records rather than the total response length,
   because a stream has no natural end.
 
