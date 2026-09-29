@@ -251,9 +251,26 @@ their terminal's native workflow.
 | --- | --- | --- |
 | Persistent chrome | Session name top-left; model/thinking/context and update contributions top-right; transient status bottom-left; cwd/Git bottom-right; composer | Fixed rows with established ownership |
 | Workspace surface | Agent transcript and retained task context | Full-width tabs with labeled overflow and a modal pane picker |
-| Transient overlay | Command palette, contextual pickers, toasts, context menus | No heavy frame; pickers keep a fixed height within bounds |
+| Transient overlay | Inline pickers, toasts, context menus | No heavy frame; anchored to the point that opened them |
+| Palette picker | Command palette and every other centered modal list | One fixed-size frame shaped like the command palette |
 | Dialog | Settings, login, guided questions, destructive confirmation | Centered modal with bounded content |
 | Takeover | Pager, fatal errors, migration/recovery | Full viewport with fixed header/footer |
+
+### Picker terminology
+
+- A **palette picker** is a centered modal list shaped like the command
+  palette: the command palette, model, thinking, theme, file, workspace tab,
+  diff target, and session pickers, and the login provider picker. It owns
+  its search field and keys, and every palette picker renders through the
+  shared `palettePicker` widget (`internal/tui/palette_picker.go`).
+- An **inline picker** is a non-modal list anchored to a point in the UI
+  rather than centered: the composer's file and session mention menus,
+  message and bash history, and the transcript reading section list. When
+  anchored to the composer, the composer owns the query text and cursor.
+  Inline pickers share the palette picker's items, row rendering, and
+  navigation keys, not its frame.
+- A workspace pane that lists items, such as Subagents, is neither; it is a
+  pane.
 
 ## Visual grammar
 
@@ -271,8 +288,8 @@ their terminal's native workflow.
   using semantic progress color thresholds. The header separator is structural,
   not a progress bar. Omit context at zero or when unavailable.
 - Do not add an elapsed-turn timer.
-- Pickers, including the command palette, keep a fixed height within viewport
-  bounds so filtering never moves or resizes the surface.
+- Palette pickers keep a fixed height within viewport bounds so filtering
+  never moves or resizes the surface.
 - Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
   unexplained glyph.
 - Animation is limited to meaningful progress, entry/exit, and state change;

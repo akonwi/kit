@@ -30,9 +30,19 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   name instead of the full canonical ID, keeping the owning plugin in the
   metadata column. Commands from different plugins that share a short name
   must both remain listed and runnable.
-- [x] TUI-PICK-001 — The canonical picker widget (`internal/tui/picker.go`)
-  and its shared key model (`internal/tui/picker_keys.go`) are the contract
-  for all modal pickers, including the session explorer's hierarchy.
+- [x] TUI-PICK-001 — The palette picker widget
+  (`internal/tui/palette_picker.go`), its items (`internal/tui/picker.go`),
+  and the shared key model (`internal/tui/picker_keys.go`) are the contract
+  for all palette pickers, including the session explorer's hierarchy.
+- [ ] TUI-PICK-007 — Render the login provider picker ("Connect a provider")
+  as a palette picker: search field without the `>` marker or "Filter
+  providers" label, provider rows, and keys through `pickerKeyModel` on the
+  auth input path.
+- [ ] TUI-PICK-008 — Add the inline picker for lists anchored to the composer
+  or another point in the UI, sharing `pickerItem`, row rendering, and
+  navigation keys with the palette picker while the composer owns the query.
+  Migrate the file and session mention menus, message and bash history, and
+  the transcript reading section list.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline

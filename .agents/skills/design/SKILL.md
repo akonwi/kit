@@ -160,7 +160,7 @@ Examples: settings, login, session exploration, command palette, workspace file 
 
 OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Keep dialog and border-cell backgrounds continuous; do not add decorative inner borders to compensate.
 
-Compose picker behavior with `Picker.Root`, `Picker.Header`, `Picker.Body`, and `Picker.Footer`. Put that composition inside `InlinePicker` for a transient picker or `Dialog.Root` for a modal picker; do not fork picker interaction and selection styling.
+Palette pickers use `palettePicker`; inline pickers are transient overlays. Do not fork picker interaction and selection styling.
 
 ### Interaction dock
 
@@ -403,13 +403,11 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 ### Interactive elements
 
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
-- **Picker selection:** use `pickerFocusedBg` with `pickerFocusedText`.
-  Hover and selection backgrounds cover the entire row, including text,
-  metadata, gaps, and padding. Let the row surface own its background rather
-  than painting an idle background over it in child text spans.
-- **Searchable modal pickers:** use the shared `pickerSearchField` widget, which
-  owns the search row's presentation; add a scrollbar for overflow and keep
-  keyboard selection visible when navigating, filtering, or resizing.
+- **Pickers:** a centered modal list is a *palette picker* and must render
+  through `palettePicker` (`internal/tui/palette_picker.go`), which owns the
+  frame, search, rows, selection, and overflow presentation. A list anchored to
+  the composer or another point is an *inline picker*. See "Picker
+  terminology" in `docs/design/v2-ui-direction.md`.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render
   unavailable rows with disabled/muted text plus a concise reason such as
