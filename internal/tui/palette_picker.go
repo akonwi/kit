@@ -8,26 +8,33 @@ import (
 
 // palettePicker is the canonical centered modal picker, shaped like the command
 // palette. Its fields are the whole contract: callers describe the title,
-// search, items, and footer; the palette picker owns the frame, alignment,
-// highlight, overflow rows, and pointer activation. Pickers anchored to the
-// composer or another point in the UI are inline pickers and do not use this
-// frame; they share pickerItem, row rendering, and pickerKeyModel.
+// query, catalog, and footer; the palette picker owns filtering, the search
+// field, the frame, alignment, highlight, overflow rows, and pointer
+// activation. Pickers anchored to the composer or another point in the UI are
+// inline pickers and do not use this frame; they share pickerItem, row
+// rendering, filterPickerItems, and pickerKeyModel.
 type palettePicker struct {
 	Title     string
 	TitleMeta string
 	// TitleMetaTone colors the title metadata; pickerToneLoading shows it
 	// after the shared spinner, for example while an activation is pending.
 	TitleMetaTone pickerTone
-	// Search adds the shared search field when non-nil.
-	Search *textInputConfig
-	// Items are the visible rows in order.
-	Items []pickerItem
-	// Catalog sizes the columns. It defaults to Items; pass the unfiltered
-	// catalog so filtering never shifts columns.
-	Catalog   []pickerItem
+	// Query is the picker's query, owned by its pickerKeyModel. The visible
+	// rows are Filter(Query, Catalog).
+	Query string
+	// Search shows the shared search field when non-nil. The field displays
+	// Query and is display-only: query edits arrive through pickerKeyModel.
+	Search *pickerSearch
+	// Catalog is every item in catalog order. It also sizes the columns, so
+	// filtering never shifts them.
+	Catalog []pickerItem
+	// Filter derives the visible rows; nil uses filterPickerItems. It must be
+	// the filter the picker's key model uses.
+	Filter pickerFilter
+	// Selection is the highlighted key, normally the key model's Selection.
 	Selection string
 	// Message replaces the list for loading, empty, and error states. When
-	// empty and there are no items, the list reads "No results".
+	// empty and there are no visible rows, the list reads "No results".
 	Message     string
 	MessageTone pickerTone
 	Footer      string
@@ -41,6 +48,25 @@ type palettePicker struct {
 	// OnKey is only for pane-owned pickers that cannot use the app input-owner
 	// route. The callback must delegate meaning to pickerKeyModel.
 	OnKey func(ui.Key) ui.EventResult
+}
+
+// pickerSearch configures a palette picker's search field.
+type pickerSearch struct {
+	Placeholder string
+}
+
+// items returns the rows a palette picker shows for its query.
+func (w palettePicker) items() []pickerItem {
+	return pickerFilterOrDefault(w.Filter)(w.Query, w.Catalog)
+}
+
+// searchInput builds the display-only search field configuration. The cursor
+// sits at the end of the query, the only position query editing supports.
+func (w palettePicker) searchInput() textInputConfig {
+	cursor := len((ui.LayoutContext{}).Characters(w.Query))
+	return textInputConfig{
+		Value: w.Query, Placeholder: w.Search.Placeholder, CursorOffset: &cursor, AutoFocus: true, ReadOnly: true,
+	}
 }
 
 func (palettePicker) CreateState() ui.State { return &palettePickerState{} }
@@ -59,11 +85,11 @@ func (s *palettePickerState) Build(ctx ui.BuildContext) ui.Widget {
 	title := pickerTitleRow(theme, w.Title, w.TitleMeta, w.TitleMetaTone)
 	switch {
 	case title != nil && w.Search != nil:
-		children = append(children, pickerTitledSearchField(theme, title, *w.Search))
+		children = append(children, pickerTitledSearchField(theme, title, w.searchInput()))
 	case title != nil:
 		children = append(children, ui.Padding(ui.Insets{Top: 1, Right: pickerContentInset, Bottom: 1, Left: pickerContentInset}, title))
 	case w.Search != nil:
-		children = append(children, ui.Padding(ui.Insets{Top: 1}, pickerSearchField(theme, *w.Search)))
+		children = append(children, ui.Padding(ui.Insets{Top: 1}, pickerSearchField(theme, w.searchInput())))
 	default:
 		children = append(children, ui.SizedBox{Height: 1})
 	}
@@ -86,20 +112,15 @@ const (
 )
 
 func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
-	if w.Message != "" || len(w.Items) == 0 {
+	items := w.items()
+	if w.Message != "" || len(items) == 0 {
 		message := w.Message
 		if message == "" {
 			message = "No results"
 		}
 		return ui.Padding(ui.Insets{Left: 1}, pickerMessage(theme, message, w.MessageTone))
 	}
-	selection := -1
-	for index, item := range w.Items {
-		if item.Key == w.Selection {
-			selection = index
-			break
-		}
-	}
+	selection := pickerItemIndex(items, w.Selection)
 	reveal := -1
 	if !s.hasSelection || w.Selection != s.lastSelection {
 		reveal = selection
@@ -111,19 +132,15 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 	if rows <= 0 {
 		rows = pickerModalMinHeight
 	}
-	window := resolveListWindow(len(w.Items), rows, s.viewport.Start, reveal)
+	window := resolveListWindow(len(items), rows, s.viewport.Start, reveal)
 	first := window.Start
-	last := min(len(w.Items), first+rows)
-	catalog := w.Catalog
-	if catalog == nil {
-		catalog = w.Items
-	}
-	columns := measurePickerColumns(catalog)
+	last := min(len(items), first+rows)
+	columns := measurePickerColumns(w.Catalog)
 	built := make([]ui.Widget, 0, last-first+2)
 	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { s.scrollPage(-1) }})
 	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { s.scrollPage(1) }})
 	for index := first; index < last; index++ {
-		item := w.Items[index]
+		item := items[index]
 		var activate ui.VoidCallback
 		if w.OnActivate != nil {
 			key := item.Key
@@ -149,7 +166,7 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 			return ui.EventHandled
 		},
 		Child: pickerViewport{
-			Count: len(w.Items), First: first, Reveal: reveal, State: &s.viewport,
+			Count: len(items), First: first, Reveal: reveal, State: &s.viewport,
 			OnRowsChanged: s.MarkNeedsBuild, Children: built,
 		},
 	}

@@ -119,10 +119,9 @@ func (s *themePickerAppState) Build(ui.BuildContext) ui.Widget {
 			Scroll: &s.scroll, ThemePicker: s.themePicker.Snapshot(),
 		},
 		Callbacks: shellCallbacks{
-			InputOwner:        s.inputOwner,
-			ThemeQueryChanged: func(_ ui.EventContext, value string) { s.setThemeQuery(value) },
-			SelectTheme:       func(_ ui.EventContext, name string) { s.activateTheme(name) },
-			Dismiss:           func(ui.EventContext) { s.cancelThemePicker() },
+			InputOwner:  s.inputOwner,
+			SelectTheme: func(_ ui.EventContext, name string) { s.activateTheme(name) },
+			Dismiss:     func(ui.EventContext) { s.cancelThemePicker() },
 		},
 	}
 }

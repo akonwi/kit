@@ -8,17 +8,21 @@ import (
 // pickerKeyModel is the canonical keyboard model for pickers. It owns the
 // query and the highlighted item key, and decides what every key means, so no
 // picker handles navigation, activation, dismissal, or query editing itself.
+// It is the only route that edits a picker's query: the search field a
+// palette picker shows is display-only.
 //
 // Pickers route keys to their model from the application's input owner rather
 // than from the painted widget, so keys that arrive before the picker's first
 // frame are applied exactly like later ones.
+//
+// Callers pass the unfiltered catalog; the model derives visible items with
+// Filter, which must be the same filter the picker renders with.
 type pickerKeyModel struct {
 	Query     string
 	Selection string
+	// Filter derives the visible items; nil uses filterPickerItems.
+	Filter pickerFilter
 }
-
-// pickerItemsFunc returns a picker's visible items for a query.
-type pickerItemsFunc func(query string) []pickerItem
 
 // pickerKeyResult reports what one key did to a picker.
 type pickerKeyResult struct {
@@ -35,64 +39,88 @@ type pickerKeyResult struct {
 	QueryChanged bool
 }
 
+// Items returns the catalog items visible for the current query.
+func (m pickerKeyModel) Items(catalog []pickerItem) []pickerItem {
+	return m.itemsFor(m.Query, catalog)
+}
+
+func (m pickerKeyModel) itemsFor(query string, catalog []pickerItem) []pickerItem {
+	return pickerFilterOrDefault(m.Filter)(query, catalog)
+}
+
+func pickerFilterOrDefault(filter pickerFilter) pickerFilter {
+	if filter == nil {
+		return filterPickerItems
+	}
+	return filter
+}
+
 // HandleKey applies one key. Up/Down move with wraparound, Enter activates the
-// highlighted item, Escape dismisses, text and Backspace edit the query, and a
-// paste is flattened into the query. Other unmodified keys are consumed so
-// they cannot reach the background; keys with modifiers are left unhandled.
-func (m *pickerKeyModel) HandleKey(key ui.Key, items pickerItemsFunc) pickerKeyResult {
+// highlighted item, Escape dismisses, text and Backspace edit the query,
+// Ctrl+Backspace deletes the previous word, and a paste is flattened into the
+// query. Other unmodified keys are consumed so they cannot reach the
+// background; other keys with modifiers are left unhandled.
+func (m *pickerKeyModel) HandleKey(key ui.Key, catalog []pickerItem) pickerKeyResult {
 	if key.EventType == ui.EventRelease {
 		return pickerKeyResult{}
 	}
 	if key.EventType == vaxis.EventPaste {
-		m.SetQuery(m.Query+palettePasteText(key), items(m.Query+palettePasteText(key)))
+		m.SetQuery(m.Query+palettePasteText(key), catalog)
 		return pickerKeyResult{Handled: true, QueryChanged: true}
 	}
 	switch {
 	case key.MatchString("Escape"):
 		return pickerKeyResult{Handled: true, Dismiss: true}
 	case key.MatchString("Up"):
-		m.Move(items(m.Query), -1)
+		m.Move(catalog, -1)
 		return pickerKeyResult{Handled: true}
 	case key.MatchString("Down"):
-		m.Move(items(m.Query), 1)
+		m.Move(catalog, 1)
 		return pickerKeyResult{Handled: true}
 	case key.MatchString("Enter"):
 		result := pickerKeyResult{Handled: true, Activate: true}
-		if item, ok := pickerItemByKey(items(m.Query), m.Selection); ok {
+		if item, ok := pickerItemByKey(m.Items(catalog), m.Selection); ok {
 			result.DisabledReason = item.DisabledReason
 		}
 		return result
-	}
-	if key.Modifiers&^(vaxis.ModShift|vaxis.ModCapsLock|vaxis.ModNumLock) != 0 {
-		return pickerKeyResult{}
+	case key.MatchString("Ctrl+Backspace"):
+		if m.Query != "" {
+			m.SetQuery(deletePickerWordBackward(m.Query), catalog)
+			return pickerKeyResult{Handled: true, QueryChanged: true}
+		}
+		return pickerKeyResult{Handled: true}
 	}
 	query := m.Query
 	switch {
-	case key.MatchString("Backspace"):
+	case key.Keycode == vaxis.KeyBackspace && key.Modifiers&^(vaxis.ModShift|vaxis.ModAlt|vaxis.ModCapsLock|vaxis.ModNumLock) == 0:
+		// Alt+Backspace deletes one character, as it does in a text field.
 		runes := []rune(query)
 		if len(runes) == 0 {
 			return pickerKeyResult{Handled: true}
 		}
 		query = string(runes[:len(runes)-1])
+	case key.Modifiers&^(vaxis.ModShift|vaxis.ModCapsLock|vaxis.ModNumLock) != 0:
+		return pickerKeyResult{}
 	case key.Text != "":
 		query += key.Text
 	default:
 		return pickerKeyResult{Handled: true}
 	}
-	m.SetQuery(query, items(query))
+	m.SetQuery(query, catalog)
 	return pickerKeyResult{Handled: true, QueryChanged: true}
 }
 
 // SetQuery replaces the query and highlights the first enabled match, or the
 // first match when every match is disabled.
-func (m *pickerKeyModel) SetQuery(query string, items []pickerItem) {
+func (m *pickerKeyModel) SetQuery(query string, catalog []pickerItem) {
 	m.Query = query
-	m.Selection = firstEnabledPickerKey(items)
+	m.Selection = firstEnabledPickerKey(m.Items(catalog))
 }
 
-// Move highlights the item delta rows away, wrapping at both ends. Disabled
-// items can be highlighted so their reason can be read and reported.
-func (m *pickerKeyModel) Move(items []pickerItem, delta int) {
+// Move highlights the visible item delta rows away, wrapping at both ends.
+// Disabled items can be highlighted so their reason can be read and reported.
+func (m *pickerKeyModel) Move(catalog []pickerItem, delta int) {
+	items := m.Items(catalog)
 	if len(items) == 0 || delta == 0 {
 		return
 	}
@@ -106,6 +134,16 @@ func (m *pickerKeyModel) Move(items []pickerItem, delta int) {
 		index += len(items)
 	}
 	m.Selection = items[index].Key
+}
+
+// deletePickerWordBackward removes the word before the end of query with the
+// text buffer's word boundaries: trailing spaces, then one run of word or
+// punctuation characters.
+func deletePickerWordBackward(query string) string {
+	buffer := ui.NewTextBuffer(query)
+	buffer.SetCursorOffset(buffer.Len())
+	buffer.DeleteWordBackward()
+	return buffer.Text()
 }
 
 func firstEnabledPickerKey(items []pickerItem) string {

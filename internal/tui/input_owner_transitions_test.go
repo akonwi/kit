@@ -243,9 +243,6 @@ func (s *inputOwnerTransitionState) Build(ui.BuildContext) ui.Widget {
 					s.changes++
 				})
 			},
-			PaletteQueryChanged: func(_ ui.EventContext, value string) {
-				s.SetState(func() { s.palette.SetQuery(s.hasActiveWork(), value) })
-			},
 			RespondInteraction: func(_ ui.EventContext, _ protocol.InteractionResponse, complete func(error)) {
 				s.interactionResponses++
 				complete(nil)

@@ -137,7 +137,6 @@ func TestWorkspacePanePickerFiltersAndOpensCanonicalPane(t *testing.T) {
 	snapshot.WorkspacePickerQuery = "reviewer-b"
 	selected, closed := "", false
 	application := uitest.New(shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
-		WorkspacePickerQuery: func(ui.EventContext, string) {},
 		SelectWorkspacePane:  func(_ ui.EventContext, descriptor workspacePaneDescriptor) { selected = descriptor.ResourceID },
 		CloseWorkspacePicker: func(ui.EventContext) { closed = true },
 	}})

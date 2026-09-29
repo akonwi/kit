@@ -55,18 +55,12 @@ func TestWorkspaceFilePickerPresentationUsesIndexedFlatDialog(t *testing.T) {
 func TestWorkspaceFilePickerKeyboardPrimaryMouseRefreshAndDismiss(t *testing.T) {
 	t.Parallel()
 	controller := presentedFilePickerController()
-	query := ""
 	var activated workspaceFilePickerRow
 	view := filePickerShell(controller, presentedFilePickerSource(), shellCallbacks{
-		WorkspaceFilePickerQuery:    func(_ ui.EventContext, value string) { query = value },
 		ActivateWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) { activated = row },
 	})
 	application := uitest.New(view)
 	application.Pump(80, 24)
-	application.Send(vaxis.Key{Keycode: 'r', Text: "r"})
-	if query != "r" {
-		t.Fatalf("typing r = query:%q", query)
-	}
 	rows := paintedRows(application, 80, 24)
 	column, row := findTextCell(t, rows, "docs/")
 	application.Click(column+2, row)

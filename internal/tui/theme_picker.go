@@ -88,7 +88,7 @@ func (p *themePickerController) OpenNames(names []string, currentName string, cu
 	p.commitOnPreview = ""
 	selection := currentName
 	if query != "" {
-		selection = firstEnabledPickerKey(p.pickerItems(query))
+		selection = firstEnabledPickerKey(pickerKeyModel{Query: query}.Items(p.pickerCatalog()))
 	}
 	p.applyKeyState(query, selection)
 	return selection != "" && selection != currentName
@@ -137,23 +137,8 @@ func (p *themePickerController) completePreview(name string, succeeded bool) boo
 	return succeeded
 }
 
-func (p *themePickerController) pickerItems(query string) []pickerItem {
-	return themePickerItems(filterThemeNames(query, p.Names), p.CommittedName)
-}
-
-// SetQuery filters the catalog and highlights the first matching theme. It
-// reports whether the highlighted theme changed and should be previewed.
-func (p *themePickerController) SetQuery(query string) bool {
-	if !p.Open || p.Pending {
-		return false
-	}
-	previous := p.Selection
-	model := p.keyModel()
-	model.SetQuery(query, p.pickerItems(query))
-	p.applyKeyModel(model)
-	p.Err = nil
-	p.Diagnostics = nil
-	return p.Selection != previous && p.Selection != ""
+func (p *themePickerController) pickerCatalog() []pickerItem {
+	return themePickerItems(p.Names, p.CommittedName)
 }
 
 // HandleKey routes theme-picker input through the canonical picker key model.
@@ -165,7 +150,7 @@ func (p *themePickerController) HandleKey(key ui.Key) (pickerKeyResult, bool) {
 	}
 	previous := p.Selection
 	model := p.keyModel()
-	result := model.HandleKey(key, p.pickerItems)
+	result := model.HandleKey(key, p.pickerCatalog())
 	if p.Pending {
 		return result, false
 	}
@@ -179,12 +164,6 @@ func (p *themePickerController) HandleKey(key ui.Key) (pickerKeyResult, bool) {
 
 func (p *themePickerController) Close() {
 	*p = themePickerController{}
-}
-
-func filterThemeNames(query string, names []string) []string {
-	return ui.DefaultFuzzySelectFilter(query, names, func(name string) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: name}
-	})
 }
 
 func themePickerItems(names []string, current string) []pickerItem {

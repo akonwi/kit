@@ -48,15 +48,13 @@ func workspaceFilePickerKeyString(key workspaceFileKey) string {
 	return key.WorkspaceID + "\x00" + key.Path
 }
 
-func (c workspaceFilePickerController) pickerItems(source indexedFileSource, query string) []pickerItem {
+// pickerCatalog maps every indexed path onto a picker item.
+func (c workspaceFilePickerController) pickerCatalog(source indexedFileSource) []pickerItem {
 	if c.Workspace.WorkspaceID == "" {
 		return nil
 	}
-	entries := ui.DefaultFuzzySelectFilter(query, source.Entries, func(entry protocol.FileIndexEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: strings.TrimSuffix(entry.Path, "/")}
-	})
-	items := make([]pickerItem, 0, len(entries))
-	for _, entry := range entries {
+	items := make([]pickerItem, 0, len(source.Entries))
+	for _, entry := range source.Entries {
 		item := pickerItem{
 			Key:   workspaceFilePickerKeyString(workspaceFileKey{WorkspaceID: c.Workspace.WorkspaceID, Path: entry.Path}),
 			Label: entry.Path,
@@ -67,6 +65,24 @@ func (c workspaceFilePickerController) pickerItems(source indexedFileSource, que
 		items = append(items, item)
 	}
 	return items
+}
+
+// keyModel returns the file picker's canonical key model.
+func (c workspaceFilePickerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: c.Query, Selection: workspaceFilePickerKeyString(c.Selection), Filter: filterWorkspaceFileItems}
+}
+
+// filterWorkspaceFileItems is the file picker's filter hook. Indexed
+// directories are listed with a trailing slash, which is not part of the name
+// a user types: matching the bare path lets "internal" rank the internal/
+// directory as an exact match rather than a prefix of it. Scoring is the shared
+// filter's.
+func filterWorkspaceFileItems(query string, catalog []pickerItem) []pickerItem {
+	return filterPickerItemsBy(query, catalog, func(item pickerItem) ui.FuzzySelectItem {
+		match := pickerFuzzyItem(item)
+		match.Title = strings.TrimSuffix(match.Title, "/")
+		return match
+	})
 }
 
 func (c workspaceFilePickerController) rowByPickerKey(source indexedFileSource, key string) (workspaceFilePickerRow, bool) {
@@ -83,8 +99,8 @@ func (c *workspaceFilePickerController) HandleKey(source indexedFileSource, key 
 	if !c.Open {
 		return pickerKeyResult{}
 	}
-	model := pickerKeyModel{Query: c.Query, Selection: workspaceFilePickerKeyString(c.Selection)}
-	result := model.HandleKey(key, func(query string) []pickerItem { return c.pickerItems(source, query) })
+	model := c.keyModel()
+	result := model.HandleKey(key, c.pickerCatalog(source))
 	c.Query = model.Query
 	if row, ok := c.rowByPickerKey(source, model.Selection); ok {
 		c.Selection = row.Key
@@ -95,7 +111,7 @@ func (c *workspaceFilePickerController) HandleKey(source indexedFileSource, key 
 }
 
 func (c *workspaceFilePickerController) ensureSelection(source indexedFileSource) {
-	items := c.pickerItems(source, c.Query)
+	items := c.keyModel().Items(c.pickerCatalog(source))
 	current := workspaceFilePickerKeyString(c.Selection)
 	if pickerItemIndex(items, current) >= 0 {
 		return

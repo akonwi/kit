@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
@@ -48,12 +49,14 @@ func TestConfigurationPickerFiltersMovesAndPreservesFailedSelection(t *testing.T
 	if !controller.Resolve(generation, catalog, nil) || controller.Selection != "openai/gpt" {
 		t.Fatalf("resolved model picker = %+v", controller)
 	}
-	if models := controller.filteredModels(); len(models) != 2 || models[0].ID != "anthropic/claude" || models[1].ID != "openai/gpt" {
-		t.Fatalf("authenticated model options = %+v", models)
+	if got := pickerItemKeys(controller.keyModel().Items(controller.pickerCatalog())); !reflect.DeepEqual(got, []string{"anthropic/claude", "openai/gpt"}) {
+		t.Fatalf("authenticated model options = %v", got)
 	}
-	controller.SetQuery("claude")
-	if controller.Selection != "anthropic/claude" || len(controller.filteredModels()) != 1 {
-		t.Fatalf("filtered model picker = %+v", controller)
+	for _, character := range "claude" {
+		controller.HandleKey(ui.Key{Text: string(character), Keycode: character})
+	}
+	if got := pickerItemKeys(controller.keyModel().Items(controller.pickerCatalog())); controller.Selection != "anthropic/claude" || !reflect.DeepEqual(got, []string{"anthropic/claude"}) {
+		t.Fatalf("filtered model picker = %+v rows %v", controller, got)
 	}
 	applyGeneration, selection, ok := controller.BeginApply()
 	if !ok || selection != "anthropic/claude" || !controller.Pending {

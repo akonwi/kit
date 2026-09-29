@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -1285,19 +1286,20 @@ func TestWorkspaceDiffTargetSwitchBlockedByRangeWithWarning(t *testing.T) {
 }
 
 func TestWorkspaceDiffTargetFilteringMatchesAllCatalogMetadata(t *testing.T) {
+	drafts := 0
 	state := workspaceDiffPaneState{catalog: []protocol.DiffTargetEntry{
-		{Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}},
-		{Metadata: protocol.DiffTargetMetadata{RefName: "feature/review", BaseRefName: "main", Subject: "Parser bounds", Abbreviated: "abcdef1"}},
+		{TargetID: "working", Metadata: protocol.DiffTargetMetadata{Label: "Working tree"}, AnnotationCount: &drafts},
+		{TargetID: "review", Metadata: protocol.DiffTargetMetadata{RefName: "feature/review", BaseRefName: "main", Subject: "Parser bounds", Abbreviated: "abcdef1"}, AnnotationCount: &drafts},
 	}}
 	for _, query := range []string{"feature", "MAIN", "parser", "abcdef1"} {
 		state.targetQuery = query
-		if got := state.filteredTargets(); len(got) != 1 || got[0].Metadata.RefName != "feature/review" {
-			t.Fatalf("query %q = %+v", query, got)
+		if got := pickerItemKeys(state.targetKeyModel().Items(state.targetPickerCatalog())); !reflect.DeepEqual(got, []string{"review"}) {
+			t.Fatalf("query %q = %v, want [review]", query, got)
 		}
 	}
 	state.targetQuery = "missing"
-	if got := state.filteredTargets(); len(got) != 0 {
-		t.Fatalf("missing query = %+v", got)
+	if got := pickerItemKeys(state.targetKeyModel().Items(state.targetPickerCatalog())); len(got) != 0 {
+		t.Fatalf("missing query = %v", got)
 	}
 }
 

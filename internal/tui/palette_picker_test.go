@@ -58,8 +58,8 @@ func pickerTestItems() []pickerItem {
 func TestPickerRowsAlignUniformColumns(t *testing.T) {
 	t.Parallel()
 	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
-		Title: "Select diff target", TitleMeta: "4 targets", Search: &textInputConfig{Placeholder: "Filter targets…"},
-		Items: pickerTestItems(), Selection: "main", Footer: "↑↓ move · enter select · esc close",
+		Title: "Select diff target", TitleMeta: "4 targets", Search: &pickerSearch{Placeholder: "Filter targets…"},
+		Catalog: pickerTestItems(), Selection: "main", Footer: "↑↓ move · enter select · esc close",
 	}})
 	application.Pump(80, 24)
 	application.Pump(80, 24)
@@ -81,7 +81,7 @@ func TestPickerHighlightKeepsTextColorsAndCurrentAccent(t *testing.T) {
 	focus := semanticFallback(theme).Token(kittheme.TokenPickerFocusedBackground)
 	tint := blendPickerColor(focus, theme.Background, pickerHighlightPercent, theme.SurfaceHovered)
 	render := func(selection string) (*uitest.App, []string) {
-		application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{Items: pickerTestItems(), Selection: selection}})
+		application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{Catalog: pickerTestItems(), Selection: selection}})
 		application.Pump(80, 24)
 		application.Pump(80, 24)
 		return application, paintedRows(application, 80, 24)
@@ -119,7 +119,7 @@ func TestPickerRowsActivateOnClickAndIgnoreDisabledRows(t *testing.T) {
 	theme := ui.DefaultThemeSet().Dark
 	var activated []string
 	application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{
-		Items: pickerTestItems(), Selection: "working",
+		Catalog: pickerTestItems(), Selection: "working",
 		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
 	}})
 	application.Pump(80, 24)
@@ -151,7 +151,7 @@ func TestPickerOverflowRowsScrollAPageWhenClicked(t *testing.T) {
 	for index := range items {
 		items[index] = pickerItem{Key: fmt.Sprint(index), Label: fmt.Sprintf("Item %02d", index)}
 	}
-	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{Items: items, Selection: "0"}})
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{Catalog: items, Selection: "0"}})
 	pump := func() []string {
 		application.Pump(80, 24)
 		application.Pump(80, 24)
@@ -200,7 +200,7 @@ func TestPickerMessagesReplaceTheListAndStatusKeepsTheCloseHint(t *testing.T) {
 	}{
 		{name: "empty", picker: palettePicker{Footer: "↑↓ move · esc close"}, want: []string{"│ No results", "│ ↑↓ move · esc close"}},
 		{name: "error", picker: palettePicker{Message: "Could not load models.", MessageTone: pickerToneDanger, Footer: "esc close"}, want: []string{"│ Could not load models.", "│ esc close"}},
-		{name: "status", picker: palettePicker{Items: pickerTestItems(), Footer: "↑↓ move · enter apply · esc close", Status: "Apply failed: offline", StatusTone: pickerToneDanger}, want: []string{"│ Apply failed: offline", "esc close │"}},
+		{name: "status", picker: palettePicker{Catalog: pickerTestItems(), Footer: "↑↓ move · enter apply · esc close", Status: "Apply failed: offline", StatusTone: pickerToneDanger}, want: []string{"│ Apply failed: offline", "esc close │"}},
 	} {
 		t.Run(test.name, func(t *testing.T) {
 			application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: test.picker})
@@ -228,7 +228,7 @@ func pickerHierarchyItems() []pickerItem {
 func TestPickerHierarchyIndentsLabelsAndShowsDisclosureInTheHintColumn(t *testing.T) {
 	t.Parallel()
 	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
-		Title: "Sessions", TitleMeta: "5 sessions", Items: pickerHierarchyItems(), Selection: "oauth",
+		Title: "Sessions", TitleMeta: "5 sessions", Catalog: pickerHierarchyItems(), Selection: "oauth",
 	}})
 	application.Pump(80, 24)
 	application.Pump(80, 24)
@@ -246,7 +246,7 @@ func TestPickerDisclosureClickTogglesAndRowClickActivates(t *testing.T) {
 	t.Parallel()
 	var activated, toggled []string
 	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: palettePicker{
-		Items: pickerHierarchyItems(), Selection: "auth",
+		Catalog: pickerHierarchyItems(), Selection: "auth",
 		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
 		OnToggle:   func(_ ui.EventContext, key string) { toggled = append(toggled, key) },
 	}})
@@ -276,7 +276,7 @@ func TestPickerTitleMetaShowsSpinnerWhileLoading(t *testing.T) {
 	t.Parallel()
 	theme := ui.DefaultThemeSet().Dark
 	application := uitest.New(pickerTestHarness{Theme: theme, Picker: palettePicker{
-		Title: "Sessions", TitleMeta: "switching…", TitleMetaTone: pickerToneLoading, Items: pickerHierarchyItems(),
+		Title: "Sessions", TitleMeta: "switching…", TitleMetaTone: pickerToneLoading, Catalog: pickerHierarchyItems(),
 	}})
 	application.Pump(80, 24)
 	rows := paintedRows(application, 80, 24)
@@ -284,5 +284,44 @@ func TestPickerTitleMetaShowsSpinnerWhileLoading(t *testing.T) {
 	column, row := findTextCell(t, rows, spinnerFrames[0])
 	if cell := application.Cell(column, row); cell.Style.Foreground != theme.MutedForeground {
 		t.Fatalf("spinner style = %+v, want muted", cell.Style)
+	}
+}
+
+func TestPalettePickerDerivesRowsFromQueryWithFixedColumns(t *testing.T) {
+	t.Parallel()
+	render := func(picker palettePicker) []string {
+		application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker})
+		application.Pump(80, 24)
+		application.Pump(80, 24)
+		return paintedRows(application, 80, 24)
+	}
+	// The widget filters the catalog by the query and shows the query in its
+	// search field; "main" matches only the main row.
+	rows := render(palettePicker{
+		Title: "Select diff target", Query: "main", Search: &pickerSearch{Placeholder: "Filter targets…"},
+		Catalog: pickerTestItems(), Selection: "main",
+	})
+	_, searchRow := assertPickerSearchField(t, rows, "main")
+	// Columns are sized by the whole catalog, so the label column keeps the
+	// width of feat/openapi-contract while it is filtered out.
+	if got, want := dialogRowText(rows, searchRow+2), glyphLeftBar+"main                   736efa9  docs(backlog): re…"; got != want {
+		t.Fatalf("filtered row = %q, want %q", got, want)
+	}
+	if got := dialogRowText(rows, searchRow+3); got != "" {
+		t.Fatalf("row after the only match = %q, want an empty row", got)
+	}
+
+	// A filter hook replaces the shared filter: this one matches descriptions.
+	rows = render(palettePicker{
+		Query: "protocol", Search: &pickerSearch{}, Catalog: pickerTestItems(), Selection: "feature",
+		Filter: func(query string, catalog []pickerItem) []pickerItem {
+			return filterPickerItemsBy(query, catalog, func(item pickerItem) ui.FuzzySelectItem {
+				return ui.FuzzySelectItem{Title: item.Description}
+			})
+		},
+	})
+	_, searchRow = assertPickerSearchField(t, rows, "protocol")
+	if got, want := dialogRowText(rows, searchRow+2), glyphLeftBar+"feat/openapi-contract  5ada7e8  feat(protocol): p…   1 draft"; got != want {
+		t.Fatalf("hooked row = %q, want %q", got, want)
 	}
 }

@@ -87,13 +87,13 @@ func (controller *configurationPickerController) Resolve(generation uint64, cata
 	}
 	controller.Models = append([]protocol.ModelCapability(nil), catalog.Models...)
 	if controller.Mode == configurationPickerModel {
-		models := controller.filteredModels()
-		if modelCapabilityIndex(models, controller.Selection) < 0 {
+		models := controller.keyModel().Items(controller.pickerCatalog())
+		if pickerItemIndex(models, controller.Selection) < 0 {
 			controller.Selection = controller.CurrentModel
-			if modelCapabilityIndex(models, controller.Selection) < 0 {
+			if pickerItemIndex(models, controller.Selection) < 0 {
 				controller.Selection = ""
 				if len(models) > 0 {
-					controller.Selection = models[0].ID
+					controller.Selection = models[0].Key
 				}
 			}
 		}
@@ -125,16 +125,6 @@ func (controller *configurationPickerController) Snapshot() configurationPickerS
 	}
 }
 
-func (controller *configurationPickerController) SetQuery(value string) {
-	if controller.Mode == configurationPickerClosed || controller.Loading || controller.Pending {
-		return
-	}
-	model := controller.keyModel()
-	model.SetQuery(value, controller.pickerItems(value))
-	controller.applyKeyModel(model)
-	controller.Error = ""
-}
-
 // keyModel returns the canonical picker key model for the current query and
 // highlighted item.
 func (controller *configurationPickerController) keyModel() pickerKeyModel {
@@ -145,23 +135,19 @@ func (controller *configurationPickerController) applyKeyModel(model pickerKeyMo
 	controller.Query, controller.Selection = model.Query, model.Selection
 }
 
-// pickerItems returns the visible models or reasoning levels for query.
-func (controller *configurationPickerController) pickerItems(query string) []pickerItem {
+// pickerCatalog returns every authenticated model or reasoning level.
+func (controller *configurationPickerController) pickerCatalog() []pickerItem {
 	if controller.Mode == configurationPickerModel {
-		return modelPickerItems(filterModels(query, controller.Models), controller.CurrentModel)
+		return modelPickerItems(controller.Models, controller.CurrentModel)
 	}
-	return thinkingPickerItems(filterThinkingLevels(query, controller.thinkingLevels()), controller.CurrentThinking)
+	return thinkingPickerItems(controller.thinkingLevels(), controller.CurrentThinking)
 }
 
 func (controller *configurationPickerController) Select(value string) {
 	if controller.Loading || controller.Pending {
 		return
 	}
-	if controller.Mode == configurationPickerModel {
-		if modelCapabilityIndex(controller.filteredModels(), value) >= 0 {
-			controller.Selection = value
-		}
-	} else if stringIndex(controller.values(), value) >= 0 {
+	if pickerItemIndex(controller.keyModel().Items(controller.pickerCatalog()), value) >= 0 {
 		controller.Selection = value
 	}
 	controller.Error = ""
@@ -172,7 +158,7 @@ func (controller *configurationPickerController) Move(delta int) {
 		return
 	}
 	model := controller.keyModel()
-	model.Move(controller.pickerItems(controller.Query), delta)
+	model.Move(controller.pickerCatalog(), delta)
 	controller.applyKeyModel(model)
 	controller.Error = ""
 }
@@ -232,7 +218,7 @@ func (controller *configurationPickerController) HandleKey(key ui.Key) (bool, bo
 		return false, true
 	}
 	model := controller.keyModel()
-	result := model.HandleKey(key, controller.pickerItems)
+	result := model.HandleKey(key, controller.pickerCatalog())
 	controller.applyKeyModel(model)
 	if result.QueryChanged {
 		controller.Error = ""
@@ -269,10 +255,6 @@ func (controller *configurationPickerController) handleContextEditKey(key ui.Key
 	return true
 }
 
-func (controller *configurationPickerController) filteredModels() []protocol.ModelCapability {
-	return filterModels(controller.Query, controller.Models)
-}
-
 func (controller *configurationPickerController) thinkingLevels() []string {
 	index := modelCapabilityIndex(controller.Models, controller.CurrentModel)
 	if index < 0 || !controller.Models[index].Available {
@@ -285,15 +267,6 @@ func (controller *configurationPickerController) thinkingLevels() []string {
 	return levels
 }
 
-func (controller *configurationPickerController) values() []string {
-	items := controller.pickerItems(controller.Query)
-	values := make([]string, 0, len(items))
-	for _, item := range items {
-		values = append(values, item.Key)
-	}
-	return values
-}
-
 func modelCapabilityIndex(models []protocol.ModelCapability, id string) int {
 	for index, model := range models {
 		if model.ID == id {
@@ -303,20 +276,12 @@ func modelCapabilityIndex(models []protocol.ModelCapability, id string) int {
 	return -1
 }
 
-func stringIndex(values []string, target string) int {
-	for index, value := range values {
-		if value == target {
-			return index
-		}
-	}
-	return -1
-}
-
 type configurationPickerSurface struct {
-	Snapshot     configurationPickerSnapshot
-	QueryChanged ui.TextChangedCallback
-	Select       func(ui.EventContext, string)
-	Apply        ui.VoidCallback
+	Snapshot configurationPickerSnapshot
+	// ContextChanged edits the context-window override prompt.
+	ContextChanged ui.TextChangedCallback
+	Select         func(ui.EventContext, string)
+	Apply          ui.VoidCallback
 }
 
 // Build maps the model and thinking pickers onto the canonical picker, and the
@@ -334,17 +299,13 @@ func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 		cursor := len(snapshot.EditValue)
 		return palettePickerPrompt{
 			Title: "Context window", TitleMeta: snapshot.EditModel,
-			Input: textInputConfig{Value: snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true},
+			Input: textInputConfig{Value: snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.ContextChanged, AutoFocus: true},
 			Error: snapshot.Error, Footer: "enter save · blank clears · esc back",
 		}
 	}
-	queryCursor := len(snapshot.Query)
 	result := palettePicker{
 		Title: "Select model", Footer: footer, Selection: snapshot.Selection,
-		Search: &textInputConfig{
-			Value: snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,
-			OnChanged: surface.QueryChanged, AutoFocus: true,
-		},
+		Query: snapshot.Query, Search: &pickerSearch{Placeholder: "Search models…"},
 		OnActivate: func(ctx ui.EventContext, key string) {
 			if surface.Select != nil {
 				surface.Select(ctx, key)
@@ -357,12 +318,9 @@ func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 	if snapshot.Mode == configurationPickerThinking {
 		result.Title = "Thinking level"
 		result.Search.Placeholder = "Search effort levels…"
-		levels := surface.thinkingLevels()
-		result.Catalog = thinkingPickerItems(levels, snapshot.CurrentThinking)
-		result.Items = thinkingPickerItems(filterThinkingLevels(snapshot.Query, levels), snapshot.CurrentThinking)
+		result.Catalog = thinkingPickerItems(surface.thinkingLevels(), snapshot.CurrentThinking)
 	} else {
-		result.Catalog = modelPickerItems(filterModels("", snapshot.Models), snapshot.CurrentModel)
-		result.Items = modelPickerItems(surface.filteredModels(), snapshot.CurrentModel)
+		result.Catalog = modelPickerItems(snapshot.Models, snapshot.CurrentModel)
 	}
 	switch {
 	case snapshot.Loading:
@@ -379,12 +337,18 @@ func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 	return result
 }
 
+// modelPickerItems maps the authenticated models onto picker items; the
+// model ID and provider are also matched by the filter.
 func modelPickerItems(models []protocol.ModelCapability, current string) []pickerItem {
 	items := make([]pickerItem, 0, len(models))
 	for _, model := range models {
+		if !model.Available {
+			continue
+		}
 		items = append(items, pickerItem{
 			Key: model.ID, Label: model.Name, Description: model.ID,
 			Meta: formatContextWindow(model.ContextWindow) + " context", Current: model.ID == current,
+			SearchText: model.ID, SearchAliases: []string{model.Provider},
 		})
 	}
 	return items
@@ -396,14 +360,6 @@ func thinkingPickerItems(levels []string, current string) []pickerItem {
 		items = append(items, pickerItem{Key: level, Label: level, Current: level == current})
 	}
 	return items
-}
-
-// filterThinkingLevels keeps the reasoning levels matching query in catalog order
-// when unfiltered and in fuzzy-score order otherwise.
-func filterThinkingLevels(query string, levels []string) []string {
-	return ui.DefaultFuzzySelectFilter(query, levels, func(level string) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: level}
-	})
 }
 
 func (surface configurationPickerSurface) thinkingLevels() []string {
@@ -418,22 +374,6 @@ func (surface configurationPickerSurface) thinkingLevels() []string {
 	return levels
 }
 
-func (surface configurationPickerSurface) filteredModels() []protocol.ModelCapability {
-	return filterModels(surface.Snapshot.Query, surface.Snapshot.Models)
-}
-
-func filterModels(query string, models []protocol.ModelCapability) []protocol.ModelCapability {
-	authenticated := make([]protocol.ModelCapability, 0, len(models))
-	for _, model := range models {
-		if model.Available {
-			authenticated = append(authenticated, model)
-		}
-	}
-	return ui.DefaultFuzzySelectFilter(query, authenticated, func(model protocol.ModelCapability) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: model.Name, Description: model.ID, Aliases: []string{model.Provider}}
-	})
-}
-
 func formatContextWindow(tokens int) string {
 	if tokens >= 1_000_000 {
 		return fmt.Sprintf("%.1fM", float64(tokens)/1_000_000)
@@ -442,4 +382,13 @@ func formatContextWindow(tokens int) string {
 		return fmt.Sprintf("%dk", tokens/1_000)
 	}
 	return fmt.Sprintf("%d", tokens)
+}
+
+func stringIndex(values []string, target string) int {
+	for index, value := range values {
+		if value == target {
+			return index
+		}
+	}
+	return -1
 }

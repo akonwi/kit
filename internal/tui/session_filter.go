@@ -1,67 +1,41 @@
 package tui
 
-import (
-	"strings"
+import "time"
 
-	"go.rockorager.dev/vaxis/ui"
-)
+// Session explorer rows are filtered by filterPickerTree, the picker filter
+// hook for hierarchies: matches rank like every picker's items, by label and
+// working directory, but each is shown under its ancestors and families move
+// together. The explorer needs this because a child session is meaningless
+// without the parent it was forked from.
 
-// filteredSessions returns the rows matching a query. Sessions are matched
-// like every picker's items, by label and description, and ranked by the
-// shared fuzzy filter. A match is shown under its ancestors, and each family
-// moves as one group placed by its best-ranked match. Filtered rows have no
-// disclosure because every path to a match is open.
-func (c *sessionExplorerController) filteredSessions(query string) []sessionExplorerItem {
-	visible, _ := c.filterSessions(query)
-	return visible
+// pickerCatalog returns every session in tree order as picker items, with
+// the remembered expansion as each parent's disclosure.
+func (c *sessionExplorerController) pickerCatalog(now time.Time) []pickerItem {
+	return sessionExplorerPickerItems(c.treeSessions(), c.CurrentSessionID, now)
 }
 
-// filterSessions returns the filtered rows and the best-ranked match.
-func (c *sessionExplorerController) filterSessions(query string) ([]sessionExplorerItem, string) {
-	matches := ui.DefaultFuzzySelectFilter(query, c.Sessions, func(item sessionExplorerItem) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: sessionExplorerItemLabel(item), Description: sessionDisplayCWD(item.CWD, sessionCWDMaxWidth)}
-	})
-	if len(matches) == 0 {
-		return []sessionExplorerItem{}, ""
+// treeSessions returns the catalog with the remembered expansion applied.
+func (c *sessionExplorerController) treeSessions() []sessionExplorerItem {
+	sessions := make([]sessionExplorerItem, len(c.Sessions))
+	for index, item := range c.Sessions {
+		item.Expanded = c.expanded[item.ID]
+		sessions[index] = item
 	}
-	// Collect each match's ancestors and order families by their best match.
-	shown := make(map[string]bool, len(matches))
-	families := make([]string, 0, len(matches))
-	grouped := make(map[string]bool, len(matches))
-	for _, match := range matches {
-		root := match.ID
-		for id := match.ID; id != ""; {
-			shown[id] = true
-			root = id
-			index := sessionIndex(c.Sessions, id)
-			if index < 0 {
-				break
-			}
-			id = c.Sessions[index].TreeParentID
-		}
-		if !grouped[root] {
-			grouped[root] = true
-			families = append(families, root)
-		}
+	return sessions
+}
+
+// keyModel returns the explorer's canonical picker key model.
+func (c *sessionExplorerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: c.Query, Selection: c.Selection, Filter: filterPickerTree}
+}
+
+// bestSessionMatch returns the best-ranked session for a non-blank query. It
+// is highlighted even when its ancestors are listed above it.
+func (c *sessionExplorerController) bestSessionMatch(query string) string {
+	if matches := filterPickerItems(query, c.pickerCatalog(time.Time{})); len(matches) > 0 {
+		return matches[0].Key
 	}
-	// Rows within a family keep tree order; c.Sessions lists each root
-	// followed by its descendants.
-	members := make(map[string][]sessionExplorerItem, len(families))
-	root := ""
-	for _, item := range c.Sessions {
-		if item.TreeParentID == "" {
-			root = item.ID
-		}
-		if shown[item.ID] {
-			item.Expanded, item.ChildCount = false, 0
-			members[root] = append(members[root], item)
-		}
-	}
-	visible := make([]sessionExplorerItem, 0, len(shown))
-	for _, family := range families {
-		visible = append(visible, members[family]...)
-	}
-	return visible, matches[0].ID
+	return ""
 }
 
 // SetQuery filters the sessions. A non-blank query highlights the first match;
@@ -71,8 +45,8 @@ func (c *sessionExplorerController) SetQuery(query string) {
 		return
 	}
 	c.Query = query
-	if strings.TrimSpace(query) != "" {
-		_, c.Selection = c.filterSessions(query)
+	if !pickerQueryBlank(query) {
+		c.Selection = c.bestSessionMatch(query)
 	} else {
 		c.reconcileVisibleSelection()
 	}

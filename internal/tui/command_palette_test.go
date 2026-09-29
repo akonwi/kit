@@ -946,17 +946,8 @@ func (s *paletteHarnessState) Build(ui.BuildContext) ui.Widget {
 			OpenPalette: func(ui.EventContext) {
 				s.SetState(func() { s.palette.OpenFor(s.running) })
 			},
-			PaletteQueryChanged: func(_ ui.EventContext, value string) {
-				s.SetState(func() { s.palette.SetQuery(s.running, value) })
-			},
 			MovePaletteSelection: func(_ ui.EventContext, delta int) {
 				s.SetState(func() { s.palette.Move(s.running, delta) })
-			},
-			RunPaletteQuery: func(_ ui.EventContext, query string) {
-				command, ok := s.palette.Selected(s.running, query)
-				if ok && paletteCommandAvailable(command.ID, s.running, s.palette.Contributions) {
-					s.execute(command.ID)
-				}
 			},
 			RunPaletteCommand: func(_ ui.EventContext, command paletteCommandID) {
 				if paletteCommandAvailable(command, s.running, s.palette.Contributions) {

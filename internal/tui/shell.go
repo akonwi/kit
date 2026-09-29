@@ -185,11 +185,9 @@ type shellCallbacks struct {
 	UseSharedScratchpad         ui.VoidCallback
 	ReplaceSharedScratchpad     ui.VoidCallback
 	OpenWorkspaceFilePicker     ui.VoidCallback
-	WorkspaceFilePickerQuery    ui.TextChangedCallback
 	ActivateWorkspaceFilePicker func(ui.EventContext, workspaceFilePickerRow)
 	OpenWorkspacePicker         ui.VoidCallback
 	CloseWorkspacePicker        ui.VoidCallback
-	WorkspacePickerQuery        ui.TextChangedCallback
 	MoveWorkspaceFocus          ui.VoidCallback
 	FocusWorkspaceContent       ui.VoidCallback
 	FocusWorkspaceComposer      ui.VoidCallback
@@ -223,20 +221,17 @@ type shellCallbacks struct {
 	CopySelection               func(string)
 	DismissToast                func(uint64)
 	OpenPalette                 ui.VoidCallback
-	PaletteQueryChanged         ui.TextChangedCallback
 	MovePaletteSelection        selectionMovedCallback
-	RunPaletteQuery             ui.TextChangedCallback
 	RunPaletteCommand           func(ui.EventContext, paletteCommandID)
-	ThemeQueryChanged           ui.TextChangedCallback
 	SelectTheme                 func(ui.EventContext, string)
 	OpenSessionRename           ui.VoidCallback
 	OpenModel                   ui.VoidCallback
 	OpenThinking                ui.VoidCallback
-	ConfigurationQuery          ui.TextChangedCallback
+	// ConfigurationContextChanged edits the context-window override prompt.
+	ConfigurationContextChanged ui.TextChangedCallback
 	SelectConfiguration         func(ui.EventContext, string)
 	ApplyConfiguration          ui.VoidCallback
 	ActivateSession             func(ui.EventContext, string)
-	SessionQueryChanged         ui.TextChangedCallback
 	ToggleSessionTree           func(ui.EventContext, string)
 	SessionRenameChanged        ui.TextChangedCallback
 	SubmitCurrentSessionRename  ui.TextChangedCallback
@@ -377,7 +372,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputConfiguration {
 		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
-			Snapshot: w.Snapshot.ConfigurationPicker, QueryChanged: w.Callbacks.ConfigurationQuery,
+			Snapshot: w.Snapshot.ConfigurationPicker, ContextChanged: w.Callbacks.ConfigurationContextChanged,
 			Select: w.Callbacks.SelectConfiguration, Apply: w.Callbacks.ApplyConfiguration,
 		}))
 	}
@@ -410,7 +405,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		overlays = append(overlays, modalDialogEntry(sessionExplorerSurface{
 			Snapshot: w.Snapshot.SessionExplorer,
 			Callbacks: sessionExplorerCallbacks{
-				QueryChanged: w.Callbacks.SessionQueryChanged, Activate: w.Callbacks.ActivateSession, Toggle: w.Callbacks.ToggleSessionTree,
+				Activate: w.Callbacks.ActivateSession, Toggle: w.Callbacks.ToggleSessionTree,
 				RenameChanged: w.Callbacks.RenameSessionChanged, RenameSubmitted: w.Callbacks.SubmitSessionRename,
 			},
 		}))
@@ -419,8 +414,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
 			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles,
 			Callbacks: workspaceFilePickerCallbacks{
-				QueryChanged: w.Callbacks.WorkspaceFilePickerQuery,
-				Activate:     w.Callbacks.ActivateWorkspaceFilePicker,
+				Activate: w.Callbacks.ActivateWorkspaceFilePicker,
 			},
 		}))
 	}
@@ -442,8 +436,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		overlays = append(overlays, ui.OverlayEntry{Modal: true, Barrier: clearModalBarrier{}, Child: themePickerSurface{
 			Snapshot: w.Snapshot.ThemePicker,
 			Callbacks: themePickerCallbacks{
-				QueryChanged: w.Callbacks.ThemeQueryChanged,
-				Select:       w.Callbacks.SelectTheme,
+				Select: w.Callbacks.SelectTheme,
 			},
 		}})
 	}
@@ -456,9 +449,7 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 					Running: w.Snapshot.Running, Contributions: w.Snapshot.PaletteCommands,
 				},
 				Callbacks: paletteCallbacks{
-					QueryChanged: w.Callbacks.PaletteQueryChanged,
-					RunQuery:     w.Callbacks.RunPaletteQuery,
-					RunCommand:   w.Callbacks.RunPaletteCommand,
+					RunCommand: w.Callbacks.RunPaletteCommand,
 				},
 			},
 		})

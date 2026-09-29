@@ -9,17 +9,14 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 )
 
-func pickerKeyTestItems(query string) []pickerItem {
-	all := []pickerItem{
+func pickerKeyTestCatalog() []pickerItem {
+	return []pickerItem{
 		{Key: "cd", Label: "cd", DisabledReason: "idle only"},
 		{Key: "compact", Label: "compact", DisabledReason: "idle only"},
 		{Key: "debug", Label: "debug"},
 		{Key: "diff", Label: "diff"},
 		{Key: "config", Label: "config"},
 	}
-	return ui.DefaultFuzzySelectFilter(query, all, func(item pickerItem) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: item.Label}
-	})
 }
 
 func TestPickerKeyModelMovesWithWraparoundIncludingDisabledItems(t *testing.T) {
@@ -27,7 +24,7 @@ func TestPickerKeyModelMovesWithWraparoundIncludingDisabledItems(t *testing.T) {
 	model := pickerKeyModel{Selection: "debug"}
 	var visited []string
 	for _, key := range []string{"Down", "Down", "Down", "Up", "Up"} {
-		result := model.HandleKey(ui.Key{Keycode: map[string]rune{"Down": vaxis.KeyDown, "Up": vaxis.KeyUp}[key]}, pickerKeyTestItems)
+		result := model.HandleKey(ui.Key{Keycode: map[string]rune{"Down": vaxis.KeyDown, "Up": vaxis.KeyUp}[key]}, pickerKeyTestCatalog())
 		if !result.Handled || result.Activate || result.Dismiss || result.QueryChanged {
 			t.Fatalf("%s result = %+v, want a handled move", key, result)
 		}
@@ -44,25 +41,25 @@ func TestPickerKeyModelMovesWithWraparoundIncludingDisabledItems(t *testing.T) {
 func TestPickerKeyModelEditsQueryAndHighlightsFirstEnabledMatch(t *testing.T) {
 	t.Parallel()
 	var model pickerKeyModel
-	model.SetQuery("", pickerKeyTestItems(""))
+	model.SetQuery("", pickerKeyTestCatalog())
 	if model.Selection != "debug" {
 		t.Fatalf("initial selection = %q, want first enabled item", model.Selection)
 	}
 	// "c" matches the disabled cd and compact before config; the highlight
 	// goes to the first enabled match.
-	if result := model.HandleKey(ui.Key{Text: "c", Keycode: 'c'}, pickerKeyTestItems); !result.QueryChanged || !result.Handled {
+	if result := model.HandleKey(ui.Key{Text: "c", Keycode: 'c'}, pickerKeyTestCatalog()); !result.QueryChanged || !result.Handled {
 		t.Fatalf("typing c result = %+v", result)
 	}
 	if model.Query != "c" || model.Selection != "config" {
 		t.Fatalf("after typing = query %q selection %q, want \"c\" and config", model.Query, model.Selection)
 	}
-	model.HandleKey(ui.Key{Text: "d", Keycode: 'd'}, pickerKeyTestItems)
-	model.HandleKey(ui.Key{Keycode: vaxis.KeyBackspace}, pickerKeyTestItems)
+	model.HandleKey(ui.Key{Text: "d", Keycode: 'd'}, pickerKeyTestCatalog())
+	model.HandleKey(ui.Key{Keycode: vaxis.KeyBackspace}, pickerKeyTestCatalog())
 	if model.Query != "c" || model.Selection != "config" {
 		t.Fatalf("after backspace = query %q selection %q, want \"c\" and config", model.Query, model.Selection)
 	}
 	// Only disabled items match: the first one is highlighted so its reason is visible.
-	model.SetQuery("compact", pickerKeyTestItems("compact"))
+	model.SetQuery("compact", pickerKeyTestCatalog())
 	if model.Selection != "compact" {
 		t.Fatalf("disabled-only selection = %q, want compact", model.Selection)
 	}
@@ -71,14 +68,14 @@ func TestPickerKeyModelEditsQueryAndHighlightsFirstEnabledMatch(t *testing.T) {
 func TestPickerKeyModelActivatesDismissesAndFlattensPaste(t *testing.T) {
 	t.Parallel()
 	model := pickerKeyModel{Selection: "cd"}
-	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEnter}, pickerKeyTestItems); !result.Activate || result.DisabledReason != "idle only" {
+	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEnter}, pickerKeyTestCatalog()); !result.Activate || result.DisabledReason != "idle only" {
 		t.Fatalf("enter on disabled item = %+v, want activation reporting its reason", result)
 	}
 	model.Selection = "diff"
-	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEnter}, pickerKeyTestItems); !result.Activate || result.DisabledReason != "" {
+	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEnter}, pickerKeyTestCatalog()); !result.Activate || result.DisabledReason != "" {
 		t.Fatalf("enter on enabled item = %+v", result)
 	}
-	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}, pickerKeyTestItems); !result.Dismiss || !result.Handled {
+	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyEsc}, pickerKeyTestCatalog()); !result.Dismiss || !result.Handled {
 		t.Fatalf("escape = %+v, want dismissal", result)
 	}
 	// Pasted Enter, Escape, and Tab become spaces in the query instead of acting.
@@ -87,7 +84,7 @@ func TestPickerKeyModelActivatesDismissesAndFlattensPaste(t *testing.T) {
 		{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPaste},
 		{Keycode: vaxis.KeyTab, EventType: vaxis.EventPaste},
 	} {
-		if result := model.HandleKey(key, pickerKeyTestItems); result.Activate || result.Dismiss || !result.QueryChanged {
+		if result := model.HandleKey(key, pickerKeyTestCatalog()); result.Activate || result.Dismiss || !result.QueryChanged {
 			t.Fatalf("paste %#v result = %+v, want query text only", key, result)
 		}
 	}
@@ -103,12 +100,12 @@ func TestPickerKeyModelLeavesModifiedKeysAndReleasesUnhandled(t *testing.T) {
 		{Text: "w", Keycode: 'w', Modifiers: vaxis.ModCtrl},
 		{Text: "d", Keycode: 'd', EventType: ui.EventRelease},
 	} {
-		if result := model.HandleKey(key, pickerKeyTestItems); result.Handled {
+		if result := model.HandleKey(key, pickerKeyTestCatalog()); result.Handled {
 			t.Fatalf("key %#v was handled: %+v", key, result)
 		}
 	}
 	// Other unmodified keys are consumed so they cannot reach the background.
-	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyPgDown}, pickerKeyTestItems); !result.Handled || result.QueryChanged || model.Selection != "debug" {
+	if result := model.HandleKey(ui.Key{Keycode: vaxis.KeyPgDown}, pickerKeyTestCatalog()); !result.Handled || result.QueryChanged || model.Selection != "debug" {
 		t.Fatalf("page down = %+v selection %q, want consumed without paging", result, model.Selection)
 	}
 }
@@ -120,7 +117,7 @@ func TestPaletteAndModelPickerShareTheKeyModel(t *testing.T) {
 	var palette paletteController
 	palette.OpenFor(true)
 	palette.HandleKey(true, ui.Key{Text: "c", Keycode: 'c'})
-	if want := paletteCommandID(firstEnabledPickerKey(commandPaletteItems(true, "c", nil))); palette.Selection != want || want == paletteCommandCD {
+	if want := paletteCommandID(firstEnabledPickerKey(filterPaletteItems("c", paletteCatalog(true, nil)))); palette.Selection != want || want == paletteCommandCD {
 		t.Fatalf("running palette selection = %q, want first enabled match %q", palette.Selection, want)
 	}
 	if _, run, handled := palette.HandleKey(true, ui.Key{Keycode: vaxis.KeyEsc}); run || !handled || palette.Open {
@@ -148,4 +145,12 @@ func TestPaletteAndModelPickerShareTheKeyModel(t *testing.T) {
 	if picker.Mode != configurationPickerClosed {
 		t.Fatalf("model picker escape left mode %v", picker.Mode)
 	}
+}
+
+func pickerItemKeys(items []pickerItem) []string {
+	keys := make([]string, 0, len(items))
+	for _, item := range items {
+		keys = append(keys, item.Key)
+	}
+	return keys
 }

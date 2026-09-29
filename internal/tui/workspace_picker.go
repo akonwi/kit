@@ -9,17 +9,9 @@ type workspacePickerController struct {
 
 func (c *workspacePickerController) HandleKey(key ui.Key, catalog []workspacePickerItem, current workspacePaneIdentity) pickerKeyResult {
 	model := pickerKeyModel{Query: c.Query, Selection: c.Selection}
-	result := model.HandleKey(key, func(query string) []pickerItem {
-		return workspacePickerRows(filterWorkspacePickerItems(query, catalog), current)
-	})
+	result := model.HandleKey(key, workspacePickerRows(catalog, current))
 	c.Query, c.Selection = model.Query, model.Selection
 	return result
-}
-
-func (c *workspacePickerController) SetQuery(query string, catalog []workspacePickerItem, current workspacePaneIdentity) {
-	model := pickerKeyModel{Query: c.Query, Selection: c.Selection}
-	model.SetQuery(query, workspacePickerRows(filterWorkspacePickerItems(query, catalog), current))
-	c.Query, c.Selection = model.Query, model.Selection
 }
 
 type workspacePickerItem struct {
@@ -65,16 +57,13 @@ func workspacePickerCatalog(snapshot shellSnapshot) []workspacePickerItem {
 	return items
 }
 
-func filterWorkspacePickerItems(query string, catalog []workspacePickerItem) []workspacePickerItem {
-	return ui.DefaultFuzzySelectFilter(query, catalog, func(item workspacePickerItem) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: item.Label, Description: item.Metadata + " " + item.Descriptor.ResourceID}
-	})
-}
-
 func workspacePickerRows(items []workspacePickerItem, current workspacePaneIdentity) []pickerItem {
 	rows := make([]pickerItem, 0, len(items))
 	for _, item := range items {
-		row := pickerItem{Key: string(item.Identity), Label: item.Label, Meta: item.Metadata, Current: item.Identity == current}
+		row := pickerItem{
+			Key: string(item.Identity), Label: item.Label, Meta: item.Metadata, Current: item.Identity == current,
+			SearchText: item.Metadata + " " + item.Descriptor.ResourceID,
+		}
 		if !item.Available {
 			row.DisabledReason = "unavailable"
 		}
@@ -92,15 +81,11 @@ func workspacePickerItemByKey(items []workspacePickerItem, key string) (workspac
 	return workspacePickerItem{}, false
 }
 
-func (w shellView) workspacePickerItems() []workspacePickerItem {
-	return filterWorkspacePickerItems(w.Snapshot.WorkspacePickerQuery, workspacePickerCatalog(w.Snapshot))
-}
-
 func (w shellView) workspacePickerDialog(ui.BuildContext, ui.Theme) ui.Widget {
 	catalog := workspacePickerCatalog(w.Snapshot)
-	items := filterWorkspacePickerItems(w.Snapshot.WorkspacePickerQuery, catalog)
+	rows := workspacePickerRows(catalog, w.Snapshot.Workspace.Selected)
 	activate := func(ctx ui.EventContext, key string) {
-		item, ok := workspacePickerItemByKey(items, key)
+		item, ok := workspacePickerItemByKey(catalog, key)
 		if !ok || !item.Available {
 			return
 		}
@@ -115,23 +100,15 @@ func (w shellView) workspacePickerDialog(ui.BuildContext, ui.Theme) ui.Widget {
 			w.Callbacks.CloseWorkspacePicker(ctx)
 		}
 	}
-	cursor := len(w.Snapshot.WorkspacePickerQuery)
-	return palettePicker{
+	result := palettePicker{
 		Title: "Open workspace tab",
-		Search: &textInputConfig{
-			Value: w.Snapshot.WorkspacePickerQuery, Placeholder: "Search workspace tabs…", CursorOffset: &cursor,
-			OnChanged: w.Callbacks.WorkspacePickerQuery, AutoFocus: true,
-		},
-		Items:     workspacePickerRows(items, w.Snapshot.Workspace.Selected),
-		Catalog:   workspacePickerRows(catalog, w.Snapshot.Workspace.Selected),
-		Selection: w.Snapshot.WorkspacePickerSelection,
-		Message: func() string {
-			if len(items) == 0 {
-				return "No matching tabs"
-			}
-			return ""
-		}(),
+		Query: w.Snapshot.WorkspacePickerQuery, Search: &pickerSearch{Placeholder: "Search workspace tabs…"},
+		Catalog: rows, Selection: w.Snapshot.WorkspacePickerSelection,
 		Footer:     "↑↓ move · enter open · ctrl+d close tab · esc close",
 		OnActivate: activate,
 	}
+	if len(result.items()) == 0 {
+		result.Message = "No matching tabs"
+	}
+	return result
 }

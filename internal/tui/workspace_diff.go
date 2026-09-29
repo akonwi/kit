@@ -856,17 +856,8 @@ func (s *workspaceDiffPaneState) toggleTarget() {
 	s.warning("The current HEAD commit is not available")
 }
 
-func (s *workspaceDiffPaneState) filteredTargets() []protocol.DiffTargetEntry {
-	return ui.DefaultFuzzySelectFilter(s.targetQuery, s.catalog, func(target protocol.DiffTargetEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{
-			Title:       target.Metadata.Label,
-			Description: strings.Join([]string{target.Metadata.Subject, target.Metadata.RefName, target.Metadata.BaseRefName, target.Metadata.Abbreviated}, " "),
-		}
-	})
-}
-
 func (s *workspaceDiffPaneState) ensureTargetSelection() {
-	items := s.targetPickerItems(s.targetQuery)
+	items := s.targetKeyModel().Items(s.targetPickerCatalog())
 	if s.targetQuery == "" && pickerItemIndex(items, s.activeTarget.TargetID) >= 0 {
 		s.targetSelection = s.activeTarget.TargetID
 		return
@@ -1096,15 +1087,11 @@ func (s *workspaceDiffPaneState) targetLabel() string {
 	return "Working tree"
 }
 
-func (s *workspaceDiffPaneState) targetPickerItems(query string) []pickerItem {
-	targets := ui.DefaultFuzzySelectFilter(query, s.catalog, func(target protocol.DiffTargetEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{
-			Title:       target.Metadata.Label,
-			Description: strings.Join([]string{target.Metadata.Subject, target.Metadata.RefName, target.Metadata.BaseRefName, target.Metadata.Abbreviated}, " "),
-		}
-	})
-	items := make([]pickerItem, 0, len(targets))
-	for _, target := range targets {
+// targetPickerCatalog maps every diff target onto a picker item. The label,
+// commit subject, branch names, and abbreviated object ID are matched.
+func (s *workspaceDiffPaneState) targetPickerCatalog() []pickerItem {
+	items := make([]pickerItem, 0, len(s.catalog))
+	for _, target := range s.catalog {
 		label := target.Metadata.Label
 		if label == "" {
 			label = target.Metadata.Abbreviated
@@ -1129,7 +1116,8 @@ func (s *workspaceDiffPaneState) targetPickerItems(query string) []pickerItem {
 		}
 		items = append(items, pickerItem{
 			Key: target.TargetID, Label: label, Description: detail, Meta: meta,
-			Current: target.TargetID == s.activeTarget.TargetID,
+			Current:    target.TargetID == s.activeTarget.TargetID,
+			SearchText: strings.Join([]string{target.Metadata.Subject, target.Metadata.RefName, target.Metadata.BaseRefName, target.Metadata.Abbreviated}, " "),
 		})
 	}
 	return items
@@ -1144,17 +1132,15 @@ func (s *workspaceDiffPaneState) targetByKey(key string) (protocol.DiffTargetEnt
 	return protocol.DiffTargetEntry{}, false
 }
 
-func (s *workspaceDiffPaneState) setTargetQuery(query string) {
-	model := pickerKeyModel{Query: s.targetQuery, Selection: s.targetSelection}
-	model.SetQuery(query, s.targetPickerItems(query))
-	s.targetQuery, s.targetSelection = model.Query, model.Selection
+func (s *workspaceDiffPaneState) targetKeyModel() pickerKeyModel {
+	return pickerKeyModel{Query: s.targetQuery, Selection: s.targetSelection}
 }
 
 func (s *workspaceDiffPaneState) handleTargetPickerKey(key ui.Key) ui.EventResult {
 	var result pickerKeyResult
 	s.SetState(func() {
-		model := pickerKeyModel{Query: s.targetQuery, Selection: s.targetSelection}
-		result = model.HandleKey(key, s.targetPickerItems)
+		model := s.targetKeyModel()
+		result = model.HandleKey(key, s.targetPickerCatalog())
 		s.targetQuery, s.targetSelection = model.Query, model.Selection
 	})
 	if !result.Handled {
@@ -1171,15 +1157,10 @@ func (s *workspaceDiffPaneState) handleTargetPickerKey(key ui.Key) ui.EventResul
 }
 
 func (s *workspaceDiffPaneState) targetPicker(ui.BuildContext, ui.Theme) ui.Widget {
-	items := s.targetPickerItems(s.targetQuery)
-	cursor := len(s.targetQuery)
 	result := palettePicker{
 		Title: "Select diff target",
-		Search: &textInputConfig{
-			Value: s.targetQuery, Placeholder: "Filter branch, subject, or object ID…", CursorOffset: &cursor, AutoFocus: true,
-			OnChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.setTargetQuery(value) }) },
-		},
-		Items: items, Catalog: s.targetPickerItems(""), Selection: s.targetSelection,
+		Query: s.targetQuery, Search: &pickerSearch{Placeholder: "Filter branch, subject, or object ID…"},
+		Catalog: s.targetPickerCatalog(), Selection: s.targetSelection,
 		Footer: "↑↓ move · enter select · esc close", OnKey: s.handleTargetPickerKey,
 		OnActivate: func(_ ui.EventContext, key string) {
 			if target, ok := s.targetByKey(key); ok {
@@ -1187,6 +1168,7 @@ func (s *workspaceDiffPaneState) targetPicker(ui.BuildContext, ui.Theme) ui.Widg
 			}
 		},
 	}
+	items := result.items()
 	switch {
 	case s.catalogLoading && len(items) == 0:
 		result.Message, result.MessageTone = "Loading diff targets…", pickerToneLoading

@@ -1503,25 +1503,13 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				})
 			}
 		},
-		ScratchpadChanged:       func(_ ui.EventContext, value string) { s.changeScratchpad(value) },
-		RetryScratchpad:         func(ui.EventContext) { s.saveScratchpad(false, nil) },
-		ReviewScratchpad:        func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = true }) },
-		KeepEditingScratchpad:   func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = false }) },
-		UseSharedScratchpad:     func(ui.EventContext) { s.useSharedScratchpad() },
-		ReplaceSharedScratchpad: func(ui.EventContext) { s.replaceSharedScratchpad() },
-		OpenWorkspaceFilePicker: func(ui.EventContext) { s.openWorkspaceFilePicker() },
-		WorkspaceFilePickerQuery: func(_ ui.EventContext, query string) {
-			s.SetState(func() {
-				model := pickerKeyModel{Query: s.workspaceFilePicker.Query, Selection: workspaceFilePickerKeyString(s.workspaceFilePicker.Selection)}
-				model.SetQuery(query, s.workspaceFilePicker.pickerItems(s.indexedFiles, query))
-				s.workspaceFilePicker.Query = model.Query
-				if row, ok := s.workspaceFilePicker.rowByPickerKey(s.indexedFiles, model.Selection); ok {
-					s.workspaceFilePicker.Selection = row.Key
-				} else {
-					s.workspaceFilePicker.Selection = workspaceFileKey{}
-				}
-			})
-		},
+		ScratchpadChanged:           func(_ ui.EventContext, value string) { s.changeScratchpad(value) },
+		RetryScratchpad:             func(ui.EventContext) { s.saveScratchpad(false, nil) },
+		ReviewScratchpad:            func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = true }) },
+		KeepEditingScratchpad:       func(ui.EventContext) { s.SetState(func() { s.scratchpad.Review = false }) },
+		UseSharedScratchpad:         func(ui.EventContext) { s.useSharedScratchpad() },
+		ReplaceSharedScratchpad:     func(ui.EventContext) { s.replaceSharedScratchpad() },
+		OpenWorkspaceFilePicker:     func(ui.EventContext) { s.openWorkspaceFilePicker() },
 		ActivateWorkspaceFilePicker: func(_ ui.EventContext, row workspaceFilePickerRow) { s.activateWorkspaceFilePickerRow(row) },
 		OpenWorkspacePicker:         func(ui.EventContext) { s.openWorkspacePicker() },
 		CloseWorkspacePicker: func(ui.EventContext) {
@@ -1530,9 +1518,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 				s.workspacePickerQuery = ""
 				s.workspacePickerSelection = ""
 			})
-		},
-		WorkspacePickerQuery: func(_ ui.EventContext, query string) {
-			s.SetState(func() { s.setWorkspacePickerQuery(query) })
 		},
 		MoveWorkspaceFocus: func(ui.EventContext) {
 			if s.inputOwner().trapsFocus() {
@@ -1769,15 +1754,10 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenPalette: func(ui.EventContext) {
 			s.openPalette()
 		},
-		PaletteQueryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.palette.SetQuery(s.hasActiveWork(), value) })
-		},
 		MovePaletteSelection: func(_ ui.EventContext, delta int) {
 			s.movePaletteSelection(delta)
 		},
-		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
-		ThemeQueryChanged: func(_ ui.EventContext, value string) { s.setThemeQuery(value) },
 		SelectTheme:       func(_ ui.EventContext, name string) { s.activateTheme(name) },
 		OpenSessionRename: func(ui.EventContext) {
 			s.openCurrentSessionRename()
@@ -1788,13 +1768,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenThinking: func(ui.EventContext) {
 			s.openConfigurationPicker(configurationPickerThinking)
 		},
-		ConfigurationQuery: func(_ ui.EventContext, value string) {
+		ConfigurationContextChanged: func(_ ui.EventContext, value string) {
 			s.SetState(func() {
 				if s.configurationPicker.EditingContext {
 					s.configurationPicker.EditValue = value
 					s.configurationPicker.Error = ""
-				} else {
-					s.configurationPicker.SetQuery(value)
 				}
 			})
 		},
@@ -1804,7 +1782,6 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		ApplyConfiguration: func(ui.EventContext) {
 			s.applyConfigurationSelection()
 		},
-		SessionQueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.sessionExplorer.SetQuery(value) }) },
 		ToggleSessionTree: func(_ ui.EventContext, sessionID string) {
 			s.SetState(func() { s.sessionExplorer.ToggleExpanded(sessionID) })
 		},
@@ -4469,14 +4446,6 @@ func (s *appState) themeService() ThemeService {
 	return provider.themeService()
 }
 
-func (s *appState) setThemeQuery(value string) {
-	preview := false
-	s.SetState(func() { preview = s.themePicker.SetQuery(value) })
-	if preview {
-		s.selectTheme(s.themePicker.Selection)
-	}
-}
-
 func (s *appState) activateTheme(name string) {
 	commit := false
 	s.SetState(func() { commit = s.themePicker.requestCommit(name) })
@@ -5162,13 +5131,6 @@ func (s *appState) workspacePickerCatalog() []workspacePickerItem {
 	})
 }
 
-func (s *appState) setWorkspacePickerQuery(query string) {
-	catalog := s.workspacePickerCatalog()
-	controller := workspacePickerController{Query: s.workspacePickerQuery, Selection: s.workspacePickerSelection}
-	controller.SetQuery(query, catalog, s.workspace.SelectedIdentity())
-	s.workspacePickerQuery, s.workspacePickerSelection = controller.Query, controller.Selection
-}
-
 func (s *appState) closeWorkspacePicker() {
 	s.workspacePickerOpen = false
 	s.workspacePickerQuery = ""
@@ -5224,7 +5186,7 @@ func (s *appState) closeWorkspacePickerSelection(catalog []workspacePickerItem) 
 	}
 	if _, exists := workspacePickerItemByKey(s.workspacePickerCatalog(), s.workspacePickerSelection); !exists {
 		s.SetState(func() {
-			s.workspacePickerSelection = firstEnabledPickerKey(workspacePickerRows(filterWorkspacePickerItems(s.workspacePickerQuery, s.workspacePickerCatalog()), s.workspace.SelectedIdentity()))
+			s.workspacePickerSelection = firstEnabledPickerKey(pickerKeyModel{Query: s.workspacePickerQuery}.Items(workspacePickerRows(s.workspacePickerCatalog(), s.workspace.SelectedIdentity())))
 		})
 	}
 }

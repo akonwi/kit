@@ -13,10 +13,18 @@ func textInput(theme ui.Theme, config textInputConfig) ui.Widget {
 		Padding: config.Padding, ObscureText: config.ObscureText,
 		CursorOffset: config.CursorOffset, AutoFocus: config.AutoFocus,
 	}
-	return ui.Expanded(textInputWidget{
+	child := ui.Widget(textInputWidget{
 		Theme: theme, Field: field,
 		InitialCursorOffset: config.InitialCursorOffset, InitialCursorGeneration: config.InitialCursorGeneration,
 	})
+	if config.ReadOnly {
+		// Actions take precedence over the field's default editing actions; a
+		// nil action consumes the intent without changing the value.
+		child = ui.Actions{Bindings: map[ui.IntentType]ui.ActionFunc{
+			ui.InsertTextIntentType: nil, ui.DeleteTextIntentType: nil, ui.InsertLineBreakIntentType: nil,
+		}, Child: child}
+	}
+	return ui.Expanded(child)
 }
 
 type textInputConfig struct {
@@ -30,6 +38,9 @@ type textInputConfig struct {
 	InitialCursorOffset     *int
 	InitialCursorGeneration uint64
 	AutoFocus               bool
+	// ReadOnly shows the value and cursor but ignores edits, for fields whose
+	// value is edited through another route such as pickerKeyModel.
+	ReadOnly bool
 }
 
 type textInputWidget struct {

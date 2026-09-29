@@ -86,7 +86,8 @@ type sessionExplorerSnapshot struct {
 	DeletePending   bool
 	DeleteError     string
 	Query           string
-	// All is the ordered catalog; Sessions are the visible rows.
+	// All is the ordered catalog with remembered expansion; Sessions are the
+	// rows the query shows.
 	All              []sessionExplorerItem
 	Sessions         []sessionExplorerItem
 	Selection        string
@@ -124,8 +125,8 @@ func (c *sessionExplorerController) Resolve(generation uint64, sessions []sessio
 	}
 	c.expandAncestors(c.CurrentSessionID)
 	c.expandAncestors(c.Selection)
-	if strings.TrimSpace(c.Query) != "" {
-		_, c.Selection = c.filterSessions(c.Query)
+	if !pickerQueryBlank(c.Query) {
+		c.Selection = c.bestSessionMatch(c.Query)
 		return true
 	}
 	if sessionIndex(c.Sessions, c.Selection) < 0 {
@@ -150,7 +151,7 @@ func (c *sessionExplorerController) Snapshot() sessionExplorerSnapshot {
 		RenamePending: c.RenamePending, RenameError: c.RenameError,
 		DeleteOpen: c.DeleteOpen, DeleteSessionID: c.DeleteSessionID,
 		DeletePending: c.DeletePending, DeleteError: c.DeleteError,
-		Query: c.Query, All: c.Sessions, Sessions: c.visibleSessions(), Selection: c.Selection,
+		Query: c.Query, All: c.treeSessions(), Sessions: c.visibleSessions(), Selection: c.Selection,
 		CurrentSessionID: c.CurrentSessionID,
 	}
 }
@@ -378,8 +379,8 @@ func (c *sessionExplorerController) Move(delta int) {
 	if !c.Open || c.Loading || c.Error != "" || c.Switching || c.RenameOpen || c.DeleteOpen {
 		return
 	}
-	model := pickerKeyModel{Query: c.Query, Selection: c.Selection}
-	model.Move(c.pickerItems(c.Query), delta)
+	model := c.keyModel()
+	model.Move(c.pickerCatalog(time.Now()), delta)
 	c.Select(model.Selection)
 }
 
@@ -403,8 +404,8 @@ func (c *sessionExplorerController) HandleKey(key ui.Key) pickerKeyResult {
 		c.NavigateTree(key.MatchString("Right"))
 		return pickerKeyResult{Handled: true}
 	}
-	model := pickerKeyModel{Query: c.Query, Selection: c.Selection}
-	result := model.HandleKey(key, c.pickerItems)
+	model := c.keyModel()
+	result := model.HandleKey(key, c.pickerCatalog(time.Now()))
 	switch {
 	case result.QueryChanged:
 		c.SetQuery(model.Query)
@@ -425,11 +426,6 @@ func (c *sessionExplorerController) HandleKey(key ui.Key) pickerKeyResult {
 	return pickerKeyResult{Handled: true}
 }
 
-// pickerItems returns the visible rows for a query as picker items.
-func (c *sessionExplorerController) pickerItems(query string) []pickerItem {
-	return sessionExplorerPickerItems(c.sessionsFor(query), c.CurrentSessionID, time.Now())
-}
-
 func sessionTimestamp(raw string) time.Time {
 	parsed, _ := time.Parse(time.RFC3339Nano, raw)
 	return parsed
@@ -445,7 +441,6 @@ func sessionIndex(sessions []sessionExplorerItem, sessionID string) int {
 }
 
 type sessionExplorerCallbacks struct {
-	QueryChanged ui.TextChangedCallback
 	// Activate highlights and opens a clicked session.
 	Activate func(ui.EventContext, string)
 	// Toggle expands or collapses a clicked disclosure.
@@ -475,17 +470,9 @@ func (w sessionExplorerSurface) picker(now time.Time) palettePicker {
 	if action == "" {
 		action = "switch"
 	}
-	cursor := len(snapshot.Query)
 	result := palettePicker{
-		Title: "Sessions",
-		Search: &textInputConfig{
-			Value: snapshot.Query, Placeholder: "Search sessions…", CursorOffset: &cursor,
-			OnChanged: w.Callbacks.QueryChanged, AutoFocus: true,
-		},
-		Items: sessionExplorerPickerItems(snapshot.Sessions, snapshot.CurrentSessionID, now),
-		// Filtered rows are a subset of the tree without disclosures, so the
-		// tree sizes the columns for both.
-		Catalog:    sessionExplorerPickerItems(snapshot.All, snapshot.CurrentSessionID, now),
+		Title: "Sessions", Query: snapshot.Query, Search: &pickerSearch{Placeholder: "Search sessions…"},
+		Catalog: sessionExplorerPickerItems(snapshot.All, snapshot.CurrentSessionID, now), Filter: filterPickerTree,
 		Selection:  snapshot.Selection,
 		Footer:     "←→ expand · enter " + action + " · ctrl+r rename · ctrl+d delete",
 		OnActivate: w.Callbacks.Activate,
@@ -502,7 +489,7 @@ func (w sessionExplorerSurface) picker(now time.Time) palettePicker {
 	case snapshot.Error != "":
 		result.Message, result.MessageTone = "Could not load sessions: "+snapshot.Error, pickerToneDanger
 		result.Footer = "esc close"
-	case len(snapshot.Sessions) == 0 && strings.TrimSpace(snapshot.Query) != "":
+	case len(snapshot.Sessions) == 0 && !pickerQueryBlank(snapshot.Query):
 		result.Message = "No matching sessions"
 	case len(snapshot.Sessions) == 0:
 		result.Message = "No sessions"
@@ -569,9 +556,10 @@ func sessionExplorerPickerItems(sessions []sessionExplorerItem, currentSessionID
 	for _, session := range sessions {
 		item := pickerItem{
 			Key: session.ID, Label: sessionExplorerItemLabel(session), Hint: sessionLineageNote(session),
-			Description: sessionDisplayCWD(session.CWD, sessionCWDMaxWidth),
-			Meta:        formatSessionUpdated(session.UpdatedAt, now),
-			Current:     session.ID == currentSessionID, Depth: session.Depth, ChildCount: session.ChildCount,
+			Description: sessionDisplayCWD(session.CWD, sessionCWDMaxWidth), ParentKey: session.TreeParentID,
+			SearchText: sessionDisplayCWD(session.CWD, sessionCWDMaxWidth),
+			Meta:       formatSessionUpdated(session.UpdatedAt, now),
+			Current:    session.ID == currentSessionID, Depth: session.Depth, ChildCount: session.ChildCount,
 		}
 		if session.ChildCount > 0 {
 			item.Disclosure = pickerDisclosureCollapsed

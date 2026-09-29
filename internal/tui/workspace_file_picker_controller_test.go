@@ -28,7 +28,7 @@ func TestWorkspaceFilePickerUsesFlatFuzzyIndexedPaths(t *testing.T) {
 		protocol.FileIndexEntry{Path: "internal/tui/app.go"},
 		protocol.FileIndexEntry{Path: "internal/server/app.go"},
 	)
-	items := controller.pickerItems(source, controller.Query)
+	items := controller.keyModel().Items(controller.pickerCatalog(source))
 	if len(items) != 1 || items[0].Label != "internal/tui/app.go" {
 		t.Fatalf("flat fuzzy items = %+v", items)
 	}
@@ -41,10 +41,10 @@ func TestWorkspaceFilePickerDirectoriesMatchWithoutDrillDown(t *testing.T) {
 	t.Parallel()
 	controller := readyFilePickerController()
 	controller.Query = "docs"
-	items := controller.pickerItems(indexedPickerSource(
+	items := controller.keyModel().Items(controller.pickerCatalog(indexedPickerSource(
 		protocol.FileIndexEntry{Path: "docs/", IsDir: true},
 		protocol.FileIndexEntry{Path: "docs/guide.md"},
-	), controller.Query)
+	)))
 	if len(items) != 2 || items[0].Meta != "directory" || items[1].Meta != "" {
 		t.Fatalf("directory-aided flat items = %+v", items)
 	}

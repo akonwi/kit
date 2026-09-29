@@ -55,9 +55,7 @@ type paletteSnapshot struct {
 }
 
 type paletteCallbacks struct {
-	QueryChanged ui.TextChangedCallback
-	RunQuery     ui.TextChangedCallback
-	RunCommand   func(ui.EventContext, paletteCommandID)
+	RunCommand func(ui.EventContext, paletteCommandID)
 }
 
 type commandPaletteSurface struct {
@@ -67,25 +65,18 @@ type commandPaletteSurface struct {
 
 // Build maps palette commands onto the canonical picker: name as label,
 // argument hint, description, and the source of non-built-in commands as
-// trailing metadata.
+// trailing metadata. A selection hidden by the query falls back to the first
+// enabled match.
 func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
-	items := commandPaletteItems(w.Snapshot.Running, w.Snapshot.Query, w.Snapshot.Contributions)
-	selection := string(w.Snapshot.Selection)
-	if pickerItemIndex(items, selection) < 0 {
-		selection = firstEnabledPickerKey(items)
+	catalog := paletteCatalog(w.Snapshot.Running, w.Snapshot.Contributions)
+	model := pickerKeyModel{Query: w.Snapshot.Query, Selection: string(w.Snapshot.Selection), Filter: filterPaletteItems}
+	items := model.Items(catalog)
+	if pickerItemIndex(items, model.Selection) < 0 {
+		model.Selection = firstEnabledPickerKey(items)
 	}
-	catalog := paletteCommands(w.Snapshot.Contributions)
-	catalogItems := make([]pickerItem, 0, len(catalog))
-	for _, command := range catalog {
-		catalogItems = append(catalogItems, palettePickerItem(command, w.Snapshot.Running, w.Snapshot.Contributions))
-	}
-	queryCursor := len(w.Snapshot.Query)
 	return palettePicker{
-		Search: &textInputConfig{
-			Value: w.Snapshot.Query, Placeholder: "Search commands…", CursorOffset: &queryCursor,
-			OnChanged: w.Callbacks.QueryChanged, OnSubmitted: w.Callbacks.RunQuery, AutoFocus: true,
-		},
-		Items: items, Catalog: catalogItems, Selection: selection,
+		Query: model.Query, Search: &pickerSearch{Placeholder: "Search commands…"},
+		Catalog: catalog, Filter: model.Filter, Selection: model.Selection,
 		Footer: "↑↓ move · enter run · esc close",
 		OnActivate: func(ctx ui.EventContext, key string) {
 			if w.Callbacks.RunCommand != nil {
@@ -95,11 +86,16 @@ func (w commandPaletteSurface) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
-// commandPaletteItems maps the commands matching query onto picker items: name
-// as label, argument hint, description, and the source of non-built-in
-// commands as trailing metadata.
-func commandPaletteItems(running bool, query string, contributions []paletteCommand) []pickerItem {
-	commands := filteredPaletteCommands(running, query, contributions)
+// filterPaletteItems is the command palette's filter hook. The query is a
+// command followed by its arguments, so only the command word is matched with
+// the shared filter; "review auth module" keeps showing review.
+func filterPaletteItems(query string, catalog []pickerItem) []pickerItem {
+	return filterPickerItems(paletteFilterQuery(query), catalog)
+}
+
+// paletteCatalog maps every palette command onto a picker item.
+func paletteCatalog(running bool, contributions []paletteCommand) []pickerItem {
+	commands := paletteCommands(contributions)
 	items := make([]pickerItem, 0, len(commands))
 	for _, command := range commands {
 		items = append(items, palettePickerItem(command, running, contributions))
@@ -112,6 +108,7 @@ func palettePickerItem(command paletteCommand, running bool, contributions []pal
 		Key: string(command.ID), Label: command.Name, Hint: command.ArgumentHint,
 		Description: command.Description, Meta: command.Source,
 		DisabledReason: paletteCommandDisabledReason(command.ID, running, contributions),
+		SearchText:     command.Description, SearchAliases: command.Aliases,
 	}
 }
 
@@ -142,11 +139,10 @@ func (p *paletteController) SetContributions(commands []paletteCommand, running 
 	}
 }
 
-// keys returns the palette's canonical picker key model and item source.
-func (p *paletteController) keys(running bool) (pickerKeyModel, pickerItemsFunc) {
-	model := pickerKeyModel{Query: p.Query, Selection: string(p.Selection)}
-	contributions := p.Contributions
-	return model, func(query string) []pickerItem { return commandPaletteItems(running, query, contributions) }
+// keys returns the palette's canonical picker key model and catalog.
+func (p *paletteController) keys(running bool) (pickerKeyModel, []pickerItem) {
+	model := pickerKeyModel{Query: p.Query, Selection: string(p.Selection), Filter: filterPaletteItems}
+	return model, paletteCatalog(running, p.Contributions)
 }
 
 func (p *paletteController) apply(model pickerKeyModel) {
@@ -155,8 +151,8 @@ func (p *paletteController) apply(model pickerKeyModel) {
 
 // SetQuery replaces the query and highlights the first enabled match.
 func (p *paletteController) SetQuery(running bool, query string) {
-	model, items := p.keys(running)
-	model.SetQuery(query, items(query))
+	model, catalog := p.keys(running)
+	model.SetQuery(query, catalog)
 	p.apply(model)
 }
 
@@ -164,8 +160,8 @@ func (p *paletteController) Move(running bool, delta int) {
 	if !p.Open {
 		return
 	}
-	model, items := p.keys(running)
-	model.Move(items(p.Query), delta)
+	model, catalog := p.keys(running)
+	model.Move(catalog, delta)
 	p.apply(model)
 }
 
@@ -189,8 +185,8 @@ func (p *paletteController) HandleKey(running bool, key ui.Key) (paletteCommand,
 	if !p.Open {
 		return paletteCommand{}, false, false
 	}
-	model, items := p.keys(running)
-	result := model.HandleKey(key, items)
+	model, catalog := p.keys(running)
+	result := model.HandleKey(key, catalog)
 	p.apply(model)
 	switch {
 	case result.Dismiss:
@@ -325,13 +321,24 @@ func paletteCommandDisabledToast(commandID paletteCommandID, running bool) (toas
 	return toastInput{Title: "Command unavailable", Subtitle: "Available when the session is idle.", Variant: toastWarning}, true
 }
 
-func filteredPaletteCommands(_ bool, query string, contributions ...[]paletteCommand) []paletteCommand {
-	commands := paletteCommands(contributions...)
-	return ui.DefaultFuzzySelectFilter(paletteFilterQuery(query), commands, func(command paletteCommand) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{
-			Title: command.Name, Description: command.Description, Aliases: command.Aliases,
-		}
-	})
+// filteredPaletteCommands returns the commands the palette shows for query,
+// in display order.
+func filteredPaletteCommands(running bool, query string, contributions ...[]paletteCommand) []paletteCommand {
+	var extra []paletteCommand
+	if len(contributions) > 0 {
+		extra = contributions[0]
+	}
+	commands := paletteCommands(extra)
+	byID := make(map[string]paletteCommand, len(commands))
+	for _, command := range commands {
+		byID[string(command.ID)] = command
+	}
+	items := filterPaletteItems(query, paletteCatalog(running, extra))
+	result := make([]paletteCommand, 0, len(items))
+	for _, item := range items {
+		result = append(result, byID[item.Key])
+	}
+	return result
 }
 
 func scratchpadPaletteCommand() paletteCommand {

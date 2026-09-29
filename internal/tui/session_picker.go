@@ -147,7 +147,6 @@ func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 	surface := sessionExplorerSurface{
 		Snapshot: snapshot, Action: "open",
 		Callbacks: sessionExplorerCallbacks{
-			QueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.controller.SetQuery(value) }) },
 			Toggle: func(_ ui.EventContext, sessionID string) {
 				s.SetState(func() { s.controller.ToggleExpanded(sessionID) })
 			},

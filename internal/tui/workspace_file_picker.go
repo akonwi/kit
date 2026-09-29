@@ -3,8 +3,7 @@ package tui
 import "go.rockorager.dev/vaxis/ui"
 
 type workspaceFilePickerCallbacks struct {
-	QueryChanged ui.TextChangedCallback
-	Activate     func(ui.EventContext, workspaceFilePickerRow)
+	Activate func(ui.EventContext, workspaceFilePickerRow)
 }
 
 type workspaceFilePickerSurface struct {
@@ -14,16 +13,11 @@ type workspaceFilePickerSurface struct {
 }
 
 func (w workspaceFilePickerSurface) Build(ui.BuildContext) ui.Widget {
-	items := w.Controller.pickerItems(w.Source, w.Controller.Query)
-	catalog := w.Controller.pickerItems(w.Source, "")
-	cursor := len(w.Controller.Query)
+	model := w.Controller.keyModel()
 	result := palettePicker{
 		Title: "Open file",
-		Search: &textInputConfig{
-			Value: w.Controller.Query, Placeholder: "Search indexed project paths…", CursorOffset: &cursor,
-			OnChanged: w.Callbacks.QueryChanged, AutoFocus: true,
-		},
-		Items: items, Catalog: catalog, Selection: workspaceFilePickerKeyString(w.Controller.Selection),
+		Query: model.Query, Search: &pickerSearch{Placeholder: "Search indexed project paths…"},
+		Catalog: w.Controller.pickerCatalog(w.Source), Filter: model.Filter, Selection: model.Selection,
 		Footer: "↑↓ move · enter open · ctrl+r refresh · esc close",
 		OnActivate: func(ctx ui.EventContext, key string) {
 			if row, ok := w.Controller.rowByPickerKey(w.Source, key); ok && w.Callbacks.Activate != nil {
@@ -31,6 +25,7 @@ func (w workspaceFilePickerSurface) Build(ui.BuildContext) ui.Widget {
 			}
 		},
 	}
+	items := result.items()
 	if w.Source.Truncated && w.Controller.Workspace.WorkspaceID != "" {
 		result.TitleMeta = "Showing first 4,000 indexed paths"
 	}

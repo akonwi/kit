@@ -564,9 +564,8 @@ func (s *sessionExplorerAppState) Build(ui.BuildContext) ui.Widget {
 			Phase: phaseReady, Session: s.session, Scroll: &s.scroll, SessionExplorer: s.sessionExplorer.Snapshot(),
 		},
 		Callbacks: shellCallbacks{
-			InputOwner:          s.inputOwner,
-			SessionQueryChanged: func(_ ui.EventContext, value string) { s.SetState(func() { s.sessionExplorer.SetQuery(value) }) },
-			Dismiss:             s.dismiss,
+			InputOwner: s.inputOwner,
+			Dismiss:    s.dismiss,
 		},
 	}
 }
