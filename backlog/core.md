@@ -163,8 +163,10 @@ change in an ADR before implementing it. Wire changes bump
 `CORE-PROTO-008`.
 
 - [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
-  stream from newline-delimited JSON to SSE and establishing the stream pattern
-  reused by `CORE-PROTO-020`.
+  stream from newline-delimited JSON to SSE per
+  [ADR 0035](../docs/adrs/0035-describe-server-push-streams-in-the-session-contract.md)
+  and establishing the `internal/httpapi` stream operation, writer, and reader
+  and the streaming macOS transport path reused by `CORE-PROTO-020`.
 - [ ] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
   prompts, prompt commands, follow-ups, turn status and abort, interaction
   responses, event pages and stream, message and transcript pages. Adopts the
