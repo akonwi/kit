@@ -214,3 +214,75 @@ func TestPickerMessagesReplaceTheListAndStatusKeepsTheCloseHint(t *testing.T) {
 		})
 	}
 }
+
+func pickerHierarchyItems() []pickerItem {
+	return []pickerItem{
+		{Key: "auth", Label: "Authentication", Description: "~/Developer/kit", Meta: "2h ago", Disclosure: pickerDisclosureExpanded, ChildCount: 2, Current: true},
+		{Key: "oauth", Label: "OAuth", Depth: 1, Description: "~/Developer/kit", Meta: "3h ago", Disclosure: pickerDisclosureCollapsed, ChildCount: 1},
+		{Key: "tokens", Label: "Tokens", Depth: 1, Description: "~/Developer/kit/auth", Meta: "1d ago"},
+		{Key: "release", Label: "Release", Hint: "from Ops", Description: "~/Developer/kit", Meta: "5d ago", Disclosure: pickerDisclosureCollapsed, ChildCount: 3},
+		{Key: "orphan", Label: "Orphan", Hint: "invalid parent", Meta: "2026-01-02"},
+	}
+}
+
+func TestPickerHierarchyIndentsLabelsAndShowsDisclosureInTheHintColumn(t *testing.T) {
+	t.Parallel()
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{
+		Title: "Sessions", TitleMeta: "5 sessions", Items: pickerHierarchyItems(), Selection: "oauth",
+	}})
+	application.Pump(80, 24)
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	// Children are indented two cells per level inside the label column, and
+	// the disclosure precedes any hint in the shared hint column.
+	assertDialogRow(t, rows, "Authentication", "│ Authentication  ▾ 2             ~/Developer/kit       2h ago │")
+	assertDialogRow(t, rows, "OAuth", "│▌  OAuth         ▸ 1             ~/Developer/kit       3h ago │")
+	assertDialogRow(t, rows, "Tokens", "│   Tokens                        ~/Developer/kit…      1d ago │")
+	assertDialogRow(t, rows, "Release", "│ Release         ▸ 3 · from Ops  ~/Developer/kit       5d ago │")
+	assertDialogRow(t, rows, "Orphan", "│ Orphan          invalid parent                    2026-01-02 │")
+}
+
+func TestPickerDisclosureClickTogglesAndRowClickActivates(t *testing.T) {
+	t.Parallel()
+	var activated, toggled []string
+	application := uitest.New(pickerTestHarness{Theme: ui.DefaultThemeSet().Dark, Picker: picker{
+		Items: pickerHierarchyItems(), Selection: "auth",
+		OnActivate: func(_ ui.EventContext, key string) { activated = append(activated, key) },
+		OnToggle:   func(_ ui.EventContext, key string) { toggled = append(toggled, key) },
+	}})
+	application.Pump(80, 24)
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+
+	column, row := findTextCell(t, rows, glyphTriangleRight+" 1")
+	application.Click(column, row)
+	column, row = findTextCell(t, rows, glyphTriangleRight+" 3")
+	application.Click(column+2, row)
+	// The lineage note after the disclosure belongs to the row.
+	column, row = findTextCell(t, rows, "from Ops")
+	application.Click(column, row)
+	column, row = findTextCell(t, rows, "OAuth")
+	application.Click(column, row)
+	application.Pump(80, 24)
+	if got, want := strings.Join(toggled, ","), "oauth,release"; got != want {
+		t.Fatalf("toggled = %q, want %q", got, want)
+	}
+	if got, want := strings.Join(activated, ","), "release,oauth"; got != want {
+		t.Fatalf("activated = %q, want %q", got, want)
+	}
+}
+
+func TestPickerTitleMetaShowsSpinnerWhileLoading(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultThemeSet().Dark
+	application := uitest.New(pickerTestHarness{Theme: theme, Picker: picker{
+		Title: "Sessions", TitleMeta: "switching…", TitleMetaTone: pickerToneLoading, Items: pickerHierarchyItems(),
+	}})
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	assertDialogRow(t, rows, "Sessions", "│ Sessions                                        ⠋ switching… │")
+	column, row := findTextCell(t, rows, spinnerFrames[0])
+	if cell := application.Cell(column, row); cell.Style.Foreground != theme.MutedForeground {
+		t.Fatalf("spinner style = %+v, want muted", cell.Style)
+	}
+}

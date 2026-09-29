@@ -1,6 +1,9 @@
 package tui
 
 import (
+	"strconv"
+	"strings"
+
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
@@ -8,8 +11,11 @@ import (
 const (
 	pickerColumnGap     = 2
 	pickerMaxLabelWidth = 32
-	pickerMaxHintWidth  = 16
+	pickerMaxHintWidth  = 24
 	pickerMaxMetaWidth  = 20
+	// pickerMaxIndentDepth bounds hierarchy indentation so deep items keep
+	// room for their labels.
+	pickerMaxIndentDepth = 6
 	// pickerHighlightPercent and pickerHoverPercent blend the picker focus
 	// color into the background, like diff line highlights, so row text keeps
 	// its own colors while highlighted or hovered.
@@ -28,8 +34,8 @@ type pickerColumns struct {
 func measurePickerColumns(items []pickerItem) pickerColumns {
 	var columns pickerColumns
 	for _, item := range items {
-		columns.Label = max(columns.Label, pickerTextWidth(item.Label))
-		columns.Hint = max(columns.Hint, pickerTextWidth(item.Hint))
+		columns.Label = max(columns.Label, pickerTextWidth(pickerItemLabel(item)))
+		columns.Hint = max(columns.Hint, pickerTextWidth(pickerItemHint(item)))
 		columns.Meta = max(columns.Meta, pickerTextWidth(item.Meta))
 		columns.Description = columns.Description || item.Description != "" || item.DisabledReason != ""
 	}
@@ -37,6 +43,36 @@ func measurePickerColumns(items []pickerItem) pickerColumns {
 	columns.Hint = min(columns.Hint, pickerMaxHintWidth)
 	columns.Meta = min(columns.Meta, pickerMaxMetaWidth)
 	return columns
+}
+
+// pickerItemLabel is the label indented for the item's depth.
+func pickerItemLabel(item pickerItem) string {
+	return strings.Repeat("  ", max(0, min(item.Depth, pickerMaxIndentDepth))) + item.Label
+}
+
+// pickerDisclosureText is "▸ N" or "▾ N" for items with a disclosure.
+func pickerDisclosureText(item pickerItem) string {
+	switch item.Disclosure {
+	case pickerDisclosureCollapsed:
+		return glyphTriangleRight + " " + strconv.Itoa(item.ChildCount)
+	case pickerDisclosureExpanded:
+		return glyphTriangleDown + " " + strconv.Itoa(item.ChildCount)
+	default:
+		return ""
+	}
+}
+
+// pickerItemHint is the full hint column text: disclosure, then Hint.
+func pickerItemHint(item pickerItem) string {
+	disclosure := pickerDisclosureText(item)
+	switch {
+	case disclosure == "":
+		return item.Hint
+	case item.Hint == "":
+		return disclosure
+	default:
+		return disclosure + " " + glyphMiddleDot + " " + item.Hint
+	}
 }
 
 func pickerTextWidth(value string) int {
@@ -98,6 +134,8 @@ type pickerRow struct {
 	Columns  pickerColumns
 	Selected bool
 	OnActive ui.VoidCallback
+	// OnToggle makes the disclosure clickable.
+	OnToggle ui.VoidCallback
 }
 
 func (pickerRow) CreateState() ui.State { return &pickerRowState{} }
@@ -117,7 +155,7 @@ func (s *pickerRowState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 	content := ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
 		ui.Decoration{Style: ui.Style{Background: colors.Fill}},
-		pickerRowColumns(row.Item, row.Columns, colors),
+		pickerRowColumns(row.Item, row.Columns, colors, row.OnToggle),
 	)}
 	widget := ui.Widget(ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 		gutter, ui.Expanded(content), ui.SizedBox{Width: 1, Height: 1},
@@ -141,7 +179,7 @@ func (s *pickerRowState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 }
 
-func pickerRowColumns(item pickerItem, columns pickerColumns, colors pickerRowColors) ui.Widget {
+func pickerRowColumns(item pickerItem, columns pickerColumns, colors pickerRowColors, onToggle ui.VoidCallback) ui.Widget {
 	text := func(value string, color ui.Color, align ui.TextAlign) ui.Widget {
 		return ui.Text{Value: value, Style: ui.Style{Foreground: color}, Align: align, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
 	}
@@ -152,9 +190,24 @@ func pickerRowColumns(item pickerItem, columns pickerColumns, colors pickerRowCo
 			description += " " + glyphMiddleDot + " " + item.Description
 		}
 	}
+	hint := text(item.Hint, colors.Muted, ui.TextAlignLeft)
+	if disclosure := pickerDisclosureText(item); disclosure != "" {
+		// Only the disclosure toggles; the rest of the hint belongs to the row.
+		toggle := text(disclosure, colors.Muted, ui.TextAlignLeft)
+		if onToggle != nil {
+			toggle = mouseActivator{OnPressed: onToggle, Child: toggle}
+		}
+		hint = toggle
+		if item.Hint != "" {
+			hint = ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
+				ui.SizedBox{Width: pickerTextWidth(disclosure), Height: 1, Child: toggle},
+				ui.Expanded(text(" "+glyphMiddleDot+" "+item.Hint, colors.Muted, ui.TextAlignLeft)),
+			}}
+		}
+	}
 	return pickerRowLayout{Columns: columns, Children: []ui.Widget{
-		text(item.Label, colors.Label, ui.TextAlignLeft),
-		text(item.Hint, colors.Muted, ui.TextAlignLeft),
+		text(pickerItemLabel(item), colors.Label, ui.TextAlignLeft),
+		hint,
 		text(description, colors.Muted, ui.TextAlignLeft),
 		text(item.Meta, colors.Muted, ui.TextAlignRight),
 	}}
