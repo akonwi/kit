@@ -83,6 +83,67 @@ func pickerTextWidth(value string) int {
 	return width
 }
 
+// truncateStartCells shortens value to maximum terminal cells, preserving its
+// suffix and prefixing it with an ellipsis.
+func truncateStartCells(value string, maximum int) string {
+	if maximum <= 0 {
+		return ""
+	}
+	characters := (ui.LayoutContext{}).Characters(value)
+	if pickerTextWidth(value) <= maximum {
+		return value
+	}
+	remaining := maximum - 1
+	start := len(characters)
+	for start > 0 && characters[start-1].Width <= remaining {
+		start--
+		remaining -= characters[start].Width
+	}
+	var suffix strings.Builder
+	for _, character := range characters[start:] {
+		suffix.WriteString(character.Grapheme)
+	}
+	return glyphEllipsis + suffix.String()
+}
+
+// pickerStartTruncatedText paints a single line whose suffix remains visible
+// when its constrained width requires shortening.
+type pickerStartTruncatedText struct {
+	Value string
+	Style ui.Style
+}
+
+func (w pickerStartTruncatedText) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderPickerStartTruncatedText{Value: w.Value, Style: w.Style}
+}
+
+func (w pickerStartTruncatedText) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
+	render := object.(*renderPickerStartTruncatedText)
+	if render.Value != w.Value || render.Style != w.Style {
+		render.Value, render.Style = w.Value, w.Style
+		render.MarkNeedsLayout()
+	}
+}
+
+type renderPickerStartTruncatedText struct {
+	ui.LeafRenderObject
+	Value string
+	Style ui.Style
+	text  string
+}
+
+func (r *renderPickerStartTruncatedText) Layout(_ ui.LayoutContext, constraints ui.Constraints) {
+	size := constraints.Constrain(ui.Size{Width: pickerTextWidth(r.Value), Height: 1})
+	r.text = truncateStartCells(r.Value, size.Width)
+	r.SetSize(size)
+}
+
+func (r *renderPickerStartTruncatedText) Paint(painter *ui.Painter, offset ui.Offset) {
+	painter.DrawText(offset, r.text, r.Style)
+}
+
+func (*renderPickerStartTruncatedText) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+
 // pickerRowColors resolves one row's colors. Selection and hover change only
 // the fill and gutter bar; text keeps its role color so the current item stays
 // distinct while highlighted.
@@ -205,8 +266,12 @@ func pickerRowColumns(item pickerItem, columns pickerColumns, colors pickerRowCo
 			}}
 		}
 	}
+	label := ui.Widget(text(pickerItemLabel(item), colors.Label, ui.TextAlignLeft))
+	if item.LabelTruncation == pickerLabelTruncationStart {
+		label = pickerStartTruncatedText{Value: pickerItemLabel(item), Style: ui.Style{Foreground: colors.Label}}
+	}
 	return pickerRowLayout{Columns: columns, Children: []ui.Widget{
-		text(pickerItemLabel(item), colors.Label, ui.TextAlignLeft),
+		label,
 		hint,
 		text(description, colors.Muted, ui.TextAlignLeft),
 		text(item.Meta, colors.Muted, ui.TextAlignRight),

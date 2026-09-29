@@ -6,6 +6,19 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 )
 
+// pickerLabelTruncation controls how a label is shortened when it exceeds its
+// column width.
+type pickerLabelTruncation uint8
+
+const (
+	// pickerLabelTruncationEnd keeps the beginning of a label, which is the
+	// standard picker behavior.
+	pickerLabelTruncationEnd pickerLabelTruncation = iota
+	// pickerLabelTruncationStart keeps the end of a label, useful when its
+	// identifying part is a suffix such as a file name.
+	pickerLabelTruncationStart
+)
+
 // pickerItem is one picker row. Every row is a single line in uniform columns:
 // label, optional hint, optional description, and optional trailing metadata.
 // Current marks the active value; DisabledReason makes the row unavailable.
@@ -18,19 +31,20 @@ import (
 // SearchText and SearchAliases are what the shared filter matches besides
 // Label; displayed columns other than the label are not matched.
 type pickerItem struct {
-	Key            string
-	Label          string
-	Hint           string
-	Description    string
-	Meta           string
-	Current        bool
-	DisabledReason string
-	Depth          int
-	Disclosure     pickerDisclosure
-	ChildCount     int
-	ParentKey      string
-	SearchText     string
-	SearchAliases  []string
+	Key             string
+	Label           string
+	LabelTruncation pickerLabelTruncation
+	Hint            string
+	Description     string
+	Meta            string
+	Current         bool
+	DisabledReason  string
+	Depth           int
+	Disclosure      pickerDisclosure
+	ChildCount      int
+	ParentKey       string
+	SearchText      string
+	SearchAliases   []string
 }
 
 // pickerFilter returns the catalog items matching query in display order.

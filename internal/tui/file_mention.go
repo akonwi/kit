@@ -93,7 +93,7 @@ func changedRange(previous, next string) (start, previousEnd, nextEnd int) {
 func fileMentionCatalog(entries []protocol.FileIndexEntry) []pickerItem {
 	items := make([]pickerItem, 0, len(entries))
 	for _, entry := range entries {
-		items = append(items, pickerItem{Key: entry.Path, Label: entry.Path})
+		items = append(items, pickerItem{Key: entry.Path, Label: entry.Path, LabelTruncation: pickerLabelTruncationStart})
 	}
 	return items
 }

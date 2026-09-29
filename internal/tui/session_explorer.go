@@ -636,31 +636,6 @@ func sessionDisplayCWD(cwd string, width int) string {
 	return truncateStartCells(display, width)
 }
 
-func truncateStartCells(value string, maximum int) string {
-	if maximum <= 0 {
-		return ""
-	}
-	characters := (ui.LayoutContext{}).Characters(value)
-	width := 0
-	for _, character := range characters {
-		width += character.Width
-	}
-	if width <= maximum {
-		return value
-	}
-	remaining := maximum - 1
-	start := len(characters)
-	for start > 0 && characters[start-1].Width <= remaining {
-		start--
-		remaining -= characters[start].Width
-	}
-	var suffix strings.Builder
-	for _, character := range characters[start:] {
-		suffix.WriteString(character.Grapheme)
-	}
-	return glyphEllipsis + suffix.String()
-}
-
 func sessionExplorerItemLabel(session sessionExplorerItem) string {
 	if name := strings.TrimSpace(session.Name); name != "" {
 		return name

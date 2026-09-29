@@ -116,6 +116,25 @@ func TestInlinePickerSharesPaletteRowsWithoutFooterHintsRestingOnItsAnchor(t *te
 	assertInlinePickerOrigin(t, rows, 2, 20)
 }
 
+func TestPickerLabelStartTruncationIsOptIn(t *testing.T) {
+	t.Parallel()
+	const defaultLabel = "internal/very/long/directory/structure/with/many/levels/tui/default_picker.go"
+	_, rows := renderInlinePicker(inlinePicker{
+		Catalog: []pickerItem{
+			{Key: "start", Label: "internal/very/long/directory/structure/with/many/levels/tui/inline_picker.go", LabelTruncation: pickerLabelTruncationStart},
+			{Key: "default", Label: defaultLabel},
+		},
+		Selection: "start",
+		Anchor:    anchorAt(0, 21),
+	}, 80, 24)
+	assertInlinePickerRows(t, rows, []string{
+		"┌──────────────────────────────────────────────────────────────┐",
+		"│▌⋯g/directory/structure/with/many/levels/tui/inline_picker.go │",
+		"│ internal/very/long/directory/structure/with/many/levels/tui… │",
+		"└──────────────────────────────────────────────────────────────┘",
+	})
+}
+
 func TestInlinePickerWidthFollowsThePalettePickerRuleAndStaysOnScreen(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {

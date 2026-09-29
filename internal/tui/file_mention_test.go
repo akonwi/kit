@@ -118,18 +118,36 @@ func TestFileMentionCatalogLabelsRowsWithFullPaths(t *testing.T) {
 		{Path: "src/", IsDir: true}, {Path: "src/main.go"}, {Path: "go.mod"},
 	})
 	want := []pickerItem{
-		{Key: "src/", Label: "src/"},
-		{Key: "src/main.go", Label: "src/main.go"},
-		{Key: "go.mod", Label: "go.mod"},
+		{Key: "src/", Label: "src/", LabelTruncation: pickerLabelTruncationStart},
+		{Key: "src/main.go", Label: "src/main.go", LabelTruncation: pickerLabelTruncationStart},
+		{Key: "go.mod", Label: "go.mod", LabelTruncation: pickerLabelTruncationStart},
 	}
 	if len(catalog) != len(want) {
 		t.Fatalf("catalog = %+v, want %+v", catalog, want)
 	}
 	for index := range want {
-		if got := catalog[index]; got.Key != want[index].Key || got.Label != want[index].Label || got.Description != "" {
+		if got := catalog[index]; got.Key != want[index].Key || got.Label != want[index].Label || got.LabelTruncation != want[index].LabelTruncation || got.Description != "" {
 			t.Fatalf("item %d = %+v, want %+v", index, got, want[index])
 		}
 	}
+}
+
+func TestFileMentionPickerKeepsLongPathFileNamesVisible(t *testing.T) {
+	t.Parallel()
+	_, rows := renderInlinePicker(inlinePicker{
+		Catalog: fileMentionCatalog([]protocol.FileIndexEntry{
+			{Path: "internal/very/long/directory/structure/with/many/levels/tui/inline_picker.go"},
+			{Path: "go.mod"},
+		}),
+		Selection: "internal/very/long/directory/structure/with/many/levels/tui/inline_picker.go",
+		Anchor:    anchorAt(0, 21),
+	}, 80, 24)
+	assertInlinePickerRows(t, rows, []string{
+		"┌──────────────────────────────────────────────────────────────┐",
+		"│▌⋯g/directory/structure/with/many/levels/tui/inline_picker.go │",
+		"│ go.mod                                                       │",
+		"└──────────────────────────────────────────────────────────────┘",
+	})
 }
 
 func TestFileMentionSurfaceShowsTheSharedIndexStates(t *testing.T) {
