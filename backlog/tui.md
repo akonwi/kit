@@ -91,6 +91,13 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   [core backlog](core.md); effort history is already described in the
   [feature guide](../docs/features/reasoning-effort-history.md).
 
+- [ ] TUI-PICK-006 — Route diff target picker keys through the app input
+  owner so keys typed after Shift+g but before the picker first paints are
+  not lost. The picker's query, selection, and catalog live in the diff pane
+  state and reach `pickerKeyModel` through the canonical picker's `OnKey`
+  hook, which only exists once the picker is painted. Moving that state to
+  the app would require the app to own diff-specific picker state.
+
 - [ ] TUI-TRANSCRIPT-006 — Progressively enrich tool-call presentation with
   bounded recorded output and explicit truncated-content and omitted-detail
   evidence, preserving equivalent presentation for live and restored activity.
