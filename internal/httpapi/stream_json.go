@@ -109,30 +109,7 @@ func checkRequiredFields(data []byte, typ reflect.Type) error {
 		if err := json.Unmarshal(data, &members); err != nil {
 			return err
 		}
-		for i := 0; i < typ.NumField(); i++ {
-			field := typ.Field(i)
-			if !field.IsExported() || field.Anonymous {
-				continue
-			}
-			name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
-			if name == "-" {
-				continue
-			}
-			if name == "" {
-				name = field.Name
-			}
-			value, present := members[name]
-			nullable := field.Type.Kind() == reflect.Pointer || field.Type.Kind() == reflect.Slice ||
-				field.Type.Kind() == reflect.Map || field.Type.Kind() == reflect.Interface
-			if !hasOption(options, "omitempty") && (!present || (!nullable && isNull(value))) {
-				return fmt.Errorf("missing required field %q", name)
-			}
-			if present {
-				if err := checkRequiredFields(value, field.Type); err != nil {
-					return fmt.Errorf("%s: %w", name, err)
-				}
-			}
-		}
+		return checkRequiredMembers(members, typ)
 	case reflect.Slice, reflect.Array:
 		var items []json.RawMessage
 		if err := json.Unmarshal(data, &items); err != nil {
@@ -151,6 +128,55 @@ func checkRequiredFields(data []byte, typ reflect.Type) error {
 		for _, entry := range entries {
 			if err := checkRequiredFields(entry, typ.Elem()); err != nil {
 				return err
+			}
+		}
+	}
+	return nil
+}
+
+// checkRequiredMembers applies encoding/json field promotion: untagged
+// embedded structs contribute their fields to the same object. A value
+// embedding's fields keep their requiredness; a pointer embedding may be nil,
+// so its fields are only checked for nested requirements when present.
+func checkRequiredMembers(members map[string]json.RawMessage, typ reflect.Type) error {
+	return checkPromotedMembers(members, typ, true)
+}
+
+func checkPromotedMembers(members map[string]json.RawMessage, typ reflect.Type, enforce bool) error {
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		name, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if name == "-" && options == "" {
+			continue
+		}
+		if field.Anonymous && name == "" {
+			embedded := field.Type
+			pointer := embedded.Kind() == reflect.Pointer
+			if pointer {
+				embedded = embedded.Elem()
+			}
+			if embedded.Kind() == reflect.Struct && !customDecoding(embedded) {
+				if err := checkPromotedMembers(members, embedded, enforce && !pointer); err != nil {
+					return err
+				}
+				continue
+			}
+		}
+		if !field.IsExported() {
+			continue
+		}
+		if name == "" {
+			name = field.Name
+		}
+		value, present := members[name]
+		nullable := field.Type.Kind() == reflect.Pointer || field.Type.Kind() == reflect.Slice ||
+			field.Type.Kind() == reflect.Map || field.Type.Kind() == reflect.Interface
+		if enforce && !hasOption(options, "omitempty") && (!present || (!nullable && isNull(value))) {
+			return fmt.Errorf("missing required field %q", name)
+		}
+		if present {
+			if err := checkRequiredFields(value, field.Type); err != nil {
+				return fmt.Errorf("%s: %w", name, err)
 			}
 		}
 	}
