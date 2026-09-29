@@ -78,6 +78,31 @@ func TestDecodeOperationErrorUsesDeclaredStatusCodesAndTypedDetails(t *testing.T
 	}
 }
 
+func TestDecodeOperationErrorRejectsMalformedScratchpadErrors(t *testing.T) {
+	record := `{"ownerSessionId":"session_0123456789abcdef0123456789abcdef","content":"shared","revision":"2","updatedAt":"2026-03-23T12:34:56Z"`
+	for _, test := range []struct {
+		name   string
+		status int
+		body   string
+	}{
+		{"missing conflict record", http.StatusConflict, `{"error":{"code":"scratchpad_revision_conflict","message":"scratchpad revision conflict","details":{}}}`},
+		{"omitted conflict details", http.StatusConflict, `{"error":{"code":"scratchpad_revision_conflict","message":"scratchpad revision conflict"}}`},
+		{"undeclared status for code", http.StatusBadRequest, `{"error":{"code":"scratchpad_revision_conflict","message":"scratchpad revision conflict","details":{"scratchpad":` + record + `}}}}`},
+		{"unknown record field", http.StatusConflict, `{"error":{"code":"scratchpad_revision_conflict","message":"scratchpad revision conflict","details":{"scratchpad":` + record + `,"unexpected":true}}}}`},
+		{"details on code without details", http.StatusServiceUnavailable, `{"error":{"code":"scratchpad_unavailable","message":"scratchpad unavailable","details":{"unexpected":"value"}}}`},
+		{"null details", http.StatusServiceUnavailable, `{"error":{"code":"scratchpad_unavailable","message":"scratchpad unavailable","details":null}}`},
+		{"legacy string body", http.StatusServiceUnavailable, `{"error":"scratchpad unavailable"}`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := DecodeOperationError(UpdateScratchpad, test.status, []byte(test.body))
+			var apiError *APIError
+			if err == nil || errors.As(err, &apiError) {
+				t.Fatalf("malformed error decoded as %#v", err)
+			}
+		})
+	}
+}
+
 func TestLegacyDecoderAcceptsCommonPreRoutingErrors(t *testing.T) {
 	for _, test := range []struct {
 		status int

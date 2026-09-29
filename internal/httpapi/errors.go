@@ -44,11 +44,6 @@ var CommonErrorResponses = []ErrorResponse{
 	{Status: http.StatusUpgradeRequired, Codes: []ErrorCode{ErrorProtocolMismatch}},
 }
 
-// StringErrorEnvelope is the legacy plain error response.
-type StringErrorEnvelope struct {
-	Error string `json:"error"`
-}
-
 // TypedErrorEnvelope is the common typed protocol error response.
 type TypedErrorEnvelope struct {
 	Error TypedError `json:"error"`
@@ -59,19 +54,6 @@ type TypedError struct {
 	Code    string          `json:"code"`
 	Message string          `json:"message"`
 	Details json.RawMessage `json:"details,omitempty"`
-}
-
-// ScratchpadTypedErrorEnvelope is retained for source compatibility with the
-// protocol-41 decoder. New contracts use TypedErrorEnvelope exclusively.
-type ScratchpadTypedErrorEnvelope struct {
-	Error ScratchpadTypedError `json:"error"`
-}
-
-// ScratchpadTypedError carries scratchpad-specific details.
-type ScratchpadTypedError struct {
-	Code    protocol.ScratchpadErrorCode    `json:"code"`
-	Message string                          `json:"message"`
-	Details protocol.ScratchpadErrorDetails `json:"details"`
 }
 
 // APIError is a non-success response from the local session protocol.
@@ -179,8 +161,9 @@ func DecodeOperationError[Params, In, Out any](op Operation[Params, In, Out], st
 	return apiError
 }
 
-// DecodeError decodes the session protocol's legacy envelopes and also accepts
-// common pre-routing errors introduced by ADR 0034.
+// DecodeError decodes errors from operations that have not migrated to the
+// operation catalog: their legacy envelopes plus the ADR 0034 pre-routing
+// errors. Catalogued operations use DecodeOperationError.
 func DecodeError(statusCode int, body []byte) error {
 	var envelope struct {
 		Error json.RawMessage `json:"error"`
@@ -205,22 +188,14 @@ func DecodeError(statusCode int, body []byte) error {
 			diffError := protocol.DiffError{Code: protocol.DiffErrorCode(typed.Code), Message: typed.Message, Details: stringDetails}
 			annotationError := protocol.AnnotationEvidenceError{Code: protocol.AnnotationEvidenceErrorCode(typed.Code), Message: typed.Message}
 			annotationValid := annotationError.Validate() == nil && len(stringDetails) == 0
-			code := protocol.ScratchpadErrorCode(typed.Code)
-			var details protocol.ScratchpadErrorDetails
-			scratchValid := decodeStrictJSONObject(typed.Details, &details) == nil
-			typedScratch := &protocol.ScratchpadError{Code: code, Message: typed.Message, Current: details.Scratchpad}
-			scratchValid = scratchValid && typedScratch.Validate() == nil && scratchpadStatusMatches(code, statusCode)
 			pluginError := protocol.PluginCommandError{Code: typed.Code, Message: typed.Message}
 			pluginValid := pluginError.Validate() == nil && (len(typed.Details) == 0 || bytes.Equal(bytes.TrimSpace(typed.Details), []byte("{}"))) && ((typed.Code == protocol.PluginCommandUnavailable && statusCode == http.StatusConflict) || (typed.Code == protocol.PluginCommandFailed && statusCode == http.StatusUnprocessableEntity))
-			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationValid && !scratchValid && !pluginValid {
+			if workspaceError.Validate() != nil && diffError.Validate() != nil && !annotationValid && !pluginValid {
 				return fmt.Errorf("daemon returned malformed typed error")
 			}
 			apiError.Code, apiError.Message, apiError.Details = typed.Code, typed.Message, stringDetails
 			if pluginValid {
 				apiError.pluginCommandError = &pluginError
-			}
-			if scratchValid {
-				apiError.CurrentScratchpad, apiError.scratchpadError = details.Scratchpad, typedScratch
 			}
 			return apiError
 		}
@@ -301,21 +276,6 @@ func containsCode(codes []ErrorCode, code ErrorCode) bool {
 		}
 	}
 	return false
-}
-
-func scratchpadStatusMatches(code protocol.ScratchpadErrorCode, status int) bool {
-	switch code {
-	case protocol.ScratchpadInvalidContent:
-		return status == http.StatusBadRequest
-	case protocol.ScratchpadTooLarge:
-		return status == http.StatusRequestEntityTooLarge
-	case protocol.ScratchpadRevisionConflict, protocol.ScratchpadRevisionExhausted, protocol.ScratchpadMigrationRequired, protocol.ScratchpadUnsupported:
-		return status == http.StatusConflict
-	case protocol.ScratchpadUnavailable:
-		return status == http.StatusServiceUnavailable
-	default:
-		return false
-	}
 }
 
 func decodeStrictJSONObject(data []byte, target any) error {
