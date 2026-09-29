@@ -405,7 +405,11 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
 - **Focused row:** use a background highlight such as `bgMuted`; do not add a decorative row border.
 - **Pickers:** a centered modal list is a *palette picker* and must render
   through `palettePicker` (`internal/tui/palette_picker.go`), which owns the
-  frame, search, rows, selection, and overflow presentation. A list anchored to
+  frame, filtering, the display-only search field, rows, selection, and
+  overflow presentation. Pass the query and catalog, not filtered items or a
+  search `textInputConfig`; edit the query only through `pickerKeyModel`.
+  Custom matching goes through one documented `pickerFilter` hook built on
+  `filterPickerItems`. A list anchored to
   the composer or another point is an *inline picker*. See "Picker
   terminology" in `docs/design/v2-ui-direction.md`.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.

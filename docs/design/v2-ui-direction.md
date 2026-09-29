@@ -260,14 +260,21 @@ their terminal's native workflow.
 
 - A **palette picker** is a centered modal list shaped like the command
   palette: the command palette, model, thinking, theme, file, workspace tab,
-  diff target, and session pickers, and the login provider picker. It owns
-  its search field and keys, and every palette picker renders through the
-  shared `palettePicker` widget (`internal/tui/palette_picker.go`).
+  diff target, and session pickers, and the login provider picker. Every
+  palette picker renders through the shared `palettePicker` widget
+  (`internal/tui/palette_picker.go`). Callers pass the query and the
+  unfiltered catalog; the widget derives the visible rows with the shared
+  filter (`filterPickerItems` in `internal/tui/picker.go`) and shows the query
+  in a display-only search field. The query is edited only through
+  `pickerKeyModel` on the input-owner route, which filters with the same
+  function. A picker that cannot use the shared filter supplies one
+  documented `pickerFilter` hook built on it, used by both the widget and the
+  key model.
 - An **inline picker** is a non-modal list anchored to a point in the UI
   rather than centered: the composer's file and session mention menus,
   message and bash history, and the transcript reading section list. When
   anchored to the composer, the composer owns the query text and cursor.
-  Inline pickers share the palette picker's items, row rendering, and
+  Inline pickers share the palette picker's items, filter, row rendering, and
   navigation keys, not its frame.
 - A workspace pane that lists items, such as Subagents, is neither; it is a
   pane.

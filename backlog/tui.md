@@ -39,8 +39,9 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   providers" label, provider rows, and keys through `pickerKeyModel` on the
   auth input path.
 - [ ] TUI-PICK-008 — Add the inline picker for lists anchored to the composer
-  or another point in the UI, sharing `pickerItem`, row rendering, and
-  navigation keys with the palette picker while the composer owns the query.
+  or another point in the UI, sharing `pickerItem`, `filterPickerItems`, row
+  rendering, and navigation keys with the palette picker while the composer
+  owns the query.
   Migrate the file and session mention menus, message and bash history, and
   the transcript reading section list.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
