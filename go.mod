@@ -1,6 +1,6 @@
 module github.com/akonwi/kit
 
-go 1.26.0
+go 1.27.0
 
 require (
 	github.com/akonwi/tree-sitter-ard v0.0.0-20260825025050-98a6e2e447c9

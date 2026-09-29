@@ -179,7 +179,7 @@ func (e *treeSitterEngine) grammar(name string) (*compiledGrammar, error) {
 	}
 	highlights, queryErr := sitter.NewQuery(spec.language, spec.highlights)
 	if queryErr != nil {
-		return nil, fmt.Errorf("compile %s highlights query: %w", name, queryErr)
+		return nil, fmt.Errorf("compile %s highlights query: %w", name, *queryErr)
 	}
 	disableUnsupportedPredicatePatterns(highlights)
 	grammar := &compiledGrammar{spec: spec, highlights: highlights}
@@ -187,7 +187,7 @@ func (e *treeSitterEngine) grammar(name string) (*compiledGrammar, error) {
 		injections, injectionErr := sitter.NewQuery(spec.language, spec.injections)
 		if injectionErr != nil {
 			highlights.Close()
-			return nil, fmt.Errorf("compile %s injections query: %w", name, injectionErr)
+			return nil, fmt.Errorf("compile %s injections query: %w", name, *injectionErr)
 		}
 		disableUnsupportedPredicatePatterns(injections)
 		grammar.injections = injections

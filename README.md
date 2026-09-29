@@ -95,8 +95,10 @@ observed without restarting the daemon.
 
 ## Development
 
-Kit requires Go 1.26 or newer. The Go CLI and daemon do not require a JavaScript
-runtime.
+Kit requires Go 1.27 or newer. Building the `kit` executable from `apps/cli`
+also requires the [Ard](https://ard.run) compiler; see
+[`apps/cli/README.md`](apps/cli/README.md). The Go CLI and daemon do not
+require a JavaScript runtime.
 
 ```sh
 gofmt -l .
