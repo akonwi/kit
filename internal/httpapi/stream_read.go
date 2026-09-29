@@ -12,8 +12,10 @@ import (
 	"unicode/utf8"
 )
 
-// OpenStream starts a stream operation. Pre-stream failures are decoded from
-// the operation's declared errors; a success response must be an event stream.
+// OpenStream starts a stream operation. Pre-stream failures that match the
+// operation's declared errors return *APIError; any other non-success
+// response, like a success response that is not an event stream, is a
+// contract violation and returns *StreamError.
 // The caller owns the returned body and reads it with ReadStream.
 func OpenStream[Params, Payload any](ctx context.Context, transport Transport, op StreamOperation[Params, Payload], params Params) (io.ReadCloser, error) {
 	path, err := operationPath(op.Path, params)
@@ -31,9 +33,16 @@ func OpenStream[Params, Payload any](ctx context.Context, transport Transport, o
 			return nil, fmt.Errorf("read daemon session response: %w", err)
 		}
 		if len(encoded) > maxResponseBytes {
-			return nil, fmt.Errorf("daemon session response exceeds %d bytes", maxResponseBytes)
+			return nil, streamErrorf("pre-stream error body exceeds %d bytes", maxResponseBytes)
 		}
-		return nil, DecodeStreamError(op, response.StatusCode, encoded)
+		err = DecodeStreamError(op, response.StatusCode, encoded)
+		var apiErr *APIError
+		if !errors.As(err, &apiErr) {
+			// An undeclared status or code, or a body that is not the error
+			// envelope, violates the contract like a malformed record does.
+			return nil, &StreamError{Err: err}
+		}
+		return nil, err
 	}
 	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
 	if err != nil || mediaType != "text/event-stream" {

@@ -3,10 +3,12 @@ package client
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
@@ -93,4 +95,42 @@ func TestReadBoundVCSClassifiesProtocolViolationsAsStreamErrors(t *testing.T) {
 			t.Fatalf("violation = %v", err)
 		}
 	}
+}
+
+func TestClassifyVCSWatchErrorStopsOnUndeclaredPreStreamResponses(t *testing.T) {
+	respond := func(status int, contentType, body string) testSessionTransport {
+		return func(context.Context, string, string, io.Reader, bool) (*http.Response, error) {
+			header := http.Header{}
+			header.Set("Content-Type", contentType)
+			return &http.Response{StatusCode: status, Header: header, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}
+	}
+	params := httpapi.SessionPath{SessionID: "session_0123456789abcdef0123456789abcdef"}
+	for name, transport := range map[string]testSessionTransport{
+		"plain-text 404":    respond(http.StatusNotFound, "text/plain", "404 page not found\n"),
+		"undeclared status": respond(http.StatusGone, "application/json", `{"error":{"code":"not_found","message":"gone"}}`),
+		"undeclared code":   respond(http.StatusTooManyRequests, "application/json", `{"error":{"code":"unavailable","message":"x"}}`),
+	} {
+		_, err := httpapi.OpenStream(t.Context(), transport, httpapi.StreamSessionVCS, params)
+		var terminal *sessionclient.VCSWatchTerminalError
+		if !errors.As(classifyVCSWatchError(err), &terminal) {
+			t.Fatalf("%s: %v was not terminal", name, err)
+		}
+	}
+	for name, transport := range map[string]testSessionTransport{
+		"capacity":    respond(http.StatusTooManyRequests, "application/json", `{"error":{"code":"capacity_exceeded","message":"full"}}`),
+		"unavailable": respond(http.StatusServiceUnavailable, "application/json", `{"error":{"code":"unavailable","message":"closed"}}`),
+	} {
+		_, err := httpapi.OpenStream(t.Context(), transport, httpapi.StreamSessionVCS, params)
+		var terminal *sessionclient.VCSWatchTerminalError
+		if err == nil || errors.As(classifyVCSWatchError(err), &terminal) {
+			t.Fatalf("%s: %v must reconnect", name, err)
+		}
+	}
+}
+
+type testSessionTransport func(context.Context, string, string, io.Reader, bool) (*http.Response, error)
+
+func (fn testSessionTransport) DoSessionRequest(ctx context.Context, method, path string, body io.Reader, jsonBody bool) (*http.Response, error) {
+	return fn(ctx, method, path, body, jsonBody)
 }
