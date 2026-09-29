@@ -88,14 +88,18 @@ before routing, has `Content-Type: application/json` and this body:
   received status and returns a typed error that exposes the code and any typed
   details.
 - In the published contract, each declared error status references the shared
-  error body. Where any permitted code for that status defines details, `error`
-  is a union discriminated by `code`. Otherwise `code` is an enum of the
-  permitted codes.
+  error body, and `error` is always a union discriminated by `code`, even when
+  no permitted code defines details. Every status therefore has the same
+  generated shape, and adding a code adds a union case.
 - Union variants are named component schemas, one per code, shared by every
-  operation that declares the code (for example `InstanceMismatchError` and
-  `ScratchpadRevisionConflictError`). When the same code has different details
-  in different domains, each domain's variant carries a domain prefix. Variant
-  schemas are never specific to one operation or status.
+  operation that declares the code. Variant schemas are never specific to one
+  operation or status.
+- Generic codes are named without a prefix (`InstanceMismatchError`). Domain
+  codes always carry their domain as a prefix unless the code already begins
+  with it (`ScratchpadRevisionConflictError`, `DiffStaleWorkspaceError`,
+  `AnnotationStaleWorkspaceError`), so names never change when another domain
+  adopts the same code. The emitter rejects two declarations that would give
+  one variant name different schemas.
 - Stream operations use this body for failures before the stream starts.
   Failures after a stream starts are stream records and are out of scope here.
 - Kit does not use RFC 9457 problem details. Its `type` URI and
