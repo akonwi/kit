@@ -82,11 +82,9 @@ type shellSnapshot struct {
 	CurrentWorkspaceID            string
 	PaneInput                     paneInputOwner
 	WorkspaceFilePicker           workspaceFilePickerController
-	WorkspaceFilePickerScroll     *ui.ScrollController
 	WorkspacePickerOpen           bool
 	WorkspacePickerQuery          string
-	WorkspacePickerSelection      int
-	WorkspacePickerScroll         *ui.ScrollController
+	WorkspacePickerSelection      string
 	WorkspaceLayout               *workspaceLayoutState
 	ActivitySourceID              string
 	ActivityConversationID        string
@@ -143,6 +141,7 @@ type shellCallbacks struct {
 	OpenActivityFile            func(ui.EventContext, toolFileTarget)
 	InputOwner                  func() inputOwner
 	PaneInputChanged            func(workspacePaneDescriptor, paneInputKind, bool) bool
+	PaneInputHandlerChanged     func(workspacePaneDescriptor, func(ui.Key) ui.EventResult)
 	WorkspaceMouse              *workspaceMouseGestureController
 	SetDiffWrapLines            func(bool)
 	SetDiffFollowCWD            func(string, bool)
@@ -186,16 +185,11 @@ type shellCallbacks struct {
 	UseSharedScratchpad         ui.VoidCallback
 	ReplaceSharedScratchpad     ui.VoidCallback
 	OpenWorkspaceFilePicker     ui.VoidCallback
-	CloseWorkspaceFilePicker    ui.VoidCallback
 	WorkspaceFilePickerQuery    ui.TextChangedCallback
-	MoveWorkspaceFilePicker     func(ui.EventContext, int)
 	ActivateWorkspaceFilePicker func(ui.EventContext, workspaceFilePickerRow)
-	SelectWorkspaceFilePicker   func(ui.EventContext, workspaceFilePickerRow)
-	RefreshWorkspaceFilePicker  ui.VoidCallback
 	OpenWorkspacePicker         ui.VoidCallback
 	CloseWorkspacePicker        ui.VoidCallback
 	WorkspacePickerQuery        ui.TextChangedCallback
-	WorkspacePickerSelection    func(ui.EventContext, int)
 	MoveWorkspaceFocus          ui.VoidCallback
 	FocusWorkspaceContent       ui.VoidCallback
 	FocusWorkspaceComposer      ui.VoidCallback
@@ -431,14 +425,10 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputFiles {
 		overlays = append(overlays, modalDialogEntry(workspaceFilePickerSurface{
-			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles, Scroll: w.Snapshot.WorkspaceFilePickerScroll,
+			Controller: w.Snapshot.WorkspaceFilePicker, Source: w.Snapshot.IndexedFiles,
 			Callbacks: workspaceFilePickerCallbacks{
 				QueryChanged: w.Callbacks.WorkspaceFilePickerQuery,
-				Move:         w.Callbacks.MoveWorkspaceFilePicker,
 				Activate:     w.Callbacks.ActivateWorkspaceFilePicker,
-				Select:       w.Callbacks.SelectWorkspaceFilePicker,
-				Refresh:      w.Callbacks.RefreshWorkspaceFilePicker,
-				Close:        w.Callbacks.CloseWorkspaceFilePicker,
 			},
 		}))
 	}

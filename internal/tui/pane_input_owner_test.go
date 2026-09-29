@@ -316,6 +316,9 @@ func (s *paneInputHarnessState) Build(ui.BuildContext) ui.Widget {
 				s.paneChanges++
 				return s.setPaneInputOwner(descriptor, kind, active)
 			},
+			PaneInputHandlerChanged: func(descriptor workspacePaneDescriptor, handler func(ui.Key) ui.EventResult) {
+				s.setPaneInputKeyHandler(descriptor, handler)
+			},
 			OpenPalette:           func(ui.EventContext) { s.paletteOpens++ },
 			MoveWorkspaceFocus:    func(ui.EventContext) { s.workspaceFocusMoves++ },
 			FocusWorkspaceContent: func(ui.EventContext) {},

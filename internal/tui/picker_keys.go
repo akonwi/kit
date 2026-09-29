@@ -135,3 +135,61 @@ func pickerItemByKey(items []pickerItem, key string) (pickerItem, bool) {
 	}
 	return pickerItem{}, false
 }
+
+// pickerKeyListener gives pane-owned pickers the same raw-key route used by
+// app-owned pickers. It is intentionally generic: meaning remains exclusively
+// in pickerKeyModel and the owning controller.
+type pickerKeyListener struct {
+	OnKey func(ui.Key) ui.EventResult
+	Child ui.Widget
+}
+
+func (w pickerKeyListener) WidgetChild() ui.Widget { return w.Child }
+
+func (w pickerKeyListener) CreateRenderObject(ui.BuildContext) ui.RenderObject {
+	return &renderPickerKeyListener{OnKey: w.OnKey}
+}
+
+func (w pickerKeyListener) UpdateRenderObject(_ ui.BuildContext, renderObject ui.RenderObject) {
+	renderObject.(*renderPickerKeyListener).OnKey = w.OnKey
+}
+
+type renderPickerKeyListener struct {
+	ui.SingleChildRenderObject
+	OnKey func(ui.Key) ui.EventResult
+}
+
+func (r *renderPickerKeyListener) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
+	if child := r.Child(); child != nil {
+		child.Layout(ctx, constraints)
+		r.SetSize(constraints.Constrain(child.Base().Size()))
+		return
+	}
+	r.SetSize(constraints.Constrain(ui.Size{}))
+}
+
+func (r *renderPickerKeyListener) DryLayout(ctx ui.LayoutContext, constraints ui.Constraints) ui.Size {
+	if child := r.Child(); child != nil {
+		return constraints.Constrain(ui.DryLayout(ctx, child, constraints))
+	}
+	return constraints.Constrain(ui.Size{})
+}
+
+func (r *renderPickerKeyListener) Paint(painter *ui.Painter, offset ui.Offset) {
+	if child := r.Child(); child != nil {
+		child.Paint(painter, offset)
+	}
+}
+
+func (*renderPickerKeyListener) HitTest(*ui.HitTestResult, ui.Point) bool { return false }
+
+func (r *renderPickerKeyListener) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	if ctx.Phase() != ui.CapturePhase || r.OnKey == nil {
+		return ui.EventIgnored
+	}
+	key, ok := event.(ui.Key)
+	if !ok {
+		return ui.EventIgnored
+	}
+	return r.OnKey(key)
+}

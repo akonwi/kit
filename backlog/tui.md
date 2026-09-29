@@ -34,9 +34,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   and its shared key model (`internal/tui/picker_keys.go`) are the contract
   for modal pickers. Retained while TUI-PICK-003 to TUI-PICK-005 migrate onto
   it.
-- [ ] TUI-PICK-004 — Render the file, workspace tab, and diff target pickers
-  with the canonical picker. The file picker's truncation notice moves to the
-  title metadata; tab closing and similar row actions stay keyboard-only.
 - [ ] TUI-PICK-005 — Render the session explorer with the canonical picker:
   working directory as description, updated time as metadata, children
   indented, and the collapse/expand disclosure in the hint column. Left/Right

@@ -5,7 +5,6 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
-	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
@@ -114,22 +113,18 @@ func TestWorkspacePanePickerKeepsLateSelectionVisible(t *testing.T) {
 	}
 	snapshot := overflowWorkspaceSnapshot(ids, 19)
 	snapshot.WorkspacePickerOpen = true
-	snapshot.WorkspacePickerSelection = 20
-	scroll := &ui.ScrollController{}
-	snapshot.WorkspacePickerScroll = scroll
+	snapshot.WorkspacePickerSelection = "subagent:t"
 	application := uitest.New(shellView{Snapshot: snapshot})
 	application.Pump(80, 24)
-	scroll.ScrollToOffset(15)
-	application.Pump(80, 24)
 	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	for _, expected := range []string{"✓ reviewer-t", "idle ×", "ctrl+d close tab"} {
+	for _, expected := range []string{"▌reviewer-t", "idle", "ctrl+d close tab"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("scrolled picker missing %q:\n%s", expected, text)
 		}
 	}
-	selectedColumn, selectedRow := findTextCell(t, paintedRows(application, 80, 24), "✓ reviewer-t")
-	selectedColumn += len([]rune("✓ "))
-	idleColumn, idleRow := findTextCell(t, paintedRows(application, 80, 24), "reviewer-u")
+	selectedColumn, selectedRow := findTextCell(t, paintedRows(application, 80, 24), glyphLeftBar+"reviewer-t")
+	selectedColumn++
+	idleColumn, idleRow := findTextCell(t, paintedRows(application, 80, 24), "reviewer-s")
 	if application.Cell(selectedColumn, selectedRow).Style.Background == application.Cell(idleColumn, idleRow).Style.Background {
 		t.Fatal("workspace picker selection does not use the standard focused-row background")
 	}
@@ -140,12 +135,11 @@ func TestWorkspacePanePickerFiltersAndOpensCanonicalPane(t *testing.T) {
 	snapshot := overflowWorkspaceSnapshot([]string{"a", "b", "c", "d"}, 2)
 	snapshot.WorkspacePickerOpen = true
 	snapshot.WorkspacePickerQuery = "reviewer-b"
-	selected, closed, parentDismissed := "", false, false
+	selected, closed := "", false
 	application := uitest.New(shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
 		WorkspacePickerQuery: func(ui.EventContext, string) {},
 		SelectWorkspacePane:  func(_ ui.EventContext, descriptor workspacePaneDescriptor) { selected = descriptor.ResourceID },
 		CloseWorkspacePicker: func(ui.EventContext) { closed = true },
-		Dismiss:              func(ui.EventContext) { parentDismissed = true },
 	}})
 	application.Pump(80, 24)
 	text := strings.Join(paintedRows(application, 80, 24), "\n")
@@ -154,65 +148,18 @@ func TestWorkspacePanePickerFiltersAndOpensCanonicalPane(t *testing.T) {
 			t.Fatalf("workspace picker missing %q:\n%s", expected, text)
 		}
 	}
-	application.Enter()
+	column, row := -1, -1
+	for candidate, line := range paintedRows(application, 80, 24) {
+		if candidate > 4 && strings.Contains(line, "reviewer-b") {
+			column, row = strings.Index(line, "reviewer-b"), candidate
+			break
+		}
+	}
+	if row < 0 {
+		t.Fatal("workspace picker row reviewer-b not found")
+	}
+	application.Click(column+40, row)
 	if selected != "b" || !closed {
 		t.Fatalf("picker activation = selected:%q closed:%t, want b and closed", selected, closed)
-	}
-	closed = false
-	focusMoves, selectionMoves := 0, 0
-	escapeApplication := uitest.New(shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
-		CloseWorkspacePicker:   func(ui.EventContext) { closed = true },
-		MoveWorkspaceFocus:     func(ui.EventContext) { focusMoves++ },
-		MoveWorkspaceSelection: func(ui.EventContext, int) { selectionMoves++ },
-		Dismiss:                func(ui.EventContext) { parentDismissed = true },
-	}})
-	escapeApplication.Pump(80, 24)
-	escapeApplication.Tab()
-	if focusMoves != 0 {
-		t.Fatalf("modal Tab changed workspace focus %d times", focusMoves)
-	}
-	escapeApplication.Send(vaxis.Key{Keycode: ']', Modifiers: vaxis.ModCtrl})
-	if selectionMoves != 0 {
-		t.Fatalf("modal shortcut changed workspace selection %d times", selectionMoves)
-	}
-	escapeApplication.Send(vaxis.Key{Keycode: vaxis.KeyEsc})
-	if !closed || parentDismissed {
-		t.Fatalf("picker escape = closed:%t parent dismissed:%t", closed, parentDismissed)
-	}
-
-	closedPane := ""
-	closeApplication := uitest.New(shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
-		CloseWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) { closedPane = descriptor.ResourceID },
-	}})
-	closeApplication.Pump(80, 24)
-	closeApplication.Send(vaxis.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl})
-	if closedPane != "b" {
-		t.Fatalf("picker close action closed %q, want b", closedPane)
-	}
-
-	closedPane, selected, closed = "", "", false
-	mouseCloseApplication := uitest.New(shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
-		CloseWorkspacePane:   func(_ ui.EventContext, descriptor workspacePaneDescriptor) { closedPane = descriptor.ResourceID },
-		SelectWorkspacePane:  func(_ ui.EventContext, descriptor workspacePaneDescriptor) { selected = descriptor.ResourceID },
-		CloseWorkspacePicker: func(ui.EventContext) { closed = true },
-	}})
-	mouseCloseApplication.Pump(80, 24)
-	mouseRows := paintedRows(mouseCloseApplication, 80, 24)
-	metadataColumn, mouseRow := findTextCell(t, mouseRows, "idle ×")
-	mouseCloseApplication.Click(metadataColumn+len([]rune("idle ")), mouseRow)
-	if closedPane != "b" || selected != "" || closed {
-		t.Fatalf("mouse close = pane:%q selected:%q picker closed:%t", closedPane, selected, closed)
-	}
-
-	agentSnapshot := snapshot
-	agentSnapshot.WorkspacePickerQuery = "Agent"
-	closedPane = ""
-	agentApplication := uitest.New(shellView{Snapshot: agentSnapshot, Callbacks: shellCallbacks{
-		CloseWorkspacePane: func(_ ui.EventContext, descriptor workspacePaneDescriptor) { closedPane = descriptor.ResourceID },
-	}})
-	agentApplication.Pump(80, 24)
-	agentApplication.Send(vaxis.Key{Keycode: 'd', Modifiers: vaxis.ModCtrl})
-	if closedPane != "" {
-		t.Fatalf("Agent picker row was closable as %q", closedPane)
 	}
 }

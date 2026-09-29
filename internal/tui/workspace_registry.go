@@ -107,6 +107,11 @@ var workspacePaneDefinitions = map[workspacePaneKind]workspacePaneDefinition{
 				OnInputOwnerChanged: func(kind paneInputKind, active bool) bool {
 					return view.Callbacks.PaneInputChanged != nil && view.Callbacks.PaneInputChanged(descriptor, kind, active)
 				},
+				OnInputHandlerChanged: func(handler func(ui.Key) ui.EventResult) {
+					if view.Callbacks.PaneInputHandlerChanged != nil {
+						view.Callbacks.PaneInputHandlerChanged(descriptor, handler)
+					}
+				},
 				OnCreateAnnotation: view.Callbacks.CreateAnnotation,
 				OnLoadAnnotation:   view.Callbacks.LoadAnnotation,
 				OnUpdateAnnotation: view.Callbacks.UpdateAnnotation,

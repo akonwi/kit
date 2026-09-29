@@ -2,27 +2,10 @@ package tui
 
 import (
 	"context"
-	"fmt"
 	"testing"
 
 	"github.com/akonwi/kit/internal/protocol"
 )
-
-func TestWorkspaceFilePickerRevealTracksLongKeyboardSelection(t *testing.T) {
-	t.Parallel()
-	controller := readyFilePickerController()
-	entries := make([]protocol.FileIndexEntry, 30)
-	for index := range entries {
-		entries[index] = protocol.FileIndexEntry{Path: fmt.Sprintf("file-%02d", index)}
-	}
-	source := indexedPickerSource(entries...)
-	controller.Selection = workspaceFileKey{WorkspaceID: "workspace_1", Path: "file-25"}
-	state := appState{workspaceFilePicker: controller, indexedFiles: source}
-	state.requestWorkspaceFilePickerReveal()
-	if !state.workspaceFilePickerRevealPending || state.workspaceFilePickerRevealOffset != 20 {
-		t.Fatalf("long-list reveal = pending:%v offset:%d", state.workspaceFilePickerRevealPending, state.workspaceFilePickerRevealOffset)
-	}
-}
 
 func TestWorkspaceCWDMetadataClosesPickerAndResetsIndexedSource(t *testing.T) {
 	t.Parallel()

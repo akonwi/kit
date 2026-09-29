@@ -51,6 +51,9 @@ type picker struct {
 	Status     string
 	StatusTone pickerTone
 	OnActivate func(ui.EventContext, string)
+	// OnKey is only for pane-owned pickers that cannot use the app input-owner
+	// route. The callback must delegate meaning to pickerKeyModel.
+	OnKey func(ui.Key) ui.EventResult
 }
 
 func (picker) CreateState() ui.State { return &pickerState{} }
@@ -78,7 +81,10 @@ func (s *pickerState) Build(ctx ui.BuildContext) ui.Widget {
 		children = append(children, ui.SizedBox{Height: 1})
 	}
 	children = append(children, ui.Expanded(ui.Padding(ui.Insets{Right: 1, Left: 1}, s.list(theme, w))))
-	content := pickerDialogContent(theme, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}, pickerFooter(theme, w.Footer, w.Status, w.StatusTone))
+	content := ui.Widget(pickerDialogContent(theme, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}, pickerFooter(theme, w.Footer, w.Status, w.StatusTone)))
+	if w.OnKey != nil {
+		content = pickerKeyListener{OnKey: w.OnKey, Child: content}
+	}
 	return pickerDialogPositioner{
 		Percent: pickerWidthPercent, MinWidth: pickerMinWidth, MaxWidth: pickerMaxWidth, Height: pickerModalMinHeight,
 		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content},

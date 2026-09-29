@@ -1145,8 +1145,7 @@ func TestInstallSessionStartsFreshAgentOnlyWorkspaceAcrossSwitchBack(t *testing.
 		ctx: context.Background(), session: protocol.SessionInfo{ID: oldID, CWD: "/old"}, bound: fakeSession{id: oldID},
 		attachmentCtx: oldAttachmentContext, attachmentCancel: oldAttachmentCancel,
 		subagentWatchCancel: func() { watchCanceled = true },
-		workspacePickerOpen: true, workspacePickerQuery: "reviewer", workspacePickerSelection: 1,
-		workspacePickerRevealPending: true, workspacePickerRevealOffset: 4,
+		workspacePickerOpen: true, workspacePickerQuery: "reviewer", workspacePickerSelection: "subagent:reviewer",
 		activitySelected: true, subagentPaneID: conversationID,
 		subagentRequestGeneration: 7, subagentRosterGeneration: 9, subagentRosterLoading: true, subagentRosterRefreshPending: true,
 		subagentTranscripts:      map[string]protocol.SubagentTranscript{conversationID: {ConversationID: conversationID}},
@@ -1169,8 +1168,8 @@ func TestInstallSessionStartsFreshAgentOnlyWorkspaceAcrossSwitchBack(t *testing.
 		if state.session.ID != sessionID || state.workspace.StripVisible() || state.workspace.SelectedIdentity() != workspaceAgentIdentity || state.workspace.FocusOwner() != workspaceFocusContent {
 			t.Fatalf("%s workspace = session:%q panes:%v selected:%q focus:%v", label, state.session.ID, state.workspace.Panes(), state.workspace.SelectedIdentity(), state.workspace.FocusOwner())
 		}
-		if state.workspacePickerOpen || state.workspacePickerQuery != "" || state.workspacePickerSelection != 0 || state.workspacePickerRevealPending || state.workspacePickerRevealOffset != 0 || state.activitySelected || state.subagentPaneID != "" {
-			t.Fatalf("%s visible state leaked: picker:%t query:%q selection:%d reveal:%t/%d activity:%t pane:%q", label, state.workspacePickerOpen, state.workspacePickerQuery, state.workspacePickerSelection, state.workspacePickerRevealPending, state.workspacePickerRevealOffset, state.activitySelected, state.subagentPaneID)
+		if state.workspacePickerOpen || state.workspacePickerQuery != "" || state.workspacePickerSelection != "" || state.activitySelected || state.subagentPaneID != "" {
+			t.Fatalf("%s visible state leaked: picker:%t query:%q selection:%q activity:%t pane:%q", label, state.workspacePickerOpen, state.workspacePickerQuery, state.workspacePickerSelection, state.activitySelected, state.subagentPaneID)
 		}
 		if len(state.subagentTranscriptOrder) != 0 || len(state.subagentTranscripts) != 0 || len(state.subagentScrolls) != 0 || len(state.subagentFocuses) != 0 || len(state.subagentLive) != 0 || len(state.inlineActivityOpen) != 0 || state.subagentRosterLoading || state.subagentRosterRefreshPending || state.subagentScrollToEndID != "" || state.subagentNeedsScroll || state.subagentPendingLayout {
 			t.Fatalf("%s retained pane state leaked: order:%v transcripts:%d scrolls:%d focuses:%d live:%d activity:%d roster:%t/%t pending-scroll:%q/%t/%t", label, state.subagentTranscriptOrder, len(state.subagentTranscripts), len(state.subagentScrolls), len(state.subagentFocuses), len(state.subagentLive), len(state.inlineActivityOpen), state.subagentRosterLoading, state.subagentRosterRefreshPending, state.subagentScrollToEndID, state.subagentNeedsScroll, state.subagentPendingLayout)

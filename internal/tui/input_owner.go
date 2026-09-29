@@ -178,6 +178,8 @@ func (s *appState) reconcileInputOwner() {
 	snapshot := shellSnapshot{Phase: s.phase, Session: s.session, CurrentWorkspaceID: s.workspaceID, Workspace: s.workspace.Snapshot(), PaneInput: s.paneInput}
 	if s.paneInput.Kind != paneInputNone && !s.paneInput.active(snapshot) {
 		s.paneInput = paneInputOwner{}
+		s.paneInputKeyHandler = nil
+		s.paneInputKeyHandlerOwner = paneInputOwner{}
 		s.inputGeneration++
 	}
 	if len(s.pendingInteractions) > 0 || !composerOwnsWorkspaceInput(s.workspace.Snapshot()) {
