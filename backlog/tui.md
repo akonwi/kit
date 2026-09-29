@@ -11,8 +11,41 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   linked child returned by the server, optionally submit the message as its
   first new prompt, and expose recoverable failures. Depends on
   `CORE-FORK-001`.
-- [~] TUI-CMD-001 — Complete palette filtering, completion, arguments, nested
-  pickers, keyboard/mouse behavior, and required command sources.
+- [ ] TUI-CMD-004 — Tab completes the selected command's name in the palette
+  query followed by a space and keeps the palette open. The list stays pinned
+  to that command while arguments are typed, until the command name is edited.
+- [ ] TUI-CMD-005 — Edit the palette query conventionally: move the cursor with
+  Left/Right/Home/End, insert and delete at the cursor, and delete by word.
+  List navigation keeps its current keys; no additional bindings are added.
+- [ ] TUI-CMD-007 — Show argument hints for built-in commands that accept
+  arguments (`cd`, `name`, `fork`). Running a command without a required
+  argument (such as `cd`) prompts for it in the palette's dialog frame instead
+  of closing the palette.
+- [ ] TUI-CMD-008 — Commands whose follow-up is a simple list or text prompt
+  (`model`, `thinking`, `theme`, `name` without an argument, and `logout` once
+  `TUI-CMD-002` adds it) continue in the palette's dialog frame, with the same
+  position and size, instead of closing it and opening a separately sized
+  modal. Esc closes the dialog.
+- [ ] TUI-CMD-009 — Show plugin commands in the palette by their short command
+  name instead of the full canonical ID, keeping the owning plugin in the
+  metadata column. Commands from different plugins that share a short name
+  must both remain listed and runnable.
+- [x] TUI-PICK-001 — The canonical picker widget (`internal/tui/picker.go`)
+  and its shared key model (`internal/tui/picker_keys.go`) are the contract
+  for modal pickers. Retained while TUI-PICK-003 to TUI-PICK-005 migrate onto
+  it.
+- [ ] TUI-PICK-003 — Render the theme picker with the canonical picker and add
+  search while keeping live preview.
+- [ ] TUI-PICK-004 — Render the file, workspace tab, and diff target pickers
+  with the canonical picker. The file picker's truncation notice moves to the
+  title metadata; tab closing and similar row actions stay keyboard-only.
+- [ ] TUI-PICK-005 — Render the session explorer with the canonical picker:
+  working directory as description, updated time as metadata, children
+  indented, and the collapse/expand disclosure in the hint column. Left/Right
+  toggle the tree while the query is empty; clicking the disclosure toggles it.
+  Page keys are removed. Extend the canonical picker as part of this port with
+  typed hierarchy (depth, disclosure, child count) and a title metadata status
+  that can show a spinner while switching.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
@@ -38,6 +71,10 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   conflict-free built-in bindings, conventional composer editing, and
   keyboard access to every essential action remain required. Any future
   configurable-keybinding work requires a new stable `TUI-KEY-*` requirement.
+
+- [-] `TUI-CMD-010` — A universal palette that also ranks files, panes,
+  sessions, and subagents is not planned. The palette lists commands ranked by
+  fuzzy score; explorers remain commands that open their own pickers.
 
 ## Deferred scope
 

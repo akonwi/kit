@@ -234,7 +234,7 @@ want simultaneous session views compose Kit clients with terminal tabs, panes,
 tmux, or another native terminal workflow.
 
 - Keep session exploration and switching available on demand through the
-  universal command palette and session explorer; it is not persistent shell
+  command palette and session explorer; it is not persistent shell
   navigation.
 - Global chrome describes only the attached session and its active run.
 - The daemon's multi-session capability should make attach/detach and terminal
@@ -407,9 +407,9 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
   Hover and selection backgrounds cover the entire row, including text,
   metadata, gaps, and padding. Let the row surface own its background rather
   than painting an idle background over it in child text spans.
-- **Searchable modal pickers:** use the shared `>` search marker and input
-  spacing, a scrollbar for overflow, and keep keyboard selection visible when
-  navigating, filtering, or resizing.
+- **Searchable modal pickers:** use the shared `pickerSearchField` widget, which
+  owns the search row's presentation; add a scrollbar for overflow and keep
+  keyboard selection visible when navigating, filtering, or resizing.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render
   unavailable rows with disabled/muted text plus a concise reason such as

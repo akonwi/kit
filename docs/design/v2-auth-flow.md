@@ -209,7 +209,7 @@ dialog uses the shell background so its border cells do not reveal a conflicting
 surface tint. The surrounding shell is not dimmed or recolored. A trapped focus
 scope, not a visual scrim, establishes modality.
 
-The single universal palette decision does not change this dialog: provider
+The single command palette decision does not change this dialog: provider
 selection is one bounded step inside an active task, not global navigation.
 
 ## Codex device-code wait

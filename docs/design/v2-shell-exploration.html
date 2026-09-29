@@ -359,7 +359,7 @@
   </section>
 
   <section class="scenario" id="palette">
-    <div class="scenario-head"><h2>Command palette</h2><p>Keep one universal, relevance-ranked list for actions and places. Type and scope remain searchable metadata; height follows content and descriptions always ellipsize.</p></div>
+    <div class="scenario-head"><h2>Command palette</h2><p>Keep one fuzzy-ranked list of commands. Prompt and plugin rows show their source as muted metadata; height stays fixed and descriptions always ellipsize.</p></div>
     <div class="comparison">
       <article class="frame"><div class="frame-header"><strong>Installed</strong><span class="badge">v0.34</span></div><div class="terminal-wrap"><pre class="terminal">         ┌──────────────────────────────────────────────────────────┐
          │ &gt; settings                                               │
@@ -382,15 +382,24 @@
       <article class="frame"><div class="frame-header"><strong>Direction</strong><span class="badge direction">v2 · viewport-native</span></div><div class="terminal-wrap"><pre class="terminal">         ┌──────────────────────────────────────────────────────────┐
          │ &gt; rev▌                                                   │
          ├──────────────────────────────────────────────────────────┤
-         │ <span class="primary">▌code-review</span>  <span class="dim">command</span>     Review current changes         │
-         │ <span class="primary"> review</span>       <span class="dim">.agents prompt</span> Structured change review…   │
-         │ <span class="primary"> review-queue</span> <span class="dim">command</span>     Show pending review notes      │
-         │ <span class="primary"> cc:draft-pr</span>  <span class="dim">.claude prompt</span> Draft a pull request…       │
+         │ <span class="primary">▌code-review</span>            Review current changes           │
+         │ <span class="primary"> review</span>        <span class="dim">project</span>  Structured change review…        │
+         │ <span class="primary"> review-queue</span>           Show pending review notes        │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
+         │                                                          │
          ├──────────────────────────────────────────────────────────┤
-         │ ↑↓ move · tab complete · ↵ run · esc close               │
+         │ ↑↓ move · tab complete · enter run · esc close           │
          └──────────────────────────────────────────────────────────┘</pre></div></article>
     </div>
-    <div class="annotations"><div class="note"><b>Universal</b><p>One palette finds actions and opens on-demand explorers, files, panes, prompts, and plugins.</p></div><div class="note"><b>Ranking</b><p>Relevance and recency set order; type and scope stay inline metadata.</p></div><div class="note"><b>Geometry</b><p>Content-hugging until a named maximum; no empty 15-row box.</p></div></div>
+    <div class="annotations"><div class="note"><b>Commands</b><p>One palette lists built-in, prompt, and plugin commands; explorers, files, and panes open through their own commands.</p></div><div class="note"><b>Ranking</b><p>Fuzzy score sets order; prompt and plugin sources stay inline metadata, and built-ins carry no label.</p></div><div class="note"><b>Geometry</b><p>Fixed height within viewport bounds so filtering never moves or resizes the surface.</p></div></div>
   </section>
 
   <section class="scenario" id="narrow">
@@ -471,7 +480,7 @@
       <li>Semantic terminal-derived theme contract</li><li>Workspace pane registry and retained state</li><li>Keymap-derived hints and user rebinding</li><li>Transcript-first progressive disclosure</li><li>Responsive split-to-tabs behavior</li>
     </ul></article>
     <article class="decision-panel change"><h2>Deliberately evolve</h2><ul>
-      <li>Viewport-native root boundary</li><li>One ranked, content-hugging universal palette</li><li>Labeled overflow and unambiguous metadata</li><li>Explicit detach safety for the attached session</li><li>Main-compatible Subagents roster and retained activity tabs</li>
+      <li>Viewport-native root boundary</li><li>One fuzzy-ranked, fixed-height command palette</li><li>Labeled overflow and unambiguous metadata</li><li>Explicit detach safety for the attached session</li><li>Main-compatible Subagents roster and retained activity tabs</li>
     </ul></article>
   </section>
 

@@ -42,9 +42,10 @@ The first review established these constraints:
   users compose one-session Kit clients through terminal tabs, panes, or tmux;
 - preserve subagent oversight through a modal roster/status picker and retained
   tabs for explicitly opened durable conversations;
-- keep one universal command palette rather than adding a separate noun
-  switcher or shortcut;
-- rank palette results in one list instead of grouping them visibly;
+- keep one command palette rather than adding a separate noun switcher or
+  shortcut;
+- rank palette commands in one list by fuzzy score instead of grouping them
+  visibly;
 - preserve the main-branch shell chrome roles: session name top-left, model
   settings, context percentage, and conditional release/update contributions
   top-right, transient status bottom-left, and working-directory/Git context
@@ -137,7 +138,6 @@ of input.
   global cross-session chrome.
 - The command palette mixes commands, prompt content, plugins, and navigation in
   one alphabetical list.
-- Fixed-height dialogs leave large empty regions for narrow result sets.
 - Clipped descriptions and separators can resemble rendering errors; truncation
   does not always communicate omission.
 - Model configuration such as `medium` is shown without a label.
@@ -170,11 +170,13 @@ The transcript explains what happened. High-frequency events, raw tool updates,
 and diagnostics belong in Activity unless they are necessary to understand the
 conversation.
 
-### 4. One palette is the universal find-and-act surface
+### 4. One palette finds and runs commands
 
-`Ctrl+P` finds actions, files, panes, prompts, plugins, and on-demand explorers
-such as Sessions and Subagents in one ranked list. Result metadata explains
-type and scope without splitting the list into permanent visual groups.
+`Ctrl+P` lists built-in, prompt, and plugin commands in one list ranked by fuzzy
+score. Files, panes, sessions, and subagents are not palette results; commands
+such as `files`, `tabs`, `sessions`, and `subagents` open their own pickers.
+Result metadata explains a command's source without splitting the list into
+permanent visual groups.
 
 ### 5. Density follows activity
 
@@ -233,7 +235,7 @@ TUI client
 │   │   └── explicitly opened subagent conversation tabs
 │   └── subagent lineage + mailbox
 └── on-demand surfaces
-    ├── universal ranked palette
+    ├── command palette
     ├── session explorer
     └── settings / auth
 ```
@@ -249,7 +251,7 @@ their terminal's native workflow.
 | --- | --- | --- |
 | Persistent chrome | Session name top-left; model/thinking/context and update contributions top-right; transient status bottom-left; cwd/Git bottom-right; composer | Fixed rows with established ownership |
 | Workspace surface | Agent transcript and retained task context | Full-width tabs with labeled overflow and a modal pane picker |
-| Transient overlay | Universal palette, contextual pickers, toasts, context menus | No heavy frame; content-hugging within bounds |
+| Transient overlay | Command palette, contextual pickers, toasts, context menus | No heavy frame; pickers keep a fixed height within bounds |
 | Dialog | Settings, login, guided questions, destructive confirmation | Centered modal with bounded content |
 | Takeover | Pager, fatal errors, migration/recovery | Full viewport with fixed header/footer |
 
@@ -269,9 +271,8 @@ their terminal's native workflow.
   using semantic progress color thresholds. The header separator is structural,
   not a progress bar. Omit context at zero or when unavailable.
 - Do not add an elapsed-turn timer.
-- Overlays hug their result count until reaching a named maximum height. The
-  command palette keeps its input near the top quarter so filtering changes only
-  its bottom edge instead of moving the whole surface.
+- Pickers, including the command palette, keep a fixed height within viewport
+  bounds so filtering never moves or resizes the surface.
 - Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
   unexplained glyph.
 - Animation is limited to meaningful progress, entry/exit, and state change;
@@ -280,7 +281,7 @@ their terminal's native workflow.
 ## Navigation model to test
 
 ```text
-Ctrl+P       universal palette: actions, explorers, files, panes, prompts
+Ctrl+P       command palette: built-in, prompt, and plugin commands
 Tab          move focus between selected content and composer
 Shift+Tab    move focus in the reverse direction
 Escape       cancel the innermost reversible interaction
@@ -300,12 +301,13 @@ candidate v2 states:
 2. active streaming run with queue and transcript subagent activity;
 3. modal Subagents picker and retained conversation tab;
 4. narrow terminal;
-5. single ranked, content-hugging command palette.
+5. single fuzzy-ranked, fixed-height command palette.
 
 ## Decisions to make before implementation
 
-1. How should one ranked palette balance relevance, recency, exact matching,
-   type, and scope without visible result groups?
-2. Which additional pane bindings, if any, deserve defaults?
-3. Which v0.34 interactions are R1 requirements versus deliberate v2
+1. Which additional pane bindings, if any, deserve defaults?
+2. Which v0.34 interactions are R1 requirements versus deliberate v2
    simplifications?
+
+Palette ranking is decided: commands rank by fuzzy score alone, without recency,
+type, or scope weighting. See `TUI-CMD-010` in `backlog/tui.md`.
