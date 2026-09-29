@@ -233,7 +233,8 @@ type shellCallbacks struct {
 	MovePaletteSelection        selectionMovedCallback
 	RunPaletteQuery             ui.TextChangedCallback
 	RunPaletteCommand           func(ui.EventContext, paletteCommandID)
-	SelectTheme                 func(ui.EventContext, int)
+	ThemeQueryChanged           ui.TextChangedCallback
+	SelectTheme                 func(ui.EventContext, string)
 	OpenSessionRename           ui.VoidCallback
 	OpenModel                   ui.VoidCallback
 	OpenThinking                ui.VoidCallback
@@ -457,8 +458,11 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputTheme {
 		overlays = append(overlays, ui.OverlayEntry{Modal: true, Barrier: clearModalBarrier{}, Child: themePickerSurface{
-			Snapshot:  w.Snapshot.ThemePicker,
-			Callbacks: themePickerCallbacks{Select: w.Callbacks.SelectTheme},
+			Snapshot: w.Snapshot.ThemePicker,
+			Callbacks: themePickerCallbacks{
+				QueryChanged: w.Callbacks.ThemeQueryChanged,
+				Select:       w.Callbacks.SelectTheme,
+			},
 		}})
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputPalette {

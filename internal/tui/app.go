@@ -243,6 +243,7 @@ type appState struct {
 	themeDefinition                  kittheme.Definition
 	themeGeneration                  uint64
 	themeLoadActive                  bool
+	themeClickCommit                 string
 	applyTheme                       func(kittheme.Definition)
 	paste                            pasteCoalescer
 	fileMention                      fileMentionController
@@ -1831,12 +1832,21 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		RunPaletteQuery:   s.runPaletteQuery,
 		RunPaletteCommand: s.runPaletteCommand,
-		SelectTheme: func(_ ui.EventContext, index int) {
-			if index == s.themePicker.Selection && s.themePicker.previewValid && !s.themePicker.Loading {
+		ThemeQueryChanged: func(_ ui.EventContext, value string) {
+			preview := false
+			s.themeClickCommit = ""
+			s.SetState(func() { preview = s.themePicker.SetQuery(value) })
+			if preview {
+				s.selectTheme(s.themePicker.Selection)
+			}
+		},
+		SelectTheme: func(_ ui.EventContext, name string) {
+			if name == s.themePicker.Selection && s.themePicker.previewValid && !s.themePicker.PreviewLoading {
 				s.commitTheme()
 				return
 			}
-			s.selectTheme(index)
+			s.themeClickCommit = name
+			s.selectTheme(name)
 		},
 		OpenSessionRename: func(ui.EventContext) {
 			s.openCurrentSessionRename()
@@ -2095,18 +2105,23 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		return ui.EventHandled
 	}
 	if owner == inputTheme {
-		if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+		var result pickerKeyResult
+		preview := false
+		s.SetState(func() { result, preview = s.themePicker.HandleKey(key) })
+		if !result.Handled {
+			return ui.EventIgnored
+		}
+		if result.Dismiss {
+			s.cancelThemePicker()
 			return ui.EventHandled
 		}
-		count := len(s.themePicker.Names)
-		switch {
-		case key.MatchString("Escape") || key.MatchString("Ctrl+c"):
-			return ui.EventIgnored
-		case key.MatchString("Up") && count > 0:
-			s.selectTheme((s.themePicker.Selection - 1 + count) % count)
-		case key.MatchString("Down") && count > 0:
-			s.selectTheme((s.themePicker.Selection + 1) % count)
-		case key.MatchString("Enter"):
+		if result.QueryChanged || preview {
+			s.themeClickCommit = ""
+		}
+		if preview {
+			s.selectTheme(s.themePicker.Selection)
+		}
+		if result.Activate {
 			s.commitTheme()
 		}
 		return ui.EventHandled
@@ -4471,6 +4486,7 @@ func (s *appState) openThemePicker() {
 	s.themeGeneration++
 	generation := s.themeGeneration
 	s.SetState(func() {
+		s.themeClickCommit = ""
 		s.themePicker = themePickerController{Open: true, Loading: true, CommittedName: s.themeName,
 			CommittedDefinition: s.themeDefinition, PreviewDefinition: s.themeDefinition, previewValid: true}
 	})
@@ -4493,17 +4509,16 @@ func (s *appState) openThemePicker() {
 	}()
 }
 
-func (s *appState) selectTheme(index int) {
+func (s *appState) selectTheme(name string) {
 	service := s.Widget().(app).Options.ThemeService
-	if service == nil || !s.themePicker.Open || s.themePicker.Pending || index < 0 || index >= len(s.themePicker.Names) {
+	if service == nil || !s.themePicker.Open || s.themePicker.Pending || stringIndex(s.themePicker.Names, name) < 0 {
 		return
 	}
 	s.themeGeneration++
 	generation := s.themeGeneration
-	name := s.themePicker.Names[index]
 	s.SetState(func() {
-		s.themePicker.Selection = index
-		s.themePicker.Loading = name != kittheme.SystemName
+		s.themePicker.Selection = name
+		s.themePicker.PreviewLoading = name != kittheme.SystemName
 		s.themePicker.Err = nil
 		s.themePicker.Diagnostics = nil
 		s.themePicker.previewValid = name == kittheme.SystemName
@@ -4513,6 +4528,10 @@ func (s *appState) selectTheme(index int) {
 	})
 	if name == kittheme.SystemName {
 		s.applyTheme(kittheme.Definition{})
+		if s.themeClickCommit == name {
+			s.themeClickCommit = ""
+			s.commitTheme()
+		}
 		return
 	}
 	if s.themeLoadActive {
@@ -4524,14 +4543,14 @@ func (s *appState) selectTheme(index int) {
 		definition, diagnostics, err := service.Load(name)
 		runtime.Dispatch(func() {
 			s.themeLoadActive = false
-			if generation != s.themeGeneration || !s.themePicker.Open || s.themePicker.Selection != index {
-				if s.themePicker.Open && len(s.themePicker.Names) > 0 {
+			if generation != s.themeGeneration || !s.themePicker.Open || s.themePicker.Selection != name {
+				if s.themePicker.Open && s.themePicker.Selection != "" {
 					s.selectTheme(s.themePicker.Selection)
 				}
 				return
 			}
 			s.SetState(func() {
-				s.themePicker.Loading = false
+				s.themePicker.PreviewLoading = false
 				s.themePicker.Diagnostics = diagnostics
 				s.themePicker.Err = err
 				s.themePicker.previewValid = err == nil
@@ -4541,6 +4560,10 @@ func (s *appState) selectTheme(index int) {
 			})
 			if err == nil {
 				s.applyTheme(definition)
+				if s.themeClickCommit == name {
+					s.themeClickCommit = ""
+					s.commitTheme()
+				}
 			}
 		})
 	}()
@@ -4548,11 +4571,12 @@ func (s *appState) selectTheme(index int) {
 
 func (s *appState) commitTheme() {
 	service := s.Widget().(app).Options.ThemeService
-	if service == nil || !s.themePicker.Open || s.themePicker.Loading || s.themePicker.Pending || !s.themePicker.previewValid || len(s.themePicker.Names) == 0 {
+	if service == nil || !s.themePicker.Open || s.themePicker.Loading || s.themePicker.PreviewLoading || s.themePicker.Pending || !s.themePicker.previewValid || s.themePicker.Selection == "" {
 		return
 	}
-	name := s.themePicker.Names[s.themePicker.Selection]
+	name := s.themePicker.Selection
 	definition := s.themePicker.PreviewDefinition
+	s.themeClickCommit = ""
 	s.themeGeneration++
 	generation := s.themeGeneration
 	s.SetState(func() { s.themePicker.Pending = true })
@@ -4588,6 +4612,7 @@ func (s *appState) cancelThemePicker() {
 		return
 	}
 	s.themeGeneration++
+	s.themeClickCommit = ""
 	definition := s.themePicker.CommittedDefinition
 	s.SetState(func() { s.themePicker.Close() })
 	s.applyTheme(definition)

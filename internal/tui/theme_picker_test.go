@@ -8,9 +8,21 @@ import (
 	"testing"
 
 	kittheme "github.com/akonwi/kit/internal/theme"
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
+
+type themePickerTestHarness struct {
+	Theme   ui.Theme
+	Surface themePickerSurface
+}
+
+func (w themePickerTestHarness) Build(ui.BuildContext) ui.Widget {
+	return ui.Provider[ui.Theme]{Value: w.Theme, Child: ui.DecoratedBox(
+		ui.Decoration{Style: ui.Style{Foreground: w.Theme.Foreground, Background: w.Theme.Background}}, w.Surface,
+	)}
+}
 
 type fakeThemeService struct {
 	names       []string
@@ -33,27 +45,39 @@ func (s *fakeThemeService) Save(name string) error {
 	return nil
 }
 
-func TestThemePickerSurfacePresentsSystemThemesAndErrors(t *testing.T) {
+func TestThemePickerSurfaceUsesCanonicalPickerPresentation(t *testing.T) {
 	t.Parallel()
 
-	application := uitest.New(themePickerSurface{Snapshot: themePickerSnapshot{
-		Open: true, Names: []string{kittheme.SystemName, "nord"}, Selection: 1,
-		Error: "could not load theme", Diagnostics: []kittheme.Diagnostic{{Section: "tokens"}},
-	}})
+	pickerTheme := ui.DefaultThemeSet().Dark
+	application := uitest.New(themePickerTestHarness{Theme: pickerTheme, Surface: themePickerSurface{Snapshot: themePickerSnapshot{
+		Open: true, Names: []string{kittheme.SystemName, "nord"}, Selection: "nord", CommittedName: kittheme.SystemName,
+	}}})
 	application.Pump(80, 24)
-	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	for _, expected := range []string{"Theme", "System (terminal colors)", "nord", "could not load theme", "1 theme value(s) were ignored", "enter use", "esc cancel"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("render does not contain %q:\n%s", expected, text)
-		}
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	searchColumn, searchRow := assertPickerSearchField(t, rows, "Search themes…")
+	assertPickerTitleSpacing(t, rows, "Theme", searchRow)
+	assertDialogRow(t, rows, "Terminal colors", "│ system  Terminal colors                                      │")
+	assertDialogRow(t, rows, "nord", "│▌nord                                                         │")
+	assertPickerFooter(t, rows, "↑↓ preview · enter use · esc cancel")
+
+	systemColumn, systemRow := findTextCell(t, rows, kittheme.SystemName)
+	if systemColumn != searchColumn {
+		t.Fatalf("system column = %d, want search column %d:\n%s", systemColumn, searchColumn, strings.Join(rows, "\n"))
 	}
-	column, row := findPaintedCellSequence(t, application, 80, 24, "nord")
-	if got, want := application.Cell(column, row).Style.Background, ui.DefaultTheme().Selection; got != want {
-		t.Fatalf("selected theme background = %v, want picker selection %v", got, want)
+	if got, want := application.Cell(systemColumn, systemRow).Style.Foreground, pickerTheme.PrimaryText; got != want {
+		t.Fatalf("current theme label = %v, want accent %v", got, want)
+	}
+	nordColumn, nordRow := findTextCell(t, rows, "nord")
+	if got := application.Cell(nordColumn-1, nordRow).Grapheme; got != glyphLeftBar {
+		t.Fatalf("highlight gutter = %q, want %q", got, glyphLeftBar)
+	}
+	if got, want := application.Cell(nordColumn, nordRow).Style.Background, blendPickerColor(pickerTheme.Selection, pickerTheme.Background, pickerHighlightPercent, pickerTheme.SurfaceHovered); got != want {
+		t.Fatalf("selected theme background = %v, want tinted %v", got, want)
 	}
 }
 
-func TestThemePickerSurfaceRevealsKeyboardSelectionAndProgress(t *testing.T) {
+func TestThemePickerSurfaceRevealsKeyboardSelection(t *testing.T) {
 	t.Parallel()
 
 	names := make([]string, 15)
@@ -61,14 +85,47 @@ func TestThemePickerSurfaceRevealsKeyboardSelectionAndProgress(t *testing.T) {
 		names[index] = fmt.Sprintf("theme-%02d", index)
 	}
 	application := uitest.New(themePickerSurface{Snapshot: themePickerSnapshot{
-		Open: true, Names: names, Selection: 14, Loading: true,
+		Open: true, Names: names, Selection: "theme-14", PreviewLoading: true,
 	}})
 	application.Pump(80, 24)
-	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	for _, expected := range []string{"theme-14", "Loading preview…", "Loading… · esc cancel"} {
-		if !strings.Contains(text, expected) {
-			t.Fatalf("render does not contain %q:\n%s", expected, text)
-		}
+	rows := paintedRows(application, 80, 24)
+	assertDialogRow(t, rows, "theme-14", "│▌theme-14                                                     │")
+	assertDialogRow(t, rows, "Loading preview…", "│ Loading preview…                                  esc cancel │")
+	if got := dialogRowText(rows, findPaintedRow(rows, glyphEllipsis)); got != glyphEllipsis {
+		t.Fatalf("overflow row = %q, want %q", got, glyphEllipsis)
+	}
+}
+
+func TestThemePickerSurfacePlacesStateInMessageAndStatusSlots(t *testing.T) {
+	t.Parallel()
+
+	tests := []struct {
+		name     string
+		snapshot themePickerSnapshot
+		text     string
+		row      string
+	}{
+		{name: "catalog loading", snapshot: themePickerSnapshot{Open: true, Loading: true}, text: "Loading…", row: "│ Loading…                                                     │"},
+		{name: "saving", snapshot: themePickerSnapshot{Open: true, Pending: true, Names: []string{kittheme.SystemName}, Selection: kittheme.SystemName}, text: "Saving…", row: "│ Saving… · ctrl+c force quit                                  │"},
+		{name: "diagnostics", snapshot: themePickerSnapshot{Open: true, Names: []string{kittheme.SystemName}, Selection: kittheme.SystemName, Diagnostics: []kittheme.Diagnostic{{Section: "tokens"}}}, text: "1 theme value(s) were ignored", row: "│ 1 theme value(s) were ignored                     esc cancel │"},
+		{name: "preview error", snapshot: themePickerSnapshot{Open: true, Names: []string{kittheme.SystemName}, Selection: kittheme.SystemName, Error: "could not load theme"}, text: "could not load theme", row: "│ could not load theme                              esc cancel │"},
+		{name: "catalog error", snapshot: themePickerSnapshot{Open: true, Error: "discover themes: denied"}, text: "discover themes: denied", row: "│ discover themes: denied                                      │"},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			application := uitest.New(themePickerSurface{Snapshot: test.snapshot})
+			application.Pump(80, 24)
+			rows := paintedRows(application, 80, 24)
+			if test.name == "catalog loading" {
+				row := findPaintedRow(rows, test.text)
+				if got := strings.TrimLeft(dialogRowText(rows, row), "⠋⠙⠹⠸⠼⠴⠦⠧⠇⠏ "); got != test.text {
+					t.Fatalf("loading message = %q, want %q", got, test.text)
+				}
+				assertPickerFooter(t, rows, "Loading… · esc cancel")
+				return
+			}
+			assertDialogRow(t, rows, test.text, test.row)
+		})
 	}
 }
 
@@ -100,6 +157,91 @@ func TestThemePickerDiscoveryCompletionClearsLoading(t *testing.T) {
 	}
 }
 
+func TestThemePickerKeysFilterPreviewCancelAndCommit(t *testing.T) {
+	t.Parallel()
+
+	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	custom := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	service := &fakeThemeService{names: []string{"custom", "nord"}, definitions: map[string]kittheme.Definition{"custom": custom}}
+	var applied []kittheme.Definition
+	apply := func(definition kittheme.Definition) { applied = append(applied, definition) }
+
+	var picker themePickerController
+	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
+		t.Fatal(err)
+	}
+	result, preview := picker.HandleKey(ui.Key{Keycode: 'c', Text: "c", EventType: vaxis.EventPress})
+	if !result.Handled || !result.QueryChanged || !preview || picker.Query != "c" || picker.Selection != "custom" {
+		t.Fatalf("typing result=%+v preview=%t picker=%+v", result, preview, picker)
+	}
+	picker.preview(service, apply)
+	if !reflect.DeepEqual(applied, []kittheme.Definition{custom}) {
+		t.Fatalf("filtered preview applications = %#v", applied)
+	}
+	result, _ = picker.HandleKey(ui.Key{Keycode: vaxis.KeyEsc, EventType: vaxis.EventPress})
+	if !result.Dismiss {
+		t.Fatalf("escape result = %+v, want dismiss", result)
+	}
+	picker.Cancel(apply)
+	if picker.Open || !reflect.DeepEqual(applied, []kittheme.Definition{custom, original}) {
+		t.Fatalf("cancel state = %+v, applications = %#v", picker, applied)
+	}
+
+	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
+		t.Fatal(err)
+	}
+	picker.Move(service, 1, apply)
+	result, _ = picker.HandleKey(ui.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	if !result.Activate {
+		t.Fatalf("enter result = %+v, want activate", result)
+	}
+	name, definition, err := picker.Commit(service, apply)
+	if err != nil || name != "custom" || !reflect.DeepEqual(definition, custom) || picker.Open || !reflect.DeepEqual(service.saved, []string{"custom"}) {
+		t.Fatalf("commit name=%q err=%v picker=%+v saved=%v", name, err, picker, service.saved)
+	}
+}
+
+func TestThemePickerClickPreviewsAndCommitsTheme(t *testing.T) {
+	t.Parallel()
+
+	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	nord := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	service := &fakeThemeService{names: []string{"nord"}, definitions: map[string]kittheme.Definition{"nord": nord}}
+	var picker themePickerController
+	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
+		t.Fatal(err)
+	}
+	var applied kittheme.Definition
+	application := uitest.New(themePickerSurface{
+		Snapshot: picker.Snapshot(),
+		Callbacks: themePickerCallbacks{Select: func(_ ui.EventContext, name string) {
+			picker.Select(service, name, func(definition kittheme.Definition) { applied = definition })
+			_, _, _ = picker.Commit(service, nil)
+		}},
+	})
+	application.Pump(80, 24)
+	application.Pump(80, 24)
+	column, row := findTextCell(t, paintedRows(application, 80, 24), "nord")
+	application.Click(column+20, row)
+	application.Pump(80, 24)
+	if picker.Open || !reflect.DeepEqual(applied, nord) || !reflect.DeepEqual(service.saved, []string{"nord"}) {
+		t.Fatalf("click result picker=%+v applied=%+v saved=%v", picker, applied, service.saved)
+	}
+}
+
+func TestThemePickerPendingSaveConsumesKeysWithoutMutation(t *testing.T) {
+	t.Parallel()
+
+	picker := themePickerController{
+		Open: true, Pending: true, Names: []string{kittheme.SystemName, "nord"},
+		Query: "nor", Selection: "nord", Diagnostics: []kittheme.Diagnostic{{Section: "tokens"}},
+	}
+	result, preview := picker.HandleKey(ui.Key{Keycode: vaxis.KeyBackspace, EventType: vaxis.EventPress})
+	if !result.Handled || preview || picker.Query != "nor" || picker.Selection != "nord" || len(picker.Diagnostics) != 1 {
+		t.Fatalf("pending key result=%+v preview=%t picker=%+v", result, preview, picker)
+	}
+}
+
 func TestThemePickerPreviewsCommitsAndRestores(t *testing.T) {
 	t.Parallel()
 
@@ -113,7 +255,7 @@ func TestThemePickerPreviewsCommitsAndRestores(t *testing.T) {
 	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
 		t.Fatal(err)
 	}
-	if !reflect.DeepEqual(picker.Names, []string{kittheme.SystemName, "custom"}) || picker.Selection != 0 {
+	if !reflect.DeepEqual(picker.Names, []string{kittheme.SystemName, "custom"}) || picker.Selection != kittheme.SystemName {
 		t.Fatalf("opened picker = %+v", picker)
 	}
 	picker.Move(service, 1, apply)
@@ -157,7 +299,7 @@ func TestThemePickerKeepsLastValidPreviewOnLoadAndSaveFailures(t *testing.T) {
 		t.Fatalf("invalid commit err=%v open=%v", err, picker.Open)
 	}
 
-	picker.Select(service, 0, nil)
+	picker.Select(service, kittheme.SystemName, nil)
 	var applied kittheme.Definition
 	service.saveErr = errors.New("read-only")
 	if _, _, err := picker.Commit(service, func(definition kittheme.Definition) { applied = definition }); err == nil || !picker.Open || !reflect.DeepEqual(applied, original) {
