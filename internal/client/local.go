@@ -216,7 +216,7 @@ func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.Sessi
 	if errors.As(err, &terminal) {
 		return err
 	}
-	var frame *kitserver.VCSFrameError
+	var frame *kitserver.StreamError
 	if errors.As(err, &frame) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}
@@ -237,10 +237,10 @@ func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive
 }
 
 func classifyVCSWatchError(err error) error {
-	if errors.Is(err, kitserver.ErrIncompatibleDaemon) {
+	if errors.Is(err, kitserver.ErrIncompatibleDaemon) || sessionclient.IsIncompatibleDaemon(err) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}
-	var frame *kitserver.VCSFrameError
+	var frame *kitserver.StreamError
 	if errors.As(err, &frame) {
 		return &sessionclient.VCSWatchTerminalError{Err: err}
 	}

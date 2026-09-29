@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"os"
 	"reflect"
+	"sort"
 	"testing"
 
 	"github.com/akonwi/kit/internal/httpapi"
@@ -141,5 +142,65 @@ func TestConflictingErrorVariantIsRejected(t *testing.T) {
 	_, err := errorEnvelopeSchema("diff", withDetails, components)
 	if err == nil || err.Error() != "error variant DiffStaleWorkspaceError is declared with conflicting schemas" {
 		t.Fatalf("conflicting declaration error = %v", err)
+	}
+}
+
+func TestStreamOperationPublishesPayloadAndStreamExtension(t *testing.T) {
+	encoded, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document struct {
+		Paths map[string]map[string]struct {
+			OperationID string          `json:"operationId"`
+			Tags        []string        `json:"tags"`
+			Stream      json.RawMessage `json:"x-kit-stream"`
+			Responses   map[string]struct {
+				Content map[string]struct {
+					Schema map[string]any `json:"schema"`
+				} `json:"content"`
+			} `json:"responses"`
+		} `json:"paths"`
+		Components struct {
+			Schemas map[string]json.RawMessage `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	stream := document.Paths["/v1/sessions/{sessionID}/vcs/events"]["get"]
+	if stream.OperationID != "streamSessionVCS" || !reflect.DeepEqual(stream.Tags, []string{"vcs"}) {
+		t.Fatalf("operation = %q %v", stream.OperationID, stream.Tags)
+	}
+	var extension map[string]any
+	if err := json.Unmarshal(stream.Stream, &extension); err != nil || !reflect.DeepEqual(extension, map[string]any{
+		"records": []any{"vcs.status"}, "resumable": false, "maxRecordBytes": float64(65536),
+	}) {
+		t.Fatalf("x-kit-stream = %s", stream.Stream)
+	}
+	success := stream.Responses["200"].Content
+	if len(success) != 1 || !reflect.DeepEqual(success["text/event-stream"].Schema, map[string]any{"$ref": "#/components/schemas/SessionVCSStatus"}) {
+		t.Fatalf("200 content = %#v", success)
+	}
+	statuses := make([]string, 0, len(stream.Responses))
+	for status, response := range stream.Responses {
+		statuses = append(statuses, status)
+		if status != "200" && response.Content["application/json"].Schema == nil {
+			t.Fatalf("%s is not a JSON error body", status)
+		}
+	}
+	sort.Strings(statuses)
+	if want := []string{"200", "400", "401", "403", "404", "409", "421", "426", "429", "500", "503"}; !reflect.DeepEqual(statuses, want) {
+		t.Fatalf("statuses = %v, want %v", statuses, want)
+	}
+	read := document.Paths["/v1/sessions/{sessionID}/vcs"]["get"]
+	if read.OperationID != "getSessionVCS" || read.Stream != nil ||
+		!reflect.DeepEqual(read.Responses["200"].Content["application/json"].Schema, map[string]any{"$ref": "#/components/schemas/SessionVCSStatus"}) {
+		t.Fatalf("read operation = %+v", read)
+	}
+	for _, name := range []string{"SessionVCSStatus", "VCSStatus", "VCSHead", "GitHubPullRequest", "CapacityExceededError", "UnavailableError", "ConflictError"} {
+		if document.Components.Schemas[name] == nil {
+			t.Fatalf("component %s is missing", name)
+		}
 	}
 }

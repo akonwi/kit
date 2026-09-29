@@ -2043,19 +2043,6 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeJSON(writer, http.StatusOK, result)
 	})
 
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs/events", func(w http.ResponseWriter, r *http.Request) { serveVCS(w, r, service) })
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/vcs", func(writer http.ResponseWriter, request *http.Request) {
-		result, err := service.VCS(request.Context(), request.PathValue("sessionID"))
-		if err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session VCS status: %w", err))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
-	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/events", func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)
 		if raw := request.URL.Query().Get("after"); raw != "" {
@@ -2197,6 +2184,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeSessionError(writer, err)
 	}}
+	registerVCSRoutes(mux, httpOptions, service)
 	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
 		record, err := service.Scratchpad(ctx, params.SessionID)
 		if err != nil {

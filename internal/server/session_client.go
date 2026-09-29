@@ -450,9 +450,8 @@ func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string
 
 // GetSessionVCSStatus returns volatile repository status for a session workspace.
 func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (protocol.SessionVCSStatus, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/vcs"
-	var output protocol.SessionVCSStatus
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSessionVCS, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SessionVCSStatus{}, err
 	}
 	if err := output.Validate(); err != nil {
