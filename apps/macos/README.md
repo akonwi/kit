@@ -176,3 +176,4 @@ not prevent editing saved overrides. Removing an override restores the model's
 default context limit. As with the CLI settings store, simultaneous writes by
 independent processes are last-writer-wins. App-local appearance remains in
 UserDefaults and does not change the terminal theme.
+
