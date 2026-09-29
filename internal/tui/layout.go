@@ -33,14 +33,39 @@ func resolvePickerRowPresentation(ctx ui.BuildContext, theme ui.Theme) pickerRow
 	}
 }
 
-// pickerSearchInput gives searchable modal pickers one marker, spacing and
-// transparent input surface. The caller supplies its query and callbacks.
-func pickerSearchInput(theme ui.Theme, config textInputConfig) ui.Widget {
-	theme.Surface = theme.Background
-	theme.SurfaceHovered = theme.Background
-	return ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-		textInput(theme, config),
+// pickerSearchField is the shared search section of picker dialogs: an
+// unmarked, transparent input aligned with the result column, followed by a
+// full-width divider that joins the dialog border. Place it directly in a
+// pickerDialogContent body, outside horizontal padding, so the divider reaches
+// both borders. Callers own vertical spacing above it and the results below.
+func pickerSearchField(theme ui.Theme, config textInputConfig) ui.Widget {
+	fieldTheme := theme
+	fieldTheme.Surface = theme.Background
+	fieldTheme.SurfaceHovered = theme.Background
+	// Drop the field's leading pad so typed text starts in the result column;
+	// keep a trailing cell for the cursor at the end of the query.
+	config.Padding = ui.Insets{Right: 1}
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Padding(ui.Insets{Right: pickerContentInset, Left: pickerContentInset}, ui.Flex{
+			Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter,
+			Children: []ui.Widget{textInput(fieldTheme, config)},
+		}),
+		dialogDivider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
+	}}
+}
+
+// pickerContentInset is the horizontal inset of picker dialog content from the
+// dialog's outer edge, including its border cell.
+const pickerContentInset = 2
+
+// pickerTitledSearchField places a picker's title row directly below the
+// dialog's top border and separates it from the shared search field by one
+// blank row. The title may carry trailing metadata; it receives the standard
+// content inset.
+func pickerTitledSearchField(theme ui.Theme, title ui.Widget, config textInputConfig) ui.Widget {
+	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		ui.Padding(ui.Insets{Top: 1, Right: pickerContentInset, Bottom: 1, Left: pickerContentInset}, title),
+		pickerSearchField(theme, config),
 	}}
 }
 

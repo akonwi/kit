@@ -18,7 +18,7 @@ const (
 	sessionCWDCompactWidth    = 32
 	sessionCWDExpandedWidth   = 40
 	sessionIDColumnWidth      = 8
-	sessionExplorerChromeRows = 6
+	sessionExplorerChromeRows = 8
 )
 
 type sessionExplorerItem struct {
@@ -663,8 +663,7 @@ func (w sessionExplorerSurface) content(ctx ui.BuildContext) ui.Widget {
 		layout = &pickerDialogLayoutState{}
 	}
 	body := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, header),
-		w.queryField(theme),
+		w.queryField(theme, header),
 		ui.Expanded(sessionExplorerBodyClip{Layout: layout, Child: ui.Padding(
 			ui.Insets{Right: 2, Left: 2}, w.body(theme, scroll, list, layout),
 		)}),

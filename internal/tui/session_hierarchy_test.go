@@ -244,12 +244,14 @@ func TestSessionHierarchyRevealsVisibleIndexAfterCollapseAndResize(t *testing.T)
 	app := uitest.New(sessionExplorerHarness{State: state})
 	pumpSessionExplorerFrames(app, state, 80, 10, 6)
 	state.SetState(func() { state.controller.ToggleExpanded("session_root"); state.controller.Select("session_other") })
-	pumpSessionExplorerFrames(app, state, 80, 8, 6)
-	rows := paintedRows(app, 80, 8)
+	// Keep exactly one result row beneath the explorer chrome.
+	short := sessionExplorerChromeRows + 1
+	pumpSessionExplorerFrames(app, state, 80, short, 6)
+	rows := paintedRows(app, 80, short)
 	findTextCell(t, rows, "✓   Release")
 	state.SetState(func() { state.controller.ToggleExpanded("session_root") })
-	pumpSessionExplorerFrames(app, state, 80, 8, 6)
-	rows = paintedRows(app, 80, 8)
+	pumpSessionExplorerFrames(app, state, 80, short, 6)
+	rows = paintedRows(app, 80, short)
 	findTextCell(t, rows, "▸ Authentication · 22 children")
 	if state.controller.Selection != "session_root" || state.controller.needsReveal {
 		t.Fatalf("collapsed reveal = %+v", state.controller)

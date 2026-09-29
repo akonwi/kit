@@ -17,7 +17,7 @@ func TestSessionPickerHeightIsBoundedByContent(t *testing.T) {
 	if got := sessionPickerHeight(sessionExplorerSnapshot{Loading: true}); got != sessionPickerMinHeight {
 		t.Fatalf("loading height = %d", got)
 	}
-	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 8)}); got != 14 {
+	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 8)}); got != 8+sessionExplorerChromeRows {
 		t.Fatalf("content height = %d", got)
 	}
 	if got := sessionPickerHeight(sessionExplorerSnapshot{Sessions: make([]sessionExplorerItem, 40)}); got != sessionPickerMaxHeight {
@@ -95,7 +95,8 @@ func TestStandaloneSessionPickerMouseSelectsAcrossBoundedPositioner(t *testing.T
 		},
 	})
 	application.Pump(80, sessionPickerMinHeight)
-	application.Click(20, 4)
+	// Border, header, spacer, search field, and divider precede the first session row.
+	application.Click(20, 6)
 	application.Enter()
 	if result.selectedSession() != second {
 		t.Fatalf("mouse-selected session = %q", result.selectedSession())

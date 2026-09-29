@@ -570,11 +570,11 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	state := &sessionExplorerHarnessState{controller: controller}
 	application := uitest.New(sessionExplorerHarness{State: state})
 	for range 6 {
-		application.Pump(80, 7)
+		application.Pump(80, sessionExplorerChromeRows+1)
 		state.TickFrame(time.Now())
 	}
-	application.Pump(80, 7)
-	rows := paintedRows(application, 80, 7)
+	application.Pump(80, sessionExplorerChromeRows+1)
+	rows := paintedRows(application, 80, sessionExplorerChromeRows+1)
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{"Session Explorer", "✓ Session 11", "enter switch · ctrl+r rename · ctrl+d delete · esc close"} {
 		if !strings.Contains(text, expected) {
@@ -584,6 +584,8 @@ func TestSessionExplorerKeepsSelectionAndChromeVisibleInShortViewport(t *testing
 	if !strings.Contains(rows[0], "┌") || !strings.Contains(rows[len(rows)-1], "└") {
 		t.Fatalf("short explorer chrome =\n%s", text)
 	}
+	_, searchRow := assertPickerSearchField(t, rows, "Filter session names…")
+	assertPickerTitleSpacing(t, rows, "Session Explorer", searchRow)
 }
 
 func TestSessionExplorerRevealsSelectionAfterViewportShrinks(t *testing.T) {
@@ -603,8 +605,8 @@ func TestSessionExplorerRevealsSelectionAfterViewportShrinks(t *testing.T) {
 	state := &sessionExplorerHarnessState{controller: controller}
 	application := uitest.New(sessionExplorerHarness{State: state})
 	pumpSessionExplorerFrames(application, state, 80, 19, 5)
-	pumpSessionExplorerFrames(application, state, 80, 8, 6)
-	text := strings.Join(paintedRows(application, 80, 8), "\n")
+	pumpSessionExplorerFrames(application, state, 80, sessionExplorerChromeRows+1, 6)
+	text := strings.Join(paintedRows(application, 80, sessionExplorerChromeRows+1), "\n")
 	if !strings.Contains(text, "✓ Session 11") || !strings.Contains(text, "ctrl+d delete") {
 		t.Fatalf("resized explorer lost selection or chrome:\n%s", text)
 	}

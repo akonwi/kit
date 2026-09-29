@@ -95,16 +95,12 @@ func (c *sessionExplorerController) HandleEditorKey(key ui.Key) bool {
 	return true
 }
 
-func (w sessionExplorerSurface) queryField(theme ui.Theme) ui.Widget {
-	theme.Surface, theme.SurfaceHovered = theme.Background, theme.Background
+func (w sessionExplorerSurface) queryField(theme ui.Theme, header ui.Widget) ui.Widget {
 	cursor := len(w.Snapshot.Query)
-	return ui.Padding(ui.Insets{Left: 2, Right: 2}, ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-		ui.Text{Value: "> ", Style: ui.Style{Foreground: theme.MutedForeground}},
-		textInput(theme, textInputConfig{
-			Value: w.Snapshot.Query, Placeholder: "Filter session names…", CursorOffset: &cursor,
-			AutoFocus: true, OnChanged: w.Callbacks.QueryChanged,
-		}),
-	}})
+	return pickerTitledSearchField(theme, header, textInputConfig{
+		Value: w.Snapshot.Query, Placeholder: "Filter session names…", CursorOffset: &cursor,
+		AutoFocus: true, OnChanged: w.Callbacks.QueryChanged,
+	})
 }
 
 func sessionFilterHintText(width int, action string) string {

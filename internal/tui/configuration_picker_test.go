@@ -27,7 +27,7 @@ func TestConfigurationPickerEditsSelectedModelContextWindow(t *testing.T) {
 	if !controller.BeginContextEdit() || controller.EditModel != "openai-codex/gpt-5.6-sol" || controller.EditValue != "1000000" {
 		t.Fatalf("context editor = %+v", controller)
 	}
-	controller.HandleEditorKey(ui.Key{Keycode: vaxis.KeyBackspace, EventType: vaxis.EventPress})
+	controller.HandleKey(ui.Key{Keycode: vaxis.KeyBackspace, EventType: vaxis.EventPress})
 	if controller.EditValue != "100000" {
 		t.Fatalf("edited value = %q", controller.EditValue)
 	}
@@ -63,8 +63,9 @@ func TestConfigurationPickerFiltersMovesAndPreservesFailedSelection(t *testing.T
 		controller.Selection != "anthropic/claude" || controller.Query != "claude" || controller.Pending {
 		t.Fatalf("failed apply did not preserve selector state: %+v", controller)
 	}
-	if apply, handled := controller.HandleKey(ui.Key{Keycode: 'x'}); apply || handled {
-		t.Fatalf("ordinary model key was unexpectedly handled before editor fallback")
+	// Text goes straight into the query through the shared picker key model.
+	if apply, handled := controller.HandleKey(ui.Key{Text: "x", Keycode: 'x'}); apply || !handled || controller.Query != "claudex" {
+		t.Fatalf("typed model key = apply:%v handled:%v query:%q", apply, handled, controller.Query)
 	}
 }
 

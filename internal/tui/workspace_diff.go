@@ -1152,19 +1152,18 @@ func (s *workspaceDiffPaneState) targetPicker(ctx ui.BuildContext, theme ui.Them
 		rows = append(rows, ui.Center(ui.Text{Value: "No matching targets", Style: ui.Style{Foreground: theme.MutedForeground}}))
 	}
 	cursor := len(s.targetQuery)
-	fieldTheme := theme
-	fieldTheme.Surface, fieldTheme.SurfaceHovered = theme.Background, theme.Background
-	query := ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{ui.Text{Value: ">"}, ui.SizedBox{Width: 1}, textInput(fieldTheme, textInputConfig{Value: s.targetQuery, Placeholder: "Filter branch, subject, or object ID…", CursorOffset: &cursor, AutoFocus: true, OnChanged: func(_ ui.EventContext, value string) {
+	search := textInputConfig{Value: s.targetQuery, Placeholder: "Filter branch, subject, or object ID…", CursorOffset: &cursor, AutoFocus: true, OnChanged: func(_ ui.EventContext, value string) {
 		s.SetState(func() { s.targetQuery = value; s.targetSelection = 0 })
 	}, OnSubmitted: func(ui.EventContext, string) {
 		filtered := s.filteredTargets()
 		if len(filtered) > 0 {
 			s.SetState(func() { s.switchTarget(filtered[s.targetSelection]) })
 		}
-	}})}}
-	body := ui.Padding(ui.Insets{Top: 1, Left: 2, Right: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Text{Value: "Select diff target", Style: ui.Style{Foreground: theme.Foreground}}, ui.SizedBox{Height: 1}, query, ui.SizedBox{Height: 1}, ui.Expanded(ui.ScrollView{Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}}),
-	}})
+	}}
+	body := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		pickerTitledSearchField(theme, ui.Text{Value: "Select diff target", Style: ui.Style{Foreground: theme.Foreground}}, search),
+		ui.Expanded(ui.Padding(ui.Insets{Right: pickerContentInset, Left: pickerContentInset}, ui.ScrollView{Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}})),
+	}}
 	content := pickerDialogContent(theme, body, ui.Text{Value: "↑↓ move · enter select · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
 	actions := map[ui.IntentType]ui.ActionFunc{
 		inputTargetIntent{}.IntentType(): inputTargetAction(inputPane),

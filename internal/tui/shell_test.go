@@ -217,7 +217,7 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	}})
 	modelApp.Pump(100, 24)
 	modelText := modelApp.Text()
-	for _, expected := range []string{"Select model", "Search models…", "✓ GPT Large", "openai/gpt-large", "128k context"} {
+	for _, expected := range []string{"Select model", "Search models…", "GPT Large", "openai/gpt-large", "128k context"} {
 		if !strings.Contains(modelText, expected) {
 			t.Fatalf("model picker missing %q:\n%s", expected, modelText)
 		}
@@ -244,7 +244,7 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	}}))
 	thinkingApp.Pump(80, 24)
 	thinkingText := thinkingApp.Text()
-	for _, expected := range []string{"Thinking level", "off", "✓ high"} {
+	for _, expected := range []string{"Thinking level", "Search effort levels…", "off", "high"} {
 		if !strings.Contains(thinkingText, expected) {
 			t.Fatalf("thinking picker missing %q:\n%s", expected, thinkingText)
 		}
@@ -264,13 +264,17 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 			break
 		}
 	}
-	if dialogWidth != 48 {
-		t.Fatalf("thinking picker width = %d, want compact 48-cell dialog", dialogWidth)
+	if dialogWidth != 64 {
+		t.Fatalf("thinking picker width = %d, want the shared 64-cell picker at 80 columns", dialogWidth)
 	}
-	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "✓ high")
+	// The current level keeps its accent label while highlighted.
+	selectedColumn, selectedRow := findTextCell(t, thinkingRows, "high")
 	selectedStyle := thinkingApp.Cell(selectedColumn, selectedRow).Style
-	if selectedStyle.Foreground != thinkingTheme.Background || selectedStyle.Background != thinkingTheme.Selection {
-		t.Fatalf("selected thinking label style = %+v, want foreground %v on background %v", selectedStyle, thinkingTheme.Background, thinkingTheme.Selection)
+	if selectedStyle.Foreground != thinkingTheme.PrimaryText || selectedStyle.Background == thinkingTheme.Background {
+		t.Fatalf("selected current thinking label style = %+v, want accent foreground %v on a highlight fill", selectedStyle, thinkingTheme.PrimaryText)
+	}
+	if bar := thinkingApp.Cell(selectedColumn-1, selectedRow); bar.Character.Grapheme != glyphLeftBar {
+		t.Fatalf("selected thinking gutter = %q, want %q", bar.Character.Grapheme, glyphLeftBar)
 	}
 	longQuery := "anthropic-model-query-with-full-width"
 	queryApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{

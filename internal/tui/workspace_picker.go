@@ -146,30 +146,22 @@ func (w shellView) workspacePickerDialog(ctx ui.BuildContext, theme ui.Theme) ui
 		rows = append(rows, ui.Text{Value: "No matching tabs", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1})
 	}
 
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
 	queryCursor := len(w.Snapshot.WorkspacePickerQuery)
-	query := ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisCenter, Children: []ui.Widget{
-		ui.Text{Value: ">", Style: ui.Style{Foreground: theme.Foreground}},
-		ui.SizedBox{Width: 1},
-		textInput(fieldTheme, textInputConfig{
-			Value: w.Snapshot.WorkspacePickerQuery, Placeholder: "Search workspace tabs…", CursorOffset: &queryCursor,
-			OnChanged: w.Callbacks.WorkspacePickerQuery, AutoFocus: true,
-			OnSubmitted: func(ctx ui.EventContext, _ string) {
-				if len(items) > 0 {
-					activate(ctx, items[selection])
-				}
-			},
-		}),
-	}}
-	body := ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.Text{Value: "Open workspace tab", Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1},
-			ui.SizedBox{Height: 1}, query, ui.SizedBox{Height: 1},
-			ui.Expanded(ui.ScrollView{Controller: w.Snapshot.WorkspacePickerScroll, Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}}),
+	search := textInputConfig{
+		Value: w.Snapshot.WorkspacePickerQuery, Placeholder: "Search workspace tabs…", CursorOffset: &queryCursor,
+		OnChanged: w.Callbacks.WorkspacePickerQuery, AutoFocus: true,
+		OnSubmitted: func(ctx ui.EventContext, _ string) {
+			if len(items) > 0 {
+				activate(ctx, items[selection])
+			}
 		},
-	})
+	}
+	body := ui.Flex{
+		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+			pickerTitledSearchField(theme, ui.Text{Value: "Open workspace tab", Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1}, search),
+			ui.Expanded(ui.Padding(ui.Insets{Right: pickerContentInset, Left: pickerContentInset}, ui.ScrollView{Controller: w.Snapshot.WorkspacePickerScroll, Child: ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}})),
+		},
+	}
 	footer := ui.Text{Value: "↑↓ move · enter open · ctrl+d close tab · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis}
 	content := pickerDialogContent(theme, body, footer)
 	actions := map[ui.IntentType]ui.ActionFunc{

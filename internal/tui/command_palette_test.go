@@ -4,7 +4,6 @@ import (
 	"errors"
 	"strings"
 	"testing"
-	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -19,7 +18,7 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 	if _, intercepted := palette.HandleComposerChange("", "/", false); !intercepted || !palette.Open || palette.Query != "" {
 		t.Fatalf("slash transition = %+v", palette)
 	}
-	if !palette.HandleEditorKey(false, ui.Key{Text: "q", Keycode: 'q'}) || palette.Query != "q" {
+	if _, _, handled := palette.HandleKey(false, ui.Key{Text: "q", Keycode: 'q'}); !handled || palette.Query != "q" {
 		t.Fatalf("coalesced slash input = %+v", palette)
 	}
 	command, ok := palette.Selected(false, palette.Query)
@@ -29,7 +28,7 @@ func TestPaletteControllerRoutesComposerInputAndPreservesSelectionIdentity(t *te
 
 	palette.Close()
 	palette.OpenFor(false)
-	if !palette.HandleEditorKey(false, ui.Key{Text: "q", Keycode: 'q'}) || palette.Query != "q" {
+	if _, _, handled := palette.HandleKey(false, ui.Key{Text: "q", Keycode: 'q'}); !handled || palette.Query != "q" {
 		t.Fatalf("coalesced Ctrl+P input = %+v", palette)
 	}
 
@@ -164,15 +163,15 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 		{Keycode: 'j', Modifiers: vaxis.ModCtrl, EventType: vaxis.EventPaste},
 		{Keycode: vaxis.KeyTab, EventType: vaxis.EventPaste},
 	} {
-		if !pasted.HandleEditorKey(false, key) {
-			t.Fatalf("paste key was not consumed: %#v", key)
+		if _, run, handled := pasted.HandleKey(false, key); !handled || run {
+			t.Fatalf("paste key was not consumed as query text: %#v", key)
 		}
 	}
 	if pasted.Query != "q   " {
 		t.Fatalf("separate paste events = %q", pasted.Query)
 	}
 
-	if width := paletteNameWidth([]paletteCommand{{Name: "界界"}}); width != 4 {
+	if width := pickerTextWidth("界界"); width != 4 {
 		t.Fatalf("wide command name width = %d, want 4", width)
 	}
 
@@ -208,11 +207,10 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	state.palette.SetQuery(false, "review")
 	application := uitest.New(paletteHarness{State: state})
 	application.Pump(80, 24)
-	text := strings.Join(paintedRows(application, 80, 24), "\n")
-	if !strings.Contains(text, "review <scope>") || !strings.Contains(text, "Review recent changes") {
-		t.Fatalf("prompt command palette =\n%s", text)
-	}
 	rows := paintedRows(application, 80, 24)
+	// The argument hint and the prompt's source sit in their own aligned columns.
+	assertDialogRow(t, rows, "Review recent changes", "│▌review          <scope>  Review recent changes       project │")
+	assertDialogRow(t, rows, "Review working-tree", "│ diff                     Review working-tree chang…          │")
 	reviewRow := findPaintedRow(rows, "Review recent changes")
 	if reviewRow < 0 {
 		t.Fatalf("review result row missing:\n%s", strings.Join(rows, "\n"))
@@ -296,17 +294,21 @@ func TestCommandPalettePresentationFilteringAndExecution(t *testing.T) {
 	if got := right - left + 1; got != 64 {
 		t.Fatalf("palette width = %d, want 64", got)
 	}
-	promptColumn, _ := findTextCell(t, rows, ">")
+	searchColumn, searchRow := assertPickerSearchField(t, rows, "Search commands…")
 	cdColumn, cdRow := findTextCell(t, rows, "cd")
 	quitColumn, quitRow := findTextCell(t, rows, "quit")
-	if cdColumn != promptColumn {
-		t.Fatalf("command column = %d, want filter prompt column %d", cdColumn, promptColumn)
+	if cdColumn != searchColumn || cdRow != searchRow+2 {
+		t.Fatalf("first command at column %d row %d, want column %d row %d directly below the search divider", cdColumn, cdRow, searchColumn, searchRow+2)
 	}
+	// The highlight tints the row and adds a gutter bar; text keeps its color.
 	if application.Cell(cdColumn, cdRow).Style.Background == application.Cell(quitColumn, quitRow).Style.Background {
 		t.Fatal("selected cd row is not visually distinct")
 	}
-	if application.Cell(cdColumn, cdRow).Style.Foreground == application.Cell(quitColumn, quitRow).Style.Foreground {
-		t.Fatal("selected cd text is not inverted")
+	if got, want := application.Cell(cdColumn, cdRow).Style.Foreground, application.Cell(quitColumn, quitRow).Style.Foreground; got != want {
+		t.Fatalf("selected cd text foreground = %v, want unselected text color %v", got, want)
+	}
+	if bar := application.Cell(cdColumn-1, cdRow); bar.Character.Grapheme != glyphLeftBar {
+		t.Fatalf("selected cd gutter = %q, want %q", bar.Character.Grapheme, glyphLeftBar)
 	}
 
 	for _, character := range "provider" {
@@ -407,11 +409,14 @@ func TestCommandPaletteFitsShortViewport(t *testing.T) {
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
 	text := strings.Join(rows, "\n")
-	for _, expected := range []string{"Search commands…", "cd", "compact", "enter run", "esc close"} {
+	for _, expected := range []string{"Search commands…", "enter run", "esc close"} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("short palette missing %q:\n%s", expected, text)
 		}
 	}
+	// Two list rows: the selected first command and a ⋯ row for the rest.
+	assertDialogRow(t, rows, "Change working", "│▌cd              Change working dire… │")
+	assertDialogRow(t, rows, glyphEllipsis, "│ "+glyphEllipsis+"                                    │")
 	_, _, top := paletteBorder(rows)
 	if top != 0 || !strings.Contains(rows[height-1], "└") {
 		t.Fatalf("short palette bounds top=%d bottom=%q", top, rows[height-1])
@@ -430,10 +435,8 @@ func TestDisabledCommandReasonSurvivesNarrowLongContribution(t *testing.T) {
 	}})
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
-	text := strings.Join(rows, "\n")
-	if !strings.Contains(text, "extraordinarily…") || !strings.Contains(text, glyphCircleSlash+" idle only") {
-		t.Fatalf("narrow disabled contribution lost identity or reason:\n%s", text)
-	}
+	// At narrow widths the label yields a third of the row so the reason stays visible.
+	assertDialogRow(t, rows, "extraordinarily", "│▌extraordinarily-long-…  "+glyphCircleSlash+" idle only… │")
 }
 
 func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing.T) {
@@ -806,6 +809,52 @@ func paletteBorder(rows []string) (int, int, int) {
 	return -1, -1, -1
 }
 
+// assertPickerSearchField asserts the shared picker search section: the query
+// text starts in the dialog content column, with no marker, and the next row is
+// a divider joining both dialog borders. It returns the query's column and row.
+func assertPickerSearchField(t *testing.T, rows []string, text string) (int, int) {
+	t.Helper()
+	left, right, _ := paletteBorder(rows)
+	column, row := findTextCell(t, rows, text)
+	if column != left+2 {
+		t.Fatalf("search text %q at column %d, want dialog content column %d:\n%s", text, column, left+2, strings.Join(rows, "\n"))
+	}
+	divider := []rune(rows[row+1])
+	want := "├" + strings.Repeat("─", right-left-1) + "┤"
+	if right >= len(divider) || string(divider[left:right+1]) != want {
+		t.Fatalf("search row %d is not followed by a full-width divider:\n%s", row, strings.Join(rows, "\n"))
+	}
+	return column, row
+}
+
+// assertPickerTitleSpacing asserts that a titled picker separates its title
+// from the search field with exactly one blank row inside the dialog borders.
+func assertPickerTitleSpacing(t *testing.T, rows []string, title string, searchRow int) {
+	t.Helper()
+	left, right, _ := paletteBorder(rows)
+	_, titleRow := findTextCell(t, rows, title)
+	spacer := []rune(rows[searchRow-1])
+	want := "│" + strings.Repeat(" ", right-left-1) + "│"
+	if titleRow != searchRow-2 || right >= len(spacer) || string(spacer[left:right+1]) != want {
+		t.Fatalf("title %q at row %d, want row %d above one blank row before the search field:\n%s", title, titleRow, searchRow-2, strings.Join(rows, "\n"))
+	}
+}
+
+// assertDialogRow asserts the exact dialog cells, border to border, of the row
+// containing text.
+func assertDialogRow(t *testing.T, rows []string, text, want string) {
+	t.Helper()
+	left, right, _ := paletteBorder(rows)
+	row := findPaintedRow(rows, text)
+	if row < 0 {
+		t.Fatalf("row containing %q not found:\n%s", text, strings.Join(rows, "\n"))
+	}
+	cells := []rune(rows[row])
+	if right >= len(cells) || string(cells[left:right+1]) != want {
+		t.Fatalf("row %d = %q, want %q:\n%s", row, string(cells[left:min(right+1, len(cells))]), want, strings.Join(rows, "\n"))
+	}
+}
+
 func assertPickerFooter(t *testing.T, rows []string, hint string) {
 	t.Helper()
 	bottom := dialogBottom(rows)
@@ -860,12 +909,7 @@ func (s *paletteHarnessState) HandleEvent(ctx ui.EventContext, event ui.Event) u
 	}
 	var command paletteCommand
 	var run, handled bool
-	s.SetState(func() {
-		command, run, handled = s.palette.HandleKey(s.running, key)
-		if !handled {
-			handled = s.palette.HandleEditorKey(s.running, key)
-		}
-	})
+	s.SetState(func() { command, run, handled = s.palette.HandleKey(s.running, key) })
 	if run {
 		if paletteCommandAvailable(command.ID, s.running, s.palette.Contributions) {
 			s.execute(command.ID)
@@ -943,77 +987,75 @@ func (s *paletteHarnessState) execute(command paletteCommandID) {
 	})
 }
 
-func TestPaletteScrollListFillsBodyAndRevealsSelection(t *testing.T) {
+func TestPaletteOverflowRowsMarkHiddenCommandsAndRevealSelection(t *testing.T) {
 	state := &paletteScrollHarnessState{}
-	state.snapshot.Selection = filteredPaletteCommands(false, "")[0].ID
+	commands := filteredPaletteCommands(false, "")
+	state.snapshot.Selection = commands[0].ID
 	app := uitest.New(paletteScrollHarness{state})
 	const width, height = 100, 30
-	app.Pump(width, height)
-	state.TickFrame(time.Now())
-	app.Pump(width, height)
-	rows := paintedRows(app, width, height)
-	commands := filteredPaletteCommands(false, "")
-	first := findPaintedRow(rows, commands[0].Description)
-	footer := findPaintedRow(rows, "↑↓ move · enter run · esc close")
-	if first < 0 || footer-first-1 <= 11 {
-		t.Fatalf("expected more than eleven available command rows:\n%s", strings.Join(rows, "\n"))
+	pump := func(rows int) []string {
+		t.Helper()
+		// The first frame sizes the list; the next one builds rows for that size.
+		app.Pump(width, rows)
+		app.Pump(width, rows)
+		return paintedRows(app, width, rows)
 	}
-	for row := first; row < footer-1; row++ {
-		index := row - first
-		if index >= len(commands) || !strings.Contains(rows[row], commands[index].Name) {
-			t.Fatalf("command row %d = %q; expected command index %d", row, rows[row], index)
+	listRows := func(rows []string) []string {
+		t.Helper()
+		left, right, top := paletteBorder(rows)
+		searchRow := top + 1
+		footer := findPaintedRow(rows, "↑↓ move · enter run · esc close")
+		body := make([]string, 0, footer-searchRow-3)
+		for _, row := range rows[searchRow+2 : footer-1] {
+			body = append(body, strings.TrimRight(string([]rune(row)[left+2:right-1]), " "))
+		}
+		return body
+	}
+	name := func(row string) string {
+		if fields := strings.Fields(row); len(fields) > 0 {
+			return fields[0]
+		}
+		return ""
+	}
+	assertList := func(rows []string, want []string) {
+		t.Helper()
+		body := listRows(rows)
+		got := make([]string, len(body))
+		for index, row := range body {
+			got[index] = name(row)
+		}
+		if strings.Join(got, ",") != strings.Join(want, ",") {
+			t.Fatalf("palette list = %v, want %v:\n%s", got, want, strings.Join(rows, "\n"))
 		}
 	}
-	// Wheel scrolling moves the viewport without changing keyboard selection.
+	names := func(from, to int) []string {
+		result := []string{}
+		for _, command := range commands[from:to] {
+			result = append(result, command.Name)
+		}
+		return result
+	}
+
+	// Thirteen commands fill the list and a trailing ⋯ marks the rest.
+	assertList(pump(height), append(names(0, 13), glyphEllipsis))
+
+	// Wheel scrolling moves the window without moving keyboard selection; a
+	// leading ⋯ now marks the command scrolled out of view.
+	rows := pump(height)
+	first := findPaintedRow(rows, commands[0].Description)
 	app.Send(vaxis.Mouse{Col: 20, Row: first + 1, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
-	for range 6 {
-		app.Pump(width, height)
-		state.TickFrame(time.Now())
-	}
-	rows = paintedRows(app, width, height)
-	if got := findPaintedRow(rows, commands[1].Description); got != first {
-		t.Fatalf("wheel-scrolled row = %d, want %d:\n%s", got, first, strings.Join(rows, "\n"))
-	}
-	// Keyboard navigation reveals the last command without moving the footer.
+	assertList(pump(height), append(append([]string{glyphEllipsis}, names(1, 13)...), glyphEllipsis))
+
+	// Revealing the last command fills the list back to the top edge.
 	state.SetState(func() { state.snapshot.Selection = commands[len(commands)-1].ID })
-	for range 6 {
-		app.Pump(width, height)
-		state.TickFrame(time.Now())
-	}
-	app.Pump(width, height)
-	rows = paintedRows(app, width, height)
-	if row := findPaintedRow(rows, commands[len(commands)-1].Description); row != footer-2 {
-		t.Fatalf("last command row = %d, want %d:\n%s", row, footer-2, strings.Join(rows, "\n"))
-	}
-	// A smaller viewport still reveals the selected row above the fixed footer.
-	for range 6 {
-		app.Pump(width, 18)
-		state.TickFrame(time.Now())
-	}
-	app.Pump(width, 18)
-	smallRows := paintedRows(app, width, 18)
-	smallFooter := findPaintedRow(smallRows, "↑↓ move · enter run · esc close")
-	if got := findPaintedRow(smallRows, commands[len(commands)-1].Description); got != smallFooter-2 {
-		t.Fatalf("resized selection row = %d, want %d", got, smallFooter-2)
-	}
-	for range 6 {
-		app.Pump(width, height)
-		state.TickFrame(time.Now())
-	}
-	// Filtering resets the scroll position and exposes the selected result.
+	assertList(pump(height), append([]string{glyphEllipsis}, names(len(commands)-13, len(commands))...))
+
+	// A shorter viewport keeps the selection above the fixed footer.
+	assertList(pump(18), append([]string{glyphEllipsis}, names(len(commands)-11, len(commands))...))
+
+	// Filtering exposes the selected result without overflow rows.
 	state.SetState(func() { state.snapshot.Query = "compact"; state.snapshot.Selection = paletteCommandCompact })
-	for range 6 {
-		app.Pump(width, height)
-		state.TickFrame(time.Now())
-	}
-	app.Pump(width, height)
-	rows = paintedRows(app, width, height)
-	if got := findPaintedRow(rows, "Compact session context"); got != first {
-		t.Fatalf("filtered row = %d, want %d:\n%s", got, first, strings.Join(rows, "\n"))
-	}
-	if got := findPaintedRow(rows, "↑↓ move · enter run · esc close"); got != footer {
-		t.Fatalf("footer row = %d, want %d", got, footer)
-	}
+	assertList(pump(height), append([]string{"compact"}, make([]string, 13)...))
 }
 
 type paletteScrollHarness struct{ state *paletteScrollHarnessState }
@@ -1021,10 +1063,10 @@ type paletteScrollHarness struct{ state *paletteScrollHarnessState }
 func (w paletteScrollHarness) CreateState() ui.State { return w.state }
 
 type paletteScrollHarnessState struct {
-	commandPaletteSurfaceState
+	ui.StateBase
 	snapshot paletteSnapshot
 }
 
-func (s *paletteScrollHarnessState) Build(ctx ui.BuildContext) ui.Widget {
-	return s.commandPaletteSurfaceState.build(ctx, commandPaletteSurface{Snapshot: s.snapshot})
+func (s *paletteScrollHarnessState) Build(ui.BuildContext) ui.Widget {
+	return commandPaletteSurface{Snapshot: s.snapshot}
 }

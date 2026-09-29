@@ -2121,12 +2121,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			return ui.EventHandled
 		}
 		var apply, handled bool
-		s.SetState(func() {
-			apply, handled = s.configurationPicker.HandleKey(key)
-			if !handled {
-				handled = s.configurationPicker.HandleEditorKey(key)
-			}
-		})
+		s.SetState(func() { apply, handled = s.configurationPicker.HandleKey(key) })
 		if !handled {
 			return ui.EventIgnored
 		}
@@ -2241,12 +2236,7 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	}
 	var command paletteCommand
 	var run, handled bool
-	s.SetState(func() {
-		command, run, handled = s.palette.HandleKey(s.hasActiveWork(), key)
-		if !handled {
-			handled = s.palette.HandleEditorKey(s.hasActiveWork(), key)
-		}
-	})
+	s.SetState(func() { command, run, handled = s.palette.HandleKey(s.hasActiveWork(), key) })
 	if !handled {
 		return ui.EventIgnored
 	}

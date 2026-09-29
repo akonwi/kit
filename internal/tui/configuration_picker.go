@@ -2,7 +2,6 @@ package tui
 
 import (
 	"fmt"
-	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
@@ -127,17 +126,31 @@ func (controller *configurationPickerController) Snapshot() configurationPickerS
 }
 
 func (controller *configurationPickerController) SetQuery(value string) {
-	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending {
+	if controller.Mode == configurationPickerClosed || controller.Loading || controller.Pending {
 		return
 	}
-	controller.Query = value
-	models := controller.filteredModels()
-	if len(models) > 0 {
-		controller.Selection = models[0].ID
-	} else {
-		controller.Selection = ""
-	}
+	model := controller.keyModel()
+	model.SetQuery(value, controller.pickerItems(value))
+	controller.applyKeyModel(model)
 	controller.Error = ""
+}
+
+// keyModel returns the canonical picker key model for the current query and
+// highlighted item.
+func (controller *configurationPickerController) keyModel() pickerKeyModel {
+	return pickerKeyModel{Query: controller.Query, Selection: controller.Selection}
+}
+
+func (controller *configurationPickerController) applyKeyModel(model pickerKeyModel) {
+	controller.Query, controller.Selection = model.Query, model.Selection
+}
+
+// pickerItems returns the visible models or reasoning levels for query.
+func (controller *configurationPickerController) pickerItems(query string) []pickerItem {
+	if controller.Mode == configurationPickerModel {
+		return modelPickerItems(filterModels(query, controller.Models), controller.CurrentModel)
+	}
+	return thinkingPickerItems(filterThinkingLevels(query, controller.thinkingLevels()), controller.CurrentThinking)
 }
 
 func (controller *configurationPickerController) Select(value string) {
@@ -148,7 +161,7 @@ func (controller *configurationPickerController) Select(value string) {
 		if modelCapabilityIndex(controller.filteredModels(), value) >= 0 {
 			controller.Selection = value
 		}
-	} else if stringIndex(controller.thinkingLevels(), value) >= 0 {
+	} else if stringIndex(controller.values(), value) >= 0 {
 		controller.Selection = value
 	}
 	controller.Error = ""
@@ -158,20 +171,9 @@ func (controller *configurationPickerController) Move(delta int) {
 	if controller.Loading || controller.Pending || delta == 0 {
 		return
 	}
-	values := controller.values()
-	if len(values) == 0 {
-		return
-	}
-	index := stringIndex(values, controller.Selection)
-	if index < 0 {
-		index = 0
-	} else {
-		index = (index + delta) % len(values)
-		if index < 0 {
-			index += len(values)
-		}
-	}
-	controller.Selection = values[index]
+	model := controller.keyModel()
+	model.Move(controller.pickerItems(controller.Query), delta)
+	controller.applyKeyModel(model)
 	controller.Error = ""
 }
 
@@ -213,78 +215,57 @@ func (controller *configurationPickerController) BeginContextEdit() bool {
 	return true
 }
 
+// HandleKey applies one key. Pickers use the canonical picker key model; the
+// context-window editor accepts digits, Backspace, paste, and Escape. It
+// reports whether the highlighted value should be applied.
 func (controller *configurationPickerController) HandleKey(key ui.Key) (bool, bool) {
-	if controller.Mode == configurationPickerClosed || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+	if controller.Mode == configurationPickerClosed || key.EventType == ui.EventRelease {
 		return false, false
 	}
-	if controller.EditingContext && !key.MatchString("Escape") && !key.MatchString("Enter") {
-		return false, false
+	if controller.EditingContext {
+		return false, controller.handleContextEditKey(key)
 	}
-	switch {
-	case key.MatchString("Escape"):
-		if controller.EditingContext {
-			controller.EditingContext = false
-			controller.EditModel = ""
-			controller.EditValue = ""
-		} else {
+	if controller.Loading || controller.Pending {
+		if key.EventType != vaxis.EventPaste && key.MatchString("Escape") {
 			controller.Close()
 		}
 		return false, true
-	case key.MatchString("Up"):
-		controller.Move(-1)
-		return false, true
-	case key.MatchString("Down"):
-		controller.Move(1)
-		return false, true
-	case key.MatchString("Enter"):
-		return true, true
-	default:
-		return false, false
 	}
+	model := controller.keyModel()
+	result := model.HandleKey(key, controller.pickerItems)
+	controller.applyKeyModel(model)
+	if result.QueryChanged {
+		controller.Error = ""
+	}
+	if result.Dismiss {
+		controller.Close()
+	}
+	return result.Activate, result.Handled
 }
 
-func (controller *configurationPickerController) HandleEditorKey(key ui.Key) bool {
-	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending || key.EventType == ui.EventRelease {
-		return false
-	}
-	if controller.EditingContext {
-		value := controller.EditValue
-		if key.EventType == vaxis.EventPaste {
-			value += palettePasteText(key)
-		} else if key.MatchString("Backspace") {
-			runes := []rune(value)
-			if len(runes) > 0 {
-				value = string(runes[:len(runes)-1])
-			}
-		} else if key.Text != "" && key.Text[0] >= '0' && key.Text[0] <= '9' {
-			value += key.Text
-		}
-		controller.EditValue = value
-		controller.Error = ""
+func (controller *configurationPickerController) handleContextEditKey(key ui.Key) bool {
+	if key.EventType != vaxis.EventPaste && key.MatchString("Escape") {
+		controller.EditingContext = false
+		controller.EditModel = ""
+		controller.EditValue = ""
 		return true
 	}
-	query := controller.Query
-	if key.EventType == vaxis.EventPaste {
-		query += palettePasteText(key)
-		controller.SetQuery(query)
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
+	value := controller.EditValue
 	switch {
+	case key.EventType == vaxis.EventPaste:
+		value += palettePasteText(key)
 	case key.MatchString("Backspace"):
-		runes := []rune(query)
+		runes := []rune(value)
 		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
+			value = string(runes[:len(runes)-1])
 		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
+	case key.Text != "" && key.Text[0] >= '0' && key.Text[0] <= '9':
+		value += key.Text
+	case key.Modifiers&^(vaxis.ModShift|vaxis.ModCapsLock|vaxis.ModNumLock) != 0:
+		return false
 	}
-	controller.SetQuery(query)
+	controller.EditValue = value
+	controller.Error = ""
 	return true
 }
 
@@ -305,15 +286,12 @@ func (controller *configurationPickerController) thinkingLevels() []string {
 }
 
 func (controller *configurationPickerController) values() []string {
-	if controller.Mode == configurationPickerModel {
-		models := controller.filteredModels()
-		values := make([]string, 0, len(models))
-		for _, model := range models {
-			values = append(values, model.ID)
-		}
-		return values
+	items := controller.pickerItems(controller.Query)
+	values := make([]string, 0, len(items))
+	for _, item := range items {
+		values = append(values, item.Key)
 	}
-	return controller.thinkingLevels()
+	return values
 }
 
 func modelCapabilityIndex(models []protocol.ModelCapability, id string) int {
@@ -341,137 +319,103 @@ type configurationPickerSurface struct {
 	Apply        ui.VoidCallback
 }
 
-func (configurationPickerSurface) CreateState() ui.State {
-	return &configurationPickerSurfaceState{selection: -1}
-}
-
-type configurationPickerSurfaceState struct {
-	ui.StateBase
-	scroll      ui.ScrollController
-	list        ui.SliverListController
-	selection   int
-	query       string
-	count       int
-	viewport    int
-	needsReveal bool
-}
-
-func (s *configurationPickerSurfaceState) TickFrame(time.Time) bool {
-	viewport := s.scroll.Metrics().ViewportHeight
-	if viewport != s.viewport {
-		s.viewport = viewport
-		s.needsReveal = true
+// Build maps the model and thinking pickers onto the canonical picker, and the
+// context-window override onto the canonical prompt.
+func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
+	snapshot := surface.Snapshot
+	footer := "↑↓ move · enter apply · ctrl+o overrides · esc close"
+	if snapshot.Mode == configurationPickerThinking {
+		footer = "↑↓ move · enter apply · esc close"
 	}
-	if !s.needsReveal || viewport <= 0 || !s.list.Attached() {
-		return false
+	if snapshot.Pending {
+		footer = "Applying configuration…"
 	}
-	s.needsReveal = false
-	return s.list.RevealIndex(s.selection)
-}
-
-func (s *configurationPickerSurfaceState) optionsList(rows []ui.Widget, selection int, query string) ui.Widget {
-	if s.selection != selection || s.query != query || s.count != len(rows) {
-		s.selection, s.query, s.count = selection, query, len(rows)
-		s.needsReveal = true
+	if snapshot.EditingContext {
+		cursor := len(snapshot.EditValue)
+		return pickerPrompt{
+			Title: "Context window", TitleMeta: snapshot.EditModel,
+			Input: textInputConfig{Value: snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true},
+			Error: snapshot.Error, Footer: "enter save · blank clears · esc back",
+		}
 	}
-	return ui.Scrollbar{Child: ui.CustomScrollView{Controller: &s.scroll, Slivers: []ui.Widget{
-		ui.SliverListBuilder{Controller: &s.list, Count: len(rows), ItemExtent: 1,
-			Builder: func(_ ui.BuildContext, index int) ui.Widget { return rows[index] }},
-	}}}
-}
-
-func (s *configurationPickerSurfaceState) Build(ctx ui.BuildContext) ui.Widget {
-	surface := s.Widget().(configurationPickerSurface)
-	if surface.Snapshot.Loading || surface.Snapshot.EditingContext {
-		s.needsReveal = true
+	queryCursor := len(snapshot.Query)
+	result := picker{
+		Title: "Select model", Footer: footer, Selection: snapshot.Selection,
+		Search: &textInputConfig{
+			Value: snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,
+			OnChanged: surface.QueryChanged, AutoFocus: true,
+		},
+		OnActivate: func(ctx ui.EventContext, key string) {
+			if surface.Select != nil {
+				surface.Select(ctx, key)
+			}
+			if surface.Apply != nil {
+				surface.Apply(ctx)
+			}
+		},
 	}
-	theme := ui.MustDepend[ui.Theme](ctx)
-	title := "Select model"
-	if surface.Snapshot.Mode == configurationPickerThinking {
-		title = "Thinking level"
+	if snapshot.Mode == configurationPickerThinking {
+		result.Title = "Thinking level"
+		result.Search.Placeholder = "Search effort levels…"
+		levels := surface.thinkingLevels()
+		result.Catalog = thinkingPickerItems(levels, snapshot.CurrentThinking)
+		result.Items = thinkingPickerItems(filterThinkingLevels(snapshot.Query, levels), snapshot.CurrentThinking)
+	} else {
+		result.Catalog = modelPickerItems(filterModels("", snapshot.Models), snapshot.CurrentModel)
+		result.Items = modelPickerItems(surface.filteredModels(), snapshot.CurrentModel)
 	}
-	var body ui.Widget
 	switch {
-	case surface.Snapshot.Loading:
-		body = ui.Center(ui.Text{Value: "Loading…", Style: ui.Style{Foreground: theme.MutedForeground}})
-	case surface.Snapshot.Error != "" && len(surface.Snapshot.Models) == 0:
-		body = ui.Center(ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true})
-	case surface.Snapshot.EditingContext:
-		cursor := len(surface.Snapshot.EditValue)
-		body = ui.Padding(ui.Insets{Top: 1, Left: 2, Right: 2}, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-			ui.Text{Value: surface.Snapshot.EditModel, Style: ui.Style{Foreground: theme.MutedForeground}},
-			ui.SizedBox{Height: 1},
-			textInput(theme, textInputConfig{Value: surface.Snapshot.EditValue, Placeholder: "Blank clears the override", CursorOffset: &cursor, OnChanged: surface.QueryChanged, AutoFocus: true}),
-			ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true},
-		}})
-	case surface.Snapshot.Mode == configurationPickerModel:
-		body = surface.modelBody(theme, s)
-	default:
-		body = surface.thinkingBody(theme, s)
+	case snapshot.Loading:
+		result.Message, result.MessageTone = "Loading…", pickerToneLoading
+	case snapshot.Error != "" && len(snapshot.Models) == 0:
+		result.Message, result.MessageTone = snapshot.Error, pickerToneDanger
+	case snapshot.Error != "":
+		result.Status, result.StatusTone = snapshot.Error, pickerToneDanger
+	case len(result.Catalog) == 0 && snapshot.Mode == configurationPickerThinking:
+		result.Message = "No thinking levels"
+	case len(result.Catalog) == 0:
+		result.Message = "No models"
 	}
-	footerText := "↑↓ move · enter apply · ctrl+o overrides · esc close"
-	if surface.Snapshot.EditingContext {
-		footerText = "enter save · blank clears · esc back"
-	}
-	if surface.Snapshot.Pending {
-		footerText = "Applying configuration…"
-	}
-	dialogBody := ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
-		ui.Padding(ui.Insets{Top: 1, Left: 2, Right: 2}, ui.Text{Value: title, Style: ui.Style{Attribute: ui.AttrBold}}),
-		ui.Expanded(body),
-	}}
-	content := pickerDialogContent(theme, dialogBody, ui.Text{
-		Value: footerText, Style: ui.Style{Foreground: theme.MutedForeground},
-		Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-	})
-	percent, minWidth, maxWidth := 80, 56, 104
-	if surface.Snapshot.Mode == configurationPickerThinking {
-		percent, minWidth, maxWidth = 60, 40, 56
-	}
-	return pickerDialogPositioner{
-		Percent: percent, MinWidth: minWidth, MaxWidth: maxWidth, Height: pickerModalMinHeight,
-		Child: ui.FocusScope{Trap: true, AutoFocus: true, Child: content},
-	}
+	return result
 }
 
-func (surface configurationPickerSurface) modelBody(theme ui.Theme, state *configurationPickerSurfaceState) ui.Widget {
-	models := surface.filteredModels()
-	queryCursor := len(surface.Snapshot.Query)
-	rows := make([]ui.Widget, 0, len(models))
+func modelPickerItems(models []protocol.ModelCapability, current string) []pickerItem {
+	items := make([]pickerItem, 0, len(models))
 	for _, model := range models {
-		model := model
-		status := formatContextWindow(model.ContextWindow) + " context"
-		rows = append(rows, configurationOptionRow{
-			Label: model.Name, Details: model.ID, Meta: status,
-			Current:  model.ID == surface.Snapshot.CurrentModel,
-			Selected: model.ID == surface.Snapshot.Selection,
-			OnPressed: func(event ui.EventContext) {
-				if surface.Select != nil {
-					surface.Select(event, model.ID)
-				}
-				if surface.Apply != nil {
-					surface.Apply(event)
-				}
-			},
+		items = append(items, pickerItem{
+			Key: model.ID, Label: model.Name, Description: model.ID,
+			Meta: formatContextWindow(model.ContextWindow) + " context", Current: model.ID == current,
 		})
 	}
-	if len(rows) == 0 {
-		rows = []ui.Widget{ui.Text{Value: "No models", Style: ui.Style{Foreground: theme.MutedForeground}}}
+	return items
+}
+
+func thinkingPickerItems(levels []string, current string) []pickerItem {
+	items := make([]pickerItem, 0, len(levels))
+	for _, level := range levels {
+		items = append(items, pickerItem{Key: level, Label: level, Current: level == current})
 	}
-	children := []ui.Widget{
-		pickerSearchInput(theme, textInputConfig{
-			Value: surface.Snapshot.Query, Placeholder: "Search models…", CursorOffset: &queryCursor,
-			OnChanged: surface.QueryChanged, AutoFocus: true,
-		}),
-		ui.SizedBox{Height: 1},
-	}
-	if surface.Snapshot.Error != "" {
-		children = append(children, ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1})
-	}
-	children = append(children, ui.Expanded(state.optionsList(rows, max(0, modelCapabilityIndex(models, surface.Snapshot.Selection)), surface.Snapshot.Query)))
-	return ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, ui.Flex{
-		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children,
+	return items
+}
+
+// filterThinkingLevels keeps the reasoning levels matching query in catalog order
+// when unfiltered and in fuzzy-score order otherwise.
+func filterThinkingLevels(query string, levels []string) []string {
+	return ui.DefaultFuzzySelectFilter(query, levels, func(level string) ui.FuzzySelectItem {
+		return ui.FuzzySelectItem{Title: level}
 	})
+}
+
+func (surface configurationPickerSurface) thinkingLevels() []string {
+	index := modelCapabilityIndex(surface.Snapshot.Models, surface.Snapshot.CurrentModel)
+	if index < 0 {
+		return nil
+	}
+	levels := make([]string, 0, len(surface.Snapshot.Models[index].ThinkingLevels))
+	for _, level := range surface.Snapshot.Models[index].ThinkingLevels {
+		levels = append(levels, string(level))
+	}
+	return levels
 }
 
 func (surface configurationPickerSurface) filteredModels() []protocol.ModelCapability {
@@ -488,94 +432,6 @@ func filterModels(query string, models []protocol.ModelCapability) []protocol.Mo
 	return ui.DefaultFuzzySelectFilter(query, authenticated, func(model protocol.ModelCapability) ui.FuzzySelectItem {
 		return ui.FuzzySelectItem{Title: model.Name, Description: model.ID, Aliases: []string{model.Provider}}
 	})
-}
-
-func (surface configurationPickerSurface) thinkingBody(theme ui.Theme, state *configurationPickerSurfaceState) ui.Widget {
-	index := modelCapabilityIndex(surface.Snapshot.Models, surface.Snapshot.CurrentModel)
-	var levels []protocol.ThinkingLevel
-	if index >= 0 {
-		levels = surface.Snapshot.Models[index].ThinkingLevels
-	}
-	rows := make([]ui.Widget, 0, len(levels))
-	for _, level := range levels {
-		level := string(level)
-		rows = append(rows, configurationOptionRow{
-			Label:    level,
-			Current:  level == surface.Snapshot.CurrentThinking,
-			Selected: level == surface.Snapshot.Selection,
-			OnPressed: func(event ui.EventContext) {
-				if surface.Select != nil {
-					surface.Select(event, level)
-				}
-				if surface.Apply != nil {
-					surface.Apply(event)
-				}
-			},
-		})
-	}
-	if len(rows) == 0 {
-		rows = []ui.Widget{ui.Text{Value: "No thinking levels", Style: ui.Style{Foreground: theme.MutedForeground}}}
-	}
-	if surface.Snapshot.Error != "" {
-		rows = append([]ui.Widget{ui.Text{Value: surface.Snapshot.Error, Style: ui.Style{Foreground: theme.DangerText}}, ui.SizedBox{Height: 1}}, rows...)
-	}
-	selection := 0
-	for index, level := range levels {
-		if string(level) == surface.Snapshot.Selection {
-			selection = index
-			break
-		}
-	}
-	if surface.Snapshot.Error != "" {
-		selection += 2
-	}
-	return ui.Padding(ui.Insets{Top: 1, Right: 2, Left: 2}, state.optionsList(rows, selection, ""))
-}
-
-type configurationOptionRow struct {
-	Label     string
-	Details   string
-	Meta      string
-	Current   bool
-	Selected  bool
-	OnPressed ui.VoidCallback
-}
-
-func (row configurationOptionRow) Build(ctx ui.BuildContext) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	marker := "  "
-	if row.Current {
-		marker = glyphCheck + " "
-	}
-	presentation := resolvePickerRowPresentation(ctx, theme)
-	foreground := presentation.ItemText
-	detailsForeground := theme.MutedForeground
-	if row.Selected {
-		foreground = presentation.FocusedText
-		detailsForeground = presentation.FocusedText
-	}
-	// Keep text backgrounds transparent so ListTile paints one continuous
-	// hover/selection surface through the label, metadata and padding.
-	label := ui.Text{Value: marker + row.Label, Style: ui.Style{Foreground: foreground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}
-	var content ui.Widget = label
-	if row.Details != "" {
-		children := []ui.Widget{
-			ui.SizedBox{Width: 24, Child: label},
-			ui.SizedBox{Width: 1},
-			ui.Expanded(ui.Text{Value: row.Details, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}),
-		}
-		if row.Meta != "" {
-			children = append(children,
-				ui.SizedBox{Width: 1},
-				ui.SizedBox{Width: 12, Child: ui.Text{Value: row.Meta, Style: ui.Style{Foreground: detailsForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1}},
-			)
-		}
-		content = ui.Flex{Axis: ui.Horizontal, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}
-	}
-	return ui.Provider[ui.Theme]{Value: presentation.Theme, Child: ui.ListTile{
-		Title: content, Selected: row.Selected, OnPressed: row.OnPressed,
-		Padding: ui.Insets{Right: 1}, MinHeight: 1,
-	}}
 }
 
 func formatContextWindow(tokens int) string {
