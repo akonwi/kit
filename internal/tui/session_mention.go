@@ -1,8 +1,9 @@
 package tui
 
 import (
+	"time"
+
 	"github.com/akonwi/kit/internal/protocol"
-	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -18,49 +19,49 @@ func sessionMentionName(entry protocol.SessionInfo) string {
 	}
 	return "Unnamed session"
 }
-func (s *sessionMentionController) filtered(entries []protocol.SessionInfo) []protocol.SessionInfo {
-	return ui.DefaultFuzzySelectFilter(s.Query, entries, func(entry protocol.SessionInfo) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: sessionMentionName(entry), Aliases: []string{entry.ID, entry.CWD}}
-	})
-}
-func (s *sessionMentionController) ensureSelection(entries []protocol.SessionInfo) {
-	entries = s.filtered(entries)
+
+// sessionMentionCatalog maps mentionable sessions onto inline picker rows:
+// the name, then the working directory, then the updated time. The session
+// ID and full working directory are matched too.
+func sessionMentionCatalog(entries []protocol.SessionInfo, now time.Time) []pickerItem {
+	items := make([]pickerItem, 0, len(entries))
 	for _, entry := range entries {
-		if entry.ID == s.Selection {
-			return
-		}
+		items = append(items, pickerItem{
+			Key: entry.ID, Label: sessionMentionName(entry),
+			Description:   sessionDisplayCWD(entry.CWD, sessionCWDMaxWidth),
+			Meta:          formatSessionUpdated(entry.UpdatedAt, now),
+			SearchAliases: []string{entry.ID, entry.CWD},
+		})
 	}
-	s.Selection = ""
-	if len(entries) > 0 {
-		s.Selection = entries[0].ID
+	return items
+}
+
+// keys returns the mention's navigation key model.
+func (s *sessionMentionController) keys() pickerKeyModel {
+	return pickerKeyModel{Query: s.Query, Selection: s.Selection}
+}
+
+// ensureSelection keeps a visible selection, or highlights the first match.
+func (s *sessionMentionController) ensureSelection(entries []protocol.SessionInfo) {
+	items := s.keys().Items(sessionMentionCatalog(entries, time.Time{}))
+	if pickerItemIndex(items, s.Selection) < 0 {
+		s.Selection = firstEnabledPickerKey(items)
 	}
 }
-func (s *sessionMentionController) Move(entries []protocol.SessionInfo, delta int) {
-	entries = s.filtered(entries)
-	if len(entries) == 0 {
-		return
+
+// Selected returns the session with id when it matches the query.
+func (s *sessionMentionController) Selected(entries []protocol.SessionInfo, id string) (protocol.SessionInfo, bool) {
+	if pickerItemIndex(s.keys().Items(sessionMentionCatalog(entries, time.Time{})), id) < 0 {
+		return protocol.SessionInfo{}, false
 	}
-	index := 0
-	for i, entry := range entries {
-		if entry.ID == s.Selection {
-			index = i
-			break
-		}
-	}
-	index = (index + delta) % len(entries)
-	if index < 0 {
-		index += len(entries)
-	}
-	s.Selection = entries[index].ID
-}
-func (s *sessionMentionController) Selected(entries []protocol.SessionInfo) (protocol.SessionInfo, bool) {
-	for _, entry := range s.filtered(entries) {
-		if entry.ID == s.Selection {
+	for _, entry := range entries {
+		if entry.ID == id {
 			return entry, true
 		}
 	}
 	return protocol.SessionInfo{}, false
 }
+
 func (s *sessionMentionController) Insert(text string, entry protocol.SessionInfo) (string, int, bool) {
 	if !s.Open || s.Anchor < 0 || s.QueryEnd <= s.Anchor || s.QueryEnd > len(text) || text[s.Anchor] != '#' || entry.ID == "" {
 		return text, 0, false
@@ -71,23 +72,17 @@ func (s *sessionMentionController) Insert(text string, entry protocol.SessionInf
 	s.Close()
 	return next, cursor, true
 }
-func (s *sessionMentionController) HandleKey(entries []protocol.SessionInfo, key ui.Key) (protocol.SessionInfo, bool, bool) {
-	if !s.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
-		return protocol.SessionInfo{}, false, false
+
+// HandleKey applies one key through the navigation-only picker key model.
+// Unhandled keys belong to the composer, which owns the query.
+func (s *sessionMentionController) HandleKey(entries []protocol.SessionInfo, key ui.Key) pickerKeyResult {
+	if !s.Open {
+		return pickerKeyResult{}
 	}
-	switch {
-	case key.MatchString("Up"):
-		s.Move(entries, -1)
-		return protocol.SessionInfo{}, false, true
-	case key.MatchString("Down"):
-		s.Move(entries, 1)
-		return protocol.SessionInfo{}, false, true
-	case key.MatchString("Enter"):
-		entry, ok := s.Selected(entries)
-		return entry, ok, true
-	default:
-		return protocol.SessionInfo{}, false, false
-	}
+	model := s.keys()
+	result := model.HandleNavigationKey(key, sessionMentionCatalog(entries, time.Time{}))
+	s.Selection = model.Selection
+	return result
 }
 
 type sessionMentionSource struct {

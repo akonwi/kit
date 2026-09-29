@@ -117,6 +117,37 @@ func filterPickerTree(query string, catalog []pickerItem) []pickerItem {
 	return visible
 }
 
+// filterPickerItemsInOrder is the history pickers' filter hook. It matches
+// with filterPickerItems but keeps catalog order instead of ranking by score,
+// so chronological history stays chronological and the newest match stays
+// nearest the composer.
+func filterPickerItemsInOrder(query string, catalog []pickerItem) []pickerItem {
+	matches := filterPickerItems(query, catalog)
+	if pickerQueryBlank(query) {
+		return matches
+	}
+	matched := make(map[string]bool, len(matches))
+	for _, item := range matches {
+		matched[item.Key] = true
+	}
+	ordered := make([]pickerItem, 0, len(matches))
+	for _, item := range catalog {
+		if matched[item.Key] {
+			ordered = append(ordered, item)
+		}
+	}
+	return ordered
+}
+
+// lastPickerKey is the key of the last visible item, the newest entry of a
+// history picker listed oldest first.
+func lastPickerKey(items []pickerItem) string {
+	if len(items) == 0 {
+		return ""
+	}
+	return items[len(items)-1].Key
+}
+
 func pickerTreeRoot(parents map[string]string, key string) string {
 	for seen := 0; seen <= len(parents); seen++ {
 		parent := parents[key]

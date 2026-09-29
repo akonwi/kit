@@ -160,7 +160,7 @@ Examples: settings, login, session exploration, command palette, workspace file 
 
 OpenTUI paints border cells with the box background, which can create an inset appearance on filled surfaces. Keep dialog and border-cell backgrounds continuous; do not add decorative inner borders to compensate.
 
-Palette pickers use `palettePicker`; inline pickers are transient overlays. Do not fork picker interaction and selection styling.
+Palette pickers use `palettePicker`; inline pickers use `inlinePicker`. Do not fork picker interaction and selection styling.
 
 ### Interaction dock
 
@@ -410,7 +410,8 @@ Do not describe these tokens by assumed light/dark colors; user and terminal the
   search `textInputConfig`; edit the query only through `pickerKeyModel`.
   Custom matching goes through one documented `pickerFilter` hook built on
   `filterPickerItems`. A list anchored to
-  the composer or another point is an *inline picker*. See "Picker
+  the composer or another point is an *inline picker* and renders through
+  `inlinePicker` (`internal/tui/inline_picker.go`). See "Picker
   terminology" in `docs/design/v2-ui-direction.md`.
 - **Selected-text copying:** acknowledge Kit-handled copies with a brief, theme-derived pulse of the copied selection's background rather than a success toast. Preserve text color, selection, and focus; repeated copies restart the bounded pulse. This indicates that Kit issued the copy, not that the terminal acknowledged clipboard storage. Terminal-native copying outside Kit has no in-app feedback.
 - **Disabled command:** keep stable command catalogs visible and searchable. Render

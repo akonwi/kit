@@ -169,8 +169,6 @@ func (*renderPickerDialogPositioner) HitTest(*ui.HitTestResult, ui.Point) bool {
 
 // proportionalWidth gives a child a viewport-relative width bounded by named
 // minimum and maximum dimensions.
-const composerOverlayMaxWidth = 68
-
 type proportionalWidth struct {
 	Percent int
 	Min     int

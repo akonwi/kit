@@ -273,11 +273,13 @@ their terminal's native workflow.
 - An **inline picker** is a non-modal list attached to the composer: the file
   and session mention menus and message and bash history. The composer text is
   its query and the composer owns the cursor, so an inline picker has no title
-  or search field. It shares the palette picker's items, filter, row
-  rendering, and navigation keys, and shows footer hints below a full-width
-  divider. Its width follows the palette picker rule, left-aligned with the
-  composer; its height fits the content up to 10 rows and grows upward so the
-  edge next to the composer never moves. Other attached lists, such as the
+  or search field. Every inline picker renders through the shared
+  `inlinePicker` widget (`internal/tui/inline_picker.go`). It shares the
+  palette picker's items, filter, row rendering, and navigation keys, and
+  shows footer hints below a full-width divider. Its width follows the
+  palette picker rule, left-aligned with the composer; its height fits the
+  content up to 10 rows and grows upward so the edge next to the composer
+  never moves. Other attached lists, such as the
   transcript reading section list, use the same presentation without a query.
 - A workspace pane that lists items, such as Subagents, is neither; it is a
   pane.

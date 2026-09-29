@@ -196,10 +196,8 @@ type shellCallbacks struct {
 	ToggleBashOutput            func(ui.EventContext, string)
 	ToggleTranscriptAnnotations func(ui.EventContext, string)
 	OpenBashHistory             func(ui.EventContext, int) bool
-	BashHistoryChanged          ui.TextChangedCallback
 	SelectBashHistory           func(ui.EventContext, string)
 	RecallMessages              ui.VoidCallback
-	MessageHistoryChanged       ui.TextChangedCallback
 	SelectMessageHistory        func(ui.EventContext, string)
 	SelectFileMention           func(ui.EventContext, string)
 	SelectSessionMention        func(ui.EventContext, string)
@@ -325,42 +323,8 @@ func (w shellView) build(ctx ui.BuildContext) ui.Widget {
 		},
 	))
 	overlays := w.authOverlays(theme)
-	if w.Snapshot.Phase == phaseReady && owner == inputFileMention {
-		controller := w.Snapshot.FileMention
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: fileMentionSurface{
-			Controller: &controller, Source: w.Snapshot.IndexedFiles, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnSelect: w.Callbacks.SelectFileMention,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputSessionMention {
-		controller := w.Snapshot.SessionMention
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: sessionMentionSurface{
-			Controller: &controller, Source: w.Snapshot.SessionMentions, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100, OnSelect: w.Callbacks.SelectSessionMention,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputMessageHistory {
-		controller := w.Snapshot.MessageHistory
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: messageHistorySurface{
-			Controller: &controller, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnQuery:  w.Callbacks.MessageHistoryChanged,
-			OnSelect: w.Callbacks.SelectMessageHistory,
-		}})
-	}
-	if w.Snapshot.Phase == phaseReady && owner == inputBashHistory {
-		controller := w.Snapshot.BashHistory
-		composerHeight := min(composerMaxHeight, max(1, strings.Count(w.Snapshot.Composer, "\n")+1))
-		overlays = append(overlays, ui.OverlayEntry{Child: bashHistorySurface{
-			Controller: &controller, Composer: w.Snapshot.Composer,
-			BottomInset: composerHeight + 4, PrimaryPercent: 100,
-			OnQuery:  w.Callbacks.BashHistoryChanged,
-			OnSelect: w.Callbacks.SelectBashHistory,
-		}})
+	if w.Snapshot.Phase == phaseReady && owner.inlinePicker() {
+		overlays = append(overlays, ui.OverlayEntry{Child: w.inlinePickerSurface(owner)})
 	}
 	if w.Snapshot.Phase == phaseReady && owner == inputConfiguration {
 		overlays = append(overlays, modalDialogEntry(configurationPickerSurface{
@@ -1191,6 +1155,42 @@ func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 		rows = append(rows, ui.SizedBox{Height: 1, Child: ui.Text{Value: fmt.Sprintf("+%d more follow-ups", w.Snapshot.FollowUps.Count-visible), Style: style}})
 	}
 	return ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows})
+}
+
+// inlinePickerSurface maps the open inline picker onto the composer. Only
+// one inline picker owns input at a time.
+func (w shellView) inlinePickerSurface(owner inputOwner) ui.Widget {
+	inset := composerPickerInset(w.Snapshot.Composer)
+	switch owner {
+	case inputFileMention:
+		return fileMentionSurface{
+			Controller: w.Snapshot.FileMention, Source: w.Snapshot.IndexedFiles,
+			BottomInset: inset, OnSelect: w.Callbacks.SelectFileMention,
+		}
+	case inputSessionMention:
+		return sessionMentionSurface{
+			Controller: w.Snapshot.SessionMention, Source: w.Snapshot.SessionMentions,
+			BottomInset: inset, OnSelect: w.Callbacks.SelectSessionMention,
+		}
+	case inputMessageHistory:
+		return messageHistorySurface{Controller: w.Snapshot.MessageHistory, BottomInset: inset, OnSelect: w.Callbacks.SelectMessageHistory}
+	default:
+		return bashHistorySurface{Controller: w.Snapshot.BashHistory, BottomInset: inset, OnSelect: w.Callbacks.SelectBashHistory}
+	}
+}
+
+// composerPickerInset keeps an inline picker above the composer: below it
+// stay the footer, its divider, the composer at its soft-wrapped height, the
+// composer separator, and the pending status row.
+func composerPickerInset(composer string) func(int) int {
+	return func(width int) int {
+		layout := ui.LayoutText(
+			[]ui.TextSpan{{Text: composer}},
+			ui.Constraints{MaxWidth: max(1, width-2)},
+			ui.TextLayoutOptions{SoftWrap: true},
+		)
+		return min(composerMaxHeight, max(1, len(layout.Lines))) + 4
+	}
 }
 
 func (w shellView) composerSeparatorColor(theme ui.Theme) ui.Color {

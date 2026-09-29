@@ -22,10 +22,7 @@ func (s *appState) handleCtrlC(ctx ui.EventContext, key ui.Key) ui.EventResult {
 			s.composerAttachmentIDs = nil
 			s.composerCursorOffset = 0
 			s.composerCursorGeneration++
-			s.fileMention.Close()
-			s.closeSessionMention()
-			s.bashHistory.Close()
-			s.messageHistory.Close()
+			s.closeInlinePickers()
 		})
 		return ui.EventHandled
 	}

@@ -7,14 +7,12 @@ import (
 
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
-	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
 
 const (
-	messageHistoryMaxVisible = 10
-	messageHistoryPageLimit  = 100
-	messageHistoryMaxPages   = 5
+	messageHistoryPageLimit = 100
+	messageHistoryMaxPages  = 5
 )
 
 type messageHistoryEntry struct {
@@ -22,6 +20,9 @@ type messageHistoryEntry struct {
 	Text string
 }
 
+// messageHistoryController is the message history inline picker. Entries are
+// newest first; the picker lists them oldest first so the newest sits nearest
+// the composer. The composer text is the query.
 type messageHistoryController struct {
 	Open      bool
 	Query     string
@@ -29,42 +30,47 @@ type messageHistoryController struct {
 	Entries   []messageHistoryEntry
 }
 
-func (h *messageHistoryController) OpenFor(entries []messageHistoryEntry) bool {
+// OpenFor opens the picker on the loaded entries, filtered by the composer
+// text, with the newest match highlighted.
+func (h *messageHistoryController) OpenFor(entries []messageHistoryEntry, composer string) bool {
 	if h.Open || len(entries) == 0 {
 		return false
 	}
 	h.Open = true
-	h.Query = ""
 	h.Entries = append([]messageHistoryEntry(nil), entries...)
-	h.Selection = firstMessageHistoryID(h.filtered())
+	h.SetQuery(composer)
 	return true
 }
 
 func (h *messageHistoryController) Close() { *h = messageHistoryController{} }
 
+// SetQuery follows the composer text and highlights the newest match.
 func (h *messageHistoryController) SetQuery(query string) {
 	h.Query = query
-	h.Selection = firstMessageHistoryID(h.filtered())
+	h.Selection = lastPickerKey(h.keys().Items(h.catalog()))
 }
 
-func (h *messageHistoryController) Move(delta int) {
-	entries := h.filtered()
-	if !h.Open || len(entries) == 0 {
-		return
+// catalog lists entries oldest first, as the picker shows them.
+func (h *messageHistoryController) catalog() []pickerItem {
+	items := make([]pickerItem, 0, len(h.Entries))
+	for index := len(h.Entries) - 1; index >= 0; index-- {
+		entry := h.Entries[index]
+		items = append(items, pickerItem{Key: entry.ID, Label: oneLine(entry.Text)})
 	}
-	index := 0
-	for candidate, entry := range entries {
-		if entry.ID == h.Selection {
-			index = candidate
-			break
-		}
-	}
-	index = max(0, min(index-delta, len(entries)-1))
-	h.Selection = entries[index].ID
+	return items
 }
 
+// keys returns the picker's navigation key model.
+func (h *messageHistoryController) keys() pickerKeyModel {
+	return pickerKeyModel{Query: h.Query, Selection: h.Selection, Filter: filterPickerItemsInOrder}
+}
+
+// Selected returns the highlighted entry when it matches the query.
 func (h *messageHistoryController) Selected() (messageHistoryEntry, bool) {
-	for _, entry := range h.filtered() {
+	if pickerItemIndex(h.keys().Items(h.catalog()), h.Selection) < 0 {
+		return messageHistoryEntry{}, false
+	}
+	for _, entry := range h.Entries {
 		if entry.ID == h.Selection {
 			return entry, true
 		}
@@ -72,81 +78,16 @@ func (h *messageHistoryController) Selected() (messageHistoryEntry, bool) {
 	return messageHistoryEntry{}, false
 }
 
-func (h *messageHistoryController) filtered() []messageHistoryEntry {
-	matches := ui.DefaultFuzzySelectFilter(h.Query, h.Entries, func(entry messageHistoryEntry) ui.FuzzySelectItem {
-		return ui.FuzzySelectItem{Title: oneLine(entry.Text)}
-	})
-	// Preserve fuzzy matching without letting relevance scores change the
-	// chronological order of matching history rows.
-	if h.Query == "" {
-		return matches
+// HandleKey applies one key through the navigation-only picker key model.
+// Unhandled keys belong to the composer, which owns the query.
+func (h *messageHistoryController) HandleKey(key ui.Key) pickerKeyResult {
+	if !h.Open {
+		return pickerKeyResult{}
 	}
-	matched := make(map[string]bool, len(matches))
-	for _, entry := range matches {
-		matched[entry.ID] = true
-	}
-	ordered := make([]messageHistoryEntry, 0, len(matches))
-	for _, entry := range h.Entries {
-		if matched[entry.ID] {
-			ordered = append(ordered, entry)
-		}
-	}
-	return ordered
-}
-
-func (h *messageHistoryController) HandleKey(key ui.Key) (messageHistoryEntry, bool, bool) {
-	if !h.Open || key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
-		return messageHistoryEntry{}, false, false
-	}
-	switch {
-	case key.MatchString("Up"):
-		h.Move(-1)
-		return messageHistoryEntry{}, false, true
-	case key.MatchString("Down"):
-		h.Move(1)
-		return messageHistoryEntry{}, false, true
-	case key.MatchString("Enter"):
-		entry, ok := h.Selected()
-		return entry, ok, true
-	default:
-		return messageHistoryEntry{}, false, false
-	}
-}
-
-func (h *messageHistoryController) HandleEditorKey(key ui.Key) bool {
-	if !h.Open || key.EventType == ui.EventRelease {
-		return false
-	}
-	query := h.Query
-	if key.EventType == vaxis.EventPaste {
-		query += palettePasteText(key)
-		h.SetQuery(query)
-		return true
-	}
-	modifiers := key.Modifiers &^ (vaxis.ModShift | vaxis.ModCapsLock | vaxis.ModNumLock)
-	if modifiers != 0 {
-		return false
-	}
-	switch {
-	case key.MatchString("Backspace"):
-		runes := []rune(query)
-		if len(runes) > 0 {
-			query = string(runes[:len(runes)-1])
-		}
-	case key.Text != "":
-		query += key.Text
-	default:
-		return true
-	}
-	h.SetQuery(query)
-	return true
-}
-
-func firstMessageHistoryID(entries []messageHistoryEntry) string {
-	if len(entries) == 0 {
-		return ""
-	}
-	return entries[0].ID
+	model := h.keys()
+	result := model.HandleNavigationKey(key, h.catalog())
+	h.Selection = model.Selection
+	return result
 }
 
 func messageHistoryEntries(messages []protocol.TranscriptMessage) []messageHistoryEntry {
@@ -198,81 +139,18 @@ func oneLine(value string) string {
 	return strings.Join(strings.Fields(value), " ")
 }
 
+// messageHistorySurface maps message history onto the inline picker.
 type messageHistorySurface struct {
-	Controller     *messageHistoryController
-	Composer       string
-	BottomInset    int
-	PrimaryPercent int
-	OnQuery        ui.TextChangedCallback
-	OnSelect       func(ui.EventContext, string)
+	Controller  messageHistoryController
+	BottomInset func(int) int
+	OnSelect    func(ui.EventContext, string)
 }
 
-func (w messageHistorySurface) Build(ctx ui.BuildContext) ui.Widget {
-	theme := ui.MustDepend[ui.Theme](ctx)
-	rowPresentation := resolvePickerRowPresentation(ctx, theme)
-	entries := w.Controller.filtered()
-	selection := 0
-	for index, entry := range entries {
-		if entry.ID == w.Controller.Selection {
-			selection = index
-			break
-		}
-	}
-	if len(entries) > messageHistoryMaxVisible {
-		offset := max(0, min(selection-messageHistoryMaxVisible/2, len(entries)-messageHistoryMaxVisible))
-		entries = entries[offset : offset+messageHistoryMaxVisible]
-	}
-	rows := make([]ui.Widget, 0, max(1, len(entries)))
-	if len(entries) == 0 {
-		rows = append(rows, ui.Text{Value: "No results", Style: ui.Style{Foreground: theme.MutedForeground}})
-	}
-	for index := len(entries) - 1; index >= 0; index-- {
-		entry := entries[index]
-		selected := entry.ID == w.Controller.Selection
-		style := ui.Style{Foreground: rowPresentation.ItemText}
-		if selected {
-			style = ui.Style{Foreground: rowPresentation.FocusedText, Background: rowPresentation.FocusedBg}
-		}
-		row := ui.DecoratedBox(ui.Decoration{Style: style}, ui.Padding(ui.Symmetric(1, 0), ui.Text{
-			Value: oneLine(entry.Text), Style: style, Overflow: ui.TextOverflowEllipsis, MaxLines: 1,
-		}))
-		rows = append(rows, mouseActivator{Child: ui.SizedBox{Height: 1, Child: row}, OnPressed: func(event ui.EventContext) {
-			if w.OnSelect != nil {
-				w.OnSelect(event, entry.ID)
-			}
-		}})
-	}
-	fieldTheme := theme
-	fieldTheme.Surface = theme.Background
-	fieldTheme.SurfaceHovered = theme.Background
-	cursor := len(w.Controller.Query)
-	content := ui.Padding(ui.All(1), ui.Flex{
-		Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch,
-		Children: []ui.Widget{
-			ui.Text{Value: "Message history", Style: ui.Style{Foreground: theme.Foreground}, MaxLines: 1},
-			ui.SizedBox{Height: 1},
-			ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
-				ui.Text{Value: ">", Style: ui.Style{Foreground: theme.SuccessText}},
-				ui.SizedBox{Width: 1},
-				textInput(fieldTheme, textInputConfig{
-					Value: w.Controller.Query, Placeholder: "Search message history…", CursorOffset: &cursor,
-					OnChanged: w.OnQuery, AutoFocus: true,
-				}),
-			}},
-			ui.SizedBox{Height: 1},
-			ui.Flex{Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows},
-			ui.SizedBox{Height: 1},
-			ui.Text{Value: "↑↓ move · enter insert · esc close", Style: ui.Style{Foreground: theme.MutedForeground}, Overflow: ui.TextOverflowEllipsis, MaxLines: 1},
-		},
-	})
-	anchor := 0
-	return composerOverlayPositioner{
-		BottomInset: w.BottomInset, PrimaryPercent: w.PrimaryPercent, Composer: w.Composer, Anchor: &anchor,
-		Child: proportionalWidth{Percent: 80, Min: 48, Max: composerOverlayMaxWidth, Child: ui.FocusScope{
-			Trap: true, AutoFocus: true, Child: ui.DecoratedBox(
-				ui.Decoration{Style: ui.Style{Foreground: theme.Foreground, Background: theme.Background}, Border: ui.BorderAll(ui.Style{Foreground: theme.Border, Background: theme.Background})},
-				content,
-			),
-		}},
+func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
+	model := w.Controller.keys()
+	return inlinePicker{
+		Query: model.Query, Catalog: w.Controller.catalog(), Filter: model.Filter, Selection: model.Selection,
+		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
+		BottomInset: w.BottomInset,
 	}
 }

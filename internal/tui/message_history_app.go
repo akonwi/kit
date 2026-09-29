@@ -11,8 +11,10 @@ func (s *appState) recallMessageHistory() {
 	if strings.TrimSpace(s.composer) != "" || s.followUps.Count > 0 || s.messageHistory.Open {
 		return
 	}
+	// Nothing opens until history loads, and typing meanwhile belongs to the
+	// composer, so admission waits for the load.
 	pager, ok := s.bound.(sessionclient.MessagePager)
-	if !ok || !s.admitRootModal() {
+	if !ok || !s.canOpenRootModal() {
 		return
 	}
 	bound, operation := s.bound, s.operation
@@ -33,19 +35,25 @@ func (s *appState) recallMessageHistory() {
 				s.showToast(toastInput{Title: "No message history", Variant: toastInfo})
 				return
 			}
-			s.SetState(func() { s.messageHistory.OpenFor(entries) })
+			// A dialog opened while loading keeps its input; otherwise the
+			// picker opens filtered by whatever was typed meanwhile.
+			if !s.admitRootModal() {
+				return
+			}
+			s.SetState(func() { s.messageHistory.OpenFor(entries, s.composer) })
 		})
 	}()
 }
 
+// selectMessageHistory puts the entry with messageID into the composer, from
+// Enter or a click.
 func (s *appState) selectMessageHistory(_ ui.EventContext, messageID string) {
-	entry, ok := s.messageHistory.Selected()
-	if messageID != "" && (!ok || entry.ID != messageID) {
-		for _, candidate := range s.messageHistory.Entries {
-			if candidate.ID == messageID {
-				entry, ok = candidate, true
-				break
-			}
+	var entry messageHistoryEntry
+	ok := false
+	for _, candidate := range s.messageHistory.Entries {
+		if candidate.ID == messageID {
+			entry, ok = candidate, true
+			break
 		}
 	}
 	if !ok {

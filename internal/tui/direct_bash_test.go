@@ -128,7 +128,7 @@ func TestBashHistoryRecallLoadsOlderEntriesOnDemand(t *testing.T) {
 		t.Fatalf("initial read = %d entries, hasMore=%v before=%d", len(entries), hasMore, before)
 	}
 	controller := bashHistoryController{Open: true, Entries: entries, HasMore: hasMore, OlderBefore: before}
-	controller.Selection = firstBashHistoryID(controller.filtered())
+	controller.Selection = controller.newest()
 	older, stillMore, next, err := loadBashHistoryEntries(t.Context(), history, before, 6)
 	if err != nil {
 		t.Fatal(err)
@@ -226,9 +226,8 @@ func TestBashHistoryRestoresPerEntryContextMode(t *testing.T) {
 	if state.bashHistory.Query != "git" {
 		t.Fatalf("history state = %+v", state.bashHistory)
 	}
-	entries = state.bashHistory.filtered()
-	if len(entries) != 2 || entries[0].ID != "bash_new" {
-		t.Fatalf("filtered history = %+v, want newest first", entries)
+	if rows := bashHistoryPickerLabels(state.bashHistory); strings.Join(rows, "|") != "!git status|!!git log --oneline" {
+		t.Fatalf("history rows = %q, want oldest first with the newest nearest the composer", rows)
 	}
 	selected, ok := state.bashHistory.Selected()
 	if !ok || bashHistoryComposerText(selected) != "!!git log --oneline" {
@@ -259,6 +258,17 @@ func TestReadyShellPresentsBashModeAndExecution(t *testing.T) {
 	if app.Cell(0, separatorRow).Style.Foreground != theme.SuccessText {
 		t.Fatalf("composer separator foreground = %v, want %v", app.Cell(0, separatorRow).Style.Foreground, theme.SuccessText)
 	}
+}
+
+// bashHistoryPickerLabels returns the rows the bash history picker shows, top
+// to bottom.
+func bashHistoryPickerLabels(h bashHistoryController) []string {
+	items := h.keys().Items(h.catalog())
+	labels := make([]string, 0, len(items))
+	for _, item := range items {
+		labels = append(labels, item.Label)
+	}
+	return labels
 }
 
 func bashExecution(id, command string, exclude bool, output string) *protocol.BashExecution {
@@ -314,17 +324,10 @@ func TestBashHistoryRecallSurvivesReloadWithEmptyProjection(t *testing.T) {
 	state.bashHistory.Entries = loaded
 	state.bashHistory.HasMore, state.bashHistory.OlderBefore = hasMore, before
 	state.bashHistory.Loading = false
-	state.bashHistory.Selection = firstBashHistoryID(state.bashHistory.filtered())
+	state.bashHistory.Selection = state.bashHistory.newest()
 
-	rows := state.bashHistory.filtered()
-	if len(rows) != 2 {
-		t.Fatalf("recalled rows = %+v", rows)
-	}
-	if rows[0].ID != "bash_3" || rows[0].Command != "echo \"testing\"" || !rows[0].ExcludeFromContext {
-		t.Fatalf("newest recalled row = %+v", rows[0])
-	}
-	if rows[1].ID != "bash_2" || rows[1].Command != "go test ./..." || rows[1].ExcludeFromContext {
-		t.Fatalf("second recalled row = %+v", rows[1])
+	if rows := bashHistoryPickerLabels(state.bashHistory); strings.Join(rows, "|") != "!go test ./...|!!echo \"testing\"" {
+		t.Fatalf("recalled rows = %q", rows)
 	}
 	selected, ok := state.bashHistory.Selected()
 	if !ok || selected.ID != "bash_3" {
@@ -343,11 +346,16 @@ func TestBashHistoryPickerShowsLoadingUntilDurableAnswer(t *testing.T) {
 	if !state.bashHistory.OpenFor(nil, state.composer) {
 		t.Fatal("picker did not open for a session with no history")
 	}
-	application := uitest.New(bashHistorySurface{Controller: &state.bashHistory, Composer: state.composer, PrimaryPercent: 100})
+	application := uitest.New(ui.Provider[ui.Theme]{Value: ui.DefaultTheme(), Child: bashHistorySurface{Controller: state.bashHistory}})
 	application.Pump(72, 20)
-	if !application.Contains("Loading history") {
-		t.Fatalf("picker did not present an in-flight durable read:\n%s", application.Text())
-	}
+	rows := paintedRows(application, 72, 20)
+	assertInlinePickerRows(t, rows, []string{
+		"┌───────────────────────────────────────────────────────┐",
+		"│ " + spinnerFrames[0] + " Loading history…                                    │",
+		"├───────────────────────────────────────────────────────┤",
+		"│ ↑↓ move · enter insert · esc close                    │",
+		"└───────────────────────────────────────────────────────┘",
+	})
 }
 
 // latencyBashHistory models a durable read slower than the call that starts it.

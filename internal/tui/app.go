@@ -1597,17 +1597,11 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		OpenBashHistory: func(_ ui.EventContext, delta int) bool {
 			return s.openBashHistory(delta)
 		},
-		BashHistoryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.bashHistory.SetQuery(value) })
-		},
 		SelectBashHistory: func(ctx ui.EventContext, executionID string) {
 			s.selectBashHistory(ctx, executionID)
 		},
 		RecallMessages: func(ui.EventContext) {
 			s.recallMessageHistory()
-		},
-		MessageHistoryChanged: func(_ ui.EventContext, value string) {
-			s.SetState(func() { s.messageHistory.SetQuery(value) })
 		},
 		SelectMessageHistory: func(ctx ui.EventContext, messageID string) {
 			s.selectMessageHistory(ctx, messageID)
@@ -1634,10 +1628,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			metrics := s.scroll.Metrics()
 			followTranscript := s.scroll.Attached() && metrics.ScrollOffset >= metrics.MaxScrollOffset
 			s.SetState(func() {
-				s.fileMention.Observe(s.composer, value, true)
-				s.sessionMention.Observe(s.composer, value, true)
-				if !s.sessionMention.Open {
-					s.closeSessionMention()
+				if !s.observeHistoryComposer(value) {
+					s.fileMention.Observe(s.composer, value, true)
+					s.sessionMention.Observe(s.composer, value, true)
+					if !s.sessionMention.Open {
+						s.closeSessionMention()
+					}
 				}
 				s.composer = value
 				s.composerDraftGeneration++
@@ -1708,6 +1704,15 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			openedFileMention := false
 			openedSessionMention := false
 			s.SetState(func() {
+				// An open history picker filters by the composer text, so the
+				// text opens neither the palette nor a mention.
+				if s.observeHistoryComposer(value) {
+					s.composer = value
+					if followTranscript {
+						s.requestTranscriptScroll()
+					}
+					return
+				}
 				composer, intercepted := s.palette.HandleComposerChange(s.composer, value, s.hasActiveWork())
 				if intercepted {
 					return
@@ -1893,7 +1898,7 @@ func (s *appState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResu
 		return s.deliverPaste(ctx, key)
 	}
 	result := s.handleKey(ctx, key)
-	if result == ui.EventIgnored && !key.MatchString("Super+c") && (s.inputToken() != s.renderedInput || !s.targetOwnsInput(ctx)) {
+	if result == ui.EventIgnored && !key.MatchString("Super+c") && ((s.inputToken() != s.renderedInput && !s.composerKeepsInput()) || !s.targetOwnsInput(ctx)) {
 		return ui.EventHandled
 	}
 	return result
@@ -2140,61 +2145,8 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 		}
 		return ui.EventHandled
 	}
-	if owner == inputSessionMention {
-		var entry protocol.SessionInfo
-		var selectEntry, handled bool
-		s.SetState(func() { entry, selectEntry, handled = s.sessionMention.HandleKey(s.sessionMentions.Entries, key) })
-		if handled {
-			if selectEntry {
-				s.selectSessionMention(ctx, entry.ID)
-			}
-			return ui.EventHandled
-		}
-	}
-	if owner == inputFileMention {
-		var entry protocol.FileIndexEntry
-		var selectEntry, handled bool
-		s.SetState(func() { entry, selectEntry, handled = s.fileMention.HandleKey(s.indexedFiles.Entries, key) })
-		if handled {
-			if selectEntry {
-				s.selectFileMention(ctx, entry.Path)
-			}
-			return ui.EventHandled
-		}
-	}
-	if owner == inputMessageHistory {
-		var entry messageHistoryEntry
-		var selectEntry, handled bool
-		s.SetState(func() {
-			entry, selectEntry, handled = s.messageHistory.HandleKey(key)
-			if !handled {
-				handled = s.messageHistory.HandleEditorKey(key)
-			}
-		})
-		if !handled {
-			return ui.EventIgnored
-		}
-		if selectEntry {
-			s.selectMessageHistory(ctx, entry.ID)
-		}
-		return ui.EventHandled
-	}
-	if owner == inputBashHistory {
-		var entry bashHistoryEntry
-		var selectEntry, handled bool
-		s.SetState(func() {
-			entry, selectEntry, handled = s.bashHistory.HandleKey(key)
-			if !handled {
-				handled = s.bashHistory.HandleEditorKey(key)
-			}
-		})
-		if !handled {
-			return ui.EventIgnored
-		}
-		if selectEntry {
-			s.selectBashHistory(ctx, entry.ID)
-		}
-		return ui.EventHandled
+	if owner.inlinePicker() {
+		return s.handleInlinePickerKey(ctx, owner, key)
 	}
 	if owner != inputPalette {
 		return ui.EventIgnored
@@ -2207,6 +2159,63 @@ func (s *appState) handleKey(ctx ui.EventContext, key ui.Key) ui.EventResult {
 	}
 	if run {
 		s.runPaletteCommand(ctx, command.ID)
+	}
+	return ui.EventHandled
+}
+
+// observeHistoryComposer makes an open history picker follow a composer edit
+// and reports whether one was open. Message history filters by the whole
+// text; bash history filters by the command after "!" and closes when the
+// text leaves bash mode.
+func (s *appState) observeHistoryComposer(composer string) bool {
+	switch {
+	case s.messageHistory.Open:
+		s.messageHistory.SetQuery(composer)
+		return true
+	case s.bashHistory.Open:
+		s.bashHistory.ObserveComposer(composer)
+		return true
+	default:
+		return false
+	}
+}
+
+// handleInlinePickerKey routes a key to the open inline picker through its
+// navigation-only key model, whatever has been painted, so keys typed before
+// the picker's first frame are applied. Keys it leaves unhandled reach the
+// composer, which owns the query.
+func (s *appState) handleInlinePickerKey(ctx ui.EventContext, owner inputOwner, key ui.Key) ui.EventResult {
+	var result pickerKeyResult
+	var selection string
+	s.SetState(func() {
+		switch owner {
+		case inputSessionMention:
+			result, selection = s.sessionMention.HandleKey(s.sessionMentions.Entries, key), s.sessionMention.Selection
+		case inputFileMention:
+			result, selection = s.fileMention.HandleKey(s.indexedFiles.Entries, key), s.fileMention.Selection
+		case inputMessageHistory:
+			result, selection = s.messageHistory.HandleKey(key), s.messageHistory.Selection
+		case inputBashHistory:
+			result, selection = s.bashHistory.HandleKey(key), s.bashHistory.Selection
+		}
+	})
+	if !result.Handled {
+		return ui.EventIgnored
+	}
+	switch {
+	case result.Dismiss:
+		s.dismiss(ctx)
+	case result.Activate && selection != "":
+		switch owner {
+		case inputSessionMention:
+			s.selectSessionMention(ctx, selection)
+		case inputFileMention:
+			s.selectFileMention(ctx, selection)
+		case inputMessageHistory:
+			s.selectMessageHistory(ctx, selection)
+		case inputBashHistory:
+			s.selectBashHistory(ctx, selection)
+		}
 	}
 	return ui.EventHandled
 }
