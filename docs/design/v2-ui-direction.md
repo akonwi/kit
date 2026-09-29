@@ -305,11 +305,14 @@ their terminal's native workflow.
 - Do not add an elapsed-turn timer.
 - Palette pickers keep a fixed height within viewport bounds so filtering
   never moves or resizes the surface.
-- Header/footer overflow says what was hidden (`⋯ 3 more`) instead of showing an
-  unexplained glyph.
-- Text shortened to fit uses `…` at the cut (`…/tui/picker.go`,
-  `internal/tui…`). `⋯` marks hidden items or lines, such as picker overflow
-  rows, so a truncated label never looks like an overflow marker.
+- Overflow says what was hidden (`3 more`) instead of showing an unexplained
+  glyph.
+- `…` marks text or content shortened to fit: truncated labels and paths
+  (`…/tui/picker.go`, `internal/tui…`) and notices such as `… 12 more lines`.
+- `⋯` is reserved for overflow indicators that stand in for hidden items:
+  picker overflow rows, the workspace tab strip (`⋯ 3 more`), the composer
+  annotation row, and the gap between edits in a multi-edit diff. A truncated
+  label therefore never looks like an overflow marker.
 - Animation is limited to meaningful progress, entry/exit, and state change;
   motion never substitutes for a status label.
 
