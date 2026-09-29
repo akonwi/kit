@@ -38,7 +38,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
 ### Daemon, sessions, and runtime
 
 - [~] CORE-PROTO-001 — Within each tagged protocol baseline (40 from v0.37.0,
-  41 from v0.38.0), separately built client and daemon releases with the same session protocol
+  41 from v0.38.0, 42 from v0.39.0), separately built client and daemon releases with the same session protocol
   interoperate in both directions without replacing an active daemon. Verify
   baseline session operations, transcript/context-boundary projections,
   snapshots, errors, event replay and resynchronization, SSE, and mutation
@@ -135,6 +135,60 @@ IDs but must not redefine server, persistence, or protocol semantics.
   keep up without blocking authoritative session work.
 - [~] CORE-PROTO-007 — Share conformance tests across server and session client
   implementations used by the production release.
+- [x] CORE-PROTO-008 — Go-defined OpenAPI 3.1 contract foundations per
+  [ADR 0031](../docs/adrs/0031-publish-go-defined-openapi-contract.md):
+  `internal/httpapi` operation catalog with `Handle`/`Call` bindings, the
+  `internal/httpapi/openapi` emitter and committed
+  `api/kit-session.openapi.json` with a staleness test, test-only conformance
+  middleware, protocol enum values with a coverage test, and tag-filtered Swift
+  generation. Retained for slice dependencies.
+- [ ] CORE-PROTO-022 — Gate breaking contract changes in CI with `oasdiff`
+  against the document published by the most recent release, requiring a
+  `SessionProtocolVersion` greater than that release's.
+- [ ] CORE-PROTO-009 — Model `SessionEvent` and `TranscriptContent` as
+  discriminated unions per
+  [ADR 0032](../docs/adrs/0032-model-protocol-variants-as-discriminated-unions.md)
+  without changing wire bytes, naming Go payload types after
+  [ADR 0033](../docs/adrs/0033-adopt-consistent-protocol-event-vocabulary.md)
+  concepts. Depends on `CORE-PROTO-008`.
+
+Contract slices migrate the API one domain at a time. A slice is complete when
+its operations and schemas are in the catalog under the domain's tag; the Go
+server and session client use the catalog; its wire shapes are tightened (one
+error body per ADR 0034, non-null collections, explicit required zero values,
+and ADR 0033 names where applicable); and the macOS client (`MAC-PROTO-001`)
+consumes the domain through generated code. Record any slice-specific wire
+change in an ADR before implementing it. Wire changes bump
+`SessionProtocolVersion` at most once per release. Every slice depends on
+`CORE-PROTO-008`.
+
+- [ ] CORE-PROTO-011 — VCS slice: status read and status stream, moving the
+  stream from newline-delimited JSON to SSE and establishing the stream pattern
+  reused by `CORE-PROTO-020`.
+- [ ] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
+  prompts, prompt commands, follow-ups, turn status and abort, interaction
+  responses, event pages and stream, message and transcript pages. Adopts the
+  ADR 0033 vocabulary and turn-only terminology across paths, records, and
+  fields (including interaction and snapshot run identity), removes `runId`,
+  and omits turn identity from session-scoped events. Depends on
+  `CORE-PROTO-009`.
+- [ ] CORE-PROTO-013 — Sessions slice: list, create, read, rename, delete,
+  dispose, fork, cwd change, configure, compact, and reload.
+- [ ] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
+  file reads, and file index.
+- [ ] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file
+  diffs.
+- [ ] CORE-PROTO-016 — Annotations slice: list, create, update, and delete.
+- [ ] CORE-PROTO-017 — Bash slice: start, read, abort, and history.
+- [ ] CORE-PROTO-018 — Attachments slice: multipart upload, resolution, and
+  authenticated reads.
+- [ ] CORE-PROTO-019 — Subagents slice: operations, transcript, and live events
+  with a closed ADR 0033 vocabulary so `SubagentLiveEvent` becomes a
+  discriminated union.
+- [ ] CORE-PROTO-020 — Plugins slice: plugin commands and the toast stream,
+  delivered over SSE.
+- [ ] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
+  require catalog completeness and remove non-catalog route registration.
 
 ### Workspace data, tools, attachments, and interactions
 

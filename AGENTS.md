@@ -21,12 +21,17 @@ existing sessions on their current server when compatible.
 ## Design language
 
 Kit's UI design language is documented in `.agents/skills/design/SKILL.md`. All
-TUI and web UI work must preserve its surface hierarchy, palette, layout,
+TUI and macOS UI work must preserve its surface hierarchy, palette, layout,
 interaction, and component conventions unless a new decision explicitly changes
 it.
 
-The native TUI uses `go.rockorager.dev/vaxis/ui`. The semantic browser client
-uses Solid and Mica at build time and is embedded in the Go executable.
+The native TUI uses `go.rockorager.dev/vaxis/ui`. The maintained clients are
+the native TUI and the native macOS app (`apps/macos`).
+
+The semantic browser client (`apps/web`, `backlog/web.md`) is not actively
+maintained. Do not plan, update, validate, or add backlog items for it as part
+of other work, including protocol and contract changes, unless explicitly
+asked.
 
 ## Architecture rules
 
@@ -97,9 +102,10 @@ go test ./...
 daemon, session, subagent, plugin, or other concurrency-sensitive code when the
 platform supports it.
 
-For browser-client changes, run its formatting, lint, typecheck, unit, and
-browser suites defined by the web workspace. Bun is a development/build-time
-dependency only and must not become a user runtime requirement.
+When explicitly asked to change the browser client, run its formatting, lint,
+typecheck, unit, and browser suites defined by the web workspace. Bun is a
+development/build-time dependency only and must not become a user runtime
+requirement.
 
 Before publishing a release, follow `.agents/skills/release/SKILL.md` and
 report material limitations honestly. Open backlog items track future work;

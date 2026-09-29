@@ -22,6 +22,7 @@ import (
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/githubpr"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/mcpconfig"
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"
@@ -431,11 +432,11 @@ func newHandler(options localHandlerOptions) http.Handler {
 
 	return http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		if request.Host != options.expectedHost {
-			http.Error(writer, "invalid host", http.StatusMisdirectedRequest)
+			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusMisdirectedRequest, httpapi.ErrorInvalidHost, "invalid host", nil))
 			return
 		}
 		if origin := request.Header.Get("Origin"); origin != "" && origin != options.baseURL {
-			http.Error(writer, "invalid origin", http.StatusForbidden)
+			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusForbidden, httpapi.ErrorForbidden, "forbidden", nil))
 			return
 		}
 		if subtle.ConstantTimeCompare(
@@ -443,19 +444,19 @@ func newHandler(options localHandlerOptions) http.Handler {
 			[]byte("Bearer "+options.token),
 		) != 1 {
 			writer.Header().Set("WWW-Authenticate", "Bearer")
-			http.Error(writer, "unauthorized", http.StatusUnauthorized)
+			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnauthorized, httpapi.ErrorUnauthorized, "unauthorized", nil))
 			return
 		}
 		if subtle.ConstantTimeCompare(
 			[]byte(request.Header.Get(instanceHeader)),
 			[]byte(options.registry.InstanceID),
 		) != 1 {
-			http.Error(writer, "daemon instance mismatch", http.StatusConflict)
+			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorInstanceMismatch, "daemon instance mismatch", nil))
 			return
 		}
 		if (strings.HasPrefix(request.URL.Path, "/v1/sessions") || strings.HasPrefix(request.URL.Path, "/v1/models")) &&
 			request.Header.Get(protocolHeader) != strconv.Itoa(version.SessionProtocolVersion) {
-			http.Error(writer, "session protocol mismatch", http.StatusUpgradeRequired)
+			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUpgradeRequired, httpapi.ErrorProtocolMismatch, "session protocol mismatch", nil))
 			return
 		}
 		mux.ServeHTTP(writer, request)

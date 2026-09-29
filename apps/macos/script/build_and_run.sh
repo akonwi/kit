@@ -15,7 +15,7 @@ DERIVED_DATA="${KIT_MACOS_DERIVED_DATA:-$APP_ROOT/.build/xcode}"
 [[ "$APP_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ && "$APP_BUILD" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || { echo "Invalid app version or build" >&2; exit 2; }
 [[ "$CLIENT_RELEASE" == dev || "$CLIENT_RELEASE" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || { echo "Invalid Kit client release" >&2; exit 2; }
 if [[ "${KIT_MACOS_RELEASE_BUILD:-0}" == 1 ]]; then
-  # The protocol-41 stable-release parser must agree with Swift/Go, not just
+  # The protocol-42 stable-release parser must agree with Swift/Go, not just
   # accept a numeric-looking label that would fail compatibility at runtime.
   python3 - "$CLIENT_RELEASE" <<'PYCLIENT'
 import sys
@@ -26,8 +26,8 @@ if (len(v) > 64 or len(parts) != 3 or
         not p.isdecimal() or int(p) > 18446744073709551615 for p in parts)):
     sys.exit("Release build requires a canonical Kit client release")
 major, minor, _ = map(int, parts)
-if major == 0 and minor < 38:
-    sys.exit("Protocol 41 requires Kit client release >= 0.38.0")
+if major == 0 and minor < 39:
+    sys.exit("Protocol 42 requires Kit client release >= 0.39.0")
 PYCLIENT
 fi
 if [[ "$MODE" != --build ]]; then pkill -x Kit 2>/dev/null || true; fi

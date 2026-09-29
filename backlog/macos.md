@@ -64,6 +64,14 @@ in this branch. Items marked **Server-ready** do not require new server function
   persist guarded edits with autosave, conflict, and retry feedback. Depends on
   `CORE-SCRATCH-001`.
 
+## Protocol client
+
+- [ ] MAC-PROTO-001 — Migrate each remaining domain to the generated OpenAPI
+  client (`apps/macos/script/generate_openapi.sh`, filtered by tag) as its
+  `CORE-PROTO-011`–`CORE-PROTO-021` slice completes, and retire
+  `script/generate_wire.py` after the last. Scratchpad already uses the
+  generated client through `OpenAPITransport`.
+
 ## Connections and daemon lifecycle
 
 - [ ] MAC-DAEMON-001 — Package a compatible local daemon with the app and
@@ -88,8 +96,8 @@ It requires a separately installed compatible Kit server. Discovery must
 validate registry/health identity and readiness and follow the Go protocol and
 stable-release compatibility contract without prescribing an exact CLI version.
 The app version is independent of its Kit client release identity: app `0.1.0`
-uses protocol 40 with identity `0.37.0`; app `0.1.1` uses protocol 41 with
-identity `0.38.0`.
+uses protocol 40 with identity `0.37.0`; apps `0.1.1` and `0.1.2` use protocol
+41 with identity `0.38.0`; app `0.1.3` uses protocol 42 with identity `0.39.0`.
 
 - [~] MAC-DIST-004 — Publish a Developer ID signed, notarized, stapled app
   ZIP with versioned metadata and SHA-256 on a regular GitHub Release. A

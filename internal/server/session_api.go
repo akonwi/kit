@@ -18,6 +18,7 @@ import (
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/fileindex"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/protocol"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
@@ -92,7 +93,7 @@ func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd strin
 }
 
 const (
-	maxSessionRequestBytes   = 1 << 20
+	maxSessionRequestBytes   = httpapi.MaxRequestBytes
 	maxSessionEventPageBytes = 512 << 10
 )
 
@@ -2189,38 +2190,35 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
-		record, err := service.Scratchpad(request.Context(), request.PathValue("sessionID"))
+	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, WriteError: func(writer http.ResponseWriter, err error) {
+		var requestErr *httpapi.RequestError
+		if errors.As(err, &requestErr) {
+			err = fmt.Errorf("%w: %v", errInvalidSessionRequest, requestErr)
+		}
+		writeSessionError(writer, err)
+	}}
+	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
+		record, err := service.Scratchpad(ctx, params.SessionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, scratchpadAPIError(err)
 		}
 		if err := record.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid scratchpad result: %w", err))
-			return
+			return protocol.Scratchpad{}, httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 		}
-		writeJSON(writer, http.StatusOK, record)
+		return record, nil
 	})
-	mux.HandleFunc("PUT /v1/sessions/{sessionID}/scratchpad", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.UpdateScratchpadInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.UpdateScratchpad, func(ctx context.Context, params httpapi.SessionPath, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
 		if err := validateScratchpadInput(input); err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, scratchpadAPIError(err)
 		}
-		record, err := service.UpdateScratchpad(request.Context(), request.PathValue("sessionID"), input)
+		record, err := service.UpdateScratchpad(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Scratchpad{}, scratchpadAPIError(err)
 		}
 		if err := record.ValidateApplied(input); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid scratchpad update result: %w", err))
-			return
+			return protocol.Scratchpad{}, httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 		}
-		writeJSON(writer, http.StatusOK, record)
+		return record, nil
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/configure", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ConfigureSessionInput
@@ -2599,39 +2597,46 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 	return nil
 }
 
-func writeSessionError(writer http.ResponseWriter, err error) {
-	var scratchpadConflict *kitscratchpad.ConflictError
-	if errors.As(err, &scratchpadConflict) {
-		current := projectScratchpad(scratchpadConflict.Current)
-		if validationErr := current.Validate(); validationErr != nil {
-			writeJSON(writer, http.StatusInternalServerError, map[string]string{"error": "internal server error"})
-			return
+func scratchpadAPIError(err error) error {
+	var conflict *kitscratchpad.ConflictError
+	if errors.As(err, &conflict) {
+		current := projectScratchpad(conflict.Current)
+		if current.Validate() != nil {
+			return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 		}
-		writeJSON(writer, http.StatusConflict, map[string]any{"error": map[string]any{
-			"code": protocol.ScratchpadRevisionConflict, "message": "scratchpad revision conflict",
-			"details": protocol.ScratchpadErrorDetails{Scratchpad: &current},
-		}})
-		return
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorCode(protocol.ScratchpadRevisionConflict), "scratchpad revision conflict", protocol.ScratchpadErrorDetails{Scratchpad: &current})
 	}
 	for _, mapped := range []struct {
 		target  error
-		code    protocol.ScratchpadErrorCode
+		code    httpapi.ErrorCode
 		status  int
 		message string
 	}{
-		{kitscratchpad.ErrContentTooLarge, protocol.ScratchpadTooLarge, http.StatusRequestEntityTooLarge, "scratchpad content is too large"},
-		{kitscratchpad.ErrInvalidContent, protocol.ScratchpadInvalidContent, http.StatusBadRequest, "scratchpad content is invalid"},
-		{kitscratchpad.ErrRevisionExhausted, protocol.ScratchpadRevisionExhausted, http.StatusConflict, "scratchpad revision is exhausted"},
-		{kitscratchpad.ErrMigrationRequired, protocol.ScratchpadMigrationRequired, http.StatusConflict, "scratchpad migration is required"},
-		{kitscratchpad.ErrUnsupported, protocol.ScratchpadUnsupported, http.StatusConflict, "scratchpad is unsupported for this session"},
-		{kitscratchpad.ErrUnavailable, protocol.ScratchpadUnavailable, http.StatusServiceUnavailable, "scratchpad is unavailable"},
+		{kitscratchpad.ErrContentTooLarge, httpapi.ErrorCode(protocol.ScratchpadTooLarge), http.StatusRequestEntityTooLarge, "scratchpad content is too large"},
+		{kitscratchpad.ErrInvalidContent, httpapi.ErrorCode(protocol.ScratchpadInvalidContent), http.StatusBadRequest, "scratchpad content is invalid"},
+		{kitscratchpad.ErrRevisionExhausted, httpapi.ErrorCode(protocol.ScratchpadRevisionExhausted), http.StatusConflict, "scratchpad revision is exhausted"},
+		{kitscratchpad.ErrMigrationRequired, httpapi.ErrorCode(protocol.ScratchpadMigrationRequired), http.StatusConflict, "scratchpad migration is required"},
+		{kitscratchpad.ErrUnsupported, httpapi.ErrorCode(protocol.ScratchpadUnsupported), http.StatusConflict, "scratchpad is unsupported for this session"},
+		{kitscratchpad.ErrUnavailable, httpapi.ErrorCode(protocol.ScratchpadUnavailable), http.StatusServiceUnavailable, "scratchpad is unavailable"},
 	} {
 		if errors.Is(err, mapped.target) {
-			writeJSON(writer, mapped.status, map[string]any{"error": map[string]any{
-				"code": mapped.code, "message": mapped.message, "details": protocol.ScratchpadErrorDetails{},
-			}})
-			return
+			return httpapi.NewAPIError(mapped.status, mapped.code, mapped.message, nil)
 		}
+	}
+	if errors.Is(err, kitsession.ErrNotFound) {
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	}
+	if errors.Is(err, kitsession.ErrInvalidInput) || errors.Is(err, errInvalidSessionRequest) {
+		return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
+	}
+	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
+}
+
+func writeSessionError(writer http.ResponseWriter, err error) {
+	var apiError *httpapi.APIError
+	if errors.As(err, &apiError) {
+		httpapi.WriteError(writer, apiError)
+		return
 	}
 	var evidenceErr *kitannotation.EvidenceError
 	if errors.As(err, &evidenceErr) {
