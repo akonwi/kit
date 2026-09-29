@@ -93,7 +93,7 @@ func (r annotationDiffReader) ReadDiff(ctx context.Context, sessionID, cwd strin
 }
 
 const (
-	maxSessionRequestBytes   = 1 << 20
+	maxSessionRequestBytes   = httpapi.MaxRequestBytes
 	maxSessionEventPageBytes = 512 << 10
 )
 

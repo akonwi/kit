@@ -153,3 +153,36 @@ func TestCallEscapesPathStrictlyDecodesAndPassesErrors(t *testing.T) {
 		t.Fatal("Call accepted unknown response field")
 	}
 }
+
+func TestCallBoundsRequestAndResponseBodies(t *testing.T) {
+	op := Operation[SessionPath, testInput, testOutput]{ID: "test", Method: http.MethodPut, Path: "/items/{sessionID}", Success: http.StatusOK,
+		Errors: []ErrorResponse{{Status: http.StatusNotFound, Codes: []ErrorCode{ErrorNotFound}}}}
+	respond := func(status int, body string) testTransport {
+		return func(context.Context, string, string, io.Reader, bool) (*http.Response, error) {
+			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
+		}
+	}
+	valid := `{"value":"ok"}`
+	atLimit := valid + strings.Repeat(" ", maxResponseBytes-len(valid))
+	if output, err := Call(t.Context(), respond(http.StatusOK, atLimit), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err != nil || output.Value != "ok" {
+		t.Fatalf("response at limit = %+v, %v", output, err)
+	}
+	if _, err := Call(t.Context(), respond(http.StatusOK, atLimit+" "), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("response beyond limit error = %v", err)
+	}
+	notFound := `{"error":{"code":"not_found","message":"missing"}}`
+	oversizedError := notFound + strings.Repeat(" ", maxResponseBytes-len(notFound)+1)
+	if _, err := Call(t.Context(), respond(http.StatusNotFound, oversizedError), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err == nil || !strings.Contains(err.Error(), "exceeds") {
+		t.Fatalf("oversized error body error = %v", err)
+	}
+
+	called := false
+	transport := testTransport(func(context.Context, string, string, io.Reader, bool) (*http.Response, error) {
+		called = true
+		return nil, errors.New("unexpected request")
+	})
+	_, err := Call(t.Context(), transport, op, SessionPath{SessionID: "a"}, testInput{Name: strings.Repeat("x", MaxRequestBytes)})
+	if err == nil || !strings.Contains(err.Error(), "exceeds") || called {
+		t.Fatalf("oversized request error = %v, transport called = %t", err, called)
+	}
+}

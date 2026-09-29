@@ -13,6 +13,9 @@ import (
 	"strings"
 )
 
+// MaxRequestBytes bounds session request bodies on both sides of the boundary.
+const MaxRequestBytes = 1 << 20
+
 const maxResponseBytes = 8 << 20
 
 // Transport performs an authenticated, compatibility-checked session request.
@@ -34,6 +37,9 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 		if err != nil {
 			return zero, fmt.Errorf("encode daemon request: %w", err)
 		}
+		if len(encoded) > MaxRequestBytes {
+			return zero, fmt.Errorf("daemon request body exceeds %d bytes", MaxRequestBytes)
+		}
 		body = bytes.NewReader(encoded)
 	}
 	response, err := transport.DoSessionRequest(ctx, op.Method, path, body, hasBody)
@@ -41,12 +47,17 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 		return zero, err
 	}
 	defer response.Body.Close()
-	limited := io.LimitReader(response.Body, maxResponseBytes)
+	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	if err != nil {
+		return zero, fmt.Errorf("read daemon session response: %w", err)
+	}
+	if len(encoded) > maxResponseBytes {
+		return zero, fmt.Errorf("daemon session response exceeds %d bytes", maxResponseBytes)
+	}
 	if response.StatusCode != op.Success {
-		encoded, _ := io.ReadAll(limited)
 		return zero, DecodeOperationError(op, response.StatusCode, encoded)
 	}
-	decoder := json.NewDecoder(limited)
+	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&zero); err != nil {
 		return zero, fmt.Errorf("decode daemon session response: %w", err)
