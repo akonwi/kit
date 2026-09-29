@@ -1,0 +1,7 @@
+name = "kit"
+ard = ">= 0.42.0"
+target = "go"
+
+[build.values]
+version = { type = "Str", default = "dev", release = true }
+commit = { type = "Str", default = "unknown", release = true }

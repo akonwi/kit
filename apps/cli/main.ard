@@ -1,0 +1,18 @@
+use ard/build
+
+use go:github.com/akonwi/kit/apps/cli/ffi/cli
+use go:os
+
+fn main() {
+  let deps = cli::Dependencies{
+    Version: build::version,
+    Commit: build::commit,
+    RunTUI: fn(options: cli::TUIOptions) Void!Error {
+      cli::RunVaxisTUI(options)
+    },
+    PickSession: fn(options: cli::SessionPickerOptions) Str!Error {
+      cli::PickVaxisSession(options)
+    },
+  }
+  os::Exit(cli::Main(deps))
+}
