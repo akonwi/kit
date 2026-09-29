@@ -41,9 +41,9 @@ func TestWorkspaceTabStripShowsAllTabsWhenTheyFitAndLabeledOverflowWhenNarrow(t 
 		width int
 		want  string
 	}{
-		{width: 15, want: " revi ⋯ 3 more "},
-		{width: 40, want: " Agent  reviewer-c  × ⋯ 3 more          "},
-		{width: 55, want: " Agent  reviewer-a  × reviewer-c  × ⋯ 2 more           "},
+		{width: 15, want: " revi … 3 more "},
+		{width: 40, want: " Agent  reviewer-c  × … 3 more          "},
+		{width: 55, want: " Agent  reviewer-a  × reviewer-c  × … 2 more           "},
 		{width: 100, want: " Agent  reviewer-a  × reviewer-b  × reviewer-c  × reviewer-d  ×                                     "},
 	}
 	for _, test := range tests {
@@ -73,14 +73,14 @@ func TestWorkspaceTabsShowVisibleAndHiddenSubagentActivity(t *testing.T) {
 
 	narrow := uitest.New(shellView{Snapshot: snapshot})
 	narrow.Pump(40, 12)
-	if got := paintedRows(narrow, 40, 12)[2]; !strings.Contains(got, "⋯ 3 more "+glyphCross) {
+	if got := paintedRows(narrow, 40, 12)[2]; !strings.Contains(got, "… 3 more "+glyphCross) {
 		t.Fatalf("hidden failed activity summary = %q", got)
 	}
 
 	snapshot.SubagentConversations[1].State = "idle"
 	running := uitest.New(shellView{Snapshot: snapshot})
 	running.Pump(40, 12)
-	if got := paintedRows(running, 40, 12)[2]; !strings.Contains(got, "⋯ 3 more "+spinnerFrames[0]) {
+	if got := paintedRows(running, 40, 12)[2]; !strings.Contains(got, "… 3 more "+spinnerFrames[0]) {
 		t.Fatalf("hidden running activity summary = %q", got)
 	}
 }
@@ -97,7 +97,7 @@ func TestWorkspaceOverflowControlOpensPanePicker(t *testing.T) {
 		application := uitest.New(view)
 		application.Pump(width, 12)
 		rows := paintedRows(application, width, 12)
-		column, row := findTextCell(t, rows, "⋯ 3 more")
+		column, row := findTextCell(t, rows, "… 3 more")
 		application.Click(column+2, row)
 		if !opened {
 			t.Fatalf("overflow control did not open the workspace pane picker at width %d", width)

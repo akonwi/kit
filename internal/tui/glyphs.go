@@ -15,7 +15,7 @@ const (
 	glyphTriangleRight  = "▸"
 	glyphTriangleDown   = "▾"
 	glyphTriangleUp     = "▲"
-	glyphEllipsis       = "⋯" // overflow indicator standing in for hidden items
+	glyphEllipsis       = "⋯" // standalone marker for hidden rows or lines
 	glyphTruncation     = "…" // text or content shortened to fit
 	glyphLeftBar        = "▌"
 	glyphBullet         = "•"

@@ -1265,7 +1265,7 @@ func (w shellView) composer(theme ui.Theme) ui.Widget {
 
 func composerAnnotationOverflowRow(theme ui.Theme, hidden int, open ui.VoidCallback) ui.Widget {
 	content := ui.Widget(ui.Text{
-		Value: fmt.Sprintf("%s %d more annotations", glyphEllipsis, hidden), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
+		Value: fmt.Sprintf("%s %d more annotations", glyphTruncation, hidden), Style: ui.Style{Foreground: theme.MutedForeground}, MaxLines: 1,
 	})
 	if open != nil {
 		content = mouseActivator{Child: content, OnPressed: open}

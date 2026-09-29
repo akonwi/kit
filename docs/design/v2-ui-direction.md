@@ -308,11 +308,12 @@ their terminal's native workflow.
 - Overflow says what was hidden (`3 more`) instead of showing an unexplained
   glyph.
 - `…` marks text or content shortened to fit: truncated labels and paths
-  (`…/tui/picker.go`, `internal/tui…`) and notices such as `… 12 more lines`.
-- `⋯` is reserved for overflow indicators that stand in for hidden items:
-  picker overflow rows, the workspace tab strip (`⋯ 3 more`), the composer
-  annotation row, and the gap between edits in a multi-edit diff. A truncated
-  label therefore never looks like an overflow marker.
+  (`…/tui/picker.go`, `internal/tui…`) and labels or notices that summarize
+  what was left out, such as the workspace tab strip's `… 3 more`, the
+  composer's `… 3 more annotations`, and `… 12 more lines`.
+- `⋯` stands alone for hidden content with no text: picker overflow rows and
+  the gap between edits in a multi-edit diff. A truncated label therefore
+  never looks like a picker overflow row.
 - Animation is limited to meaningful progress, entry/exit, and state change;
   motion never substitutes for a status label.
 

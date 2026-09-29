@@ -1920,3 +1920,13 @@ func TestTranscriptUserQuoteInheritsAccentWash(t *testing.T) {
 		}
 	}
 }
+
+func TestComposerAnnotationOverflowRowMarksShortenedChipList(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultThemeSet().Dark
+	application := uitest.New(ui.Provider[ui.Theme]{Value: theme, Child: composerAnnotationOverflowRow(theme, 3, nil)})
+	application.Pump(24, 1)
+	if got, want := paintedRows(application, 24, 1)[0], "… 3 more annotations"; got != want {
+		t.Fatalf("overflow row = %q, want %q", got, want)
+	}
+}
