@@ -5,8 +5,11 @@ import (
 	"fmt"
 	"reflect"
 	"strings"
+	"sync"
 	"testing"
+	"time"
 
+	"github.com/akonwi/kit/internal/protocol"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
@@ -25,24 +28,184 @@ func (w themePickerTestHarness) Build(ui.BuildContext) ui.Widget {
 }
 
 type fakeThemeService struct {
-	names       []string
-	definitions map[string]kittheme.Definition
-	loadErrors  map[string]error
-	discoverErr error
-	saveErr     error
-	saved       []string
+	mu              sync.Mutex
+	names           []string
+	definitions     map[string]kittheme.Definition
+	diagnostics     map[string][]kittheme.Diagnostic
+	loadErrors      map[string]error
+	discoverErr     error
+	saveErr         error
+	saved           []string
+	discoverStarted chan struct{}
+	discoverRelease <-chan struct{}
+	loadStarted     chan string
+	loadRelease     map[string]<-chan struct{}
+	saveStarted     chan struct{}
+	saveRelease     <-chan struct{}
 }
 
-func (s *fakeThemeService) Discover() ([]string, error) { return s.names, s.discoverErr }
+func (s *fakeThemeService) Discover() ([]string, error) {
+	if s.discoverStarted != nil {
+		select {
+		case s.discoverStarted <- struct{}{}:
+		default:
+		}
+	}
+	if s.discoverRelease != nil {
+		<-s.discoverRelease
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.names...), s.discoverErr
+}
 func (s *fakeThemeService) Load(name string) (kittheme.Definition, []kittheme.Diagnostic, error) {
-	return s.definitions[name], nil, s.loadErrors[name]
+	if s.loadStarted != nil {
+		s.loadStarted <- name
+	}
+	if release := s.loadRelease[name]; release != nil {
+		<-release
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.definitions[name], append([]kittheme.Diagnostic(nil), s.diagnostics[name]...), s.loadErrors[name]
 }
 func (s *fakeThemeService) Save(name string) error {
+	if s.saveStarted != nil {
+		s.saveStarted <- struct{}{}
+	}
+	if s.saveRelease != nil {
+		<-s.saveRelease
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if s.saveErr != nil {
 		return s.saveErr
 	}
 	s.saved = append(s.saved, name)
 	return nil
+}
+
+func (s *fakeThemeService) savedNames() []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return append([]string(nil), s.saved...)
+}
+
+type themePickerAppHarness struct {
+	state   *themePickerAppState
+	service ThemeService
+}
+
+func (w themePickerAppHarness) CreateState() ui.State      { return w.state }
+func (w themePickerAppHarness) themeService() ThemeService { return w.service }
+
+type themePickerAppState struct {
+	appState
+	scroll  ui.ScrollController
+	applied []kittheme.Definition
+}
+
+func (*themePickerAppState) InitState() {}
+func (*themePickerAppState) Dispose()   {}
+func (s *themePickerAppState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+	return s.appState.HandleEvent(ctx, event)
+}
+func (s *themePickerAppState) Build(ui.BuildContext) ui.Widget {
+	s.reconcileInputOwner()
+	s.renderedInput = s.inputToken()
+	return shellView{
+		Snapshot: shellSnapshot{
+			Phase: phaseReady, Session: protocol.SessionInfo{ID: "theme", Name: "Theme", Model: "test/model"},
+			Scroll: &s.scroll, ThemePicker: s.themePicker.Snapshot(),
+		},
+		Callbacks: shellCallbacks{
+			InputOwner:        s.inputOwner,
+			ThemeQueryChanged: func(_ ui.EventContext, value string) { s.setThemeQuery(value) },
+			SelectTheme:       func(_ ui.EventContext, name string) { s.activateTheme(name) },
+			Dismiss:           func(ui.EventContext) { s.cancelThemePicker() },
+		},
+	}
+}
+
+type themePickerBackend struct {
+	events     chan ui.Event
+	dispatches chan func()
+	painter    *ui.Painter
+}
+
+func (b *themePickerBackend) Events() <-chan ui.Event { return b.events }
+func (*themePickerBackend) Size() ui.Size             { return ui.Size{Width: 80, Height: 24} }
+func (b *themePickerBackend) Render(painter *ui.Painter) error {
+	b.painter = painter
+	return nil
+}
+func (b *themePickerBackend) Dispatch(callback func())  { b.dispatches <- callback }
+func (*themePickerBackend) SetMouseShape(ui.MouseShape) {}
+func (*themePickerBackend) Close() error                { return nil }
+
+type themePickerTestApp struct {
+	runner  *ui.Runner
+	backend *themePickerBackend
+	now     time.Time
+}
+
+func (a *themePickerTestApp) pump(t *testing.T) {
+	t.Helper()
+	a.now = a.now.Add(time.Second / 30)
+	if err := a.runner.HandleFrame(a.now); err != nil {
+		t.Fatal(err)
+	}
+}
+func (a *themePickerTestApp) send(event ui.Event) { a.runner.HandleEvent(event, a.now) }
+func (a *themePickerTestApp) key(text string) {
+	for _, character := range text {
+		a.send(vaxis.Key{Keycode: character, Text: string(character), EventType: vaxis.EventPress})
+	}
+}
+func (a *themePickerTestApp) click(column, row int) {
+	a.send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+}
+func (a *themePickerTestApp) rows() []string { return toastPainterRows(a.backend.painter) }
+
+func mountThemePickerApp(t *testing.T, service ThemeService, picker themePickerController, name string, definition kittheme.Definition) (*themePickerTestApp, *themePickerAppState) {
+	t.Helper()
+	state := &themePickerAppState{appState: appState{phase: phaseReady, themePicker: picker, themeName: name, themeDefinition: definition}}
+	state.applyTheme = func(applied kittheme.Definition) { state.applied = append(state.applied, applied) }
+	backend := &themePickerBackend{events: make(chan ui.Event), dispatches: make(chan func(), 8)}
+	application := ui.NewApp(themePickerAppHarness{state: state, service: service})
+	runner := ui.NewRunner(application, backend, ui.NewFrameScheduler(time.Second/60))
+	now := time.Now()
+	runner.Start(now)
+	testApp := &themePickerTestApp{runner: runner, backend: backend, now: now}
+	testApp.pump(t)
+	return testApp, state
+}
+
+func dispatchThemePicker(t *testing.T, application *themePickerTestApp) {
+	t.Helper()
+	select {
+	case callback := <-application.backend.dispatches:
+		callback()
+		application.pump(t)
+	case <-time.After(2 * time.Second):
+		t.Fatal("theme picker dispatch was not received")
+	}
+}
+
+func pumpThemePickerUntil(t *testing.T, application *themePickerTestApp, condition func() bool) {
+	t.Helper()
+	deadline := time.NewTimer(2 * time.Second)
+	defer deadline.Stop()
+	for !condition() {
+		select {
+		case callback := <-application.backend.dispatches:
+			callback()
+			application.pump(t)
+		case <-deadline.C:
+			t.Fatal("theme picker condition was not reached")
+		}
+	}
+	application.pump(t)
 }
 
 func TestThemePickerSurfaceUsesCanonicalPickerPresentation(t *testing.T) {
@@ -157,75 +320,129 @@ func TestThemePickerDiscoveryCompletionClearsLoading(t *testing.T) {
 	}
 }
 
-func TestThemePickerKeysFilterPreviewCancelAndCommit(t *testing.T) {
+func TestThemePickerAppKeysPreviewCancelAndCommit(t *testing.T) {
 	t.Parallel()
 
 	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
 	custom := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
-	service := &fakeThemeService{names: []string{"custom", "nord"}, definitions: map[string]kittheme.Definition{"custom": custom}}
-	var applied []kittheme.Definition
-	apply := func(definition kittheme.Definition) { applied = append(applied, definition) }
-
+	service := &fakeThemeService{definitions: map[string]kittheme.Definition{"custom": custom}}
 	var picker themePickerController
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
+	picker.OpenNames([]string{"custom"}, kittheme.SystemName, original)
+	application, state := mountThemePickerApp(t, service, picker, kittheme.SystemName, original)
+
+	application.send(vaxis.Key{Keycode: vaxis.KeyDown, EventType: vaxis.EventPress})
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.PreviewLoading && len(state.applied) == 1 })
+	if state.themePicker.Selection != "custom" || !reflect.DeepEqual(state.applied, []kittheme.Definition{custom}) {
+		t.Fatalf("move preview picker=%+v applied=%#v", state.themePicker, state.applied)
 	}
-	result, preview := picker.HandleKey(ui.Key{Keycode: 'c', Text: "c", EventType: vaxis.EventPress})
-	if !result.Handled || !result.QueryChanged || !preview || picker.Query != "c" || picker.Selection != "custom" {
-		t.Fatalf("typing result=%+v preview=%t picker=%+v", result, preview, picker)
-	}
-	picker.preview(service, apply)
-	if !reflect.DeepEqual(applied, []kittheme.Definition{custom}) {
-		t.Fatalf("filtered preview applications = %#v", applied)
-	}
-	result, _ = picker.HandleKey(ui.Key{Keycode: vaxis.KeyEsc, EventType: vaxis.EventPress})
-	if !result.Dismiss {
-		t.Fatalf("escape result = %+v, want dismiss", result)
-	}
-	picker.Cancel(apply)
-	if picker.Open || !reflect.DeepEqual(applied, []kittheme.Definition{custom, original}) {
-		t.Fatalf("cancel state = %+v, applications = %#v", picker, applied)
+	application.send(vaxis.Key{Keycode: vaxis.KeyEsc, Text: "\x1b", EventType: vaxis.EventPress})
+	application.pump(t)
+	if state.themePicker.Open || !reflect.DeepEqual(state.applied, []kittheme.Definition{custom, original}) {
+		t.Fatalf("cancel picker=%+v applied=%#v", state.themePicker, state.applied)
 	}
 
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
-	}
-	picker.Move(service, 1, apply)
-	result, _ = picker.HandleKey(ui.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
-	if !result.Activate {
-		t.Fatalf("enter result = %+v, want activate", result)
-	}
-	name, definition, err := picker.Commit(service, apply)
-	if err != nil || name != "custom" || !reflect.DeepEqual(definition, custom) || picker.Open || !reflect.DeepEqual(service.saved, []string{"custom"}) {
-		t.Fatalf("commit name=%q err=%v picker=%+v saved=%v", name, err, picker, service.saved)
+	state.SetState(func() { state.themePicker.OpenNames([]string{"custom"}, kittheme.SystemName, original) })
+	application.pump(t)
+	application.send(vaxis.Key{Keycode: vaxis.KeyDown, EventType: vaxis.EventPress})
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.PreviewLoading })
+	application.send(vaxis.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.Open })
+	if !reflect.DeepEqual(service.savedNames(), []string{"custom"}) || state.themeName != "custom" || !reflect.DeepEqual(state.themeDefinition, custom) {
+		t.Fatalf("commit picker=%+v saved=%v name=%q definition=%+v", state.themePicker, service.savedNames(), state.themeName, state.themeDefinition)
 	}
 }
 
-func TestThemePickerClickPreviewsAndCommitsTheme(t *testing.T) {
+func TestThemePickerAppClickPreviewsAndCommitsTheme(t *testing.T) {
 	t.Parallel()
 
 	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
 	nord := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
-	service := &fakeThemeService{names: []string{"nord"}, definitions: map[string]kittheme.Definition{"nord": nord}}
+	service := &fakeThemeService{definitions: map[string]kittheme.Definition{"nord": nord}}
 	var picker themePickerController
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
+	picker.OpenNames([]string{"nord"}, kittheme.SystemName, original)
+	application, state := mountThemePickerApp(t, service, picker, kittheme.SystemName, original)
+	application.pump(t)
+	column, row := findTextCell(t, application.rows(), "nord")
+	application.click(column+20, row)
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.Open })
+	if !reflect.DeepEqual(state.applied, []kittheme.Definition{nord}) || !reflect.DeepEqual(service.savedNames(), []string{"nord"}) {
+		t.Fatalf("click picker=%+v applied=%+v saved=%v", state.themePicker, state.applied, service.savedNames())
 	}
-	var applied kittheme.Definition
-	application := uitest.New(themePickerSurface{
-		Snapshot: picker.Snapshot(),
-		Callbacks: themePickerCallbacks{Select: func(_ ui.EventContext, name string) {
-			picker.Select(service, name, func(definition kittheme.Definition) { applied = definition })
-			_, _, _ = picker.Commit(service, nil)
-		}},
-	})
-	application.Pump(80, 24)
-	application.Pump(80, 24)
-	column, row := findTextCell(t, paintedRows(application, 80, 24), "nord")
-	application.Click(column+20, row)
-	application.Pump(80, 24)
-	if picker.Open || !reflect.DeepEqual(applied, nord) || !reflect.DeepEqual(service.saved, []string{"nord"}) {
-		t.Fatalf("click result picker=%+v applied=%+v saved=%v", picker, applied, service.saved)
+}
+
+func TestThemePickerAppClickIntentFollowsSelectionAcrossStalePreview(t *testing.T) {
+	t.Parallel()
+
+	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	alpha := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	beta := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 3, A: 255}}}
+	alphaRelease := make(chan struct{})
+	betaRelease := make(chan struct{})
+	started := make(chan string, 2)
+	service := &fakeThemeService{
+		definitions: map[string]kittheme.Definition{"alpha": alpha, "beta": beta}, loadStarted: started,
+		loadRelease: map[string]<-chan struct{}{"alpha": alphaRelease, "beta": betaRelease},
+	}
+	var picker themePickerController
+	picker.OpenNames([]string{"alpha", "beta"}, kittheme.SystemName, original)
+	application, state := mountThemePickerApp(t, service, picker, kittheme.SystemName, original)
+	application.send(vaxis.Key{Keycode: vaxis.KeyDown, EventType: vaxis.EventPress})
+	if name := <-started; name != "alpha" {
+		t.Fatalf("first preview = %q, want alpha", name)
+	}
+	application.pump(t)
+	column, row := findTextCell(t, application.rows(), "beta")
+	application.click(column+20, row)
+	if state.themePicker.Selection != "beta" || state.themePicker.commitOnPreview != "beta" {
+		t.Fatalf("clicked selection picker=%+v", state.themePicker)
+	}
+	close(alphaRelease)
+	dispatchThemePicker(t, application)
+	if name := <-started; name != "beta" {
+		t.Fatalf("replacement preview = %q, want beta", name)
+	}
+	if len(state.applied) != 0 || len(service.savedNames()) != 0 {
+		t.Fatalf("stale alpha was applied=%v saved=%v", state.applied, service.savedNames())
+	}
+	close(betaRelease)
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.Open })
+	if !reflect.DeepEqual(state.applied, []kittheme.Definition{beta}) || !reflect.DeepEqual(service.savedNames(), []string{"beta"}) {
+		t.Fatalf("replacement result applied=%v saved=%v", state.applied, service.savedNames())
+	}
+}
+
+func TestThemePickerAppPendingSaveIgnoresPointerActivation(t *testing.T) {
+	t.Parallel()
+
+	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	nord := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	release := make(chan struct{})
+	started := make(chan struct{}, 1)
+	service := &fakeThemeService{
+		definitions: map[string]kittheme.Definition{"nord": nord}, saveErr: errors.New("read-only"),
+		saveStarted: started, saveRelease: release,
+	}
+	var picker themePickerController
+	picker.OpenNames([]string{"dracula", "nord"}, kittheme.SystemName, original)
+	application, state := mountThemePickerApp(t, service, picker, kittheme.SystemName, original)
+	state.selectTheme("nord")
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.PreviewLoading })
+	application.send(vaxis.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("theme save did not start")
+	}
+	application.pump(t)
+	column, row := findTextCell(t, application.rows(), "dracula")
+	application.click(column+20, row)
+	if state.themePicker.Selection != "nord" || state.themePicker.commitOnPreview != "" {
+		t.Fatalf("pending click mutated picker=%+v", state.themePicker)
+	}
+	close(release)
+	pumpThemePickerUntil(t, application, func() bool { return state.themePicker.Err != nil })
+	if state.themePicker.Selection != "nord" {
+		t.Fatalf("failed save selection = %q, want nord", state.themePicker.Selection)
 	}
 }
 
@@ -240,79 +457,97 @@ func TestThemePickerPendingSaveConsumesKeysWithoutMutation(t *testing.T) {
 	if !result.Handled || preview || picker.Query != "nor" || picker.Selection != "nord" || len(picker.Diagnostics) != 1 {
 		t.Fatalf("pending key result=%+v preview=%t picker=%+v", result, preview, picker)
 	}
-}
-
-func TestThemePickerPreviewsCommitsAndRestores(t *testing.T) {
-	t.Parallel()
-
-	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
-	custom := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
-	service := &fakeThemeService{names: []string{"custom"}, definitions: map[string]kittheme.Definition{"custom": custom}}
-	var applied []kittheme.Definition
-	apply := func(definition kittheme.Definition) { applied = append(applied, definition) }
-
-	var picker themePickerController
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
-	}
-	if !reflect.DeepEqual(picker.Names, []string{kittheme.SystemName, "custom"}) || picker.Selection != kittheme.SystemName {
-		t.Fatalf("opened picker = %+v", picker)
-	}
-	picker.Move(service, 1, apply)
-	if !reflect.DeepEqual(applied, []kittheme.Definition{custom}) {
-		t.Fatalf("preview applications = %#v", applied)
-	}
-	picker.Cancel(apply)
-	if picker.Open || !reflect.DeepEqual(applied, []kittheme.Definition{custom, original}) {
-		t.Fatalf("cancel state = %+v, applications = %#v", picker, applied)
-	}
-
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
-	}
-	picker.Move(service, 1, apply)
-	name, definition, err := picker.Commit(service, apply)
-	if err != nil || name != "custom" || !reflect.DeepEqual(definition, custom) || picker.Open || !reflect.DeepEqual(service.saved, []string{"custom"}) {
-		t.Fatalf("commit name=%q err=%v picker=%+v saved=%v", name, err, picker, service.saved)
+	if picker.requestCommit(kittheme.SystemName) || picker.Selection != "nord" || picker.commitOnPreview != "" {
+		t.Fatalf("pending click mutated picker=%+v", picker)
 	}
 }
 
-func TestThemePickerKeepsLastValidPreviewOnLoadAndSaveFailures(t *testing.T) {
+func TestThemePickerAppInvalidPreviewBlocksCommitAndShowsDiagnostics(t *testing.T) {
 	t.Parallel()
 
 	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	diagnostics := []kittheme.Diagnostic{{Section: "tokens"}}
 	service := &fakeThemeService{
-		names:       []string{"broken"},
-		definitions: map[string]kittheme.Definition{},
-		loadErrors:  map[string]error{"broken": errors.New("bad file")},
+		definitions: map[string]kittheme.Definition{}, diagnostics: map[string][]kittheme.Diagnostic{"broken": diagnostics},
+		loadErrors: map[string]error{"broken": errors.New("bad file")},
 	}
-	applications := 0
 	var picker themePickerController
-	if err := picker.OpenPicker(service, kittheme.SystemName, original); err != nil {
-		t.Fatal(err)
-	}
-	picker.Move(service, 1, func(kittheme.Definition) { applications++ })
-	if picker.Err == nil || applications != 0 || picker.PreviewDefinition.Tokens[kittheme.TokenBackground].R != 1 {
-		t.Fatalf("failed preview = %+v, applications=%d", picker, applications)
-	}
-	if _, _, err := picker.Commit(service, nil); err == nil || !picker.Open {
-		t.Fatalf("invalid commit err=%v open=%v", err, picker.Open)
-	}
-
-	picker.Select(service, kittheme.SystemName, nil)
-	var applied kittheme.Definition
-	service.saveErr = errors.New("read-only")
-	if _, _, err := picker.Commit(service, func(definition kittheme.Definition) { applied = definition }); err == nil || !picker.Open || !reflect.DeepEqual(applied, original) {
-		t.Fatalf("save failure err=%v open=%v", err, picker.Open)
+	picker.OpenNames([]string{"broken"}, kittheme.SystemName, original)
+	application, state := mountThemePickerApp(t, service, picker, kittheme.SystemName, original)
+	application.send(vaxis.Key{Keycode: vaxis.KeyDown, EventType: vaxis.EventPress})
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.PreviewLoading && state.themePicker.Err != nil })
+	application.send(vaxis.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	application.pump(t)
+	if !state.themePicker.Open || state.themePicker.previewValid || !reflect.DeepEqual(state.themePicker.Diagnostics, diagnostics) || len(service.savedNames()) != 0 || len(state.applied) != 0 {
+		t.Fatalf("invalid preview picker=%+v applied=%v saved=%v", state.themePicker, state.applied, service.savedNames())
 	}
 }
 
-func TestThemePickerDiscoveryFailureDoesNotOpen(t *testing.T) {
+func TestThemePickerAppSystemPreviewAndSaveFailureRollback(t *testing.T) {
+	t.Parallel()
+
+	custom := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	service := &fakeThemeService{definitions: map[string]kittheme.Definition{"custom": custom}, saveErr: errors.New("read-only")}
+	var picker themePickerController
+	picker.OpenNames([]string{"custom"}, "custom", custom)
+	application, state := mountThemePickerApp(t, service, picker, "custom", custom)
+	application.send(vaxis.Key{Keycode: vaxis.KeyUp, EventType: vaxis.EventPress})
+	application.pump(t)
+	if len(state.applied) != 1 || !reflect.DeepEqual(state.applied[0], kittheme.Definition{}) {
+		t.Fatalf("system preview applications = %#v", state.applied)
+	}
+	application.send(vaxis.Key{Keycode: vaxis.KeyEnter, EventType: vaxis.EventPress})
+	pumpThemePickerUntil(t, application, func() bool { return state.themePicker.Err != nil })
+	if !state.themePicker.Open || len(state.applied) != 2 || !reflect.DeepEqual(state.applied[1], custom) || state.themeName != "custom" {
+		t.Fatalf("save rollback picker=%+v applied=%#v name=%q", state.themePicker, state.applied, state.themeName)
+	}
+}
+
+func TestThemePickerAppKeepsQueryTypedWhileCatalogLoads(t *testing.T) {
+	t.Parallel()
+
+	original := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 1, A: 255}}}
+	nord := kittheme.Definition{Tokens: map[string]kittheme.Color{kittheme.TokenBackground: {R: 2, A: 255}}}
+	started := make(chan struct{}, 1)
+	release := make(chan struct{})
+	service := &fakeThemeService{
+		names: []string{"dracula", "nord"}, definitions: map[string]kittheme.Definition{"nord": nord},
+		discoverStarted: started, discoverRelease: release,
+	}
+	application, state := mountThemePickerApp(t, service, themePickerController{}, kittheme.SystemName, original)
+	state.openThemePicker()
+	select {
+	case <-started:
+	case <-time.After(time.Second):
+		t.Fatal("theme discovery did not start")
+	}
+	application.key("nord")
+	application.pump(t)
+	if state.themePicker.Query != "nord" || !state.themePicker.Loading {
+		t.Fatalf("loading query picker=%+v", state.themePicker)
+	}
+	close(release)
+	pumpThemePickerUntil(t, application, func() bool {
+		return !state.themePicker.Loading && !state.themePicker.PreviewLoading && len(state.applied) == 1
+	})
+	rows := application.rows()
+	_, searchRow := assertPickerSearchField(t, rows, "nord")
+	if got := dialogRowText(rows, searchRow+2); got != glyphLeftBar+"nord" {
+		t.Fatalf("filtered theme row = %q, want %q:\n%s", got, glyphLeftBar+"nord", strings.Join(rows, "\n"))
+	}
+	if state.themePicker.Selection != "nord" || !reflect.DeepEqual(state.applied, []kittheme.Definition{nord}) {
+		t.Fatalf("loaded query picker=%+v applied=%#v", state.themePicker, state.applied)
+	}
+}
+
+func TestThemePickerAppDiscoveryFailureStaysOpen(t *testing.T) {
 	t.Parallel()
 
 	service := &fakeThemeService{discoverErr: errors.New("permission denied")}
-	var picker themePickerController
-	if err := picker.OpenPicker(service, kittheme.SystemName, kittheme.Definition{}); err == nil || picker.Open {
-		t.Fatalf("OpenPicker() err=%v picker=%+v", err, picker)
+	application, state := mountThemePickerApp(t, service, themePickerController{}, kittheme.SystemName, kittheme.Definition{})
+	state.openThemePicker()
+	pumpThemePickerUntil(t, application, func() bool { return !state.themePicker.Loading && state.themePicker.Err != nil })
+	if !state.themePicker.Open || state.themePicker.Err.Error() != "discover themes: permission denied" {
+		t.Fatalf("discovery failure picker=%+v", state.themePicker)
 	}
 }

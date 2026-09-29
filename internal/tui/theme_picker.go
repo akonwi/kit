@@ -1,8 +1,6 @@
 package tui
 
 import (
-	"errors"
-	"fmt"
 	"sort"
 
 	kittheme "github.com/akonwi/kit/internal/theme"
@@ -44,6 +42,7 @@ type themePickerController struct {
 	Diagnostics         []kittheme.Diagnostic
 	Err                 error
 	previewValid        bool
+	commitOnPreview     string
 }
 
 func (p *themePickerController) Snapshot() themePickerSnapshot {
@@ -58,19 +57,10 @@ func (p *themePickerController) Snapshot() themePickerSnapshot {
 	}
 }
 
-func (p *themePickerController) OpenPicker(service ThemeService, currentName string, current kittheme.Definition) error {
-	if service == nil {
-		return errors.New("theme picker is unavailable")
-	}
-	names, err := service.Discover()
-	if err != nil {
-		return fmt.Errorf("discover themes: %w", err)
-	}
-	p.OpenNames(names, currentName, current)
-	return nil
-}
-
-func (p *themePickerController) OpenNames(names []string, currentName string, current kittheme.Definition) {
+// OpenNames installs the discovered catalog without discarding a query typed
+// while discovery was in flight. It reports whether the resulting selection
+// needs to be previewed.
+func (p *themePickerController) OpenNames(names []string, currentName string, current kittheme.Definition) bool {
 	if currentName == "" {
 		currentName = kittheme.SystemName
 	}
@@ -84,18 +74,24 @@ func (p *themePickerController) OpenNames(names []string, currentName string, cu
 			sort.Strings(names)
 		}
 	}
+	query := p.Query
 	p.Open = true
 	p.Loading = false
 	p.PreviewLoading = false
 	p.Names = append([]string{kittheme.SystemName}, names...)
-	p.Query = ""
-	p.Selection = currentName
 	p.CommittedName = currentName
 	p.CommittedDefinition = current
 	p.PreviewDefinition = current
 	p.Diagnostics = nil
 	p.Err = nil
 	p.previewValid = true
+	p.commitOnPreview = ""
+	selection := currentName
+	if query != "" {
+		selection = firstEnabledPickerKey(p.pickerItems(query))
+	}
+	p.applyKeyState(query, selection)
+	return selection != "" && selection != currentName
 }
 
 func (p *themePickerController) keyModel() pickerKeyModel {
@@ -103,7 +99,42 @@ func (p *themePickerController) keyModel() pickerKeyModel {
 }
 
 func (p *themePickerController) applyKeyModel(model pickerKeyModel) {
-	p.Query, p.Selection = model.Query, model.Selection
+	p.applyKeyState(model.Query, model.Selection)
+}
+
+func (p *themePickerController) applyKeyState(query, selection string) {
+	if p.Query != query || p.Selection != selection {
+		p.commitOnPreview = ""
+	}
+	p.Query, p.Selection = query, selection
+}
+
+func (p *themePickerController) selectForPreview(name string) {
+	p.applyKeyState(p.Query, name)
+}
+
+// requestCommit marks a pointer-activated theme to be committed after its
+// asynchronous preview succeeds. It reports whether the current preview can be
+// committed immediately.
+func (p *themePickerController) requestCommit(name string) bool {
+	if !p.Open || p.Loading || p.Pending {
+		return false
+	}
+	if name == p.Selection && p.previewValid && !p.PreviewLoading {
+		p.commitOnPreview = ""
+		return true
+	}
+	p.selectForPreview(name)
+	p.commitOnPreview = name
+	return false
+}
+
+func (p *themePickerController) completePreview(name string, succeeded bool) bool {
+	if p.commitOnPreview != name || p.Selection != name {
+		return false
+	}
+	p.commitOnPreview = ""
+	return succeeded
 }
 
 func (p *themePickerController) pickerItems(query string) []pickerItem {
@@ -113,7 +144,7 @@ func (p *themePickerController) pickerItems(query string) []pickerItem {
 // SetQuery filters the catalog and highlights the first matching theme. It
 // reports whether the highlighted theme changed and should be previewed.
 func (p *themePickerController) SetQuery(query string) bool {
-	if !p.Open || p.Loading || p.Pending {
+	if !p.Open || p.Pending {
 		return false
 	}
 	previous := p.Selection
@@ -144,81 +175,6 @@ func (p *themePickerController) HandleKey(key ui.Key) (pickerKeyResult, bool) {
 		p.Diagnostics = nil
 	}
 	return result, p.Selection != previous && p.Selection != ""
-}
-
-// Move is retained for controller callers and applies the same key-model
-// selection behavior as keyboard navigation.
-func (p *themePickerController) Move(service ThemeService, delta int, apply func(kittheme.Definition)) {
-	if !p.Open {
-		return
-	}
-	model := p.keyModel()
-	model.Move(p.pickerItems(p.Query), delta)
-	p.applyKeyModel(model)
-	p.preview(service, apply)
-}
-
-func (p *themePickerController) Select(service ThemeService, name string, apply func(kittheme.Definition)) {
-	if !p.Open || pickerItemIndex(p.pickerItems(p.Query), name) < 0 {
-		return
-	}
-	p.Selection = name
-	p.preview(service, apply)
-}
-
-func (p *themePickerController) preview(service ThemeService, apply func(kittheme.Definition)) {
-	name := p.Selection
-	if name == "" {
-		return
-	}
-	definition := kittheme.Definition{}
-	var diagnostics []kittheme.Diagnostic
-	var err error
-	if name != kittheme.SystemName {
-		definition, diagnostics, err = service.Load(name)
-	}
-	p.Diagnostics = diagnostics
-	p.Err = err
-	p.previewValid = err == nil
-	if err != nil {
-		return
-	}
-	p.PreviewDefinition = definition
-	if apply != nil {
-		apply(definition)
-	}
-}
-
-func (p *themePickerController) Commit(service ThemeService, apply func(kittheme.Definition)) (string, kittheme.Definition, error) {
-	if !p.Open || p.Selection == "" {
-		return "", kittheme.Definition{}, errors.New("theme picker is not open")
-	}
-	if !p.previewValid {
-		return "", kittheme.Definition{}, errors.New("selected theme could not be previewed")
-	}
-	name := p.Selection
-	if err := service.Save(name); err != nil {
-		p.Err = err
-		p.PreviewDefinition = p.CommittedDefinition
-		p.previewValid = false
-		if apply != nil {
-			apply(p.CommittedDefinition)
-		}
-		return "", kittheme.Definition{}, fmt.Errorf("save theme %q: %w", name, err)
-	}
-	definition := p.PreviewDefinition
-	p.Close()
-	return name, definition, nil
-}
-
-func (p *themePickerController) Cancel(apply func(kittheme.Definition)) {
-	if !p.Open {
-		return
-	}
-	if apply != nil {
-		apply(p.CommittedDefinition)
-	}
-	p.Close()
 }
 
 func (p *themePickerController) Close() {
