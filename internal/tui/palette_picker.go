@@ -10,9 +10,9 @@ import (
 // palette. Its fields are the whole contract: callers describe the title,
 // query, catalog, and footer; the palette picker owns filtering, the search
 // field, the frame, alignment, highlight, overflow rows, and pointer
-// activation. Pickers anchored to the composer or another point in the UI are
-// inline pickers and do not use this frame; they share pickerItem, row
-// rendering, filterPickerItems, and pickerKeyModel.
+// activation. Lists attached to the composer are inline pickers
+// (inlinePicker); they share pickerItem, pickerFrame, the list, the footer,
+// filterPickerItems, and pickerKeyModel with this frame.
 type palettePicker struct {
 	Title     string
 	TitleMeta string
@@ -73,28 +73,28 @@ func (palettePicker) CreateState() ui.State { return &palettePickerState{} }
 
 type palettePickerState struct {
 	ui.StateBase
-	viewport      pickerViewportState
-	lastSelection string
-	hasSelection  bool
+	list pickerListState
 }
 
 func (s *palettePickerState) Build(ctx ui.BuildContext) ui.Widget {
 	w := s.Widget().(palettePicker)
 	theme := ui.MustDepend[ui.Theme](ctx)
-	children := make([]ui.Widget, 0, 3)
+	var header ui.Widget
 	title := pickerTitleRow(theme, w.Title, w.TitleMeta, w.TitleMetaTone)
 	switch {
 	case title != nil && w.Search != nil:
-		children = append(children, pickerTitledSearchField(theme, title, w.searchInput()))
+		header = pickerTitledSearchField(theme, title, w.searchInput())
 	case title != nil:
-		children = append(children, ui.Padding(ui.Insets{Top: 1, Right: pickerContentInset, Bottom: 1, Left: pickerContentInset}, title))
+		header = ui.Padding(ui.Insets{Top: 1, Right: pickerContentInset, Bottom: 1, Left: pickerContentInset}, title)
 	case w.Search != nil:
-		children = append(children, ui.Padding(ui.Insets{Top: 1}, pickerSearchField(theme, w.searchInput())))
-	default:
-		children = append(children, ui.SizedBox{Height: 1})
+		header = ui.Padding(ui.Insets{Top: 1}, pickerSearchField(theme, w.searchInput()))
 	}
-	children = append(children, ui.Expanded(ui.Padding(ui.Insets{Right: 1, Left: 1}, s.list(theme, w))))
-	content := ui.Widget(pickerDialogContent(theme, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children}, pickerFooter(theme, w.Footer, w.Status, w.StatusTone)))
+	list := s.list.build(theme, pickerList{
+		Items: w.items(), Catalog: w.Catalog, Selection: w.Selection,
+		Message: w.Message, MessageTone: w.MessageTone,
+		OnActivate: w.OnActivate, OnToggle: w.OnToggle,
+	}, s.SetState, s.MarkNeedsBuild)
+	content := pickerFrame(theme, header, list, pickerFooter(theme, w.Footer, w.Status, w.StatusTone))
 	if w.OnKey != nil {
 		content = pickerKeyListener{OnKey: w.OnKey, Child: content}
 	}
@@ -104,15 +104,61 @@ func (s *palettePickerState) Build(ctx ui.BuildContext) ui.Widget {
 	}
 }
 
-// Every palette picker shares one size.
+// Every palette picker shares one size; inline pickers share its width.
 const (
 	pickerWidthPercent = 80
 	pickerMinWidth     = 48
 	pickerMaxWidth     = 96
 )
 
-func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
-	items := w.items()
+// pickerFrame is the bordered structure shared by palette and inline
+// pickers: a header (a blank row under the top border when nil), the list
+// inset one cell from each border, and the footer below a full-width divider
+// that joins the borders.
+func pickerFrame(theme ui.Theme, header, list, footer ui.Widget) ui.Widget {
+	if header == nil {
+		header = ui.SizedBox{Height: 1}
+	}
+	return pickerDialogContent(theme, ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
+		header,
+		ui.Expanded(ui.Padding(ui.Insets{Right: 1, Left: 1}, list)),
+	}}, footer)
+}
+
+// pickerList describes the rows of one picker list build.
+type pickerList struct {
+	// Items are the visible rows in display order.
+	Items []pickerItem
+	// Catalog sizes the columns, so filtering never shifts them.
+	Catalog   []pickerItem
+	Selection string
+	// Message replaces the rows; when empty and there are no Items, the list
+	// reads "No results".
+	Message     string
+	MessageTone pickerTone
+	// Rows is the list height when the frame knows it; zero uses the height
+	// the viewport measured last frame.
+	Rows int
+	// Reveal scrolls the selection into view even when its key is unchanged,
+	// for frames whose rows can move under a kept selection.
+	Reveal     bool
+	OnActivate func(ui.EventContext, string)
+	OnToggle   func(ui.EventContext, string)
+}
+
+// pickerListState is the scroll position a picker frame keeps for its list
+// between builds. Its list rendering, highlight, overflow rows, wheel
+// scrolling, and pointer activation are shared by every picker frame.
+type pickerListState struct {
+	viewport      pickerViewportState
+	lastSelection string
+	hasSelection  bool
+}
+
+// build returns the list for one frame. setState applies scroll changes and
+// rebuild is called when the viewport height changes.
+func (s *pickerListState) build(theme ui.Theme, w pickerList, setState func(func()), rebuild func()) ui.Widget {
+	items := w.Items
 	if w.Message != "" || len(items) == 0 {
 		message := w.Message
 		if message == "" {
@@ -122,13 +168,16 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 	}
 	selection := pickerItemIndex(items, w.Selection)
 	reveal := -1
-	if !s.hasSelection || w.Selection != s.lastSelection {
+	if !s.hasSelection || w.Selection != s.lastSelection || w.Reveal {
 		reveal = selection
 		s.lastSelection, s.hasSelection = w.Selection, true
 	}
 	// Build rows for the window this height produced last frame; the viewport
 	// resolves the real height and a changed height rebuilds the run.
-	rows := s.viewport.Rows
+	rows := w.Rows
+	if rows <= 0 {
+		rows = s.viewport.Rows
+	}
 	if rows <= 0 {
 		rows = pickerModalMinHeight
 	}
@@ -136,9 +185,16 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 	first := window.Start
 	last := min(len(items), first+rows)
 	columns := measurePickerColumns(w.Catalog)
+	scrollBy := func(delta int) {
+		setState(func() { s.viewport.Start = max(0, s.viewport.Start+delta) })
+	}
+	scrollPage := func(direction int) {
+		page := max(1, s.viewport.Window.End-s.viewport.Window.Start-1)
+		scrollBy(direction * page)
+	}
 	built := make([]ui.Widget, 0, last-first+2)
-	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { s.scrollPage(-1) }})
-	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { s.scrollPage(1) }})
+	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { scrollPage(-1) }})
+	built = append(built, pickerOverflowRow{OnPressed: func(ui.EventContext) { scrollPage(1) }})
 	for index := first; index < last; index++ {
 		item := items[index]
 		var activate ui.VoidCallback
@@ -157,9 +213,9 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 		OnScroll: func(_ ui.EventContext, mouse ui.Mouse) ui.EventResult {
 			switch mouse.Button {
 			case ui.MouseWheelUp:
-				s.scrollBy(-1)
+				scrollBy(-1)
 			case ui.MouseWheelDown:
-				s.scrollBy(1)
+				scrollBy(1)
 			default:
 				return ui.EventIgnored
 			}
@@ -167,18 +223,9 @@ func (s *palettePickerState) list(theme ui.Theme, w palettePicker) ui.Widget {
 		},
 		Child: pickerViewport{
 			Count: len(items), First: first, Reveal: reveal, State: &s.viewport,
-			OnRowsChanged: s.MarkNeedsBuild, Children: built,
+			OnRowsChanged: rebuild, Children: built,
 		},
 	}
-}
-
-func (s *palettePickerState) scrollPage(direction int) {
-	page := max(1, s.viewport.Window.End-s.viewport.Window.Start-1)
-	s.scrollBy(direction * page)
-}
-
-func (s *palettePickerState) scrollBy(delta int) {
-	s.SetState(func() { s.viewport.Start = max(0, s.viewport.Start+delta) })
 }
 
 func pickerTitleRow(theme ui.Theme, title, meta string, tone pickerTone) ui.Widget {

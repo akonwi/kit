@@ -37,6 +37,9 @@ type pickerKeyResult struct {
 	DisabledReason string
 	// QueryChanged reports that typing, deletion, or paste edited the query.
 	QueryChanged bool
+	// Moved is -1 for Up and 1 for Down, so a caller can tell which way the
+	// highlight moved.
+	Moved int
 }
 
 // Items returns the catalog items visible for the current query.
@@ -71,18 +74,8 @@ func (m *pickerKeyModel) HandleKey(key ui.Key, catalog []pickerItem) pickerKeyRe
 	switch {
 	case key.MatchString("Escape"):
 		return pickerKeyResult{Handled: true, Dismiss: true}
-	case key.MatchString("Up"):
-		m.Move(catalog, -1)
-		return pickerKeyResult{Handled: true}
-	case key.MatchString("Down"):
-		m.Move(catalog, 1)
-		return pickerKeyResult{Handled: true}
-	case key.MatchString("Enter"):
-		result := pickerKeyResult{Handled: true, Activate: true}
-		if item, ok := pickerItemByKey(m.Items(catalog), m.Selection); ok {
-			result.DisabledReason = item.DisabledReason
-		}
-		return result
+	case key.MatchString("Up"), key.MatchString("Down"), key.MatchString("Enter"):
+		return m.navigate(key, catalog)
 	case key.MatchString("Ctrl+Backspace"):
 		if m.Query != "" {
 			m.SetQuery(deletePickerWordBackward(m.Query), catalog)
@@ -108,6 +101,40 @@ func (m *pickerKeyModel) HandleKey(key ui.Key, catalog []pickerItem) pickerKeyRe
 	}
 	m.SetQuery(query, catalog)
 	return pickerKeyResult{Handled: true, QueryChanged: true}
+}
+
+// HandleNavigationKey applies one key to an inline picker, whose query is the
+// composer text: Up/Down move with wraparound, Enter activates the
+// highlighted item, and Escape dismisses. Every other key, including text,
+// Backspace, Left, Right, and paste, is left unhandled so it reaches the
+// composer; the owner keeps Query in step with the composer through SetQuery.
+func (m *pickerKeyModel) HandleNavigationKey(key ui.Key, catalog []pickerItem) pickerKeyResult {
+	if key.EventType == ui.EventRelease || key.EventType == vaxis.EventPaste {
+		return pickerKeyResult{}
+	}
+	if key.MatchString("Escape") {
+		return pickerKeyResult{Handled: true, Dismiss: true}
+	}
+	return m.navigate(key, catalog)
+}
+
+// navigate applies the keys both modes share: Up, Down, and Enter.
+func (m *pickerKeyModel) navigate(key ui.Key, catalog []pickerItem) pickerKeyResult {
+	switch {
+	case key.MatchString("Up"):
+		m.Move(catalog, -1)
+		return pickerKeyResult{Handled: true, Moved: -1}
+	case key.MatchString("Down"):
+		m.Move(catalog, 1)
+		return pickerKeyResult{Handled: true, Moved: 1}
+	case key.MatchString("Enter"):
+		result := pickerKeyResult{Handled: true, Activate: true}
+		if item, ok := pickerItemByKey(m.Items(catalog), m.Selection); ok {
+			result.DisabledReason = item.DisabledReason
+		}
+		return result
+	}
+	return pickerKeyResult{}
 }
 
 // SetQuery replaces the query and highlights the first enabled match, or the

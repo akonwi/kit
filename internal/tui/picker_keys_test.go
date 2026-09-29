@@ -154,3 +154,48 @@ func pickerItemKeys(items []pickerItem) []string {
 	}
 	return keys
 }
+
+func TestPickerKeyModelNavigationModeLeavesEditingKeysToTheComposer(t *testing.T) {
+	t.Parallel()
+	model := pickerKeyModel{Query: "d", Selection: "diff"}
+	// "d" matches debug, diff, then the disabled cd; navigation wraps at
+	// both ends.
+	var visited []string
+	for _, key := range []ui.Key{{Keycode: vaxis.KeyDown}, {Keycode: vaxis.KeyDown}, {Keycode: vaxis.KeyUp}} {
+		result := model.HandleNavigationKey(key, pickerKeyTestCatalog())
+		if !result.Handled || result.QueryChanged || result.Activate || result.Dismiss {
+			t.Fatalf("move result = %+v, want a handled move", result)
+		}
+		visited = append(visited, model.Selection)
+	}
+	if got, want := visited, []string{"cd", "debug", "cd"}; got[0] != want[0] || got[1] != want[1] || got[2] != want[2] {
+		t.Fatalf("selections = %v, want %v", got, want)
+	}
+	if result := model.HandleNavigationKey(ui.Key{Keycode: vaxis.KeyUp}, pickerKeyTestCatalog()); result.Moved != -1 {
+		t.Fatalf("Up moved = %d, want -1", result.Moved)
+	}
+	if result := model.HandleNavigationKey(ui.Key{Keycode: vaxis.KeyEnter}, pickerKeyTestCatalog()); !result.Handled || !result.Activate {
+		t.Fatalf("Enter result = %+v, want activation", result)
+	}
+	if result := model.HandleNavigationKey(ui.Key{Keycode: vaxis.KeyEsc}, pickerKeyTestCatalog()); !result.Handled || !result.Dismiss {
+		t.Fatalf("Escape result = %+v, want dismissal", result)
+	}
+	// Text, deletion, cursor movement, and paste belong to the composer.
+	for name, key := range map[string]ui.Key{
+		"text":      {Text: "x", Keycode: 'x'},
+		"backspace": {Keycode: vaxis.KeyBackspace},
+		"ctrl+bs":   {Keycode: vaxis.KeyBackspace, Modifiers: vaxis.ModCtrl},
+		"left":      {Keycode: vaxis.KeyLeft},
+		"right":     {Keycode: vaxis.KeyRight},
+		"tab":       {Keycode: vaxis.KeyTab},
+		"paste":     {Text: "pasted", EventType: vaxis.EventPaste},
+		"release":   {Keycode: vaxis.KeyDown, EventType: ui.EventRelease},
+	} {
+		if result := model.HandleNavigationKey(key, pickerKeyTestCatalog()); result.Handled {
+			t.Fatalf("%s result = %+v, want unhandled", name, result)
+		}
+	}
+	if model.Query != "d" {
+		t.Fatalf("query = %q, want the navigation mode to leave it unchanged", model.Query)
+	}
+}
