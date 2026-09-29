@@ -45,6 +45,9 @@ private func vcsScript(_ port: Int) -> VCSScript {
         return VCSScript(chunks: [(0, ": connected\n\n")] + Array(repeating: (100, ": heartbeat\n\n"), count: 8) + [(100, vcsRecord(vcsFrame))])
     case 19614: return VCSScript(chunks: [(0, "event: vcs.status\ndata: {\"sessionId\":\"session_one\",\ndata: \"cwd\":\"/repo\"}\n\n")])
     case 19615: return VCSScript(chunks: [(0, "event: vcs.other\ndata: " + vcsFrame + "\n\n")])
+    case 19617: return VCSScript(status: 404, contentType: "text/plain", chunks: [(0, "404 page not found\n")])
+    case 19618: return VCSScript(status: 410, contentType: "application/json", chunks: [(0, errorBody("not_found"))])
+    case 19619: return VCSScript(status: 429, contentType: "application/json", chunks: [(0, errorBody("unavailable"))])
     case 19616: return VCSScript(chunks: [(0, vcsRecord(vcsFrame.replacingOccurrences(of: "\"number\":42", with: "\"number\":42,\"nu\\u006dber\":43")))])
     case 19620: return VCSScript(contentType: "application/json", chunks: [(0, vcsFrame)])
     case 19621:
@@ -69,6 +72,10 @@ private final class VCSResponse: URLProtocol, @unchecked Sendable {
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
         #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "server")
         #expect(request.value(forHTTPHeaderField: "X-Kit-Protocol-Version") == String(kitWireVersion))
+        if port == 19600 {
+            client?.urlProtocol(self, didFailWithError: URLError(.networkConnectionLost))
+            return
+        }
         let script = vcsScript(port)
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: script.status, httpVersion: nil,
             headerFields: ["Content-Type": script.contentType])!, cacheStoragePolicy: .notAllowed)
@@ -192,6 +199,11 @@ struct VCSStreamTests {
             (19614, { if case .invalidPayload = $0 { true } else { false } }),
             (19615, { if case .invalidPayload = $0 { true } else { false } }),
             (19616, { if case .invalidPayload = $0 { true } else { false } }),
+            // Pre-stream responses outside the contract: plain text, an
+            // undeclared status, and an undeclared code for a declared status.
+            (19617, { if case .invalidPayload = $0 { true } else { false } }),
+            (19618, { if case .invalidPayload = $0 { true } else { false } }),
+            (19619, { if case .invalidPayload = $0 { true } else { false } }),
         ]
         for (port, matches) in expectations {
             let collector = VCSCollector()
@@ -199,6 +211,12 @@ struct VCSStreamTests {
             guard let failure = error as? Kit.ClientError, matches(failure) else { Issue.record("\(port): \(String(describing: error))"); continue }
             #expect(await collector.count == 0)
         }
+    }
+
+    @Test func connectionFailuresBeforeAResponseStayTransient() async throws {
+        let error = await watch(19600, VCSCollector())
+        #expect(error != nil)
+        #expect(!(error is Kit.ClientError), "a connection failure must not be classified as a protocol violation: \(String(describing: error))")
     }
 
     @Test func boundsEachRecordButNotTheTotalStream() async throws {

@@ -488,9 +488,14 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
             )
         } catch let error as OpenAPIRuntime.ClientError {
-            // Preserve the transport's terminal classifications, such as a
-            // stream response with the wrong content type.
-            throw (error.underlyingError as? ClientError) ?? error
+            // Preserve the transport's classifications, such as a stream
+            // response with the wrong content type.
+            if let failure = error.underlyingError as? ClientError { throw failure }
+            // A response the contract cannot decode, such as an undeclared
+            // code or a body that is not the error envelope, is a protocol
+            // violation. Failures before any response remain transient.
+            if error.response != nil { throw ClientError.invalidPayload }
+            throw error
         }
         let body: HTTPBody
         switch output {
@@ -505,7 +510,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         case .tooManyRequests: throw ClientError.http(429)
         case .internalServerError: throw ClientError.http(500)
         case .serviceUnavailable: throw ClientError.http(503)
-        case .undocumented(let status, _): throw ClientError.http(status)
+        case .undocumented: throw ClientError.invalidPayload // Not a declared pre-stream failure.
         }
         for try await event in body.asDecodedServerSentEvents() {
             try Task.checkCancellation()
