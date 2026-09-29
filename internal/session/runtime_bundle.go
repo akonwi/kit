@@ -187,7 +187,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 			"This session's parent session ID is "+record.ParentSessionID+". This session has independent state."))
 	}
 	var subagents subagent.LoadResult
-	if b.subagentLoader != nil {
+	if record.Persistent && b.subagentLoader != nil {
 		subagents, err = b.subagentLoader.Load(ctx, record.CWD)
 		if err != nil {
 			return RuntimeBundle{}, err
@@ -237,7 +237,7 @@ func (b *defaultRuntimeBundleBuilder) Build(ctx context.Context, record SessionR
 		tools = append(tools, tool)
 	}
 	tools = append(tools, registry.ActivateTool())
-	if b.subagentLoader != nil {
+	if record.Persistent && b.subagentLoader != nil {
 		tool, toolErr := b.subagentToolFactory.Tool(record.ID, subagents.Catalog)
 		if toolErr != nil {
 			return RuntimeBundle{}, toolErr
