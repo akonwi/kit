@@ -35,9 +35,13 @@ KIT_HOME=/tmp/kit-dev/home /tmp/kit-dev/kit version
 ## Release build
 
 Release builds must define the version and commit; `--release` rejects
-defaults. Build values replace `-ldflags -X` version stamping.
+defaults. Build values replace `-ldflags -X` version stamping. `ard build`
+inherits the environment, so Go toolchain flags pass through `GOFLAGS`; append
+to an existing `GOFLAGS` rather than replacing it. With Go 1.22 and newer,
+`-s` also implies `-w`.
 
 ```sh
-CGO_ENABLED=1 GOFLAGS=-trimpath ard build main.ard --release \
+CGO_ENABLED=1 GOFLAGS="${GOFLAGS:+$GOFLAGS }-trimpath -ldflags=-s" \
+  ard build main.ard --release \
   --define version="$version" --define commit="$commit" --out "$out/kit"
 ```
