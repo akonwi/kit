@@ -190,9 +190,9 @@ func (h *bashHistoryController) HandleKey(key ui.Key) pickerKeyResult {
 
 // bashHistorySurface maps bash history onto the inline picker.
 type bashHistorySurface struct {
-	Controller  bashHistoryController
-	BottomInset func(int) int
-	OnSelect    func(ui.EventContext, string)
+	Controller bashHistoryController
+	Anchor     func(ui.Size) ui.Point
+	OnSelect   func(ui.EventContext, string)
 }
 
 func (w bashHistorySurface) Build(ui.BuildContext) ui.Widget {
@@ -201,7 +201,7 @@ func (w bashHistorySurface) Build(ui.BuildContext) ui.Widget {
 	picker := inlinePicker{
 		Query: model.Query, Catalog: catalog, Filter: model.Filter, Selection: model.Selection,
 		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
-		BottomInset: w.BottomInset,
+		Anchor: w.Anchor,
 	}
 	// The first durable page is in flight, so an empty list is not yet an
 	// answer and must not be presented as one.

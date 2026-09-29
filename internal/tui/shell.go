@@ -1158,39 +1158,67 @@ func (w shellView) pendingSlot(theme ui.Theme) ui.Widget {
 }
 
 // inlinePickerSurface maps the open inline picker onto the composer. Only
-// one inline picker owns input at a time.
+// one inline picker owns input at a time. Mentions rest on their trigger;
+// history pickers rest on the start of the composer.
 func (w shellView) inlinePickerSurface(owner inputOwner) ui.Widget {
-	inset := composerPickerInset(w.Snapshot.Composer)
+	composer := w.Snapshot.Composer
 	switch owner {
 	case inputFileMention:
 		return fileMentionSurface{
 			Controller: w.Snapshot.FileMention, Source: w.Snapshot.IndexedFiles,
-			BottomInset: inset, OnSelect: w.Callbacks.SelectFileMention,
+			Anchor: composerPickerAnchor(composer, w.Snapshot.FileMention.Anchor), OnSelect: w.Callbacks.SelectFileMention,
 		}
 	case inputSessionMention:
 		return sessionMentionSurface{
 			Controller: w.Snapshot.SessionMention, Source: w.Snapshot.SessionMentions,
-			BottomInset: inset, OnSelect: w.Callbacks.SelectSessionMention,
+			Anchor: composerPickerAnchor(composer, w.Snapshot.SessionMention.Anchor), OnSelect: w.Callbacks.SelectSessionMention,
 		}
 	case inputMessageHistory:
-		return messageHistorySurface{Controller: w.Snapshot.MessageHistory, BottomInset: inset, OnSelect: w.Callbacks.SelectMessageHistory}
+		return messageHistorySurface{Controller: w.Snapshot.MessageHistory, Anchor: composerPickerAnchor(composer, 0), OnSelect: w.Callbacks.SelectMessageHistory}
 	default:
-		return bashHistorySurface{Controller: w.Snapshot.BashHistory, BottomInset: inset, OnSelect: w.Callbacks.SelectBashHistory}
+		return bashHistorySurface{Controller: w.Snapshot.BashHistory, Anchor: composerPickerAnchor(composer, 0), OnSelect: w.Callbacks.SelectBashHistory}
 	}
 }
 
-// composerPickerInset keeps an inline picker above the composer: below it
-// stay the footer, its divider, the composer at its soft-wrapped height, the
-// composer separator, and the pending status row.
-func composerPickerInset(composer string) func(int) int {
-	return func(width int) int {
+// composerPickerAnchor locates byte offset in the composer on screen, so an
+// inline picker rests on the composer line where it was opened. The composer
+// sits above its divider and the footer, spans the overlay width with one
+// cell of padding on each side, soft-wraps, and shows its last lines when
+// taller than composerMaxHeight.
+func composerPickerAnchor(composer string, offset int) func(ui.Size) ui.Point {
+	return func(size ui.Size) ui.Point {
 		layout := ui.LayoutText(
 			[]ui.TextSpan{{Text: composer}},
-			ui.Constraints{MaxWidth: max(1, width-2)},
+			ui.Constraints{MaxWidth: max(1, size.Width-2)},
 			ui.TextLayoutOptions{SoftWrap: true},
 		)
-		return min(composerMaxHeight, max(1, len(layout.Lines))) + 4
+		lines := max(1, len(layout.Lines))
+		height := min(composerMaxHeight, lines)
+		top := size.Height - 2 - height
+		row, column, ok := composerTextCell(layout, min(max(0, offset), len(composer)))
+		if !ok {
+			return ui.Point{X: 0, Y: top}
+		}
+		visible := min(max(0, row-(lines-height)), height-1)
+		return ui.Point{X: column + 1, Y: top + visible}
 	}
+}
+
+// composerTextCell finds the cell of the character at byte offset. A
+// character that starts a wrapped line is found on that line, not at the end
+// of the line before it; an offset with no character, such as the end of the
+// text, falls back to the cursor position.
+func composerTextCell(layout ui.TextLayout, offset int) (row, column int, ok bool) {
+	for row, line := range layout.Lines {
+		column := line.Offset
+		for _, cell := range line.Cells {
+			if cell.Position.ByteOffset == offset {
+				return row, column, true
+			}
+			column += cell.Width
+		}
+	}
+	return layout.CellForPosition(ui.TextPosition{ByteOffset: offset})
 }
 
 func (w shellView) composerSeparatorColor(theme ui.Theme) ui.Color {

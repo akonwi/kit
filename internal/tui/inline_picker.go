@@ -22,9 +22,11 @@ const inlinePickerChromeRows = 4
 // input-owner route. Rows, filtering, and the footer are shared with
 // palettePicker.
 //
-// The picker is as wide as a palette picker, left-aligned with the composer.
-// Its height fits the visible rows, up to inlinePickerMaxRows, and it grows
-// upward: the bottom edge, next to the composer, never moves while filtering.
+// The picker is as wide as a palette picker and rests on the composer line
+// where it was opened, aligned with that point and moved left only as far as
+// it must to stay on screen. Its height fits the visible rows, up to
+// inlinePickerMaxRows, and it grows upward: the bottom edge, next to the
+// composer, never moves while filtering.
 type inlinePicker struct {
 	// Query is the picker's query, normally derived from the composer text.
 	// The visible rows are Filter(Query, Catalog).
@@ -47,14 +49,11 @@ type inlinePicker struct {
 	Status     string
 	StatusTone pickerTone
 	OnActivate func(ui.EventContext, string)
-	// Left is the composer's left edge, in columns from the overlay's left
-	// edge.
-	Left int
-	// BottomInset returns the rows between the overlay's bottom edge and the
-	// picker's bottom edge for an overlay width, so the owner can keep the
-	// picker directly above a composer whose height depends on wrapping. Nil
-	// places the picker at the bottom edge.
-	BottomInset func(width int) int
+	// Anchor returns, for the overlay size, the cell in the composer where
+	// the picker was opened, such as a mention's trigger. The picker's left
+	// edge sits at its column and its bottom edge on the row above it, so the
+	// picker rests on that line. Nil anchors the bottom-left corner.
+	Anchor func(ui.Size) ui.Point
 }
 
 // items returns the rows an inline picker shows for its query.
@@ -89,52 +88,49 @@ func (s *inlinePickerState) Build(ctx ui.BuildContext) ui.Widget {
 		Rows: rows, Reveal: moved, OnActivate: w.OnActivate,
 	}, s.SetState, s.MarkNeedsBuild)
 	return inlinePickerPositioner{
-		Left: w.Left, BottomInset: w.BottomInset, Height: rows + inlinePickerChromeRows,
+		Anchor: w.Anchor, Height: rows + inlinePickerChromeRows,
 		Child: pickerFrame(theme, nil, list, pickerFooter(theme, w.Footer, w.Status, w.StatusTone)),
 	}
 }
 
 // inlinePickerPositioner fills the overlay and places its child with the
-// palette picker width rule at Left, bottom-aligned BottomInset rows above
-// the overlay's bottom edge.
+// palette picker width rule, its left edge at the anchor's column (clamped
+// on screen) and its bottom edge on the row above the anchor.
 type inlinePickerPositioner struct {
-	Left        int
-	BottomInset func(width int) int
-	Height      int
-	Child       ui.Widget
+	Anchor func(ui.Size) ui.Point
+	Height int
+	Child  ui.Widget
 }
 
 func (w inlinePickerPositioner) WidgetChild() ui.Widget { return w.Child }
 
 func (w inlinePickerPositioner) CreateRenderObject(ui.BuildContext) ui.RenderObject {
-	return &renderInlinePickerPositioner{Left: w.Left, BottomInset: w.BottomInset, Height: w.Height}
+	return &renderInlinePickerPositioner{Anchor: w.Anchor, Height: w.Height}
 }
 
 func (w inlinePickerPositioner) UpdateRenderObject(_ ui.BuildContext, object ui.RenderObject) {
 	render := object.(*renderInlinePickerPositioner)
-	// BottomInset is a function, so every update is laid out again.
-	render.Left, render.BottomInset, render.Height = w.Left, w.BottomInset, w.Height
+	// Anchor is a function, so every update is laid out again.
+	render.Anchor, render.Height = w.Anchor, w.Height
 	render.MarkNeedsLayout()
 }
 
 type renderInlinePickerPositioner struct {
 	ui.SingleChildRenderObject
-	Left        int
-	BottomInset func(width int) int
-	Height      int
-	offset      ui.Offset
+	Anchor func(ui.Size) ui.Point
+	Height int
+	offset ui.Offset
 }
 
 func (r *renderInlinePickerPositioner) Layout(ctx ui.LayoutContext, constraints ui.Constraints) {
 	size := pickerDialogViewportSize(constraints)
-	left := max(0, min(r.Left, size.Width))
-	width := max(pickerMinWidth, min(pickerMaxWidth, size.Width*pickerWidthPercent/100))
-	width = min(width, size.Width-left)
-	inset := 0
-	if r.BottomInset != nil {
-		inset = max(0, r.BottomInset(size.Width))
+	anchor := ui.Point{Y: size.Height}
+	if r.Anchor != nil {
+		anchor = r.Anchor(size)
 	}
-	bottom := max(0, size.Height-inset)
+	width := min(size.Width, max(pickerMinWidth, min(pickerMaxWidth, size.Width*pickerWidthPercent/100)))
+	left := max(0, min(anchor.X, size.Width-width))
+	bottom := max(0, min(anchor.Y, size.Height))
 	height := min(r.Height, bottom)
 	if child := r.Child(); child != nil {
 		child.Layout(ctx, ui.Tight(ui.Size{Width: width, Height: height}))

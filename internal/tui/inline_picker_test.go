@@ -12,31 +12,55 @@ import (
 )
 
 // inlinePickerBox returns the rows of the inline picker painted lowest on the
-// screen, from its top border to its bottom border, cut to its width.
+// screen, from its top border to its bottom border, cut to its columns.
 func inlinePickerBox(t *testing.T, rows []string) (top int, box []string) {
 	t.Helper()
+	top, _, box = inlinePickerFrame(t, rows)
+	return top, box
+}
+
+// inlinePickerFrame also returns the picker's left column.
+func inlinePickerFrame(t *testing.T, rows []string) (top, left int, box []string) {
+	t.Helper()
 	bottom := -1
-	for row := len(rows) - 1; row >= 0; row-- {
-		if strings.HasPrefix(strings.TrimLeft(rows[row], " "), "└") {
+	for row := len(rows) - 1; row >= 0 && bottom < 0; row-- {
+		if strings.Contains(rows[row], "└") {
 			bottom = row
-			break
 		}
 	}
 	top = -1
-	for row := bottom; row >= 0; row-- {
-		if strings.HasPrefix(strings.TrimLeft(rows[row], " "), "┌") {
+	for row := bottom; row >= 0 && bottom >= 0 && top < 0; row-- {
+		if strings.Contains(rows[row], "┌") {
 			top = row
-			break
 		}
 	}
 	if bottom < 0 || top < 0 {
 		t.Fatalf("no inline picker painted:\n%s", strings.Join(rows, "\n"))
 	}
-	end := len([]rune(rows[top][:strings.Index(rows[top], "┐")])) + 1
-	for row := top; row <= bottom; row++ {
-		box = append(box, string([]rune(rows[row])[:end]))
+	corner := []rune(rows[top])
+	left = -1
+	right := -1
+	for column, character := range corner {
+		switch character {
+		case '┌':
+			left = column
+		case '┐':
+			right = column
+		}
 	}
-	return top, box
+	for row := top; row <= bottom; row++ {
+		box = append(box, string([]rune(rows[row])[left:right+1]))
+	}
+	return top, left, box
+}
+
+// assertInlinePickerOrigin asserts the picker's top-left corner and height.
+func assertInlinePickerOrigin(t *testing.T, rows []string, wantLeft, wantBottom int) {
+	t.Helper()
+	top, left, box := inlinePickerFrame(t, rows)
+	if bottom := top + len(box) - 1; left != wantLeft || bottom != wantBottom {
+		t.Fatalf("picker left column = %d bottom row = %d, want %d and %d", left, bottom, wantLeft, wantBottom)
+	}
 }
 
 // assertInlinePickerRows asserts the exact rows of the painted inline picker.
@@ -67,52 +91,52 @@ func renderInlinePicker(picker inlinePicker, width, height int) (*uitest.App, []
 	return application, paintedRows(application, width, height)
 }
 
-func insetRows(rows int) func(int) int { return func(int) int { return rows } }
+// anchorAt anchors a picker at a fixed cell.
+func anchorAt(x, y int) func(ui.Size) ui.Point {
+	return func(ui.Size) ui.Point { return ui.Point{X: x, Y: y} }
+}
 
-func TestInlinePickerSharesPaletteRowsAndFooterLeftAlignedAboveTheInset(t *testing.T) {
+func TestInlinePickerSharesPaletteRowsAndFooterRestingOnItsAnchor(t *testing.T) {
 	t.Parallel()
 	_, rows := renderInlinePicker(inlinePicker{
 		Catalog: pickerTestItems(), Selection: "main", Footer: "↑↓ move · enter insert · esc close",
-		Left: 2, BottomInset: insetRows(3),
+		Anchor: anchorAt(2, 21),
 	}, 80, 24)
-	top, _ := inlinePickerBox(t, rows)
 	// No title or search field: the rows start under the top border, and the
 	// footer sits below a divider that joins both borders.
 	assertInlinePickerRows(t, rows, []string{
-		"  ┌──────────────────────────────────────────────────────────────┐",
-		"  │ Working tree                    Uncommitted chang…  2 drafts │",
-		"  │▌main                   736efa9  docs(backlog): re…           │",
-		"  │ feat/openapi-contract  5ada7e8  feat(protocol): p…   1 draft │",
-		"  │ locked                          ⊘ idle only · Nee…           │",
-		"  ├──────────────────────────────────────────────────────────────┤",
-		"  │ ↑↓ move · enter insert · esc close                           │",
-		"  └──────────────────────────────────────────────────────────────┘",
+		"┌──────────────────────────────────────────────────────────────┐",
+		"│ Working tree                    Uncommitted chang…  2 drafts │",
+		"│▌main                   736efa9  docs(backlog): re…           │",
+		"│ feat/openapi-contract  5ada7e8  feat(protocol): p…   1 draft │",
+		"│ locked                          ⊘ idle only · Nee…           │",
+		"├──────────────────────────────────────────────────────────────┤",
+		"│ ↑↓ move · enter insert · esc close                           │",
+		"└──────────────────────────────────────────────────────────────┘",
 	})
-	if top != 13 {
-		t.Fatalf("top border row = %d, want 13 so the bottom border sits 3 rows above the screen edge", top)
-	}
+	// The left edge sits on the anchor's column and the bottom edge on the
+	// row above it.
+	assertInlinePickerOrigin(t, rows, 2, 20)
 }
 
-func TestInlinePickerWidthFollowsThePalettePickerRule(t *testing.T) {
+func TestInlinePickerWidthFollowsThePalettePickerRuleAndStaysOnScreen(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name         string
-		width, left  int
-		wantX, wantW int
+		name                string
+		width, anchor       int
+		wantLeft, wantWidth int
 	}{
-		{name: "80 percent", width: 80, wantW: 64},
-		{name: "minimum", width: 50, wantW: 48},
-		{name: "maximum", width: 200, wantW: 96},
-		{name: "narrow terminal", width: 40, wantW: 40},
-		{name: "left edge", width: 80, left: 20, wantX: 20, wantW: 60},
+		{name: "80 percent", width: 80, anchor: 5, wantLeft: 5, wantWidth: 64},
+		{name: "minimum", width: 50, wantWidth: 48},
+		{name: "maximum", width: 200, anchor: 30, wantLeft: 30, wantWidth: 96},
+		{name: "narrow terminal", width: 40, anchor: 5, wantWidth: 40},
+		{name: "anchor near the right edge", width: 80, anchor: 40, wantLeft: 16, wantWidth: 64},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			_, rows := renderInlinePicker(inlinePicker{Catalog: pickerTestItems(), Footer: "esc close", Left: test.left}, test.width, 24)
-			top, _ := inlinePickerBox(t, rows)
-			border := []rune(rows[top])
-			want := strings.Repeat(" ", test.wantX) + "┌" + strings.Repeat("─", test.wantW-2) + "┐"
-			if got := strings.TrimRight(string(border), " "); got != want {
-				t.Fatalf("top border = %q, want %q", got, want)
+			_, rows := renderInlinePicker(inlinePicker{Catalog: pickerTestItems(), Footer: "esc close", Anchor: anchorAt(test.anchor, 24)}, test.width, 24)
+			_, left, box := inlinePickerFrame(t, rows)
+			if width := len([]rune(box[0])); left != test.wantLeft || width != test.wantWidth {
+				t.Fatalf("picker left = %d width = %d, want %d and %d", left, width, test.wantLeft, test.wantWidth)
 			}
 		})
 	}
@@ -122,7 +146,7 @@ func TestInlinePickerGrowsUpwardWithAFixedBottomEdgeWhileFiltering(t *testing.T)
 	t.Parallel()
 	render := func(query string) []string {
 		_, rows := renderInlinePicker(inlinePicker{
-			Query: query, Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", BottomInset: insetRows(3),
+			Query: query, Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", Anchor: anchorAt(0, 21),
 		}, 80, 24)
 		return rows
 	}
@@ -184,7 +208,7 @@ func inlinePickerListRows(t *testing.T, rows []string) []string {
 func TestInlinePickerFitsTenRowsAndOverflowRowsScrollAPage(t *testing.T) {
 	t.Parallel()
 	items := inlinePickerNumberedItems(30)
-	application, rows := renderInlinePicker(inlinePicker{Catalog: items, Selection: "0", Footer: "esc close", BottomInset: insetRows(3)}, 80, 24)
+	application, rows := renderInlinePicker(inlinePicker{Catalog: items, Selection: "0", Footer: "esc close", Anchor: anchorAt(0, 21)}, 80, 24)
 	want := []string{"▌Item 00", " Item 01", " Item 02", " Item 03", " Item 04", " Item 05", " Item 06", " Item 07", " Item 08", " " + glyphEllipsis}
 	if got := inlinePickerListRows(t, rows); strings.Join(got, "|") != strings.Join(want, "|") {
 		t.Fatalf("list = %q, want %q", got, want)
@@ -302,7 +326,7 @@ func (s *inlinePickerHostState) update(change func(*inlinePicker)) {
 func TestInlinePickerKeepsItsBottomEdgeAndSelectionWhileTheCatalogChanges(t *testing.T) {
 	t.Parallel()
 	host := &inlinePickerHostState{picker: inlinePicker{
-		Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", BottomInset: insetRows(3),
+		Catalog: pickerTestItems(), Selection: "main", Footer: "esc close", Anchor: anchorAt(0, 21),
 	}}
 	application := uitest.New(inlinePickerHost{state: host})
 	pump := func() []string {

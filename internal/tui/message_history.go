@@ -141,9 +141,9 @@ func oneLine(value string) string {
 
 // messageHistorySurface maps message history onto the inline picker.
 type messageHistorySurface struct {
-	Controller  messageHistoryController
-	BottomInset func(int) int
-	OnSelect    func(ui.EventContext, string)
+	Controller messageHistoryController
+	Anchor     func(ui.Size) ui.Point
+	OnSelect   func(ui.EventContext, string)
 }
 
 func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
@@ -151,6 +151,6 @@ func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
 	return inlinePicker{
 		Query: model.Query, Catalog: w.Controller.catalog(), Filter: model.Filter, Selection: model.Selection,
 		Footer: "↑↓ move · enter insert · esc close", OnActivate: w.OnSelect,
-		BottomInset: w.BottomInset,
+		Anchor: w.Anchor,
 	}
 }

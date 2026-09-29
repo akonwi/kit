@@ -277,8 +277,10 @@ their terminal's native workflow.
   `inlinePicker` widget (`internal/tui/inline_picker.go`). It shares the
   palette picker's items, filter, row rendering, and navigation keys, and
   shows footer hints below a full-width divider. Its width follows the
-  palette picker rule, left-aligned with the composer; its height fits the
-  content up to 10 rows and grows upward so the edge next to the composer
+  palette picker rule. It rests on the composer line where it was opened,
+  with its left edge at that point (a mention's trigger, or the start of the
+  composer for history), shifted left only to stay on screen; its height fits
+  the content up to 10 rows and grows upward so the edge next to the composer
   never moves. Other attached lists, such as the
   transcript reading section list, use the same presentation without a query.
 - A workspace pane that lists items, such as Subagents, is neither; it is a

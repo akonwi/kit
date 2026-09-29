@@ -158,14 +158,12 @@ func inlineMenuBox(list ...string) []string {
 	)
 }
 
-// assertInlineMenuBottom asserts the picker's bottom border sits directly
-// above the pending row and composer separator of a one-line composer.
-func assertInlineMenuBottom(t *testing.T, rows []string) {
+// assertInlineMenuAnchor asserts the picker's left edge sits on the column
+// of the composer character it was opened at, and its bottom border on the
+// composer separator directly above a one-line composer.
+func assertInlineMenuAnchor(t *testing.T, rows []string, column int) {
 	t.Helper()
-	top, box := inlinePickerBox(t, rows)
-	if bottom := top + len(box) - 1; bottom != inlineMenuHeight-6 {
-		t.Fatalf("picker bottom border row = %d, want %d", bottom, inlineMenuHeight-6)
-	}
+	assertInlinePickerOrigin(t, rows, column, inlineMenuHeight-4)
 }
 
 func TestFileMentionInlinePickerFollowsTheComposer(t *testing.T) {
@@ -178,13 +176,15 @@ func TestFileMentionInlinePickerFollowsTheComposer(t *testing.T) {
 		" internal/tui/shell.go",
 		" README.md",
 	))
-	assertInlineMenuBottom(t, rows)
+	// The picker rests on the composer line at the "@" in "see @".
+	assertInlineMenuAnchor(t, rows, len(" see "))
 
-	// Typing into the composer filters and highlights the first match.
+	// Typing into the composer filters and highlights the first match; the
+	// bottom edge stays put while the picker shrinks.
 	typeText(application, "tui")
 	rows = state.rows(application)
 	assertInlinePickerRows(t, rows, inlineMenuBox("▌internal/tui/app.go", " internal/tui/shell.go"))
-	assertInlineMenuBottom(t, rows)
+	assertInlineMenuAnchor(t, rows, len(" see "))
 
 	// Up and Down wrap.
 	for _, step := range []struct {
@@ -283,7 +283,7 @@ func TestSessionMentionInlinePickerFollowsTheComposer(t *testing.T) {
 		" Tests            /repo/verification                   3d ago",
 		" Unnamed session  /srv                                10m ago",
 	))
-	assertInlineMenuBottom(t, rows)
+	assertInlineMenuAnchor(t, rows, 1)
 
 	// The working directory and ID are matched too.
 	typeText(application, "verif")
@@ -397,7 +397,7 @@ func TestMessageHistoryInlinePickerFiltersByTheComposer(t *testing.T) {
 	// Oldest first, so the newest prompt sits nearest the composer and is
 	// highlighted; there is no title or search field.
 	assertInlinePickerRows(t, rows, inlineMenuBox(" git log", " deploy staging", "▌git status"))
-	assertInlineMenuBottom(t, rows)
+	assertInlineMenuAnchor(t, rows, 1)
 
 	// Typing edits the composer and filters, keeping chronological order and
 	// highlighting the newest match.
@@ -407,7 +407,7 @@ func TestMessageHistoryInlinePickerFiltersByTheComposer(t *testing.T) {
 		t.Fatalf("composer = %q, want the typed query", state.composer)
 	}
 	assertInlinePickerRows(t, rows, inlineMenuBox(" git log", "▌git status"))
-	assertInlineMenuBottom(t, rows)
+	assertInlineMenuAnchor(t, rows, 1)
 
 	// Down wraps from the newest to the oldest match; Up wraps back.
 	for _, step := range []struct {
@@ -541,7 +541,7 @@ func TestBashHistoryInlinePickerFiltersByTheCommandAfterTheBang(t *testing.T) {
 	// Each row is the text Enter inserts, oldest first with the newest match
 	// nearest the composer and highlighted; "!!" keeps output out of context.
 	assertInlinePickerRows(t, rows, inlineMenuBox(" !git status", "▌!!git log --oneline"))
-	assertInlineMenuBottom(t, rows)
+	assertInlineMenuAnchor(t, rows, 1)
 
 	// Typing edits the composer and filters.
 	typeText(application, " s")
@@ -660,5 +660,45 @@ func TestBashHistoryInlinePickerLoadsOlderPagesAtTheTop(t *testing.T) {
 	state.rows(application)
 	if state.bashHistory.Selection != "bash_13" {
 		t.Fatalf("selection = %q, want the wrap to the newest entry", state.bashHistory.Selection)
+	}
+}
+
+func TestComposerPickerAnchorFollowsTheWrappedTrigger(t *testing.T) {
+	t.Parallel()
+	size := ui.Size{Width: 80, Height: 24}
+	// 78 columns of text fit one composer line, so "@src" wraps to a second
+	// line; the composer then spans rows 20 and 21 above its divider.
+	long := strings.Repeat("word ", 15) + "@src"
+	many := strings.Repeat("line\n", 12) + "see @"
+	for _, test := range []struct {
+		name     string
+		composer string
+		offset   int
+		want     ui.Point
+	}{
+		{name: "start", composer: "", want: ui.Point{X: 1, Y: 21}},
+		{name: "after text", composer: "see @", offset: 4, want: ui.Point{X: 5, Y: 21}},
+		{name: "wrapped", composer: long, offset: strings.Index(long, "@"), want: ui.Point{X: 1, Y: 21}},
+		{name: "first of two lines", composer: long, want: ui.Point{X: 1, Y: 20}},
+		// Taller than ten lines, the composer shows its last ten.
+		{name: "scrolled", composer: many, offset: strings.Index(many, "@"), want: ui.Point{X: 5, Y: 21}},
+		{name: "scrolled out", composer: many, want: ui.Point{X: 1, Y: 12}},
+	} {
+		if got := composerPickerAnchor(test.composer, test.offset)(size); got != test.want {
+			t.Errorf("%s anchor = %+v, want %+v", test.name, got, test.want)
+		}
+	}
+}
+
+func TestFileMentionOnAWrappedLineRestsOnTheLineAbove(t *testing.T) {
+	application, state := mountInlineMenu(t, func(state *appState) { state.indexedFiles = fileMentionTestIndex() })
+	typeText(application, strings.Repeat("word ", 15)+"@tui")
+	rows := state.rows(application)
+	assertInlinePickerRows(t, rows, inlineMenuBox("▌internal/tui/app.go", " internal/tui/shell.go"))
+	// The composer wraps to rows 20 and 21; the picker covers the first line
+	// and rests directly above the "@" on the second.
+	assertInlinePickerOrigin(t, rows, 1, inlineMenuHeight-4)
+	if got := strings.TrimRight(rows[inlineMenuHeight-3], " "); got != " @tui" {
+		t.Fatalf("trigger line = %q, want it visible below the picker", got)
 	}
 }
