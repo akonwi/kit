@@ -106,7 +106,7 @@ struct ReviewPane: View {
             let model = model, session = state.selectedID
             Task { await model.refresh(client: client, session: session) }
         }
-        .task(id: state.selectedID + String(active) + (state.selected?.cwd ?? "")) {
+        .task(id: "\(state.selectedID)\(active)\(state.selected?.cwd ?? "")") {
             guard active, let client else { return }
             let model = model, session = state.selectedID, annotations = state.annotationState
             while !Task.isCancelled {
@@ -121,7 +121,7 @@ struct ReviewPane: View {
                 }
             }
         }
-        .task(id: String(active) + (state.selected?.cwd ?? "") + model.navigationToken.uuidString) {
+        .task(id: "\(active)\(state.selected?.cwd ?? "")\(model.navigationToken.uuidString)") {
             guard active, let client else { return }
             let model = model, session = state.selectedID, annotations = state.annotationState
             if let note = model.navigation {
