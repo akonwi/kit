@@ -64,7 +64,7 @@ func TestScratchpadCatalogHandlersPreserveWireBytes(t *testing.T) {
 	mux := http.NewServeMux()
 	registerSessionRoutes(mux, scratchpadWireTestService{record: record})
 	var contractErr error
-	handler := scratchpadConformanceMiddleware(t, mux, func(err error) { contractErr = err })
+	handler := contractConformanceMiddleware(t, mux, func(err error) { contractErr = err })
 	want := "{\"ownerSessionId\":\"session_0123456789abcdef0123456789abcdef\",\"content\":\"shared\",\"revision\":\"2\",\"updatedAt\":\"2026-03-23T12:34:56Z\"}\n"
 	for _, test := range []struct{ method, body string }{
 		{http.MethodGet, ""},
