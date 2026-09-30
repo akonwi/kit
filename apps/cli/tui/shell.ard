@@ -1,6 +1,7 @@
 use ard/async
 
 use cooper/cui
+use cooper/event
 use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/protocol
@@ -50,6 +51,7 @@ struct Shell {
   context_window: Int,
   notice: Str,
   composer: Str,
+  latest_out_of_view: Bool,
   list: mut cui::VirtualListRef,
 }
 
@@ -74,6 +76,7 @@ fn new(props: mut Props) mut Shell {
     context_window: 0,
     notice: "",
     composer: "",
+    latest_out_of_view: false,
     list: cui::virtual_list_ref(),
   })
 }
@@ -144,6 +147,7 @@ fn transcript_pane(
   messages: [transcript::Message],
   session_id: Str,
   list: mut cui::VirtualListRef,
+  on_update: fn(cui::VirtualListUpdate, cui::Context),
 ) cui::View {
   let shown = mut List::new<transcript::Message>()
   for message in messages {
@@ -181,6 +185,7 @@ fn transcript_pane(
         key: "transcript:{session_id}",
         ref: list,
         follow_edge: cui::ScrollEdge::end,
+        on_update: on_update,
         styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       )
     },
@@ -499,12 +504,12 @@ impl Shell {
   fn mut conversation() cui::View {
     let colors = self.props.theme
     cui::box(
-      [self.transcript_view(), self.pending_row(), divider(colors.border), self.composer_view()],
+      [self.transcript_region(), self.pending_row(), divider(colors.border), self.composer_view()],
       styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
     )
   }
 
-  fn transcript_view() cui::View {
+  fn mut transcript_view() cui::View {
     let messages = mut List::new<transcript::Message>()
     for message in self.messages {
       messages.push(message)
@@ -516,7 +521,60 @@ impl Shell {
       info => info.ID,
       _ => "",
     }
-    transcript_pane(self.props.theme, messages.@, session_id, self.list)
+    transcript_pane(
+      self.props.theme,
+      messages.@,
+      session_id,
+      self.list,
+      fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        self.latest_out_of_view = not update.state.last_item_visible
+      },
+    )
+  }
+
+  // The latest shortcut is based on the VirtualList's committed visibility,
+  // rather than estimates from its pre-layout rows. It remains hidden while
+  // any portion of a tall latest reply is visible.
+  fn mut transcript_region() cui::View {
+    let children = mut List::new<cui::View>()
+    children.push(self.transcript_view())
+    if self.latest_out_of_view {
+      children.push(self.latest_button())
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        position: ui::Position::relative,
+        overflow: ui::Overflow::visible,
+      ),
+    )
+  }
+
+  fn latest_button() cui::View {
+    let colors = self.props.theme
+    cui::box(
+      [line("↓ Latest", ui::text_style(foreground: colors.foreground))],
+      styles: ui::style(
+        position: ui::Position::absolute,
+        right: ui::cells(1),
+        bottom: ui::cells(1),
+        z_index: 1,
+        background: colors.surface_raised,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      on_mouse: fn(mouse: mut event::MouseEvent, ctx: cui::Context) {
+        if mouse.event_type == event::MouseEventType::down and mouse.button == event::MouseButton::left {
+          self.request_end()
+        }
+      },
+    )
   }
 
   fn pending_row() cui::View {

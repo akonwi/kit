@@ -40,6 +40,8 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   try check("muted", colors.muted, ui::rgb(122, 127, 137))
   try check("disabled", colors.disabled, ui::rgb(96, 101, 110))
   try check("primary_text", colors.primary_text, ui::rgb(118, 187, 245))
+  try check("surface", colors.surface, ui::rgb(47, 52, 60))
+  try check("surface_raised", colors.surface_raised, ui::rgb(58, 63, 71))
   // 18% of the primary text color over the surface in a dark theme.
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
