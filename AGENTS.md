@@ -86,6 +86,9 @@ asked.
 - UI presentation tests must assert the visible content, style, geometry, focus,
   or interaction that is expected. Prefer exact expected rows, cells, snapshots,
   and state transitions so each test documents the intended experience.
+- Ard unit tests normally live beside the code they cover. Use a separate test
+  file when the scenario is complex or needs a dedicated harness; do not add
+  unit tests for simple code without meaningful behavior to protect.
 - Do not define presentation behavior by asserting that unwanted text, glyphs,
   or styles are absent. Use negative assertions only when a test explicitly
   captures a discovered regression.
