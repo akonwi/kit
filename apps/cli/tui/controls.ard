@@ -97,9 +97,9 @@ impl Button {
       ButtonVariant::danger => self.props.colors.danger,
       ButtonVariant::secondary => {
         match {
-          self.pressed => self.props.colors.surface,
+          self.pressed => self.props.colors.surface_pressed,
           self.hovered or self.focused => self.props.colors.surface_hovered,
-          _ => self.props.colors.surface_raised,
+          _ => self.props.colors.surface,
         }
       },
     }
@@ -128,10 +128,15 @@ impl Button {
           self.focused = true
         }
         self.pressed = true
+        received.prevent_default()
+      }
+    } else if received.event_type == event::MouseEventType::up {
+      if received.button == event::MouseButton::left and self.pressed {
+        self.pressed = false
         let _ = self.props.command.invoke()
         received.prevent_default()
       }
-    } else if received.event_type == event::MouseEventType::up or received.event_type == event::MouseEventType::drag_end {
+    } else if received.event_type == event::MouseEventType::drag_end {
       self.pressed = false
     }
   }
