@@ -1,0 +1,127 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use go:github.com/akonwi/kit/internal/protocol
+use kit/tui/shell
+use kit/tui/theme
+use kit/tui/transcript
+use go:strings
+
+struct Model {
+  messages: [transcript::Message],
+}
+
+struct HostProps {
+  model: mut Model,
+}
+
+// Hosts the transcript pane the way the shell does: a fixed-height column
+// that owns the scroll box ref.
+struct Host {
+  model: mut Model,
+  list: mut cui::VirtualListRef,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{model: props.model, list: cui::virtual_list_ref()})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    shell::transcript_pane(theme::system(), self.model.messages, "session-1", self.list)
+  }
+}
+
+fn replies(count: Int) [transcript::Message] {
+  let messages = mut List::new<protocol::TranscriptMessage>()
+  mut index = 1
+  while index <= count {
+    messages.push(
+      protocol::TranscriptMessage{
+        ID: "reply-{index}",
+        Role: "assistant",
+        Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "reply {index}"}],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(messages.@)
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn render(count: Int) [Str] {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{messages: replies(count)}
+  let renderer = cui::mount(app, cui::child(host, HostProps{model: model}))
+  defer renderer.destroy()
+  terminal.flush()
+  rows(terminal)
+}
+
+test fn opening_a_long_transcript_shows_its_latest_message() Void!Str {
+  // The scrollbar thumb rests at the bottom of the track.
+  expect_rows(
+    render(8),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
+  )
+}
+
+test fn a_short_transcript_rests_on_the_composer() Void!Str {
+  expect_rows(render(2), ["", "", " reply 1", "", " reply 2", ""])
+}
+
+test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{messages: replies(8)}
+  let renderer = cui::mount(app, cui::child(host, HostProps{model: model}))
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    model.messages = replies(9)
+  })
+  terminal.flush()
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             │",
+      " reply 9                     │",
+      "                             ┃",
+    ],
+  )
+}

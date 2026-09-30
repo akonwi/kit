@@ -92,8 +92,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
 Upstream dependencies:
 
-- Cooper: a bottom-following virtual list (TUI-COOPER-003), terminal
-  foreground, background, and palette queries (TUI-COOPER-013), and a CUI
+- Cooper: a post-layout notification when a virtual list's follow state or
+  item visibility changes, for the latest-message shortcut and older-history
+  loading, and a settled signal after initial layout (TUI-COOPER-003); terminal
+  foreground, background, and palette queries (TUI-COOPER-013); and a CUI
   `text_area` submit callback (TUI-COOPER-004; currently a keymap binding).
 
 ## Scope decisions
