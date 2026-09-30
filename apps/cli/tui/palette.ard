@@ -1,0 +1,205 @@
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+use go:strings
+
+// Item is one flat palette row. search_terms participate in matching without
+// being displayed, so providers can be found by their authentication method.
+struct Item {
+  key: Str,
+  label: Str,
+  description: Str,
+  search_terms: [Str],
+  disabled_reason: Str,
+}
+
+struct Props {
+  colors: theme::Theme,
+  placeholder: Str,
+  catalog: [Item],
+  query: Str,
+  selection: Str,
+  on_query_change: fn(Str),
+  on_selection_change: fn(Str),
+  on_activate: fn(Item),
+}
+
+fn items(props: Props) [Item] {
+  let query = strings::ToLower(strings::TrimSpace(props.query))
+  if query == "" {
+    props.catalog
+  } else {
+    let result = mut List::new<Item>()
+    for item in props.catalog {
+      mut searchable = "{item.label} {item.description}"
+      for term in item.search_terms {
+        searchable = "{searchable} {term}"
+      }
+      if strings::ToLower(searchable).contains(query) {
+        result.push(item)
+      }
+    }
+    result.@
+  }
+}
+
+fn first_enabled(items: [Item]) Str {
+  mut result = ""
+  mut found = false
+  for item in items {
+    if result == "" {
+      result = item.key
+    }
+    if item.disabled_reason == "" and not found {
+      result = item.key
+      found = true
+    }
+  }
+  result
+}
+
+fn selected(items: [Item], key: Str) Item? {
+  mut result = Maybe::new<Item>()
+  for item in items {
+    if item.key == key {
+      result = Maybe::new(item)
+    }
+  }
+  result
+}
+
+fn header(props: Props) [cui::View] {
+  [
+    cui::input(
+      props.query,
+      key: "palette.search",
+      placeholder: props.placeholder,
+      autofocus: true,
+      styles: ui::style(
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+        background: props.colors.background,
+      ),
+      on_input: fn(value: Str, ctx: cui::Context) {
+        props.on_query_change(value)
+      },
+      on_submit: fn(value: Str, ctx: cui::Context) {
+        selected(
+          items(props),
+          props.selection,
+        ).map(fn(item) {
+          if item.disabled_reason == "" {
+            props.on_activate(item)
+          } else {
+            ()
+          }
+        })
+      },
+    ),
+    cui::divider(),
+  ]
+}
+
+fn body(props: Props) cui::View {
+  let visible = items(props)
+  let rows = mut List::new<cui::View>()
+  if visible.size() == 0 {
+    rows.push(cui::text("No results", text_style: ui::text_style(foreground: props.colors.muted)))
+  } else {
+    for item in visible {
+      rows.push(row(props, item, item.key == props.selection))
+    }
+  }
+  cui::box(rows.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)))
+}
+
+private fn row(props: Props, item: Item, active: Bool) cui::View {
+  let fill = match active {
+    true => props.colors.surface_hovered,
+    false => props.colors.background,
+  }
+  let label_color = match item.disabled_reason != "" {
+    true => props.colors.disabled,
+    false => props.colors.foreground,
+  }
+  let description = match item.disabled_reason == "" {
+    true => item.description,
+    false => "⊘ {item.disabled_reason}",
+  }
+  cui::box(
+    [
+      cui::text(
+        match active {
+          true => "▌",
+          false => " ",
+        },
+        text_style: ui::text_style(foreground: props.colors.primary),
+      ),
+      cui::box(
+        [cui::text(item.label, text_style: ui::text_style(foreground: label_color))],
+        styles: ui::style(width: ui::cells(16)),
+      ),
+      cui::text(description, text_style: ui::text_style(foreground: props.colors.muted)),
+    ],
+    styles: ui::style(background: fill, flex_direction: ui::FlexDirection::row),
+    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+        props.on_selection_change(item.key)
+        if item.disabled_reason == "" {
+          props.on_activate(item)
+        }
+        received.prevent_default()
+      }
+    },
+  )
+}
+
+struct Navigation {
+  up: keymap::SimpleCommand,
+  down: keymap::SimpleCommand,
+}
+
+fn navigation(props: Props) Navigation {
+  Navigation{
+    up: keymap::simple_command("palette.up", "Previous", fn() Bool {
+      move(props, -1)
+      true
+    }),
+    down: keymap::simple_command("palette.down", "Next", fn() Bool {
+      move(props, 1)
+      true
+    }),
+  }
+}
+
+fn commands(navigation: Navigation) [keymap::Command] {
+  let commands: [keymap::Command] = [navigation.up, navigation.down]
+  commands
+}
+
+fn bindings(navigation: Navigation) [keymap::Binding] {
+  [
+    keymap::binding(keymap::key("up"), navigation.up.with()),
+    keymap::binding(keymap::key("down"), navigation.down.with()),
+  ]
+}
+
+private fn move(props: Props, delta: Int) {
+  let visible = items(props)
+  if visible.size() != 0 {
+    mut index = 0
+    for item, current in visible {
+      if item.key == props.selection {
+        index = current
+      }
+    }
+    index = (index + delta + visible.size()) % visible.size()
+    props.on_selection_change(visible.at(index).expect("palette item").key)
+  }
+}
