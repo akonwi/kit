@@ -18,16 +18,18 @@ import Foundation
                     try await client.watchPluginNotifications(session) { [weak self] notification in
                         await self?.deliver(notification, token: token, receive: receive)
                     }
-                } catch is CancellationError { return }
-                catch ClientError.http(401) { return }
-                catch ClientError.http(403) { return }
-                catch ClientError.http(404) { return }
-                catch ClientError.invalidPayload { return }
-                catch ClientError.oversized { return }
-                catch ClientError.incompatible { return }
-                catch ClientError.incompatibleDaemon { return }
-                catch is DecodingError { return }
-                catch { }
+                } catch is CancellationError {
+                    return
+                } catch ClientError.http(let code) where code == 401 || code == 403 || code == 404 || code == 410 {
+                    return // Terminal: reconnecting cannot repair authentication or a missing session.
+                } catch is DecodingError {
+                    return
+                } catch ClientError.invalidPayload, ClientError.oversized, ClientError.incompatible,
+                        ClientError.incompatibleDaemon {
+                    return // Terminal protocol violation (ADR 0035); a misbehaving server is not retried.
+                } catch {
+                    // Transient (clean end, dropped connection, idle timeout, 429, 503): reconnect fresh.
+                }
                 do { try await Task.sleep(for: .seconds(delay)) } catch { return }
                 delay = min(15, delay * 2)
             }

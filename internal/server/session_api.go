@@ -1642,7 +1642,6 @@ func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecu
 }
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/plugin-toasts", func(w http.ResponseWriter, r *http.Request) { servePluginToasts(w, r, service) })
 	mux.HandleFunc("POST /v1/models/refresh", func(writer http.ResponseWriter, request *http.Request) {
 		catalog, err := service.RefreshModels(request.Context())
 		if err != nil {
@@ -2185,6 +2184,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeSessionError(writer, err)
 	}}
 	registerVCSRoutes(mux, httpOptions, service)
+	registerPluginRoutes(mux, httpOptions, service)
 	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
 		record, err := service.Scratchpad(ctx, params.SessionID)
 		if err != nil {
@@ -2385,22 +2385,6 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, result)
-	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/plugin-commands", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.PluginCommandInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
-		}
-		if err := service.ExecutePluginCommand(request.Context(), request.PathValue("sessionID"), input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		writer.WriteHeader(http.StatusNoContent)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptCommandInput

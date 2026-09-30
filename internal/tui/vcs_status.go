@@ -122,7 +122,7 @@ func watchVCSStream(monitor *vcsMonitor, bound sessionclient.Session, minDelay t
 		if monitor.ctx.Err() != nil {
 			return
 		}
-		var terminal *sessionclient.VCSWatchTerminalError
+		var terminal *sessionclient.StreamWatchTerminalError
 		if errors.As(err, &terminal) {
 			return
 		}

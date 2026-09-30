@@ -69,7 +69,7 @@ in this branch. Items marked **Server-ready** do not require new server function
 - [ ] MAC-PROTO-001 — Migrate each remaining domain to the generated OpenAPI
   client (`apps/macos/script/generate_openapi.sh`, filtered by tag) as its
   `CORE-PROTO-011`–`CORE-PROTO-021` slice completes, and retire
-  `script/generate_wire.py` after the last. Scratchpad and VCS already use
+  `script/generate_wire.py` after the last. Scratchpad, VCS, and plugins already use
   the generated client through `OpenAPITransport`, including its streaming
   path for server-push operations.
 

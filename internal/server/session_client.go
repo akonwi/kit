@@ -1101,7 +1101,7 @@ func (c *Client) ExecutePluginCommand(ctx context.Context, sessionID string, inp
 	if err := input.Validate(); err != nil {
 		return fmt.Errorf("validate plugin command request: %w", err)
 	}
-	err := c.sessionJSON(ctx, http.MethodPost, "/v1/sessions/"+url.PathEscape(sessionID)+"/plugin-commands", input, http.StatusNoContent, nil)
+	_, err := httpapi.Call(ctx, c, httpapi.ExecutePluginCommand, httpapi.SessionPath{SessionID: sessionID}, input)
 	var apiError *APIError
 	if err != nil && !errors.As(err, &apiError) {
 		return fmt.Errorf("plugin command did not complete (effects may have partially completed): %w", err)

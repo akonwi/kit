@@ -192,9 +192,8 @@ change in an ADR before implementing it. Wire changes bump
 - [ ] CORE-PROTO-019 — Subagents slice: operations, transcript, and live events
   with a closed ADR 0033 vocabulary so `SubagentLiveEvent` becomes a
   discriminated union.
-- [ ] CORE-PROTO-020 — Plugins slice: plugin commands and the toast stream,
-  delivered over SSE through the stream machinery and macOS streaming
-  transport from `CORE-PROTO-011`.
+- [x] CORE-PROTO-020 — Plugins slice: plugin command execution and the
+  live `plugin.toast` SSE stream (32 KiB records, not resumable).
 - [ ] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
   require catalog completeness and remove non-catalog route registration.
 

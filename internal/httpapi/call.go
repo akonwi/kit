@@ -57,6 +57,12 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 	if response.StatusCode != op.Success {
 		return zero, DecodeOperationError(op, response.StatusCode, encoded)
 	}
+	if typeOf[Out]() == typeOf[NoBody]() {
+		if len(encoded) != 0 {
+			return zero, fmt.Errorf("daemon returned unexpected response body")
+		}
+		return zero, nil
+	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&zero); err != nil {

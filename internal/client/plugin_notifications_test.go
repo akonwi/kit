@@ -2,6 +2,7 @@ package client
 
 import (
 	"context"
+	"errors"
 	"io"
 	"log/slog"
 	"os"
@@ -128,5 +129,30 @@ func TestBoundPluginToastStreamExecutesRealFixtureAndCancels(t *testing.T) {
 			t.Fatal("cancel did not close stream")
 		}
 		_ = stream.Err()
+	}
+}
+
+func TestReadPluginToastStreamClassifiesEndings(t *testing.T) {
+	const record = "event: plugin.toast\ndata: {\"pluginId\":\"demo\",\"instance\":\"owner:1\",\"title\":\"Notice\",\"variant\":\"info\"}\n\n"
+	for name, test := range map[string]struct {
+		body     string
+		terminal bool
+	}{
+		"clean end":      {": connected\n\n" + record, false},
+		"truncated":      {": connected\n\n" + strings.TrimSuffix(record, "\n"), true},
+		"oversized":      {"event: plugin.toast\ndata: " + strings.Repeat(" ", 32<<10) + "\n\n", true},
+		"invalid record": {"event: plugin.toast\ndata: {}\n\n", true},
+	} {
+		t.Run(name, func(t *testing.T) {
+			updates := make(chan protocol.PluginToast, 1)
+			err := readPluginToastStream(t.Context(), io.NopCloser(strings.NewReader(test.body)), updates)
+			var terminal *sessionclient.StreamWatchTerminalError
+			if errors.As(err, &terminal) != test.terminal {
+				t.Fatalf("err = %v, terminal want %t", err, test.terminal)
+			}
+			if name == "clean end" && (err != nil || len(updates) != 1 || (<-updates).Title != "Notice") {
+				t.Fatalf("clean end: err=%v delivered=%d", err, len(updates))
+			}
+		})
 	}
 }

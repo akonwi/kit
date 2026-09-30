@@ -1,23 +1,14 @@
 package server
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
-	"fmt"
 	"io"
-	"mime"
 	"net/http"
-	"net/url"
-	"strconv"
-	"strings"
-	"time"
-	"unicode/utf8"
 
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
-	"github.com/akonwi/kit/internal/version"
 )
 
 type pluginToastSource interface {
@@ -39,7 +30,7 @@ func (s runtimePluginToastSource) Next(ctx context.Context) (protocol.PluginToas
 		if !ok {
 			return protocol.PluginToast{}, io.EOF
 		}
-		projected := protocol.PluginToast{PluginID: toast.PluginID, Instance: toast.Instance, Title: toast.Title, Subtitle: toast.Subtitle, Variant: toast.Variant, Persistent: toast.Persistent}
+		projected := protocol.PluginToast{PluginID: toast.PluginID, Instance: toast.Instance, Title: toast.Title, Subtitle: toast.Subtitle, Variant: protocol.PluginToastVariant(toast.Variant), Persistent: toast.Persistent}
 		return projected, projected.Validate()
 	}
 }
@@ -51,106 +42,60 @@ func (s runtimeSessionService) SubscribePluginToasts(ctx context.Context, id str
 	return runtimePluginToastSource{updates, unsubscribe}, nil
 }
 
-func servePluginToasts(writer http.ResponseWriter, request *http.Request, service sessionService) {
-	source, err := service.SubscribePluginToasts(request.Context(), request.PathValue("sessionID"))
-	if err != nil {
-		writeSessionError(writer, err)
-		return
-	}
-	defer source.Close()
-	writer.Header().Set("Content-Type", "application/x-ndjson")
-	writer.Header().Set("Cache-Control", "no-store")
-	controller := http.NewResponseController(writer)
-	defer controller.SetWriteDeadline(time.Time{})
-	// Subscription exists before response headers make this connection ready.
-	_ = controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if err := controller.Flush(); err != nil {
-		return
-	}
-	for request.Context().Err() == nil {
-		ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
-		toast, err := source.Next(ctx)
-		cancel()
-		_ = controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if errors.Is(err, context.DeadlineExceeded) && request.Context().Err() == nil {
-			if _, err := io.WriteString(writer, "\n"); err != nil {
-				return
-			}
-		} else if err != nil {
-			return
-		} else {
-			if err := toast.Validate(); err != nil {
-				return
-			}
-			if err := json.NewEncoder(writer).Encode(toast); err != nil {
-				return
-			}
-		}
-		if err := controller.Flush(); err != nil {
-			return
-		}
-	}
+type pluginToastStreamSource struct{ source pluginToastSource }
+
+func (s pluginToastStreamSource) Close() { s.source.Close() }
+func (s pluginToastStreamSource) Next(ctx context.Context) (httpapi.StreamRecord[protocol.PluginToast], error) {
+	value, err := s.source.Next(ctx)
+	return httpapi.StreamRecord[protocol.PluginToast]{Name: httpapi.PluginToastRecord, Payload: value}, err
 }
 
-// StreamPluginToasts opens a fresh live-only stream, with no cursor or replay.
+// StreamPluginToasts opens the authenticated live-only plugin notification stream.
 func (c *Client) StreamPluginToasts(ctx context.Context, id string) (io.ReadCloser, error) {
-	registry, err := LoadRegistry(c.paths)
-	if err != nil {
-		return nil, err
-	}
-	if err := compatible(registry); err != nil {
-		return nil, err
-	}
-	token, err := loadToken(c.paths)
-	if err != nil {
-		return nil, err
-	}
-	request, err := http.NewRequestWithContext(ctx, http.MethodGet, registry.URL+"/v1/sessions/"+url.PathEscape(id)+"/plugin-toasts", nil)
-	if err != nil {
-		return nil, err
-	}
-	request.Header.Set("Authorization", "Bearer "+token)
-	request.Header.Set(instanceHeader, registry.InstanceID)
-	request.Header.Set(protocolHeader, strconv.Itoa(version.SessionProtocolVersion))
-	response, err := c.sessionHTTP.Do(request)
-	if err != nil {
-		return nil, err
-	}
-	if response.StatusCode != http.StatusOK {
-		defer response.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(response.Body, maxSessionResponseBytes))
-		return nil, decodeAPIError(response.StatusCode, body)
-	}
-	mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type"))
-	if err != nil || mediaType != "application/x-ndjson" {
-		response.Body.Close()
-		return nil, fmt.Errorf("invalid plugin toast stream content type")
-	}
-	return response.Body, nil
+	return httpapi.OpenStream(ctx, c, httpapi.StreamPluginToasts, httpapi.SessionPath{SessionID: id})
 }
 
-// ReadPluginToasts validates bounded live frames and invokes receive in wire order.
-// Closing the response body or cancelling its request terminates blocked reads.
+// ReadPluginToasts validates bounded SSE records and invokes receive in wire order.
 func ReadPluginToasts(body io.Reader, receive func(protocol.PluginToast) error) error {
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 4096), 32*1024)
-	for scanner.Scan() {
-		if !utf8.Valid(scanner.Bytes()) {
-			return errors.New("invalid UTF-8 in plugin toast frame")
+	return httpapi.ReadStream(body, httpapi.StreamPluginToasts, func(record httpapi.StreamRecord[protocol.PluginToast]) error { return receive(record.Payload) })
+}
+
+func registerPluginRoutes(mux *http.ServeMux, options httpapi.ServeOptions, service sessionService) {
+	httpapi.HandleStream(mux, options, httpapi.StreamPluginToasts, func(ctx context.Context, params httpapi.SessionPath) (httpapi.StreamSource[protocol.PluginToast], error) {
+		source, err := service.SubscribePluginToasts(ctx, params.SessionID)
+		if err != nil {
+			return nil, pluginAPIError(err)
 		}
-		if strings.TrimSpace(scanner.Text()) == "" {
-			continue
+		return pluginToastStreamSource{source}, nil
+	})
+	httpapi.Handle(mux, options, httpapi.ExecutePluginCommand, func(ctx context.Context, params httpapi.SessionPath, input protocol.PluginCommandInput) (httpapi.NoBody, error) {
+		if err := input.Validate(); err != nil {
+			return httpapi.NoBody{}, pluginAPIError(errInvalidSessionRequest)
 		}
-		var toast protocol.PluginToast
-		if err := decodeStrictJSONObject(scanner.Bytes(), &toast); err != nil {
-			return err
+		if err := service.ExecutePluginCommand(ctx, params.SessionID, input); err != nil {
+			return httpapi.NoBody{}, pluginAPIError(err)
 		}
-		if err := toast.Validate(); err != nil {
-			return err
-		}
-		if err := receive(toast); err != nil {
-			return err
-		}
+		return httpapi.NoBody{}, nil
+	})
+}
+
+// pluginAPIError maps session and plugin failures to declared ADR 0034 errors.
+func pluginAPIError(err error) error {
+	switch {
+	case errors.Is(err, session.ErrPluginCommandUnavailable):
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorCode(protocol.PluginCommandUnavailable), session.ErrPluginCommandUnavailable.Error(), nil)
+	case errors.Is(err, session.ErrPluginCommandFailed):
+		return httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorCode(protocol.PluginCommandFailed), session.ErrPluginCommandFailed.Error(), nil)
+	case errors.Is(err, session.ErrPluginNotificationCapacity):
+		return httpapi.NewAPIError(http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "plugin notification subscriber limit exceeded", nil)
+	case errors.Is(err, session.ErrNotFound):
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	case errors.Is(err, session.ErrDeleteBusy):
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorConflict, "session is being deleted", nil)
+	case errors.Is(err, session.ErrClosed), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		return httpapi.NewAPIError(http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session runtime unavailable", nil)
+	case errors.Is(err, session.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
+		return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 	}
-	return scanner.Err()
+	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 }

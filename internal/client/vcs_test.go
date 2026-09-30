@@ -19,7 +19,7 @@ func TestReadBoundVCSRejectsWrongSessionIdentity(t *testing.T) {
 	err := readBoundVCS(t.Context(), strings.NewReader(frame), "session_ffffffffffffffffffffffffffffffff", func(protocol.SessionVCSStatus) {
 		t.Fatal("wrong-session update delivered")
 	})
-	var terminal *sessionclient.VCSWatchTerminalError
+	var terminal *sessionclient.StreamWatchTerminalError
 	if !errors.As(err, &terminal) {
 		t.Fatalf("identity error = %v, want terminal error", err)
 	}
@@ -44,8 +44,8 @@ func TestClassifyVCSWatchErrorStopsOnlyTerminalOpenFailures(t *testing.T) {
 		&kitserver.APIError{StatusCode: http.StatusNotFound},
 		&kitserver.APIError{StatusCode: http.StatusUpgradeRequired, Code: "protocol_mismatch"},
 	} {
-		var terminal *sessionclient.VCSWatchTerminalError
-		if !errors.As(classifyVCSWatchError(err), &terminal) {
+		var terminal *sessionclient.StreamWatchTerminalError
+		if !errors.As(classifyStreamWatchError(err), &terminal) {
 			t.Fatalf("%v was not terminal", err)
 		}
 	}
@@ -54,16 +54,16 @@ func TestClassifyVCSWatchErrorStopsOnlyTerminalOpenFailures(t *testing.T) {
 		&kitserver.APIError{StatusCode: http.StatusServiceUnavailable, Code: "unavailable"},
 		&kitserver.APIError{StatusCode: http.StatusConflict, Code: "conflict"},
 	} {
-		var terminal *sessionclient.VCSWatchTerminalError
-		if errors.As(classifyVCSWatchError(err), &terminal) {
+		var terminal *sessionclient.StreamWatchTerminalError
+		if errors.As(classifyStreamWatchError(err), &terminal) {
 			t.Fatalf("%v must reconnect", err)
 		}
 	}
 	transient := errors.New("connection reset")
-	if got := classifyVCSWatchError(transient); !errors.Is(got, transient) {
+	if got := classifyStreamWatchError(transient); !errors.Is(got, transient) {
 		t.Fatalf("transient error changed: %v", got)
 	} else {
-		var terminal *sessionclient.VCSWatchTerminalError
+		var terminal *sessionclient.StreamWatchTerminalError
 		if errors.As(got, &terminal) {
 			t.Fatal("transient error classified terminal")
 		}
@@ -112,8 +112,8 @@ func TestClassifyVCSWatchErrorStopsOnUndeclaredPreStreamResponses(t *testing.T) 
 		"undeclared code":   respond(http.StatusTooManyRequests, "application/json", `{"error":{"code":"unavailable","message":"x"}}`),
 	} {
 		_, err := httpapi.OpenStream(t.Context(), transport, httpapi.StreamSessionVCS, params)
-		var terminal *sessionclient.VCSWatchTerminalError
-		if !errors.As(classifyVCSWatchError(err), &terminal) {
+		var terminal *sessionclient.StreamWatchTerminalError
+		if !errors.As(classifyStreamWatchError(err), &terminal) {
 			t.Fatalf("%s: %v was not terminal", name, err)
 		}
 	}
@@ -122,8 +122,8 @@ func TestClassifyVCSWatchErrorStopsOnUndeclaredPreStreamResponses(t *testing.T) 
 		"unavailable": respond(http.StatusServiceUnavailable, "application/json", `{"error":{"code":"unavailable","message":"closed"}}`),
 	} {
 		_, err := httpapi.OpenStream(t.Context(), transport, httpapi.StreamSessionVCS, params)
-		var terminal *sessionclient.VCSWatchTerminalError
-		if err == nil || errors.As(classifyVCSWatchError(err), &terminal) {
+		var terminal *sessionclient.StreamWatchTerminalError
+		if err == nil || errors.As(classifyStreamWatchError(err), &terminal) {
 			t.Fatalf("%s: %v must reconnect", name, err)
 		}
 	}

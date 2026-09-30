@@ -202,7 +202,7 @@ const vcsStreamIdleLimit = 45 * time.Second
 func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.SessionVCSStatus)) error {
 	body, err := c.transport.StreamSessionVCS(ctx, c.id)
 	if err != nil {
-		return classifyVCSWatchError(err)
+		return classifyStreamWatchError(err)
 	}
 	watched, stop := httpapi.WatchStreamIdle(ctx, body, vcsStreamIdleLimit)
 	defer stop()
@@ -214,13 +214,13 @@ func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.Sessi
 		// The stream has no terminal record; an end is a transient failure.
 		return fmt.Errorf("daemon session VCS stream ended: %w", io.ErrUnexpectedEOF)
 	}
-	var terminal *sessionclient.VCSWatchTerminalError
+	var terminal *sessionclient.StreamWatchTerminalError
 	if errors.As(err, &terminal) {
 		return err
 	}
 	var frame *kitserver.StreamError
 	if errors.As(err, &frame) {
-		return &sessionclient.VCSWatchTerminalError{Err: err}
+		return &sessionclient.StreamWatchTerminalError{Err: err}
 	}
 	return err
 }
@@ -228,7 +228,7 @@ func (c *localSession) WatchVCS(ctx context.Context, receive func(protocol.Sessi
 func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive func(protocol.SessionVCSStatus)) error {
 	return kitserver.ReadSessionVCS(body, func(status protocol.SessionVCSStatus) error {
 		if status.SessionID != sessionID {
-			return &sessionclient.VCSWatchTerminalError{Err: fmt.Errorf("daemon session VCS stream identity mismatch")}
+			return &sessionclient.StreamWatchTerminalError{Err: fmt.Errorf("daemon session VCS stream identity mismatch")}
 		}
 		if ctx.Err() != nil {
 			return ctx.Err()
@@ -238,19 +238,19 @@ func readBoundVCS(ctx context.Context, body io.Reader, sessionID string, receive
 	})
 }
 
-func classifyVCSWatchError(err error) error {
+func classifyStreamWatchError(err error) error {
 	if errors.Is(err, kitserver.ErrIncompatibleDaemon) || sessionclient.IsIncompatibleDaemon(err) {
-		return &sessionclient.VCSWatchTerminalError{Err: err}
+		return &sessionclient.StreamWatchTerminalError{Err: err}
 	}
 	var frame *kitserver.StreamError
 	if errors.As(err, &frame) {
-		return &sessionclient.VCSWatchTerminalError{Err: err}
+		return &sessionclient.StreamWatchTerminalError{Err: err}
 	}
 	var apiError *kitserver.APIError
 	if errors.As(err, &apiError) {
 		switch apiError.StatusCode {
 		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
-			return &sessionclient.VCSWatchTerminalError{Err: err}
+			return &sessionclient.StreamWatchTerminalError{Err: err}
 		}
 	}
 	return err

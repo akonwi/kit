@@ -157,6 +157,13 @@ func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) 
 		}
 		apiError.TypedDetails = details.Elem().Interface()
 	}
+	if envelope.Error.Code == ErrorCode(protocol.PluginCommandUnavailable) || envelope.Error.Code == ErrorCode(protocol.PluginCommandFailed) {
+		typed := &protocol.PluginCommandError{Code: string(envelope.Error.Code), Message: envelope.Error.Message}
+		if err := typed.Validate(); err != nil {
+			return fmt.Errorf("daemon returned malformed plugin command error: %w", err)
+		}
+		apiError.pluginCommandError = typed
+	}
 	if code := protocol.ScratchpadErrorCode(envelope.Error.Code); code.Valid() {
 		var current *protocol.Scratchpad
 		if details, ok := apiError.TypedDetails.(protocol.ScratchpadErrorDetails); ok {

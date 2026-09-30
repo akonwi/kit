@@ -310,7 +310,7 @@ func TestWatchVCSStreamStopsOnTerminalErrorsWithoutFallback(t *testing.T) {
 		id: "session_current",
 		watchVCS: func(context.Context, func(protocol.SessionVCSStatus)) error {
 			connections++
-			return &sessionclient.VCSWatchTerminalError{Err: errors.New("session not found")}
+			return &sessionclient.StreamWatchTerminalError{Err: errors.New("session not found")}
 		},
 		vcsStatus: func(context.Context) (protocol.SessionVCSStatus, error) {
 			snapshots++

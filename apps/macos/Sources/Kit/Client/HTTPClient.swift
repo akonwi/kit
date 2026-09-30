@@ -523,62 +523,80 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     func watchPluginNotifications(_ id: String, receive: @escaping @Sendable (PluginNotification) async -> Void) async throws {
         guard Self.validScratchpadSession(id) else { throw ClientError.invalidPayload }
-        let (bytes, response) = try await session.bytes(for: request("v1/sessions/" + id + "/plugin-toasts"))
-        defer { bytes.task.cancel() }
-        try await withTaskCancellationHandler {
-            try check(response)
-            guard response.mimeType == "application/x-ndjson" else { throw ClientError.invalidPayload }
-            var frame = Data()
-            for try await byte in bytes {
-                try Task.checkCancellation()
-                if byte == 10 {
-                    if frame.last == 13 { frame.removeLast() }
-                    if !frame.isEmpty { await receive(try PluginNotification.decode(frame)) }
-                    frame.removeAll(keepingCapacity: true)
-                } else {
-                    guard frame.count < 32 * 1024 - 1 else { throw ClientError.oversized }
-                    frame.append(byte)
-                }
-            }
-            // A truncated frame is not an event; never deliver partial data.
-            if !frame.isEmpty { throw ClientError.invalidPayload }
-            throw ClientError.disconnected
-        } onCancel: { bytes.task.cancel() }
+        guard let protocolVersion = Operations.StreamPluginToasts.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
+            throw ClientError.incompatible
+        }
+        let output: Operations.StreamPluginToasts.Output
+        do {
+            output = try await api.streamPluginToasts(
+                path: .init(sessionID: id),
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion)
+            )
+        } catch let error as OpenAPIRuntime.ClientError {
+            if let failure = error.underlyingError as? ClientError { throw failure }
+            if error.response != nil { throw ClientError.invalidPayload }
+            throw error
+        }
+        let body: HTTPBody
+        switch output {
+        case .ok(let response): body = try response.body.textEventStream
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented: throw ClientError.invalidPayload
+        }
+        for try await event in body.asDecodedServerSentEvents() {
+            try Task.checkCancellation()
+            if let notification = try PluginToastRecords.decode(event) { await receive(notification) }
+        }
+        try Task.checkCancellation()
+        throw ClientError.disconnected
     }
 
     func executePluginCommand(_ id: String, input: WirePluginCommandInput) async throws {
         guard !id.isEmpty, id.allSatisfy({ $0.isASCII && ($0.isLetter || $0.isNumber || $0 == "-" || $0 == "_") }),
               PluginCommand.validSelection(id: input.id, instance: input.instance), input.args.utf8.count <= 64 * 1024,
               !input.args.contains("\0") else { throw MutationNotSent(reason: "Invalid plugin command or arguments.") }
-        var request = try request("v1/sessions/" + id + "/plugin-commands")
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(input)
-        let (bytes, response) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        try await withTaskCancellationHandler {
-            guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-            var data = Data()
-            for try await byte in bytes {
-                guard data.count < 16 * 1024 else { throw ClientError.oversized }
-                data.append(byte)
+        guard let protocolVersion = Operations.ExecutePluginCommand.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else {
+            throw ClientError.incompatible
+        }
+        let output: Operations.ExecutePluginCommand.Output
+        do {
+            output = try await api.executePluginCommand(
+                path: .init(sessionID: id),
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: protocolVersion),
+                body: .json(.init(args: input.args, id: input.id, instance: input.instance))
+            )
+        } catch let error as OpenAPIRuntime.ClientError {
+            if let failure = error.underlyingError as? ClientError { throw failure }
+            if error.response != nil { throw ClientError.invalidPayload }
+            throw error
+        }
+        switch output {
+        case .noContent: return
+        case .conflict(let response):
+            switch try response.body.json.error {
+            case .pluginCommandUnavailable: throw PluginCommandFailure(unavailable: true)
+            case .conflict, .instanceMismatch: throw ClientError.http(409)
             }
-            if response.statusCode == 204 {
-                guard data.isEmpty else { throw ClientError.invalidPayload }
-                return
-            }
-            if response.statusCode == 409 || response.statusCode == 422 {
-                guard let envelope = try JSONSerialization.jsonObject(with: data) as? [String: Any],
-                      Set(envelope.keys) == ["error"], let error = envelope["error"] as? [String: Any],
-                      Set(error.keys) == ["code", "message"], let code = error["code"] as? String,
-                      let message = error["message"] as? String, !message.isEmpty,
-                      code == (response.statusCode == 409 ? "plugin_command_unavailable" : "plugin_command_failed"),
-                      PluginCommand.safeText(message, limit: 1024) else { throw ClientError.invalidPayload }
-                throw PluginCommandFailure(unavailable: response.statusCode == 409)
-            }
-            throw ClientError.http(response.statusCode)
-        } onCancel: { bytes.task.cancel() }
+        case .unprocessableContent: throw PluginCommandFailure(unavailable: false)
+        case .badRequest: throw ClientError.http(400)
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented: throw ClientError.invalidPayload
+        }
     }
 
     func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireRunReservation {
