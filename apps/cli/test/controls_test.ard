@@ -61,7 +61,7 @@ fn expect_background(terminal: headless::TestApp, x: Int, color: ui::Color, stat
   ).expect("button padding").style.background.expect("button surface")
   testing::assert(
     actual.red == color.red and actual.green == color.green and actual.blue == color.blue,
-    "{state} background rgb({actual.red}, {actual.green}, {actual.blue}) does not match the semantic button surface",
+    "{state} background rgb({actual.red}, {actual.green}, {actual.blue}), expected rgb({color.red}, {color.green}, {color.blue})",
   )
 }
 
@@ -75,17 +75,27 @@ test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_
   terminal.flush()
   let colors = theme::system()
   try expect_background(terminal, 0, colors.primary, "resting")
-  try expect_background(terminal, 10, colors.surface_raised, "secondary")
+  try expect_background(terminal, 10, colors.surface, "secondary")
   try expect_background(terminal, 20, colors.danger, "danger")
+  terminal.mouse_move(11, 0)
+  terminal.flush()
+  try expect_background(terminal, 10, colors.surface_hovered, "secondary hovered")
+  terminal.mouse_down(11, 0)
+  terminal.flush()
+  try expect_background(terminal, 10, colors.surface_pressed, "secondary pressed")
+  terminal.mouse_up(11, 0)
+  terminal.flush()
+  try testing::assert(model.presses == 1, "secondary button activates on pointer release")
   terminal.mouse_move(1, 0)
   terminal.flush()
   try expect_background(terminal, 0, colors.primary_hovered, "hovered")
   terminal.mouse_down(1, 0)
   terminal.flush()
   try expect_background(terminal, 0, colors.primary_pressed, "pressed")
-  try testing::assert(model.presses == 1, "pointer activation invokes the button command")
+  try testing::assert(model.presses == 1, "pressing shows feedback before the action runs")
   terminal.mouse_up(1, 0)
   terminal.flush()
+  try testing::assert(model.presses == 2, "pointer release invokes the button command")
   try expect_background(terminal, 0, colors.primary_hovered, "focused")
   terminal.key(
     event::key(
@@ -101,5 +111,5 @@ test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_
     ),
   )
   terminal.flush()
-  testing::assert(model.presses == 2, "focused button activates from Return")
+  testing::assert(model.presses == 3, "focused button activates from Return")
 }

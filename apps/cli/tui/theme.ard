@@ -28,6 +28,7 @@ struct Theme {
   surface: ui::Color,
   surface_raised: ui::Color,
   surface_hovered: ui::Color,
+  surface_pressed: ui::Color,
   // The wash behind user turns: the primary text color over the surface.
   user_fill: ui::Color,
 }
@@ -111,6 +112,7 @@ fn resolve(definition: kittheme::Definition, base: palette::Tones) Theme {
     surface: to_ui(surface),
     surface_raised: color(tokens, kittheme::TokenPickerBackground, base.surface_raised, backdrop),
     surface_hovered: color(tokens, kittheme::TokenBackgroundMuted, base.surface_hovered, backdrop),
+    surface_pressed: color(tokens, kittheme::TokenBackgroundAccent, base.surface_pressed, backdrop),
     user_fill: to_ui(palette::tint(surface, primary_text, wash)),
   }
 }
