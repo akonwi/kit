@@ -1,7 +1,6 @@
 use ard/async
 
 use cooper/cui
-use cooper/event
 use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/protocol
@@ -10,6 +9,7 @@ use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
+use kit/tui/controls
 use kit/tui/format
 use kit/tui/theme
 use kit/tui/transcript
@@ -553,27 +553,23 @@ impl Shell {
   }
 
   fn latest_button() cui::View {
-    let colors = self.props.theme
-    cui::box(
-      [line("↓ Latest", ui::text_style(foreground: colors.foreground))],
+    let latest = keymap::simple_command("transcript.latest", "Show latest", fn() Bool {
+      self.request_end()
+      true
+    })
+    controls::button(
+      self.props.theme,
+      "↓ Latest",
+      latest,
+      variant: controls::ButtonVariant::secondary,
+      compact: true,
+      focusable: false,
       styles: ui::style(
         position: ui::Position::absolute,
         right: ui::cells(1),
         bottom: ui::cells(1),
         z_index: 1,
-        background: colors.surface_raised,
-        padding: ui::Edges{
-          top: ui::cells(0),
-          right: ui::cells(1),
-          bottom: ui::cells(0),
-          left: ui::cells(1),
-        },
       ),
-      on_mouse: fn(mouse: mut event::MouseEvent, ctx: cui::Context) {
-        if mouse.event_type == event::MouseEventType::down and mouse.button == event::MouseButton::left {
-          self.request_end()
-        }
-      },
     )
   }
 

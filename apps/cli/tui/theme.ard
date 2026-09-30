@@ -20,9 +20,14 @@ struct Theme {
   success_text: ui::Color,
   warning_text: ui::Color,
   danger_text: ui::Color,
+  primary: ui::Color,
+  primary_hovered: ui::Color,
+  primary_pressed: ui::Color,
+  danger: ui::Color,
   // Surface colors used for turn washes and raised controls.
   surface: ui::Color,
   surface_raised: ui::Color,
+  surface_hovered: ui::Color,
   // The wash behind user turns: the primary text color over the surface.
   user_fill: ui::Color,
 }
@@ -61,6 +66,30 @@ fn resolve(definition: kittheme::Definition, base: palette::Tones) Theme {
     base.primary_text,
     backdrop,
   ).or(base.primary_text)
+  let primary = token(
+    tokens,
+    kittheme::TokenPickerFocusedBackground,
+    base.primary,
+    backdrop,
+  ).or(base.primary)
+  let primary_hovered = token(
+    tokens,
+    kittheme::TokenPickerFocusedBackground,
+    base.primary_hovered,
+    backdrop,
+  ).or(base.primary_hovered)
+  let primary_pressed = token(
+    tokens,
+    kittheme::TokenBackgroundAccent,
+    base.primary_pressed,
+    backdrop,
+  ).or(base.primary_pressed)
+  let danger = token(
+    tokens,
+    kittheme::TokenDiffRemovedBackground,
+    base.danger,
+    backdrop,
+  ).or(base.danger)
   let wash = match base.mode {
     palette::Mode::dark => 0.18,
     palette::Mode::light => 0.12,
@@ -75,8 +104,13 @@ fn resolve(definition: kittheme::Definition, base: palette::Tones) Theme {
     success_text: color(tokens, kittheme::TokenToolText, base.success_text, backdrop),
     warning_text: color(tokens, kittheme::TokenWarningText, base.warning_text, backdrop),
     danger_text: color(tokens, kittheme::TokenErrorText, base.danger_text, backdrop),
+    primary: to_ui(primary),
+    primary_hovered: to_ui(primary_hovered),
+    primary_pressed: to_ui(primary_pressed),
+    danger: to_ui(danger),
     surface: to_ui(surface),
     surface_raised: color(tokens, kittheme::TokenPickerBackground, base.surface_raised, backdrop),
+    surface_hovered: color(tokens, kittheme::TokenBackgroundMuted, base.surface_hovered, backdrop),
     user_fill: to_ui(palette::tint(surface, primary_text, wash)),
   }
 }

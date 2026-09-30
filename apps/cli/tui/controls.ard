@@ -1,0 +1,178 @@
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+
+// ButtonVariant selects a semantic presentation while retaining the same
+// pointer and keyboard interaction contract.
+enum ButtonVariant {
+  primary,
+  secondary,
+  danger,
+}
+
+struct ButtonProps {
+  colors: theme::Theme,
+  label: Str,
+  command: keymap::SimpleCommand,
+  variant: ButtonVariant,
+  compact: Bool,
+  focusable: Bool,
+  styles: ui::Style?,
+}
+
+struct Button {
+  props: mut ButtonProps,
+  hovered: Bool,
+  pressed: Bool,
+  focused: Bool,
+  control: mut cui::BoxRef,
+}
+
+// button renders a Kit-styled, focusable action. It owns activation feedback:
+// callers provide a command and may only customize its layout through styles.
+fn button(
+  colors: theme::Theme,
+  label: Str,
+  command: keymap::SimpleCommand,
+  variant: ButtonVariant?,
+  compact: Bool?,
+  focusable: Bool?,
+  styles: ui::Style?,
+) cui::View {
+  cui::child(
+    new,
+    ButtonProps{
+      colors: colors,
+      label: label,
+      command: command,
+      variant: variant.or(ButtonVariant::primary),
+      compact: compact.or(false),
+      focusable: focusable.or(true),
+      styles: styles,
+    },
+  )
+}
+
+private fn new(props: mut ButtonProps) mut Button {
+  (mut Button{
+    props: props,
+    hovered: false,
+    pressed: false,
+    focused: false,
+    control: cui::box_ref(),
+  })
+}
+
+impl cui::Lifecycle for Button {
+  fn mut mounted(ctx: cui::Context) {
+    if self.props.focusable {
+      self.control.current.map(fn(control) {
+        let _ = control.on_focus(fn() {
+          self.focused = true
+          (ctx.invalidate_root)()
+        })
+        let _ = control.on_blur(fn() {
+          self.focused = false
+          (ctx.invalidate_root)()
+        })
+      })
+    }
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Button {
+  private fn fill() ui::Color {
+    match self.props.variant {
+      ButtonVariant::primary => {
+        match {
+          self.pressed => self.props.colors.primary_pressed,
+          self.hovered or self.focused => self.props.colors.primary_hovered,
+          _ => self.props.colors.primary,
+        }
+      },
+      ButtonVariant::danger => self.props.colors.danger,
+      ButtonVariant::secondary => {
+        match {
+          self.pressed => self.props.colors.surface,
+          self.hovered or self.focused => self.props.colors.surface_hovered,
+          _ => self.props.colors.surface_raised,
+        }
+      },
+    }
+  }
+
+  private fn focused_state() Bool? {
+    match self.props.focusable {
+      true => Maybe::new(self.focused),
+      false => Maybe::new<Bool>(),
+    }
+  }
+
+  private fn foreground() ui::Color {
+    self.props.colors.foreground
+  }
+
+  private fn mut mouse(received: mut event::MouseEvent) {
+    if received.event_type == event::MouseEventType::over or received.event_type == event::MouseEventType::move {
+      self.hovered = true
+    } else if received.event_type == event::MouseEventType::out {
+      self.hovered = false
+      self.pressed = false
+    } else if received.event_type == event::MouseEventType::down {
+      if received.button == event::MouseButton::left {
+        if self.props.focusable {
+          self.focused = true
+        }
+        self.pressed = true
+        let _ = self.props.command.invoke()
+        received.prevent_default()
+      }
+    } else if received.event_type == event::MouseEventType::up or received.event_type == event::MouseEventType::drag_end {
+      self.pressed = false
+    }
+  }
+}
+
+impl cui::Component for Button {
+  fn mut render() cui::View {
+    let horizontal = match self.props.compact {
+      true => 1,
+      false => 2,
+    }
+    let commands = mut List::new<keymap::Command>()
+    let bindings = mut List::new<keymap::Binding>()
+    if self.props.focusable {
+      commands.push(self.props.command)
+      bindings.push(keymap::binding(keymap::key("return"), self.props.command.with()))
+      bindings.push(keymap::binding(keymap::key("space"), self.props.command.with()))
+    }
+    cui::box(
+      [
+        cui::box(
+          [cui::text(self.props.label, text_style: ui::text_style(foreground: self.foreground()))],
+          styles: ui::style(
+            background: self.fill(),
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(horizontal),
+              bottom: ui::cells(0),
+              left: ui::cells(horizontal),
+            },
+          ),
+        ),
+      ],
+      styles: self.props.styles,
+      focused: self.focused_state(),
+      ref: self.control,
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        self.mouse(received)
+      },
+      commands: commands.@,
+      bindings: bindings.@,
+    )
+  }
+}
