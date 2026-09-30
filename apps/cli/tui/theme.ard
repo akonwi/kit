@@ -20,6 +20,9 @@ struct Theme {
   success_text: ui::Color,
   warning_text: ui::Color,
   danger_text: ui::Color,
+  // Surface colors used for turn washes and raised controls.
+  surface: ui::Color,
+  surface_raised: ui::Color,
   // The wash behind user turns: the primary text color over the surface.
   user_fill: ui::Color,
 }
@@ -72,6 +75,8 @@ fn resolve(definition: kittheme::Definition, base: palette::Tones) Theme {
     success_text: color(tokens, kittheme::TokenToolText, base.success_text, backdrop),
     warning_text: color(tokens, kittheme::TokenWarningText, base.warning_text, backdrop),
     danger_text: color(tokens, kittheme::TokenErrorText, base.danger_text, backdrop),
+    surface: to_ui(surface),
+    surface_raised: color(tokens, kittheme::TokenPickerBackground, base.surface_raised, backdrop),
     user_fill: to_ui(palette::tint(surface, primary_text, wash)),
   }
 }

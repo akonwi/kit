@@ -64,8 +64,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [ ] TUI-COOPER-003 — Transcript: port the transcript projection
   (`transcript_model.go`) to Ard; render user, assistant, thinking, and bash
   entries with Markdown and highlighted code in a virtual list; follow the
-  bottom, the latest-message shortcut, tall-reply reading position, reading
-  sections, and older-history loading.
+  bottom and latest-message shortcut (now driven by committed virtual-list
+  updates); tall-reply reading position, reading sections, and older-history
+  loading remain.
 - [ ] TUI-COOPER-004 — Composer: prompt submission and abort, editing
   bindings, bracketed paste, history recall, follow-up queue, bash mode and
   history, attachments, file and session mentions, and annotation chips.
@@ -97,12 +98,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
 Upstream dependencies:
 
-- Cooper: a post-layout notification when a virtual list's follow state or
-  item visibility changes, for the latest-message shortcut and older-history
-  loading, and a settled signal after initial layout (TUI-COOPER-003); terminal
-  foreground, background, and palette queries with change notification
-  (TUI-COOPER-013; until then Kit queries from Go before Cooper starts); and a
-  CUI
+- Cooper: terminal foreground, background, and palette queries with change
+  notification (TUI-COOPER-013; until then Kit queries from Go before Cooper
+  starts); and a CUI
   `text_area` submit callback (TUI-COOPER-004; currently a keymap binding).
 
 ## Scope decisions
