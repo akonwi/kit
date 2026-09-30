@@ -1,0 +1,643 @@
+use go:github.com/akonwi/kit/internal/protocol
+use go:strings
+
+// The transcript model: messages projected from session snapshots plus the
+// live messages of the active run, built from its streamed events.
+
+enum Role {
+  user,
+  assistant,
+  tool,
+  bash,
+  other,
+}
+
+enum ToolState {
+  none,
+  planned,
+  running,
+  completed,
+  failed,
+  not_run,
+}
+
+struct ToolCall {
+  id: Str,
+  name: Str,
+}
+
+struct Message {
+  id: Str,
+  turn_id: Str,
+  role: Role,
+  text: Str,
+  thinking: Str,
+  tool_call_id: Str,
+  tool_name: Str,
+  tool_calls: [ToolCall],
+  tool_state: ToolState,
+  error_message: Str,
+  is_error: Bool,
+  aborted: Bool,
+  pending: Bool,
+}
+
+// The session event kinds this model distinguishes.
+enum Event {
+  run_started,
+  user_message,
+  assistant_started,
+  text_delta,
+  thinking_delta,
+  assistant_completed,
+  tool_planned,
+  tool_started,
+  tool_updated,
+  tool_completed,
+  compaction_started,
+  compaction_finished,
+  retry_scheduled,
+  retry_started,
+  context_updated,
+  run_finished,
+  other,
+}
+
+fn classify(kind: protocol::SessionEventKind) Event {
+  match {
+    kind == protocol::SessionEventRunStarted => Event::run_started,
+    kind == protocol::SessionEventUserMessage => Event::user_message,
+    kind == protocol::SessionEventAssistantStarted => Event::assistant_started,
+    kind == protocol::SessionEventAssistantTextDelta => Event::text_delta,
+    kind == protocol::SessionEventThinkingDelta => Event::thinking_delta,
+    kind == protocol::SessionEventAssistantCompleted => Event::assistant_completed,
+    kind == protocol::SessionEventToolPlanned => Event::tool_planned,
+    kind == protocol::SessionEventToolStarted => Event::tool_started,
+    kind == protocol::SessionEventToolUpdated => Event::tool_updated,
+    kind == protocol::SessionEventToolCompleted => Event::tool_completed,
+    kind == protocol::SessionEventCompactionStarted => Event::compaction_started,
+    kind == protocol::SessionEventCompactionCompleted => Event::compaction_finished,
+    kind == protocol::SessionEventCompactionFailed => Event::compaction_finished,
+    kind == protocol::SessionEventProviderRetryScheduled => Event::retry_scheduled,
+    kind == protocol::SessionEventProviderRetryStarted => Event::retry_started,
+    kind == protocol::SessionEventContextUpdated => Event::context_updated,
+    kind == protocol::SessionEventRunFinished => Event::run_finished,
+    _ => Event::other,
+  }
+}
+
+fn role(value: Str) Role {
+  match value {
+    "user" => Role::user,
+    "assistant" => Role::assistant,
+    "tool" => Role::tool,
+    "bash" => Role::bash,
+    _ => Role::other,
+  }
+}
+
+fn message(id: Str, turn_id: Str, role: Role) Message {
+  Message{
+    id: id,
+    turn_id: turn_id,
+    role: role,
+    text: "",
+    thinking: "",
+    tool_call_id: "",
+    tool_name: "",
+    tool_calls: [],
+    tool_state: ToolState::none,
+    error_message: "",
+    is_error: false,
+    aborted: false,
+    pending: false,
+  }
+}
+
+// Projects persisted transcript messages into displayable messages, skipping
+// messages with no displayable content.
+fn project(messages: [protocol::TranscriptMessage]) [Message] {
+  let result = mut List::new<Message>()
+  for source in messages {
+    let text_parts = mut List::new<Str>()
+    let thinking_parts = mut List::new<Str>()
+    let calls = mut List::new<ToolCall>()
+    for block in source.Content {
+      match {
+        block.Kind == protocol::TranscriptContentText => text_parts.push(block.Text),
+        block.Kind == protocol::TranscriptContentThinking => thinking_parts.push(block.Text),
+        block.Kind == protocol::TranscriptContentToolCall => {
+          calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName})
+        },
+        block.Kind == protocol::TranscriptContentImage => {
+          if block.AttachmentID == "" {
+            text_parts.push("[image]")
+          }
+        },
+        block.Kind == protocol::TranscriptContentFile => text_parts.push("[file: {block.Filename}]"),
+        _ => (),
+      }
+    }
+    mut text = strings::Join(text_parts, "\n")
+    let thinking = strings::Join(thinking_parts, "\n")
+    if text == "" and source.ErrorMessage != "" {
+      text = source.ErrorMessage
+    }
+    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0
+    if not empty {
+      let kind = role(source.Role)
+      let projected = mut message(source.ID, source.TurnID, kind)
+      projected.text = text
+      projected.thinking = thinking
+      projected.tool_call_id = source.ToolCallID
+      projected.tool_name = source.ToolName
+      projected.tool_calls = calls.@
+      projected.tool_state = match kind == Role::tool {
+        true => {
+          match source.IsError {
+            true => ToolState::failed,
+            false => ToolState::completed,
+          }
+        },
+        false => ToolState::none,
+      }
+      projected.error_message = source.ErrorMessage
+      projected.is_error = source.IsError
+      projected.aborted = source.StopReason == "aborted"
+      result.push(projected.@)
+    }
+  }
+  result.@
+}
+
+// One streamed content block of the live assistant message.
+struct Block {
+  thinking: Bool,
+  text: Str,
+}
+
+// The live state of the active run, layered over the snapshot transcript.
+struct Live {
+  messages: [Message],
+  assistant: Int,
+  has_user: Bool,
+  tools: [Str: Int],
+  content: [Int: Block],
+  sequence: Int64,
+  stream_id: Str,
+  activity: Str,
+  thinking: Str,
+  context_tokens: Int,
+  context_window: Int,
+}
+
+fn live() Live {
+  Live{
+    messages: [],
+    assistant: -1,
+    has_user: false,
+    tools: [:],
+    content: [:],
+    sequence: 0,
+    stream_id: "",
+    activity: "",
+    thinking: "",
+    context_tokens: 0,
+    context_window: 0,
+  }
+}
+
+// The text of a tool result's content blocks.
+fn content_text(content: [protocol::TranscriptContent]) Str {
+  let parts = mut List::new<Str>()
+  for block in content {
+    match {
+      block.Kind == protocol::TranscriptContentText => parts.push(block.Text),
+      block.Kind == protocol::TranscriptContentImage => parts.push("[image]"),
+      block.Kind == protocol::TranscriptContentFile => parts.push("[file: {block.Filename}]"),
+      _ => (),
+    }
+  }
+  strings::Join(parts, "\n")
+}
+
+// The last non-blank line of streamed thinking, shown as the turn activity.
+fn latest_thinking_line(thinking: Str) Str {
+  let normalized = strings::ReplaceAll(strings::ReplaceAll(thinking, "\r\n", "\n"), "\r", "\n")
+  let lines = strings::Split(normalized, "\n")
+  mut found = "Thinking…"
+  for line in lines {
+    let trimmed = strings::TrimRight(line, " \t")
+    if trimmed != "" {
+      found = trimmed
+    }
+  }
+  found
+}
+
+impl Live {
+  // Clears the live run, as when a snapshot supersedes it.
+  fn mut reset() {
+    self.messages = []
+    self.assistant = -1
+    self.has_user = false
+    self.tools = [:]
+    self.content = [:]
+    self.sequence = 0
+    self.stream_id = ""
+    self.activity = ""
+    self.thinking = ""
+  }
+
+  // Reports whether a snapshot predates events this live state has applied.
+  fn supersedes(snapshot: protocol::SessionSnapshot) Bool {
+    self.sequence > 0 and snapshot.EventStreamID == self.stream_id and snapshot.EventCursor < self.sequence
+  }
+
+  // Shows a submitted prompt before the server accepts it.
+  fn mut submit(text: Str) {
+    self.reset()
+    self.activity = "Working…"
+    let user = mut message("", "", Role::user)
+    user.text = text
+    self.messages.push(user.@)
+    self.has_user = true
+  }
+
+  private fn mut edit(index: Int, change: fn(mut Message)) {
+    match self.messages.at(index) {
+      current => {
+        let edited = mut current
+        change(edited)
+        self.messages.set(index, edited.@)
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut remove(index: Int) {
+    let kept = mut List::new<Message>()
+    mut position = 0
+    for current in self.messages {
+      if position != index {
+        kept.push(current)
+      }
+      position =+ 1
+    }
+    self.messages = kept.@
+    for call_id in self.tools.keys() {
+      let tool = self.tools.get(call_id).or(-1)
+      if tool > index {
+        self.tools.set(call_id, tool - 1)
+      }
+    }
+  }
+
+  private fn mut ensure_assistant(message_id: Str, turn_id: Str) Int {
+    mut found = -1
+    match self.messages.at(self.assistant) {
+      current => {
+        if current.id == message_id {
+          found = self.assistant
+        }
+      },
+      _ => (),
+    }
+    if found < 0 {
+      mut index = self.messages.size() - 1
+      while index >= 0 and found < 0 {
+        let current = self.messages.at(index).expect("live message")
+        if current.role == Role::assistant and current.id == message_id {
+          found = index
+        }
+        index =- 1
+      }
+    }
+    match found >= 0 {
+      true => {
+        self.assistant = found
+        self.edit(found, fn(current: mut Message) {
+          if current.turn_id == "" {
+            current.turn_id = turn_id
+          }
+        })
+        found
+      },
+      false => {
+        self.assistant = self.messages.size()
+        self.content = [:]
+        let created = mut message(message_id, turn_id, Role::assistant)
+        created.pending = true
+        self.messages.push(created.@)
+        self.assistant
+      },
+    }
+  }
+
+  private fn mut sync_assistant(index: Int) {
+    let keys = mut self.content.keys()
+    keys.sort(fn(left: Int, right: Int) Bool {
+      left < right
+    })
+    let text = mut List::new<Str>()
+    let thinking = mut List::new<Str>()
+    for key in keys {
+      let block = self.content.get(key).expect("content block")
+      match block.thinking {
+        true => thinking.push(block.text),
+        false => text.push(block.text),
+      }
+    }
+    let joined_text = strings::Join(text, "\n")
+    let joined_thinking = strings::Join(thinking, "\n")
+    self.edit(index, fn(current: mut Message) {
+      current.text = joined_text
+      current.thinking = joined_thinking
+    })
+  }
+
+  private fn mut ensure_tool(turn_id: Str, call_id: Str, name: Str) Int {
+    match self.tools.get(call_id) {
+      index => index,
+      _ => {
+        let index = self.messages.size()
+        self.tools.set(call_id, index)
+        let created = mut message("live-tool:{call_id}", turn_id, Role::tool)
+        created.tool_call_id = call_id
+        created.tool_name = name
+        self.messages.push(created.@)
+        index
+      },
+    }
+  }
+
+  // Records a tool call on its assistant message, creating one when the call
+  // arrives before any assistant content for the turn.
+  private fn mut ensure_tool_call(event: protocol::SessionEvent) {
+    mut known = false
+    for current in self.messages {
+      if current.role == Role::assistant and current.turn_id == event.TurnID {
+        for call in current.tool_calls {
+          if call.id == event.ToolCallID {
+            known = true
+          }
+        }
+      }
+    }
+    if not known {
+      let call = ToolCall{id: event.ToolCallID, name: event.ToolName}
+      mut owner = -1
+      mut index = self.messages.size() - 1
+      while index >= 0 and owner < 0 {
+        let current = self.messages.at(index).expect("live message")
+        if current.role == Role::assistant and current.turn_id == event.TurnID and (event.MessageID == "" or current.id == event.MessageID) {
+          owner = index
+        }
+        index =- 1
+      }
+      match owner >= 0 {
+        true => {
+          self.edit(owner, fn(current: mut Message) {
+            current.tool_calls.push(call)
+          })
+        },
+        false => {
+          let id = match event.MessageID == "" {
+            true => "live-assistant:{event.ToolCallID}",
+            false => event.MessageID,
+          }
+          let created = mut message(id, event.TurnID, Role::assistant)
+          created.tool_calls = [call]
+          self.messages.push(created.@)
+        },
+      }
+    }
+  }
+}
+
+impl Live {
+  // Applies a batch of streamed run events and reports whether entries were
+  // added or reshaped, which asks a view pinned to the end to follow. Streamed
+  // assistant text does not request a follow by itself. Events at or before
+  // the last applied sequence are ignored, so replayed batches are harmless.
+  fn mut apply(events: [protocol::SessionEvent]) Bool {
+    mut changed = false
+    for event in events {
+      if event.Sequence > self.sequence {
+        self.sequence = event.Sequence
+        if event.StreamID != "" {
+          self.stream_id = event.StreamID
+        }
+        if self.apply_one(event) {
+          changed = true
+        }
+      }
+    }
+    changed
+  }
+
+  private fn mut apply_one(event: protocol::SessionEvent) Bool {
+    match classify(event.Kind) {
+      Event::run_started => {
+        self.thinking = ""
+        self.activity = "Working…"
+        false
+      },
+      Event::user_message => {
+        if self.activity == "" {
+          self.activity = "Working…"
+        }
+        match self.has_user {
+          false => {
+            let user = mut message("live-user:{event.TurnID}", event.TurnID, Role::user)
+            user.text = event.Text
+            self.messages.push(user.@)
+            self.has_user = true
+          },
+          true => {
+            mut pending = -1
+            mut index = 0
+            for current in self.messages {
+              if pending < 0 and current.role == Role::user and current.turn_id == "" {
+                pending = index
+              }
+              index =+ 1
+            }
+            self.edit(pending, fn(current: mut Message) {
+              current.id = "live-user:{event.TurnID}"
+              current.turn_id = event.TurnID
+              current.text = event.Text
+            })
+          },
+        }
+        true
+      },
+      Event::assistant_started => {
+        self.activity = "Working…"
+        self.thinking = match event.Text == "" {
+          true => event.Thinking,
+          false => "",
+        }
+        self.assistant = self.messages.size()
+        self.content = [:]
+        if event.Thinking != "" {
+          self.content.set(-2, Block{thinking: true, text: event.Thinking})
+        }
+        if event.Text != "" {
+          self.content.set(-1, Block{thinking: false, text: event.Text})
+        }
+        let started = mut message(event.MessageID, event.TurnID, Role::assistant)
+        started.text = event.Text
+        started.thinking = event.Thinking
+        started.pending = true
+        self.messages.push(started.@)
+        event.Thinking != ""
+      },
+      Event::text_delta => self.delta(event, false),
+      Event::thinking_delta => self.delta(event, true),
+      Event::assistant_completed => {
+        let index = self.ensure_assistant(event.MessageID, event.TurnID)
+        self.edit(index, fn(current: mut Message) {
+          if event.Text != "" {
+            current.text = event.Text
+          }
+          if event.Thinking != "" {
+            current.thinking = event.Thinking
+          }
+          current.pending = false
+        })
+        let completed = self.messages.at(index).expect("completed assistant")
+        if completed.text == "" and completed.thinking == "" and completed.tool_calls.size() == 0 {
+          self.remove(index)
+        }
+        self.assistant = -1
+        self.content = [:]
+        self.thinking = ""
+        self.activity = "Working…"
+        true
+      },
+      Event::tool_planned => self.tool_scheduled(event, ToolState::planned),
+      Event::tool_started => self.tool_scheduled(event, ToolState::running),
+      Event::tool_updated => {
+        self.thinking = ""
+        self.activity = "Working…"
+        self.ensure_tool_call(event)
+        let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+        self.edit(index, fn(current: mut Message) {
+          current.is_error = event.IsError
+        })
+        false
+      },
+      Event::tool_completed => {
+        self.thinking = ""
+        self.activity = "Working…"
+        self.ensure_tool_call(event)
+        let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+        mut text = content_text(event.Content)
+        if event.ContentTruncated {
+          text = notice(text, "… live output truncated")
+        }
+        if event.DetailsOmitted {
+          text = notice(text, "… tool details omitted")
+        }
+        self.edit(index, fn(current: mut Message) {
+          current.text = text
+          current.is_error = event.IsError
+          current.pending = false
+          current.tool_state = match event.IsError {
+            true => ToolState::failed,
+            false => ToolState::completed,
+          }
+        })
+        true
+      },
+      Event::compaction_started => {
+        self.thinking = ""
+        self.activity = "Compacting session…"
+        false
+      },
+      Event::compaction_finished => {
+        self.activity = "Working…"
+        false
+      },
+      Event::retry_scheduled => {
+        self.thinking = ""
+        false
+      },
+      Event::retry_started => {
+        self.activity = "Working…"
+        false
+      },
+      Event::context_updated => {
+        self.context_tokens = event.ContextTokens
+        self.context_window = event.ContextWindow
+        false
+      },
+      Event::run_finished => {
+        for call_id in self.tools.keys() {
+          self.edit(self.tools.get(call_id).or(-1), fn(current: mut Message) {
+            if current.tool_state == ToolState::planned {
+              current.pending = false
+              current.tool_state = ToolState::not_run
+            }
+          })
+        }
+        self.thinking = ""
+        self.activity = ""
+        true
+      },
+      Event::other => false,
+    }
+  }
+
+  private fn mut delta(event: protocol::SessionEvent, thinking: Bool) Bool {
+    let index = self.ensure_assistant(event.MessageID, event.TurnID)
+    let existing = self.content.get(event.ContentIndex)
+    let compatible = match existing {
+      block => block.thinking == thinking,
+      _ => true,
+    }
+    match compatible {
+      false => false,
+      true => {
+        let prior = match existing {
+          block => block.text,
+          _ => "",
+        }
+        self.content.set(event.ContentIndex, Block{thinking: thinking, text: prior + event.Delta})
+        self.sync_assistant(index)
+        match thinking {
+          true => {
+            let streamed = self.messages.at(index).expect("live assistant").thinking
+            self.thinking = streamed
+            self.activity = latest_thinking_line(streamed)
+          },
+          false => {
+            self.thinking = ""
+            self.activity = "Working…"
+          },
+        }
+        thinking
+      },
+    }
+  }
+
+  private fn mut tool_scheduled(event: protocol::SessionEvent, state: ToolState) Bool {
+    self.thinking = ""
+    self.activity = "Working…"
+    self.ensure_tool_call(event)
+    let index = self.ensure_tool(event.TurnID, event.ToolCallID, event.ToolName)
+    self.edit(index, fn(current: mut Message) {
+      current.pending = true
+      current.tool_state = state
+    })
+    true
+  }
+}
+
+private fn notice(text: Str, line: Str) Str {
+  match text == "" {
+    true => line,
+    false => "{text}\n{line}",
+  }
+}

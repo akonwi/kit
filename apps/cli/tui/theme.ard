@@ -18,6 +18,7 @@ struct Theme {
   success_text: ui::Color,
   warning_text: ui::Color,
   danger_text: ui::Color,
+  user_fill: ui::Color,
 }
 
 // The terminal-derived base theme.
@@ -32,6 +33,7 @@ fn system() Theme {
     success_text: ui::indexed(2),
     warning_text: ui::indexed(3),
     danger_text: ui::indexed(1),
+    user_fill: ui::indexed(236),
   }
 }
 
@@ -49,6 +51,7 @@ fn resolve(definition: kittheme::Definition) Theme {
     success_text: token(tokens, kittheme::TokenToolText, base.success_text),
     warning_text: token(tokens, kittheme::TokenWarningText, base.warning_text),
     danger_text: token(tokens, kittheme::TokenErrorText, base.danger_text),
+    user_fill: base.user_fill,
   }
 }
 

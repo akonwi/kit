@@ -3,12 +3,17 @@ use ard/async
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:github.com/akonwi/kit/internal/protocol
+use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
 use kit/tui/format
 use kit/tui/theme
+use kit/tui/transcript
 use go:strings
+use go:time
 
 // The root terminal-client component: session bootstrap, shell chrome, and
 // the composer.
@@ -33,10 +38,19 @@ struct Shell {
   props: mut Props,
   phase: Phase,
   error: Str,
-  attached: bootstrap::Attached?,
-  location: Str,
-  composer: Str,
+  context: cui::Context?,
   lifetime: contextbridge::Cancellation?,
+  session: sessionclient::Session?,
+  info: protocol::SessionInfo?,
+  location: Str,
+  messages: [transcript::Message],
+  live: transcript::Live,
+  run_id: Str,
+  context_tokens: Int,
+  context_window: Int,
+  notice: Str,
+  composer: Str,
+  list: mut cui::VirtualListRef,
 }
 
 fn new(props: mut Props) mut Shell {
@@ -48,10 +62,19 @@ fn new(props: mut Props) mut Shell {
     props: props,
     phase: phase,
     error: "",
-    attached: Maybe::new<bootstrap::Attached>(),
-    location: props.options.Location,
-    composer: "",
+    context: Maybe::new<cui::Context>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
+    session: Maybe::new<sessionclient::Session>(),
+    info: Maybe::new<protocol::SessionInfo>(),
+    location: props.options.Location,
+    messages: [],
+    live: transcript::live(),
+    run_id: "",
+    context_tokens: 0,
+    context_window: 0,
+    notice: "",
+    composer: "",
+    list: cui::virtual_list_ref(),
   })
 }
 
@@ -59,6 +82,7 @@ impl cui::Lifecycle for Shell {
   fn mut mounted(ctx: cui::Context) {
     let lifetime = contextbridge::WithCancel(self.props.options.Context)
     self.lifetime = Maybe::new(lifetime)
+    self.context = Maybe::new(ctx)
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
     }
@@ -85,11 +109,7 @@ impl Shell {
       }
       let _ = dispatch(fn() {
         match result {
-          ok => {
-            self.attached = Maybe::new(ok)
-            self.location = location
-            self.phase = Phase::ready
-          },
+          ok => self.attach(ok, location),
           err => {
             self.error = err
             self.phase = Phase::failed
@@ -107,6 +127,178 @@ impl Shell {
     }
     true
   }
+}
+
+// One transcript row: a message and its stable virtual-list key.
+struct Entry {
+  key: Str,
+  message: transcript::Message,
+  last: Bool,
+}
+
+// The conversation transcript. It opens at, and follows, its latest message
+// until the user scrolls away; returning to the end resumes following. Short
+// transcripts rest on the composer, as in the vaxis client.
+fn transcript_pane(
+  colors: theme::Theme,
+  messages: [transcript::Message],
+  session_id: Str,
+  list: mut cui::VirtualListRef,
+) cui::View {
+  let shown = mut List::new<transcript::Message>()
+  for message in messages {
+    if renders(message) {
+      shown.push(message)
+    }
+  }
+  match shown.size() == 0 {
+    true => empty_state(colors, "Ask a question or give a task."),
+    false => {
+      let entries = mut List::new<Entry>()
+      for message in shown {
+        let key = match message.id == "" {
+          true => "pending:{entries.size()}",
+          false => message.id,
+        }
+        entries.push(
+          Entry{
+            key: key,
+            message: message,
+            last: entries.size() == shown.size() - 1,
+          },
+        )
+      }
+      cui::virtual_list(
+        entries.@,
+        item_key: fn(entry: Entry) Str {
+          entry.key
+        },
+        render_item: fn(entry: Entry) cui::View {
+          transcript_row(colors, entry)
+        },
+        estimated_height: 4,
+        overscan: 2,
+        key: "transcript:{session_id}",
+        ref: list,
+        follow_edge: cui::ScrollEdge::end,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      )
+    },
+  }
+}
+
+// Each row keeps a blank row above it; the last also keeps one below.
+fn transcript_row(colors: theme::Theme, entry: Entry) cui::View {
+  let bottom = match entry.last {
+    true => 1,
+    false => 0,
+  }
+  cui::box(
+    [entry_view(colors, entry.message).or(blank())],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      padding: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(1),
+        bottom: ui::cells(bottom),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+// Whether a message has visible transcript content.
+fn renders(message: transcript::Message) Bool {
+  match message.role {
+    transcript::Role::user => message.text != "",
+    transcript::Role::assistant => message.text != "",
+    transcript::Role::tool => true,
+    transcript::Role::bash => true,
+    transcript::Role::other => false,
+  }
+}
+
+fn entry_view(colors: theme::Theme, message: transcript::Message) cui::View? {
+  match message.role {
+    transcript::Role::user => user_entry(colors, message),
+    transcript::Role::assistant => {
+      let tone = match {
+        message.aborted => colors.muted,
+        message.is_error => colors.danger_text,
+        _ => colors.foreground,
+      }
+      match message.text == "" {
+        true => Maybe::new<cui::View>(),
+        false => Maybe::new(cui::text(message.text, text_style: ui::text_style(foreground: tone))),
+      }
+    },
+    transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
+    transcript::Role::bash => {
+      Maybe::new(
+        cui::text("$ {message.text}", text_style: ui::text_style(foreground: colors.muted)),
+      )
+    },
+    transcript::Role::other => Maybe::new<cui::View>(),
+  }
+}
+
+// A user turn: a tinted wash with half-block edges and two-cell padding.
+fn user_entry(colors: theme::Theme, message: transcript::Message) cui::View? {
+  match message.text == "" {
+    true => Maybe::new<cui::View>(),
+    false => {
+      let edge = fn(glyph: Str) cui::View {
+        cui::text(
+          strings::Repeat(glyph, 1024),
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.user_fill),
+          wrap: ui::TextWrap::none,
+        )
+      }
+      Maybe::new(
+        cui::box(
+          [
+            edge("▄"),
+            cui::box(
+              [
+                cui::text(
+                  message.text,
+                  text_style: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
+                ),
+              ],
+              styles: ui::style(
+                background: colors.user_fill,
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(2),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+            ),
+            edge("▀"),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        ),
+      )
+    },
+  }
+}
+
+fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {
+  let state = match message.tool_state {
+    transcript::ToolState::planned => "planned",
+    transcript::ToolState::running => "running…",
+    transcript::ToolState::completed => "done",
+    transcript::ToolState::failed => "failed",
+    transcript::ToolState::not_run => "not run",
+    transcript::ToolState::none => "",
+  }
+  let tone = match message.tool_state == transcript::ToolState::failed {
+    true => colors.danger_text,
+    false => colors.muted,
+  }
+  line("• {message.tool_name} {state}", ui::text_style(foreground: tone))
 }
 
 // Horizontal padding of one cell, as used by the header and footer rows.
@@ -176,16 +368,15 @@ impl Shell {
     let colors = self.props.theme
     let left = mut List::new<cui::View>()
     let right = mut List::new<ui::Span>()
-    match self.attached {
-      attached => {
-        let session = attached.snapshot.Session
+    match self.info {
+      session => {
         left.push(line(format::session_name(session), ui::text_style()))
         right.push(ui::span(format::model_name(session.Model)))
         let thinking = strings::TrimSpace(session.ThinkingLevel)
         if thinking != "" {
           right.push(ui::span(" ({thinking})"))
         }
-        match format::context_percentage(attached.snapshot.ContextTokens, attached.snapshot.ContextWindow) {
+        match format::context_percentage(self.context_tokens, self.context_window) {
           percentage => {
             let tone = match percentage > 90 {
               true => colors.danger_text,
@@ -308,14 +499,33 @@ impl Shell {
   fn mut conversation() cui::View {
     let colors = self.props.theme
     cui::box(
-      [
-        empty_state(colors, "Ask a question or give a task."),
-        blank(),
-        divider(colors.border),
-        self.composer_view(),
-      ],
+      [self.transcript_view(), self.pending_row(), divider(colors.border), self.composer_view()],
       styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
     )
+  }
+
+  fn transcript_view() cui::View {
+    let messages = mut List::new<transcript::Message>()
+    for message in self.messages {
+      messages.push(message)
+    }
+    for message in self.live.messages {
+      messages.push(message)
+    }
+    let session_id = match self.info {
+      info => info.ID,
+      _ => "",
+    }
+    transcript_pane(self.props.theme, messages.@, session_id, self.list)
+  }
+
+  fn pending_row() cui::View {
+    let colors = self.props.theme
+    let content = match self.notice != "" {
+      true => line(self.notice, ui::text_style(foreground: colors.danger_text)),
+      false => line(self.live.activity, ui::text_style(foreground: colors.muted)),
+    }
+    cui::box([content], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0, padding: inset()))
   }
 
   fn mut composer_view() cui::View {
@@ -325,6 +535,9 @@ impl Shell {
       ui::TextAreaAction::insert_newline,
       [keymap::key("return", shift: true)],
     )
+    let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
+      self.submit()
+    })
     cui::text_area(
       self.composer,
       key: "composer",
@@ -336,6 +549,8 @@ impl Shell {
         self.composer = value
       },
       key_bindings: editing,
+      commands: [send],
+      bindings: [keymap::binding(keymap::key("return"), send.with())],
     )
   }
 }
@@ -359,5 +574,208 @@ impl cui::Component for Shell {
       bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
       binding_scope: keymap::ScopeMode::application,
     )
+  }
+}
+
+// Session synchronization. Workers only dispatch; every state change runs on
+// the UI thread.
+impl Shell {
+  fn mut attach(attached: bootstrap::Attached, location: Str) {
+    self.session = Maybe::new(attached.session)
+    self.location = location
+    self.phase = Phase::ready
+    self.apply_snapshot(attached.snapshot)
+    self.watch()
+    self.follow_run(attached.snapshot.ActiveRunID)
+  }
+
+  // Replaces the transcript with a server snapshot unless live events have
+  // already moved past it.
+  fn mut apply_snapshot(snapshot: protocol::SessionSnapshot) {
+    if not self.live.supersedes(snapshot) {
+      self.info = Maybe::new(snapshot.Session)
+      self.messages = transcript::project(snapshot.Messages)
+      self.live.reset()
+      self.context_tokens = snapshot.ContextTokens
+      self.context_window = snapshot.ContextWindow
+    }
+  }
+
+  // Watches the attached session: run starts open the run stream, and run
+  // completions reconcile the transcript from a fresh snapshot. The watch
+  // reconnects until the client detaches.
+  fn mut watch() {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            match self.context {
+              context => {
+                let ctx = lifetime.Context
+                let dispatch = context.dispatch
+                async::start(fn() {
+                  mut attached = true
+                  while attached {
+                    match sessionbridge::WatchSession(ctx, session) {
+                      ok(watching) => {
+                        let baseline = watching.Snapshot
+                        let _ = dispatch(fn() {
+                          self.apply_snapshot(baseline)
+                        })
+                        let updates = watching.Stream.Updates()
+                        mut open = true
+                        while open {
+                          match updates.recv() {
+                            batch => {
+                              for event in batch {
+                                let kind = transcript::classify(event.Kind)
+                                if kind == transcript::Event::run_started {
+                                  let run_id = event.RunID
+                                  let _ = dispatch(fn() {
+                                    self.follow_run(run_id)
+                                  })
+                                }
+                                if kind == transcript::Event::run_finished {
+                                  match session.Snapshot(ctx) {
+                                    ok(settled) => {
+                                      let _ = dispatch(fn() {
+                                        self.apply_snapshot(settled)
+                                      })
+                                    },
+                                    err(_) => (),
+                                  }
+                                }
+                              }
+                            },
+                            _ => { open = false },
+                          }
+                        }
+                      },
+                      err(_) => (),
+                    }
+                    if ctx.Err().is_ok() {
+                      time::Sleep(time::Millisecond * 250)
+                    }
+                  }
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Streams the events of `run_id` into the live transcript.
+  fn mut follow_run(run_id: Str) {
+    if run_id != "" and run_id != self.run_id {
+      self.run_id = run_id
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              match self.context {
+                context => {
+                  let ctx = lifetime.Context
+                  let dispatch = context.dispatch
+                  async::start(fn() {
+                    match session.Stream(ctx, run_id) {
+                      ok(stream) => {
+                        let updates = stream.Updates()
+                        mut open = true
+                        while open {
+                          match updates.recv() {
+                            batch => {
+                              let _ = dispatch(fn() {
+                                self.apply_events(run_id, batch)
+                              })
+                            },
+                            _ => { open = false },
+                          }
+                        }
+                      },
+                      err(_) => (),
+                    }
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut apply_events(run_id: Str, batch: [protocol::SessionEvent]) {
+    if run_id == self.run_id {
+      // A transcript pinned to its end follows new content on its own.
+      let _ = self.live.apply(batch)
+      if self.live.context_window > 0 {
+        self.context_tokens = self.live.context_tokens
+        self.context_window = self.live.context_window
+      }
+    }
+  }
+
+  // Submits the composer as a prompt when no run is active.
+  fn mut submit() Bool {
+    let text = strings::TrimSpace(self.composer)
+    if self.phase == Phase::ready and text != "" and self.live.activity == "" {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              match self.context {
+                context => {
+                  self.composer = ""
+                  self.notice = ""
+                  self.live.submit(text)
+                  self.request_end()
+                  let ctx = lifetime.Context
+                  let dispatch = context.dispatch
+                  async::start(fn() {
+                    match session.StartPrompt(ctx, text) {
+                      ok(run) => {
+                        let run_id = run.ID()
+                        let _ = dispatch(fn() {
+                          self.follow_run(run_id)
+                        })
+                      },
+                      err(failure) => {
+                        let message = failure.error()
+                        let _ = dispatch(fn() {
+                          if self.composer == "" {
+                            self.composer = text
+                          }
+                          self.live.reset()
+                          self.notice = message
+                        })
+                      },
+                    }
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+    true
+  }
+
+  // Sending a prompt returns the transcript to its end and resumes following.
+  fn request_end() {
+    let _ = self.list.current.map(fn(list) {
+      let _ = list.scroll_to_edge(cui::ScrollEdge::end)
+    })
   }
 }

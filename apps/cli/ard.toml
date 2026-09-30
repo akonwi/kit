@@ -7,4 +7,4 @@ version = { type = "Str", default = "dev", release = true }
 commit = { type = "Str", default = "unknown", release = true }
 
 [dependencies]
-cooper = { git = "https://github.com/akonwi/cooper.git", commit = "ecaf8d48b589dab2e7970052542a4ebed0c140d4" }
+cooper = { git = "https://github.com/akonwi/cooper.git", commit = "b44b3de82bccc924f2c498b2d5f1976526070ef5" }

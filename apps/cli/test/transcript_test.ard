@@ -1,0 +1,203 @@
+use ard/testing
+
+use go:github.com/akonwi/kit/internal/protocol
+use kit/tui/transcript
+
+// Numbers events 1, 2, 3, … in order, as one server stream would.
+fn sequenced(events: [protocol::SessionEvent]) [protocol::SessionEvent] {
+  let numbered = mut List::new<protocol::SessionEvent>()
+  mut next: Int64 = 1
+  for event in events {
+    let copy = mut event
+    copy.Sequence = next
+    numbered.push(copy.@)
+    next =+ 1
+  }
+  numbered.@
+}
+
+fn event(kind: protocol::SessionEventKind) protocol::SessionEvent {
+  protocol::SessionEvent{
+    Kind: kind,
+    TurnID: "turn-1",
+    RunID: "run-1",
+  }
+}
+
+fn text_delta(delta: Str) protocol::SessionEvent {
+  protocol::SessionEvent{
+    Kind: protocol::SessionEventAssistantTextDelta,
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+    ContentIndex: 0,
+    Delta: delta,
+  }
+}
+
+fn assistant_started() protocol::SessionEvent {
+  protocol::SessionEvent{
+    Kind: protocol::SessionEventAssistantStarted,
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+  }
+}
+
+fn describe(messages: [transcript::Message]) Str {
+  mut out = ""
+  for message in messages {
+    let role = match message.role {
+      transcript::Role::user => "user",
+      transcript::Role::assistant => "assistant",
+      transcript::Role::tool => "tool",
+      transcript::Role::bash => "bash",
+      transcript::Role::other => "other",
+    }
+    out = out + "[{role} {message.id} {message.text}]"
+  }
+  out
+}
+
+test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
+  let live = mut transcript::live()
+  live.submit("hi")
+  try testing::assert(live.activity == "Working…", "submission shows activity")
+  let stream = sequenced(
+    [
+      event(protocol::SessionEventRunStarted),
+      protocol::SessionEvent{
+        Kind: protocol::SessionEventUserMessage,
+        TurnID: "turn-1",
+        Text: "hi",
+      },
+      assistant_started(),
+      text_delta("Hel"),
+      text_delta("lo"),
+      protocol::SessionEvent{
+        Kind: protocol::SessionEventAssistantCompleted,
+        TurnID: "turn-1",
+        MessageID: "assistant-1",
+        Text: "Hello!",
+      },
+      event(protocol::SessionEventRunFinished),
+    ],
+  )
+  let _ = live.apply(stream.slice(end: 5).expect("streaming prefix").to_list())
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 hi][assistant assistant-1 Hello]",
+    describe(live.messages),
+  )
+  try testing::assert(live.messages.at(1).expect("assistant").pending, "streaming reply is pending")
+  let follow = live.apply(stream)
+  try testing::assert(follow, "completion asks a pinned view to follow")
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 hi][assistant assistant-1 Hello!]",
+    describe(live.messages),
+  )
+  try testing::assert(not live.messages.at(1).expect("assistant").pending, "completed reply settles")
+  testing::assert(live.activity == "", "finished run clears activity")
+}
+
+test fn replayed_events_are_ignored() Void!Str {
+  let live = mut transcript::live()
+  let stream = sequenced([assistant_started(), text_delta("one"), text_delta(" two")])
+  let _ = live.apply(stream.slice(end: 2).expect("first batch").to_list())
+  let _ = live.apply(stream.slice(start: 1).expect("overlapping batch").to_list())
+  let text = live.messages.at(0).expect("assistant").text
+  testing::assert(text == "one two", text)
+}
+
+test fn streamed_thinking_shows_its_latest_line_as_activity() Void!Str {
+  let live = mut transcript::live()
+  let thinking = protocol::SessionEvent{
+    Kind: protocol::SessionEventThinkingDelta,
+    TurnID: "turn-1",
+    MessageID: "assistant-1",
+    ContentIndex: 0,
+    Delta: "Reading files\nPlanning the change\n",
+  }
+  let follow = live.apply(sequenced([thinking]))
+  try testing::assert(follow, "thinking asks a pinned view to follow")
+  try testing::assert(live.activity == "Planning the change", live.activity)
+  testing::assert(
+    live.messages.at(0).expect("assistant").thinking == "Reading files\nPlanning the change\n",
+    "thinking is kept",
+  )
+}
+
+test fn tools_attach_to_their_turn_and_unrun_plans_settle_at_run_end() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        protocol::SessionEvent{
+          Kind: protocol::SessionEventToolPlanned,
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "read",
+        },
+        protocol::SessionEvent{
+          Kind: protocol::SessionEventToolPlanned,
+          TurnID: "turn-1",
+          ToolCallID: "call-2",
+          ToolName: "bash",
+        },
+        protocol::SessionEvent{
+          Kind: protocol::SessionEventToolCompleted,
+          TurnID: "turn-1",
+          ToolCallID: "call-1",
+          ToolName: "read",
+          Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "file body"}],
+        },
+        event(protocol::SessionEventRunFinished),
+      ],
+    ),
+  )
+  try testing::assert(
+    describe(live.messages) == "[assistant live-assistant:call-1 ][tool live-tool:call-1 file body][tool live-tool:call-2 ]",
+    describe(live.messages),
+  )
+  try testing::assert(
+    live.messages.at(0).expect("assistant").tool_calls.size() == 2,
+    "both calls belong to the turn's assistant",
+  )
+  try testing::assert(
+    live.messages.at(1).expect("read").tool_state == transcript::ToolState::completed,
+    "completed tool",
+  )
+  testing::assert(
+    live.messages.at(2).expect("bash").tool_state == transcript::ToolState::not_run,
+    "unrun plan settles",
+  )
+}
+
+test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{ID: "empty", Role: "assistant"},
+      protocol::TranscriptMessage{
+        ID: "user-1",
+        Role: "user",
+        Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "question"}],
+      },
+      protocol::TranscriptMessage{
+        ID: "failed",
+        Role: "assistant",
+        ErrorMessage: "provider unavailable",
+      },
+      protocol::TranscriptMessage{
+        ID: "tool-1",
+        Role: "tool",
+        ToolName: "bash",
+        IsError: true,
+      },
+    ],
+  )
+  try testing::assert(
+    describe(projected) == "[user user-1 question][assistant failed provider unavailable][tool tool-1 ]",
+    describe(projected),
+  )
+  testing::assert(
+    projected.at(2).expect("tool").tool_state == transcript::ToolState::failed,
+    "failed tool result",
+  )
+}
