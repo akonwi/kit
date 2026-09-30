@@ -206,6 +206,27 @@
         ],
         "type": "object"
       },
+      "PluginCommandFailedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "plugin_command_failed"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "PluginCommandInput": {
         "additionalProperties": false,
         "properties": {
@@ -223,6 +244,27 @@
           "id",
           "instance",
           "args"
+        ],
+        "type": "object"
+      },
+      "PluginCommandUnavailableError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "plugin_command_unavailable"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
         ],
         "type": "object"
       },
@@ -258,48 +300,6 @@
           "instance",
           "title",
           "variant"
-        ],
-        "type": "object"
-      },
-      "PluginsPluginCommandFailedError": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "plugin_command_failed"
-            ],
-            "type": "string"
-          },
-          "message": {
-            "maxLength": 1024,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
-        ],
-        "type": "object"
-      },
-      "PluginsPluginCommandUnavailableError": {
-        "additionalProperties": false,
-        "properties": {
-          "code": {
-            "enum": [
-              "plugin_command_unavailable"
-            ],
-            "type": "string"
-          },
-          "message": {
-            "maxLength": 1024,
-            "minLength": 1,
-            "type": "string"
-          }
-        },
-        "required": [
-          "code",
-          "message"
         ],
         "type": "object"
       },
@@ -821,14 +821,18 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError",
-                          "plugin_command_unavailable": "#/components/schemas/PluginsPluginCommandUnavailableError"
+                          "plugin_command_unavailable": "#/components/schemas/PluginCommandUnavailableError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
-                          "$ref": "#/components/schemas/PluginsPluginCommandUnavailableError"
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/PluginCommandUnavailableError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -883,13 +887,13 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
-                          "plugin_command_failed": "#/components/schemas/PluginsPluginCommandFailedError"
+                          "plugin_command_failed": "#/components/schemas/PluginCommandFailedError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
-                          "$ref": "#/components/schemas/PluginsPluginCommandFailedError"
+                          "$ref": "#/components/schemas/PluginCommandFailedError"
                         }
                       ]
                     }
@@ -960,6 +964,35 @@
               }
             },
             "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
           }
         },
         "security": [
@@ -968,7 +1001,7 @@
           }
         ],
         "tags": [
-          "plugins"
+          "plugin"
         ]
       }
     },
@@ -1140,11 +1173,15 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "conflict": "#/components/schemas/ConflictError",
                           "instance_mismatch": "#/components/schemas/InstanceMismatchError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ConflictError"
+                        },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
                         }
@@ -1312,7 +1349,7 @@
           }
         ],
         "tags": [
-          "plugins"
+          "plugin"
         ],
         "x-kit-stream": {
           "maxRecordBytes": 32768,

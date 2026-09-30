@@ -79,20 +79,23 @@ func registerPluginRoutes(mux *http.ServeMux, options httpapi.ServeOptions, serv
 	})
 }
 
+// pluginAPIError maps session and plugin failures to declared ADR 0034 errors.
 func pluginAPIError(err error) error {
 	switch {
 	case errors.Is(err, session.ErrPluginCommandUnavailable):
-		return httpapi.NewAPIError(409, httpapi.ErrorCode(protocol.PluginCommandUnavailable), session.ErrPluginCommandUnavailable.Error(), nil)
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorCode(protocol.PluginCommandUnavailable), session.ErrPluginCommandUnavailable.Error(), nil)
 	case errors.Is(err, session.ErrPluginCommandFailed):
-		return httpapi.NewAPIError(422, httpapi.ErrorCode(protocol.PluginCommandFailed), session.ErrPluginCommandFailed.Error(), nil)
+		return httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorCode(protocol.PluginCommandFailed), session.ErrPluginCommandFailed.Error(), nil)
 	case errors.Is(err, session.ErrPluginNotificationCapacity):
-		return httpapi.NewAPIError(429, httpapi.ErrorCapacityExceeded, err.Error(), nil)
+		return httpapi.NewAPIError(http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "plugin notification subscriber limit exceeded", nil)
 	case errors.Is(err, session.ErrNotFound):
-		return httpapi.NewAPIError(404, httpapi.ErrorNotFound, err.Error(), nil)
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	case errors.Is(err, session.ErrDeleteBusy):
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorConflict, "session is being deleted", nil)
 	case errors.Is(err, session.ErrClosed), errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
-		return httpapi.NewAPIError(503, httpapi.ErrorUnavailable, "plugin notifications unavailable", nil)
+		return httpapi.NewAPIError(http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session runtime unavailable", nil)
 	case errors.Is(err, session.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
-		return httpapi.NewAPIError(400, httpapi.ErrorInvalidRequest, "invalid request", nil)
+		return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 	}
-	return httpapi.NewAPIError(500, httpapi.ErrorInternal, "internal server error", nil)
+	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 }

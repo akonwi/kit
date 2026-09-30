@@ -428,6 +428,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PluginCommandFailedError`.
+        internal struct PluginCommandFailedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginCommandFailedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pluginCommandFailed = "plugin_command_failed"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginCommandFailedError/code`.
+            internal var code: Components.Schemas.PluginCommandFailedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginCommandFailedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginCommandFailedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginCommandFailedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginCommandFailedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PluginCommandInput`.
         internal struct PluginCommandInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PluginCommandInput/args`.
@@ -474,6 +516,48 @@ extension Components {
                     "args",
                     "id",
                     "instance"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginCommandUnavailableError`.
+        internal struct PluginCommandUnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginCommandUnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pluginCommandUnavailable = "plugin_command_unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginCommandUnavailableError/code`.
+            internal var code: Components.Schemas.PluginCommandUnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginCommandUnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginCommandUnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginCommandUnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginCommandUnavailableError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
                 ])
             }
         }
@@ -562,90 +646,6 @@ extension Components {
                     "subtitle",
                     "title",
                     "variant"
-                ])
-            }
-        }
-        /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError`.
-        internal struct PluginsPluginCommandFailedError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/code`.
-            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case pluginCommandFailed = "plugin_command_failed"
-            }
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/code`.
-            internal var code: Components.Schemas.PluginsPluginCommandFailedError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/message`.
-            internal var message: Swift.String
-            /// Creates a new `PluginsPluginCommandFailedError`.
-            ///
-            /// - Parameters:
-            ///   - code:
-            ///   - message:
-            internal init(
-                code: Components.Schemas.PluginsPluginCommandFailedError.CodePayload,
-                message: Swift.String
-            ) {
-                self.code = code
-                self.message = message
-            }
-            internal enum CodingKeys: String, CodingKey {
-                case code
-                case message
-            }
-            internal init(from decoder: any Swift.Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.code = try container.decode(
-                    Components.Schemas.PluginsPluginCommandFailedError.CodePayload.self,
-                    forKey: .code
-                )
-                self.message = try container.decode(
-                    Swift.String.self,
-                    forKey: .message
-                )
-                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "code",
-                    "message"
-                ])
-            }
-        }
-        /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError`.
-        internal struct PluginsPluginCommandUnavailableError: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/code`.
-            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
-                case pluginCommandUnavailable = "plugin_command_unavailable"
-            }
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/code`.
-            internal var code: Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload
-            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/message`.
-            internal var message: Swift.String
-            /// Creates a new `PluginsPluginCommandUnavailableError`.
-            ///
-            /// - Parameters:
-            ///   - code:
-            ///   - message:
-            internal init(
-                code: Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload,
-                message: Swift.String
-            ) {
-                self.code = code
-                self.message = message
-            }
-            internal enum CodingKeys: String, CodingKey {
-                case code
-                case message
-            }
-            internal init(from decoder: any Swift.Decoder) throws {
-                let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.code = try container.decode(
-                    Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload.self,
-                    forKey: .code
-                )
-                self.message = try container.decode(
-                    Swift.String.self,
-                    forKey: .message
-                )
-                try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "code",
-                    "message"
                 ])
             }
         }

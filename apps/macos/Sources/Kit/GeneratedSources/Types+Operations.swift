@@ -550,10 +550,12 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/409/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/409/content/json/error/InstanceMismatchError`.
                             case instanceMismatch(Components.Schemas.InstanceMismatchError)
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/409/content/json/error/PluginsPluginCommandUnavailableError`.
-                            case pluginCommandUnavailable(Components.Schemas.PluginsPluginCommandUnavailableError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/409/content/json/error/PluginCommandUnavailableError`.
+                            case pluginCommandUnavailable(Components.Schemas.PluginCommandUnavailableError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -564,6 +566,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
                                 case "instance_mismatch":
                                     self = .instanceMismatch(try .init(from: decoder))
                                 case "plugin_command_unavailable":
@@ -578,6 +582,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
                                 case let .instanceMismatch(value):
                                     try value.encode(to: encoder)
                                 case let .pluginCommandUnavailable(value):
@@ -770,8 +776,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/422/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
-                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/422/content/json/error/PluginsPluginCommandFailedError`.
-                            case pluginCommandFailed(Components.Schemas.PluginsPluginCommandFailedError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/422/content/json/error/PluginCommandFailedError`.
+                            case pluginCommandFailed(Components.Schemas.PluginCommandFailedError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -1079,6 +1085,113 @@ internal enum Operations {
                     default:
                         try throwUnexpectedResponseStatus(
                             expectedStatus: "internalServerError",
+                            response: self
+                        )
+                    }
+                }
+            }
+            internal struct ServiceUnavailable: Sendable, Hashable {
+                /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content`.
+                internal enum Body: Sendable, Hashable {
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content/json`.
+                    internal struct JsonPayload: Codable, Hashable, Sendable {
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content/json/error`.
+                        internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content/json/error/UnavailableError`.
+                            case unavailable(Components.Schemas.UnavailableError)
+                            internal enum CodingKeys: String, CodingKey {
+                                case code
+                            }
+                            internal init(from decoder: any Swift.Decoder) throws {
+                                let container = try decoder.container(keyedBy: CodingKeys.self)
+                                let discriminator = try container.decode(
+                                    Swift.String.self,
+                                    forKey: .code
+                                )
+                                switch discriminator {
+                                case "unavailable":
+                                    self = .unavailable(try .init(from: decoder))
+                                default:
+                                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                                        discriminatorKey: CodingKeys.code,
+                                        discriminatorValue: discriminator,
+                                        codingPath: decoder.codingPath
+                                    )
+                                }
+                            }
+                            internal func encode(to encoder: any Swift.Encoder) throws {
+                                switch self {
+                                case let .unavailable(value):
+                                    try value.encode(to: encoder)
+                                }
+                            }
+                        }
+                        /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content/json/error`.
+                        internal var error: Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload
+                        /// Creates a new `JsonPayload`.
+                        ///
+                        /// - Parameters:
+                        ///   - error:
+                        internal init(error: Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload) {
+                            self.error = error
+                        }
+                        internal enum CodingKeys: String, CodingKey {
+                            case error
+                        }
+                        internal init(from decoder: any Swift.Decoder) throws {
+                            let container = try decoder.container(keyedBy: CodingKeys.self)
+                            self.error = try container.decode(
+                                Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body.JsonPayload._ErrorPayload.self,
+                                forKey: .error
+                            )
+                            try decoder.ensureNoAdditionalProperties(knownKeys: [
+                                "error"
+                            ])
+                        }
+                    }
+                    /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-commands/POST/responses/503/content/application\/json`.
+                    case json(Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body.JsonPayload)
+                    /// The associated value of the enum case if `self` is `.json`.
+                    ///
+                    /// - Throws: An error if `self` is not `.json`.
+                    /// - SeeAlso: `.json`.
+                    internal var json: Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body.JsonPayload {
+                        get throws {
+                            switch self {
+                            case let .json(body):
+                                return body
+                            }
+                        }
+                    }
+                }
+                /// Received HTTP response body
+                internal var body: Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body
+                /// Creates a new `ServiceUnavailable`.
+                ///
+                /// - Parameters:
+                ///   - body: Received HTTP response body
+                internal init(body: Operations.ExecutePluginCommand.Output.ServiceUnavailable.Body) {
+                    self.body = body
+                }
+            }
+            /// Service Unavailable
+            ///
+            /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)/responses/503`.
+            ///
+            /// HTTP response code: `503 serviceUnavailable`.
+            case serviceUnavailable(Operations.ExecutePluginCommand.Output.ServiceUnavailable)
+            /// The associated value of the enum case if `self` is `.serviceUnavailable`.
+            ///
+            /// - Throws: An error if `self` is not `.serviceUnavailable`.
+            /// - SeeAlso: `.serviceUnavailable`.
+            internal var serviceUnavailable: Operations.ExecutePluginCommand.Output.ServiceUnavailable {
+                get throws {
+                    switch self {
+                    case let .serviceUnavailable(response):
+                        return response
+                    default:
+                        try throwUnexpectedResponseStatus(
+                            expectedStatus: "serviceUnavailable",
                             response: self
                         )
                     }
@@ -1661,6 +1774,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/409/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/409/content/json/error/ConflictError`.
+                            case conflict(Components.Schemas.ConflictError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/plugin-toasts/GET/responses/409/content/json/error/InstanceMismatchError`.
                             case instanceMismatch(Components.Schemas.InstanceMismatchError)
                             internal enum CodingKeys: String, CodingKey {
@@ -1673,6 +1788,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "conflict":
+                                    self = .conflict(try .init(from: decoder))
                                 case "instance_mismatch":
                                     self = .instanceMismatch(try .init(from: decoder))
                                 default:
@@ -1685,6 +1802,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .conflict(value):
+                                    try value.encode(to: encoder)
                                 case let .instanceMismatch(value):
                                     try value.encode(to: encoder)
                                 }
