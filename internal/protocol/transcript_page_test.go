@@ -12,7 +12,7 @@ func TestTranscriptPageValidatesCursorAndMessages(t *testing.T) {
 		SessionID: "session_0123456789abcdef0123456789abcdef",
 		Messages: []TranscriptMessage{{
 			ID: "message_1", TurnID: "turn_1", Sequence: 10, Role: "user",
-			Content:   []TranscriptContent{{Kind: TranscriptContentText, Text: "hello"}},
+			Content:   []TranscriptContent{TextBlock("hello")},
 			CreatedAt: "2026-01-01T00:00:00Z",
 		}},
 		PreviousMessageCursor: "10", HasMoreMessages: true,
@@ -36,8 +36,8 @@ func TestMessagePageValidatesNewestFirstFilteredHistory(t *testing.T) {
 	page := MessagePage{
 		SessionID: "session_0123456789abcdef0123456789abcdef",
 		Messages: []TranscriptMessage{
-			{ID: "message_2", TurnID: "turn_2", Sequence: 9, Role: "user", Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "newer"}}, CreatedAt: "2026-01-01T00:00:01Z"},
-			{ID: "message_1", TurnID: "turn_1", Sequence: 2, Role: "user", Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "older"}}, CreatedAt: "2026-01-01T00:00:00Z"},
+			{ID: "message_2", TurnID: "turn_2", Sequence: 9, Role: "user", Content: []TranscriptContent{TextBlock("newer")}, CreatedAt: "2026-01-01T00:00:01Z"},
+			{ID: "message_1", TurnID: "turn_1", Sequence: 2, Role: "user", Content: []TranscriptContent{TextBlock("older")}, CreatedAt: "2026-01-01T00:00:00Z"},
 		},
 		NextCursor: "2", HasMore: true,
 	}
@@ -65,7 +65,7 @@ func TestTranscriptPageRejectsReopenedTurnsAndOrphanedToolResults(t *testing.T) 
 	message := func(id, turn string, sequence int64) TranscriptMessage {
 		return TranscriptMessage{
 			ID: id, TurnID: turn, Sequence: sequence, Role: "user",
-			Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "hello"}}, CreatedAt: "2026-01-01T00:00:00Z",
+			Content: []TranscriptContent{TextBlock("hello")}, CreatedAt: "2026-01-01T00:00:00Z",
 		}
 	}
 	page := TranscriptPage{SessionID: "session_0123456789abcdef0123456789abcdef", Messages: []TranscriptMessage{
@@ -77,7 +77,7 @@ func TestTranscriptPageRejectsReopenedTurnsAndOrphanedToolResults(t *testing.T) 
 
 	page.Messages = []TranscriptMessage{{
 		ID: "message_1", TurnID: "turn_1", Sequence: 1, Role: "tool",
-		Content:    []TranscriptContent{{Kind: TranscriptContentText, Text: "contents"}},
+		Content:    []TranscriptContent{TextBlock("contents")},
 		ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":1}`), CreatedAt: "2026-01-01T00:00:00Z",
 	}}
 	if err := page.Validate(); err == nil {

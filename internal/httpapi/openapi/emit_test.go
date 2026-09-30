@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 type trickyEnum string
@@ -264,5 +265,25 @@ func TestNullablePointerFieldsAreRejected(t *testing.T) {
 		if _, err := SchemaForTesting(test.typ); err == nil || err.Error() != test.want {
 			t.Fatalf("%s: err = %v, want %q", test.typ, err, test.want)
 		}
+	}
+}
+
+func TestSchemaForTestingEmitsTranscriptContentUnion(t *testing.T) {
+	t.Parallel()
+	schema, err := SchemaForTesting(reflect.TypeFor[protocol.TranscriptContent]())
+	if err != nil {
+		t.Fatalf("SchemaForTesting() error = %v", err)
+	}
+	variants, ok := schema["oneOf"].([]any)
+	if !ok || len(variants) != 6 {
+		t.Fatalf("oneOf = %#v; want six variants", schema["oneOf"])
+	}
+	discriminator, _ := schema["discriminator"].(map[string]any)
+	if discriminator["propertyName"] != "kind" {
+		t.Fatalf("discriminator = %#v", discriminator)
+	}
+	mapping, _ := discriminator["mapping"].(map[string]any)
+	if len(mapping) != 6 || mapping["toolCall"] == nil {
+		t.Fatalf("mapping = %#v", mapping)
 	}
 }

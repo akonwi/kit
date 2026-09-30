@@ -54,9 +54,7 @@ func TestToolImageRendersAttachmentPreview(t *testing.T) {
 		Attachments: previewAttachmentSession{release: release, done: done},
 		Messages: []transcriptMessage{
 			{ID: "assistant-1", TurnID: "turn-1", Role: "assistant", ToolCalls: []transcriptToolCall{{ID: "call-1", Name: "show_image"}}},
-			{ID: "result-1", TurnID: "turn-1", Role: "tool", ToolCallID: "call-1", ToolName: "show_image", ToolStatus: "Completed", ToolContent: []protocol.TranscriptContent{{
-				Kind: protocol.TranscriptContentImage, AttachmentID: "attachment-1", Filename: "sample.png", MediaType: "image/png",
-			}}},
+			{ID: "result-1", TurnID: "turn-1", Role: "tool", ToolCallID: "call-1", ToolName: "show_image", ToolStatus: "Completed", ToolContent: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ImageContent{AttachmentID: "attachment-1", Filename: "sample.png", MediaType: "image/png"})}},
 		},
 	}}
 	application := uitest.New(view)
@@ -577,7 +575,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 6, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
 		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "file contents"}}},
+		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("file contents")}},
 		{Sequence: 9, Kind: protocol.SessionEventRunFinished},
 	})
 	tool := state.liveMessages[2]
@@ -1130,7 +1128,7 @@ func activityHarnessMessages() []transcriptMessage {
 			ID: "call_1", Name: "read", Arguments: json.RawMessage(`{"path":"README.md"}`),
 		}}},
 		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read",
-			ToolStatus: "Completed", Text: "README contents", ToolContent: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "README contents"}}},
+			ToolStatus: "Completed", Text: "README contents", ToolContent: []protocol.TranscriptContent{protocol.TextBlock("README contents")}},
 		{ID: "assistant_2", TurnID: "turn_1", Role: "assistant", Text: "Done."},
 	}
 }
@@ -1226,7 +1224,7 @@ func TestTranscriptUserEntryUsesAccentWash(t *testing.T) {
 	}
 	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
 		ID:      "user_1",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the file"}},
+		Content: []protocol.TranscriptContent{protocol.TextBlock("Inspect the file")},
 	}, nil, false, nil))
 	app.Pump(40, 4)
 	column, row := findPaintedCellSequence(t, app, 40, 4, "Inspect the file")
@@ -1249,7 +1247,7 @@ func TestTranscriptUserEntryPreservesSubmittedAnnotationEvidence(t *testing.T) {
 		Preview: protocol.AnnotationPreview{StartLine: 8, EndLine: 9, Text: "frozen source", Truncated: true},
 	}
 	message := protocol.TranscriptMessage{
-		ID: "user_1", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentAnnotations, Annotations: []protocol.SubmittedAnnotation{annotation}}},
+		ID: "user_1", Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.AnnotationsContent{Annotations: []protocol.SubmittedAnnotation{annotation}})},
 	}
 	toggles := 0
 	collapsed := uitest.New(transcriptUserEntry(ui.DefaultTheme(), message, nil, false, func(ui.EventContext) { toggles++ }))
@@ -1899,9 +1897,8 @@ func TestTranscriptUserQuoteInheritsAccentWash(t *testing.T) {
 	fill := userMessageBackground(theme)
 	const width, height = 48, 12
 	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
-		ID: "quoted-user",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText,
-			Text: "nice.\n\n> first paragraph\n>\n> second paragraph\n>\n> > nested quote\n\ncan you do this?"}},
+		ID:      "quoted-user",
+		Content: []protocol.TranscriptContent{protocol.TextBlock("nice.\n\n> first paragraph\n>\n> second paragraph\n>\n> > nested quote\n\ncan you do this?")},
 	}, nil, false, nil))
 	app.Pump(width, height)
 	_, first := findPaintedCellSequence(t, app, width, height, "nice.")

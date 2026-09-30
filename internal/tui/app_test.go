@@ -200,7 +200,7 @@ func TestAcceptedPromptMergesDeferredAutonomousResponse(t *testing.T) {
 		messages:     []transcriptMessage{{Role: "assistant", Text: "older"}},
 		liveMessages: []transcriptMessage{{Role: "user", Text: "new prompt"}},
 		deferredSessionSnapshot: &protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{{
-			Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "autonomous response"}},
+			Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("autonomous response")},
 		}}},
 	}
 	if !state.acceptPromptAdmission(7, appTestRun{id: "run_new"}) {
@@ -470,12 +470,12 @@ func TestSnapshotRefreshRetainsEarlierTranscriptMessages(t *testing.T) {
 	t.Parallel()
 
 	state := appState{messages: projectTranscript([]protocol.TranscriptMessage{
-		{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "earlier"}}},
-		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "previous window"}}},
+		{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("earlier")}},
+		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("previous window")}},
 	})}
 	state.mergeSnapshotTranscript(projectTranscript([]protocol.TranscriptMessage{
-		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "refreshed overlap"}}},
-		{ID: "message_3", Sequence: 3, TurnID: "turn_3", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "latest window"}}},
+		{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("refreshed overlap")}},
+		{ID: "message_3", Sequence: 3, TurnID: "turn_3", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("latest window")}},
 	}))
 
 	if len(state.messages) != 3 {
@@ -527,7 +527,7 @@ func TestPrependTranscriptHistoryRejectsConflictingOverlap(t *testing.T) {
 	state := appState{messages: []transcriptMessage{{ID: "message_existing", Sequence: 4}}}
 	err := state.prependTranscriptHistory(protocol.TranscriptPage{Messages: []protocol.TranscriptMessage{{
 		ID: "message_other", Sequence: 4, TurnID: "turn_1", Role: "user",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "conflict"}},
+		Content: []protocol.TranscriptContent{protocol.TextBlock("conflict")},
 	}}})
 	if err == nil {
 		t.Fatal("conflicting transcript page was accepted")
@@ -547,8 +547,8 @@ func TestPrependTranscriptHistoryAdvancesCursor(t *testing.T) {
 	}
 	err := state.prependTranscriptHistory(protocol.TranscriptPage{
 		Messages: []protocol.TranscriptMessage{
-			{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "one"}}},
-			{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "two"}}},
+			{ID: "message_1", Sequence: 1, TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("one")}},
+			{ID: "message_2", Sequence: 2, TurnID: "turn_2", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("two")}},
 		},
 		PreviousMessageCursor: "1", HasMoreMessages: true,
 	})
@@ -572,12 +572,8 @@ func TestSnapshotPreservesExpandedActivityForStableToolCall(t *testing.T) {
 		activityExpanded: map[activityToolKey]bool{key: true},
 	}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{
-		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
-			Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`,
-		}}},
-		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{
-			Kind: protocol.TranscriptContentText, Text: "contents",
-		}}},
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`})}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("contents")}},
 	}})
 	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
 		t.Fatalf("stable Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
@@ -598,12 +594,8 @@ func TestSnapshotReconcilesExpandedActivityAcrossLiveSourceIdentity(t *testing.T
 		inlineActivityOpen: map[string]bool{"turn-work:turn_1:live-assistant:call_1": true},
 	}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{
-		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{{
-			Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`,
-		}}},
-		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{
-			Kind: protocol.TranscriptContentText, Text: "contents",
-		}}},
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`})}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("contents")}},
 	}})
 	if state.activitySourceID != "turn-work:turn_1:assistant_1" || !state.activityExpanded[key] {
 		t.Fatalf("live Activity reconciliation = source %q expanded %+v", state.activitySourceID, state.activityExpanded)
@@ -619,7 +611,7 @@ func TestSnapshotClosesActivityWhenItsSourceDisappears(t *testing.T) {
 	state := appState{activitySourceID: "turn-work:turn_1:assistant_1", activitySelected: true}
 	state.applySnapshot(protocol.SessionSnapshot{Messages: []protocol.TranscriptMessage{{
 		ID: "user_1", TurnID: "turn_1", Role: "user",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "hello"}},
+		Content: []protocol.TranscriptContent{protocol.TextBlock("hello")},
 	}}})
 	if state.activitySourceID != "" || state.activitySelected {
 		t.Fatalf("vanished Activity source remained open: %q selected %v", state.activitySourceID, state.activitySelected)
@@ -711,8 +703,8 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
 		{Sequence: 1, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "con"}}},
-		{Sequence: 3, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "tents"}}},
+		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("con")}},
+		{Sequence: 3, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("tents")}},
 	})
 	if tool := liveToolMessage(t, &state, "call_1"); tool.Text != "contents" || !tool.Pending {
 		t.Fatalf("streamed tool = %+v", state.liveMessages)
@@ -720,7 +712,7 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 	state.applyRunEvents([]protocol.SessionEvent{{
 		Sequence: 4, Kind: protocol.SessionEventToolCompleted,
 		ToolCallID: "call_1", ToolName: "read",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "authoritative contents"}},
+		Content: []protocol.TranscriptContent{protocol.TextBlock("authoritative contents")},
 		Details: json.RawMessage(`{"lines":1}`),
 	}})
 	tool := liveToolMessage(t, &state, "call_1")
@@ -735,8 +727,8 @@ func TestToolResultDeltaPreviewIsCumulativelyBounded(t *testing.T) {
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	chunk := strings.Repeat("x", 40<<10)
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
-		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: chunk}}},
+		{Sequence: 1, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}},
+		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}},
 	})
 	tool := liveToolMessage(t, &state, "call_1")
 	if !tool.ToolContentTruncated || len(tool.ToolContent) != 2 || !strings.HasSuffix(tool.Text, "… live output truncated") || len(tool.Text) > maxLiveToolPreviewBytes+64 {
@@ -1225,7 +1217,7 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 		ActiveRunID: "run_target",
 		Messages: []protocol.TranscriptMessage{{
 			ID: "target-message", TurnID: "target-turn", Role: "user",
-			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "target history"}},
+			Content: []protocol.TranscriptContent{protocol.TextBlock("target history")},
 		}},
 	}
 	bound := fakeSession{id: target.Session.ID, snapshot: target}

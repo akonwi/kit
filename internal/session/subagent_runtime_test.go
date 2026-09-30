@@ -69,10 +69,7 @@ func TestProjectChildTranscriptMessageOmitsEmptyThinking(t *testing.T) {
 		Messages: []protocol.TranscriptMessage{{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence, Role: message.Role,
 			StopReason: message.StopReason, CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
-			Content: []protocol.TranscriptContent{{
-				Kind: protocol.TranscriptContentKind(message.Content[0].Kind), ToolCallID: message.Content[0].ToolCallID,
-				ToolName: message.Content[0].ToolName, Arguments: message.Content[0].Arguments,
-			}},
+			Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: message.Content[0].ToolCallID, ToolName: message.Content[0].ToolName, Arguments: message.Content[0].Arguments})},
 		}},
 	}
 	if err := transcript.Validate(); err != nil {

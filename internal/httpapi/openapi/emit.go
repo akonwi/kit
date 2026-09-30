@@ -9,11 +9,15 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/invopop/jsonschema"
 )
 
 type enumValues interface{ EnumValues() []string }
+type unionVariants interface {
+	UnionVariants() []protocol.UnionVariant
+}
 
 // Emit returns the deterministic OpenAPI 3.1 session contract.
 func Emit() ([]byte, error) {
@@ -200,6 +204,9 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	if _, exists := components[name]; exists {
 		return name, nil
 	}
+	if union, ok := reflect.New(typ).Elem().Interface().(unionVariants); ok {
+		return addUnionSchema(components, name, union.UnionVariants())
+	}
 	reflector := jsonschema.Reflector{}
 	reflected := reflector.ReflectFromType(typ)
 	encoded, err := json.Marshal(reflected)
@@ -230,6 +237,43 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	}
 	patchSchema(components, schema, typ)
 	return name, nil
+}
+
+func addUnionSchema(components map[string]any, name string, variants []protocol.UnionVariant) (string, error) {
+	refs := make([]any, 0, len(variants))
+	mapping := make(map[string]any, len(variants))
+	for _, variant := range variants {
+		typ := reflect.TypeOf(variant.Payload)
+		variantName, err := addTypeSchema(components, typ)
+		if err != nil {
+			return "", err
+		}
+		schema, _ := components[variantName].(map[string]any)
+		properties, _ := schema["properties"].(map[string]any)
+		if properties == nil {
+			properties = map[string]any{}
+			schema["properties"] = properties
+		}
+		properties["kind"] = map[string]any{"type": "string", "enum": []string{variant.Kind}}
+		required, _ := schema["required"].([]string)
+		if !contains(required, "kind") {
+			schema["required"] = append(required, "kind")
+		}
+		ref := "#/components/schemas/" + variantName
+		refs = append(refs, map[string]any{"$ref": ref})
+		mapping[variant.Kind] = ref
+	}
+	components[name] = map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
+	return name, nil
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
 }
 
 // rejectNullPointers fails emission for a pointer field that would encode a

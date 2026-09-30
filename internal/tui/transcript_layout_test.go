@@ -104,7 +104,7 @@ func TestTranscriptUserEntryHalfBlockEdgesBlendIntoWash(t *testing.T) {
 	fill := userMessageBackground(theme)
 	app := uitest.New(transcriptUserEntry(theme, protocol.TranscriptMessage{
 		ID:      "user_1",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the file"}},
+		Content: []protocol.TranscriptContent{protocol.TextBlock("Inspect the file")},
 	}, nil, false, nil))
 	app.Pump(24, 3)
 	rows := paintedRows(app, 24, 3)

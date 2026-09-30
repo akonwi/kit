@@ -1006,12 +1006,7 @@ func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID
 			CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
 		}
 		for _, block := range message.Content {
-			projected.Content = append(projected.Content, protocol.TranscriptContent{
-				Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
-				ToolCallID: block.ToolCallID, ToolName: block.ToolName,
-				Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
-				Filename: block.Filename, MediaType: block.MediaType,
-			})
+			projected.Content = append(projected.Content, transcriptContentFromFields(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, ""))
 		}
 		result.Messages = append(result.Messages, projected)
 	}
@@ -1200,16 +1195,33 @@ func projectSessionUsagePointer(usage *kitsession.SessionUsage) *protocol.Sessio
 	return &projected
 }
 
+func transcriptContentFromFields(kind protocol.TranscriptContentKind, text, callID, toolName, arguments string, argumentsTruncated bool, filename, mediaType, attachmentID string) protocol.TranscriptContent {
+	switch kind {
+	case protocol.TranscriptContentText:
+		return protocol.NewTranscriptContent(protocol.TextContent{Text: text})
+	case protocol.TranscriptContentThinking:
+		return protocol.NewTranscriptContent(protocol.ThinkingContent{Text: text})
+	case protocol.TranscriptContentToolCall:
+		return protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: callID, ToolName: toolName, Arguments: arguments, ArgumentsTruncated: argumentsTruncated})
+	case protocol.TranscriptContentImage:
+		return protocol.NewTranscriptContent(protocol.ImageContent{Filename: filename, MediaType: mediaType, AttachmentID: attachmentID})
+	case protocol.TranscriptContentFile:
+		return protocol.NewTranscriptContent(protocol.FileContent{Filename: filename, MediaType: mediaType, AttachmentID: attachmentID})
+	case protocol.TranscriptContentAnnotations:
+		return protocol.NewTranscriptContent(protocol.AnnotationsContent{})
+	}
+	return protocol.TranscriptContent{}
+}
+
 func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol.TranscriptContent {
 	result := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
-		projected := protocol.TranscriptContent{
-			Kind: protocol.TranscriptContentKind(block.Kind), Text: block.Text,
-			ToolCallID: block.ToolCallID, ToolName: block.ToolName,
-			Arguments: block.Arguments, ArgumentsTruncated: block.ArgumentsTruncated,
-			Filename: block.Filename, MediaType: block.MediaType, AttachmentID: block.AttachmentID,
-		}
+		projected := transcriptContentFromFields(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, block.AttachmentID)
+		annotationsContent, annotationsOK := projected.Payload.(protocol.AnnotationsContent)
 		for _, annotation := range block.Annotations {
+			if !annotationsOK {
+				break
+			}
 			anchor := protocol.AnnotationAnchor{Kind: protocol.AnnotationAnchorKind(annotation.Kind)}
 			if anchor.Kind == protocol.AnnotationAnchorWorkspaceFile {
 				anchor.WorkspaceFile = &protocol.WorkspaceFileAnnotationAnchor{
@@ -1230,10 +1242,11 @@ func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol
 					Head: protocol.DiffEndpoint{Kind: annotation.TargetHeadKind, OID: annotation.TargetHeadOID},
 				}
 			}
-			projected.Annotations = append(projected.Annotations, protocol.SubmittedAnnotation{
+			annotationsContent.Annotations = append(annotationsContent.Annotations, protocol.SubmittedAnnotation{
 				OriginalAnnotationID: annotation.ID, Anchor: anchor, DiffTarget: diffTarget, Body: annotation.Body,
 				Preview: protocol.AnnotationPreview{StartLine: annotation.StartLine, EndLine: annotation.EndLine, Text: annotation.Preview, Truncated: annotation.Truncated},
 			})
+			projected.Payload = annotationsContent
 		}
 		result = append(result, projected)
 	}

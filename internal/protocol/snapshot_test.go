@@ -19,14 +19,14 @@ func validTranscriptSnapshot() SessionSnapshot {
 			{
 				ID: "message_1", TurnID: "turn_1", Sequence: 0, Role: "assistant",
 				Content: []TranscriptContent{
-					{Kind: TranscriptContentText, Text: "Inspecting."},
-					{Kind: TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+					TextBlock("Inspecting."),
+					NewTranscriptContent(ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}),
 				},
 				StopReason: "toolUse", CreatedAt: time.Unix(3, 0).UTC().Format(time.RFC3339Nano),
 			},
 			{
 				ID: "message_2", TurnID: "turn_1", Sequence: 1, Role: "tool",
-				Content:    []TranscriptContent{{Kind: TranscriptContentText, Text: "contents"}},
+				Content:    []TranscriptContent{TextBlock("contents")},
 				ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":1}`),
 				CreatedAt: time.Unix(4, 0).UTC().Format(time.RFC3339Nano),
 			},
@@ -113,8 +113,10 @@ func TestSessionSnapshotValidatesStructuredTranscript(t *testing.T) {
 	if err := snapshot.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
-	snapshot.Messages[0].Content[1].Arguments = ""
-	snapshot.Messages[0].Content[1].ArgumentsTruncated = true
+	call := snapshot.Messages[0].Content[1].Payload.(ToolCallContent)
+	call.Arguments = ""
+	call.ArgumentsTruncated = true
+	snapshot.Messages[0].Content[1].Payload = call
 	if err := snapshot.Validate(); err != nil {
 		t.Fatalf("Validate() rejected explicit argument truncation: %v", err)
 	}
@@ -125,10 +127,7 @@ func TestSessionSnapshotAcceptsNamedImageContent(t *testing.T) {
 	snapshot := validTranscriptSnapshot()
 	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
 		ID: "message_3", TurnID: "turn_2", Sequence: 2, Role: "user",
-		Content: []TranscriptContent{{
-			Kind: TranscriptContentImage, Filename: "photo.png", MediaType: "image/png",
-			AttachmentID: "attachment_0123456789abcdef0123456789abcdef",
-		}},
+		Content:   []TranscriptContent{NewTranscriptContent(ImageContent{Filename: "photo.png", MediaType: "image/png", AttachmentID: "attachment_0123456789abcdef0123456789abcdef"})},
 		CreatedAt: time.Unix(5, 0).UTC().Format(time.RFC3339Nano),
 	})
 	if err := snapshot.Validate(); err != nil {
@@ -187,7 +186,9 @@ func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 		{
 			name: "tool call arguments are missing",
 			mutate: func(snapshot *SessionSnapshot) {
-				snapshot.Messages[0].Content[1].Arguments = ""
+				call := snapshot.Messages[0].Content[1].Payload.(ToolCallContent)
+				call.Arguments = ""
+				snapshot.Messages[0].Content[1].Payload = call
 			},
 		},
 		{
@@ -217,7 +218,7 @@ func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 					snapshot.Messages[0],
 					{
 						ID: "message_other", TurnID: "turn_2", Sequence: 1, Role: "user",
-						Content:   []TranscriptContent{{Kind: TranscriptContentText, Text: "other"}},
+						Content:   []TranscriptContent{TextBlock("other")},
 						CreatedAt: time.Unix(4, 0).UTC().Format(time.RFC3339Nano),
 					},
 					result,
@@ -251,7 +252,7 @@ func TestSessionSnapshotRejectsInvalidStructuredTranscript(t *testing.T) {
 		{
 			name: "text block carries tool metadata",
 			mutate: func(snapshot *SessionSnapshot) {
-				snapshot.Messages[0].Content[0].ToolName = "read"
+				snapshot.Messages[0].Content[0].Payload = ToolCallContent{ToolCallID: "call_1", ToolName: "read"}
 			},
 		},
 	}
@@ -271,12 +272,12 @@ func TestSessionSnapshotAcceptsContextAndPendingBoundaries(t *testing.T) {
 	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
 		ID: "message_context", TurnID: "turn_context", Sequence: 3,
 		Role: "context", BoundaryID: "bash_test", BoundaryKind: "bash", BoundarySource: "composer",
-		Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "bash output"}},
+		Content: []TranscriptContent{TextBlock("bash output")},
 		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), CreatedAt: "2026-01-01T00:00:03Z",
 	})
 	snapshot.PendingBoundaries = []PendingBoundary{{
 		ID: "bash_pending", Kind: "bash", Source: "composer",
-		Content: []TranscriptContent{{Kind: TranscriptContentText, Text: "pending output"}},
+		Content: []TranscriptContent{TextBlock("pending output")},
 		Details: json.RawMessage(`{"version":1,"command":"echo ok","status":"completed","startedAt":"2026-01-01T00:00:00Z","completedAt":"2026-01-01T00:00:01Z"}`), AcceptedAt: "2026-01-01T00:00:04Z",
 	}}
 	if err := snapshot.Validate(); err != nil {
@@ -297,7 +298,7 @@ func TestSessionSnapshotAcceptsCompactionContextWithoutBoundaryID(t *testing.T) 
 	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
 		ID: "message_summary", TurnID: "turn_summary", Sequence: 3,
 		Role: "context", BoundaryKind: "summary",
-		Content:   []TranscriptContent{{Kind: TranscriptContentText, Text: "Earlier context summary"}},
+		Content:   []TranscriptContent{TextBlock("Earlier context summary")},
 		CreatedAt: "2026-01-01T00:00:03Z",
 	})
 	if err := snapshot.Validate(); err != nil {

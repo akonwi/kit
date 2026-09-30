@@ -355,7 +355,7 @@ func (s *messageHistorySession) MessagePage(context.Context, protocol.MessagePag
 	for _, prompt := range s.prompts {
 		messages = append(messages, protocol.TranscriptMessage{
 			ID: "message_" + prompt, Role: "user",
-			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: prompt}},
+			Content: []protocol.TranscriptContent{protocol.TextBlock(prompt)},
 		})
 	}
 	return protocol.MessagePage{Messages: messages}, nil
