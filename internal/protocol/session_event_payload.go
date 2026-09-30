@@ -21,6 +21,8 @@ type UserMessageEvent struct {
 // AssistantStartedEvent identifies a new assistant message.
 type AssistantStartedEvent struct {
 	MessageID string `json:"messageId"`
+	Text      string `json:"text,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`
 }
 
 // AssistantTextDeltaEvent appends visible assistant text.
@@ -40,11 +42,14 @@ type ThinkingDeltaEvent struct {
 // AssistantCompletedEvent identifies a completed assistant message.
 type AssistantCompletedEvent struct {
 	MessageID string `json:"messageId"`
+	Text      string `json:"text,omitempty"`
+	Thinking  string `json:"thinking,omitempty"`
 }
 
 // ToolPlannedEvent describes a planned assistant tool call.
 type ToolPlannedEvent struct {
 	MessageID          string `json:"messageId"`
+	ContentIndex       int    `json:"contentIndex,omitempty"`
 	ToolCallID         string `json:"toolCallId"`
 	ToolName           string `json:"toolName"`
 	Arguments          string `json:"arguments,omitempty"`
@@ -64,6 +69,7 @@ type ToolUpdatedEvent struct {
 	ToolCallID string            `json:"toolCallId"`
 	ToolName   string            `json:"toolName"`
 	Content    ToolResultContent `json:"content"`
+	IsError    bool              `json:"isError,omitempty"`
 }
 
 // ToolCompletedEvent records a final tool result.
@@ -255,19 +261,19 @@ func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
 	case SessionEventUserMessage:
 		return UserMessageEvent{Text: event.Text}, nil
 	case SessionEventAssistantStarted:
-		return AssistantStartedEvent{MessageID: event.MessageID}, nil
+		return AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}, nil
 	case SessionEventAssistantTextDelta:
 		return AssistantTextDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
 	case SessionEventThinkingDelta:
 		return ThinkingDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
 	case SessionEventAssistantCompleted:
-		return AssistantCompletedEvent{MessageID: event.MessageID}, nil
+		return AssistantCompletedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}, nil
 	case SessionEventToolPlanned:
-		return ToolPlannedEvent{MessageID: event.MessageID, ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
+		return ToolPlannedEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
 	case SessionEventToolStarted:
 		return ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
 	case SessionEventToolUpdated:
-		return ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content}, nil
+		return ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content, IsError: event.IsError}, nil
 	case SessionEventToolCompleted:
 		return ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content, ContentTruncated: event.ContentTruncated, Details: event.Details, DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}, nil
 	case SessionEventCompactionStarted:
