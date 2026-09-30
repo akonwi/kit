@@ -1315,46 +1315,9 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 	}
 	for _, event := range page.Events {
 		projected := protocol.SessionEvent{
-			StreamID: event.StreamID, Sequence: event.Sequence,
-			SessionID: event.SessionID, TurnID: event.TurnID, RunID: event.RunID,
-			MessageID: event.MessageID, Kind: protocol.SessionEventKind(event.Kind), ContentIndex: event.ContentIndex,
-			Delta: event.Delta, Text: event.Text, Thinking: event.Thinking,
-			ToolCallID: event.ToolCallID, ToolName: event.ToolName,
-			Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated,
-			Content: projectTranscriptContent(event.Content), ContentTruncated: event.ContentTruncated,
-			Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted,
-			IsError: event.IsError, Status: protocol.RunStatus(event.Status),
-			ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage,
-			CompactionID:  event.CompactionID,
-			ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow,
-			Usage:                  projectSessionUsagePointer(event.Usage),
-			SessionName:            event.SessionName,
-			SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID,
-			PeerRequestID: event.PeerRequestID,
-			InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution,
-			AnnotationID: event.AnnotationID, AnnotationIDs: append([]uint64(nil), event.AnnotationIDs...), AcceptedMessageID: event.AcceptedMessageID,
-		}
-		if event.Annotation != nil {
-			annotation := projectAnnotation(*event.Annotation, "")
-			projected.Annotation = &annotation
-		}
-		if event.Scratchpad != nil {
-			scratchpadRecord := projectScratchpad(*event.Scratchpad)
-			projected.Scratchpad = &scratchpadRecord
-		}
-		if event.Kind == kitsession.EventSessionCWDChanged && s.workspaces != nil {
-			workspaceRef := s.workspaces.Ref(event.SessionID, event.CWD)
-			projected.Workspace = &workspaceRef
-		}
-		if event.ProviderRetry != nil {
-			projected.ProviderRetry = &protocol.ProviderRetry{Count: event.ProviderRetry.Count}
-			if !event.ProviderRetry.RetryAt.IsZero() {
-				projected.ProviderRetry.RetryAt = event.ProviderRetry.RetryAt.Format(time.RFC3339Nano)
-			}
-		}
-		if event.Interaction != nil {
-			interaction := projectInteractionRequest(*event.Interaction)
-			projected.Interaction = &interaction
+			StreamID: event.StreamID, Sequence: event.Sequence, SessionID: event.SessionID,
+			TurnID: event.TurnID, RunID: event.RunID,
+			Payload: s.projectSessionEventPayload(event),
 		}
 		batch.Events = append(batch.Events, projected)
 	}
@@ -1366,6 +1329,108 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 		batch.Events = batch.Events[:len(batch.Events)-1]
 	}
 	return batch
+}
+
+func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event) protocol.SessionEventPayload {
+	content := projectTranscriptContent(event.Content)
+	providerRetry := func() *protocol.ProviderRetry {
+		if event.ProviderRetry == nil {
+			return nil
+		}
+		retry := &protocol.ProviderRetry{Count: event.ProviderRetry.Count}
+		if !event.ProviderRetry.RetryAt.IsZero() {
+			retry.RetryAt = event.ProviderRetry.RetryAt.Format(time.RFC3339Nano)
+		}
+		return retry
+	}
+	annotation := func() *protocol.Annotation {
+		if event.Annotation == nil {
+			return nil
+		}
+		value := projectAnnotation(*event.Annotation, "")
+		return &value
+	}
+	scratchpad := func() *protocol.Scratchpad {
+		if event.Scratchpad == nil {
+			return nil
+		}
+		value := projectScratchpad(*event.Scratchpad)
+		return &value
+	}
+	interaction := func() *protocol.InteractionRequest {
+		if event.Interaction == nil {
+			return nil
+		}
+		value := projectInteractionRequest(*event.Interaction)
+		return &value
+	}
+	switch event.Kind {
+	case kitsession.EventRunStarted:
+		return protocol.RunStartedEvent{Status: protocol.RunStatus(event.Status)}
+	case kitsession.EventUserMessage:
+		return protocol.UserMessageEvent{Text: event.Text}
+	case kitsession.EventAssistantStarted:
+		return protocol.AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}
+	case kitsession.EventAssistantTextDelta:
+		return protocol.AssistantTextDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}
+	case kitsession.EventThinkingDelta:
+		return protocol.ThinkingDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}
+	case kitsession.EventAssistantCompleted:
+		return protocol.AssistantCompletedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}
+	case kitsession.EventToolPlanned:
+		return protocol.ToolPlannedEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}
+	case kitsession.EventToolStarted:
+		return protocol.ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}
+	case kitsession.EventToolUpdated:
+		return protocol.ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, IsError: event.IsError}
+	case kitsession.EventToolCompleted:
+		return protocol.ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, ContentTruncated: event.ContentTruncated, Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}
+	case kitsession.EventCompactionStarted:
+		return protocol.CompactionStartedEvent{CompactionID: event.CompactionID}
+	case kitsession.EventCompactionCompleted:
+		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID}
+	case kitsession.EventCompactionFailed:
+		return protocol.CompactionFailedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
+	case kitsession.EventProviderRetryScheduled:
+		return protocol.ProviderRetryScheduledEvent{ProviderRetry: providerRetry()}
+	case kitsession.EventProviderRetryStarted:
+		return protocol.ProviderRetryStartedEvent{ProviderRetry: providerRetry()}
+	case kitsession.EventContextUpdated:
+		return protocol.ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}
+	case kitsession.EventUsageUpdated:
+		return protocol.UsageUpdatedEvent{Usage: projectSessionUsagePointer(event.Usage)}
+	case kitsession.EventRunFinished:
+		return protocol.RunFinishedEvent{Status: protocol.RunStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
+	case kitsession.EventSessionRenamed:
+		return protocol.SessionRenamedEvent{SessionName: event.SessionName}
+	case kitsession.EventSessionCWDChanged:
+		var workspace *protocol.WorkspaceRef
+		if s.workspaces != nil {
+			value := s.workspaces.Ref(event.SessionID, event.CWD)
+			workspace = &value
+		}
+		return protocol.SessionCWDChangedEvent{Workspace: workspace}
+	case kitsession.EventSubagentChanged:
+		return protocol.SubagentChangedEvent{SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID}
+	case kitsession.EventPeerQueryChanged:
+		return protocol.PeerQueryChangedEvent{PeerRequestID: event.PeerRequestID}
+	case kitsession.EventInteractionRequested:
+		return protocol.InteractionRequestedEvent{Interaction: interaction()}
+	case kitsession.EventInteractionResolved:
+		return protocol.InteractionResolvedEvent{InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution}
+	case kitsession.EventAnnotationCreated:
+		return protocol.AnnotationCreatedEvent{AnnotationID: event.AnnotationID, Annotation: annotation()}
+	case kitsession.EventAnnotationUpdated:
+		return protocol.AnnotationUpdatedEvent{AnnotationID: event.AnnotationID, Annotation: annotation()}
+	case kitsession.EventAnnotationDeleted:
+		return protocol.AnnotationDeletedEvent{AnnotationID: event.AnnotationID}
+	case kitsession.EventAnnotationSubmitted:
+		return protocol.AnnotationSubmittedEvent{AnnotationIDs: append([]uint64(nil), event.AnnotationIDs...), AcceptedMessageID: event.AcceptedMessageID}
+	case kitsession.EventScratchpadChanged:
+		return protocol.ScratchpadChangedEvent{Scratchpad: scratchpad()}
+	default:
+		return nil
+	}
 }
 
 func (s runtimeSessionService) Configure(ctx context.Context, sessionID string, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {

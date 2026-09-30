@@ -30,6 +30,22 @@ import (
 	"github.com/akonwi/kit/internal/version"
 )
 
+func protocolScratchpadPayload(events []protocol.SessionEvent) (*protocol.Scratchpad, bool) {
+	if len(events) != 1 {
+		return nil, false
+	}
+	payload, ok := events[0].Payload.(protocol.ScratchpadChangedEvent)
+	return payload.Scratchpad, ok && payload.Scratchpad != nil
+}
+
+func protocolRenamePayload(events []protocol.SessionEvent) (string, bool) {
+	if len(events) != 1 {
+		return "", false
+	}
+	payload, ok := events[0].Payload.(protocol.SessionRenamedEvent)
+	return payload.SessionName, ok
+}
+
 type eventStreamTestService struct {
 	sessionService
 	batch protocol.SessionEventBatch
@@ -383,7 +399,8 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	}
 	select {
 	case event := <-changedEvents:
-		if event.SubagentConversationID != started.Conversation.ID || event.SubagentTaskID != started.Task.ID {
+		payload, ok := event.Payload.(protocol.SubagentChangedEvent)
+		if !ok || payload.SubagentConversationID != started.Conversation.ID || payload.SubagentTaskID != started.Task.ID {
 			t.Fatalf("subagent changed event = %#v", event)
 		}
 	case <-time.After(3 * time.Second):
@@ -537,8 +554,8 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("UpdateScratchpad() = %+v, %v", updatedScratch, err)
 	}
 	scratchEvents, err := client.GetSessionEvents(context.Background(), created.ID, scratchSnapshot.EventStreamID, scratchSnapshot.EventCursor)
-	if err != nil || len(scratchEvents.Events) != 1 || scratchEvents.Events[0].Kind != protocol.SessionEventScratchpadChanged ||
-		scratchEvents.Events[0].Scratchpad == nil || *scratchEvents.Events[0].Scratchpad != updatedScratch {
+	scratchPayload, scratchOK := protocolScratchpadPayload(scratchEvents.Events)
+	if err != nil || len(scratchEvents.Events) != 1 || !scratchOK || *scratchPayload != updatedScratch {
 		t.Fatalf("scratchpad events = %+v, %v", scratchEvents, err)
 	}
 	updatedSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
@@ -617,7 +634,8 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("RenameSession() = %+v, %v", renamed, err)
 	}
 	renameEvents, err := client.GetSessionEvents(context.Background(), created.ID, renameBaseline.EventStreamID, renameBaseline.EventCursor)
-	if err != nil || len(renameEvents.Events) != 1 || renameEvents.Events[0].Kind != protocol.SessionEventSessionRenamed || renameEvents.Events[0].SessionName != renamed.Name {
+	renamePayload, renameOK := protocolRenamePayload(renameEvents.Events)
+	if err != nil || len(renameEvents.Events) != 1 || !renameOK || renamePayload != renamed.Name {
 		t.Fatalf("rename events = %+v, %v", renameEvents, err)
 	}
 	deleteID, err := identifier.New("session_")
@@ -719,15 +737,19 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("session event count = %d, want %d: %+v", len(eventBatch.Events), len(wantEventKinds), eventBatch.Events)
 	}
 	for index, want := range wantEventKinds {
-		if eventBatch.Events[index].Kind != want {
-			t.Errorf("session event %d kind = %q, want %q", index, eventBatch.Events[index].Kind, want)
+		if eventBatch.Events[index].Kind() != want {
+			t.Errorf("session event %d kind = %q, want %q", index, eventBatch.Events[index].Kind(), want)
 		}
 	}
-	if eventBatch.Events[2].MessageID != snapshot.Messages[1].ID || eventBatch.Events[3].MessageID != snapshot.Messages[1].ID {
-		t.Errorf("live assistant ids = %q/%q, snapshot id = %q", eventBatch.Events[2].MessageID, eventBatch.Events[3].MessageID, snapshot.Messages[1].ID)
+	startedPayload := eventBatch.Events[2].Payload.(protocol.AssistantStartedEvent)
+	completedPayload := eventBatch.Events[3].Payload.(protocol.AssistantCompletedEvent)
+	usagePayload := eventBatch.Events[4].Payload.(protocol.UsageUpdatedEvent)
+	finishedPayload := eventBatch.Events[5].Payload.(protocol.RunFinishedEvent)
+	if startedPayload.MessageID != snapshot.Messages[1].ID || completedPayload.MessageID != snapshot.Messages[1].ID {
+		t.Errorf("live assistant ids = %q/%q, snapshot id = %q", startedPayload.MessageID, completedPayload.MessageID, snapshot.Messages[1].ID)
 	}
-	if eventBatch.Events[3].Kind != protocol.SessionEventAssistantCompleted || eventBatch.Events[4].Usage == nil ||
-		*eventBatch.Events[4].Usage != snapshot.Usage || eventBatch.Events[5].Status != protocol.RunStatusCompleted {
+	if eventBatch.Events[3].Kind() != protocol.SessionEventAssistantCompleted || usagePayload.Usage == nil ||
+		*usagePayload.Usage != snapshot.Usage || finishedPayload.Status != protocol.RunStatusCompleted {
 		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
 	}
 
@@ -1104,7 +1126,7 @@ func scanSubagentChangedEvent(body io.ReadCloser, found chan<- protocol.SessionE
 			continue
 		}
 		for _, event := range batch.Events {
-			if event.Kind == protocol.SessionEventSubagentChanged {
+			if event.Kind() == protocol.SessionEventSubagentChanged {
 				select {
 				case found <- event:
 				default:
@@ -1236,10 +1258,10 @@ func TestProjectSessionEventPageCarriesProviderRetryLifecycle(t *testing.T) {
 	if err := projected.Validate(); err != nil {
 		t.Fatalf("projected page Validate() error = %v", err)
 	}
-	if got := projected.Events[0].ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != retryAt.Format(time.RFC3339Nano) {
+	if got := projected.Events[0].Payload.(protocol.ProviderRetryScheduledEvent).ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != retryAt.Format(time.RFC3339Nano) {
 		t.Fatalf("scheduled provider retry = %+v", got)
 	}
-	if got := projected.Events[1].ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != "" {
+	if got := projected.Events[1].Payload.(protocol.ProviderRetryStartedEvent).ProviderRetry; got == nil || got.Count != 1 || got.RetryAt != "" {
 		t.Fatalf("started provider retry = %+v", got)
 	}
 }
