@@ -9,11 +9,15 @@ import (
 	"strings"
 
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/invopop/jsonschema"
 )
 
 type enumValues interface{ EnumValues() []string }
+type unionVariants interface {
+	UnionVariants() []protocol.UnionVariant
+}
 
 // Emit returns the deterministic OpenAPI 3.1 session contract.
 func Emit() ([]byte, error) {
@@ -193,9 +197,15 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
+	if err := rejectNullPointers(typ, map[reflect.Type]bool{}); err != nil {
+		return "", err
+	}
 	name := schemaName(typ)
 	if _, exists := components[name]; exists {
 		return name, nil
+	}
+	if union, ok := reflect.New(typ).Elem().Interface().(unionVariants); ok {
+		return addUnionSchema(components, name, union.UnionVariants())
 	}
 	reflector := jsonschema.Reflector{}
 	reflected := reflector.ReflectFromType(typ)
@@ -227,6 +237,96 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	}
 	patchSchema(components, schema, typ)
 	return name, nil
+}
+
+func addUnionSchema(components map[string]any, name string, variants []protocol.UnionVariant) (string, error) {
+	refs := make([]any, 0, len(variants))
+	mapping := make(map[string]any, len(variants))
+	for _, variant := range variants {
+		typ := reflect.TypeOf(variant.Payload)
+		variantName, err := addTypeSchema(components, typ)
+		if err != nil {
+			return "", err
+		}
+		schema, _ := components[variantName].(map[string]any)
+		properties, _ := schema["properties"].(map[string]any)
+		if properties == nil {
+			properties = map[string]any{}
+			schema["properties"] = properties
+		}
+		properties["kind"] = map[string]any{"type": "string", "enum": []string{variant.Kind}}
+		required, _ := schema["required"].([]string)
+		if !contains(required, "kind") {
+			schema["required"] = append(required, "kind")
+		}
+		ref := "#/components/schemas/" + variantName
+		refs = append(refs, map[string]any{"$ref": ref})
+		mapping[variant.Kind] = ref
+	}
+	components[name] = map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
+	return name, nil
+}
+
+func contains(values []string, target string) bool {
+	for _, value := range values {
+		if value == target {
+			return true
+		}
+	}
+	return false
+}
+
+// rejectNullPointers fails emission for a pointer field that would encode a
+// nil value as null. Optional contract fields are omitted when absent, never
+// null (ADR 0031), so every pointer field must be omitempty or omitzero.
+func rejectNullPointers(typ reflect.Type, seen map[reflect.Type]bool) error {
+	for {
+		switch typ.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			typ = typ.Elem()
+			continue
+		}
+		break
+	}
+	if typ.Kind() != reflect.Struct || seen[typ] {
+		return nil
+	}
+	seen[typ] = true
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonName, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if jsonName == "-" && options == "" {
+			continue
+		}
+		if field.Anonymous && jsonName == "" {
+			// Promoted fields; a nil embedded pointer contributes nothing.
+			if err := rejectNullPointers(field.Type, seen); err != nil {
+				return err
+			}
+			continue
+		}
+		if !field.IsExported() {
+			continue
+		}
+		if field.Type.Kind() == reflect.Pointer && !hasTagOption(options, "omitempty") && !hasTagOption(options, "omitzero") {
+			return fmt.Errorf("%s.%s: pointer field must be omitempty or omitzero; optional contract fields are omitted, never null", typ.Name(), field.Name)
+		}
+		if err := rejectNullPointers(field.Type, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasTagOption(options, option string) bool {
+	for options != "" {
+		var current string
+		current, options, _ = strings.Cut(options, ",")
+		if current == option {
+			return true
+		}
+	}
+	return false
 }
 
 func rewriteRefs(value any) {

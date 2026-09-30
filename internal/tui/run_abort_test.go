@@ -272,9 +272,9 @@ func TestRunAbortFailureReconcilesTerminalSnapshot(t *testing.T) {
 	session.abort = func(context.Context, string) error { return errors.New("run already finished") }
 	session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
 		return protocol.SessionSnapshot{Session: state.session, EventStreamID: "stream", EventCursor: 5, Messages: []protocol.TranscriptMessage{
-			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Retained evidence"}}},
-			{ID: "prompt", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Current prompt"}}},
-			{ID: "done", Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Finished response"}}},
+			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Retained evidence")}},
+			{ID: "prompt", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("Current prompt")}},
+			{ID: "done", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Finished response")}},
 		}}, nil
 	}
 	pressAbort(application)
@@ -313,8 +313,8 @@ func TestRunAbortSuccessWaitsForAuthoritativeTerminalEvent(t *testing.T) {
 	// The watcher follows the terminal event with the authoritative transcript.
 	state.SetState(func() {
 		state.applySnapshot(protocol.SessionSnapshot{Session: state.session, EventStreamID: "stream", EventCursor: 5, Messages: []protocol.TranscriptMessage{
-			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Retained evidence"}}},
-			{ID: "prompt", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Current prompt"}}},
+			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Retained evidence")}},
+			{ID: "prompt", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("Current prompt")}},
 			{ID: "aborted", Role: "assistant", StopReason: "aborted", ErrorMessage: "Run aborted"},
 		}})
 	})
@@ -466,7 +466,7 @@ func TestRunAbortRecoveryAdoptsSuccessorWithoutAbortingIt(t *testing.T) {
 	session.abort = func(_ context.Context, id string) error { calls <- id; return errors.New("previous run finished") }
 	session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
 		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveRunID: "run_successor", EventStreamID: "stream", EventCursor: 5, Messages: []protocol.TranscriptMessage{
-			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Retained evidence"}}},
+			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Retained evidence")}},
 		}}, nil
 	}
 	pressAbort(application)

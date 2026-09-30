@@ -248,13 +248,17 @@ func TestProjectSessionSanitizesLegacyUnsafeName(t *testing.T) {
 func protocolContentText(message protocol.TranscriptMessage, kind protocol.TranscriptContentKind) string {
 	var result string
 	for _, block := range message.Content {
-		if block.Kind != kind {
+		if block.Kind() != kind {
+			continue
+		}
+		text, ok := block.Payload.(protocol.TextContent)
+		if !ok {
 			continue
 		}
 		if result != "" {
 			result += "\n"
 		}
-		result += block.Text
+		result += text.Text
 	}
 	return result
 }

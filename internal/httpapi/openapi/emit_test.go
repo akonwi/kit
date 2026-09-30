@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/akonwi/kit/internal/httpapi"
+	"github.com/akonwi/kit/internal/protocol"
 )
 
 type trickyEnum string
@@ -202,5 +203,87 @@ func TestStreamOperationPublishesPayloadAndStreamExtension(t *testing.T) {
 		if document.Components.Schemas[name] == nil {
 			t.Fatalf("component %s is missing", name)
 		}
+	}
+}
+
+type pointerLeaf struct {
+	Note *string `json:"note"`
+}
+
+type optionalPointers struct {
+	Note    *string      `json:"note,omitempty"`
+	Leaf    *pointerLeaf `json:"-"`
+	Zero    *int         `json:"zero,omitzero"`
+	Items   []string     `json:"items"`
+	skipped *string
+}
+
+type embeddedOptional struct {
+	*optionalPointers
+	Name string `json:"name"`
+}
+
+type nullPointer struct {
+	Count *int `json:"count"`
+}
+
+type nestedNullPointer struct {
+	Leaves []pointerLeaf `json:"leaves,omitempty"`
+}
+
+type embeddedNullPointer struct {
+	pointerLeaf
+}
+
+func TestOptionalPointerFieldsAreOmitted(t *testing.T) {
+	for _, value := range []any{optionalPointers{}, embeddedOptional{}} {
+		schema, err := SchemaForTesting(reflect.TypeOf(value))
+		if err != nil {
+			t.Fatalf("%T: %v", value, err)
+		}
+		properties := schema["properties"].(map[string]any)
+		if _, ok := properties["note"]; !ok {
+			t.Fatalf("%T properties = %#v", value, properties)
+		}
+	}
+	schema, _ := SchemaForTesting(reflect.TypeOf(optionalPointers{}))
+	if !reflect.DeepEqual(schema["required"], []any{"items"}) {
+		t.Fatalf("required = %#v, want only items", schema["required"])
+	}
+}
+
+func TestNullablePointerFieldsAreRejected(t *testing.T) {
+	const rule = "pointer field must be omitempty or omitzero; optional contract fields are omitted, never null"
+	for _, test := range []struct {
+		typ  reflect.Type
+		want string
+	}{
+		{reflect.TypeOf(nullPointer{}), "nullPointer.Count: " + rule},
+		{reflect.TypeOf(nestedNullPointer{}), "pointerLeaf.Note: " + rule},
+		{reflect.TypeOf(embeddedNullPointer{}), "pointerLeaf.Note: " + rule},
+	} {
+		if _, err := SchemaForTesting(test.typ); err == nil || err.Error() != test.want {
+			t.Fatalf("%s: err = %v, want %q", test.typ, err, test.want)
+		}
+	}
+}
+
+func TestSchemaForTestingEmitsTranscriptContentUnion(t *testing.T) {
+	t.Parallel()
+	schema, err := SchemaForTesting(reflect.TypeFor[protocol.TranscriptContent]())
+	if err != nil {
+		t.Fatalf("SchemaForTesting() error = %v", err)
+	}
+	variants, ok := schema["oneOf"].([]any)
+	if !ok || len(variants) != 6 {
+		t.Fatalf("oneOf = %#v; want six variants", schema["oneOf"])
+	}
+	discriminator, _ := schema["discriminator"].(map[string]any)
+	if discriminator["propertyName"] != "kind" {
+		t.Fatalf("discriminator = %#v", discriminator)
+	}
+	mapping, _ := discriminator["mapping"].(map[string]any)
+	if len(mapping) != 6 || mapping["toolCall"] == nil {
+		t.Fatalf("mapping = %#v", mapping)
 	}
 }

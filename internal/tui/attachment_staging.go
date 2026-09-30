@@ -240,19 +240,17 @@ func (s *appState) finishAttachmentUpload(sessionID string, token uint64, info p
 func attachmentTranscriptContent(text string, items []stagedAttachment) []protocol.TranscriptContent {
 	content := make([]protocol.TranscriptContent, 0, len(items)+1)
 	if text != "" {
-		content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: text})
+		content = append(content, protocol.TextBlock(text))
 	}
 	for _, item := range items {
 		if item.Info.ID == "" {
 			continue
 		}
-		kind := protocol.TranscriptContentFile
 		if strings.HasPrefix(item.Info.MediaType, "image/") {
-			kind = protocol.TranscriptContentImage
+			content = append(content, protocol.NewTranscriptContent(protocol.ImageContent{Filename: item.Filename, MediaType: item.Info.MediaType, AttachmentID: item.Info.ID}))
+		} else {
+			content = append(content, protocol.NewTranscriptContent(protocol.FileContent{Filename: item.Filename, MediaType: item.Info.MediaType, AttachmentID: item.Info.ID}))
 		}
-		content = append(content, protocol.TranscriptContent{
-			Kind: kind, Filename: item.Filename, MediaType: item.Info.MediaType, AttachmentID: item.Info.ID,
-		})
 	}
 	return content
 }

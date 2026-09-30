@@ -312,32 +312,6 @@ type SessionVCSStatus struct {
 	Status    *VCSStatus `json:"status,omitempty"`
 }
 
-// TranscriptContentKind identifies one renderer-neutral message content block.
-type TranscriptContentKind string
-
-const (
-	TranscriptContentText        TranscriptContentKind = "text"
-	TranscriptContentThinking    TranscriptContentKind = "thinking"
-	TranscriptContentToolCall    TranscriptContentKind = "toolCall"
-	TranscriptContentImage       TranscriptContentKind = "image"
-	TranscriptContentFile        TranscriptContentKind = "file"
-	TranscriptContentAnnotations TranscriptContentKind = "annotations"
-)
-
-// TranscriptContent preserves the ordered presentation content of a message.
-type TranscriptContent struct {
-	Kind               TranscriptContentKind `json:"kind"`
-	Text               string                `json:"text,omitempty"`
-	ToolCallID         string                `json:"toolCallId,omitempty"`
-	ToolName           string                `json:"toolName,omitempty"`
-	Arguments          string                `json:"arguments,omitempty"`
-	ArgumentsTruncated bool                  `json:"argumentsTruncated,omitempty"`
-	Filename           string                `json:"filename,omitempty"`
-	MediaType          string                `json:"mediaType,omitempty"`
-	AttachmentID       string                `json:"attachmentId,omitempty"`
-	Annotations        []SubmittedAnnotation `json:"annotations,omitempty"`
-}
-
 // TranscriptMessage is one ordered persisted message projected for clients.
 type TranscriptMessage struct {
 	ID             string              `json:"id"`
@@ -361,8 +335,8 @@ type TranscriptMessage struct {
 func (message TranscriptMessage) TextContent() string {
 	parts := make([]string, 0, len(message.Content))
 	for _, block := range message.Content {
-		if block.Kind == TranscriptContentText && block.Text != "" {
-			parts = append(parts, block.Text)
+		if text, ok := block.Payload.(TextContent); ok && text.Text != "" {
+			parts = append(parts, text.Text)
 		}
 	}
 	return strings.Join(parts, "\n")

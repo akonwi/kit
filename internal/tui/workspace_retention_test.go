@@ -216,7 +216,7 @@ func TestSubagentPaneRetainsScrollAcrossSelectionAndResize(t *testing.T) {
 	for index := range messages {
 		messages[index] = protocol.TranscriptMessage{
 			ID: fmt.Sprintf("message_%d", index), TurnID: fmt.Sprintf("turn_%d", index), Sequence: int64(index), Role: "user",
-			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: fmt.Sprintf("Request %d", index)}},
+			Content: []protocol.TranscriptContent{protocol.TextBlock(fmt.Sprintf("Request %d", index))},
 		}
 	}
 	firstScroll, secondScroll := &ui.ScrollController{}, &ui.ScrollController{}

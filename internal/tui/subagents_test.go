@@ -389,15 +389,15 @@ func TestSubagentTranscriptShowsLoadFailure(t *testing.T) {
 func TestSubagentFinalResponseCheckUsesLatestTaskSegment(t *testing.T) {
 	t.Parallel()
 	transcript := protocol.SubagentTranscript{Messages: []protocol.TranscriptMessage{
-		{Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "first"}}},
-		{Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "first response"}}},
-		{Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "follow-up"}}},
+		{Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("first")}},
+		{Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("first response")}},
+		{Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("follow-up")}},
 	}}
 	if subagentTranscriptHasFinalResponse(transcript) {
 		t.Fatal("earlier assistant response hid the latest task summary")
 	}
 	transcript.Messages = append(transcript.Messages, protocol.TranscriptMessage{
-		Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "final response"}},
+		Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("final response")},
 	})
 	if !subagentTranscriptHasFinalResponse(transcript) {
 		t.Fatal("latest task final response was not detected")
@@ -467,7 +467,7 @@ func TestSubagentLiveToolStateSurvivesDurableDeclarationAndScopesByTurn(t *testi
 	t.Parallel()
 	durable := []protocol.TranscriptMessage{{
 		ID: "assistant_1", TurnID: "turn_1", Role: "assistant",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read"}},
+		Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_1", ToolName: "read"})},
 	}}
 	messages := subagentLiveTranscript(durable, []protocol.SubagentLiveEvent{
 		{Sequence: 1, Kind: "tool.started", TurnID: "turn_1", ToolCallID: "call_1", ToolName: "read"},
@@ -487,7 +487,7 @@ func TestActivityPresentationUsesOwningSubagentTranscript(t *testing.T) {
 			ConversationID: conversationID,
 			Messages: []protocol.TranscriptMessage{{
 				ID: "child_assistant", TurnID: "child_turn", Role: "assistant",
-				Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentToolCall, ToolCallID: "child_call", ToolName: "read"}},
+				Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "child_call", ToolName: "read"})},
 			}},
 		}},
 		subagentLive: make(map[string]protocol.SubagentLiveEventPage),
@@ -514,13 +514,13 @@ func TestSubagentTranscriptUsesSharedToolWorkPresentation(t *testing.T) {
 		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
 			ConversationID: conversationID,
 			Messages: []protocol.TranscriptMessage{
-				{ID: "user_1", TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect README"}}},
+				{ID: "user_1", TurnID: "turn_1", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("Inspect README")}},
 				{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{
-					{Kind: protocol.TranscriptContentText, Text: "I'll inspect it."},
-					{Kind: protocol.TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+					protocol.TextBlock("I'll inspect it."),
+					protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}),
 				}},
-				{ID: "tool_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "README contents"}}},
-				{ID: "assistant_2", TurnID: "turn_1", Role: "assistant", StopReason: "stop", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspection complete."}}},
+				{ID: "tool_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("README contents")}},
+				{ID: "assistant_2", TurnID: "turn_1", Role: "assistant", StopReason: "stop", Content: []protocol.TranscriptContent{protocol.TextBlock("Inspection complete.")}},
 			},
 		}},
 	}})
@@ -551,12 +551,12 @@ func TestSubagentTranscriptRendersFinalResponseAtEnd(t *testing.T) {
 	for index := 0; index < 24; index++ {
 		messages = append(messages, protocol.TranscriptMessage{
 			ID: fmt.Sprintf("message_%d", index), TurnID: fmt.Sprintf("turn_%d", index), Sequence: int64(index), Role: "user",
-			Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: fmt.Sprintf("Earlier request %d", index)}}, CreatedAt: now,
+			Content: []protocol.TranscriptContent{protocol.TextBlock(fmt.Sprintf("Earlier request %d", index))}, CreatedAt: now,
 		})
 	}
 	messages = append(messages, protocol.TranscriptMessage{
 		ID: "message_final", TurnID: "turn_final", Sequence: 24, Role: "assistant", StopReason: "stop",
-		Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "FINAL SUBAGENT RESPONSE"}}, CreatedAt: now,
+		Content: []protocol.TranscriptContent{protocol.TextBlock("FINAL SUBAGENT RESPONSE")}, CreatedAt: now,
 	})
 	scroll := &ui.ScrollController{}
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
@@ -636,8 +636,8 @@ func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
 			ConversationID: conversationID,
 			Messages: []protocol.TranscriptMessage{
-				{ID: "user_1", TurnID: "turn_1", Sequence: 0, Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Inspect the repository"}}, CreatedAt: now},
-				{ID: "assistant_1", TurnID: "turn_1", Sequence: 1, Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "Found the evidence"}}, StopReason: "stop", CreatedAt: now},
+				{ID: "user_1", TurnID: "turn_1", Sequence: 0, Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("Inspect the repository")}, CreatedAt: now},
+				{ID: "assistant_1", TurnID: "turn_1", Sequence: 1, Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Found the evidence")}, StopReason: "stop", CreatedAt: now},
 			},
 		}},
 	}, Callbacks: shellCallbacks{Dismiss: func(ui.EventContext) { dismissedShell = true }}}
