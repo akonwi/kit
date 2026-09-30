@@ -1,0 +1,101 @@
+use go:context
+use go:github.com/akonwi/kit/internal/protocol
+use go:github.com/akonwi/kit/internal/sessionclient
+use go:kit/ffi/cli
+use go:strings
+
+// Session bootstrap for the terminal client: resolve, resume, or create the
+// session selected by the command line, then attach and read its snapshot.
+
+// A session this client is attached to, with the snapshot read at attach time.
+struct Attached {
+  info: protocol::SessionInfo,
+  session: sessionclient::Session,
+  snapshot: protocol::SessionSnapshot,
+}
+
+// Selects the session named by `options`, resuming the most recent eligible
+// session in the working directory or creating one when none qualifies.
+fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
+  let server = options.Server
+  let new_session = options.NewSessionID != ""
+  mut selected = protocol::SessionInfo{}
+  if options.SessionID != "" {
+    selected = try sessionclient::ResolveSession(ctx, server, options.SessionID) -> err {
+      failure("resolve session", err)
+    }
+  }
+  if selected.ID == "" and not new_session {
+    let sessions = try server.ListSessions(ctx, options.CWD) -> err { failure("list sessions", err) }
+    for candidate in sessions {
+      if selected.ID == "" and resumable(options, candidate) {
+        selected = candidate
+      }
+    }
+  }
+  if selected.ID == "" {
+    let catalog = try server.Models(ctx) -> err { failure("list models", err) }
+    let model = try sessionclient::ResolveAvailableModel(catalog, options.DefaultModel, options.ResumeModelFilter != "") -> err {
+      failed(err)
+    }
+    selected = try server.CreateSession(
+      ctx,
+      protocol::CreateSessionInput{
+        ID: options.NewSessionID,
+        CWD: options.CWD,
+        Name: options.NewSessionName,
+        Model: model,
+        ThinkingLevel: options.DefaultThinking,
+        Temporary: options.TemporarySession,
+      },
+    ) -> err {
+      failure("create session", err)
+    }
+    try expect(
+      not new_session or selected.ID == options.NewSessionID,
+      "create session returned a different session id",
+    )
+  }
+  let session = try server.Attach(ctx, selected.ID) -> err { failure("attach session", err) }
+  let snapshot = try session.Snapshot(ctx) -> err { failure("snapshot session", err) }
+  Result::ok(
+    Attached{
+      info: selected,
+      session: session,
+      snapshot: snapshot,
+    },
+  )
+}
+
+// Reports whether a saved session can be resumed with the available
+// providers and the requested model and thinking filters.
+fn resumable(options: cli::TUIOptions, candidate: protocol::SessionInfo) Bool {
+  let providers = options.AvailableProviders
+  let available = providers.size() == 0 or providers.get(provider_of(candidate.Model)).or(false)
+  available and (options.ResumeModelFilter == "" or candidate.Model == options.ResumeModelFilter) and (options.ResumeThinkingFilter == "" or candidate.ThinkingLevel == options.ResumeThinkingFilter)
+}
+
+// Returns the provider segment of a `provider/model` selector, or an empty
+// string when the selector names no provider.
+fn provider_of(selector: Str) Str {
+  let slash = strings::Index(selector, "/")
+  match slash < 0 {
+    true => "",
+    false => selector.slice(0, slash).or(""),
+  }
+}
+
+private fn failure(action: Str, err: Error) Attached!Str {
+  Result::err("{action}: {err.error()}")
+}
+
+private fn failed(err: Error) Attached!Str {
+  Result::err(err.error())
+}
+
+private fn expect(condition: Bool, message: Str) Void!Str {
+  match condition {
+    true => Result::ok(()),
+    false => Result::err(message),
+  }
+}

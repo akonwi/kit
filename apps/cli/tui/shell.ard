@@ -1,0 +1,363 @@
+use ard/async
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui/bootstrap
+use kit/tui/format
+use kit/tui/theme
+use go:strings
+
+// The root terminal-client component: session bootstrap, shell chrome, and
+// the composer.
+
+// Fills the viewport width; text beyond it is clipped.
+let rule = strings::Repeat("─", 1024)
+
+enum Phase {
+  loading,
+  auth,
+  ready,
+  failed,
+}
+
+struct Props {
+  options: cli::TUIOptions,
+  theme: theme::Theme,
+  quit: fn(),
+}
+
+struct Shell {
+  props: mut Props,
+  phase: Phase,
+  error: Str,
+  attached: bootstrap::Attached?,
+  location: Str,
+  composer: Str,
+  lifetime: contextbridge::Cancellation?,
+}
+
+fn new(props: mut Props) mut Shell {
+  let phase = match props.options.Authenticated {
+    true => Phase::loading,
+    false => Phase::auth,
+  }
+  (mut Shell{
+    props: props,
+    phase: phase,
+    error: "",
+    attached: Maybe::new<bootstrap::Attached>(),
+    location: props.options.Location,
+    composer: "",
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+  })
+}
+
+impl cui::Lifecycle for Shell {
+  fn mut mounted(ctx: cui::Context) {
+    let lifetime = contextbridge::WithCancel(self.props.options.Context)
+    self.lifetime = Maybe::new(lifetime)
+    if self.phase == Phase::loading {
+      self.bootstrap(ctx, lifetime)
+    }
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    match self.lifetime {
+      lifetime => lifetime.Cancel(),
+      _ => (),
+    }
+  }
+}
+
+impl Shell {
+  // Attaches in the background and applies the outcome on the UI thread.
+  fn mut bootstrap(ctx: cui::Context, lifetime: contextbridge::Cancellation) {
+    let options = self.props.options
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = bootstrap::attach(lifetime.Context, options)
+      let location = match result {
+        ok => options.ResolveLocation(lifetime.Context, ok.snapshot.Session.CWD),
+        err => options.Location,
+      }
+      let _ = dispatch(fn() {
+        match result {
+          ok => {
+            self.attached = Maybe::new(ok)
+            self.location = location
+            self.phase = Phase::ready
+          },
+          err => {
+            self.error = err
+            self.phase = Phase::failed
+          },
+        }
+      })
+    })
+  }
+
+  // Ctrl+C clears a non-empty composer; otherwise it detaches.
+  fn mut interrupt() Bool {
+    match self.phase == Phase::ready and self.composer != "" {
+      true => { self.composer = "" },
+      false => (self.props.quit)(),
+    }
+    true
+  }
+}
+
+// Horizontal padding of one cell, as used by the header and footer rows.
+fn inset() ui::Edges {
+  ui::Edges{
+    top: ui::cells(0),
+    right: ui::cells(1),
+    bottom: ui::cells(0),
+    left: ui::cells(1),
+  }
+}
+
+fn divider(color: ui::Color) cui::View {
+  cui::text(
+    rule,
+    styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+    text_style: ui::text_style(foreground: color),
+    wrap: ui::TextWrap::none,
+  )
+}
+
+fn line(content: Str, style: ui::TextStyle) cui::View {
+  cui::text(
+    content,
+    text_style: style,
+    wrap: ui::TextWrap::none,
+    overflow: ui::TextOverflow::ellipsis,
+  )
+}
+
+fn blank() cui::View {
+  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
+}
+
+fn wordmark(colors: theme::Theme) [cui::View] {
+  [
+    line("k i t", ui::text_style(bold: true)),
+    line("━━━━━━━━━━━", ui::text_style(foreground: colors.primary_text)),
+  ]
+}
+
+// Centers content in the region that remains after the chrome.
+fn centered(children: [cui::View]) cui::View {
+  cui::box(
+    children,
+    styles: ui::style(
+      flex_grow: 1.0,
+      flex_direction: ui::FlexDirection::column,
+      justify_content: ui::Justify::center,
+      align_items: ui::Align::center,
+    ),
+  )
+}
+
+fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
+  let children = mut List::new<cui::View>()
+  for view in wordmark(colors) {
+    children.push(view)
+  }
+  children.push(blank())
+  children.push(line(instruction, ui::text_style(foreground: colors.muted)))
+  centered(children.@)
+}
+
+impl Shell {
+  fn header() cui::View {
+    let colors = self.props.theme
+    let left = mut List::new<cui::View>()
+    let right = mut List::new<ui::Span>()
+    match self.attached {
+      attached => {
+        let session = attached.snapshot.Session
+        left.push(line(format::session_name(session), ui::text_style()))
+        right.push(ui::span(format::model_name(session.Model)))
+        let thinking = strings::TrimSpace(session.ThinkingLevel)
+        if thinking != "" {
+          right.push(ui::span(" ({thinking})"))
+        }
+        match format::context_percentage(attached.snapshot.ContextTokens, attached.snapshot.ContextWindow) {
+          percentage => {
+            let tone = match percentage > 90 {
+              true => colors.danger_text,
+              false => {
+                match percentage >= 80 {
+                  true => colors.warning_text,
+                  false => colors.muted,
+                }
+              },
+            }
+            right.push(ui::span(" · ", style: ui::span_style(foreground: colors.muted)))
+            right.push(ui::span("{percentage}%", style: ui::span_style(foreground: tone)))
+          },
+          _ => (),
+        }
+      },
+      _ => left.push(line("kit", ui::text_style())),
+    }
+    cui::box(
+      [
+        cui::box(left.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
+        cui::box(
+          [cui::text(ui::styled_text(right.@), wrap: ui::TextWrap::none)],
+          styles: ui::style(
+            flex_grow: 2.0,
+            flex_basis: ui::cells(0),
+            flex_direction: ui::FlexDirection::row,
+            justify_content: ui::Justify::end,
+          ),
+        ),
+      ],
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        padding: inset(),
+      ),
+    )
+  }
+
+  fn footer() cui::View {
+    let colors = self.props.theme
+    let bash = strings::HasPrefix(self.composer, "!")
+    let state = match strings::HasPrefix(self.composer, "!!") {
+      true => "bash command · result excluded from context",
+      false => {
+        match bash {
+          true => "bash command · result will be added to context",
+          false => "",
+        }
+      },
+    }
+    let tone = match bash {
+      true => colors.success_text,
+      false => colors.muted,
+    }
+    cui::box(
+      [
+        cui::box(
+          [line(state, ui::text_style(foreground: tone))],
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        ),
+        cui::box(
+          [line(self.location, ui::text_style(foreground: colors.muted))],
+          styles: ui::style(
+            flex_grow: 2.0,
+            flex_basis: ui::cells(0),
+            flex_direction: ui::FlexDirection::row,
+            justify_content: ui::Justify::end,
+          ),
+        ),
+      ],
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        padding: inset(),
+      ),
+    )
+  }
+}
+
+impl Shell {
+  fn mut body() cui::View {
+    let colors = self.props.theme
+    match self.phase {
+      Phase::loading => empty_state(colors, "Starting Kit…"),
+      Phase::auth => {
+        let children = mut List::new<cui::View>()
+        for view in wordmark(colors) {
+          children.push(view)
+        }
+        children.push(blank())
+        children.push(
+          line("Connect an AI provider to get started.", ui::text_style(foreground: colors.muted)),
+        )
+        children.push(blank())
+        children.push(line("Connect a provider", ui::text_style()))
+        centered(children.@)
+      },
+      Phase::failed => {
+        centered(
+          [
+            line("Kit could not start", ui::text_style(foreground: colors.danger_text, bold: true)),
+            blank(),
+            cui::text(
+              self.error,
+              styles: ui::style(max_width: ui::cells(72)),
+              text_style: ui::text_style(foreground: colors.muted),
+            ),
+            blank(),
+            line("r retry · ctrl+c quit", ui::text_style(foreground: colors.muted)),
+          ],
+        )
+      },
+      Phase::ready => self.conversation(),
+    }
+  }
+
+  fn mut conversation() cui::View {
+    let colors = self.props.theme
+    cui::box(
+      [
+        empty_state(colors, "Ask a question or give a task."),
+        blank(),
+        divider(colors.border),
+        self.composer_view(),
+      ],
+      styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
+    )
+  }
+
+  fn mut composer_view() cui::View {
+    let colors = self.props.theme
+    let editing = keymap::rebind(
+      ui::default_text_area_bindings(),
+      ui::TextAreaAction::insert_newline,
+      [keymap::key("return", shift: true)],
+    )
+    cui::text_area(
+      self.composer,
+      key: "composer",
+      styles: ui::style(flex_shrink: 0.0, max_height: ui::cells(10), padding: inset()),
+      placeholder: "Ask kit to do something…",
+      placeholder_style: ui::text_style(foreground: colors.muted),
+      autofocus: true,
+      on_input: fn(value: Str, ctx: cui::Context) {
+        self.composer = value
+      },
+      key_bindings: editing,
+    )
+  }
+}
+
+impl cui::Component for Shell {
+  fn mut render() cui::View {
+    let colors = self.props.theme
+    let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
+      self.interrupt()
+    })
+    cui::box(
+      [self.header(), divider(colors.border), self.body(), divider(colors.border), self.footer()],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+        background: colors.background,
+        foreground: colors.foreground,
+      ),
+      commands: [interrupt],
+      bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
