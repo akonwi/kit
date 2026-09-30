@@ -1,0 +1,106 @@
+use ard/testing
+
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use go:kit/ffi/cli
+use kit/tui/shell
+use kit/tui/theme
+use go:strings
+
+fn ctrl(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: true,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+struct Quits {
+  count: Int,
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn mount_signed_out(terminal: headless::TestApp, quits: mut Quits) cui::Renderer {
+  let props = shell::Props{
+    options: cli::TUIOptions{
+      Context: context::Background(),
+      CWD: "/private/tmp",
+      Location: "/private/tmp",
+    },
+    theme: theme::system(),
+    quit: fn() {
+      quits.count =+ 1
+    },
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(app, cui::child(shell::new, props))
+}
+
+test fn signed_out_shell_matches_the_vaxis_layout() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let quits = mut Quits{count: 0}
+  let renderer = mount_signed_out(terminal, quits)
+  defer renderer.destroy()
+  terminal.flush()
+  // Odd-width centered rows sit one cell right of the vaxis client: Cooper
+  // rounds half-cell edges up (Cooper ADR 0020) where vaxis floors them.
+  expect_rows(
+    rows(terminal),
+    [
+      " kit",
+      "────────────────────────────────────────────────────────────",
+      "",
+      "                            k i t",
+      "                         ━━━━━━━━━━━",
+      "",
+      "           Connect an AI provider to get started.",
+      "",
+      "                     Connect a provider",
+      "",
+      "────────────────────────────────────────────────────────────",
+      "                                               /private/tmp",
+    ],
+  )
+}
+
+test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let quits = mut Quits{count: 0}
+  let renderer = mount_signed_out(terminal, quits)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(ctrl("c"))
+  terminal.flush()
+  testing::assert(quits.count == 1, "Ctrl+C quit {quits.count} times")
+}

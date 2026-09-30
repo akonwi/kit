@@ -9,8 +9,9 @@ result shapes Ard cannot import use small bridges such as `ffi/contextbridge`.
 
 This entry point is being developed alongside `cmd/kit`. Until `cmd/kit` is
 removed, `ffi/cli` is a copy of `internal/cli`; mirror command-line changes in
-both. The terminal client is currently the existing vaxis/ui client
-(`ffi/cli/vaxis_tui.go`); a Cooper client will replace it.
+both. The terminal client is written in Ard with Cooper (`tui.ard`, `tui/`) and
+is working toward parity with the vaxis/ui client that `cmd/kit` ships; see the
+Cooper client parity section of `backlog/tui.md`.
 
 The directory is a separate Go module (`github.com/akonwi/kit/apps/cli`) that
 replaces `github.com/akonwi/kit` with the repository root, so root
@@ -23,8 +24,9 @@ Run commands from this directory. Use an isolated `KIT_HOME`; see
 `.agents/skills/worktree-development/SKILL.md` before starting a daemon.
 
 ```sh
-ard format --check main.ard
+ard format --check .
 ard check main.ard
+ard test
 gofmt -l ffi
 go vet ./...
 KIT_HOME="$(mktemp -d)" go test ./...

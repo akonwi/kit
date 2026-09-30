@@ -44,6 +44,58 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
 
+## Cooper client parity
+
+The Ard and Cooper terminal client in `apps/cli`
+([ADR 0035](../docs/adrs/0035-build-the-terminal-client-with-ard-and-cooper.md))
+replaces the vaxis/ui client in `internal/tui` once it reaches parity with it.
+Parity means the same visible content, layout, focus, and interaction as the
+vaxis client, asserted by exact-row headless Cooper tests derived from the
+vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
+accepted differences: centered odd-width content can sit one cell right,
+because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
+
+- [~] TUI-COOPER-001 — Session bootstrap and shell chrome: resolve, resume, or
+  create the session; header, dividers, footer location and bash state,
+  loading, failed, and signed-out states; Ctrl+C clear and detach.
+- [ ] TUI-COOPER-002 — Live session: `Watch` bridge, batched event dispatch to
+  the UI thread, run lifecycle, reconnect and recovery footer states, and the
+  incompatible-daemon state.
+- [ ] TUI-COOPER-003 — Transcript: port the transcript projection
+  (`transcript_model.go`) to Ard; render user, assistant, thinking, and bash
+  entries with Markdown and highlighted code in a virtual list; follow the
+  bottom, the latest-message shortcut, tall-reply reading position, reading
+  sections, and older-history loading.
+- [ ] TUI-COOPER-004 — Composer: prompt submission and abort, editing
+  bindings, bracketed paste, history recall, follow-up queue, bash mode and
+  history, attachments, file and session mentions, and annotation chips.
+- [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
+  wells, and file navigation from tool results.
+- [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
+  theme, and model pickers, with shortcuts discovered from Cooper keymaps.
+- [ ] TUI-COOPER-007 — Interaction dock for pending server-owned requests.
+- [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, scratchpad, and
+  annotations.
+- [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
+  dismissal.
+- [ ] TUI-COOPER-010 — Sessions: picker and explorer (`kit sessions`), rename,
+  delete, details, and forking.
+- [ ] TUI-COOPER-011 — Provider login flows and API-key entry.
+- [ ] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
+  selection copy, and link opening.
+- [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
+  vaxis client's contrast-aware palette, plus user theme tokens.
+- [ ] TUI-COOPER-014 — MCP status, plugin footer contributions, and plugin
+  commands.
+- [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
+  from `apps/cli`, run its checks in CI, and remove the vaxis client.
+
+Upstream dependencies:
+
+- Cooper: a bottom-following virtual list (TUI-COOPER-003), terminal
+  foreground, background, and palette queries (TUI-COOPER-013), and a CUI
+  `text_area` submit callback (TUI-COOPER-004; currently a keymap binding).
+
 ## Scope decisions
 
 - [-] `TUI-KEY-001` — User-configurable keybindings and compatibility with
