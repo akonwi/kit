@@ -2623,7 +2623,16 @@ func scratchpadAPIError(err error) error {
 func writeSessionError(writer http.ResponseWriter, err error) {
 	var apiError *httpapi.APIError
 	if errors.As(err, &apiError) {
+		if apiError.StatusCode >= http.StatusInternalServerError {
+			reportRequestError(writer, apiError.StatusCode, err)
+		}
 		httpapi.WriteError(writer, apiError)
+		return
+	}
+	if errors.Is(err, kitsession.ErrCompactionFailed) {
+		// The cause can reflect provider text, so it is logged but not returned.
+		reportRequestError(writer, http.StatusUnprocessableEntity, err)
+		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, kitsession.ErrCompactionFailed.Error(), nil))
 		return
 	}
 	var evidenceErr *kitannotation.EvidenceError
@@ -2704,6 +2713,9 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, subagent.ErrInvalidInput), errors.Is(err, subagent.ErrTemporaryUnavailable), errors.Is(err, errInvalidSessionRequest):
 		status = http.StatusBadRequest
 		message = err.Error()
+	}
+	if status >= http.StatusInternalServerError {
+		reportRequestError(writer, status, err)
 	}
 	writeJSON(writer, status, map[string]string{"error": message})
 }

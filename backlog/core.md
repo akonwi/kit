@@ -81,6 +81,11 @@ IDs but must not redefine server, persistence, or protocol semantics.
   a bounded, actionable failure reason in the server's failed-compaction event
   and persisted state so clients can explain the failure in toasts and after
   reconnect, without exposing credentials or sensitive prompt content.
+  Classify reviewed reasons (for example `summary_truncated`, `provider_error`,
+  `not_adaptable`, `canceled`) rather than persisting provider text; a
+  truncated 4K summary previously surfaced only as "Context compaction failed"
+  and required reading usage deltas to diagnose. Explicit compaction currently
+  returns a generic 422 and logs its cause in the daemon log only.
 - [ ] CORE-RUN-006 — Fix multimodal context estimation for image/file content.
   The provider-neutral estimator counts inline `data:` URLs as text
   (approximately two encoded bytes per token), so a ~1.8 MB image returned by

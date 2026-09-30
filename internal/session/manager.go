@@ -39,6 +39,7 @@ var (
 	ErrBusy                        = errors.New("session already has an active parent run")
 	ErrReloadBusy                  = errors.New("session cannot be reloaded while work is active")
 	ErrConfigureBusy               = errors.New("session cannot be configured while work is active")
+	ErrCompactionFailed            = errors.New("context compaction failed")
 	ErrDeleteBusy                  = errors.New("session cannot be deleted while work is active")
 	ErrClosed                      = errors.New("session manager is closed")
 	ErrInvalidInput                = errors.New("invalid session input")
