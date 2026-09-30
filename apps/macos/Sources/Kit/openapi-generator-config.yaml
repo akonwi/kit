@@ -6,3 +6,4 @@ namingStrategy: idiomatic
 filter:
   tags:
     - scratchpad
+    - vcs

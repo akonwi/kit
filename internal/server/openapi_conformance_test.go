@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
 	"net/http"
 	"net/http/httptest"
 	"strconv"
@@ -23,7 +24,7 @@ import (
 	legacyrouter "github.com/getkin/kin-openapi/routers/legacy"
 )
 
-func scratchpadConformanceMiddleware(t *testing.T, next http.Handler, report func(error)) http.Handler {
+func contractConformanceMiddleware(t *testing.T, next http.Handler, report func(error)) http.Handler {
 	t.Helper()
 	document, err := openapi3.NewLoader().LoadFromFile("../../api/kit-session.openapi.json")
 	if err != nil {
@@ -50,8 +51,16 @@ func scratchpadConformanceMiddleware(t *testing.T, next http.Handler, report fun
 		recorder := httptest.NewRecorder()
 		next.ServeHTTP(recorder, r)
 		body := append([]byte(nil), recorder.Body.Bytes()...)
+		responseOptions := options
+		if mediaType, _, _ := mime.ParseMediaType(recorder.Header().Get("Content-Type")); mediaType == "text/event-stream" {
+			// kin-openapi cannot decode event streams; records are checked
+			// against the published payload schema by validateStreamRecords.
+			copied := *options
+			copied.ExcludeResponseBody = true
+			responseOptions = &copied
+		}
 		if err := openapi3filter.ValidateResponse(context.Background(), &openapi3filter.ResponseValidationInput{
-			RequestValidationInput: input, Status: recorder.Code, Header: recorder.Header(), Body: io.NopCloser(bytes.NewReader(body)), Options: options,
+			RequestValidationInput: input, Status: recorder.Code, Header: recorder.Header(), Body: io.NopCloser(bytes.NewReader(body)), Options: responseOptions,
 		}); err != nil {
 			report(fmt.Errorf("response: %w", err))
 			http.Error(w, "contract response", http.StatusInternalServerError)
@@ -108,7 +117,7 @@ func TestScratchpadErrorResponsesConformToContract(t *testing.T) {
 			mux := http.NewServeMux()
 			registerSessionRoutes(mux, scratchpadWireTestService{record: record, err: test.err})
 			var contractErr error
-			handler := scratchpadConformanceMiddleware(t, mux, func(err error) { contractErr = err })
+			handler := contractConformanceMiddleware(t, mux, func(err error) { contractErr = err })
 			request := httptest.NewRequest(test.method, "/v1/sessions/session_test/scratchpad", strings.NewReader(test.body))
 			addContractRequestHeaders(request)
 			response := httptest.NewRecorder()
@@ -156,7 +165,7 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 				registry: Registry{InstanceID: "instance_test"}, sessions: scratchpadWireTestService{},
 			})
 			var contractErr error
-			handler := scratchpadConformanceMiddleware(t, next, func(err error) { contractErr = err })
+			handler := contractConformanceMiddleware(t, next, func(err error) { contractErr = err })
 			request := httptest.NewRequest(http.MethodGet, "http://example.com/v1/sessions/session_test/scratchpad", nil)
 			addContractRequestHeaders(request)
 			test.mutate(request)
@@ -182,7 +191,7 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 
 func TestScratchpadConformanceRejectsDriftedErrorBody(t *testing.T) {
 	var validationErr error
-	handler := scratchpadConformanceMiddleware(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+	handler := contractConformanceMiddleware(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		writeJSON(w, http.StatusConflict, map[string]any{"error": map[string]any{
 			"code": "scratchpad_revision_exhausted", "message": "scratchpad revision is exhausted", "details": map[string]any{},
 		}})

@@ -82,7 +82,8 @@ type ScratchpadSession interface {
 
 // VCSWatchTerminalError marks repository-stream failures that must stop the
 // watcher instead of reconnecting: authentication, missing sessions, and
-// protocol violations such as oversized or malformed frames.
+// protocol violations such as oversized or malformed records and pre-stream
+// responses outside the operation's declared errors.
 type VCSWatchTerminalError struct{ Err error }
 
 func (e *VCSWatchTerminalError) Error() string { return e.Err.Error() }

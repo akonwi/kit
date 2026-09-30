@@ -101,7 +101,7 @@ before routing, has `Content-Type: application/json` and this body:
   adopts the same code. The emitter rejects two declarations that would give
   one variant name different schemas.
 - Stream operations use this body for failures before the stream starts.
-  Failures after a stream starts are stream records and are out of scope here.
+  Failures after a stream starts follow ADR 0035.
 - Kit does not use RFC 9457 problem details. Its `type` URI and
   `title`/`detail` split add no value for a single-origin API, and the
   `error.code` identity is what generated clients and existing consumers

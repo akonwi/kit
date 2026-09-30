@@ -44,15 +44,20 @@ in-flight probe, and starts observation of the new workspace.
 Native session protocol version 37 requires the VCS stream; update the daemon
 and clients together. The external subprocess plugin protocol remains v1.
 
-Native clients subscribe to authenticated `GET /v1/sessions/{sessionID}/vcs/events`.
-The NDJSON stream sends a current snapshot first (possibly unavailable while the
-initial probe runs), then deduplicated updates. Every frame has the existing
-`SessionVCSStatus` shape, including session ID, cwd, local status and optional PR.
-Blank heartbeat lines arrive every 15 seconds. Frames are bounded to 64 KiB;
-there are at most 32 subscriptions per session and each retains only its latest
-snapshot. Slow clients coalesce intermediate states; there is no durable replay
-or cursor. The one-shot `GET /vcs` endpoint remains available and reads the same
-observer, waiting only for initial local Git state, never GitHub.
+Native clients subscribe to authenticated `GET /v1/sessions/{sessionID}/vcs/events`
+(`streamSessionVCS` in the published contract). The Server-Sent Events stream
+follows [ADR 0035](../adrs/0035-describe-server-push-streams-in-the-session-contract.md):
+it sends a current snapshot first (possibly unavailable while the initial probe
+runs), then deduplicated updates, each as a `vcs.status` record whose single
+`data` line is a `SessionVCSStatus` (session ID, cwd, local status and optional
+PR). Comment heartbeats arrive every 15 seconds. Records are bounded to 64 KiB;
+the stream has no `id` field, cursor, or replay. There are at most 32
+subscriptions per session and each retains only its latest snapshot; slow
+clients coalesce intermediate states. Failures before the stream opens use the
+common error body: 429 `capacity_exceeded` when the subscriber limit is reached
+and 503 `unavailable` when observation is unavailable. The one-shot `GET /vcs`
+endpoint (`getSessionVCS`) remains available and reads the same observer,
+waiting only for initial local Git state, never GitHub.
 
 Both clients use attachment-owned streams rather than polling or activity-triggered
 status requests. Transient disconnects reconnect with bounded backoff and a fresh

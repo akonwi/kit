@@ -1,14 +1,11 @@
 package server
 
 import (
-	"bytes"
 	"context"
-	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
-	"time"
 
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/vcs"
@@ -55,57 +52,50 @@ func projectVCSStatus(id string, value session.VCSUpdate) protocol.SessionVCSSta
 	return result
 }
 
-func serveVCS(writer http.ResponseWriter, request *http.Request, service sessionService) {
-	source, err := service.SubscribeVCS(request.Context(), request.PathValue("sessionID"))
-	if err != nil {
-		switch {
-		case errors.Is(err, vcs.ErrSubscriberLimit):
-			http.Error(writer, "VCS subscriber limit exceeded", http.StatusTooManyRequests)
-		case errors.Is(err, session.ErrVCSUnavailable):
-			http.Error(writer, "VCS observation unavailable", http.StatusServiceUnavailable)
-		default:
-			writeSessionError(writer, err)
+// vcsStreamSource adapts a VCS subscription to the shared stream writer.
+type vcsStreamSource struct{ source vcsSource }
+
+func (s vcsStreamSource) Close() { s.source.Close() }
+func (s vcsStreamSource) Next(ctx context.Context) (httpapi.StreamRecord[protocol.SessionVCSStatus], error) {
+	value, err := s.source.Next(ctx)
+	return httpapi.StreamRecord[protocol.SessionVCSStatus]{Name: httpapi.VCSStatusRecord, Payload: value}, err
+}
+
+func registerVCSRoutes(mux *http.ServeMux, options httpapi.ServeOptions, service sessionService) {
+	httpapi.Handle(mux, options, httpapi.GetSessionVCS, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.SessionVCSStatus, error) {
+		result, err := service.VCS(ctx, params.SessionID)
+		if err != nil {
+			return protocol.SessionVCSStatus{}, vcsAPIError(err)
 		}
-		return
-	}
-	defer source.Close()
-	writer.Header().Set("Content-Type", "application/x-ndjson")
-	writer.Header().Set("Cache-Control", "no-store")
-	controller := http.NewResponseController(writer)
-	defer controller.SetWriteDeadline(time.Time{})
-	_ = controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
-	if controller.Flush() != nil {
-		return
-	}
-	for request.Context().Err() == nil {
-		ctx, cancel := context.WithTimeout(request.Context(), 15*time.Second)
-		value, err := source.Next(ctx)
-		cancel()
-		_ = controller.SetWriteDeadline(time.Now().Add(10 * time.Second))
-		if errors.Is(err, context.DeadlineExceeded) && request.Context().Err() == nil {
-			if _, err := io.WriteString(writer, "\n"); err != nil {
-				return
-			}
-		} else if err != nil {
-			return
-		} else {
-			if value.Validate() != nil {
-				return
-			}
-			// NDJSON is not HTML. Avoid HTML escaping multiplying valid path
-			// and branch bounds beyond the stream's 64 KiB frame budget.
-			var frame bytes.Buffer
-			encoder := json.NewEncoder(&frame)
-			encoder.SetEscapeHTML(false)
-			if err := encoder.Encode(value); err != nil || frame.Len() > 64<<10 {
-				return
-			}
-			if _, err := writer.Write(frame.Bytes()); err != nil {
-				return
-			}
+		if result.Validate() != nil {
+			return protocol.SessionVCSStatus{}, httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 		}
-		if controller.Flush() != nil {
-			return
+		return result, nil
+	})
+	httpapi.HandleStream(mux, options, httpapi.StreamSessionVCS, func(ctx context.Context, params httpapi.SessionPath) (httpapi.StreamSource[protocol.SessionVCSStatus], error) {
+		source, err := service.SubscribeVCS(ctx, params.SessionID)
+		if err != nil {
+			return nil, vcsAPIError(err)
 		}
+		return vcsStreamSource{source}, nil
+	})
+}
+
+// vcsAPIError maps repository-status failures to the declared ADR 0034 codes.
+func vcsAPIError(err error) error {
+	switch {
+	case errors.Is(err, vcs.ErrSubscriberLimit):
+		return httpapi.NewAPIError(http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "VCS subscriber limit exceeded", nil)
+	case errors.Is(err, session.ErrNotFound):
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	case errors.Is(err, session.ErrDeleteBusy):
+		return httpapi.NewAPIError(http.StatusConflict, httpapi.ErrorConflict, "session is being deleted", nil)
+	case errors.Is(err, session.ErrVCSUnavailable), errors.Is(err, session.ErrClosed),
+		errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+		// The observer or runtime closed underneath the request.
+		return httpapi.NewAPIError(http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "VCS observation unavailable", nil)
+	case errors.Is(err, session.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
+		return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 	}
+	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
 }
