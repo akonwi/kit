@@ -12,6 +12,7 @@ use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
 use kit/tui/controls
 use kit/tui/format
+use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/transcript
 use go:strings
@@ -582,7 +583,20 @@ impl Shell {
     let colors = self.props.theme
     let content = match self.notice != "" {
       true => line(self.notice, ui::text_style(foreground: colors.danger_text)),
-      false => line(self.live.activity, ui::text_style(foreground: colors.muted)),
+      false => {
+        match self.live.activity != "" {
+          true => {
+            cui::box(
+              [
+                spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+                line(self.live.activity, ui::text_style(foreground: colors.muted)),
+              ],
+              styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+            )
+          },
+          false => line("", ui::text_style(foreground: colors.muted)),
+        }
+      },
     }
     cui::box([content], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0, padding: inset()))
   }

@@ -1,0 +1,37 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use kit/tui/spinner
+use go:time
+
+struct SpinnerHost {}
+
+fn spinner_host(props: mut SpinnerHost) mut SpinnerHost {
+  (mut SpinnerHost{})
+}
+
+impl cui::Component for SpinnerHost {
+  fn mut render() cui::View {
+    spinner::spinner()
+  }
+}
+
+// The spinner's timer and dispatch queue need a headless harness, so this lives
+// separately from its atomic implementation.
+test fn spinner_advances_while_mounted() Void!Str {
+  let terminal = headless::new(2, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, cui::child(spinner_host, SpinnerHost{}))
+  defer renderer.destroy()
+  terminal.flush()
+  let initial = terminal.frame().text()
+  time::Sleep(240 * time::Millisecond)
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text() != initial,
+    "spinner advances after its shared frame interval",
+  )
+}

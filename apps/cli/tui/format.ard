@@ -44,8 +44,8 @@ fn context_percentage(tokens: Int, window: Int) Int? {
   match tokens <= 0 or window <= 0 {
     true => Maybe::new<Int>(),
     false => {
-      let share = math::Round(tokens.to_f64() * 100.0 / window.to_f64())
-      let rounded = share.to_int()
+      let share = math::Round(Float64::fit(tokens) * 100.0 / Float64::fit(window))
+      let rounded = Int::fit(share)
       Maybe::new(
         match rounded < 1 {
           true => 1,

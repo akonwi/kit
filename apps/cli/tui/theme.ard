@@ -49,7 +49,7 @@ private fn rgb(r: Int, g: Int, b: Int) Rgb {
 // Kit's linear sRGB wash (tintUIColor): `opacity` of `accent` over `base`.
 private fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
   let mix = fn(from: Int, to: Int) Int {
-    (from.to_f64() * (1.0 - opacity) + to.to_f64() * opacity + 0.5).to_int()
+    Int::fit(Float64::fit(from) * (1.0 - opacity) + Float64::fit(to) * opacity + 0.5)
   }
   rgb(mix(base.r, accent.r), mix(base.g, accent.g), mix(base.b, accent.b))
 }
@@ -133,9 +133,9 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
 
 private fn from_ui(color: ui::Color) Rgb {
   rgb(
-    Byte::from(color.red).to_int(),
-    Byte::from(color.green).to_int(),
-    Byte::from(color.blue).to_int(),
+    Int::from(Byte::from(color.red)),
+    Int::from(Byte::from(color.green)),
+    Int::from(Byte::from(color.blue)),
   )
 }
 
@@ -154,19 +154,19 @@ private fn color(tokens: [Str: kittheme::Color], role: Str, fallback: Rgb, backd
 // Kit's token projection: opaque colors apply as is, translucent colors blend
 // over the backdrop, and fully transparent colors keep the fallback.
 private fn project(color: kittheme::Color, fallback: Rgb, backdrop: Rgb) Rgb? {
-  let alpha = color.A.to_int()
+  let alpha = Int::from(color.A)
   match {
     alpha == 0 => Maybe::new(fallback),
-    alpha == 255 => Maybe::new(rgb(color.R.to_int(), color.G.to_int(), color.B.to_int())),
+    alpha == 255 => Maybe::new(rgb(Int::from(color.R), Int::from(color.G), Int::from(color.B))),
     _ => {
       let mix = fn(foreground: Int, background: Int) Int {
         (foreground * alpha + background * (255 - alpha) + 127) / 255
       }
       Maybe::new(
         rgb(
-          mix(color.R.to_int(), backdrop.r),
-          mix(color.G.to_int(), backdrop.g),
-          mix(color.B.to_int(), backdrop.b),
+          mix(Int::from(color.R), backdrop.r),
+          mix(Int::from(color.G), backdrop.g),
+          mix(Int::from(color.B), backdrop.b),
         ),
       )
     },
