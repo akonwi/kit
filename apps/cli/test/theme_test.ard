@@ -1,27 +1,29 @@
 use ard/testing
 
+use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
-use kit/tui/palette
 use kit/tui/theme
 
 // Expected values follow the vaxis client's theme adapter: Kit's linear wash
 // for user turns (tintUIColor) and its token projection (projectColor).
 
-fn dark() palette::Tones {
-  palette::from_terminal(
-    Maybe::new(palette::rgb(216, 222, 233)),
-    Maybe::new(palette::rgb(40, 44, 52)),
-    [
-      Maybe::new<palette::Rgb>(),
-      Maybe::new(palette::rgb(224, 108, 117)),
-      Maybe::new(palette::rgb(152, 195, 121)),
-      Maybe::new(palette::rgb(229, 192, 123)),
-      Maybe::new(palette::rgb(97, 175, 239)),
-      Maybe::new(palette::rgb(198, 120, 221)),
-      Maybe::new(palette::rgb(86, 182, 194)),
-      Maybe::new<palette::Rgb>(),
-    ],
+fn dark() ctheme::Theme {
+  ctheme::from_terminal(
+    ctheme::TerminalColors{
+      foreground: Maybe::new(ui::rgb(216, 222, 233)),
+      background: Maybe::new(ui::rgb(40, 44, 52)),
+      palette: [
+        Maybe::new<ui::Color>(),
+        Maybe::new(ui::rgb(224, 108, 117)),
+        Maybe::new(ui::rgb(152, 195, 121)),
+        Maybe::new(ui::rgb(229, 192, 123)),
+        Maybe::new(ui::rgb(97, 175, 239)),
+        Maybe::new(ui::rgb(198, 120, 221)),
+        Maybe::new(ui::rgb(86, 182, 194)),
+        Maybe::new<ui::Color>(),
+      ],
+    },
   )
 }
 

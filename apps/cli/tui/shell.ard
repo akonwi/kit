@@ -1,5 +1,6 @@
 use ard/async
 
+use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
@@ -86,6 +87,10 @@ impl cui::Lifecycle for Shell {
     let lifetime = contextbridge::WithCancel(self.props.options.Context)
     self.lifetime = Maybe::new(lifetime)
     self.context = Maybe::new(ctx)
+    let definition = self.props.options.ThemeDefinition
+    let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
+      self.props.theme = theme::resolve(definition, next)
+    })
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
     }

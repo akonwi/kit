@@ -93,11 +93,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   selection copy, and link opening.
 - [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
   vaxis client's contrast-aware palette, plus user theme tokens. The palette
-  derivation is ported (`tui/palette.ard`) and fed by a startup query bridge
-  (`ffi/terminalcolors`). Remaining: query through Cooper and delete the
-  bridge, follow terminal light/dark changes (mode 2031), and use the derived
-  surfaces for filled controls such as the signed-out "Connect a provider"
-  button.
+  derivation comes from Cooper's terminal-theme service, including live host
+  updates. Remaining: use the derived surfaces for filled controls such as the
+  signed-out "Connect a provider" button.
 - [ ] TUI-COOPER-014 — MCP status, plugin footer contributions, and plugin
   commands.
 - [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
@@ -105,9 +103,7 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
 Upstream dependencies:
 
-- Cooper: terminal foreground, background, and palette queries with change
-  notification (TUI-COOPER-013; until then Kit queries from Go before Cooper
-  starts); and a CUI
+- Cooper: a CUI
   `text_area` submit callback (TUI-COOPER-004; currently a keymap binding).
 
 ## Scope decisions
