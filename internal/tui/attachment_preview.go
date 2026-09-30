@@ -50,7 +50,7 @@ func (s *attachmentPreviewState) InitState() {
 	go func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 		defer cancel()
-		info, reader, err := config.Loader.OpenAttachment(ctx, config.Attachment.AttachmentID)
+		info, reader, err := config.Loader.OpenAttachment(ctx, attachmentID(config.Attachment))
 		if err == nil {
 			defer reader.Close()
 			var decoded image.Image
@@ -83,7 +83,7 @@ func (s *attachmentPreviewState) dispatchIfActive(runtimeUI ui.Runtime, update f
 func (s *attachmentPreviewState) Build(ctx ui.BuildContext) ui.Widget {
 	config := s.Widget().(attachmentPreview)
 	theme := ui.MustDepend[ui.Theme](ctx)
-	filename := config.Attachment.Filename
+	filename := attachmentFilename(config.Attachment)
 	if s.info.Filename != "" {
 		filename = s.info.Filename
 	}
@@ -115,7 +115,7 @@ func (s *attachmentPreviewState) open(config attachmentPreview) {
 	go func() {
 		ctx, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 		defer cancel()
-		info, reader, err := config.Loader.OpenAttachment(ctx, config.Attachment.AttachmentID)
+		info, reader, err := config.Loader.OpenAttachment(ctx, attachmentID(config.Attachment))
 		if err == nil {
 			defer reader.Close()
 			err = materializeAndOpenAttachment(info.Filename, reader)
@@ -169,4 +169,23 @@ func openExternalPath(path string) error {
 		return fmt.Errorf("opening attachments is unsupported on %s", runtime.GOOS)
 	}
 	return startExternalCommand(command, path)
+}
+
+func attachmentID(content protocol.TranscriptContent) string {
+	switch value := content.Payload.(type) {
+	case protocol.ImageContent:
+		return value.AttachmentID
+	case protocol.FileContent:
+		return value.AttachmentID
+	}
+	return ""
+}
+func attachmentFilename(content protocol.TranscriptContent) string {
+	switch value := content.Payload.(type) {
+	case protocol.ImageContent:
+		return value.Filename
+	case protocol.FileContent:
+		return value.Filename
+	}
+	return ""
 }

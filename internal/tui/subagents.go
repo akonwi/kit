@@ -453,7 +453,7 @@ func subagentLiveTranscript(messages []protocol.TranscriptMessage, events []prot
 			if tool := ensureTool(event); tool != nil {
 				tool.ToolName = event.ToolName
 				tool.Text = event.Text
-				tool.ToolContent = []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: event.Text}}
+				tool.ToolContent = []protocol.TranscriptContent{protocol.TextBlock(event.Text)}
 				tool.IsError = event.IsError
 				tool.Pending = false
 				if event.IsError {

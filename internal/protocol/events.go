@@ -198,7 +198,7 @@ func (event SessionEvent) Validate() error {
 		payloadBytes += len(raw)
 	}
 	for _, block := range event.Content {
-		payloadBytes += len(block.Text) + len(block.ToolCallID) + len(block.ToolName) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
+		payloadBytes += transcriptContentSize(block)
 	}
 	if payloadBytes > maxSessionEventPayloadBytes {
 		return fmt.Errorf("event payload exceeds 128 KiB")
@@ -424,8 +424,8 @@ func (event SessionEvent) Validate() error {
 		if err := block.validate(); err != nil {
 			return fmt.Errorf("tool content block %d: %w", index, err)
 		}
-		if !contentAllowedForRole("tool", block.Kind) {
-			return fmt.Errorf("tool content block %d kind %q is invalid", index, block.Kind)
+		if !contentAllowedForRole("tool", block.Kind()) {
+			return fmt.Errorf("tool content block %d kind %q is invalid", index, block.Kind())
 		}
 	}
 	carriesMessageID := event.Kind == SessionEventAssistantStarted || event.Kind == SessionEventAssistantTextDelta ||

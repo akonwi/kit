@@ -841,9 +841,9 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 				continue
 			}
 			for _, block := range state.ToolContent {
-				if block.Kind == protocol.TranscriptContentImage && block.AttachmentID != "" {
+				if image, ok := block.Payload.(protocol.ImageContent); ok && image.AttachmentID != "" {
 					children = append(children, ui.Padding(ui.Insets{Top: 1}, keyedTranscriptItem{
-						ID:    "tool-image:" + block.AttachmentID,
+						ID:    "tool-image:" + image.AttachmentID,
 						Child: attachmentPreview{Attachment: block, Loader: w.Snapshot.Attachments},
 					}))
 				}
@@ -861,18 +861,18 @@ func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, att
 	}
 	annotations := make([]protocol.SubmittedAnnotation, 0)
 	for _, block := range message.Content {
-		if block.Kind == protocol.TranscriptContentAnnotations {
-			annotations = append(annotations, block.Annotations...)
+		if value, ok := block.Payload.(protocol.AnnotationsContent); ok {
+			annotations = append(annotations, value.Annotations...)
 		}
 	}
 	annotationsRendered := false
 	for _, block := range message.Content {
-		switch block.Kind {
-		case protocol.TranscriptContentImage:
-			if block.AttachmentID != "" && attachments != nil {
+		switch value := block.Payload.(type) {
+		case protocol.ImageContent:
+			if value.AttachmentID != "" && attachments != nil {
 				children = append(children, attachmentPreview{Attachment: block, Loader: attachments})
 			}
-		case protocol.TranscriptContentAnnotations:
+		case protocol.AnnotationsContent:
 			if !annotationsRendered && len(annotations) > 0 {
 				children = append(children, submittedAnnotationGroup(theme, annotations, annotationsExpanded, toggleAnnotations))
 				annotationsRendered = true

@@ -209,13 +209,14 @@ func (page TranscriptPage) Validate() error {
 				toolCallsByTurn[message.TurnID] = calls
 			}
 			for _, block := range message.Content {
-				if block.Kind != TranscriptContentToolCall {
+				call, ok := block.Payload.(ToolCallContent)
+				if !ok {
 					continue
 				}
-				if _, duplicate := calls[block.ToolCallID]; duplicate {
-					return fmt.Errorf("transcript page message %d duplicates tool call %q in turn", index, block.ToolCallID)
+				if _, duplicate := calls[call.ToolCallID]; duplicate {
+					return fmt.Errorf("transcript page message %d duplicates tool call %q in turn", index, call.ToolCallID)
 				}
-				calls[block.ToolCallID] = block.ToolName
+				calls[call.ToolCallID] = call.ToolName
 			}
 		}
 		if message.Role == "tool" {
@@ -412,7 +413,7 @@ func (snapshot SessionSnapshot) Validate() error {
 			return fmt.Errorf("pending boundary %d acceptedAt is invalid: %w", index, err)
 		}
 		for contentIndex, block := range boundary.Content {
-			if err := block.validate(); err != nil || !contentAllowedForRole("context", block.Kind) {
+			if err := block.validate(); err != nil || !contentAllowedForRole("context", block.Kind()) {
 				return fmt.Errorf("pending boundary %d content %d is invalid", index, contentIndex)
 			}
 		}
@@ -453,13 +454,14 @@ func (snapshot SessionSnapshot) Validate() error {
 				toolCallsByTurn[message.TurnID] = calls
 			}
 			for _, block := range message.Content {
-				if block.Kind != TranscriptContentToolCall {
+				call, ok := block.Payload.(ToolCallContent)
+				if !ok {
 					continue
 				}
-				if _, duplicate := calls[block.ToolCallID]; duplicate {
-					return fmt.Errorf("snapshot message %d duplicates tool call %q in turn", index, block.ToolCallID)
+				if _, duplicate := calls[call.ToolCallID]; duplicate {
+					return fmt.Errorf("snapshot message %d duplicates tool call %q in turn", index, call.ToolCallID)
 				}
-				calls[block.ToolCallID] = block.ToolName
+				calls[call.ToolCallID] = call.ToolName
 			}
 		}
 		if message.Role == "tool" {
@@ -610,8 +612,8 @@ func (message TranscriptMessage) validate() error {
 		if err := block.validate(); err != nil {
 			return fmt.Errorf("content block %d: %w", index, err)
 		}
-		if !contentAllowedForRole(message.Role, block.Kind) {
-			return fmt.Errorf("content block %d kind %q is invalid for role %q", index, block.Kind, message.Role)
+		if !contentAllowedForRole(message.Role, block.Kind()) {
+			return fmt.Errorf("content block %d kind %q is invalid for role %q", index, block.Kind(), message.Role)
 		}
 	}
 	switch message.Role {
@@ -649,48 +651,6 @@ func (message TranscriptMessage) validate() error {
 		if message.StopReason != "" || message.ErrorMessage != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" {
 			return fmt.Errorf("tool result carries assistant metadata")
 		}
-	}
-	return nil
-}
-
-func (block TranscriptContent) validate() error {
-	hasToolData := block.ToolCallID != "" || block.ToolName != "" || block.Arguments != "" || block.ArgumentsTruncated
-	hasFileData := block.Filename != "" || block.MediaType != ""
-	hasAnnotationData := len(block.Annotations) > 0
-	switch block.Kind {
-	case TranscriptContentText, TranscriptContentThinking:
-		if block.Text == "" {
-			return fmt.Errorf("%s content requires text", block.Kind)
-		}
-		if hasToolData || hasFileData || hasAnnotationData {
-			return fmt.Errorf("%s content carries unrelated metadata", block.Kind)
-		}
-	case TranscriptContentToolCall:
-		if block.Text != "" || block.ToolCallID == "" || block.ToolName == "" || hasFileData || hasAnnotationData {
-			return fmt.Errorf("tool call requires call id and name only")
-		}
-		if (block.Arguments == "") == !block.ArgumentsTruncated {
-			return fmt.Errorf("tool call requires either complete or explicitly truncated arguments")
-		}
-	case TranscriptContentImage:
-		if block.Text != "" || hasToolData || hasAnnotationData || !validMediaType(block.MediaType, true) {
-			return fmt.Errorf("image content requires an image media type without text or tool metadata")
-		}
-	case TranscriptContentFile:
-		if block.Text != "" || hasToolData || hasAnnotationData || strings.TrimSpace(block.Filename) == "" || !validMediaType(block.MediaType, false) {
-			return fmt.Errorf("file content requires filename and media type only")
-		}
-	case TranscriptContentAnnotations:
-		if block.Text != "" || hasToolData || hasFileData || len(block.Annotations) == 0 || len(block.Annotations) > MaxAnnotationsPerPrompt {
-			return fmt.Errorf("annotation content is invalid")
-		}
-		for _, annotation := range block.Annotations {
-			if err := annotation.Validate(); err != nil {
-				return err
-			}
-		}
-	default:
-		return fmt.Errorf("kind %q is invalid", block.Kind)
 	}
 	return nil
 }

@@ -2685,9 +2685,8 @@ func (s *appState) mergeSnapshotTranscript(projected []transcriptMessage) bool {
 func projectTranscriptContent(content []protocol.TranscriptContent) []protocol.TranscriptContent {
 	projected := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
-		switch block.Kind {
-		case protocol.TranscriptContentFile:
-			block = protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: "[file: " + block.Filename + "]"}
+		if file, ok := block.Payload.(protocol.FileContent); ok {
+			block = protocol.TextBlock("[file: " + file.Filename + "]")
 		}
 		projected = append(projected, block)
 	}
@@ -2700,23 +2699,19 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		var textParts, thinkingParts []string
 		calls := make([]transcriptToolCall, 0)
 		for _, block := range message.Content {
-			switch block.Kind {
-			case protocol.TranscriptContentText:
-				textParts = append(textParts, block.Text)
-			case protocol.TranscriptContentThinking:
-				thinkingParts = append(thinkingParts, block.Text)
-			case protocol.TranscriptContentToolCall:
-				calls = append(calls, transcriptToolCall{
-					ID: block.ToolCallID, Name: block.ToolName,
-					Arguments:          append(json.RawMessage(nil), block.Arguments...),
-					ArgumentsTruncated: block.ArgumentsTruncated,
-				})
-			case protocol.TranscriptContentImage:
-				if block.AttachmentID == "" {
+			switch value := block.Payload.(type) {
+			case protocol.TextContent:
+				textParts = append(textParts, value.Text)
+			case protocol.ThinkingContent:
+				thinkingParts = append(thinkingParts, value.Text)
+			case protocol.ToolCallContent:
+				calls = append(calls, transcriptToolCall{ID: value.ToolCallID, Name: value.ToolName, Arguments: append(json.RawMessage(nil), value.Arguments...), ArgumentsTruncated: value.ArgumentsTruncated})
+			case protocol.ImageContent:
+				if value.AttachmentID == "" {
 					textParts = append(textParts, "[image]")
 				}
-			case protocol.TranscriptContentFile:
-				textParts = append(textParts, "[file: "+block.Filename+"]")
+			case protocol.FileContent:
+				textParts = append(textParts, "[file: "+value.Filename+"]")
 			}
 		}
 		text := strings.Join(textParts, "\n")
@@ -3277,13 +3272,14 @@ func appendLiveToolContent(message *transcriptMessage, content []protocol.Transc
 			remaining -= size
 			continue
 		}
-		if block.Kind == protocol.TranscriptContentText && remaining > 0 {
-			end := min(len(block.Text), remaining)
-			for end > 0 && end < len(block.Text) && !utf8.RuneStart(block.Text[end]) {
+		if text, ok := block.Payload.(protocol.TextContent); ok && remaining > 0 {
+			end := min(len(text.Text), remaining)
+			for end > 0 && end < len(text.Text) && !utf8.RuneStart(text.Text[end]) {
 				end--
 			}
 			if end > 0 {
-				block.Text = block.Text[:end]
+				text.Text = text.Text[:end]
+				block.Payload = text
 				accepted = append(accepted, block)
 			}
 		}
@@ -3298,7 +3294,23 @@ func appendLiveToolContent(message *transcriptMessage, content []protocol.Transc
 }
 
 func liveToolPreviewBlockSize(block protocol.TranscriptContent) int {
-	return len(block.Kind) + len(block.Text) + len(block.Filename) + len(block.MediaType)
+	return len(block.Kind()) + transcriptContentPreviewSize(block)
+}
+
+func transcriptContentPreviewSize(block protocol.TranscriptContent) int {
+	switch value := block.Payload.(type) {
+	case protocol.TextContent:
+		return len(value.Text)
+	case protocol.ThinkingContent:
+		return len(value.Text)
+	case protocol.ToolCallContent:
+		return len(value.Arguments) + len(value.ToolCallID) + len(value.ToolName)
+	case protocol.ImageContent:
+		return len(value.Filename) + len(value.MediaType)
+	case protocol.FileContent:
+		return len(value.Filename) + len(value.MediaType)
+	}
+	return 0
 }
 
 func appendToolNotice(text, notice string) string {
@@ -3311,13 +3323,13 @@ func appendToolNotice(text, notice string) string {
 func toolResultContentText(content []protocol.TranscriptContent) string {
 	parts := make([]string, 0, len(content))
 	for _, block := range content {
-		switch block.Kind {
-		case protocol.TranscriptContentText:
-			parts = append(parts, block.Text)
-		case protocol.TranscriptContentImage:
+		switch value := block.Payload.(type) {
+		case protocol.TextContent:
+			parts = append(parts, value.Text)
+		case protocol.ImageContent:
 			parts = append(parts, "[image]")
-		case protocol.TranscriptContentFile:
-			parts = append(parts, "[file: "+block.Filename+"]")
+		case protocol.FileContent:
+			parts = append(parts, "[file: "+value.Filename+"]")
 		}
 	}
 	return strings.Join(parts, "\n")

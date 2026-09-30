@@ -12,11 +12,11 @@ func TestMessageHistoryEntriesKeepNewestUniqueUserText(t *testing.T) {
 	t.Parallel()
 
 	entries := messageHistoryEntries([]protocol.TranscriptMessage{
-		{ID: "message_new", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "  newer prompt  "}}},
-		{ID: "message_dup", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "newer prompt"}}},
-		{ID: "message_blank", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "   "}}},
-		{ID: "message_old", Role: "assistant", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "not recalled"}}},
-		{ID: "message_older", Role: "user", Content: []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: "older prompt"}}},
+		{ID: "message_new", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("  newer prompt  ")}},
+		{ID: "message_dup", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("newer prompt")}},
+		{ID: "message_blank", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("   ")}},
+		{ID: "message_old", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("not recalled")}},
+		{ID: "message_older", Role: "user", Content: []protocol.TranscriptContent{protocol.TextBlock("older prompt")}},
 	})
 	if len(entries) != 2 || entries[0].Text != "newer prompt" || entries[1].ID != "message_older" {
 		t.Fatalf("entries = %+v", entries)

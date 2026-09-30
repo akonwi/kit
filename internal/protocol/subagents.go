@@ -219,7 +219,7 @@ func (transcript SubagentTranscript) Validate() error {
 	for index, message := range transcript.Messages {
 		aggregate += len(message.ID) + len(message.TurnID) + len(message.ErrorMessage) + len(message.Details)
 		for _, block := range message.Content {
-			aggregate += len(block.Text) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
+			aggregate += transcriptContentSize(block)
 		}
 		if message.ID == "" || message.TurnID == "" || message.Sequence <= previous {
 			return fmt.Errorf("subagent transcript message %d identity or sequence is invalid", index)

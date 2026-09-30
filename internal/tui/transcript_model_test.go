@@ -14,18 +14,15 @@ func transcriptMessageWithContent(id, turnID, role string, content ...protocol.T
 }
 
 func textBlock(text string) protocol.TranscriptContent {
-	return protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: text}
+	return protocol.TextBlock(text)
 }
 
 func thinkingBlock(text string) protocol.TranscriptContent {
-	return protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: text}
+	return protocol.NewTranscriptContent(protocol.ThinkingContent{Text: text})
 }
 
 func toolCallBlock(id, name, arguments string) protocol.TranscriptContent {
-	return protocol.TranscriptContent{
-		Kind: protocol.TranscriptContentToolCall, ToolCallID: id,
-		ToolName: name, Arguments: arguments,
-	}
+	return protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: id, ToolName: name, Arguments: arguments})
 }
 
 func TestBuildTurnTranscriptItemsPairsResultsAndMarksAbortedTurns(t *testing.T) {

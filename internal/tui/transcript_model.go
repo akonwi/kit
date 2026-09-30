@@ -106,14 +106,9 @@ func bashFor(id string, executions map[string]protocol.BashExecution) *protocol.
 func assistantToolCalls(message protocol.TranscriptMessage) []transcriptToolCall {
 	calls := make([]transcriptToolCall, 0)
 	for _, block := range message.Content {
-		if block.Kind != protocol.TranscriptContentToolCall {
-			continue
+		if value, ok := block.Payload.(protocol.ToolCallContent); ok {
+			calls = append(calls, transcriptToolCall{ID: value.ToolCallID, Name: value.ToolName, Arguments: append(json.RawMessage(nil), value.Arguments...), ArgumentsTruncated: value.ArgumentsTruncated})
 		}
-		calls = append(calls, transcriptToolCall{
-			ID: block.ToolCallID, Name: block.ToolName,
-			Arguments:          append(json.RawMessage(nil), block.Arguments...),
-			ArgumentsTruncated: block.ArgumentsTruncated,
-		})
 	}
 	return calls
 }
@@ -121,8 +116,8 @@ func assistantToolCalls(message protocol.TranscriptMessage) []transcriptToolCall
 func assistantProse(message protocol.TranscriptMessage) string {
 	parts := make([]string, 0, len(message.Content))
 	for _, block := range message.Content {
-		if block.Kind == protocol.TranscriptContentText && block.Text != "" {
-			parts = append(parts, block.Text)
+		if value, ok := block.Payload.(protocol.TextContent); ok && value.Text != "" {
+			parts = append(parts, value.Text)
 		}
 	}
 	if len(parts) > 0 {
@@ -137,8 +132,8 @@ func assistantProse(message protocol.TranscriptMessage) string {
 func assistantThinking(message protocol.TranscriptMessage) string {
 	parts := make([]string, 0, len(message.Content))
 	for _, block := range message.Content {
-		if block.Kind == protocol.TranscriptContentThinking && block.Text != "" {
-			parts = append(parts, block.Text)
+		if value, ok := block.Payload.(protocol.ThinkingContent); ok && value.Text != "" {
+			parts = append(parts, value.Text)
 		}
 	}
 	return strings.Join(parts, "\n\n")
@@ -369,17 +364,17 @@ func expandOrderedAssistantContent(messages []protocol.TranscriptMessage, ordere
 		segments := make([]protocol.TranscriptMessage, 0, len(message.Content))
 		for start := 0; start < len(message.Content); {
 			end := start + 1
-			if message.Content[start].Kind == protocol.TranscriptContentText {
-				for end < len(message.Content) && message.Content[end].Kind == protocol.TranscriptContentText {
+			if message.Content[start].Kind() == protocol.TranscriptContentText {
+				for end < len(message.Content) && message.Content[end].Kind() == protocol.TranscriptContentText {
 					end++
 				}
 			} else {
-				hasToolCall := message.Content[start].Kind == protocol.TranscriptContentToolCall
-				for end < len(message.Content) && message.Content[end].Kind != protocol.TranscriptContentText {
-					if hasToolCall && message.Content[end].Kind == protocol.TranscriptContentThinking {
+				hasToolCall := message.Content[start].Kind() == protocol.TranscriptContentToolCall
+				for end < len(message.Content) && message.Content[end].Kind() != protocol.TranscriptContentText {
+					if hasToolCall && message.Content[end].Kind() == protocol.TranscriptContentThinking {
 						break
 					}
-					hasToolCall = hasToolCall || message.Content[end].Kind == protocol.TranscriptContentToolCall
+					hasToolCall = hasToolCall || message.Content[end].Kind() == protocol.TranscriptContentToolCall
 					end++
 				}
 			}
@@ -397,7 +392,7 @@ func expandOrderedAssistantContent(messages []protocol.TranscriptMessage, ordere
 		if message.ErrorMessage != "" && (message.StopReason == "error" || message.StopReason == "aborted") {
 			terminal := message
 			terminal.ID = orderedTranscriptSegmentID(message.ID, len(message.Content))
-			terminal.Content = []protocol.TranscriptContent{{Kind: protocol.TranscriptContentText, Text: message.ErrorMessage}}
+			terminal.Content = []protocol.TranscriptContent{protocol.TextBlock(message.ErrorMessage)}
 			segments = append(segments, terminal)
 		} else {
 			last := &segments[len(segments)-1]
@@ -448,16 +443,13 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 			// Pending assistant prose is retained for an inline work window once a
 			// tool call arrives. A prose-only pending message is still omitted below.
 			if message.Text != "" {
-				content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentText, Text: message.Text})
+				content = append(content, protocol.TextBlock(message.Text))
 			}
 			if message.Thinking != "" {
-				content = append(content, protocol.TranscriptContent{Kind: protocol.TranscriptContentThinking, Text: message.Thinking})
+				content = append(content, protocol.NewTranscriptContent(protocol.ThinkingContent{Text: message.Thinking}))
 			}
 			for _, call := range message.ToolCalls {
-				content = append(content, protocol.TranscriptContent{
-					Kind: protocol.TranscriptContentToolCall, ToolCallID: call.ID, ToolName: call.Name,
-					Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated,
-				})
+				content = append(content, protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: call.ID, ToolName: call.Name, Arguments: string(call.Arguments), ArgumentsTruncated: call.ArgumentsTruncated}))
 			}
 		}
 		if message.Role == "assistant" && message.Pending && len(message.ToolCalls) == 0 {
