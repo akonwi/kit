@@ -110,13 +110,19 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 	if prompt == "" {
 		prompt = defaultCompactionPrompt
 	}
-	reservedOutput, err := resolveRequestMaxTokens(model, 0, "")
+	reasoning := compactionSummaryReasoning(model)
+	reservedOutput, err := resolveRequestMaxTokens(model, 0, reasoning)
 	if err != nil {
 		return "", err
 	}
 	requestMaxTokens := reservedOutput
 	if model.OutputLimitMode == OutputLimitProviderControlled {
 		requestMaxTokens = 0
+	}
+	build := func(parts []string) Request {
+		request := compactionSummaryRequest(string(rt.conversation), prompt, previous, parts, requestMaxTokens)
+		request.Reasoning = reasoning
+		return request
 	}
 
 	// Prefer one request for the whole prefix. If it cannot fit, fold bounded
@@ -127,13 +133,13 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 		if err := contextError(ctx); err != nil {
 			return "", err
 		}
-		request := compactionSummaryRequest(string(rt.conversation), prompt, previous, parts, requestMaxTokens)
+		request := build(parts)
 		end := len(parts)
 		if !compactionRequestFits(model, request, reservedOutput) {
 			low, high := 0, len(parts)
 			for low < high {
 				mid := low + (high-low+1)/2
-				candidate := compactionSummaryRequest(string(rt.conversation), prompt, previous, parts[:mid], requestMaxTokens)
+				candidate := build(parts[:mid])
 				if compactionRequestFits(model, candidate, reservedOutput) {
 					low = mid
 				} else {
@@ -144,7 +150,7 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 				return "", fmt.Errorf("droids: compaction summary request cannot fit a source message and previous summary in %s/%s: %w", model.Provider, model.ID, ErrContextNotAdaptable)
 			}
 			end = low
-			request = compactionSummaryRequest(string(rt.conversation), prompt, previous, parts[:end], requestMaxTokens)
+			request = build(parts[:end])
 		}
 		// The summary request is an independent request with no dispatched
 		// configuration updates of its own.
@@ -160,6 +166,26 @@ func (rt *sdkRuntime) summarizeCompaction(ctx context.Context, provider Provider
 		}
 		parts = parts[end:]
 	}
+}
+
+// compactionSummaryReasoning disables thinking for summary requests where that
+// is known to be accepted, otherwise it selects the model's lowest explicit
+// effort. Summaries are transcription work, and thinking shares the output
+// allowance with the summary itself.
+func compactionSummaryReasoning(model Model) string {
+	if !model.Reasoning {
+		return ""
+	}
+	// Anthropic disables thinking by omitting it; other APIs must advertise it.
+	if model.API == ModelAPIAnthropicMessages || containsString(model.ReasoningLevels, "none") {
+		return "off"
+	}
+	for _, level := range []string{"minimal", "low"} {
+		if containsString(model.ReasoningLevels, level) {
+			return level
+		}
+	}
+	return ""
 }
 
 func compactionRequestFits(model Model, request Request, reservedOutput int) bool {

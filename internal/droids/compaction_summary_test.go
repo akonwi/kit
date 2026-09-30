@@ -201,6 +201,46 @@ func TestCompactionSummaryProviderControlledOutputStillReservesCapacity(t *testi
 	}
 }
 
+func TestCompactionSummaryDisablesThinkingWithDefaultOutputAllowance(t *testing.T) {
+	provider := newCompactionTestProvider(1_000_000)
+	provider.model.API = ModelAPIAnthropicMessages
+	provider.model.Reasoning = true
+	provider.model.ReasoningMode = ReasoningModeAdaptive
+	provider.model.ReasoningLevels = []string{"low", "medium", "high", "xhigh", "max"}
+	provider.model.MaxOutputTokens = 128_000
+	droid := spawnCompactionTestDroid(t, provider, nil)
+	messages := []Message{UserMessage{Content: []InputContent{TextInput{Text: "source"}}}}
+	if _, err := droid.sdk.summarizeCompaction(t.Context(), provider, droid.model, messages, ""); err != nil {
+		t.Fatal(err)
+	}
+	requests := provider.summaryRequests()
+	if len(requests) != 1 {
+		t.Fatalf("summary requests = %d", len(requests))
+	}
+	if requests[0].Reasoning != "off" || requests[0].MaxTokens != 32_000 {
+		t.Fatalf("summary reasoning = %q, max tokens = %d; want off, 32000", requests[0].Reasoning, requests[0].MaxTokens)
+	}
+}
+
+func TestCompactionSummaryReasoning(t *testing.T) {
+	for _, test := range []struct {
+		name  string
+		model Model
+		want  string
+	}{
+		{"non-reasoning model", Model{API: ModelAPIOpenAIResponses}, ""},
+		{"anthropic omits thinking", Model{API: ModelAPIAnthropicMessages, Reasoning: true, ReasoningLevels: []string{"low", "high"}}, "off"},
+		{"advertised none", Model{API: ModelAPIOpenAIResponses, Reasoning: true, ReasoningLevels: []string{"none", "low", "high"}}, "off"},
+		{"lowest minimal", Model{API: ModelAPIOpenAIResponses, Reasoning: true, ReasoningLevels: []string{"minimal", "low", "high"}}, "minimal"},
+		{"lowest low", Model{API: ModelAPIOpenAIChat, Reasoning: true, ReasoningLevels: []string{"low", "medium", "high"}}, "low"},
+		{"no lower level", Model{API: ModelAPIOpenAIChat, Reasoning: true, ReasoningLevels: []string{"high"}}, ""},
+	} {
+		if got := compactionSummaryReasoning(test.model); got != test.want {
+			t.Fatalf("%s: reasoning = %q, want %q", test.name, got, test.want)
+		}
+	}
+}
+
 func compactionRequestText(t *testing.T, request Request) string {
 	t.Helper()
 	if len(request.Messages) != 1 || len(request.Tools) != 0 || request.Reasoning != "" {

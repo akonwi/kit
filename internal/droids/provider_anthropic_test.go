@@ -6,6 +6,7 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"sync"
 	"testing"
@@ -330,6 +331,53 @@ func testAnthropicManagedEffortRequest(t *testing.T, modelID string) {
 		if !strings.Contains(request.beta, beta) {
 			t.Fatalf("anthropic-beta %q missing %q", request.beta, beta)
 		}
+	}
+}
+
+func TestAnthropicManagedEffortModelsOmitThinkingWhenOff(t *testing.T) {
+	for _, modelID := range []string{"claude-fable-5-1", "claude-opus-5-5"} {
+		t.Run(modelID, func(t *testing.T) {
+			captured := make(chan map[string]any, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+				var payload map[string]any
+				if err := json.NewDecoder(request.Body).Decode(&payload); err != nil {
+					t.Errorf("decode request: %v", err)
+				}
+				captured <- payload
+				http.Error(writer, `{"error":{"type":"invalid_request_error","message":"captured"}}`, http.StatusBadRequest)
+			}))
+			defer server.Close()
+
+			providers, err := NewProviders(Anthropic{APIKey: "test-key", BaseURL: server.URL})
+			if err != nil {
+				t.Fatal(err)
+			}
+			model, ok := providers.Model(modelID)
+			if !ok {
+				t.Fatalf("%s missing", modelID)
+			}
+			stream := providers.Stream(context.Background(), model, Request{
+				Messages:  []Message{UserMessage{Content: []InputContent{TextInput{Text: "summarize"}}}},
+				Reasoning: "off",
+				MaxTokens: 32_000,
+			})
+			for range stream.Events() {
+			}
+
+			body := <-captured
+			want := map[string]any{
+				"model":      modelID,
+				"max_tokens": float64(32_000),
+				"stream":     true,
+				"messages": []any{map[string]any{
+					"role":    "user",
+					"content": []any{map[string]any{"type": "text", "text": "summarize"}},
+				}},
+			}
+			if !reflect.DeepEqual(body, want) {
+				t.Fatalf("request = %#v\nwant %#v", body, want)
+			}
+		})
 	}
 }
 

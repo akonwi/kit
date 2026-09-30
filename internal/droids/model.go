@@ -123,7 +123,32 @@ func BindModel(provider Provider, model Model) (Model, error) {
 	return model, nil
 }
 
-const defaultRequestMaxTokens = 4096
+const (
+	// defaultRequestMaxTokens is the output allowance for requests that do not
+	// set one, bounded by the model's output capability and context window.
+	defaultRequestMaxTokens = 32_000
+	// unknownModelRequestMaxTokens is used when a model does not advertise an
+	// output capability, where a larger allowance could be rejected.
+	unknownModelRequestMaxTokens = 4096
+	// defaultOutputContextDivisor limits the default output reservation to a
+	// fraction of the context window so small-window models keep usable input.
+	defaultOutputContextDivisor = 8
+)
+
+// defaultMaxTokens is the output allowance, and therefore the context
+// reservation, for a request that does not choose one. It never falls below the
+// former 4K default unless the model's own output capability is smaller.
+func defaultMaxTokens(model Model) int {
+	if model.MaxOutputTokens <= 0 {
+		return unknownModelRequestMaxTokens
+	}
+	floor := min(unknownModelRequestMaxTokens, model.MaxOutputTokens)
+	allowance := min(defaultRequestMaxTokens, model.MaxOutputTokens)
+	if model.ContextWindow > 0 {
+		allowance = min(allowance, model.ContextWindow/defaultOutputContextDivisor)
+	}
+	return max(allowance, floor)
+}
 
 func resolveRequestMaxTokens(model Model, requested int, reasoning string) (int, error) {
 	if err := validateReasoning(model, reasoning); err != nil {
@@ -142,9 +167,11 @@ func resolveRequestMaxTokens(model Model, requested int, reasoning string) (int,
 		}
 	}
 	if requested == 0 {
-		requested = defaultRequestMaxTokens
-		if model.MaxOutputTokens > 0 && requested > model.MaxOutputTokens {
-			requested = model.MaxOutputTokens
+		requested = defaultMaxTokens(model)
+		// A default allowance must admit the selected thinking budget whenever the
+		// model can; explicit caller allowances are never raised.
+		if requested < minimum && (model.MaxOutputTokens <= 0 || minimum <= model.MaxOutputTokens) {
+			requested = minimum
 		}
 	}
 	if requested < minimum {
