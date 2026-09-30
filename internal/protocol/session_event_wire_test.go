@@ -1,0 +1,40 @@
+package protocol
+
+import (
+	"encoding/json"
+	"testing"
+)
+
+// TestSessionEventFlatWireFixtures freezes representative records whose
+// required empty identity fields and optional zero fields are easy to lose
+// while converting SessionEvent to a payload union.
+func TestSessionEventFlatWireFixtures(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name  string
+		event SessionEvent
+		want  string
+	}{
+		{
+			name:  "session scoped rename retains empty turn identity",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 1, SessionID: "session_1", Kind: SessionEventSessionRenamed, SessionName: "Renamed"},
+			want:  `{"streamId":"stream_1","sequence":1,"sessionId":"session_1","turnId":"","runId":"","kind":"session.renamed","sessionName":"Renamed"}`,
+		},
+		{
+			name:  "assistant delta omits zero content index",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 2, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", MessageID: "message_1", Kind: SessionEventAssistantTextDelta, Delta: "hello"},
+			want:  `{"streamId":"stream_1","sequence":2,"sessionId":"session_1","turnId":"turn_1","runId":"turn_1","messageId":"message_1","kind":"assistant.text.delta","delta":"hello"}`,
+		},
+		{
+			name:  "tool result retains raw details",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 3, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":2}`)},
+			want:  `{"streamId":"stream_1","sequence":3,"sessionId":"session_1","turnId":"turn_1","runId":"turn_1","kind":"tool.completed","toolCallId":"call_1","toolName":"read","details":{"lines":2}}`,
+		},
+	}
+	for _, test := range cases {
+		got, err := json.Marshal(test.event)
+		if err != nil || string(got) != test.want {
+			t.Fatalf("%s: MarshalJSON() = %s, %v; want %s", test.name, got, err, test.want)
+		}
+	}
+}
