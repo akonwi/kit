@@ -2,23 +2,15 @@ package cli
 
 import (
 	"context"
-	"os"
-	"os/signal"
-	"sync/atomic"
-	"syscall"
 
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
-	"github.com/akonwi/kit/internal/version"
 )
 
-// Dependencies are supplied by the executable entry point. Build metadata
-// replaces linker-stamped version values, and the terminal client functions
-// run on the calling goroutine until the client exits.
+// Dependencies are supplied by the executable entry point. The terminal client
+// functions run on the calling goroutine until the client exits.
 type Dependencies struct {
-	Version     string
-	Commit      string
 	RunTUI      RunTUIFunc
 	PickSession PickSessionFunc
 }
@@ -95,39 +87,4 @@ type ModelOverrideService interface {
 // DiffPreferenceService persists working-tree diff presentation preferences.
 type DiffPreferenceService interface {
 	SetWrapLines(bool) error
-}
-
-// Main runs Kit's command line for the current process and returns its exit
-// code. Interrupt and termination signals cancel the command context; a
-// signal-caused interruption exits with 128 plus the signal number.
-func Main(deps Dependencies) int {
-	if deps.Version != "" {
-		version.Version = deps.Version
-	}
-	if deps.Commit != "" {
-		version.Commit = deps.Commit
-	}
-
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
-	signals := make(chan os.Signal, 1)
-	signal.Notify(signals, os.Interrupt, syscall.SIGTERM)
-	defer signal.Stop(signals)
-	var received atomic.Int32
-	go func() {
-		select {
-		case sig := <-signals:
-			if systemSignal, ok := sig.(syscall.Signal); ok {
-				received.Store(int32(systemSignal))
-			}
-			cancel()
-		case <-ctx.Done():
-		}
-	}()
-
-	exitCode := Run(ctx, os.Args[1:], os.Stdout, os.Stderr, deps)
-	if exitCode == 130 && received.Load() != 0 {
-		exitCode = 128 + int(received.Load())
-	}
-	return exitCode
 }
