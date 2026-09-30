@@ -64,8 +64,9 @@ both.
 
 ## Consequences
 
-- Building the executable requires the Ard compiler (0.42.0 or newer) and Go
-  1.27 or newer, the same Go version Kit's root module requires.
+- Building the executable requires the Ard compiler version declared in
+  `apps/cli/ard.toml` and Go 1.27 or newer, the same Go version Kit's root
+  module requires.
 - Validation spans two modules. Root `go build`, `go vet`, and `go test` do not
   include `apps/cli`; its Go tests run from `apps/cli`, and client tests run
   with `ard test` against Cooper's headless test support.

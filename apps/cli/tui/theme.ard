@@ -1,0 +1,65 @@
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+
+// Kit's semantic colors for the terminal client.
+//
+// The system base is interim: it uses the terminal's default colors and ANSI
+// palette indices. Matching the vaxis client's contrast-aware system theme
+// requires terminal foreground, background, and palette queries from Cooper,
+// and a port of the palette derivation.
+
+struct Theme {
+  background: ui::Color,
+  foreground: ui::Color,
+  muted: ui::Color,
+  disabled: ui::Color,
+  border: ui::Color,
+  primary_text: ui::Color,
+  success_text: ui::Color,
+  warning_text: ui::Color,
+  danger_text: ui::Color,
+}
+
+// The terminal-derived base theme.
+fn system() Theme {
+  Theme{
+    background: ui::terminal_default(),
+    foreground: ui::terminal_default(),
+    muted: ui::indexed(8),
+    disabled: ui::indexed(8),
+    border: ui::indexed(8),
+    primary_text: ui::indexed(4),
+    success_text: ui::indexed(2),
+    warning_text: ui::indexed(3),
+    danger_text: ui::indexed(1),
+  }
+}
+
+// Applies a user theme's semantic tokens over the system base.
+fn resolve(definition: kittheme::Definition) Theme {
+  let base = system()
+  let tokens = definition.Tokens
+  Theme{
+    background: token(tokens, kittheme::TokenBackground, base.background),
+    foreground: token(tokens, kittheme::TokenTextPrimary, base.foreground),
+    muted: token(tokens, kittheme::TokenTextMuted, base.muted),
+    disabled: token(tokens, kittheme::TokenTextPlaceholder, base.disabled),
+    border: token(tokens, kittheme::TokenBorderDefault, base.border),
+    primary_text: token(tokens, kittheme::TokenBorderAccent, base.primary_text),
+    success_text: token(tokens, kittheme::TokenToolText, base.success_text),
+    warning_text: token(tokens, kittheme::TokenWarningText, base.warning_text),
+    danger_text: token(tokens, kittheme::TokenErrorText, base.danger_text),
+  }
+}
+
+private fn token(tokens: [Str: kittheme::Color], role: Str, fallback: ui::Color) ui::Color {
+  match tokens.get(role) {
+    color => {
+      match color.A == 0 {
+        true => fallback,
+        false => ui::rgb(color.R.to_int(), color.G.to_int(), color.B.to_int()),
+      }
+    },
+    _ => fallback,
+  }
+}

@@ -1,0 +1,29 @@
+use cooper
+use cooper/cui
+use go:kit/ffi/cli
+use kit/tui/shell
+use kit/tui/theme
+
+// Kit's terminal client, built with Cooper.
+
+// Runs the terminal client attached to the session selected by `options` and
+// blocks until it exits.
+fn run(options: cli::TUIOptions) Void!Error {
+  let application = try cooper::app(exit_on_ctrl_c: false)
+  defer application.destroy()
+  let props = shell::Props{
+    options: options,
+    theme: theme::resolve(options.ThemeDefinition),
+    quit: fn() {
+      application.context.destroy_live()
+    },
+  }
+  let renderer = cui::mount(application, cui::child(shell::new, props))
+  defer renderer.destroy()
+  application.run()
+}
+
+// Presents the saved-session picker and returns the selected session ID.
+fn pick_session(options: cli::SessionPickerOptions) Str!Error {
+  Result::err(Error::new("the session picker is not yet available in the Cooper client"))
+}

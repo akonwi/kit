@@ -5,6 +5,7 @@ use go:context
 use go:github.com/akonwi/kit/internal/version
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use kit/tui
 use go:os
 use go:os/signal
 use go:syscall
@@ -53,14 +54,7 @@ fn main() {
     }
   })
 
-  let deps = cli::Dependencies{
-    RunTUI: fn(options: cli::TUIOptions) Void!Error {
-      cli::RunVaxisTUI(options)
-    },
-    PickSession: fn(options: cli::SessionPickerOptions) Str!Error {
-      cli::PickVaxisSession(options)
-    },
-  }
+  let deps = cli::Dependencies{RunTUI: tui::run, PickSession: tui::pick_session}
   let args = os::Args.slice(start: 1).expect("process arguments").to_list()
   mut exit_code = cli::Run(lifetime.Context, mut args, os::Stdout, os::Stderr, deps)
   // 130 means "interrupted"; replace it with 128 + the actual signal number.
