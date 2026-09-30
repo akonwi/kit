@@ -2,6 +2,7 @@ package tui
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"strings"
 	"testing"
@@ -109,5 +110,107 @@ func TestPluginToastScopesPersistentFeedbackWithoutRemovingOtherToasts(t *testin
 	remaining := state.toasts.Snapshot()
 	if !reflect.DeepEqual(remaining, got[:1]) {
 		t.Fatalf("session switch changed unrelated feedback: %#v", remaining)
+	}
+}
+
+type scriptedPluginToastStream struct {
+	updates chan protocol.PluginToast
+	err     error
+}
+
+func (s *scriptedPluginToastStream) Updates() <-chan protocol.PluginToast { return s.updates }
+func (s *scriptedPluginToastStream) Err() error                           { return s.err }
+
+// scriptedPluginToastWatcher answers each open with the next scripted outcome:
+// an open error, or a stream that delivers toasts and then ends with err.
+type scriptedPluginToastWatcher struct {
+	opens   []func() (sessionclient.PluginToastStream, error)
+	opened  int
+	onEmpty func()
+}
+
+func (w *scriptedPluginToastWatcher) WatchPluginToasts(context.Context) (sessionclient.PluginToastStream, error) {
+	w.opened++
+	if w.opened > len(w.opens) {
+		w.onEmpty()
+		return nil, errors.New("script exhausted")
+	}
+	return w.opens[w.opened-1]()
+}
+
+func endedPluginToastStream(err error, toasts ...protocol.PluginToast) func() (sessionclient.PluginToastStream, error) {
+	return func() (sessionclient.PluginToastStream, error) {
+		updates := make(chan protocol.PluginToast, len(toasts))
+		for _, toast := range toasts {
+			updates <- toast
+		}
+		close(updates)
+		return &scriptedPluginToastStream{updates: updates, err: err}, nil
+	}
+}
+
+func failedPluginToastOpen(err error) func() (sessionclient.PluginToastStream, error) {
+	return func() (sessionclient.PluginToastStream, error) { return nil, err }
+}
+
+func runScriptedPluginToastWatch(t *testing.T, watcher *scriptedPluginToastWatcher) []string {
+	t.Helper()
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	watcher.onEmpty = cancel
+	var delivered []string
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		runPluginToastWatch(ctx, watcher, time.Millisecond, pluginToastWatchTerminal, func(toast protocol.PluginToast) bool {
+			delivered = append(delivered, toast.Title)
+			return true
+		})
+	}()
+	select {
+	case <-done:
+	case <-time.After(5 * time.Second):
+		t.Fatal("plugin toast watch did not finish")
+	}
+	return delivered
+}
+
+func TestPluginToastWatchStopsOnTerminalFailures(t *testing.T) {
+	t.Parallel()
+	terminal := &sessionclient.StreamWatchTerminalError{Err: errors.New("oversized record")}
+	toast := protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: "Before violation", Variant: protocol.PluginToastInfo}
+	for name, open := range map[string]func() (sessionclient.PluginToastStream, error){
+		"open":   failedPluginToastOpen(terminal),
+		"stream": endedPluginToastStream(terminal, toast),
+	} {
+		t.Run(name, func(t *testing.T) {
+			t.Parallel()
+			watcher := &scriptedPluginToastWatcher{opens: []func() (sessionclient.PluginToastStream, error){open, endedPluginToastStream(nil)}}
+			delivered := runScriptedPluginToastWatch(t, watcher)
+			if watcher.opened != 1 {
+				t.Fatalf("opened = %d, want 1", watcher.opened)
+			}
+			if name == "stream" && !reflect.DeepEqual(delivered, []string{"Before violation"}) {
+				t.Fatalf("delivered = %q", delivered)
+			}
+		})
+	}
+}
+
+func TestPluginToastWatchReconnectsAfterTransientEndings(t *testing.T) {
+	t.Parallel()
+	toast := func(title string) protocol.PluginToast {
+		return protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: title, Variant: protocol.PluginToastInfo}
+	}
+	watcher := &scriptedPluginToastWatcher{opens: []func() (sessionclient.PluginToastStream, error){
+		failedPluginToastOpen(errors.New("connection refused")),
+		endedPluginToastStream(nil, toast("After refused")),
+		endedPluginToastStream(errors.New("idle timeout"), toast("After clean end")),
+		endedPluginToastStream(errors.New("capacity_exceeded")),
+		endedPluginToastStream(nil, toast("After idle timeout")),
+	}}
+	delivered := runScriptedPluginToastWatch(t, watcher)
+	if want := []string{"After refused", "After clean end", "After idle timeout"}; watcher.opened != 6 || !reflect.DeepEqual(delivered, want) {
+		t.Fatalf("opened=%d delivered=%q, want 6 and %q", watcher.opened, delivered, want)
 	}
 }

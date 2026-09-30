@@ -3,11 +3,9 @@ package tui
 import (
 	"context"
 	"errors"
-	"net/http"
 	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
-	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -22,65 +20,62 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 	ctx, cancel := context.WithCancel(s.attachmentCtx)
 	s.pluginToastWatchCancel = cancel
 	runtime := s.Context().Runtime()
-	go func() {
-		for ctx.Err() == nil {
-			stream, err := watcher.WatchPluginToasts(ctx)
-			if s.reportDaemonMismatch(runtime, bound, operation, err) || pluginToastWatchTerminal(err) {
-				return
-			}
-			if err == nil {
-				for toast := range stream.Updates() {
-					if ctx.Err() != nil {
-						return
-					}
-					// At most one callback waits in the UI queue for this subscription.
-					applied := make(chan struct{})
-					runtime.Dispatch(func() {
-						defer close(applied)
-						if ctx.Err() == nil && s.bound == bound && s.operation == operation {
-							s.showPluginToast(toast)
-						}
-					})
-					select {
-					case <-ctx.Done():
-						return
-					case <-applied:
-					}
-				}
-				if streamErr := stream.Err(); s.reportDaemonMismatch(runtime, bound, operation, streamErr) || pluginToastWatchTerminal(streamErr) {
-					return
-				}
-			}
-			timer := time.NewTimer(time.Second)
-			select {
-			case <-ctx.Done():
-				timer.Stop()
-				return
-			case <-timer.C:
-			}
-		}
-	}()
-}
-
-// pluginToastWatchTerminal identifies ADR 0035 protocol violations and
-// non-retryable pre-stream outcomes. Clean endings, transport failures, idle
-// timeouts, 429, and 503 deliberately reconnect.
-func pluginToastWatchTerminal(err error) bool {
-	if err == nil || errors.Is(err, context.Canceled) {
-		return false
+	stop := func(err error) bool {
+		return s.reportDaemonMismatch(runtime, bound, operation, err) || pluginToastWatchTerminal(err)
 	}
-	var frame *kitserver.StreamError
-	if errors.As(err, &frame) {
-		return true
-	}
-	var apiError *kitserver.APIError
-	if errors.As(err, &apiError) {
-		switch apiError.StatusCode {
-		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+	deliver := func(toast protocol.PluginToast) bool {
+		// At most one callback waits in the UI queue for this subscription.
+		applied := make(chan struct{})
+		runtime.Dispatch(func() {
+			defer close(applied)
+			if ctx.Err() == nil && s.bound == bound && s.operation == operation {
+				s.showPluginToast(toast)
+			}
+		})
+		select {
+		case <-ctx.Done():
+			return false
+		case <-applied:
 			return true
 		}
 	}
-	return false
+	go runPluginToastWatch(ctx, watcher, time.Second, stop, deliver)
+}
+
+// runPluginToastWatch consumes fresh live streams until ctx ends or stop
+// reports a terminal failure, waiting retry between transient endings. It
+// returns when deliver reports that the watch is no longer current.
+func runPluginToastWatch(ctx context.Context, watcher sessionclient.PluginToastSession, retry time.Duration, stop func(error) bool, deliver func(protocol.PluginToast) bool) {
+	for ctx.Err() == nil {
+		stream, err := watcher.WatchPluginToasts(ctx)
+		if stop(err) {
+			return
+		}
+		if err == nil {
+			for toast := range stream.Updates() {
+				if ctx.Err() != nil || !deliver(toast) {
+					return
+				}
+			}
+			if stop(stream.Err()) {
+				return
+			}
+		}
+		timer := time.NewTimer(retry)
+		select {
+		case <-ctx.Done():
+			timer.Stop()
+			return
+		case <-timer.C:
+		}
+	}
+}
+
+// pluginToastWatchTerminal reports failures that must stop reconnection
+// (ADR 0035); clean endings and transient failures reconnect.
+func pluginToastWatchTerminal(err error) bool {
+	var terminal *sessionclient.StreamWatchTerminalError
+	return errors.As(err, &terminal)
 }
 
 func (s *appState) showPluginToast(toast protocol.PluginToast) {

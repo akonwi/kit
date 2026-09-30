@@ -48,7 +48,7 @@ type Session interface {
 	// WatchVCS blocks on the server-pushed repository-status stream, invoking
 	// receive for every validated update until the context is canceled or the
 	// stream fails. Reconnection starts fresh; there is no cursor or replay.
-	// Terminal failures are wrapped in *VCSWatchTerminalError.
+	// Terminal failures are wrapped in *StreamWatchTerminalError.
 	WatchVCS(context.Context, func(protocol.SessionVCSStatus)) error
 	FileIndex(context.Context) (protocol.SessionFileIndex, error)
 	ChangeCWD(context.Context, string) (protocol.SessionInfo, error)
@@ -80,14 +80,15 @@ type ScratchpadSession interface {
 	UpdateScratchpad(context.Context, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
 }
 
-// VCSWatchTerminalError marks repository-stream failures that must stop the
-// watcher instead of reconnecting: authentication, missing sessions, and
-// protocol violations such as oversized or malformed records and pre-stream
-// responses outside the operation's declared errors.
-type VCSWatchTerminalError struct{ Err error }
+// StreamWatchTerminalError marks server-push stream failures that must stop the
+// watcher instead of reconnecting (ADR 0035): authentication, missing sessions,
+// incompatible daemons, and protocol violations such as oversized or malformed
+// records and pre-stream responses outside the operation's declared errors.
+// Every other failure, including a clean end, is transient.
+type StreamWatchTerminalError struct{ Err error }
 
-func (e *VCSWatchTerminalError) Error() string { return e.Err.Error() }
-func (e *VCSWatchTerminalError) Unwrap() error { return e.Err }
+func (e *StreamWatchTerminalError) Error() string { return e.Err.Error() }
+func (e *StreamWatchTerminalError) Unwrap() error { return e.Err }
 
 // FileIndexRefreshSession is the optional bound-session forced index-refresh facet.
 type FileIndexRefreshSession interface {
@@ -218,11 +219,15 @@ type PluginCommandSession interface {
 // PluginToastSession observes live notifications only. Reconnection starts fresh;
 // persistent plugin notices are also represented by session diagnostics.
 type PluginToastSession interface {
+	// WatchPluginToasts opens one fresh live stream. Terminal open failures
+	// are wrapped in *StreamWatchTerminalError.
 	WatchPluginToasts(context.Context) (PluginToastStream, error)
 }
 
 // PluginToastStream is owned by the watch context and closes on detach. Err is
-// available after Updates closes. No cursor, history, or offline replay exists.
+// available after Updates closes: nil for a clean end, and terminal failures
+// are wrapped in *StreamWatchTerminalError. No cursor, history, or offline
+// replay exists.
 type PluginToastStream interface {
 	Updates() <-chan protocol.PluginToast
 	Err() error
