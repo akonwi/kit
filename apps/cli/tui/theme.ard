@@ -1,12 +1,14 @@
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
+use go:kit/ffi/terminalcolors
+use kit/tui/palette
 
 // Kit's semantic colors for the terminal client.
 //
-// The system base is interim: it uses the terminal's default colors and ANSI
-// palette indices. Matching the vaxis client's contrast-aware system theme
-// requires terminal foreground, background, and palette queries from Cooper,
-// and a port of the palette derivation.
+// The system base derives the vaxis client's contrast-aware theme from the
+// terminal's reported colors (see `palette`). Background and foreground paint
+// with the terminal defaults, which match the reported colors and preserve
+// terminal transparency. User theme tokens override the derived colors.
 
 struct Theme {
   background: ui::Color,
@@ -18,51 +20,121 @@ struct Theme {
   success_text: ui::Color,
   warning_text: ui::Color,
   danger_text: ui::Color,
+  // The wash behind user turns: the primary text color over the surface.
   user_fill: ui::Color,
 }
 
-// The terminal-derived base theme.
+// The theme for a terminal that reported no colors.
 fn system() Theme {
-  Theme{
-    background: ui::terminal_default(),
-    foreground: ui::terminal_default(),
-    muted: ui::indexed(8),
-    disabled: ui::indexed(8),
-    border: ui::indexed(8),
-    primary_text: ui::indexed(4),
-    success_text: ui::indexed(2),
-    warning_text: ui::indexed(3),
-    danger_text: ui::indexed(1),
-    user_fill: ui::indexed(236),
-  }
+  resolve(
+    kittheme::Definition{},
+    palette::from_terminal(Maybe::new<palette::Rgb>(), Maybe::new<palette::Rgb>(), []),
+  )
 }
 
-// Applies a user theme's semantic tokens over the system base.
-fn resolve(definition: kittheme::Definition) Theme {
-  let base = system()
+// Derives the system tones from the terminal's reported colors.
+fn tones(colors: terminalcolors::Colors) palette::Tones {
+  let entries = mut List::new<palette::Rgb?>()
+  for color in colors.Palette {
+    entries.push(reported(color))
+  }
+  palette::from_terminal(reported(colors.Foreground), reported(colors.Background), entries.@)
+}
+
+// Applies a user theme's semantic tokens over the system tones.
+fn resolve(definition: kittheme::Definition, base: palette::Tones) Theme {
   let tokens = definition.Tokens
+  let background = token(tokens, kittheme::TokenBackground, base.background, base.background)
+  let backdrop = background.or(base.background)
+  let surface = token(
+    tokens,
+    kittheme::TokenBackgroundSurface,
+    base.surface,
+    backdrop,
+  ).or(base.surface)
+  let primary_text = token(
+    tokens,
+    kittheme::TokenBorderAccent,
+    base.primary_text,
+    backdrop,
+  ).or(base.primary_text)
+  let wash = match base.mode {
+    palette::Mode::dark => 0.18,
+    palette::Mode::light => 0.12,
+  }
   Theme{
-    background: token(tokens, kittheme::TokenBackground, base.background),
-    foreground: token(tokens, kittheme::TokenTextPrimary, base.foreground),
-    muted: token(tokens, kittheme::TokenTextMuted, base.muted),
-    disabled: token(tokens, kittheme::TokenTextPlaceholder, base.disabled),
-    border: token(tokens, kittheme::TokenBorderDefault, base.border),
-    primary_text: token(tokens, kittheme::TokenBorderAccent, base.primary_text),
-    success_text: token(tokens, kittheme::TokenToolText, base.success_text),
-    warning_text: token(tokens, kittheme::TokenWarningText, base.warning_text),
-    danger_text: token(tokens, kittheme::TokenErrorText, base.danger_text),
-    user_fill: base.user_fill,
+    background: painted(background),
+    foreground: painted(token(tokens, kittheme::TokenTextPrimary, base.foreground, backdrop)),
+    muted: color(tokens, kittheme::TokenTextMuted, base.muted, backdrop),
+    disabled: color(tokens, kittheme::TokenTextPlaceholder, base.disabled, backdrop),
+    border: color(tokens, kittheme::TokenBorderDefault, base.border, backdrop),
+    primary_text: to_ui(primary_text),
+    success_text: color(tokens, kittheme::TokenToolText, base.success_text, backdrop),
+    warning_text: color(tokens, kittheme::TokenWarningText, base.warning_text, backdrop),
+    danger_text: color(tokens, kittheme::TokenErrorText, base.danger_text, backdrop),
+    user_fill: to_ui(palette::tint(surface, primary_text, wash)),
   }
 }
 
-private fn token(tokens: [Str: kittheme::Color], role: Str, fallback: ui::Color) ui::Color {
-  match tokens.get(role) {
-    color => {
-      match color.A == 0 {
-        true => fallback,
-        false => ui::rgb(color.R.to_int(), color.G.to_int(), color.B.to_int()),
-      }
-    },
-    _ => fallback,
+private fn reported(color: kittheme::Color) palette::Rgb? {
+  match color.A == 0 {
+    true => Maybe::new<palette::Rgb>(),
+    false => Maybe::new(palette::rgb(color.R.to_int(), color.G.to_int(), color.B.to_int())),
   }
+}
+
+// A user token over `backdrop`, or none when the theme leaves the role unset.
+private fn token(
+  tokens: [Str: kittheme::Color],
+  role: Str,
+  fallback: palette::Rgb,
+  backdrop: palette::Rgb,
+) palette::Rgb? {
+  match tokens.get(role) {
+    color => project(color, fallback, backdrop),
+    _ => Maybe::new<palette::Rgb>(),
+  }
+}
+
+private fn color(
+  tokens: [Str: kittheme::Color],
+  role: Str,
+  fallback: palette::Rgb,
+  backdrop: palette::Rgb,
+) ui::Color {
+  to_ui(token(tokens, role, fallback, backdrop).or(fallback))
+}
+
+// Kit's token projection: opaque colors apply as is, translucent colors blend
+// over the backdrop, and fully transparent colors keep the fallback.
+private fn project(color: kittheme::Color, fallback: palette::Rgb, backdrop: palette::Rgb) palette::Rgb? {
+  let alpha = color.A.to_int()
+  match {
+    alpha == 0 => Maybe::new(fallback),
+    alpha == 255 => Maybe::new(palette::rgb(color.R.to_int(), color.G.to_int(), color.B.to_int())),
+    _ => {
+      let mix = fn(foreground: Int, background: Int) Int {
+        (foreground * alpha + background * (255 - alpha) + 127) / 255
+      }
+      Maybe::new(
+        palette::rgb(
+          mix(color.R.to_int(), backdrop.r),
+          mix(color.G.to_int(), backdrop.g),
+          mix(color.B.to_int(), backdrop.b),
+        ),
+      )
+    },
+  }
+}
+
+// Terminal defaults unless a user token sets the color.
+private fn painted(color: palette::Rgb?) ui::Color {
+  match color {
+    rgb => to_ui(rgb),
+    _ => ui::terminal_default(),
+  }
+}
+
+private fn to_ui(color: palette::Rgb) ui::Color {
+  ui::rgb(color.r, color.g, color.b)
 }

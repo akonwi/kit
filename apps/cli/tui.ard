@@ -1,6 +1,7 @@
 use cooper
 use cooper/cui
 use go:kit/ffi/cli
+use go:kit/ffi/terminalcolors
 use kit/tui/shell
 use kit/tui/theme
 
@@ -9,11 +10,13 @@ use kit/tui/theme
 // Runs the terminal client attached to the session selected by `options` and
 // blocks until it exits.
 fn run(options: cli::TUIOptions) Void!Error {
+  // Query the terminal's colors before Cooper takes the terminal.
+  let system = theme::tones(terminalcolors::Query())
   let application = try cooper::app(exit_on_ctrl_c: false)
   defer application.destroy()
   let props = shell::Props{
     options: options,
-    theme: theme::resolve(options.ThemeDefinition),
+    theme: theme::resolve(options.ThemeDefinition, system),
     quit: fn() {
       application.context.destroy_live()
     },

@@ -1,0 +1,71 @@
+use ard/testing
+
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use kit/tui/palette
+use kit/tui/theme
+
+// Expected values follow the vaxis client's theme adapter: Kit's linear wash
+// for user turns (tintUIColor) and its token projection (projectColor).
+
+fn dark() palette::Tones {
+  palette::from_terminal(
+    Maybe::new(palette::rgb(216, 222, 233)),
+    Maybe::new(palette::rgb(40, 44, 52)),
+    [
+      Maybe::new<palette::Rgb>(),
+      Maybe::new(palette::rgb(224, 108, 117)),
+      Maybe::new(palette::rgb(152, 195, 121)),
+      Maybe::new(palette::rgb(229, 192, 123)),
+      Maybe::new(palette::rgb(97, 175, 239)),
+      Maybe::new(palette::rgb(198, 120, 221)),
+      Maybe::new(palette::rgb(86, 182, 194)),
+      Maybe::new<palette::Rgb>(),
+    ],
+  )
+}
+
+fn check(name: Str, got: ui::Color, want: ui::Color) Void!Str {
+  testing::assert(
+    got.red == want.red and got.green == want.green and got.blue == want.blue and got.terminal_default == want.terminal_default,
+    "{name}: got rgb({got.red}, {got.green}, {got.blue}) default={got.terminal_default}, want rgb({want.red}, {want.green}, {want.blue}) default={want.terminal_default}",
+  )
+}
+
+test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  try check("background", colors.background, ui::terminal_default())
+  try check("foreground", colors.foreground, ui::terminal_default())
+  try check("border", colors.border, ui::rgb(96, 101, 110))
+  try check("muted", colors.muted, ui::rgb(122, 127, 137))
+  try check("disabled", colors.disabled, ui::rgb(96, 101, 110))
+  try check("primary_text", colors.primary_text, ui::rgb(118, 187, 245))
+  // 18% of the primary text color over the surface in a dark theme.
+  check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
+}
+
+test fn translucent_tokens_blend_over_the_background() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenBorderDefault,
+    kittheme::Color{
+      R: 255,
+      G: 255,
+      B: 255,
+      A: 128,
+    },
+  )
+  tokens.set(
+    kittheme::TokenTextMuted,
+    kittheme::Color{
+      R: 10,
+      G: 20,
+      B: 30,
+      A: 255,
+    },
+  )
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("border", colors.border, ui::rgb(148, 150, 154))
+  try check("muted", colors.muted, ui::rgb(10, 20, 30))
+  check("disabled", colors.disabled, ui::rgb(96, 101, 110))
+}
