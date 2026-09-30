@@ -2,9 +2,12 @@ package tui
 
 import (
 	"context"
+	"errors"
+	"net/http"
 	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
+	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -22,7 +25,7 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 	go func() {
 		for ctx.Err() == nil {
 			stream, err := watcher.WatchPluginToasts(ctx)
-			if s.reportDaemonMismatch(runtime, bound, operation, err) {
+			if s.reportDaemonMismatch(runtime, bound, operation, err) || pluginToastWatchTerminal(err) {
 				return
 			}
 			if err == nil {
@@ -44,7 +47,7 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 					case <-applied:
 					}
 				}
-				if s.reportDaemonMismatch(runtime, bound, operation, stream.Err()) {
+				if streamErr := stream.Err(); s.reportDaemonMismatch(runtime, bound, operation, streamErr) || pluginToastWatchTerminal(streamErr) {
 					return
 				}
 			}
@@ -57,6 +60,27 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 			}
 		}
 	}()
+}
+
+// pluginToastWatchTerminal identifies ADR 0035 protocol violations and
+// non-retryable pre-stream outcomes. Clean endings, transport failures, idle
+// timeouts, 429, and 503 deliberately reconnect.
+func pluginToastWatchTerminal(err error) bool {
+	if err == nil || errors.Is(err, context.Canceled) {
+		return false
+	}
+	var frame *kitserver.StreamError
+	if errors.As(err, &frame) {
+		return true
+	}
+	var apiError *kitserver.APIError
+	if errors.As(err, &apiError) {
+		switch apiError.StatusCode {
+		case http.StatusUnauthorized, http.StatusForbidden, http.StatusNotFound, http.StatusGone:
+			return true
+		}
+	}
+	return false
 }
 
 func (s *appState) showPluginToast(toast protocol.PluginToast) {
