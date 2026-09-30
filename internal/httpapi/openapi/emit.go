@@ -193,6 +193,9 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
 	}
+	if err := rejectNullPointers(typ, map[reflect.Type]bool{}); err != nil {
+		return "", err
+	}
 	name := schemaName(typ)
 	if _, exists := components[name]; exists {
 		return name, nil
@@ -227,6 +230,59 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	}
 	patchSchema(components, schema, typ)
 	return name, nil
+}
+
+// rejectNullPointers fails emission for a pointer field that would encode a
+// nil value as null. Optional contract fields are omitted when absent, never
+// null (ADR 0031), so every pointer field must be omitempty or omitzero.
+func rejectNullPointers(typ reflect.Type, seen map[reflect.Type]bool) error {
+	for {
+		switch typ.Kind() {
+		case reflect.Pointer, reflect.Slice, reflect.Array, reflect.Map:
+			typ = typ.Elem()
+			continue
+		}
+		break
+	}
+	if typ.Kind() != reflect.Struct || seen[typ] {
+		return nil
+	}
+	seen[typ] = true
+	for i := 0; i < typ.NumField(); i++ {
+		field := typ.Field(i)
+		jsonName, options, _ := strings.Cut(field.Tag.Get("json"), ",")
+		if jsonName == "-" && options == "" {
+			continue
+		}
+		if field.Anonymous && jsonName == "" {
+			// Promoted fields; a nil embedded pointer contributes nothing.
+			if err := rejectNullPointers(field.Type, seen); err != nil {
+				return err
+			}
+			continue
+		}
+		if !field.IsExported() {
+			continue
+		}
+		if field.Type.Kind() == reflect.Pointer && !hasTagOption(options, "omitempty") && !hasTagOption(options, "omitzero") {
+			return fmt.Errorf("%s.%s: pointer field must be omitempty or omitzero; optional contract fields are omitted, never null", typ.Name(), field.Name)
+		}
+		if err := rejectNullPointers(field.Type, seen); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func hasTagOption(options, option string) bool {
+	for options != "" {
+		var current string
+		current, options, _ = strings.Cut(options, ",")
+		if current == option {
+			return true
+		}
+	}
+	return false
 }
 
 func rewriteRefs(value any) {

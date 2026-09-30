@@ -69,6 +69,10 @@ contract.
   schema emission.
 - Objects are closed (`additionalProperties: false`), matching strict decoding
   on both sides of the boundary.
+- Optional fields are omitted when absent, never sent as `null`. A Go pointer
+  field in a contract type must be `omitempty` or `omitzero`, and the emitter
+  rejects one that is not, naming the type and field. A field that needs to
+  distinguish absent, `null`, and a value requires its own decision.
 - Security requirements describe the daemon bearer token; required instance and
   protocol headers are described as parameters on every operation.
 - SSE operations declare `text/event-stream` responses and document each named

@@ -150,9 +150,9 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-PROTO-022 — Gate breaking contract changes in CI with `oasdiff`
   against the document published by the most recent release, requiring a
   `SessionProtocolVersion` greater than that release's.
-- [ ] CORE-PROTO-024 — Publish non-`omitempty` pointer fields as nullable in
-  the emitted contract (the strict decoders already accept `null` for them),
-  or make the emitter reject them, before any slice catalogs such a field.
+- [x] CORE-PROTO-024 — The emitter rejects pointer fields that are not
+  `omitempty` or `omitzero`; optional contract fields are omitted, never `null`
+  ([ADR 0031](../docs/adrs/0031-publish-go-defined-openapi-contract.md)).
 - [ ] CORE-PROTO-009 — Model `SessionEvent` and `TranscriptContent` as
   discriminated unions per
   [ADR 0032](../docs/adrs/0032-model-protocol-variants-as-discriminated-unions.md)
