@@ -40,8 +40,9 @@ Kit's terminal client is written in Ard using Cooper.
 
 The `kit` executable is built from the Ard project in `apps/cli`:
 
-- `apps/cli/main.ard` is the process entry point. It supplies build metadata
-  and the terminal client to the command line.
+- `apps/cli/main.ard` is the process entry point. It applies build metadata,
+  owns process signal handling and the exit code, and supplies the terminal
+  client to the command line.
 - The command line is Go in `apps/cli/ffi/cli`. It owns command parsing,
   headless commands, the daemon role, and interactive setup, and it invokes the
   terminal client through functions supplied by the entry point.

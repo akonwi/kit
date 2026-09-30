@@ -1,9 +1,11 @@
 # Ard entry point
 
 `apps/cli` is an Ard project that builds the `kit` executable. `main.ard` is
-the process entry point; it supplies build metadata and the terminal client to
-the command line in `ffi/cli`, which owns command parsing, headless commands,
-the daemon role, and interactive setup.
+the process entry point: it applies build metadata, turns interrupt and
+termination signals into command cancellation and exit codes, and supplies the
+terminal client to the command line in `ffi/cli`, which owns command parsing,
+headless commands, the daemon role, and interactive setup. Go calls whose
+result shapes Ard cannot import use small bridges such as `ffi/contextbridge`.
 
 This entry point is being developed alongside `cmd/kit`. Until `cmd/kit` is
 removed, `ffi/cli` is a copy of `internal/cli`; mirror command-line changes in
