@@ -581,7 +581,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         }
         switch output {
         case .noContent: return
-        case .conflict: throw PluginCommandFailure(unavailable: true)
+        case .conflict(let response):
+            switch try response.body.json.error {
+            case .pluginCommandUnavailable: throw PluginCommandFailure(unavailable: true)
+            case .conflict, .instanceMismatch: throw ClientError.http(409)
+            }
         case .unprocessableContent: throw PluginCommandFailure(unavailable: false)
         case .badRequest: throw ClientError.http(400)
         case .unauthorized: throw ClientError.http(401)
@@ -590,6 +594,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         case .misdirectedRequest: throw ClientError.http(421)
         case .upgradeRequired: throw ClientError.http(426)
         case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
         case .undocumented: throw ClientError.invalidPayload
         }
     }

@@ -66,16 +66,29 @@ private actor NotificationMock: PluginNotificationClient {
         #expect(feedback.notices.first?.title == "Other notice")
         #expect(feedback.notices.dropFirst().first?.title == "Notice 8 · demo")
     }
-    @Test func protocolFailuresStopButDisconnectsReconnectWithoutReplay() async throws {
-        let invalid = NotificationMock(initialFailure: .invalidPayload)
-        let disconnected = NotificationMock(initialFailure: .disconnected)
-        let invalidWatch = PluginNotificationWatch(), reconnectingWatch = PluginNotificationWatch()
-        defer { invalidWatch.stop(); reconnectingWatch.stop() }
-        invalidWatch.start(session: "one", client: invalid) { _ in Issue.record("Unexpected event") }
-        reconnectingWatch.start(session: "two", client: disconnected) { _ in Issue.record("Unexpected event") }
-        for _ in 0..<200 { if await disconnected.sessionsSeen.count == 2 { break }; try await Task.sleep(for: .milliseconds(10)) }
-        #expect(await disconnected.sessionsSeen == ["two", "two"])
-        #expect(await invalid.sessionsSeen == ["one"])
+    @Test func protocolFailuresStopButTransientEndingsReconnectWithoutReplay() async throws {
+        let terminal: [ClientError] = [.invalidPayload, .oversized, .incompatible,
+                                       .http(401), .http(403), .http(404), .http(410)]
+        let transient: [ClientError] = [.disconnected, .http(429), .http(503)]
+        let stopping = terminal.map { NotificationMock(initialFailure: $0) }
+        let reconnecting = transient.map { NotificationMock(initialFailure: $0) }
+        let watches = (stopping + reconnecting).map { _ in PluginNotificationWatch() }
+        defer { watches.forEach { $0.stop() } }
+        for (index, client) in (stopping + reconnecting).enumerated() {
+            watches[index].start(session: "s\(index)", client: client) { _ in Issue.record("Unexpected event") }
+        }
+        // Every watch retries on the same delay, so once each transient watch
+        // has reconnected, a terminal watch would have reconnected as well.
+        for client in reconnecting {
+            for _ in 0..<300 { if await client.sessionsSeen.count == 2 { break }; try await Task.sleep(for: .milliseconds(10)) }
+        }
+        for (index, client) in reconnecting.enumerated() {
+            let session = "s\(stopping.count + index)"
+            #expect(await client.sessionsSeen == [session, session], "\(transient[index]) must reconnect")
+        }
+        for (index, client) in stopping.enumerated() {
+            #expect(await client.sessionsSeen == ["s\(index)"], "\(terminal[index]) must stop")
+        }
     }
 
     @Test func attachmentGenerationSuppressesOldCallbacksAndStopPreventsDelivery() async throws {

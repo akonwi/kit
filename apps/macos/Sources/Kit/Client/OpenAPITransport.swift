@@ -24,7 +24,7 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
     /// 15-second heartbeats.
     static let streamOperations: [String: StreamBounds] = [
         "streamSessionVCS": StreamBounds(maxRecordBytes: 64 * 1024, idleTimeout: .seconds(45)),
-        "streamPluginToasts": StreamBounds(maxRecordBytes: 32 * 1024, idleTimeout: .seconds(45)), 
+        "streamPluginToasts": StreamBounds(maxRecordBytes: 32 * 1024, idleTimeout: .seconds(45)),
     ]
 
     private let endpoint: URL
