@@ -1,0 +1,135 @@
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+
+// Placement selects a bounded dialog position appropriate to its interaction.
+enum Placement {
+  centered,
+  picker,
+}
+
+// Dialog describes a framed modal surface. The shell owns whether it is mounted
+// and its focus-restoration policy; this module owns the barrier, frame, and
+// Escape binding.
+struct Dialog {
+  placement: Placement,
+  title: Str,
+  meta: Str,
+  // Header contains direct panel children between title spacing and the
+  // flexible body. Pickers use it for their search field and divider.
+  header: [cui::View],
+  body: cui::View,
+  footer: cui::View?,
+  // autofocus is a fallback for dialogs without an autofocusable descendant.
+  autofocus: Bool,
+  dismiss: keymap::SimpleCommand,
+}
+
+// dialog renders a transparent input barrier and one bounded dialog above it.
+// It is intended as a root-shell child, so its absolute layer fills the viewport.
+fn dialog(colors: theme::Theme, spec: Dialog) cui::View {
+  cui::box(
+    [
+      cui::box(
+        [],
+        key: "modal.barrier",
+        styles: ui::style(
+          position: ui::Position::absolute,
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+          z_index: 100,
+        ),
+        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          received.prevent_default()
+        },
+      ),
+      panel(colors, spec),
+    ],
+    key: "modal.layer",
+    styles: ui::style(
+      position: ui::Position::absolute,
+      top: ui::cells(0),
+      right: ui::cells(0),
+      bottom: ui::cells(0),
+      left: ui::cells(0),
+      z_index: 100,
+    ),
+  )
+}
+
+private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
+  let header = cui::box(
+    [
+      cui::text(
+        spec.title,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(bold: true),
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+      cui::text(spec.meta, text_style: ui::text_style(foreground: colors.muted)),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
+  )
+  let content = mut List::new<cui::View>()
+  content.push(header)
+  content.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+  for child in spec.header {
+    content.push(child)
+  }
+  content.push(spec.body)
+  match spec.footer {
+    footer => {
+      content.push(cui::divider())
+      content.push(footer)
+    },
+    _ => (),
+  }
+  cui::box(
+    content.@,
+    key: "modal.panel",
+    autofocus: spec.autofocus,
+    styles: panel_style(colors, spec.placement),
+    commands: [spec.dismiss],
+    bindings: [keymap::binding(keymap::key("escape"), spec.dismiss.with())],
+    binding_scope: keymap::ScopeMode::focus_within,
+    binding_priority: 100,
+  )
+}
+
+private fn panel_style(colors: theme::Theme, placement: Placement) ui::Style {
+  let width = match placement {
+    Placement::picker => ui::percent(80.0),
+    Placement::centered => ui::percent(70.0),
+  }
+  let left = match placement {
+    Placement::picker => ui::percent(10.0),
+    Placement::centered => ui::percent(15.0),
+  }
+  let top = match placement {
+    Placement::picker => ui::percent(25.0),
+    Placement::centered => ui::percent(33.0),
+  }
+  let height = match placement {
+    Placement::picker => ui::cells(20),
+    Placement::centered => ui::undefined(),
+  }
+  ui::style(
+    position: ui::Position::absolute,
+    top: top,
+    left: left,
+    width: width,
+    height: height,
+    min_width: ui::cells(48),
+    max_width: ui::cells(96),
+    flex_direction: ui::FlexDirection::column,
+    background: colors.background,
+    foreground: colors.foreground,
+    border: ui::Border::single,
+    border_color: colors.border,
+    z_index: 101,
+  )
+}

@@ -20,6 +20,7 @@ struct ButtonProps {
   compact: Bool,
   focusable: Bool,
   styles: ui::Style?,
+  control: mut cui::BoxRef,
 }
 
 struct Button {
@@ -40,6 +41,7 @@ fn button(
   compact: Bool?,
   focusable: Bool?,
   styles: ui::Style?,
+  ref: (mut cui::BoxRef)?,
 ) cui::View {
   cui::child(
     new,
@@ -51,6 +53,7 @@ fn button(
       compact: compact.or(false),
       focusable: focusable.or(true),
       styles: styles,
+      control: ref.or(cui::box_ref()),
     },
   )
 }
@@ -61,7 +64,7 @@ private fn new(props: mut ButtonProps) mut Button {
     hovered: false,
     pressed: false,
     focused: false,
-    control: cui::box_ref(),
+    control: props.control,
   })
 }
 

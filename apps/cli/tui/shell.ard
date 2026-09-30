@@ -12,6 +12,8 @@ use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
 use kit/tui/controls
 use kit/tui/format
+use kit/tui/modal
+use kit/tui/palette
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/transcript
@@ -29,6 +31,51 @@ enum Phase {
   auth,
   ready,
   failed,
+}
+
+enum ActiveModal {
+  none,
+  provider_picker,
+}
+
+private fn provider_catalog() [palette::Item] {
+  [
+    palette::Item{
+      key: "codex",
+      label: "OpenAI Codex",
+      description: "ChatGPT plan · device code",
+      search_terms: ["openai", "device"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "anthropic",
+      label: "Anthropic",
+      description: "API key",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "openai",
+      label: "OpenAI",
+      description: "API key",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "opencode",
+      label: "OpenCode Go",
+      description: "API key",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "claude",
+      label: "Claude",
+      description: "Pro or Max plan · browser",
+      search_terms: ["browser", "oauth"],
+      disabled_reason: "",
+    },
+  ]
 }
 
 struct Props {
@@ -54,6 +101,10 @@ struct Shell {
   notice: Str,
   composer: Str,
   latest_out_of_view: Bool,
+  active_modal: ActiveModal,
+  picker_query: Str,
+  picker_selection: Str,
+  connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
 }
 
@@ -79,6 +130,10 @@ fn new(props: mut Props) mut Shell {
     notice: "",
     composer: "",
     latest_out_of_view: false,
+    active_modal: ActiveModal::none,
+    picker_query: "",
+    picker_selection: "codex",
+    connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
   })
 }
@@ -485,7 +540,19 @@ impl Shell {
           line("Connect an AI provider to get started.", ui::text_style(foreground: colors.muted)),
         )
         children.push(blank())
-        children.push(line("Connect a provider", ui::text_style()))
+        let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
+          self.active_modal = ActiveModal::provider_picker
+          true
+        })
+        children.push(
+          controls::button(
+            colors,
+            "Connect a provider",
+            connect,
+            variant: controls::ButtonVariant::primary,
+            ref: self.connect_button,
+          ),
+        )
         centered(children.@)
       },
       Phase::failed => {
@@ -632,10 +699,14 @@ impl cui::Component for Shell {
   fn mut render() cui::View {
     let colors = self.props.theme
     let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
-      self.interrupt()
+      match self.active_modal {
+        ActiveModal::none => self.interrupt(),
+        _ => true,
+      }
     })
-    cui::box(
+    let shell = cui::box(
       [self.header(), divider(colors.border), self.body(), divider(colors.border), self.footer()],
+      key: "shell.surface",
       styles: ui::style(
         width: ui::percent(100.0),
         height: ui::percent(100.0),
@@ -646,6 +717,92 @@ impl cui::Component for Shell {
       commands: [interrupt],
       bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
       binding_scope: keymap::ScopeMode::application,
+    )
+    let layers = mut List::new<cui::View>()
+    layers.push(shell)
+    match self.active_modal {
+      ActiveModal::provider_picker => layers.push(self.provider_picker_modal()),
+      _ => (),
+    }
+    cui::box(
+      layers.@,
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+        background: colors.background,
+      ),
+    )
+  }
+}
+
+impl Shell {
+  fn mut dismiss_modal() Bool {
+    self.active_modal = ActiveModal::none
+    match self.context {
+      ctx => self.connect_button.focus(ctx),
+      _ => (),
+    }
+    true
+  }
+
+  fn mut provider_picker_modal() cui::View {
+    let catalog = provider_catalog()
+    let picker = palette::Props{
+      colors: self.props.theme,
+      placeholder: "Search providers…",
+      catalog: catalog,
+      query: self.picker_query,
+      selection: self.picker_selection,
+      on_query_change: fn(query: Str) {
+        self.picker_query = query
+        self.picker_selection = palette::first_enabled(
+          palette::items(
+            palette::Props{
+              colors: self.props.theme,
+              placeholder: "",
+              catalog: catalog,
+              query: query,
+              selection: "",
+              on_query_change: fn(value: Str) {},
+              on_selection_change: fn(value: Str) {},
+              on_activate: fn(item: palette::Item) {},
+            },
+          ),
+        )
+      },
+      on_selection_change: fn(selection: Str) {
+        self.picker_selection = selection
+      },
+      on_activate: fn(item: palette::Item) {},
+    }
+    let navigation = palette::navigation(picker)
+    let dismiss = keymap::simple_command("auth.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    modal::dialog(
+      self.props.theme,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Connect a provider",
+        meta: "",
+        header: palette::header(picker),
+        body: cui::box(
+          [palette::body(picker)],
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          commands: palette::commands(navigation),
+          bindings: palette::bindings(navigation),
+          binding_scope: keymap::ScopeMode::focus_within,
+        ),
+        footer: Maybe::new(
+          cui::box(
+            [line("Esc close", ui::text_style(foreground: self.props.theme.muted))],
+            styles: ui::style(padding: inset(), flex_shrink: 0.0),
+          ),
+        ),
+        autofocus: false,
+        dismiss: dismiss,
+      },
     )
   }
 }
