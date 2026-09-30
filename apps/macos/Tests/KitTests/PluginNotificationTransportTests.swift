@@ -14,9 +14,9 @@ private final class PluginNotificationResponse: URLProtocol, @unchecked Sendable
         #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "server")
         let status = url.port == 19202 ? 401 : 200
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
-            headerFields: ["Content-Type": "application/x-ndjson"])!, cacheStoragePolicy: .notAllowed)
+            headerFields: ["Content-Type": "text/event-stream; charset=utf-8"])!, cacheStoragePolicy: .notAllowed)
         let body = #"{"pluginId":"demo","instance":"host:1","title":"Notice","variant":"info"}"#
-        let frame = url.port == 19203 ? body : "\n\r\n" + body + "\n"
+        let frame = url.port == 19203 ? "event: plugin.toast\ndata: " + body : ": connected\r\n\r\nevent: plugin.toast\r\ndata: " + body + "\r\n\r\n"
         // Deliberately fragment a frame across transport callbacks.
         for chunk in [String(frame.prefix(20)), String(frame.dropFirst(20))] { client?.urlProtocol(self, didLoad: Data(chunk.utf8)) }
         client?.urlProtocolDidFinishLoading(self)
