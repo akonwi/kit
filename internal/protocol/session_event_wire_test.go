@@ -38,3 +38,22 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 		}
 	}
 }
+
+func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
+	t.Parallel()
+	variants := sessionEventVariants()
+	if len(variants) != 29 {
+		t.Fatalf("session event variants = %d; want 29", len(variants))
+	}
+	seen := make(map[SessionEventKind]bool, len(variants))
+	for _, variant := range variants {
+		payload := variant.Payload.(SessionEventPayload)
+		if payload.sessionEventKind() != SessionEventKind(variant.Kind) {
+			t.Fatalf("payload %T kind = %q; mapping = %q", payload, payload.sessionEventKind(), variant.Kind)
+		}
+		if seen[payload.sessionEventKind()] {
+			t.Fatalf("kind %q is declared twice", payload.sessionEventKind())
+		}
+		seen[payload.sessionEventKind()] = true
+	}
+}
