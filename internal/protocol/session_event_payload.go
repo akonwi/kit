@@ -101,12 +101,12 @@ type CompactionFailedEvent struct {
 
 // ProviderRetryScheduledEvent records a retry deadline.
 type ProviderRetryScheduledEvent struct {
-	ProviderRetry *ProviderRetry `json:"providerRetry,omitempty"`
+	ProviderRetry *ProviderRetry `json:"providerRetry"`
 }
 
 // ProviderRetryStartedEvent records a retry attempt.
 type ProviderRetryStartedEvent struct {
-	ProviderRetry *ProviderRetry `json:"providerRetry,omitempty"`
+	ProviderRetry *ProviderRetry `json:"providerRetry"`
 }
 
 // ContextUpdatedEvent records context consumption.
@@ -117,7 +117,7 @@ type ContextUpdatedEvent struct {
 
 // UsageUpdatedEvent records cumulative session usage.
 type UsageUpdatedEvent struct {
-	Usage *SessionUsage `json:"usage,omitempty"`
+	Usage *SessionUsage `json:"usage"`
 }
 
 // RunFinishedEvent records terminal run status.
@@ -134,7 +134,7 @@ type SessionRenamedEvent struct {
 
 // SessionCWDChangedEvent records the current workspace.
 type SessionCWDChangedEvent struct {
-	Workspace *WorkspaceRef `json:"workspace,omitempty"`
+	Workspace *WorkspaceRef `json:"workspace"`
 }
 
 // SubagentChangedEvent identifies a changed child conversation.
@@ -150,7 +150,7 @@ type PeerQueryChangedEvent struct {
 
 // InteractionRequestedEvent carries an interaction request.
 type InteractionRequestedEvent struct {
-	Interaction *InteractionRequest `json:"interaction,omitempty"`
+	Interaction *InteractionRequest `json:"interaction"`
 }
 
 // InteractionResolvedEvent records an interaction outcome.
@@ -162,13 +162,13 @@ type InteractionResolvedEvent struct {
 // AnnotationCreatedEvent carries a newly created annotation.
 type AnnotationCreatedEvent struct {
 	AnnotationID uint64      `json:"annotationId"`
-	Annotation   *Annotation `json:"annotation,omitempty"`
+	Annotation   *Annotation `json:"annotation"`
 }
 
 // AnnotationUpdatedEvent carries an updated annotation.
 type AnnotationUpdatedEvent struct {
 	AnnotationID uint64      `json:"annotationId"`
-	Annotation   *Annotation `json:"annotation,omitempty"`
+	Annotation   *Annotation `json:"annotation"`
 }
 
 // AnnotationDeletedEvent identifies a deleted annotation.
@@ -184,7 +184,7 @@ type AnnotationSubmittedEvent struct {
 
 // ScratchpadChangedEvent carries a changed scratchpad.
 type ScratchpadChangedEvent struct {
-	Scratchpad *Scratchpad `json:"scratchpad,omitempty"`
+	Scratchpad *Scratchpad `json:"scratchpad"`
 }
 
 func (RunStartedEvent) sessionEventKind() SessionEventKind       { return SessionEventRunStarted }
@@ -251,94 +251,10 @@ func sessionEventVariants() []UnionVariant {
 	}
 }
 
-// PayloadVariant projects the legacy flat event fields into its declared
-// payload. It is temporary migration scaffolding until Payload becomes the
-// sole SessionEvent representation.
+// PayloadVariant returns the event's canonical payload.
 func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
-	switch event.Kind {
-	case SessionEventRunStarted:
-		return RunStartedEvent{Status: event.Status}, nil
-	case SessionEventUserMessage:
-		return UserMessageEvent{Text: event.Text}, nil
-	case SessionEventAssistantStarted:
-		return AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}, nil
-	case SessionEventAssistantTextDelta:
-		return AssistantTextDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
-	case SessionEventThinkingDelta:
-		return ThinkingDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
-	case SessionEventAssistantCompleted:
-		return AssistantCompletedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}, nil
-	case SessionEventToolPlanned:
-		return ToolPlannedEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
-	case SessionEventToolStarted:
-		return ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
-	case SessionEventToolUpdated:
-		return ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content, IsError: event.IsError}, nil
-	case SessionEventToolCompleted:
-		return ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content, ContentTruncated: event.ContentTruncated, Details: event.Details, DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}, nil
-	case SessionEventCompactionStarted:
-		return CompactionStartedEvent{CompactionID: event.CompactionID}, nil
-	case SessionEventCompactionCompleted:
-		return CompactionCompletedEvent{CompactionID: event.CompactionID}, nil
-	case SessionEventCompactionFailed:
-		return CompactionFailedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}, nil
-	case SessionEventProviderRetryScheduled:
-		if event.ProviderRetry == nil {
-			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
-		}
-		return ProviderRetryScheduledEvent{ProviderRetry: event.ProviderRetry}, nil
-	case SessionEventProviderRetryStarted:
-		if event.ProviderRetry == nil {
-			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
-		}
-		return ProviderRetryStartedEvent{ProviderRetry: event.ProviderRetry}, nil
-	case SessionEventContextUpdated:
-		return ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}, nil
-	case SessionEventUsageUpdated:
-		if event.Usage == nil {
-			return nil, fmt.Errorf("%s has no usage", event.Kind)
-		}
-		return UsageUpdatedEvent{Usage: event.Usage}, nil
-	case SessionEventRunFinished:
-		return RunFinishedEvent{Status: event.Status, ErrorKind: event.ErrorKind, ErrorMessage: event.ErrorMessage}, nil
-	case SessionEventSessionRenamed:
-		return SessionRenamedEvent{SessionName: event.SessionName}, nil
-	case SessionEventSessionCWDChanged:
-		if event.Workspace == nil {
-			return nil, fmt.Errorf("%s has no workspace", event.Kind)
-		}
-		return SessionCWDChangedEvent{Workspace: event.Workspace}, nil
-	case SessionEventSubagentChanged:
-		return SubagentChangedEvent{SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID}, nil
-	case SessionEventPeerQueryChanged:
-		return PeerQueryChangedEvent{PeerRequestID: event.PeerRequestID}, nil
-	case SessionEventInteractionRequested:
-		if event.Interaction == nil {
-			return nil, fmt.Errorf("%s has no interaction", event.Kind)
-		}
-		return InteractionRequestedEvent{Interaction: event.Interaction}, nil
-	case SessionEventInteractionResolved:
-		return InteractionResolvedEvent{InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution}, nil
-	case SessionEventAnnotationCreated:
-		if event.Annotation == nil {
-			return nil, fmt.Errorf("%s has no annotation", event.Kind)
-		}
-		return AnnotationCreatedEvent{AnnotationID: event.AnnotationID, Annotation: event.Annotation}, nil
-	case SessionEventAnnotationUpdated:
-		if event.Annotation == nil {
-			return nil, fmt.Errorf("%s has no annotation", event.Kind)
-		}
-		return AnnotationUpdatedEvent{AnnotationID: event.AnnotationID, Annotation: event.Annotation}, nil
-	case SessionEventAnnotationDeleted:
-		return AnnotationDeletedEvent{AnnotationID: event.AnnotationID}, nil
-	case SessionEventAnnotationSubmitted:
-		return AnnotationSubmittedEvent{AnnotationIDs: event.AnnotationIDs, AcceptedMessageID: event.AcceptedMessageID}, nil
-	case SessionEventScratchpadChanged:
-		if event.Scratchpad == nil {
-			return nil, fmt.Errorf("%s has no scratchpad", event.Kind)
-		}
-		return ScratchpadChangedEvent{Scratchpad: event.Scratchpad}, nil
-	default:
-		return nil, fmt.Errorf("unknown session event kind %q", event.Kind)
+	if event.Payload == nil {
+		return nil, fmt.Errorf("session event has no payload")
 	}
+	return event.Payload, nil
 }

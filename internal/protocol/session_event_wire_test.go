@@ -17,17 +17,17 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 	}{
 		{
 			name:  "session scoped rename retains empty turn identity",
-			event: SessionEvent{StreamID: "stream_1", Sequence: 1, SessionID: "session_1", Kind: SessionEventSessionRenamed, SessionName: "Renamed"},
+			event: SessionEvent{StreamID: "stream_1", Sequence: 1, SessionID: "session_1", Payload: SessionRenamedEvent{SessionName: "Renamed"}},
 			want:  `{"streamId":"stream_1","sequence":1,"sessionId":"session_1","turnId":"","runId":"","kind":"session.renamed","sessionName":"Renamed"}`,
 		},
 		{
 			name:  "assistant delta omits zero content index",
-			event: SessionEvent{StreamID: "stream_1", Sequence: 2, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", MessageID: "message_1", Kind: SessionEventAssistantTextDelta, Delta: "hello"},
+			event: SessionEvent{StreamID: "stream_1", Sequence: 2, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Payload: AssistantTextDeltaEvent{MessageID: "message_1", Delta: "hello"}},
 			want:  `{"streamId":"stream_1","sequence":2,"sessionId":"session_1","turnId":"turn_1","runId":"turn_1","messageId":"message_1","kind":"assistant.text.delta","delta":"hello"}`,
 		},
 		{
 			name:  "tool result retains raw details",
-			event: SessionEvent{StreamID: "stream_1", Sequence: 3, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Kind: SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":2}`)},
+			event: SessionEvent{StreamID: "stream_1", Sequence: 3, SessionID: "session_1", TurnID: "turn_1", RunID: "turn_1", Payload: ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read", Details: json.RawMessage(`{"lines":2}`)}},
 			want:  `{"streamId":"stream_1","sequence":3,"sessionId":"session_1","turnId":"turn_1","runId":"turn_1","kind":"tool.completed","toolCallId":"call_1","toolName":"read","details":{"lines":2}}`,
 		},
 	}
@@ -61,7 +61,7 @@ func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 func TestSessionEventPayloadVariantProjectsFlatFields(t *testing.T) {
 	t.Parallel()
 	usage := SessionUsage{Input: 3, Output: 2, TotalTokens: 5}
-	event := SessionEvent{Kind: SessionEventUsageUpdated, Usage: &usage}
+	event := SessionEvent{Payload: UsageUpdatedEvent{Usage: &usage}}
 	payload, err := event.PayloadVariant()
 	if err != nil {
 		t.Fatalf("PayloadVariant() error = %v", err)
@@ -69,11 +69,11 @@ func TestSessionEventPayloadVariantProjectsFlatFields(t *testing.T) {
 	if got := payload.(UsageUpdatedEvent).Usage; got == nil || *got != usage {
 		t.Fatalf("usage = %#v; want %#v", got, usage)
 	}
-	if _, err := (SessionEvent{Kind: SessionEventUsageUpdated}).PayloadVariant(); err == nil {
-		t.Fatal("nil usage was accepted")
+	if _, err := (SessionEvent{}).PayloadVariant(); err == nil {
+		t.Fatal("missing payload was accepted")
 	}
-	if _, err := (SessionEvent{Kind: "unknown"}).PayloadVariant(); err == nil {
-		t.Fatal("unknown kind was accepted")
+	if got := event.Kind(); got != SessionEventUsageUpdated {
+		t.Fatalf("Kind() = %q", got)
 	}
 }
 
@@ -94,6 +94,9 @@ func TestSessionEventUnionCodecPreservesFlatWire(t *testing.T) {
 	if _, err := decodeSessionEventUnion([]byte(`{"streamId":"s","sequence":1,"sessionId":"s","turnId":"","runId":"","kind":"assistant.text.delta","text":"invalid"}`)); err == nil {
 		t.Fatal("cross-variant field was accepted")
 	}
+	if _, err := decodeSessionEventUnion([]byte(`{"streamId":"s","sequence":1,"sessionId":"s","turnId":"t","runId":"t","kind":"usage.updated"}`)); err == nil {
+		t.Fatal("missing required payload was accepted")
+	}
 }
 
 func TestSessionEventPayloadVariantRetainsLiveFields(t *testing.T) {
@@ -102,22 +105,22 @@ func TestSessionEventPayloadVariantRetainsLiveFields(t *testing.T) {
 		event SessionEvent
 		check func(t *testing.T, payload SessionEventPayload)
 	}{
-		{SessionEvent{Kind: SessionEventAssistantStarted, MessageID: "message_1", Thinking: "reason"}, func(t *testing.T, p SessionEventPayload) {
+		{SessionEvent{Payload: AssistantStartedEvent{MessageID: "message_1", Thinking: "reason"}}, func(t *testing.T, p SessionEventPayload) {
 			if got := p.(AssistantStartedEvent); got.Thinking != "reason" {
 				t.Fatalf("started thinking = %q", got.Thinking)
 			}
 		}},
-		{SessionEvent{Kind: SessionEventAssistantCompleted, MessageID: "message_1", Text: "answer"}, func(t *testing.T, p SessionEventPayload) {
+		{SessionEvent{Payload: AssistantCompletedEvent{MessageID: "message_1", Text: "answer"}}, func(t *testing.T, p SessionEventPayload) {
 			if got := p.(AssistantCompletedEvent); got.Text != "answer" {
 				t.Fatalf("completed text = %q", got.Text)
 			}
 		}},
-		{SessionEvent{Kind: SessionEventToolPlanned, MessageID: "message_1", ContentIndex: 3, ToolCallID: "call_1", ToolName: "read"}, func(t *testing.T, p SessionEventPayload) {
+		{SessionEvent{Payload: ToolPlannedEvent{MessageID: "message_1", ContentIndex: 3, ToolCallID: "call_1", ToolName: "read"}}, func(t *testing.T, p SessionEventPayload) {
 			if got := p.(ToolPlannedEvent); got.ContentIndex != 3 {
 				t.Fatalf("planned content index = %d", got.ContentIndex)
 			}
 		}},
-		{SessionEvent{Kind: SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: ToolResultContent{TextBlock("error")}, IsError: true}, func(t *testing.T, p SessionEventPayload) {
+		{SessionEvent{Payload: ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: ToolResultContent{TextBlock("error")}, IsError: true}}, func(t *testing.T, p SessionEventPayload) {
 			if got := p.(ToolUpdatedEvent); !got.IsError || len(got.Content) != 1 {
 				t.Fatalf("updated payload = %#v", got)
 			}
