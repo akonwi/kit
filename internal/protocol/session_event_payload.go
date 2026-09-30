@@ -1,6 +1,9 @@
 package protocol
 
-import "encoding/json"
+import (
+	"encoding/json"
+	"fmt"
+)
 
 // SessionEventPayload is the kind-specific data of a SessionEvent.
 type SessionEventPayload interface{ sessionEventKind() SessionEventKind }
@@ -239,5 +242,97 @@ func (ScratchpadChangedEvent) sessionEventKind() SessionEventKind {
 func sessionEventVariants() []UnionVariant {
 	return []UnionVariant{
 		{Kind: string(SessionEventRunStarted), Payload: RunStartedEvent{}}, {Kind: string(SessionEventUserMessage), Payload: UserMessageEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolUpdated), Payload: ToolUpdatedEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventCompactionFailed), Payload: CompactionFailedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextUpdated), Payload: ContextUpdatedEvent{}}, {Kind: string(SessionEventUsageUpdated), Payload: UsageUpdatedEvent{}}, {Kind: string(SessionEventRunFinished), Payload: RunFinishedEvent{}}, {Kind: string(SessionEventSessionRenamed), Payload: SessionRenamedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}},
+	}
+}
+
+// PayloadVariant projects the legacy flat event fields into its declared
+// payload. It is temporary migration scaffolding until Payload becomes the
+// sole SessionEvent representation.
+func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
+	switch event.Kind {
+	case SessionEventRunStarted:
+		return RunStartedEvent{Status: event.Status}, nil
+	case SessionEventUserMessage:
+		return UserMessageEvent{Text: event.Text}, nil
+	case SessionEventAssistantStarted:
+		return AssistantStartedEvent{MessageID: event.MessageID}, nil
+	case SessionEventAssistantTextDelta:
+		return AssistantTextDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
+	case SessionEventThinkingDelta:
+		return ThinkingDeltaEvent{MessageID: event.MessageID, ContentIndex: event.ContentIndex, Delta: event.Delta}, nil
+	case SessionEventAssistantCompleted:
+		return AssistantCompletedEvent{MessageID: event.MessageID}, nil
+	case SessionEventToolPlanned:
+		return ToolPlannedEvent{MessageID: event.MessageID, ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
+	case SessionEventToolStarted:
+		return ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}, nil
+	case SessionEventToolUpdated:
+		return ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content}, nil
+	case SessionEventToolCompleted:
+		return ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: event.Content, ContentTruncated: event.ContentTruncated, Details: event.Details, DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}, nil
+	case SessionEventCompactionStarted:
+		return CompactionStartedEvent{CompactionID: event.CompactionID}, nil
+	case SessionEventCompactionCompleted:
+		return CompactionCompletedEvent{CompactionID: event.CompactionID}, nil
+	case SessionEventCompactionFailed:
+		return CompactionFailedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}, nil
+	case SessionEventProviderRetryScheduled:
+		if event.ProviderRetry == nil {
+			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
+		}
+		return ProviderRetryScheduledEvent{ProviderRetry: *event.ProviderRetry}, nil
+	case SessionEventProviderRetryStarted:
+		if event.ProviderRetry == nil {
+			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
+		}
+		return ProviderRetryStartedEvent{ProviderRetry: *event.ProviderRetry}, nil
+	case SessionEventContextUpdated:
+		return ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}, nil
+	case SessionEventUsageUpdated:
+		if event.Usage == nil {
+			return nil, fmt.Errorf("%s has no usage", event.Kind)
+		}
+		return UsageUpdatedEvent{Usage: *event.Usage}, nil
+	case SessionEventRunFinished:
+		return RunFinishedEvent{Status: event.Status, ErrorKind: event.ErrorKind, ErrorMessage: event.ErrorMessage}, nil
+	case SessionEventSessionRenamed:
+		return SessionRenamedEvent{SessionName: event.SessionName}, nil
+	case SessionEventSessionCWDChanged:
+		if event.Workspace == nil {
+			return nil, fmt.Errorf("%s has no workspace", event.Kind)
+		}
+		return SessionCWDChangedEvent{Workspace: *event.Workspace}, nil
+	case SessionEventSubagentChanged:
+		return SubagentChangedEvent{SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID}, nil
+	case SessionEventPeerQueryChanged:
+		return PeerQueryChangedEvent{PeerRequestID: event.PeerRequestID}, nil
+	case SessionEventInteractionRequested:
+		if event.Interaction == nil {
+			return nil, fmt.Errorf("%s has no interaction", event.Kind)
+		}
+		return InteractionRequestedEvent{Interaction: *event.Interaction}, nil
+	case SessionEventInteractionResolved:
+		return InteractionResolvedEvent{InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution}, nil
+	case SessionEventAnnotationCreated:
+		if event.Annotation == nil {
+			return nil, fmt.Errorf("%s has no annotation", event.Kind)
+		}
+		return AnnotationCreatedEvent{AnnotationID: event.AnnotationID, Annotation: *event.Annotation}, nil
+	case SessionEventAnnotationUpdated:
+		if event.Annotation == nil {
+			return nil, fmt.Errorf("%s has no annotation", event.Kind)
+		}
+		return AnnotationUpdatedEvent{AnnotationID: event.AnnotationID, Annotation: *event.Annotation}, nil
+	case SessionEventAnnotationDeleted:
+		return AnnotationDeletedEvent{AnnotationID: event.AnnotationID}, nil
+	case SessionEventAnnotationSubmitted:
+		return AnnotationSubmittedEvent{AnnotationIDs: event.AnnotationIDs, AcceptedMessageID: event.AcceptedMessageID}, nil
+	case SessionEventScratchpadChanged:
+		if event.Scratchpad == nil {
+			return nil, fmt.Errorf("%s has no scratchpad", event.Kind)
+		}
+		return ScratchpadChangedEvent{Scratchpad: *event.Scratchpad}, nil
+	default:
+		return nil, fmt.Errorf("unknown session event kind %q", event.Kind)
 	}
 }

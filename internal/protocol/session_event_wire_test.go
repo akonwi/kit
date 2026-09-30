@@ -57,3 +57,22 @@ func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 		seen[payload.sessionEventKind()] = true
 	}
 }
+
+func TestSessionEventPayloadVariantProjectsFlatFields(t *testing.T) {
+	t.Parallel()
+	usage := SessionUsage{Input: 3, Output: 2, TotalTokens: 5}
+	event := SessionEvent{Kind: SessionEventUsageUpdated, Usage: &usage}
+	payload, err := event.PayloadVariant()
+	if err != nil {
+		t.Fatalf("PayloadVariant() error = %v", err)
+	}
+	if got := payload.(UsageUpdatedEvent).Usage; got != usage {
+		t.Fatalf("usage = %#v; want %#v", got, usage)
+	}
+	if _, err := (SessionEvent{Kind: SessionEventUsageUpdated}).PayloadVariant(); err == nil {
+		t.Fatal("nil usage was accepted")
+	}
+	if _, err := (SessionEvent{Kind: "unknown"}).PayloadVariant(); err == nil {
+		t.Fatal("unknown kind was accepted")
+	}
+}
