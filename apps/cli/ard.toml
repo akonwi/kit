@@ -1,5 +1,5 @@
 name = "kit"
-ard = ">= 0.42.0"
+ard = ">= 0.43.0"
 target = "go"
 
 [build.values]
