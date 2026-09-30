@@ -2,7 +2,9 @@ package client
 
 import (
 	"context"
+	"time"
 
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
@@ -27,7 +29,9 @@ func (c *localSession) WatchPluginToasts(ctx context.Context) (sessionclient.Plu
 	go func() {
 		defer close(stream.updates)
 		defer body.Close()
-		stream.err = kitserver.ReadPluginToasts(body, func(toast protocol.PluginToast) error {
+		watched, stop := httpapi.WatchStreamIdle(ctx, body, 45*time.Second)
+		defer stop()
+		stream.err = kitserver.ReadPluginToasts(watched, func(toast protocol.PluginToast) error {
 			select {
 			case <-ctx.Done():
 				return ctx.Err()

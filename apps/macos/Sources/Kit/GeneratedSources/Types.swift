@@ -11,6 +11,12 @@ import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 internal protocol APIProtocol: Sendable {
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/plugin-commands`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)`.
+    func executePluginCommand(_ input: Operations.ExecutePluginCommand.Input) async throws -> Operations.ExecutePluginCommand.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/plugin-toasts`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-toasts/get(streamPluginToasts)`.
+    func streamPluginToasts(_ input: Operations.StreamPluginToasts.Input) async throws -> Operations.StreamPluginToasts.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/get(getScratchpad)`.
     func getScratchpad(_ input: Operations.GetScratchpad.Input) async throws -> Operations.GetScratchpad.Output
@@ -27,6 +33,30 @@ internal protocol APIProtocol: Sendable {
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/plugin-commands`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)`.
+    internal func executePluginCommand(
+        path: Operations.ExecutePluginCommand.Input.Path,
+        headers: Operations.ExecutePluginCommand.Input.Headers,
+        body: Operations.ExecutePluginCommand.Input.Body
+    ) async throws -> Operations.ExecutePluginCommand.Output {
+        try await executePluginCommand(Operations.ExecutePluginCommand.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/plugin-toasts`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-toasts/get(streamPluginToasts)`.
+    internal func streamPluginToasts(
+        path: Operations.StreamPluginToasts.Input.Path,
+        headers: Operations.StreamPluginToasts.Input.Headers
+    ) async throws -> Operations.StreamPluginToasts.Output {
+        try await streamPluginToasts(Operations.StreamPluginToasts.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/get(getScratchpad)`.
     internal func getScratchpad(

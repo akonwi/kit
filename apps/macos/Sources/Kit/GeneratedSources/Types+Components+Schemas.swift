@@ -428,6 +428,227 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PluginCommandInput`.
+        internal struct PluginCommandInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginCommandInput/args`.
+            internal var args: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommandInput/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommandInput/instance`.
+            internal var instance: Swift.String
+            /// Creates a new `PluginCommandInput`.
+            ///
+            /// - Parameters:
+            ///   - args:
+            ///   - id:
+            ///   - instance:
+            internal init(
+                args: Swift.String,
+                id: Swift.String,
+                instance: Swift.String
+            ) {
+                self.args = args
+                self.id = id
+                self.instance = instance
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case args
+                case id
+                case instance
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.args = try container.decode(
+                    Swift.String.self,
+                    forKey: .args
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.instance = try container.decode(
+                    Swift.String.self,
+                    forKey: .instance
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "args",
+                    "id",
+                    "instance"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginToast`.
+        internal struct PluginToast: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginToast/instance`.
+            internal var instance: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginToast/persistent`.
+            internal var persistent: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PluginToast/pluginId`.
+            internal var pluginId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginToast/subtitle`.
+            internal var subtitle: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PluginToast/title`.
+            internal var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginToast/variant`.
+            internal enum VariantPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case info = "info"
+                case warning = "warning"
+                case error = "error"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginToast/variant`.
+            internal var variant: Components.Schemas.PluginToast.VariantPayload
+            /// Creates a new `PluginToast`.
+            ///
+            /// - Parameters:
+            ///   - instance:
+            ///   - persistent:
+            ///   - pluginId:
+            ///   - subtitle:
+            ///   - title:
+            ///   - variant:
+            internal init(
+                instance: Swift.String,
+                persistent: Swift.Bool? = nil,
+                pluginId: Swift.String,
+                subtitle: Swift.String? = nil,
+                title: Swift.String,
+                variant: Components.Schemas.PluginToast.VariantPayload
+            ) {
+                self.instance = instance
+                self.persistent = persistent
+                self.pluginId = pluginId
+                self.subtitle = subtitle
+                self.title = title
+                self.variant = variant
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case instance
+                case persistent
+                case pluginId
+                case subtitle
+                case title
+                case variant
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.instance = try container.decode(
+                    Swift.String.self,
+                    forKey: .instance
+                )
+                self.persistent = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .persistent
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                self.subtitle = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .subtitle
+                )
+                self.title = try container.decode(
+                    Swift.String.self,
+                    forKey: .title
+                )
+                self.variant = try container.decode(
+                    Components.Schemas.PluginToast.VariantPayload.self,
+                    forKey: .variant
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "instance",
+                    "persistent",
+                    "pluginId",
+                    "subtitle",
+                    "title",
+                    "variant"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError`.
+        internal struct PluginsPluginCommandFailedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pluginCommandFailed = "plugin_command_failed"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/code`.
+            internal var code: Components.Schemas.PluginsPluginCommandFailedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandFailedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginsPluginCommandFailedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginsPluginCommandFailedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginsPluginCommandFailedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError`.
+        internal struct PluginsPluginCommandUnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case pluginCommandUnavailable = "plugin_command_unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/code`.
+            internal var code: Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/PluginsPluginCommandUnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `PluginsPluginCommandUnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.PluginsPluginCommandUnavailableError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError`.
         internal struct ProtocolMismatchError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ProtocolMismatchError/code`.
