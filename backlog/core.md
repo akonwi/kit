@@ -529,6 +529,16 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   Expose replayable lifecycle events or a bounded execution listing with a cursor
   so short executions cannot be missed between polls. Define retention and
   reconnect/gap recovery without adding excluded output to model context.
+- [ ] CORE-PEER-002 — Give each persistent session a bounded, durable peer-message
+  inbox with model-accessible operations to list, inspect, and explicitly reply
+  to messages after the receiving turn has ended. Route replies back to the
+  sender asynchronously under the original correlation identity, without
+  requiring the original send call to remain open or forcing either session to
+  start a turn. Preserve unread, replied, expired, and terminal state across
+  detach and restart; expose new-message availability to clients; and enforce
+  session eligibility, cycle, retention, and capacity limits. Verify delayed and
+  out-of-order replies, duplicate suppression, restart recovery, and concurrent
+  conversations between the same peers. Depends on `CORE-PEER-001`.
 - [-] CORE-HANDOFF-001 — Superseded by the renamed production-release `/fork`
   workflow tracked by `CORE-FORK-001`.
 - [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an
@@ -587,3 +597,12 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   and fresh-state reconnects. Cwd changes clear metadata and fence stale probes.
   Unit/race and real Git/fake-gh daemon tests cover caching, failure, cancellation,
   branch isolation, detached heads, and nonblocking first responses.
+- [ ] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
+  footer status to keep the model informed when the current pull request's CI
+  checks change, without requiring the user or model to explicitly fetch them.
+  Deliver bounded, deduplicated, provenance-labeled updates at a safe model
+  consumption boundary without impersonating user speech or interrupting an
+  in-flight request; fence stale results across branch, repository, PR, and
+  session changes, and degrade silently when GitHub status is unavailable.
+  Verify pending, successful, and failed check transitions plus reconnect and
+  stale-update behavior. Depends on `CORE-GH-001`.
