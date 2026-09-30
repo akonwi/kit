@@ -5,5 +5,6 @@ func Catalog() []Descriptor {
 	return []Descriptor{
 		GetScratchpad.Describe(), UpdateScratchpad.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
+		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),
 	}
 }

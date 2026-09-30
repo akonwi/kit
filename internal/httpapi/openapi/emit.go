@@ -97,6 +97,9 @@ func operationParameters(descriptor httpapi.Descriptor) []any {
 
 func operationResponses(descriptor httpapi.Descriptor, components map[string]any) (map[string]any, error) {
 	success := map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}
+	if descriptor.Output == reflect.TypeOf(httpapi.NoBody{}) {
+		success = map[string]any{"description": "Success"}
+	}
 	if descriptor.Stream != nil {
 		// Every record's data line decodes as the payload schema (ADR 0035).
 		success = map[string]any{"description": "Server-sent event stream; each record's data is one payload object",

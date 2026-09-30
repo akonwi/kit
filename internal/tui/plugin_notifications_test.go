@@ -92,7 +92,7 @@ func TestPluginToastScopesPersistentFeedbackWithoutRemovingOtherToasts(t *testin
 	state.toastCancels = make(map[uint64]context.CancelFunc)
 	state.showToast(toastInput{Title: "Kit feedback", Variant: toastInfo, Persistent: true})
 	for _, variant := range []string{"info", "warning", "error"} {
-		state.showPluginToast(protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: variant, Variant: variant, Persistent: true})
+		state.showPluginToast(protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: variant, Variant: protocol.PluginToastVariant(variant), Persistent: true})
 	}
 	got := state.toasts.Snapshot()
 	variants := []toastVariant{toastInfo, toastInfo, toastWarning, toastError}

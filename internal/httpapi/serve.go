@@ -64,6 +64,10 @@ func Handle[Params, In, Out any](mux *http.ServeMux, options ServeOptions, op Op
 			options.WriteError(w, err)
 			return
 		}
+		if typeOf[Out]() == typeOf[NoBody]() {
+			w.WriteHeader(op.Success)
+			return
+		}
 		w.Header().Set("Content-Type", "application/json")
 		w.Header().Set("Cache-Control", "no-store")
 		w.WriteHeader(op.Success)
