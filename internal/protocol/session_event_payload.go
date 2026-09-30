@@ -95,12 +95,12 @@ type CompactionFailedEvent struct {
 
 // ProviderRetryScheduledEvent records a retry deadline.
 type ProviderRetryScheduledEvent struct {
-	ProviderRetry ProviderRetry `json:"providerRetry"`
+	ProviderRetry *ProviderRetry `json:"providerRetry,omitempty"`
 }
 
 // ProviderRetryStartedEvent records a retry attempt.
 type ProviderRetryStartedEvent struct {
-	ProviderRetry ProviderRetry `json:"providerRetry"`
+	ProviderRetry *ProviderRetry `json:"providerRetry,omitempty"`
 }
 
 // ContextUpdatedEvent records context consumption.
@@ -111,7 +111,7 @@ type ContextUpdatedEvent struct {
 
 // UsageUpdatedEvent records cumulative session usage.
 type UsageUpdatedEvent struct {
-	Usage SessionUsage `json:"usage"`
+	Usage *SessionUsage `json:"usage,omitempty"`
 }
 
 // RunFinishedEvent records terminal run status.
@@ -128,7 +128,7 @@ type SessionRenamedEvent struct {
 
 // SessionCWDChangedEvent records the current workspace.
 type SessionCWDChangedEvent struct {
-	Workspace WorkspaceRef `json:"workspace"`
+	Workspace *WorkspaceRef `json:"workspace,omitempty"`
 }
 
 // SubagentChangedEvent identifies a changed child conversation.
@@ -144,7 +144,7 @@ type PeerQueryChangedEvent struct {
 
 // InteractionRequestedEvent carries an interaction request.
 type InteractionRequestedEvent struct {
-	Interaction InteractionRequest `json:"interaction"`
+	Interaction *InteractionRequest `json:"interaction,omitempty"`
 }
 
 // InteractionResolvedEvent records an interaction outcome.
@@ -155,14 +155,14 @@ type InteractionResolvedEvent struct {
 
 // AnnotationCreatedEvent carries a newly created annotation.
 type AnnotationCreatedEvent struct {
-	AnnotationID uint64     `json:"annotationId"`
-	Annotation   Annotation `json:"annotation"`
+	AnnotationID uint64      `json:"annotationId"`
+	Annotation   *Annotation `json:"annotation,omitempty"`
 }
 
 // AnnotationUpdatedEvent carries an updated annotation.
 type AnnotationUpdatedEvent struct {
-	AnnotationID uint64     `json:"annotationId"`
-	Annotation   Annotation `json:"annotation"`
+	AnnotationID uint64      `json:"annotationId"`
+	Annotation   *Annotation `json:"annotation,omitempty"`
 }
 
 // AnnotationDeletedEvent identifies a deleted annotation.
@@ -178,7 +178,7 @@ type AnnotationSubmittedEvent struct {
 
 // ScratchpadChangedEvent carries a changed scratchpad.
 type ScratchpadChangedEvent struct {
-	Scratchpad Scratchpad `json:"scratchpad"`
+	Scratchpad *Scratchpad `json:"scratchpad,omitempty"`
 }
 
 func (RunStartedEvent) sessionEventKind() SessionEventKind       { return SessionEventRunStarted }
@@ -280,19 +280,19 @@ func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
 		if event.ProviderRetry == nil {
 			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
 		}
-		return ProviderRetryScheduledEvent{ProviderRetry: *event.ProviderRetry}, nil
+		return ProviderRetryScheduledEvent{ProviderRetry: event.ProviderRetry}, nil
 	case SessionEventProviderRetryStarted:
 		if event.ProviderRetry == nil {
 			return nil, fmt.Errorf("%s has no provider retry", event.Kind)
 		}
-		return ProviderRetryStartedEvent{ProviderRetry: *event.ProviderRetry}, nil
+		return ProviderRetryStartedEvent{ProviderRetry: event.ProviderRetry}, nil
 	case SessionEventContextUpdated:
 		return ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}, nil
 	case SessionEventUsageUpdated:
 		if event.Usage == nil {
 			return nil, fmt.Errorf("%s has no usage", event.Kind)
 		}
-		return UsageUpdatedEvent{Usage: *event.Usage}, nil
+		return UsageUpdatedEvent{Usage: event.Usage}, nil
 	case SessionEventRunFinished:
 		return RunFinishedEvent{Status: event.Status, ErrorKind: event.ErrorKind, ErrorMessage: event.ErrorMessage}, nil
 	case SessionEventSessionRenamed:
@@ -301,7 +301,7 @@ func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
 		if event.Workspace == nil {
 			return nil, fmt.Errorf("%s has no workspace", event.Kind)
 		}
-		return SessionCWDChangedEvent{Workspace: *event.Workspace}, nil
+		return SessionCWDChangedEvent{Workspace: event.Workspace}, nil
 	case SessionEventSubagentChanged:
 		return SubagentChangedEvent{SubagentConversationID: event.SubagentConversationID, SubagentTaskID: event.SubagentTaskID}, nil
 	case SessionEventPeerQueryChanged:
@@ -310,19 +310,19 @@ func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
 		if event.Interaction == nil {
 			return nil, fmt.Errorf("%s has no interaction", event.Kind)
 		}
-		return InteractionRequestedEvent{Interaction: *event.Interaction}, nil
+		return InteractionRequestedEvent{Interaction: event.Interaction}, nil
 	case SessionEventInteractionResolved:
 		return InteractionResolvedEvent{InteractionID: event.InteractionID, InteractionResolution: event.InteractionResolution}, nil
 	case SessionEventAnnotationCreated:
 		if event.Annotation == nil {
 			return nil, fmt.Errorf("%s has no annotation", event.Kind)
 		}
-		return AnnotationCreatedEvent{AnnotationID: event.AnnotationID, Annotation: *event.Annotation}, nil
+		return AnnotationCreatedEvent{AnnotationID: event.AnnotationID, Annotation: event.Annotation}, nil
 	case SessionEventAnnotationUpdated:
 		if event.Annotation == nil {
 			return nil, fmt.Errorf("%s has no annotation", event.Kind)
 		}
-		return AnnotationUpdatedEvent{AnnotationID: event.AnnotationID, Annotation: *event.Annotation}, nil
+		return AnnotationUpdatedEvent{AnnotationID: event.AnnotationID, Annotation: event.Annotation}, nil
 	case SessionEventAnnotationDeleted:
 		return AnnotationDeletedEvent{AnnotationID: event.AnnotationID}, nil
 	case SessionEventAnnotationSubmitted:
@@ -331,7 +331,7 @@ func (event SessionEvent) PayloadVariant() (SessionEventPayload, error) {
 		if event.Scratchpad == nil {
 			return nil, fmt.Errorf("%s has no scratchpad", event.Kind)
 		}
-		return ScratchpadChangedEvent{Scratchpad: *event.Scratchpad}, nil
+		return ScratchpadChangedEvent{Scratchpad: event.Scratchpad}, nil
 	default:
 		return nil, fmt.Errorf("unknown session event kind %q", event.Kind)
 	}

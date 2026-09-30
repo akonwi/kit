@@ -66,7 +66,7 @@ func TestSessionEventPayloadVariantProjectsFlatFields(t *testing.T) {
 	if err != nil {
 		t.Fatalf("PayloadVariant() error = %v", err)
 	}
-	if got := payload.(UsageUpdatedEvent).Usage; got != usage {
+	if got := payload.(UsageUpdatedEvent).Usage; got == nil || *got != usage {
 		t.Fatalf("usage = %#v; want %#v", got, usage)
 	}
 	if _, err := (SessionEvent{Kind: SessionEventUsageUpdated}).PayloadVariant(); err == nil {
@@ -74,5 +74,24 @@ func TestSessionEventPayloadVariantProjectsFlatFields(t *testing.T) {
 	}
 	if _, err := (SessionEvent{Kind: "unknown"}).PayloadVariant(); err == nil {
 		t.Fatal("unknown kind was accepted")
+	}
+}
+
+func TestSessionEventUnionCodecPreservesFlatWire(t *testing.T) {
+	t.Parallel()
+	wire := []byte(`{"streamId":"stream_1","sequence":2,"sessionId":"session_1","turnId":"turn_1","runId":"turn_1","messageId":"message_1","kind":"assistant.text.delta","delta":"hello"}`)
+	event, err := decodeSessionEventUnion(wire)
+	if err != nil {
+		t.Fatalf("decodeSessionEventUnion() error = %v", err)
+	}
+	if _, ok := event.Payload.(AssistantTextDeltaEvent); !ok {
+		t.Fatalf("payload = %T", event.Payload)
+	}
+	got, err := encodeSessionEventUnion(event)
+	if err != nil || string(got) != string(wire) {
+		t.Fatalf("encode = %s, %v; want %s", got, err, wire)
+	}
+	if _, err := decodeSessionEventUnion([]byte(`{"streamId":"s","sequence":1,"sessionId":"s","turnId":"","runId":"","kind":"assistant.text.delta","text":"invalid"}`)); err == nil {
+		t.Fatal("cross-variant field was accepted")
 	}
 }
