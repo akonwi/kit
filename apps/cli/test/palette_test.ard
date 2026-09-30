@@ -1,0 +1,162 @@
+use ard/testing
+
+use kit/tui/palette
+
+// Expected values are produced by vaxis/ui (ThemeFromPalette over the same
+// terminal replies), so the Cooper client resolves the vaxis client's colors.
+
+fn c(r: Int, g: Int, b: Int) palette::Rgb {
+  palette::rgb(r, g, b)
+}
+
+fn some(r: Int, g: Int, b: Int) palette::Rgb? {
+  Maybe::new(palette::rgb(r, g, b))
+}
+
+fn none() palette::Rgb? {
+  Maybe::new<palette::Rgb>()
+}
+
+fn check(name: Str, got: palette::Rgb, want: palette::Rgb) Void!Str {
+  testing::assert(
+    palette::same(got, want),
+    "{name}: got rgb({got.r}, {got.g}, {got.b}), want rgb({want.r}, {want.g}, {want.b})",
+  )
+}
+
+fn expect(got: palette::Tones, want: palette::Tones) Void!Str {
+  try testing::assert(got.mode == want.mode, "mode differs")
+  try check("background", got.background, want.background)
+  try check("foreground", got.foreground, want.foreground)
+  try check("surface", got.surface, want.surface)
+  try check("surface_raised", got.surface_raised, want.surface_raised)
+  try check("surface_hovered", got.surface_hovered, want.surface_hovered)
+  try check("surface_pressed", got.surface_pressed, want.surface_pressed)
+  try check("primary", got.primary, want.primary)
+  try check("primary_text", got.primary_text, want.primary_text)
+  try check("primary_hovered", got.primary_hovered, want.primary_hovered)
+  try check("primary_pressed", got.primary_pressed, want.primary_pressed)
+  try check("accent", got.accent, want.accent)
+  try check("accent_text", got.accent_text, want.accent_text)
+  try check("success", got.success, want.success)
+  try check("success_text", got.success_text, want.success_text)
+  try check("warning", got.warning, want.warning)
+  try check("warning_text", got.warning_text, want.warning_text)
+  try check("danger", got.danger, want.danger)
+  try check("danger_text", got.danger_text, want.danger_text)
+  try check("muted", got.muted, want.muted)
+  try check("disabled", got.disabled, want.disabled)
+  try check("selection", got.selection, want.selection)
+  try check("border", got.border, want.border)
+  testing::pass()
+}
+
+test fn a_terminal_without_color_replies_uses_the_vaxis_default_theme() Void!Str {
+  expect(
+    palette::from_terminal(none(), none(), []),
+    palette::Tones{
+      mode: palette::Mode::dark,
+      background: c(12, 14, 18),
+      foreground: c(245, 246, 250),
+      surface: c(21, 23, 27),
+      surface_raised: c(34, 36, 40),
+      surface_hovered: c(34, 36, 40),
+      surface_pressed: c(12, 14, 18),
+      primary: c(38, 94, 178),
+      primary_text: c(108, 172, 255),
+      primary_hovered: c(56, 121, 218),
+      primary_pressed: c(25, 69, 135),
+      accent: c(118, 83, 156),
+      accent_text: c(197, 158, 243),
+      success: c(28, 128, 91),
+      success_text: c(113, 210, 167),
+      warning: c(150, 114, 34),
+      warning_text: c(238, 197, 116),
+      danger: c(173, 65, 67),
+      danger_text: c(255, 142, 140),
+      muted: c(117, 119, 123),
+      disabled: c(82, 84, 89),
+      selection: c(25, 69, 135),
+      border: c(82, 84, 89),
+    },
+  )
+}
+
+test fn a_dark_terminal_derives_the_vaxis_theme() Void!Str {
+  expect(
+    palette::from_terminal(
+      some(216, 222, 233),
+      some(40, 44, 52),
+      [
+        some(40, 44, 52),
+        some(224, 108, 117),
+        some(152, 195, 121),
+        some(229, 192, 123),
+        some(97, 175, 239),
+        some(198, 120, 221),
+        some(86, 182, 194),
+        some(171, 178, 191),
+      ],
+    ),
+    palette::Tones{
+      mode: palette::Mode::dark,
+      background: c(40, 44, 52),
+      foreground: c(216, 222, 233),
+      surface: c(47, 52, 60),
+      surface_raised: c(58, 63, 71),
+      surface_hovered: c(58, 63, 71),
+      surface_pressed: c(40, 44, 52),
+      primary: c(62, 126, 177),
+      primary_text: c(118, 187, 245),
+      primary_hovered: c(62, 126, 177),
+      primary_pressed: c(52, 102, 143),
+      accent: c(146, 83, 165),
+      accent_text: c(209, 139, 230),
+      success: c(85, 112, 65),
+      success_text: c(164, 203, 136),
+      warning: c(130, 106, 62),
+      warning_text: c(231, 198, 137),
+      danger: c(168, 75, 83),
+      danger_text: c(235, 129, 135),
+      muted: c(122, 127, 137),
+      disabled: c(96, 101, 110),
+      selection: c(52, 102, 143),
+      border: c(96, 101, 110),
+    },
+  )
+}
+
+test fn a_light_terminal_with_a_partial_palette_derives_the_vaxis_theme() Void!Str {
+  expect(
+    palette::from_terminal(
+      some(56, 58, 66),
+      some(250, 250, 250),
+      [none(), some(202, 18, 67), none(), none(), some(64, 120, 242), none(), none(), none()],
+    ),
+    palette::Tones{
+      mode: palette::Mode::light,
+      background: c(250, 250, 250),
+      foreground: c(56, 58, 66),
+      surface: c(239, 239, 240),
+      surface_raised: c(224, 225, 226),
+      surface_hovered: c(224, 225, 226),
+      surface_pressed: c(250, 250, 250),
+      primary: c(129, 176, 255),
+      primary_text: c(50, 95, 195),
+      primary_hovered: c(164, 200, 255),
+      primary_pressed: c(96, 149, 255),
+      accent: c(213, 181, 252),
+      accent_text: c(138, 102, 178),
+      success: c(145, 224, 187),
+      success_text: c(55, 148, 110),
+      warning: c(245, 211, 145),
+      warning_text: c(171, 134, 58),
+      danger: c(248, 121, 133),
+      danger_text: c(167, 20, 56),
+      muted: c(118, 120, 126),
+      disabled: c(177, 178, 181),
+      selection: c(199, 223, 255),
+      border: c(177, 178, 181),
+    },
+  )
+}

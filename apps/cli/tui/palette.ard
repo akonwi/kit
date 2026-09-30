@@ -1,0 +1,568 @@
+use go:math
+
+// Contrast-aware palette derivation, ported from the vaxis/ui theme
+// (go.rockorager.dev/vaxis/ui theme.go) so the Cooper client resolves the same
+// system colors as the vaxis client. Keep this a faithful port: the parity
+// tests compare its output with values produced by vaxis.
+
+struct Rgb {
+  r: Int,
+  g: Int,
+  b: Int,
+}
+
+fn rgb(r: Int, g: Int, b: Int) Rgb {
+  Rgb{
+    r: r,
+    g: g,
+    b: b,
+  }
+}
+
+fn same(left: Rgb, right: Rgb) Bool {
+  left.r == right.r and left.g == right.g and left.b == right.b
+}
+
+enum Mode {
+  dark,
+  light,
+}
+
+// The terminal's black, white, and six ANSI hues.
+struct Base {
+  black: Rgb,
+  red: Rgb,
+  green: Rgb,
+  yellow: Rgb,
+  blue: Rgb,
+  magenta: Rgb,
+  cyan: Rgb,
+  white: Rgb,
+}
+
+fn default_base() Base {
+  Base{
+    black: rgb(12, 14, 18),
+    red: rgb(255, 118, 118),
+    green: rgb(83, 196, 149),
+    yellow: rgb(229, 184, 91),
+    blue: rgb(80, 150, 255),
+    magenta: rgb(181, 137, 230),
+    cyan: rgb(78, 196, 184),
+    white: rgb(245, 246, 250),
+  }
+}
+
+// Eleven tones from lightest (tone50) to darkest (tone950).
+struct Scale {
+  tone50: Rgb,
+  tone100: Rgb,
+  tone200: Rgb,
+  tone300: Rgb,
+  tone400: Rgb,
+  tone500: Rgb,
+  tone600: Rgb,
+  tone700: Rgb,
+  tone800: Rgb,
+  tone900: Rgb,
+  tone950: Rgb,
+}
+
+struct Palette {
+  neutral: Scale,
+  red: Scale,
+  green: Scale,
+  yellow: Scale,
+  blue: Scale,
+  magenta: Scale,
+  cyan: Scale,
+}
+
+// The semantic colors of a derived theme.
+struct Tones {
+  mode: Mode,
+  background: Rgb,
+  foreground: Rgb,
+  surface: Rgb,
+  surface_raised: Rgb,
+  surface_hovered: Rgb,
+  surface_pressed: Rgb,
+  primary: Rgb,
+  primary_text: Rgb,
+  primary_hovered: Rgb,
+  primary_pressed: Rgb,
+  accent: Rgb,
+  accent_text: Rgb,
+  success: Rgb,
+  success_text: Rgb,
+  warning: Rgb,
+  warning_text: Rgb,
+  danger: Rgb,
+  danger_text: Rgb,
+  muted: Rgb,
+  disabled: Rgb,
+  selection: Rgb,
+  border: Rgb,
+}
+
+// Derives a theme from what the terminal reported. `palette` holds ANSI colors
+// 0 through 7; unreported colors keep the vaxis defaults. Without both default
+// colors the theme is dark and uses the palette's own black and white.
+fn from_terminal(foreground: Rgb?, background: Rgb?, palette: [Rgb?]) Tones {
+  let base = mut default_base()
+  match palette.at(1).or(Maybe::new<Rgb>()) {
+    color => { base.red = color },
+    _ => (),
+  }
+  match palette.at(2).or(Maybe::new<Rgb>()) {
+    color => { base.green = color },
+    _ => (),
+  }
+  match palette.at(3).or(Maybe::new<Rgb>()) {
+    color => { base.yellow = color },
+    _ => (),
+  }
+  match palette.at(4).or(Maybe::new<Rgb>()) {
+    color => { base.blue = color },
+    _ => (),
+  }
+  match palette.at(5).or(Maybe::new<Rgb>()) {
+    color => { base.magenta = color },
+    _ => (),
+  }
+  match palette.at(6).or(Maybe::new<Rgb>()) {
+    color => { base.cyan = color },
+    _ => (),
+  }
+  match palette.at(0).or(Maybe::new<Rgb>()) {
+    color => { base.black = color },
+    _ => (),
+  }
+  match palette.at(7).or(Maybe::new<Rgb>()) {
+    color => { base.white = color },
+    _ => (),
+  }
+  mut mode = Mode::dark
+  match foreground {
+    fg => {
+      match background {
+        bg => {
+          if luminance(bg) > luminance(fg) {
+            mode = Mode::light
+            base.black = fg
+            base.white = bg
+          } else {
+            base.black = bg
+            base.white = fg
+          }
+        },
+        _ => (),
+      }
+    },
+    _ => (),
+  }
+  let scales = palette_from(base.@)
+  derive(scales, mode, background, foreground)
+}
+
+fn palette_from(base: Base) Palette {
+  Palette{
+    neutral: neutral_scale(base.black, base.white),
+    red: color_scale(base.red, base.black, base.white),
+    green: color_scale(base.green, base.black, base.white),
+    yellow: color_scale(base.yellow, base.black, base.white),
+    blue: color_scale(base.blue, base.black, base.white),
+    magenta: color_scale(base.magenta, base.black, base.white),
+    cyan: color_scale(base.cyan, base.black, base.white),
+  }
+}
+
+fn derive(p: Palette, mode: Mode, background: Rgb?, foreground: Rgb?) Tones {
+  let bg = background.or(
+    match mode {
+      Mode::light => p.neutral.tone50,
+      Mode::dark => p.neutral.tone950,
+    },
+  )
+  let fg = foreground.or(
+    match mode {
+      Mode::light => p.neutral.tone950,
+      Mode::dark => p.neutral.tone50,
+    },
+  )
+  let light = mode == Mode::light
+  Tones{
+    mode: mode,
+    background: bg,
+    foreground: fg,
+    surface: match light {
+      true => p.neutral.tone100,
+      false => p.neutral.tone900,
+    },
+    surface_raised: match light {
+      true => p.neutral.tone200,
+      false => p.neutral.tone800,
+    },
+    surface_hovered: match light {
+      true => p.neutral.tone200,
+      false => p.neutral.tone800,
+    },
+    surface_pressed: match light {
+      true => p.neutral.tone50,
+      false => p.neutral.tone950,
+    },
+    primary: match light {
+      true => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone300, p.blue.tone200, p.blue.tone400, p.blue.tone500, p.blue.tone100],
+        )
+      },
+      false => status_fill(bg, fg, p.blue, mode),
+    },
+    primary_text: readable_text(bg, p.blue, mode),
+    primary_hovered: match light {
+      true => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone200, p.blue.tone300, p.blue.tone100, p.blue.tone400, p.blue.tone500],
+        )
+      },
+      false => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone500, p.blue.tone600, p.blue.tone400, p.blue.tone700, p.blue.tone800],
+        )
+      },
+    },
+    primary_pressed: match light {
+      true => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone400, p.blue.tone300, p.blue.tone500, p.blue.tone200, p.blue.tone600],
+        )
+      },
+      false => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone800, p.blue.tone900, p.blue.tone700, p.blue.tone600, p.blue.tone500],
+        )
+      },
+    },
+    accent: status_fill(bg, fg, p.magenta, mode),
+    accent_text: readable_text(bg, p.magenta, mode),
+    success: status_fill(bg, fg, p.green, mode),
+    success_text: readable_text(bg, p.green, mode),
+    warning: status_fill(bg, fg, p.yellow, mode),
+    warning_text: readable_text(bg, p.yellow, mode),
+    danger: status_fill(bg, fg, p.red, mode),
+    danger_text: readable_text(bg, p.red, mode),
+    muted: readable_soft(bg, fg, p.neutral, mode, 3.0),
+    disabled: readable_soft(bg, fg, p.neutral, mode, 2.0),
+    selection: match light {
+      true => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone100, p.blue.tone200, p.blue.tone300, p.blue.tone400, p.blue.tone500],
+        )
+      },
+      false => {
+        readable_fill(
+          bg,
+          fg,
+          3.0,
+          [p.blue.tone800, p.blue.tone900, p.blue.tone950, p.blue.tone700, p.blue.tone600],
+        )
+      },
+    },
+    border: readable_soft(bg, fg, p.neutral, mode, 2.0),
+  }
+}
+
+fn neutral_scale(black: Rgb, white: Rgb) Scale {
+  Scale{
+    tone50: white,
+    tone100: blend(white, black, 5),
+    tone200: blend(white, black, 12),
+    tone300: blend(white, black, 22),
+    tone400: blend(white, black, 35),
+    tone500: blend(white, black, 50),
+    tone600: blend(white, black, 65),
+    tone700: blend(white, black, 78),
+    tone800: blend(white, black, 88),
+    tone900: blend(white, black, 95),
+    tone950: black,
+  }
+}
+
+// vaxis falls back to OKLab blends only for non-RGB colors, which never
+// reach this port, so every scale uses OKLCH.
+fn color_scale(base: Rgb, black: Rgb, white: Rgb) Scale {
+  let b = to_oklch(base)
+  let black_lab = to_oklab(black)
+  let white_lab = to_oklab(white)
+  let lo = math::Min(black_lab.l, white_lab.l)
+  let hi = math::Max(black_lab.l, white_lab.l)
+  let light = fn(t: Float64, chroma: Float64) Rgb {
+    from_oklch(
+      Lch{
+        l: b.l + (hi - b.l) * t,
+        c: b.c * chroma,
+        h: b.h,
+      },
+    )
+  }
+  let dark = fn(t: Float64, chroma: Float64) Rgb {
+    from_oklch(
+      Lch{
+        l: b.l + (lo - b.l) * t,
+        c: b.c * chroma,
+        h: b.h,
+      },
+    )
+  }
+  Scale{
+    tone50: light(0.90, 0.25),
+    tone100: light(0.78, 0.35),
+    tone200: light(0.60, 0.55),
+    tone300: light(0.42, 0.75),
+    tone400: light(0.22, 0.90),
+    tone500: base,
+    tone600: dark(0.18, 0.95),
+    tone700: dark(0.36, 0.85),
+    tone800: dark(0.54, 0.70),
+    tone900: dark(0.72, 0.55),
+    tone950: dark(0.86, 0.40),
+  }
+}
+
+// readableStatus and readableAccent: a fill that carries the foreground.
+fn status_fill(bg: Rgb, fg: Rgb, scale: Scale, mode: Mode) Rgb {
+  match mode {
+    Mode::light => {
+      readable_fill(
+        bg,
+        fg,
+        3.0,
+        [scale.tone300, scale.tone200, scale.tone400, scale.tone500, scale.tone600],
+      )
+    },
+    Mode::dark => {
+      readable_fill(
+        bg,
+        fg,
+        3.0,
+        [scale.tone700, scale.tone800, scale.tone600, scale.tone500, scale.tone900],
+      )
+    },
+  }
+}
+
+fn readable_text(bg: Rgb, scale: Scale, mode: Mode) Rgb {
+  match mode {
+    Mode::light => {
+      preferred(
+        bg,
+        3.0,
+        [scale.tone700, scale.tone800, scale.tone600, scale.tone900, scale.tone500],
+      )
+    },
+    Mode::dark => {
+      preferred(
+        bg,
+        3.0,
+        [scale.tone400, scale.tone300, scale.tone500, scale.tone200, scale.tone600],
+      )
+    },
+  }
+}
+
+fn readable_fill(bg: Rgb, fg: Rgb, minimum: Float64, candidates: [Rgb]) Rgb {
+  mut found = Maybe::new<Rgb>()
+  for candidate in candidates {
+    if found.is_none() and contrast(fg, candidate) >= minimum and contrast(bg, candidate) >= 1.2 {
+      found = Maybe::new(candidate)
+    }
+  }
+  match found {
+    color => color,
+    _ => {
+      let best = most_readable(fg, candidates)
+      match contrast(bg, best) < 1.2 {
+        true => most_readable(bg, candidates),
+        false => best,
+      }
+    },
+  }
+}
+
+// The first neutral tone that reaches `minimum` contrast with the background.
+fn readable_soft(bg: Rgb, fg: Rgb, neutral: Scale, mode: Mode, minimum: Float64) Rgb {
+  let candidates = match mode {
+    Mode::light => {
+      [neutral.tone400, neutral.tone500, neutral.tone300, neutral.tone600, neutral.tone700, fg]
+    },
+    Mode::dark => {
+      [neutral.tone600, neutral.tone500, neutral.tone700, neutral.tone400, neutral.tone300, fg]
+    },
+  }
+  mut found = Maybe::new<Rgb>()
+  for candidate in candidates {
+    if found.is_none() and (not same(candidate, fg)) and contrast(bg, candidate) >= minimum {
+      found = Maybe::new(candidate)
+    }
+  }
+  found.or(most_readable(bg, [fg, neutral.tone50, neutral.tone950]))
+}
+
+fn most_readable(bg: Rgb, candidates: [Rgb]) Rgb {
+  mut best = candidates.at(0).or(bg)
+  mut best_ratio = contrast(bg, best)
+  for candidate in candidates {
+    let ratio = contrast(bg, candidate)
+    if ratio > best_ratio {
+      best = candidate
+      best_ratio = ratio
+    }
+  }
+  best
+}
+
+fn preferred(bg: Rgb, minimum: Float64, candidates: [Rgb]) Rgb {
+  mut found = Maybe::new<Rgb>()
+  for candidate in candidates {
+    if found.is_none() and contrast(bg, candidate) >= minimum {
+      found = Maybe::new(candidate)
+    }
+  }
+  found.or(most_readable(bg, candidates))
+}
+
+// WCAG contrast ratio.
+fn contrast(a: Rgb, b: Rgb) Float64 {
+  mut la = luminance(a)
+  mut lb = luminance(b)
+  if la < lb {
+    let swap = la
+    la = lb
+    lb = swap
+  }
+  (la + 0.05) / (lb + 0.05)
+}
+
+fn luminance(c: Rgb) Float64 {
+  let r = linear(c.r.to_f64() / 255.0)
+  let g = linear(c.g.to_f64() / 255.0)
+  let b = linear(c.b.to_f64() / 255.0)
+  0.2126 * r + 0.7152 * g + 0.0722 * b
+}
+
+fn linear(v: Float64) Float64 {
+  match v <= 0.04045 {
+    true => v / 12.92,
+    false => math::Pow((v + 0.055) / 1.055, 2.4),
+  }
+}
+
+// Mixes `percent` of `b` into `a` in OKLab.
+fn blend(a: Rgb, b: Rgb, percent: Int) Rgb {
+  let from = to_oklab(a)
+  let to = to_oklab(b)
+  let t = percent.to_f64() / 100.0
+  from_oklab(
+    Lab{
+      l: from.l + (to.l - from.l) * t,
+      a: from.a + (to.a - from.a) * t,
+      b: from.b + (to.b - from.b) * t,
+    },
+  )
+}
+
+struct Lab {
+  l: Float64,
+  a: Float64,
+  b: Float64,
+}
+
+struct Lch {
+  l: Float64,
+  c: Float64,
+  h: Float64,
+}
+
+fn to_oklch(color: Rgb) Lch {
+  let lab = to_oklab(color)
+  Lch{
+    l: lab.l,
+    c: math::Hypot(lab.a, lab.b),
+    h: math::Atan2(lab.b, lab.a),
+  }
+}
+
+fn to_oklab(color: Rgb) Lab {
+  let r = linear(color.r.to_f64() / 255.0)
+  let g = linear(color.g.to_f64() / 255.0)
+  let b = linear(color.b.to_f64() / 255.0)
+  let l = math::Cbrt(0.4122214708 * r + 0.5363325363 * g + 0.0514459929 * b)
+  let m = math::Cbrt(0.2119034982 * r + 0.6806995451 * g + 0.1073969566 * b)
+  let s = math::Cbrt(0.0883024619 * r + 0.2817188376 * g + 0.6299787005 * b)
+  Lab{
+    l: 0.2104542553 * l + 0.7936177850 * m - 0.0040720468 * s,
+    a: 1.9779984951 * l - 2.4285922050 * m + 0.4505937099 * s,
+    b: 0.0259040371 * l + 0.7827717662 * m - 0.8086757660 * s,
+  }
+}
+
+fn from_oklch(color: Lch) Rgb {
+  from_oklab(
+    Lab{
+      l: color.l,
+      a: math::Cos(color.h) * color.c,
+      b: math::Sin(color.h) * color.c,
+    },
+  )
+}
+
+fn from_oklab(color: Lab) Rgb {
+  let l_ = color.l + 0.3963377774 * color.a + 0.2158037573 * color.b
+  let m_ = color.l - 0.1055613458 * color.a - 0.0638541728 * color.b
+  let s_ = color.l - 0.0894841775 * color.a - 1.2914855480 * color.b
+  let l = l_ * l_ * l_
+  let m = m_ * m_ * m_
+  let s = s_ * s_ * s_
+  let r = 4.0767416621 * l - 3.3077115913 * m + 0.2309699292 * s
+  let g = -1.2684380046 * l + 2.6097574011 * m - 0.3413193965 * s
+  let b = -0.0041960863 * l - 0.7034186147 * m + 1.7076147010 * s
+  rgb(channel(r), channel(g), channel(b))
+}
+
+fn channel(v: Float64) Int {
+  math::Round(math::Max(0.0, math::Min(1.0, gamma(v))) * 255.0).to_int()
+}
+
+fn gamma(v: Float64) Float64 {
+  match v <= 0.0031308 {
+    true => 12.92 * v,
+    false => 1.055 * math::Pow(v, 1.0 / 2.4) - 0.055,
+  }
+}
+
+// Kit's linear sRGB wash (tintUIColor): `opacity` of `accent` over `base`.
+fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
+  let mix = fn(from: Int, to: Int) Int {
+    (from.to_f64() * (1.0 - opacity) + to.to_f64() * opacity + 0.5).to_int()
+  }
+  rgb(mix(base.r, accent.r), mix(base.g, accent.g), mix(base.b, accent.b))
+}
