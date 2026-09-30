@@ -297,7 +297,8 @@ func TestReasoningHistoryCompactionEstablishesFreshBaseline(t *testing.T) {
 	}
 	for len(requests) > 0 {
 		summary := <-requests
-		assertReasoningWire(t, summary, "", nil, nil)
+		// Summaries are fresh standalone requests with thinking disabled.
+		assertReasoningWire(t, summary, "none", nil, nil)
 	}
 	if err := d.Close(); err != nil {
 		t.Fatal(err)

@@ -332,6 +332,7 @@ func Run(ctx context.Context, options RunOptions) error {
 		registry:     registry,
 		token:        token,
 		store:        store,
+		logger:       logger,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
 			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
@@ -402,6 +403,8 @@ type localHandlerOptions struct {
 	attachments  attachmentService
 	providers    func(context.Context) []string
 	requestStop  func()
+	// logger receives causes of failed requests; nil disables reporting.
+	logger *slog.Logger
 }
 
 func newHandler(options localHandlerOptions) http.Handler {
@@ -459,7 +462,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 			httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusUpgradeRequired, httpapi.ErrorProtocolMismatch, "session protocol mismatch", nil))
 			return
 		}
-		mux.ServeHTTP(writer, request)
+		mux.ServeHTTP(withRequestErrorReporting(writer, request, options.logger), request)
 	})
 }
 

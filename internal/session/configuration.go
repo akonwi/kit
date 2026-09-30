@@ -367,7 +367,7 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 		Force:       true,
 	})
 	if err != nil {
-		return CompactSessionResult{}, err
+		return CompactSessionResult{}, compactionFailure(err)
 	}
 	settlementContext, cancelSettlement := context.WithTimeout(context.WithoutCancel(ctx), runtimeTransitionTimeout)
 	defer cancelSettlement()
@@ -621,4 +621,15 @@ func (m *Manager) persistSessionConfiguration(ctx context.Context, previous Sess
 	}
 	m.temporary[previous.ID] = current
 	return current, nil
+}
+
+// compactionFailure classifies a failed compaction attempt while preserving
+// its cause. Admission, lifecycle, and cancellation errors keep their meaning.
+func compactionFailure(err error) error {
+	for _, kept := range []error{context.Canceled, context.DeadlineExceeded, droids.ErrBusy, droids.ErrClosed, droids.ErrConflict} {
+		if errors.Is(err, kept) {
+			return err
+		}
+	}
+	return fmt.Errorf("%w: %w", ErrCompactionFailed, err)
 }

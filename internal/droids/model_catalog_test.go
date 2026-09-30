@@ -392,13 +392,27 @@ func TestCatalogReasoningCapabilities(t *testing.T) {
 
 func TestResolveRequestMaxTokens(t *testing.T) {
 	model := Model{ID: "m", MaxOutputTokens: 8_000}
-	got, err := resolveRequestMaxTokens(model, 0, "")
-	if err != nil || got != defaultRequestMaxTokens {
-		t.Fatalf("default = %d, %v", got, err)
-	}
-	got, err = resolveRequestMaxTokens(Model{ID: "small", MaxOutputTokens: 2_000}, 0, "")
-	if err != nil || got != 2_000 {
-		t.Fatalf("capped default = %d, %v", got, err)
+	for _, test := range []struct {
+		name  string
+		model Model
+		level string
+		want  int
+	}{
+		{"model output capability", model, "", 8_000},
+		{"large model", Model{ID: "large", ContextWindow: 1_000_000, MaxOutputTokens: 128_000}, "", 32_000},
+		{"unknown output capability", Model{ID: "unknown", ContextWindow: 1_000_000}, "", 4_096},
+		{"small context window", Model{ID: "window", ContextWindow: 128_000, MaxOutputTokens: 128_000}, "", 16_000},
+		{"tiny context window keeps former floor", Model{ID: "tiny", ContextWindow: 16_000, MaxOutputTokens: 16_000}, "", 4_096},
+		{"small output capability", Model{ID: "small", MaxOutputTokens: 2_000}, "", 2_000},
+		{"thinking budget raises default", Model{
+			ID: "budget", API: ModelAPIAnthropicMessages, Reasoning: true, ReasoningLevels: []string{"high"},
+			ContextWindow: 128_000, MaxOutputTokens: 64_000,
+		}, "high", 16_384 + 1024},
+	} {
+		got, err := resolveRequestMaxTokens(test.model, 0, test.level)
+		if err != nil || got != test.want {
+			t.Fatalf("%s: default = %d, %v; want %d", test.name, got, err, test.want)
+		}
 	}
 	if _, err := resolveRequestMaxTokens(model, 9_000, ""); err == nil {
 		t.Fatal("expected output capability validation error")

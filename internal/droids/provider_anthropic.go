@@ -289,10 +289,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 
 	maxTokens := int64(req.MaxTokens)
 	if maxTokens <= 0 {
-		maxTokens = defaultRequestMaxTokens
-		if model.MaxOutputTokens > 0 && maxTokens > int64(model.MaxOutputTokens) {
-			maxTokens = int64(model.MaxOutputTokens)
-		}
+		maxTokens = int64(defaultMaxTokens(model))
 	}
 
 	client, oauth, err := p.clientForRequest(ctx)
@@ -334,7 +331,10 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	if beta := anthropicBetaFeatures(oauth, model, len(req.Tools) > 0); beta != "" {
 		requestOptions = append(requestOptions, option.WithHeader("anthropic-beta", beta))
 	}
-	if model.SupportsMidConversationEffort {
+	// Managed-effort models hold a stable high baseline across a conversation.
+	// An explicit "off" is a standalone request that needs no thinking at all.
+	thinkingOff := req.Reasoning == "off" || req.Reasoning == "none"
+	if model.SupportsMidConversationEffort && !thinkingOff {
 		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
 			Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
 		}}
@@ -343,7 +343,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 			option.WithJSONSet("thinking.block_binding.prefix_mismatch_behavior", "drop_block"),
 			option.WithJSONSet("messages", anthropicManagedEffortMessages(req.Messages, params.Messages, model.Provider, "high")),
 		)
-	} else if model.ReasoningMode == ReasoningModeAdaptive && model.Reasoning && req.Reasoning != "" && req.Reasoning != "off" && req.Reasoning != "none" {
+	} else if model.ReasoningMode == ReasoningModeAdaptive && model.Reasoning && req.Reasoning != "" && !thinkingOff {
 		params.Thinking = anthropic.ThinkingConfigParamUnion{OfAdaptive: &anthropic.ThinkingConfigAdaptiveParam{
 			Display: anthropic.ThinkingConfigAdaptiveDisplaySummarized,
 		}}
