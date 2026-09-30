@@ -22,7 +22,10 @@ def emit(name):
   for n,v in enumerate(dict.fromkeys(values)): output.append('    case value'+str(n)+' = "'+v+'"')
   output.append('}\n'); return
  fields=[]
- for line in structs[name].splitlines():
+ # Protocol unions retain a flat JSON wire layout; generate their wire record,
+ # not their sealed Go payload interface.
+ wire_name = 'transcriptContentWire' if name == 'TranscriptContent' else name
+ for line in structs[wire_name].splitlines():
   line=line.strip()
   if not line or line.startswith('//'): continue
   match=re.fullmatch(r'\w+\s+(\S+)\s+`json:"([^",]+)(,omitempty)?"`',line)

@@ -344,12 +344,12 @@ func (message TranscriptMessage) TextContent() string {
 
 // PendingBoundary is durable external context awaiting materialization.
 type PendingBoundary struct {
-	ID         string          `json:"id"`
-	Kind       string          `json:"kind"`
-	Source     string          `json:"source,omitempty"`
-	Content    ContextContent  `json:"content"`
-	Details    json.RawMessage `json:"details,omitempty"`
-	AcceptedAt string          `json:"acceptedAt"`
+	ID         string              `json:"id"`
+	Kind       string              `json:"kind"`
+	Source     string              `json:"source,omitempty"`
+	Content    []TranscriptContent `json:"content"`
+	Details    json.RawMessage     `json:"details,omitempty"`
+	AcceptedAt string              `json:"acceptedAt"`
 }
 
 // SessionUsage is the authoritative cumulative provider usage for one session.
