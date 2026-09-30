@@ -327,12 +327,12 @@ func TestSessionUsageLiveUpdateIsAbsoluteAndMonotonic(t *testing.T) {
 
 	state := appState{sessionUsage: protocol.SessionUsage{Input: 10, TotalTokens: 10}}
 	updated := protocol.SessionUsage{Input: 20, Output: 5, TotalTokens: 25, Cost: protocol.SessionUsageCost{Total: 0.25}}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventUsageUpdated, Usage: &updated}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.UsageUpdatedEvent{Usage: &updated}}})
 	if state.sessionUsage != updated {
 		t.Fatalf("session usage = %+v, want %+v", state.sessionUsage, updated)
 	}
 	regressed := protocol.SessionUsage{Input: 19, Output: 5, TotalTokens: 24, Cost: protocol.SessionUsageCost{Total: 0.24}}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventUsageUpdated, Usage: &regressed}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Payload: protocol.UsageUpdatedEvent{Usage: &regressed}}})
 	if state.sessionUsage != updated {
 		t.Fatalf("regressive usage update applied: %+v", state.sessionUsage)
 	}
@@ -436,7 +436,7 @@ func TestAutomaticCompactionUsesVisibleTurnSlot(t *testing.T) {
 	t.Parallel()
 
 	state := appState{}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.CompactionStartedEvent{}}})
 	const width, height = 80, 20
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, TurnActivity: state.turnActivity, Scroll: &ui.ScrollController{},
@@ -508,14 +508,14 @@ func TestInteractionEventsDriveFeedbackState(t *testing.T) {
 	t.Parallel()
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
 	request := protocol.InteractionRequest{ID: "interaction_one", Kind: protocol.InteractionConfirm, Title: "Continue?"}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventInteractionRequested, Interaction: &request}, {Sequence: 2, Kind: protocol.SessionEventInteractionRequested, Interaction: &request}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.InteractionRequestedEvent{Interaction: &request}}, {Sequence: 2, Payload: protocol.InteractionRequestedEvent{Interaction: &request}}})
 	if len(state.pendingInteractions) != 1 {
 		t.Fatalf("duplicate requested events produced %d pending interactions", len(state.pendingInteractions))
 	}
 	if !state.agentFeedbackPending || state.turnActivity != "Waiting for feedback…" {
 		t.Fatalf("requested interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, RunID: "run_one", Kind: protocol.SessionEventInteractionResolved, InteractionID: request.ID, InteractionResolution: "answered"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 3, RunID: "run_one", Payload: protocol.InteractionResolvedEvent{InteractionID: request.ID, InteractionResolution: "answered"}}})
 	if state.agentFeedbackPending || state.turnActivity != "Working…" {
 		t.Fatalf("resolved interaction state = (%v, %q)", state.agentFeedbackPending, state.turnActivity)
 	}
@@ -526,10 +526,10 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
-		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "Inspect the file"},
-		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "Planning the inspection\n**Checking retries**"},
+		{Sequence: 1, Payload: protocol.RunStartedEvent{}},
+		{Sequence: 2, Payload: protocol.UserMessageEvent{Text: "Inspect the file"}},
+		{Sequence: 3, Payload: protocol.AssistantStartedEvent{MessageID: "message_test"}},
+		{Sequence: 4, Payload: protocol.ThinkingDeltaEvent{MessageID: "message_test", ContentIndex: 0, Delta: "Planning the inspection\n**Checking retries**"}},
 	})
 	if state.turnActivity != "**Checking retries**" || state.turnThinking != "Planning the inspection\n**Checking retries**" {
 		t.Fatalf("thinking state = activity %q content %q", state.turnActivity, state.turnThinking)
@@ -554,7 +554,7 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "I’ll inspect it now."},
+		{Sequence: 5, Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_test", ContentIndex: 1, Delta: "I’ll inspect it now."}},
 	})
 	if state.turnActivity != "Working…" || state.turnThinking != "" {
 		t.Fatalf("response state = activity %q thinking %q, want Working…", state.turnActivity, state.turnThinking)
@@ -573,10 +573,10 @@ func TestTurnActivityUsesFixedSlotWhileResponseIsBuffered(t *testing.T) {
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 6, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 7, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 8, Kind: protocol.SessionEventToolCompleted, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("file contents")}},
-		{Sequence: 9, Kind: protocol.SessionEventRunFinished},
+		{Sequence: 6, Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
+		{Sequence: 7, Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
+		{Sequence: 8, Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("file contents")}}},
+		{Sequence: 9, Payload: protocol.RunFinishedEvent{}},
 	})
 	tool := state.liveMessages[2]
 	if tool.ToolName != "read" || tool.ToolArguments != `{"path":"README.md"}` || tool.ToolStatus != "Completed" || tool.Text != "file contents" || tool.Pending {
@@ -604,11 +604,11 @@ func TestLiveToolCallAppearsBeforeTurnFinishes(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, TurnID: "turn_1", Kind: protocol.SessionEventRunStarted},
-		{Sequence: 2, TurnID: "turn_1", Kind: protocol.SessionEventUserMessage, Text: "Inspect it"},
-		{Sequence: 3, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 5, TurnID: "turn_1", Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+		{Sequence: 1, TurnID: "turn_1", Payload: protocol.RunStartedEvent{}},
+		{Sequence: 2, TurnID: "turn_1", Payload: protocol.UserMessageEvent{Text: "Inspect it"}},
+		{Sequence: 3, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1"}},
+		{Sequence: 4, TurnID: "turn_1", Payload: protocol.AssistantCompletedEvent{MessageID: "message_1"}},
+		{Sequence: 5, TurnID: "turn_1", Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
 	})
 	app := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, Running: true, TurnActivity: state.turnActivity,
@@ -1856,16 +1856,16 @@ func TestLiveToolIdentitySurvivesMultipleAssistantMessages(t *testing.T) {
 		event.TurnID = "turn_1"
 		state.applyRunEvents([]protocol.SessionEvent{event})
 	}
-	apply(protocol.SessionEvent{Kind: protocol.SessionEventRunStarted})
+	apply(protocol.SessionEvent{Payload: protocol.RunStartedEvent{}})
 	for _, step := range []struct{ message, call, path string }{
 		{"message_1", "call_1", "first.go"},
 		{"message_2", "call_2", "second.go"},
 	} {
-		apply(protocol.SessionEvent{Kind: protocol.SessionEventAssistantStarted, MessageID: step.message})
-		apply(protocol.SessionEvent{Kind: protocol.SessionEventToolPlanned, MessageID: step.message, ToolCallID: step.call, ToolName: "read", Arguments: `{"path":"` + step.path + `"}`})
-		apply(protocol.SessionEvent{Kind: protocol.SessionEventAssistantCompleted, MessageID: step.message})
+		apply(protocol.SessionEvent{Payload: protocol.AssistantStartedEvent{MessageID: step.message}})
+		apply(protocol.SessionEvent{Payload: protocol.ToolPlannedEvent{MessageID: step.message, ToolCallID: step.call, ToolName: "read", Arguments: `{"path":"` + step.path + `"}`}})
+		apply(protocol.SessionEvent{Payload: protocol.AssistantCompletedEvent{MessageID: step.message}})
 		for _, kind := range []protocol.SessionEventKind{protocol.SessionEventToolStarted, protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted} {
-			apply(protocol.SessionEvent{Kind: kind, ToolCallID: step.call, ToolName: "read"})
+			apply(protocol.SessionEvent{Payload: toolPayloadForKind(kind, step.call, "read")})
 			owners := map[string]string{}
 			for _, message := range state.liveMessages {
 				for _, call := range message.ToolCalls {
@@ -1926,4 +1926,14 @@ func TestComposerAnnotationOverflowRowMarksShortenedChipList(t *testing.T) {
 	if got, want := paintedRows(application, 24, 1)[0], "… 3 more annotations"; got != want {
 		t.Fatalf("overflow row = %q, want %q", got, want)
 	}
+}
+
+func toolPayloadForKind(kind protocol.SessionEventKind, id, name string) protocol.SessionEventPayload {
+	if kind == protocol.SessionEventToolStarted {
+		return protocol.ToolStartedEvent{ToolCallID: id, ToolName: name}
+	}
+	if kind == protocol.SessionEventToolUpdated {
+		return protocol.ToolUpdatedEvent{ToolCallID: id, ToolName: name, Content: protocol.ToolResultContent{protocol.TextBlock("x")}}
+	}
+	return protocol.ToolCompletedEvent{ToolCallID: id, ToolName: name}
 }

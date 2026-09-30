@@ -13,31 +13,39 @@ import (
 )
 
 func (s *appState) applyAnnotationEvent(event protocol.SessionEvent) {
-	switch event.Kind {
-	case protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated:
-		if event.Annotation == nil {
-			return
-		}
-		summary := protocol.AnnotationSummary{
-			ID: event.Annotation.ID, Anchor: event.Annotation.Anchor, DiffTarget: event.Annotation.DiffTarget,
-			BodyPreview: annotationSummaryText(event.Annotation.Body), Preview: annotationSummaryText(event.Annotation.Preview.Text),
-			Stale: event.Annotation.Stale, StaleReason: event.Annotation.StaleReason, ValidationDeferred: event.Annotation.ValidationDeferred,
-		}
-		for index := range s.annotations {
-			if s.annotations[index].ID == summary.ID {
-				s.annotations[index] = summary
-				return
-			}
-		}
-		s.annotations = append(s.annotations, summary)
-		sort.Slice(s.annotations, func(i, j int) bool { return s.annotations[i].ID < s.annotations[j].ID })
-	case protocol.SessionEventAnnotationDeleted:
-		s.removeAnnotationSummary(event.AnnotationID)
-	case protocol.SessionEventAnnotationSubmitted:
-		for _, id := range event.AnnotationIDs {
+	var annotation *protocol.Annotation
+	switch payload := event.Payload.(type) {
+	case protocol.AnnotationCreatedEvent:
+		annotation = payload.Annotation
+	case protocol.AnnotationUpdatedEvent:
+		annotation = payload.Annotation
+	case protocol.AnnotationDeletedEvent:
+		s.removeAnnotationSummary(payload.AnnotationID)
+		return
+	case protocol.AnnotationSubmittedEvent:
+		for _, id := range payload.AnnotationIDs {
 			s.removeAnnotationSummary(id)
 		}
+		return
+	default:
+		return
 	}
+	if annotation == nil {
+		return
+	}
+	summary := protocol.AnnotationSummary{
+		ID: annotation.ID, Anchor: annotation.Anchor, DiffTarget: annotation.DiffTarget,
+		BodyPreview: annotationSummaryText(annotation.Body), Preview: annotationSummaryText(annotation.Preview.Text),
+		Stale: annotation.Stale, StaleReason: annotation.StaleReason, ValidationDeferred: annotation.ValidationDeferred,
+	}
+	for index := range s.annotations {
+		if s.annotations[index].ID == summary.ID {
+			s.annotations[index] = summary
+			return
+		}
+	}
+	s.annotations = append(s.annotations, summary)
+	sort.Slice(s.annotations, func(i, j int) bool { return s.annotations[i].ID < s.annotations[j].ID })
 }
 
 func annotationErrorText(err error) string {
@@ -209,7 +217,7 @@ func (s *appState) updateInlineAnnotation(annotationID uint64, body string, done
 			}
 			if err == nil {
 				s.SetState(func() {
-					s.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationUpdated, Annotation: &updated})
+					s.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationUpdatedEvent{AnnotationID: updated.ID, Annotation: &updated}})
 				})
 			}
 			done(err)
@@ -239,7 +247,7 @@ func (s *appState) createInlineAnnotation(anchor protocol.AnnotationAnchor, body
 			}
 			if err == nil {
 				s.SetState(func() {
-					s.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationCreated, Annotation: &created})
+					s.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationCreatedEvent{AnnotationID: created.ID, Annotation: &created}})
 				})
 			}
 			if done != nil {

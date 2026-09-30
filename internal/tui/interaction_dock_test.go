@@ -200,8 +200,8 @@ func TestPluginConfirmationHonorsLabelsDefaultAndFocusTraversal(t *testing.T) {
 func TestPluginDialogMetadataHasOneEventOwnerDuringModelRun(t *testing.T) {
 	state := appState{session: protocol.SessionInfo{ID: "session"}, activeRunID: "run", liveAssistant: -1, liveTools: make(map[string]int)}
 	request := protocol.InteractionRequest{ID: "plugin_request", Plugin: &protocol.PluginInteractionOwner{PluginID: "demo", Instance: "host:1"}, Kind: protocol.InteractionConfirm, Title: "Plugin action"}
-	requested := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 1, Kind: protocol.SessionEventInteractionRequested, Interaction: &request}
-	resolved := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 2, Kind: protocol.SessionEventInteractionResolved, InteractionID: request.ID, InteractionResolution: "answered"}
+	requested := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 1, Payload: protocol.InteractionRequestedEvent{Interaction: &request}}
+	resolved := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 2, Payload: protocol.InteractionResolvedEvent{InteractionID: request.ID, InteractionResolution: "answered"}}
 	state.applySessionMetadataEvents([]protocol.SessionEvent{requested})
 	if len(state.pendingInteractions) != 1 || state.pendingInteractions[0].ID != request.ID || !state.agentFeedbackPending {
 		t.Fatalf("plugin dialog during model run = %#v", state.pendingInteractions)
@@ -216,11 +216,11 @@ func TestPluginDialogMetadataHasOneEventOwnerDuringModelRun(t *testing.T) {
 	model.ID = "model_request"
 	model.RunID = "run"
 	model.ToolCallID = "tool"
-	requested.Interaction = &model
+	requested.Payload = protocol.InteractionRequestedEvent{Interaction: &model}
 	requested.RunID = "run"
 	requested.Sequence = 3
 	resolved.RunID = "run"
-	resolved.InteractionID = model.ID
+	resolved.Payload = protocol.InteractionResolvedEvent{InteractionID: model.ID, InteractionResolution: "answered"}
 	resolved.Sequence = 4
 	state.applyRunEvents([]protocol.SessionEvent{requested, resolved})
 	state.applySessionMetadataEvents([]protocol.SessionEvent{requested})
