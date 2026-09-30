@@ -302,7 +302,7 @@ func TestRunAbortSuccessWaitsForAuthoritativeTerminalEvent(t *testing.T) {
 		t.Fatal("successful abort RPC prematurely settled run")
 	}
 	state.SetState(func() {
-		state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream", Sequence: 5, Kind: protocol.SessionEventRunFinished, RunID: "run_abort", Status: protocol.RunStatusAborted}})
+		state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream", Sequence: 5, RunID: "run_abort", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusAborted}}})
 	})
 	application.Pump(120, 36)
 	if state.runStopping {

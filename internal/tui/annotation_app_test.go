@@ -44,17 +44,17 @@ func TestApplyAnnotationEventsKeepsOrderedLiveChips(t *testing.T) {
 		}
 	}
 	second, first := annotation(2, "second"), annotation(1, "first")
-	state.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationCreated, Annotation: &second})
-	state.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationCreated, Annotation: &first})
+	state.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationCreatedEvent{Annotation: &second}})
+	state.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationCreatedEvent{Annotation: &first}})
 	if got := state.annotationIDs(); !reflect.DeepEqual(got, []uint64{1, 2}) {
 		t.Fatalf("annotation ids = %v", got)
 	}
 	first.Body = "updated"
-	state.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationUpdated, Annotation: &first})
+	state.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationUpdatedEvent{Annotation: &first}})
 	if state.annotations[0].BodyPreview != "updated" {
 		t.Fatalf("updated annotation = %+v", state.annotations[0])
 	}
-	state.applyAnnotationEvent(protocol.SessionEvent{Kind: protocol.SessionEventAnnotationSubmitted, AnnotationIDs: []uint64{2, 1}})
+	state.applyAnnotationEvent(protocol.SessionEvent{Payload: protocol.AnnotationSubmittedEvent{AnnotationIDs: []uint64{2, 1}}})
 	if len(state.annotations) != 0 {
 		t.Fatalf("submitted annotations remain = %+v", state.annotations)
 	}

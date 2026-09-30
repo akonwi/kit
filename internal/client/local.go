@@ -623,12 +623,13 @@ func reconcileScratchpad(current, incoming *protocol.Scratchpad) (*protocol.Scra
 func (c *localSession) reduceScratchpadEvents(events []protocol.SessionEvent) ([]protocol.SessionEvent, error) {
 	filtered := make([]protocol.SessionEvent, 0, len(events))
 	for _, event := range events {
-		if event.Kind != protocol.SessionEventScratchpadChanged || event.Scratchpad == nil {
+		payload, ok := event.Payload.(protocol.ScratchpadChangedEvent)
+		if event.Kind() != protocol.SessionEventScratchpadChanged || !ok || payload.Scratchpad == nil {
 			filtered = append(filtered, event)
 			continue
 		}
 		c.mu.Lock()
-		merged, changed, err := reconcileScratchpad(c.snapshot.Scratchpad, event.Scratchpad)
+		merged, changed, err := reconcileScratchpad(c.snapshot.Scratchpad, payload.Scratchpad)
 		if err == nil && changed {
 			c.snapshot.Scratchpad = merged
 			c.cacheGeneration++
@@ -639,7 +640,7 @@ func (c *localSession) reduceScratchpadEvents(events []protocol.SessionEvent) ([
 		}
 		if changed {
 			copy := event
-			copy.Scratchpad = merged
+			copy.Payload = protocol.ScratchpadChangedEvent{Scratchpad: merged}
 			filtered = append(filtered, copy)
 		}
 	}
@@ -1087,22 +1088,22 @@ func (s *localEventStream) readSSE(
 				continue
 			}
 			if event.RunID != runID {
-				if isSessionScopedEvent(event.Kind) {
+				if isSessionScopedEvent(event.Kind()) {
 					matching = append(matching, event)
 				}
 				continue
 			}
 			if !seenRunStart {
-				if event.Kind != protocol.SessionEventRunStarted {
+				if event.Kind() != protocol.SessionEventRunStarted {
 					s.err = errEventResyncRequired
 					return false
 				}
 				seenRunStart = true
 			}
 			if resumedFromSnapshot && activeAssistantMessageID == "" {
-				switch event.Kind {
+				switch event.Kind() {
 				case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta, protocol.SessionEventToolPlanned:
-					activeAssistantMessageID = event.MessageID
+					activeAssistantMessageID = sessionEventMessageID(event)
 				case protocol.SessionEventAssistantCompleted:
 					matching = append(matching, event)
 					continue
@@ -1115,10 +1116,10 @@ func (s *localEventStream) readSSE(
 				return false
 			}
 			matching = append(matching, event)
-			if event.Kind == protocol.SessionEventRunStarted || event.Kind == protocol.SessionEventAssistantStarted {
+			if event.Kind() == protocol.SessionEventRunStarted || event.Kind() == protocol.SessionEventAssistantStarted {
 				resumedFromSnapshot = false
 			}
-			finished = finished || event.Kind == protocol.SessionEventRunFinished
+			finished = finished || event.Kind() == protocol.SessionEventRunFinished
 		}
 		if len(matching) > 0 {
 			select {
@@ -1168,23 +1169,39 @@ func (s *localEventStream) readSSE(
 	}
 }
 
+func sessionEventMessageID(event protocol.SessionEvent) string {
+	switch payload := event.Payload.(type) {
+	case protocol.AssistantStartedEvent:
+		return payload.MessageID
+	case protocol.AssistantTextDeltaEvent:
+		return payload.MessageID
+	case protocol.ThinkingDeltaEvent:
+		return payload.MessageID
+	case protocol.AssistantCompletedEvent:
+		return payload.MessageID
+	case protocol.ToolPlannedEvent:
+		return payload.MessageID
+	}
+	return ""
+}
+
 func reduceAssistantMessageID(current string, event protocol.SessionEvent) (string, error) {
-	switch event.Kind {
+	switch event.Kind() {
 	case protocol.SessionEventRunStarted:
 		return "", nil
 	case protocol.SessionEventAssistantStarted:
 		if current != "" {
-			return current, fmt.Errorf("assistant message %q started before %q completed", event.MessageID, current)
+			return current, fmt.Errorf("assistant message %q started before %q completed", sessionEventMessageID(event), current)
 		}
-		return event.MessageID, nil
+		return sessionEventMessageID(event), nil
 	case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta, protocol.SessionEventToolPlanned:
-		if current == "" || event.MessageID != current {
-			return current, fmt.Errorf("assistant update message id %q does not match active message %q", event.MessageID, current)
+		if current == "" || sessionEventMessageID(event) != current {
+			return current, fmt.Errorf("assistant update message id %q does not match active message %q", sessionEventMessageID(event), current)
 		}
 		return current, nil
 	case protocol.SessionEventAssistantCompleted:
-		if current == "" || event.MessageID != current {
-			return current, fmt.Errorf("completed assistant message id %q does not match active message %q", event.MessageID, current)
+		if current == "" || sessionEventMessageID(event) != current {
+			return current, fmt.Errorf("completed assistant message id %q does not match active message %q", sessionEventMessageID(event), current)
 		}
 		return "", nil
 	case protocol.SessionEventRunFinished:

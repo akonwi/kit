@@ -232,8 +232,8 @@ func TestTallLiveResponseStartsAtTopForReading(t *testing.T) {
 	}
 	pump()
 	state.SetState(func() {
-		state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventAssistantCompleted,
-			MessageID: "assistant_1", TurnID: "turn_1", Text: tallSectionedResponse()}})
+		state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1,
+			TurnID: "turn_1", Payload: protocol.AssistantCompletedEvent{MessageID: "assistant_1", Text: tallSectionedResponse()}}})
 	})
 	pump()
 	metrics := state.scroll.Metrics()
@@ -287,8 +287,8 @@ func TestLiveResponseArrivalRespectsHeightAndManualScroll(t *testing.T) {
 			}
 			before := state.scroll.Metrics().ScrollOffset
 			state.SetState(func() {
-				state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventAssistantCompleted,
-					MessageID: "new_assistant", TurnID: "turn_latest", Text: test.text}})
+				state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1,
+					TurnID: "turn_latest", Payload: protocol.AssistantCompletedEvent{MessageID: "new_assistant", Text: test.text}}})
 			})
 			for range 8 {
 				app.Pump(width, height)

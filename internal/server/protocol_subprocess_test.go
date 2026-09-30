@@ -372,7 +372,7 @@ func TestProtocolClientHelper(t *testing.T) {
 		t.Fatalf("rename: %+v, %v", renamed, err)
 	}
 	batch, err := client.GetSessionEvents(ctx, created.ID, snapshot.EventStreamID, snapshot.EventCursor)
-	if err != nil || batch.ResyncRequired || len(batch.Events) != 1 || batch.Events[0].Kind != protocol.SessionEventSessionRenamed {
+	if err != nil || batch.ResyncRequired || len(batch.Events) != 1 || batch.Events[0].Kind() != protocol.SessionEventSessionRenamed {
 		t.Fatalf("event replay: %+v, %v", batch, err)
 	}
 	staleStream, err := identifier.New("stream_")

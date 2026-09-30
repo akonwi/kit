@@ -21,16 +21,16 @@ import (
 func TestRecoveredRunStatusClearsOnlyOnFreshEvidence(t *testing.T) {
 	t.Parallel()
 	state := appState{recovery: footerReconnectingActivity, liveSequence: 7, runPending: true}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Kind: protocol.SessionEventUsageUpdated}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Payload: protocol.UsageUpdatedEvent{}}})
 	if state.recovery != footerReconnectingActivity {
 		t.Fatalf("stale event changed recovery to %v", state.recovery)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Kind: protocol.SessionEventUsageUpdated}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Payload: protocol.UsageUpdatedEvent{}}})
 	if state.recovery != footerHealthy {
 		t.Fatalf("fresh event left recovery at %v", state.recovery)
 	}
 	state.recovery = footerSyncingFinalTranscript
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 9, Kind: protocol.SessionEventUsageUpdated}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 9, Payload: protocol.UsageUpdatedEvent{}}})
 	if state.recovery != footerSyncingFinalTranscript {
 		t.Fatalf("run event cleared transcript sync: %v", state.recovery)
 	}
@@ -168,7 +168,7 @@ func TestSessionRenameEventUpdatesAttachedSessionAndExplorer(t *testing.T) {
 		}}},
 	}
 	state.applySessionMetadataEvents([]protocol.SessionEvent{{
-		StreamID: "stream_1", Sequence: 3, SessionID: "session_1", Kind: protocol.SessionEventSessionRenamed, SessionName: "After",
+		StreamID: "stream_1", Sequence: 3, SessionID: "session_1", Payload: protocol.SessionRenamedEvent{SessionName: "After"},
 	}})
 	state.applySnapshot(protocol.SessionSnapshot{
 		Session: protocol.SessionInfo{ID: "session_1", Name: "Before"}, EventStreamID: "stream_1", EventCursor: 2,
@@ -271,10 +271,10 @@ func TestAttachedSnapshotReconcilesCompletedAndSuccessorRuns(t *testing.T) {
 func TestAttachedRunLifecycleFindsAutonomousRunBoundaries(t *testing.T) {
 	t.Parallel()
 	started, finished, status := attachedRunLifecycle([]protocol.SessionEvent{
-		{Kind: protocol.SessionEventSubagentChanged},
-		{Kind: protocol.SessionEventRunStarted, RunID: "run_autonomous", Status: protocol.RunStatusRunning},
-		{Kind: protocol.SessionEventAssistantCompleted, RunID: "run_autonomous"},
-		{Kind: protocol.SessionEventRunFinished, RunID: "run_autonomous", Status: protocol.RunStatusCompleted},
+		{Payload: protocol.SubagentChangedEvent{}},
+		{RunID: "run_autonomous", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}},
+		{RunID: "run_autonomous", Payload: protocol.AssistantCompletedEvent{}},
+		{RunID: "run_autonomous", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}},
 	})
 	if started != "run_autonomous" || finished != "run_autonomous" || status != protocol.RunStatusCompleted {
 		t.Fatalf("attached lifecycle = started:%q finished:%q status:%q", started, finished, status)
@@ -287,8 +287,7 @@ func TestProviderRetryEventsDriveCountdownState(t *testing.T) {
 	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 1, Kind: protocol.SessionEventProviderRetryScheduled,
-		ProviderRetry: &protocol.ProviderRetry{Count: 2, RetryAt: now.Add(3500 * time.Millisecond).Format(time.RFC3339Nano)},
+		Sequence: 1, Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 2, RetryAt: now.Add(3500 * time.Millisecond).Format(time.RFC3339Nano)}},
 	}})
 	if got := state.presentedTurnActivity(now); got != "Retry 2 in 4s…" {
 		t.Fatalf("scheduled retry activity = %q", got)
@@ -303,8 +302,7 @@ func TestProviderRetryEventsDriveCountdownState(t *testing.T) {
 	}
 	state.runStopping = false
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 2, Kind: protocol.SessionEventProviderRetryStarted,
-		ProviderRetry: &protocol.ProviderRetry{Count: 2},
+		Sequence: 2, Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 2}},
 	}})
 	if state.providerRetry != nil || state.presentedTurnActivity(now) != "Working…" {
 		t.Fatalf("started retry state = retry %+v activity %q", state.providerRetry, state.presentedTurnActivity(now))
@@ -328,19 +326,19 @@ func TestProviderRetrySnapshotRestoresCountdownState(t *testing.T) {
 func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Kind: protocol.SessionEventCompactionStarted, CompactionID: "compact_00000000000000000000000000000001"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.CompactionStartedEvent{CompactionID: "compact_00000000000000000000000000000001"}}})
 	if state.turnActivity != "Compacting session…" {
 		t.Fatalf("started compaction activity = %q", state.turnActivity)
 	}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 2, Kind: protocol.SessionEventCompactionCompleted, CompactionID: "compact_00000000000000000000000000000001"},
-		{Sequence: 3, Kind: protocol.SessionEventContextUpdated, ContextTokens: 20, ContextWindow: 200},
+		{Sequence: 2, Payload: protocol.CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000001"}},
+		{Sequence: 3, Payload: protocol.ContextUpdatedEvent{ContextTokens: 20, ContextWindow: 200}},
 	})
 	if state.turnActivity != "Working…" || state.contextTokens != 20 || state.contextWindow != 200 || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
 		toasts[0].Subtitle != "Session context was compacted." || toasts[0].Variant != toastInfo {
 		t.Fatalf("completed compaction activity=%q context=%d/%d toasts=%+v", state.turnActivity, state.contextTokens, state.contextWindow, toasts)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Kind: protocol.SessionEventCompactionFailed, CompactionID: "compact_00000000000000000000000000000002", ErrorMessage: "Context compaction failed"}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Payload: protocol.CompactionFailedEvent{CompactionID: "compact_00000000000000000000000000000002", ErrorMessage: "Context compaction failed"}}})
 	if len(toasts) != 2 || toasts[1].Title != "Auto-compaction failed" || toasts[1].Subtitle != "Context compaction failed" || toasts[1].Variant != toastError {
 		t.Fatalf("failed compaction toasts = %+v", toasts)
 	}
@@ -361,15 +359,15 @@ func TestCompactionSnapshotAndDelayedEventsDoNotRegressNewerOperation(t *testing
 		t.Fatalf("restored compaction = %q activity=%q", state.activeCompactionID, state.turnActivity)
 	}
 
-	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 5, Kind: protocol.SessionEventCompactionStarted, CompactionID: second}})
+	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 5, Payload: protocol.CompactionStartedEvent{CompactionID: second}}})
 	state.applySnapshot(protocol.SessionSnapshot{ActiveRunID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
 		ActiveCompaction: &protocol.ActiveCompaction{ID: first, RunID: "turn_test"}})
-	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 6, Kind: protocol.SessionEventCompactionCompleted, CompactionID: first}})
+	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 6, Payload: protocol.CompactionCompletedEvent{CompactionID: first}}})
 	if state.activeCompactionID != second || state.turnActivity != "Compacting session…" || len(toasts) != 0 {
 		t.Fatalf("delayed state regressed: active=%q activity=%q toasts=%+v", state.activeCompactionID, state.turnActivity, toasts)
 	}
 
-	outcome := protocol.SessionEvent{StreamID: "stream_test", Kind: protocol.SessionEventCompactionCompleted, CompactionID: second}
+	outcome := protocol.SessionEvent{StreamID: "stream_test", Payload: protocol.CompactionCompletedEvent{CompactionID: second}}
 	outcome.Sequence = 7
 	state.applyRunEvents([]protocol.SessionEvent{outcome})
 	outcome.Sequence = 8
@@ -389,8 +387,8 @@ func TestCompletedChangeCWDToolUpdatesSessionScopeAndRequestsToast(t *testing.T)
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
 	changed := state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 1, Kind: protocol.SessionEventToolCompleted,
-		TurnID: "turn_1", ToolCallID: "call_1", ToolName: "change_cwd", Details: details,
+		Sequence: 1,
+		TurnID:   "turn_1", Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "change_cwd", Details: details},
 	}})
 	if changed != "/repo/nested" || state.session.CWD != "/repo/nested" || state.location != "/repo/nested" {
 		t.Fatalf("cwd completion changed=%q session=%q location=%q", changed, state.session.CWD, state.location)
@@ -404,8 +402,8 @@ func TestSubagentFallbackToolResultRequestsEphemeralToast(t *testing.T) {
 	}
 	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 1, Kind: protocol.SessionEventToolCompleted,
-		TurnID: "turn_1", ToolCallID: "call_1", ToolName: "subagent", Details: details,
+		Sequence: 1,
+		TurnID:   "turn_1", Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "subagent", Details: details},
 	}})
 	if len(state.eventToasts) != 1 {
 		t.Fatalf("subagent fallback toasts = %+v", state.eventToasts)
@@ -623,7 +621,7 @@ func TestAssistantStartedSurfacesInitialThinkingContent(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted, Thinking: "**Considering options**"},
+		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1", Thinking: "**Considering options**"}},
 	})
 	if state.turnThinking != "**Considering options**" || len(state.liveMessages) != 1 || state.liveMessages[0].Thinking != "**Considering options**" {
 		t.Fatalf("initial thinking state = content %q messages %+v", state.turnThinking, state.liveMessages)
@@ -635,15 +633,15 @@ func TestAssistantTextDeltaDoesNotMoveTranscriptUntilCompletion(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 2, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "partial response"},
+		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1"}},
+		{Sequence: 2, TurnID: "turn_1", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_1", ContentIndex: 0, Delta: "partial response"}},
 	})
 	if state.needsScroll || len(state.liveMessages) != 1 || state.liveMessages[0].Text != "partial response" || !state.liveMessages[0].Pending {
 		t.Fatalf("buffered response = messages %+v needsScroll %v", state.liveMessages, state.needsScroll)
 	}
 
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 3, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantCompleted,
+		Sequence: 3, TurnID: "turn_1", Payload: protocol.AssistantCompletedEvent{MessageID: "message_1"},
 	}})
 	if !state.needsScroll || state.liveMessages[0].Pending {
 		t.Fatalf("completed response = messages %+v needsScroll %v", state.liveMessages, state.needsScroll)
@@ -655,10 +653,10 @@ func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 2, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 0, Delta: "reasoning"},
-		{Sequence: 3, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 1, Delta: "partial response"},
-		{Sequence: 4, TurnID: "turn_1", MessageID: "message_1", Kind: protocol.SessionEventAssistantCompleted, Text: "final response"},
+		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1"}},
+		{Sequence: 2, TurnID: "turn_1", Payload: protocol.ThinkingDeltaEvent{MessageID: "message_1", ContentIndex: 0, Delta: "reasoning"}},
+		{Sequence: 3, TurnID: "turn_1", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_1", ContentIndex: 1, Delta: "partial response"}},
+		{Sequence: 4, TurnID: "turn_1", Payload: protocol.AssistantCompletedEvent{MessageID: "message_1", Text: "final response"}},
 	})
 	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "final response" || state.liveMessages[0].Thinking != "reasoning" {
 		t.Fatalf("text-only completion = %+v", state.liveMessages)
@@ -666,10 +664,10 @@ func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T
 
 	state = appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 2, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "response"},
-		{Sequence: 3, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventThinkingDelta, ContentIndex: 1, Delta: "partial reasoning"},
-		{Sequence: 4, TurnID: "turn_2", MessageID: "message_2", Kind: protocol.SessionEventAssistantCompleted, Thinking: "final reasoning"},
+		{Sequence: 1, TurnID: "turn_2", Payload: protocol.AssistantStartedEvent{MessageID: "message_2"}},
+		{Sequence: 2, TurnID: "turn_2", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_2", ContentIndex: 0, Delta: "response"}},
+		{Sequence: 3, TurnID: "turn_2", Payload: protocol.ThinkingDeltaEvent{MessageID: "message_2", ContentIndex: 1, Delta: "partial reasoning"}},
+		{Sequence: 4, TurnID: "turn_2", Payload: protocol.AssistantCompletedEvent{MessageID: "message_2", Thinking: "final reasoning"}},
 	})
 	if len(state.liveMessages) != 1 || state.liveMessages[0].Text != "response" || state.liveMessages[0].Thinking != "final reasoning" {
 		t.Fatalf("thinking-only completion = %+v", state.liveMessages)
@@ -681,12 +679,12 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
-		{Sequence: 2, Kind: protocol.SessionEventUserMessage, Text: "read it"},
-		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 5, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 6, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
+		{Sequence: 1, Payload: protocol.RunStartedEvent{}},
+		{Sequence: 2, Payload: protocol.UserMessageEvent{Text: "read it"}},
+		{Sequence: 3, Payload: protocol.AssistantStartedEvent{MessageID: "message_test"}},
+		{Sequence: 4, Payload: protocol.ToolPlannedEvent{MessageID: "message_test", ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
+		{Sequence: 5, Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
+		{Sequence: 6, Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
 	})
 	if len(state.liveMessages) != 3 {
 		t.Fatalf("live messages = %+v, want user, tool-bearing assistant, and tool result", state.liveMessages)
@@ -702,18 +700,17 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventToolStarted, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("con")}},
-		{Sequence: 3, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("tents")}},
+		{Sequence: 1, Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
+		{Sequence: 2, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("con")}}},
+		{Sequence: 3, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("tents")}}},
 	})
 	if tool := liveToolMessage(t, &state, "call_1"); tool.Text != "contents" || !tool.Pending {
 		t.Fatalf("streamed tool = %+v", state.liveMessages)
 	}
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 4, Kind: protocol.SessionEventToolCompleted,
-		ToolCallID: "call_1", ToolName: "read",
-		Content: []protocol.TranscriptContent{protocol.TextBlock("authoritative contents")},
-		Details: json.RawMessage(`{"lines":1}`),
+		Sequence: 4, Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read",
+			Content: []protocol.TranscriptContent{protocol.TextBlock("authoritative contents")},
+			Details: json.RawMessage(`{"lines":1}`)},
 	}})
 	tool := liveToolMessage(t, &state, "call_1")
 	if tool.Text != "authoritative contents" || tool.Pending || string(tool.ToolDetails) != `{"lines":1}` {
@@ -727,8 +724,8 @@ func TestToolResultDeltaPreviewIsCumulativelyBounded(t *testing.T) {
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	chunk := strings.Repeat("x", 40<<10)
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}},
-		{Sequence: 2, Kind: protocol.SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}},
+		{Sequence: 1, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
+		{Sequence: 2, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
 	})
 	tool := liveToolMessage(t, &state, "call_1")
 	if !tool.ToolContentTruncated || len(tool.ToolContent) != 2 || !strings.HasSuffix(tool.Text, "… live output truncated") || len(tool.Text) > maxLiveToolPreviewBytes+64 {
@@ -741,11 +738,11 @@ func TestUnexecutedToolPlanSettlesWhenRunFinishes(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Kind: protocol.SessionEventRunStarted},
-		{Sequence: 2, MessageID: "message_test", Kind: protocol.SessionEventAssistantStarted},
-		{Sequence: 3, MessageID: "message_test", Kind: protocol.SessionEventToolPlanned, ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`},
-		{Sequence: 4, MessageID: "message_test", Kind: protocol.SessionEventAssistantCompleted},
-		{Sequence: 5, Kind: protocol.SessionEventRunFinished},
+		{Sequence: 1, Payload: protocol.RunStartedEvent{}},
+		{Sequence: 2, Payload: protocol.AssistantStartedEvent{MessageID: "message_test"}},
+		{Sequence: 3, Payload: protocol.ToolPlannedEvent{MessageID: "message_test", ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
+		{Sequence: 4, Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
+		{Sequence: 5, Payload: protocol.RunFinishedEvent{}},
 	})
 	if tool := liveToolMessage(t, &state, "call_1"); tool.Pending || tool.ToolStatus != "Not run" {
 		t.Fatalf("settled tool plan = %+v", state.liveMessages)
@@ -760,12 +757,12 @@ func TestStoppingTurnActivityTakesPrecedenceUntilRunFinishes(t *testing.T) {
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
 	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, MessageID: "message_test", Kind: protocol.SessionEventAssistantTextDelta, ContentIndex: 0, Delta: "late output"},
+		{Sequence: 1, Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_test", ContentIndex: 0, Delta: "late output"}},
 	})
 	if state.turnActivity != "Stopping…" {
 		t.Fatalf("activity after buffered delta = %q, want Stopping…", state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Kind: protocol.SessionEventRunFinished}})
+	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Payload: protocol.RunFinishedEvent{}}})
 	if state.turnActivity != "" {
 		t.Fatalf("activity after run finish = %q, want blank", state.turnActivity)
 	}
@@ -779,13 +776,13 @@ func TestTerminalRunStatusStopsBeforeTranscriptSettlement(t *testing.T) {
 		liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 1, RunID: "run_1", Kind: protocol.SessionEventRunFinished,
+		Sequence: 1, RunID: "run_1", Payload: protocol.RunFinishedEvent{},
 	}})
 	if state.terminalRunActive || !state.runPending {
 		t.Fatalf("terminal settlement = active %t admission pending %t", state.terminalRunActive, state.runPending)
 	}
 	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 2, RunID: "run_1", Kind: protocol.SessionEventRunStarted,
+		Sequence: 2, RunID: "run_1", Payload: protocol.RunStartedEvent{},
 	}})
 	if state.terminalRunActive {
 		t.Fatal("delayed start event reactivated a settled run")

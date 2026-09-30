@@ -483,7 +483,7 @@ func TestScratchpadMetadataEventPreservesDirtyDraft(t *testing.T) {
 	state.scratchpad.edit("mine")
 	remote := testScratchpad(2, "theirs")
 	state.applySessionMetadataEvents([]protocol.SessionEvent{{
-		Kind: protocol.SessionEventScratchpadChanged, SessionID: "session_bound", StreamID: "stream", Sequence: 2, Scratchpad: &remote,
+		SessionID: "session_bound", StreamID: "stream", Sequence: 2, Payload: protocol.ScratchpadChangedEvent{Scratchpad: &remote},
 	}})
 	if state.scratchpad.State != scratchpadConflict || state.scratchpad.Draft != "mine" || state.scratchpad.Conflict == nil || *state.scratchpad.Conflict != remote {
 		t.Fatalf("event reconcile = %+v", state.scratchpad)

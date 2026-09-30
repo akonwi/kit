@@ -95,20 +95,18 @@ func TestAnnotationPageRequiresOrderedNonNilEntries(t *testing.T) {
 func TestAnnotationSessionEventValidation(t *testing.T) {
 	annotation := validTestAnnotation()
 	event := SessionEvent{
-		StreamID: "stream_test", Sequence: 1, SessionID: annotation.SessionID,
-		Kind: SessionEventAnnotationCreated, AnnotationID: annotation.ID, Annotation: &annotation,
+		StreamID: "stream_test", Sequence: 1, SessionID: annotation.SessionID, Payload: AnnotationCreatedEvent{AnnotationID: annotation.ID, Annotation: &annotation},
 	}
 	if err := event.Validate(); err != nil {
 		t.Fatalf("valid annotation event: %v", err)
 	}
-	event.AnnotationID = 0
+	event.Payload = AnnotationCreatedEvent{Annotation: &annotation}
 	if err := event.Validate(); err == nil {
 		t.Fatal("annotation event without id was valid")
 	}
 	submitted := SessionEvent{
-		StreamID: "stream_test", Sequence: 2, SessionID: annotation.SessionID,
-		Kind: SessionEventAnnotationSubmitted, AnnotationIDs: []uint64{2, 1},
-		AcceptedMessageID: "message_0123456789abcdef0123456789abcdef",
+		StreamID: "stream_test", Sequence: 2, SessionID: annotation.SessionID, Payload: AnnotationSubmittedEvent{AnnotationIDs: []uint64{2, 1},
+			AcceptedMessageID: "message_0123456789abcdef0123456789abcdef"},
 	}
 	if err := submitted.Validate(); err != nil {
 		t.Fatalf("valid submission event: %v", err)

@@ -52,47 +52,33 @@ const (
 
 // SessionEvent is one ordered update in a loaded runtime stream.
 type SessionEvent struct {
-	StreamID               string              `json:"streamId"`
-	Sequence               int64               `json:"sequence"`
-	SessionID              string              `json:"sessionId"`
-	TurnID                 string              `json:"turnId"`
-	RunID                  string              `json:"runId"`
-	MessageID              string              `json:"messageId,omitempty"`
-	Kind                   SessionEventKind    `json:"kind"`
-	ContentIndex           int                 `json:"contentIndex,omitempty"`
-	Delta                  string              `json:"delta,omitempty"`
-	Text                   string              `json:"text,omitempty"`
-	Thinking               string              `json:"thinking,omitempty"`
-	ToolCallID             string              `json:"toolCallId,omitempty"`
-	ToolName               string              `json:"toolName,omitempty"`
-	Arguments              string              `json:"arguments,omitempty"`
-	ArgumentsTruncated     bool                `json:"argumentsTruncated,omitempty"`
-	Content                []TranscriptContent `json:"content,omitempty"`
-	ContentTruncated       bool                `json:"contentTruncated,omitempty"`
-	Details                json.RawMessage     `json:"details,omitempty"`
-	DetailsOmitted         bool                `json:"detailsOmitted,omitempty"`
-	IsError                bool                `json:"isError,omitempty"`
-	Status                 RunStatus           `json:"status,omitempty"`
-	ErrorKind              ProviderErrorKind   `json:"errorKind,omitempty"`
-	ErrorMessage           string              `json:"errorMessage,omitempty"`
-	CompactionID           string              `json:"compactionId,omitempty"`
-	ProviderRetry          *ProviderRetry      `json:"providerRetry,omitempty"`
-	ContextTokens          int                 `json:"contextTokens,omitempty"`
-	ContextWindow          int                 `json:"contextWindow,omitempty"`
-	Usage                  *SessionUsage       `json:"usage,omitempty"`
-	SessionName            string              `json:"sessionName,omitempty"`
-	Workspace              *WorkspaceRef       `json:"workspace,omitempty"`
-	SubagentConversationID string              `json:"subagentConversationId,omitempty"`
-	SubagentTaskID         string              `json:"subagentTaskId,omitempty"`
-	PeerRequestID          string              `json:"peerRequestId,omitempty"`
-	Interaction            *InteractionRequest `json:"interaction,omitempty"`
-	InteractionID          string              `json:"interactionId,omitempty"`
-	InteractionResolution  string              `json:"interactionResolution,omitempty"`
-	AnnotationID           uint64              `json:"annotationId,omitempty"`
-	Annotation             *Annotation         `json:"annotation,omitempty"`
-	AnnotationIDs          []uint64            `json:"annotationIds,omitempty"`
-	AcceptedMessageID      string              `json:"acceptedMessageId,omitempty"`
-	Scratchpad             *Scratchpad         `json:"scratchpad,omitempty"`
+	StreamID  string              `json:"streamId"`
+	Sequence  int64               `json:"sequence"`
+	SessionID string              `json:"sessionId"`
+	TurnID    string              `json:"turnId"`
+	RunID     string              `json:"runId"`
+	Payload   SessionEventPayload `json:"-"`
+}
+
+// Kind returns the discriminator declared by Payload.
+func (event SessionEvent) Kind() SessionEventKind {
+	if event.Payload == nil {
+		return ""
+	}
+	return event.Payload.sessionEventKind()
+}
+
+// MarshalJSON preserves the established flat event transport shape.
+func (event SessionEvent) MarshalJSON() ([]byte, error) { return encodeSessionEventUnion(event) }
+
+// UnmarshalJSON strictly decodes the established flat event transport shape.
+func (event *SessionEvent) UnmarshalJSON(data []byte) error {
+	decoded, err := decodeSessionEventUnion(data)
+	if err != nil {
+		return err
+	}
+	*event = decoded
+	return nil
 }
 
 // SessionEventBatch is one bounded page after a client's cursor.
@@ -106,7 +92,23 @@ type SessionEventBatch struct {
 }
 
 // Validate checks an event received across a transport boundary.
+// Validate checks an event received across a transport boundary.
 func (event SessionEvent) Validate() error {
+	if event.Payload == nil {
+		return fmt.Errorf("session event payload is required")
+	}
+	data, err := event.MarshalJSON()
+	if err != nil {
+		return err
+	}
+	var wire sessionEventWire
+	if err := json.Unmarshal(data, &wire); err != nil {
+		return fmt.Errorf("decode session event wire: %w", err)
+	}
+	return wire.validate()
+}
+
+func (event sessionEventWire) validate() error {
 	if event.StreamID == "" || event.Sequence < 1 {
 		return fmt.Errorf("event stream id and positive sequence are required")
 	}
@@ -481,47 +483,50 @@ func (batch SessionEventBatch) Validate() error {
 		if err := event.Validate(); err != nil {
 			return fmt.Errorf("event %d: %w", index, err)
 		}
-		if batch.StreamID == "" || event.StreamID != batch.StreamID {
+		data, _ := event.MarshalJSON()
+		var wire sessionEventWire
+		_ = json.Unmarshal(data, &wire)
+		if batch.StreamID == "" || wire.StreamID != batch.StreamID {
 			return fmt.Errorf("event %d stream identity mismatch", index)
 		}
-		if event.Sequence <= previous {
+		if wire.Sequence <= previous {
 			return fmt.Errorf("event %d sequence is not increasing", index)
 		}
-		if index > 0 && event.Sequence != previous+1 {
+		if index > 0 && wire.Sequence != previous+1 {
 			return fmt.Errorf("event %d sequence is not contiguous", index)
 		}
-		if batch.FirstSequence > 0 && event.Sequence < batch.FirstSequence || batch.LastSequence > 0 && event.Sequence > batch.LastSequence {
+		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSessionCWDChanged || event.Kind == SessionEventScratchpadChanged || event.Kind == SessionEventSubagentChanged || event.Kind == SessionEventPeerQueryChanged || event.Kind == SessionEventAnnotationCreated || event.Kind == SessionEventAnnotationUpdated || event.Kind == SessionEventAnnotationDeleted || event.Kind == SessionEventAnnotationSubmitted {
-			previous = event.Sequence
+		if wire.Kind == SessionEventSessionRenamed || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted {
+			previous = wire.Sequence
 			continue
 		}
-		if event.RunID != activeAssistantRunID || event.Kind == SessionEventRunStarted {
-			activeAssistantRunID = event.RunID
+		if wire.RunID != activeAssistantRunID || wire.Kind == SessionEventRunStarted {
+			activeAssistantRunID = wire.RunID
 			activeAssistantMessageID = ""
 		}
-		if event.MessageID != "" {
+		if wire.MessageID != "" {
 			if activeAssistantMessageID == "" {
-				activeAssistantMessageID = event.MessageID
-			} else if event.MessageID != activeAssistantMessageID {
-				return fmt.Errorf("event %d assistant message id %q does not match active message %q", index, event.MessageID, activeAssistantMessageID)
+				activeAssistantMessageID = wire.MessageID
+			} else if wire.MessageID != activeAssistantMessageID {
+				return fmt.Errorf("event %d assistant message id %q does not match active message %q", index, wire.MessageID, activeAssistantMessageID)
 			}
-			if event.Kind == SessionEventAssistantCompleted {
+			if wire.Kind == SessionEventAssistantCompleted {
 				activeAssistantMessageID = ""
 			}
 		}
-		if event.Kind == SessionEventRunFinished {
+		if wire.Kind == SessionEventRunFinished {
 			activeAssistantMessageID = ""
 		}
-		if event.Usage != nil {
-			if previousUsage != nil && protocolUsageDecreased(*previousUsage, *event.Usage) {
+		if wire.Usage != nil {
+			if previousUsage != nil && protocolUsageDecreased(*previousUsage, *wire.Usage) {
 				return fmt.Errorf("event %d session usage decreased", index)
 			}
-			copy := *event.Usage
+			copy := *wire.Usage
 			previousUsage = &copy
 		}
-		previous = event.Sequence
+		previous = wire.Sequence
 	}
 	return nil
 }

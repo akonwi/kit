@@ -2869,6 +2869,27 @@ func (s *appState) clearRecoveredRunStatus() {
 	}
 }
 
+type toolEventPayload struct {
+	MessageID, ToolCallID, ToolName, Arguments                    string
+	ArgumentsTruncated, ContentTruncated, DetailsOmitted, IsError bool
+	Content                                                       []protocol.TranscriptContent
+	Details                                                       json.RawMessage
+}
+
+func projectToolPayload(payload protocol.SessionEventPayload) toolEventPayload {
+	switch value := payload.(type) {
+	case protocol.ToolPlannedEvent:
+		return toolEventPayload{MessageID: value.MessageID, ToolCallID: value.ToolCallID, ToolName: value.ToolName, Arguments: value.Arguments, ArgumentsTruncated: value.ArgumentsTruncated}
+	case protocol.ToolStartedEvent:
+		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Arguments: value.Arguments, ArgumentsTruncated: value.ArgumentsTruncated}
+	case protocol.ToolUpdatedEvent:
+		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Content: value.Content, IsError: value.IsError}
+	case protocol.ToolCompletedEvent:
+		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Content: value.Content, ContentTruncated: value.ContentTruncated, Details: value.Details, DetailsOmitted: value.DetailsOmitted, IsError: value.IsError}
+	}
+	return toolEventPayload{}
+}
+
 func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 	transcriptChanged := false
 	changedCWD := ""
@@ -2882,82 +2903,84 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			s.liveStreamID = event.StreamID
 		}
 		s.applyAnnotationEvent(event)
-		switch event.Kind {
-		case protocol.SessionEventRunStarted:
+		switch payload := event.Payload.(type) {
+		case protocol.RunStartedEvent:
 			s.markTerminalRunStarted(event.RunID)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
-		case protocol.SessionEventUserMessage:
+		case protocol.UserMessageEvent:
 			transcriptChanged = true
 			if s.turnActivity == "" {
 				s.setTurnActivity("Working…")
 			}
 			if !s.liveHasUser {
-				s.liveMessages = append(s.liveMessages, transcriptMessage{
-					ID: "live-user:" + event.TurnID, TurnID: event.TurnID, Role: "user", Text: event.Text,
-				})
+				s.liveMessages = append(s.liveMessages, transcriptMessage{ID: "live-user:" + event.TurnID, TurnID: event.TurnID, Role: "user", Text: payload.Text})
 				s.liveHasUser = true
 			} else {
 				for index := range s.liveMessages {
 					if s.liveMessages[index].Role == "user" && s.liveMessages[index].TurnID == "" {
 						s.liveMessages[index].ID = "live-user:" + event.TurnID
 						s.liveMessages[index].TurnID = event.TurnID
-						s.liveMessages[index].Text = event.Text
+						s.liveMessages[index].Text = payload.Text
 						break
 					}
 				}
 			}
-		case protocol.SessionEventAssistantStarted:
-			transcriptChanged = transcriptChanged || event.Thinking != ""
+		case protocol.AssistantStartedEvent:
+			transcriptChanged = transcriptChanged || payload.Thinking != ""
 			s.setTurnActivity("Working…")
-			if event.Text == "" {
-				s.setTurnThinking(event.Thinking)
+			if payload.Text == "" {
+				s.setTurnThinking(payload.Thinking)
 			} else {
 				s.setTurnThinking("")
 			}
 			s.liveAssistant = len(s.liveMessages)
 			s.liveContent = make(map[int]liveContentBlock)
-			if event.Thinking != "" {
-				s.liveContent[-2] = liveContentBlock{kind: protocol.SessionEventThinkingDelta, text: event.Thinking}
+			if payload.Thinking != "" {
+				s.liveContent[-2] = liveContentBlock{kind: protocol.SessionEventThinkingDelta, text: payload.Thinking}
 			}
-			if event.Text != "" {
-				s.liveContent[-1] = liveContentBlock{kind: protocol.SessionEventAssistantTextDelta, text: event.Text}
+			if payload.Text != "" {
+				s.liveContent[-1] = liveContentBlock{kind: protocol.SessionEventAssistantTextDelta, text: payload.Text}
 			}
-			s.liveMessages = append(s.liveMessages, transcriptMessage{
-				ID: event.MessageID, TurnID: event.TurnID, Role: "assistant",
-				Text: event.Text, Thinking: event.Thinking, Pending: true,
-			})
-		case protocol.SessionEventAssistantTextDelta, protocol.SessionEventThinkingDelta:
-			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
-			block, exists := s.liveContent[event.ContentIndex]
-			if exists && block.kind != event.Kind {
+			s.liveMessages = append(s.liveMessages, transcriptMessage{ID: payload.MessageID, TurnID: event.TurnID, Role: "assistant", Text: payload.Text, Thinking: payload.Thinking, Pending: true})
+		case protocol.AssistantTextDeltaEvent:
+			index := s.ensureLiveAssistant(payload.MessageID, event.TurnID)
+			block, exists := s.liveContent[payload.ContentIndex]
+			if exists && block.kind != protocol.SessionEventAssistantTextDelta {
 				continue
 			}
-			block.kind = event.Kind
-			block.text += event.Delta
-			s.liveContent[event.ContentIndex] = block
+			block.kind = protocol.SessionEventAssistantTextDelta
+			block.text += payload.Delta
+			s.liveContent[payload.ContentIndex] = block
 			s.syncLiveAssistant(index)
-			if event.Kind == protocol.SessionEventThinkingDelta {
-				transcriptChanged = true
-				s.setTurnThinking(s.liveMessages[index].Thinking)
-				s.setTurnActivity(latestThinkingLine(s.liveMessages[index].Thinking))
-			} else {
-				s.setTurnThinking("")
-				s.setTurnActivity("Working…")
+			s.setTurnThinking("")
+			s.setTurnActivity("Working…")
+		case protocol.ThinkingDeltaEvent:
+			index := s.ensureLiveAssistant(payload.MessageID, event.TurnID)
+			block, exists := s.liveContent[payload.ContentIndex]
+			if exists && block.kind != protocol.SessionEventThinkingDelta {
+				continue
 			}
-		case protocol.SessionEventAssistantCompleted:
+			block.kind = protocol.SessionEventThinkingDelta
+			block.text += payload.Delta
+			s.liveContent[payload.ContentIndex] = block
+			s.syncLiveAssistant(index)
+			transcriptChanged = true
+			s.setTurnThinking(s.liveMessages[index].Thinking)
+			s.setTurnActivity(latestThinkingLine(s.liveMessages[index].Thinking))
+		case protocol.AssistantCompletedEvent:
 			transcriptChanged = true
 			arrival := s.transcriptVisible && !s.transcriptInitialLoading && scrollControllerPinnedToEnd(&s.scroll) && len(s.mainTranscriptPresentation().Items) > 0
-			index := s.ensureLiveAssistant(event.MessageID, event.TurnID)
-			if event.Text != "" {
-				s.liveMessages[index].Text = event.Text
+			index := s.ensureLiveAssistant(payload.MessageID, event.TurnID)
+			if payload.Text != "" {
+				s.liveMessages[index].Text = payload.Text
 			}
-			if event.Thinking != "" {
-				s.liveMessages[index].Thinking = event.Thinking
+			if payload.Thinking != "" {
+				s.liveMessages[index].Thinking = payload.Thinking
 			}
 			s.liveMessages[index].Pending = false
 			if arrival && strings.TrimSpace(s.liveMessages[index].Text) != "" {
-				s.transcriptArrivalID = event.MessageID
+				s.transcriptArrivalID = payload.MessageID
 			}
 			if s.liveMessages[index].Text == "" && s.liveMessages[index].Thinking == "" && len(s.liveMessages[index].ToolCalls) == 0 {
 				s.removeLiveMessage(index)
@@ -2966,48 +2989,50 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			s.liveContent = make(map[int]liveContentBlock)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
-		case protocol.SessionEventToolPlanned, protocol.SessionEventToolStarted:
+		case protocol.ToolPlannedEvent, protocol.ToolStartedEvent:
+			tool := projectToolPayload(payload)
 			transcriptChanged = true
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
-			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
+			index := s.ensureLiveTool(event.TurnID, tool.ToolCallID, tool.ToolName)
 			s.liveMessages[index].Pending = true
-			s.liveMessages[index].ToolArguments = event.Arguments
-			s.liveMessages[index].ToolArgumentsTruncated = event.ArgumentsTruncated
-			if event.Kind == protocol.SessionEventToolPlanned {
+			s.liveMessages[index].ToolArguments = tool.Arguments
+			s.liveMessages[index].ToolArgumentsTruncated = tool.ArgumentsTruncated
+			if event.Kind() == protocol.SessionEventToolPlanned {
 				s.liveMessages[index].ToolStatus = "Planned"
 			} else {
 				s.liveMessages[index].ToolStatus = "Running…"
 			}
-		case protocol.SessionEventToolUpdated, protocol.SessionEventToolCompleted:
+		case protocol.ToolUpdatedEvent, protocol.ToolCompletedEvent:
+			tool := projectToolPayload(payload)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
-			index := s.ensureLiveTool(event.TurnID, event.ToolCallID, event.ToolName)
-			text := toolResultContentText(event.Content)
-			if event.Kind == protocol.SessionEventToolUpdated {
-				appendLiveToolContent(&s.liveMessages[index], event.Content)
+			index := s.ensureLiveTool(event.TurnID, tool.ToolCallID, tool.ToolName)
+			text := toolResultContentText(tool.Content)
+			if event.Kind() == protocol.SessionEventToolUpdated {
+				appendLiveToolContent(&s.liveMessages[index], tool.Content)
 			} else {
 				s.liveMessages[index].Text = text
-				s.liveMessages[index].ToolContent = append([]protocol.TranscriptContent(nil), event.Content...)
-				s.liveMessages[index].ToolContentTruncated = event.ContentTruncated
-				s.liveMessages[index].ToolDetails = append(json.RawMessage(nil), event.Details...)
-				s.liveMessages[index].ToolDetailsOmitted = event.DetailsOmitted
-				if event.ContentTruncated {
+				s.liveMessages[index].ToolContent = append([]protocol.TranscriptContent(nil), tool.Content...)
+				s.liveMessages[index].ToolContentTruncated = tool.ContentTruncated
+				s.liveMessages[index].ToolDetails = append(json.RawMessage(nil), tool.Details...)
+				s.liveMessages[index].ToolDetailsOmitted = tool.DetailsOmitted
+				if tool.ContentTruncated {
 					s.liveMessages[index].Text = appendToolNotice(s.liveMessages[index].Text, "… live output truncated")
 				}
-				if event.DetailsOmitted {
+				if tool.DetailsOmitted {
 					s.liveMessages[index].Text = appendToolNotice(s.liveMessages[index].Text, "… tool details omitted")
 				}
 			}
-			s.liveMessages[index].IsError = event.IsError
-			if event.Kind == protocol.SessionEventToolCompleted {
+			s.liveMessages[index].IsError = tool.IsError
+			if event.Kind() == protocol.SessionEventToolCompleted {
 				transcriptChanged = true
 				s.liveMessages[index].Pending = false
-				if event.ToolName == "change_cwd" && !event.IsError && !event.DetailsOmitted {
+				if tool.ToolName == "change_cwd" && !tool.IsError && !tool.DetailsOmitted {
 					var details cwdToolDetails
-					if json.Unmarshal(event.Details, &details) == nil && details.Changed && details.CWD != "" {
+					if json.Unmarshal(tool.Details, &details) == nil && details.Changed && details.CWD != "" {
 						s.invalidateFileMentions()
 						s.session.CWD = details.CWD
 						s.locationBase = details.CWD
@@ -3016,42 +3041,42 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 						changedCWD = details.CWD
 					}
 				}
-				if event.ToolName == "subagent" && !event.IsError && !event.DetailsOmitted {
+				if tool.ToolName == "subagent" && !tool.IsError && !tool.DetailsOmitted {
 					var details subagentToolDetails
-					if json.Unmarshal(event.Details, &details) == nil && strings.TrimSpace(details.Warning) != "" {
+					if json.Unmarshal(tool.Details, &details) == nil && strings.TrimSpace(details.Warning) != "" {
 						s.eventToasts = append(s.eventToasts, toastInput{
 							Title: "Subagent provider unavailable", Subtitle: details.Warning, Variant: toastWarning,
 						})
 					}
 				}
-				if event.IsError {
+				if tool.IsError {
 					s.liveMessages[index].ToolStatus = "Failed"
 				} else {
 					s.liveMessages[index].ToolStatus = "Completed"
 				}
 			}
-		case protocol.SessionEventInteractionRequested:
-			if event.Interaction != nil && event.Interaction.Plugin == nil {
+		case protocol.InteractionRequestedEvent:
+			if payload.Interaction != nil && payload.Interaction.Plugin == nil {
 				found := false
 				for _, pending := range s.pendingInteractions {
-					if pending.ID == event.Interaction.ID {
+					if pending.ID == payload.Interaction.ID {
 						found = true
 						break
 					}
 				}
 				if !found {
-					s.pendingInteractions = append(s.pendingInteractions, *event.Interaction)
+					s.pendingInteractions = append(s.pendingInteractions, *payload.Interaction)
 				}
 				s.agentFeedbackPending = true
 				s.reconcileInputOwner()
 				s.setTurnActivity("Waiting for feedback…")
 			}
-		case protocol.SessionEventInteractionResolved:
+		case protocol.InteractionResolvedEvent:
 			if event.RunID == "" {
 				continue
 			}
 			for index := range s.pendingInteractions {
-				if s.pendingInteractions[index].ID == event.InteractionID {
+				if s.pendingInteractions[index].ID == payload.InteractionID {
 					s.pendingInteractions = append(s.pendingInteractions[:index], s.pendingInteractions[index+1:]...)
 					break
 				}
@@ -3062,44 +3087,44 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			} else {
 				s.setTurnActivity("Working…")
 			}
-		case protocol.SessionEventProviderRetryScheduled:
-			s.providerRetry = cloneProviderRetry(event.ProviderRetry)
+		case protocol.ProviderRetryScheduledEvent:
+			s.providerRetry = cloneProviderRetry(payload.ProviderRetry)
 			s.setTurnThinking("")
-		case protocol.SessionEventProviderRetryStarted:
+		case protocol.ProviderRetryStartedEvent:
 			s.providerRetry = nil
 			s.setTurnActivity("Working…")
-		case protocol.SessionEventCompactionStarted:
-			s.activeCompactionID = event.CompactionID
+		case protocol.CompactionStartedEvent:
+			s.activeCompactionID = payload.CompactionID
 			s.setTurnThinking("")
 			s.setTurnActivity("Compacting session…")
-		case protocol.SessionEventCompactionCompleted:
-			current := s.activeCompactionID == event.CompactionID
+		case protocol.CompactionCompletedEvent:
+			current := s.activeCompactionID == payload.CompactionID
 			stale := s.activeCompactionID != "" && !current
 			if current {
 				s.activeCompactionID = ""
 				s.setTurnActivity("Working…")
 			}
-			if !stale && s.recordCompactionOutcome(event.CompactionID) {
+			if !stale && s.recordCompactionOutcome(payload.CompactionID) {
 				s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
 			}
-		case protocol.SessionEventCompactionFailed:
-			current := s.activeCompactionID == event.CompactionID
+		case protocol.CompactionFailedEvent:
+			current := s.activeCompactionID == payload.CompactionID
 			stale := s.activeCompactionID != "" && !current
 			if current {
 				s.activeCompactionID = ""
 				s.setTurnActivity("Working…")
 			}
-			if !stale && s.recordCompactionOutcome(event.CompactionID) {
-				s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: event.ErrorMessage, Variant: toastError})
+			if !stale && s.recordCompactionOutcome(payload.CompactionID) {
+				s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: payload.ErrorMessage, Variant: toastError})
 			}
-		case protocol.SessionEventContextUpdated:
-			s.contextTokens = event.ContextTokens
-			s.contextWindow = event.ContextWindow
-		case protocol.SessionEventUsageUpdated:
-			if event.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *event.Usage) {
-				s.sessionUsage = *event.Usage
+		case protocol.ContextUpdatedEvent:
+			s.contextTokens = payload.ContextTokens
+			s.contextWindow = payload.ContextWindow
+		case protocol.UsageUpdatedEvent:
+			if payload.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *payload.Usage) {
+				s.sessionUsage = *payload.Usage
 			}
-		case protocol.SessionEventRunFinished:
+		case protocol.RunFinishedEvent:
 			transcriptChanged = true
 			if s.activityConversationID == "" {
 				for id := range s.inlineActivityOpen {
@@ -3140,13 +3165,14 @@ func sessionUsageDecreased(before, after protocol.SessionUsage) bool {
 }
 
 func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
+	tool := projectToolPayload(event.Payload)
 	for index := range s.liveMessages {
 		message := &s.liveMessages[index]
 		if message.Role != "assistant" || message.TurnID != event.TurnID {
 			continue
 		}
 		for _, call := range message.ToolCalls {
-			if call.ID == event.ToolCallID {
+			if call.ID == tool.ToolCallID {
 				return
 			}
 		}
@@ -3158,25 +3184,25 @@ func (s *appState) ensureLiveAssistantToolCall(event protocol.SessionEvent) {
 		if message.Role != "assistant" || message.TurnID != event.TurnID {
 			continue
 		}
-		if event.MessageID == "" || message.ID == event.MessageID {
+		if tool.MessageID == "" || message.ID == tool.MessageID {
 			message.ToolCalls = append(message.ToolCalls, transcriptToolCall{
-				ID: event.ToolCallID, Name: event.ToolName,
-				Arguments:          append(json.RawMessage(nil), event.Arguments...),
-				ArgumentsTruncated: event.ArgumentsTruncated,
+				ID: tool.ToolCallID, Name: tool.ToolName,
+				Arguments:          append(json.RawMessage(nil), tool.Arguments...),
+				ArgumentsTruncated: tool.ArgumentsTruncated,
 			})
 			return
 		}
 	}
-	messageID := event.MessageID
+	messageID := tool.MessageID
 	if messageID == "" {
-		messageID = "live-assistant:" + event.ToolCallID
+		messageID = "live-assistant:" + tool.ToolCallID
 	}
 	s.liveMessages = append(s.liveMessages, transcriptMessage{
 		ID: messageID, TurnID: event.TurnID, Role: "assistant",
 		ToolCalls: []transcriptToolCall{{
-			ID: event.ToolCallID, Name: event.ToolName,
-			Arguments:          append(json.RawMessage(nil), event.Arguments...),
-			ArgumentsTruncated: event.ArgumentsTruncated,
+			ID: tool.ToolCallID, Name: tool.ToolName,
+			Arguments:          append(json.RawMessage(nil), tool.Arguments...),
+			ArgumentsTruncated: tool.ArgumentsTruncated,
 		}},
 	})
 }
@@ -3389,7 +3415,7 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, _ error) {
 
 func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (changedCWD string) {
 	for _, event := range events {
-		if !sessionMetadataEvent(event.Kind) || event.SessionID != s.session.ID {
+		if !sessionMetadataEvent(event.Kind()) || event.SessionID != s.session.ID {
 			continue
 		}
 		if (s.metadataStreamID != "" && event.StreamID != s.metadataStreamID) ||
@@ -3399,30 +3425,30 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		s.metadataStreamID = event.StreamID
 		s.metadataSequence = event.Sequence
 		s.applyAnnotationEvent(event)
-		switch event.Kind {
-		case protocol.SessionEventSessionRenamed:
-			s.session.Name = event.SessionName
-			s.sessionExplorer.ApplyExternalRename(event.SessionID, event.SessionName)
-		case protocol.SessionEventInteractionRequested, protocol.SessionEventInteractionResolved:
+		switch payload := event.Payload.(type) {
+		case protocol.SessionRenamedEvent:
+			s.session.Name = payload.SessionName
+			s.sessionExplorer.ApplyExternalRename(event.SessionID, payload.SessionName)
+		case protocol.InteractionRequestedEvent, protocol.InteractionResolvedEvent:
 			// Model interactions are applied by the run watcher. Giving each
 			// ownership domain one event writer prevents delayed replay from
 			// reopening a dialog already resolved by the other watcher.
 			if event.RunID == "" {
 				s.applyInteractionMetadataEvent(event)
 			}
-		case protocol.SessionEventScratchpadChanged:
-			s.reconcileScratchpad(event.Scratchpad)
-		case protocol.SessionEventSessionCWDChanged:
-			if event.Workspace == nil {
+		case protocol.ScratchpadChangedEvent:
+			s.reconcileScratchpad(payload.Scratchpad)
+		case protocol.SessionCWDChangedEvent:
+			if payload.Workspace == nil {
 				continue
 			}
 			s.invalidateFileMentions()
-			s.session.CWD = event.Workspace.CWD
-			s.location = event.Workspace.CWD
-			s.locationBase = event.Workspace.CWD
+			s.session.CWD = payload.Workspace.CWD
+			s.location = payload.Workspace.CWD
+			s.locationBase = payload.Workspace.CWD
 			s.vcsStatus = nil
-			s.reconcileWorkspaceIdentity(event.Workspace)
-			changedCWD = event.Workspace.CWD
+			s.reconcileWorkspaceIdentity(payload.Workspace)
+			changedCWD = payload.Workspace.CWD
 		}
 	}
 	return changedCWD
@@ -3441,12 +3467,12 @@ func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
 
 func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
 	for _, event := range events {
-		switch event.Kind {
-		case protocol.SessionEventRunStarted:
+		switch event.Payload.(type) {
+		case protocol.RunStartedEvent:
 			startedRunID = event.RunID
-		case protocol.SessionEventRunFinished:
+		case protocol.RunFinishedEvent:
 			finishedRunID = event.RunID
-			status = event.Status
+			status = event.Payload.(protocol.RunFinishedEvent).Status
 		}
 	}
 	return startedRunID, finishedRunID, status
@@ -3648,7 +3674,7 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				for updates := range stream.Updates() {
 					hasMetadata := false
 					for _, event := range updates {
-						hasMetadata = hasMetadata || sessionMetadataEvent(event.Kind)
+						hasMetadata = hasMetadata || sessionMetadataEvent(event.Kind())
 					}
 					if hasMetadata {
 						copy := append([]protocol.SessionEvent(nil), updates...)
@@ -4634,7 +4660,7 @@ func (s *appState) openSubagents() {
 					for updates := range stream.Updates() {
 						changed := false
 						for _, event := range updates {
-							changed = changed || event.Kind == protocol.SessionEventSubagentChanged
+							changed = changed || event.Kind() == protocol.SessionEventSubagentChanged
 						}
 						if !changed {
 							continue
@@ -7152,24 +7178,26 @@ func cloneProviders(input map[string]bool) map[string]bool {
 }
 
 func (s *appState) applyInteractionMetadataEvent(event protocol.SessionEvent) {
-	switch event.Kind {
-	case protocol.SessionEventInteractionRequested:
-		if event.Interaction == nil {
+	switch payload := event.Payload.(type) {
+	case protocol.InteractionRequestedEvent:
+		if payload.Interaction == nil {
 			return
 		}
 		for _, pending := range s.pendingInteractions {
-			if pending.ID == event.Interaction.ID {
+			if pending.ID == payload.Interaction.ID {
 				return
 			}
 		}
-		s.pendingInteractions = append(s.pendingInteractions, *event.Interaction)
-	case protocol.SessionEventInteractionResolved:
+		s.pendingInteractions = append(s.pendingInteractions, *payload.Interaction)
+	case protocol.InteractionResolvedEvent:
 		for index, pending := range s.pendingInteractions {
-			if pending.ID == event.InteractionID {
+			if pending.ID == payload.InteractionID {
 				s.pendingInteractions = append(s.pendingInteractions[:index], s.pendingInteractions[index+1:]...)
 				break
 			}
 		}
+	default:
+		return
 	}
 	s.agentFeedbackPending = len(s.pendingInteractions) > 0
 	s.reconcileInputOwner()

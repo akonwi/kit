@@ -19,8 +19,7 @@ func TestWorkspaceCWDMetadataClosesPickerAndResetsIndexedSource(t *testing.T) {
 		metadataStreamID: "stream_1", metadataSequence: 1,
 	}
 	state.applySessionMetadataEvents([]protocol.SessionEvent{{
-		StreamID: "stream_1", Sequence: 2, SessionID: "session_1", Kind: protocol.SessionEventSessionCWDChanged,
-		Workspace: &protocol.WorkspaceRef{SessionID: "session_1", WorkspaceID: "workspace_2", CWD: "/other", State: protocol.WorkspaceReady},
+		StreamID: "stream_1", Sequence: 2, SessionID: "session_1", Payload: protocol.SessionCWDChangedEvent{Workspace: &protocol.WorkspaceRef{SessionID: "session_1", WorkspaceID: "workspace_2", CWD: "/other", State: protocol.WorkspaceReady}},
 	}})
 	if state.workspaceFilePicker.Open || state.workspaceID != "workspace_2" || state.session.CWD != "/other" {
 		t.Fatalf("cwd invalidation = open:%v workspace:%q cwd:%q", state.workspaceFilePicker.Open, state.workspaceID, state.session.CWD)
