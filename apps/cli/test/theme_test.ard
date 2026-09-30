@@ -43,6 +43,7 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   try check("surface", colors.surface, ui::rgb(47, 52, 60))
   try check("surface_raised", colors.surface_raised, ui::rgb(58, 63, 71))
   try check("surface_hovered", colors.surface_hovered, ui::rgb(58, 63, 71))
+  try check("surface_pressed", colors.surface_pressed, ui::rgb(40, 44, 52))
   // 18% of the primary text color over the surface in a dark theme.
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
