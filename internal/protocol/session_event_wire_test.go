@@ -95,3 +95,38 @@ func TestSessionEventUnionCodecPreservesFlatWire(t *testing.T) {
 		t.Fatal("cross-variant field was accepted")
 	}
 }
+
+func TestSessionEventPayloadVariantRetainsLiveFields(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		event SessionEvent
+		check func(t *testing.T, payload SessionEventPayload)
+	}{
+		{SessionEvent{Kind: SessionEventAssistantStarted, MessageID: "message_1", Thinking: "reason"}, func(t *testing.T, p SessionEventPayload) {
+			if got := p.(AssistantStartedEvent); got.Thinking != "reason" {
+				t.Fatalf("started thinking = %q", got.Thinking)
+			}
+		}},
+		{SessionEvent{Kind: SessionEventAssistantCompleted, MessageID: "message_1", Text: "answer"}, func(t *testing.T, p SessionEventPayload) {
+			if got := p.(AssistantCompletedEvent); got.Text != "answer" {
+				t.Fatalf("completed text = %q", got.Text)
+			}
+		}},
+		{SessionEvent{Kind: SessionEventToolPlanned, MessageID: "message_1", ContentIndex: 3, ToolCallID: "call_1", ToolName: "read"}, func(t *testing.T, p SessionEventPayload) {
+			if got := p.(ToolPlannedEvent); got.ContentIndex != 3 {
+				t.Fatalf("planned content index = %d", got.ContentIndex)
+			}
+		}},
+		{SessionEvent{Kind: SessionEventToolUpdated, ToolCallID: "call_1", ToolName: "read", Content: ToolResultContent{TextBlock("error")}, IsError: true}, func(t *testing.T, p SessionEventPayload) {
+			if got := p.(ToolUpdatedEvent); !got.IsError || len(got.Content) != 1 {
+				t.Fatalf("updated payload = %#v", got)
+			}
+		}},
+	} {
+		payload, err := test.event.PayloadVariant()
+		if err != nil {
+			t.Fatalf("PayloadVariant() error = %v", err)
+		}
+		test.check(t, payload)
+	}
+}
