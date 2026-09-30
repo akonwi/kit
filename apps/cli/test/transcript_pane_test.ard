@@ -130,7 +130,7 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
   let list = model.list.current.expect("transcript list")
   renderer.update(fn() {
     list.stop_following()
-    let _ = list.scroll_to_edge(cui::ScrollEdge::start, false)
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
   })
   terminal.flush()
   testing::assert(

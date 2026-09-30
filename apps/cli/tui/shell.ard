@@ -184,7 +184,7 @@ fn transcript_pane(
         overscan: 2,
         key: "transcript:{session_id}",
         ref: list,
-        follow_edge: cui::ScrollEdge::end,
+        sticky_scroll: cui::ScrollEdge::end,
         on_update: on_update,
         styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       )
@@ -833,7 +833,7 @@ impl Shell {
   // Sending a prompt returns the transcript to its end and resumes following.
   fn request_end() {
     let _ = self.list.current.map(fn(list) {
-      let _ = list.scroll_to_edge(cui::ScrollEdge::end)
+      let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
     })
   }
 }
