@@ -24,7 +24,7 @@ def emit(name):
  fields=[]
  # Protocol unions retain a flat JSON wire layout; generate their wire record,
  # not their sealed Go payload interface.
- wire_name = 'transcriptContentWire' if name == 'TranscriptContent' else name
+ wire_name = {'TranscriptContent': 'transcriptContentWire', 'SessionEvent': 'sessionEventWire'}.get(name, name)
  for line in structs[wire_name].splitlines():
   line=line.strip()
   if not line or line.startswith('//'): continue
