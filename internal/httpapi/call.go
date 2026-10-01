@@ -86,22 +86,53 @@ func operationPath(path string, params any) (string, error) {
 	if value.Kind() != reflect.Struct {
 		return "", fmt.Errorf("httpapi: path params must be a struct")
 	}
+	query := url.Values{}
 	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Tag.Get("path")
-		if name == "" {
+		field, meta := value.Field(i), typ.Field(i)
+		if name := meta.Tag.Get("path"); name != "" {
+			if field.Kind() != reflect.String {
+				return "", fmt.Errorf("httpapi: path parameter %s must be a string", name)
+			}
+			token := "{" + name + "}"
+			if !strings.Contains(path, token) {
+				return "", fmt.Errorf("httpapi: path parameter %s is not present in path", name)
+			}
+			path = strings.ReplaceAll(path, token, url.PathEscape(field.String()))
 			continue
 		}
-		if value.Field(i).Kind() != reflect.String {
-			return "", fmt.Errorf("httpapi: path parameter %s must be a string", name)
+		raw := meta.Tag.Get("query")
+		if raw == "" {
+			continue
 		}
-		token := "{" + name + "}"
-		if !strings.Contains(path, token) {
-			return "", fmt.Errorf("httpapi: path parameter %s is not present in path", name)
+		name, options, _ := strings.Cut(raw, ",")
+		if err := appendQuery(query, name, field, strings.Contains(options, "omitempty")); err != nil {
+			return "", err
 		}
-		path = strings.ReplaceAll(path, token, url.PathEscape(value.Field(i).String()))
 	}
 	if strings.ContainsAny(path, "{}") {
 		return "", fmt.Errorf("httpapi: path has unbound parameters")
 	}
+	if encoded := query.Encode(); encoded != "" {
+		path += "?" + encoded
+	}
 	return path, nil
+}
+
+func appendQuery(query url.Values, name string, value reflect.Value, omitEmpty bool) error {
+	if value.Kind() == reflect.Slice {
+		for index := 0; index < value.Len(); index++ {
+			query.Add(name, fmt.Sprint(value.Index(index).Interface()))
+		}
+		return nil
+	}
+	if omitEmpty && value.IsZero() {
+		return nil
+	}
+	switch value.Kind() {
+	case reflect.String, reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64, reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64, reflect.Bool:
+		query.Set(name, fmt.Sprint(value.Interface()))
+		return nil
+	default:
+		return fmt.Errorf("httpapi: query parameter %s has unsupported type", name)
+	}
 }

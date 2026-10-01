@@ -603,7 +603,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               PromptCommand.validName(input.name), (input.args?.utf8.count ?? 0) <= 128 * 1024,
               !(input.args ?? "").contains("\0") else { throw MutationNotSent(reason: "Invalid prompt command or arguments.") }
-        let result: WireRunReservation = try await post("v1/sessions/" + id + "/prompt-commands", input: input, status: [202])
+        let result: WireRunReservation = try await post("v1/sessions/" + id + "/turns/prompt-commands", input: input, status: [202])
         guard result.sessionId == id, !result.runId.isEmpty, result.runId == result.turnId else { throw ClientError.invalidPayload }
         return result
     }
@@ -808,21 +808,21 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func followUps(_ id: String) async throws -> FollowUpState { try await FollowUpState(wireSnapshot(id).followUps) }
 
     func submit(_ id: String, input: WirePromptInput) async throws -> WirePromptSubmission {
-        let result: WirePromptSubmission = try await mutate(id, suffix: "submissions", input: input)
+        let result: WirePromptSubmission = try await mutate(id, suffix: "turns/submissions", input: input)
         _ = try FollowUpState(result.queue)
         guard result.queued ? (result.reservation == nil && result.queue.count > 0) : result.reservation?.sessionId == id,
               result.queued || (!(result.reservation?.runId ?? "").isEmpty && !(result.reservation?.turnId ?? "").isEmpty) else { throw ClientError.invalidPayload }
         return result
     }
     func restoreFollowUps(_ id: String) async throws -> WireRestoreFollowUpsResult {
-        let result: WireRestoreFollowUpsResult = try await mutate(id, suffix: "follow-ups/restore", input: [String: String]())
+        let result: WireRestoreFollowUpsResult = try await mutate(id, suffix: "turns/follow-ups/restore", input: [String: String]())
         _ = try FollowUpState(result.queue)
         guard result.queue.count == 0, (result.messages?.count ?? 0) <= 64,
               (result.messages ?? []).allSatisfy({ !$0.text.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty || !($0.attachmentIds ?? []).isEmpty }) else { throw ClientError.invalidPayload }
         return result
     }
     func promoteFollowUps(_ id: String) async throws -> WirePromoteFollowUpsResult {
-        let result: WirePromoteFollowUpsResult = try await mutate(id, suffix: "follow-ups/promote", input: [String: String]())
+        let result: WirePromoteFollowUpsResult = try await mutate(id, suffix: "turns/follow-ups/promote", input: [String: String]())
         _ = try FollowUpState(result.queue)
         guard result.promoted >= 0, result.promoted <= 64, result.queue.count == 0 else { throw ClientError.invalidPayload }
         return result
@@ -830,7 +830,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func abort(_ id: String, run: String) async throws {
         guard !run.isEmpty, run.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw MutationNotSent(reason: "The run identity is invalid.") }
         struct Response: Decodable { let aborting: Bool }
-        let result: Response = try await mutate(id, suffix: "runs/" + run + "/abort", input: [String: String]())
+        let result: Response = try await mutate(id, suffix: "turns/" + run + "/abort", input: [String: String]())
         guard result.aborting else { throw ClientError.invalidPayload }
     }
 

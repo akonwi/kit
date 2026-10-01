@@ -401,22 +401,8 @@ func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before ui
 
 // GetMessagePage returns newest-first durable messages matching query.
 func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
-	values := url.Values{}
-	if query.Limit > 0 {
-		values.Set("limit", strconv.Itoa(query.Limit))
-	}
-	if query.Before > 0 {
-		values.Set("before", strconv.FormatUint(query.Before, 10))
-	}
-	for _, role := range query.Roles {
-		values.Add("role", role)
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/messages"
-	if encoded := values.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	var output protocol.MessagePage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetMessagePage, httpapi.MessagePagePath{SessionID: sessionID, Before: query.Before, Limit: query.Limit, Roles: query.Roles}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.MessagePage{}, err
 	}
 	before := ""
@@ -434,9 +420,8 @@ func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query pro
 
 // GetTranscriptPage returns the complete-turn page preceding before.
 func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string) (protocol.TranscriptPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/transcript?before=" + url.QueryEscape(before)
-	var output protocol.TranscriptPage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetTranscriptPage, httpapi.TranscriptPagePath{SessionID: sessionID, Before: before}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.TranscriptPage{}, err
 	}
 	if err := output.ValidateBefore(before); err != nil {
@@ -465,14 +450,8 @@ func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (pro
 
 // GetSessionEvents returns the next ordered page after a session stream sequence.
 func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
-	values := url.Values{}
-	values.Set("after", strconv.FormatInt(after, 10))
-	if streamID != "" {
-		values.Set("stream", streamID)
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events?" + values.Encode()
-	var output protocol.SessionEventBatch
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSessionEventPage, httpapi.EventPagePath{SessionID: sessionID, StreamID: streamID, After: after}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -828,9 +807,8 @@ func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (prot
 }
 
 func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/submissions"
-	var output protocol.PromptSubmission
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.SubmitPrompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -844,9 +822,8 @@ func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input 
 
 // RestoreFollowUps atomically drains one session's deferred prompts.
 func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/follow-ups/restore"
-	var output protocol.RestoreFollowUpsResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.RestoreTurnFollowUps, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.RestoreFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -857,9 +834,8 @@ func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protoc
 
 // PromoteFollowUps moves one session's deferred prompts into active steering.
 func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/follow-ups/promote"
-	var output protocol.PromoteFollowUpsResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.PromoteTurnFollowUps, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.PromoteFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -874,9 +850,8 @@ func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (proto
 }
 
 func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompts"
-	var output protocol.TurnReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.StartPrompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -893,9 +868,8 @@ func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input
 	if err := input.Validate(); err != nil {
 		return protocol.TurnReservation{}, fmt.Errorf("validate prompt command request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompt-commands"
-	var output protocol.TurnReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.StartPromptCommand, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -909,9 +883,8 @@ func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input
 
 // GetTurn returns a loaded droid turn's transient protocol projection.
 func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (protocol.TurnInfo, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/" + url.PathEscape(turnID)
-	var output protocol.TurnInfo
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetTurn, httpapi.TurnPath{SessionID: sessionID, TurnID: turnID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.TurnInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -929,9 +902,8 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (protocol.P
 }
 
 func (c *Client) PromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompt"
-	var output protocol.PromptOutcome
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.Prompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	if err := output.Validate(); err != nil {
