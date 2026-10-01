@@ -41,6 +41,7 @@ enum Phase {
 
 enum ActiveModal {
   none,
+  command_palette,
   provider_picker,
   api_key,
   device_login,
@@ -66,6 +67,58 @@ private fn device_waiting_text(remaining: Int64) Str {
     true => "Code expires in {duration} — Esc to get a new code",
     false => "Waiting for approval — expires in {duration}",
   }
+}
+
+// command_catalog preserves the established command vocabulary while this
+// client reaches feature parity. Commands whose owning surface is not ported
+// yet stay discoverable but cannot be activated.
+private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    description: description,
+    search_terms: strings::Split(terms, " "),
+    disabled_reason: disabled_reason,
+  }
+}
+
+private fn command_catalog(running: Bool) [palette::Item] {
+  let idle = match running {
+    true => "idle only",
+    false => "not available yet",
+  }
+  [
+    command_item("cd", "Change working directory", "cwd directory folder", idle),
+    command_item("compact", "Compact session context", "summarize shrink", idle),
+    command_item("debug", "Show session diagnostics", "details usage", "not available yet"),
+    command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
+    command_item("files", "Open a workspace file", "file open browse", "not available yet"),
+    command_item("fork", "Fork the current session into a linked child session", "branch", idle),
+    command_item("login", "Connect another provider", "auth connect provider", ""),
+    command_item("mcp", "Show configured MCP servers", "tools connections status", "not available yet"),
+    command_item("model", "Change session model", "engine", "not available yet"),
+    command_item("name", "Rename session", "rename title", "not available yet"),
+    command_item("new", "Start a new session", "", "not available yet"),
+    command_item("quit", "Exit Kit", "close exit", ""),
+    command_item(
+      "refresh-models",
+      "Update the provider catalog of models",
+      "catalog models",
+      "not available yet",
+    ),
+    command_item("reload", "Reload session context", "agents context refresh", "not available yet"),
+    command_item("scratchpad", "Open shared working notes", "notes memory", "not available yet"),
+    command_item("sessions", "Browse sessions", "list resume switch threads", "not available yet"),
+    command_item(
+      "subagents",
+      "Inspect delegated work",
+      "agents delegates children",
+      "not available yet",
+    ),
+    command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
+    command_item("theme", "Choose UI colors", "appearance colors", "not available yet"),
+    command_item("thinking", "Change reasoning effort", "reasoning effort", "not available yet"),
+  ]
 }
 
 private fn provider_catalog() [palette::Item] {
@@ -156,9 +209,16 @@ struct Shell {
   picker_hidden_above: Bool,
   picker_hidden_below: Bool,
   picker_viewport: Int,
+  command_query: Str,
+  command_selection: Str,
+  command_hover: Str,
+  command_hidden_above: Bool,
+  command_hidden_below: Bool,
+  command_viewport: Int,
   toasts: [toast::Item],
   toast_next_id: Int,
   picker_list: mut cui::VirtualListRef,
+  composer_area: mut cui::TextAreaRef,
   connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
 }
@@ -209,9 +269,16 @@ fn new(props: mut Props) mut Shell {
     picker_hidden_above: false,
     picker_hidden_below: false,
     picker_viewport: 0,
+    command_query: "",
+    command_selection: "cd",
+    command_hover: "",
+    command_hidden_above: false,
+    command_hidden_below: false,
+    command_viewport: 0,
     toasts: [],
     toast_next_id: 0,
     picker_list: cui::virtual_list_ref(),
+    composer_area: cui::text_area_ref(),
     connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
   })
@@ -788,6 +855,14 @@ impl Shell {
     let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
       self.submit()
     })
+    let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
+      self.open_command_palette()
+    })
+    let composer_bindings = mut List::new<keymap::Binding>()
+    composer_bindings.push(keymap::binding(keymap::key("return"), send.with()))
+    if self.composer == "" {
+      composer_bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
+    }
     cui::text_area(
       self.composer,
       key: "composer",
@@ -796,12 +871,13 @@ impl Shell {
       placeholder_style: ui::text_style(foreground: colors.muted),
       selection_style: theme::selection_style(colors),
       autofocus: true,
+      ref: self.composer_area,
       on_input: fn(value: Str, ctx: cui::Context) {
         self.composer = value
       },
       key_bindings: editing,
-      commands: [send],
-      bindings: [keymap::binding(keymap::key("return"), send.with())],
+      commands: [send, open_palette],
+      bindings: composer_bindings.@,
     )
   }
 }
@@ -819,6 +895,13 @@ impl cui::Component for Shell {
     let bindings = mut List::new<keymap::Binding>()
     commands.push(interrupt)
     bindings.push(keymap::binding(keymap::key("c", ctrl: true), interrupt.with()))
+    if self.phase == Phase::ready and self.active_modal == ActiveModal::none {
+      let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
+        self.open_command_palette()
+      })
+      commands.push(open_palette)
+      bindings.push(keymap::binding(keymap::key("p", ctrl: true), open_palette.with()))
+    }
     if self.phase == Phase::ready and self.active_modal == ActiveModal::none and self.can_abort() {
       let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
         self.abort_run()
@@ -883,6 +966,7 @@ impl cui::Component for Shell {
     let layers = mut List::new<cui::View>()
     layers.push(shell)
     match self.active_modal {
+      ActiveModal::command_palette => layers.push(self.command_palette_modal()),
       ActiveModal::provider_picker => layers.push(self.provider_picker_modal()),
       ActiveModal::api_key => layers.push(self.api_key_modal()),
       ActiveModal::device_login => layers.push(self.device_login_modal()),
@@ -974,6 +1058,20 @@ impl Shell {
     self.toasts = retained.@
   }
 
+  fn mut open_command_palette() Bool {
+    if self.phase == Phase::ready and self.active_modal == ActiveModal::none {
+      self.command_query = ""
+      self.command_selection = palette::first_enabled(
+        command_catalog(self.run_id != "" or self.start_pending),
+      )
+      self.command_hover = ""
+      self.command_hidden_above = false
+      self.command_hidden_below = false
+      self.active_modal = ActiveModal::command_palette
+    }
+    true
+  }
+
   fn mut open_provider_picker() Bool {
     self.auth_error = ""
     self.active_modal = ActiveModal::provider_picker
@@ -998,15 +1096,22 @@ impl Shell {
   }
 
   fn mut dismiss_modal() Bool {
+    let dismissed = self.active_modal
     self.cancel_auth_attempt()
-    match self.active_modal {
+    match dismissed {
       ActiveModal::api_key => { self.active_modal = ActiveModal::provider_picker },
       ActiveModal::device_login => { self.active_modal = ActiveModal::provider_picker },
       ActiveModal::browser_login => { self.active_modal = ActiveModal::provider_picker },
       _ => {
         self.active_modal = ActiveModal::none
         match self.context {
-          ctx => self.connect_button.focus(ctx),
+          ctx => {
+            if self.phase == Phase::auth {
+              self.connect_button.focus(ctx)
+            } else if dismissed == ActiveModal::command_palette {
+              self.composer_area.focus(ctx)
+            }
+          },
           _ => (),
         }
       },
@@ -1401,6 +1506,133 @@ impl Shell {
         },
         _ => { self.auth_error = "Authentication is unavailable" },
       }
+    }
+  }
+
+  fn mut command_palette_modal() cui::View {
+    let catalog = command_catalog(self.run_id != "" or self.start_pending)
+    let picker = palette::Props{
+      themes: self.props.themes,
+      placeholder: "Search commands…",
+      catalog: catalog,
+      query: self.command_query,
+      selection: self.command_selection,
+      hovered: self.command_hover,
+      hidden_above: self.command_hidden_above,
+      hidden_below: self.command_hidden_below,
+      on_query_change: fn(query: Str) {
+        self.command_query = query
+        self.command_hover = ""
+        let next = palette::first_enabled(
+          palette::items(
+            palette::Props{
+              themes: self.props.themes,
+              placeholder: "",
+              catalog: catalog,
+              query: query,
+              selection: "",
+              hovered: "",
+              hidden_above: false,
+              hidden_below: false,
+              on_query_change: fn(value: Str) {},
+              on_selection_change: fn(value: Str) {},
+              on_hover_change: fn(value: Str) {},
+              on_activate: fn(item: palette::Item) {},
+            },
+          ),
+        )
+        if next != "" {
+          self.command_selection = next
+        }
+        let selection = self.command_selection
+        let _ = self.picker_list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
+      },
+      on_selection_change: fn(selection: Str) {
+        self.command_selection = selection
+        let _ = self.picker_list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
+      },
+      on_hover_change: fn(hovered: Str) {
+        self.command_hover = hovered
+      },
+      on_activate: fn(item: palette::Item) {
+        if item.disabled_reason != "" {
+          self.show_toast("Command unavailable", item.disabled_reason, toast::Variant::warning, false)
+        } else if item.key == "login" {
+          self.active_modal = ActiveModal::none
+          self.open_provider_picker()
+        } else if item.key == "quit" {
+          self.props.quit()
+        }
+      },
+    }
+    let navigation = palette::navigation(picker)
+    let dismiss = keymap::simple_command("palette.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Command palette",
+        meta: "",
+        header: palette::header(picker),
+        body: palette::body(picker, self.command_picker_viewport()),
+        footer: Maybe::new(
+          cui::box(
+            [
+              line(
+                "↑↓ move · enter run · esc close",
+                ui::text_style(foreground: self.props.themes.current().muted),
+              ),
+            ],
+            styles: ui::style(padding: inset(), flex_shrink: 0.0),
+          ),
+        ),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new([navigation.up, navigation.down]),
+        bindings: Maybe::new(palette::bindings(navigation)),
+      },
+    )
+  }
+
+  fn mut command_picker_viewport() palette::Viewport {
+    palette::Viewport{
+      list: self.picker_list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = palette::items(
+          palette::Props{
+            themes: self.props.themes,
+            placeholder: "",
+            catalog: command_catalog(self.run_id != "" or self.start_pending),
+            query: self.command_query,
+            selection: "",
+            hovered: "",
+            hidden_above: false,
+            hidden_below: false,
+            on_query_change: fn(value: Str) {},
+            on_selection_change: fn(value: Str) {},
+            on_hover_change: fn(value: Str) {},
+            on_activate: fn(item: palette::Item) {},
+          },
+        )
+        self.command_hidden_above = update.state.visible_range.start > 0
+        self.command_hidden_below = update.state.visible_range.end < visible.size()
+        self.command_viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match self.command_viewport > 1 {
+          true => self.command_viewport - 1,
+          false => 1,
+        }
+        let _ = self.picker_list.current.map(fn(list) {
+          let _ = list.scroll_by(direction * step)
+        })
+      },
     }
   }
 

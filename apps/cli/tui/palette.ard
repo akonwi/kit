@@ -140,11 +140,7 @@ fn header(props: Props) [cui::View] {
               items(props),
               props.selection,
             ).map(fn(item) {
-              if item.disabled_reason == "" {
-                props.on_activate(item)
-              } else {
-                ()
-              }
+              props.on_activate(item)
             })
           },
         ),
