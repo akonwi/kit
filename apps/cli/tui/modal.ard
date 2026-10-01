@@ -87,7 +87,16 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
       ),
       cui::text(spec.meta, text_style: ui::text_style(foreground: colors.muted)),
     ],
-    styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
   )
   let content = mut List::new<cui::View>()
   content.push(header)
