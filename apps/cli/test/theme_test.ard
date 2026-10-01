@@ -53,6 +53,12 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
 
+test fn selection_copy_pulse_fades_from_selection_to_terminal_background() Void!Str {
+  let colors = theme::resolve(kittheme::Definition{}, dark())
+  try check("copy pulse start", theme::selection_pulse(colors, 1.0), ui::rgb(49, 89, 123))
+  check("copy pulse end", theme::selection_pulse(colors, 0.0), colors.selection)
+}
+
 test fn shared_theme_context_updates_one_store_and_revision() Void!Str {
   let shared = theme::store(theme::system())
   let first = mut theme::context(shared)

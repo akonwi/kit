@@ -11,6 +11,8 @@ use go:github.com/akonwi/kit/internal/theme as kittheme
 
 struct Theme {
   background: ui::Color,
+  // Concrete terminal background retained for transient paint effects.
+  selection_backdrop: ui::Color,
   foreground: ui::Color,
   muted: ui::Color,
   disabled: ui::Color,
@@ -107,6 +109,17 @@ private fn tint(base: Rgb, accent: Rgb, opacity: Float64) Rgb {
 }
 
 // The theme for Cooper's terminal-color fallback.
+// selection_pulse matches vaxis's copy feedback: a 22% fade from selection
+// toward the terminal background, then back to the selection fill.
+fn selection_pulse(colors: Theme, progress: Float64) ui::Color {
+  selection_pulse_color(colors.selection, colors.selection_backdrop, progress)
+}
+
+fn selection_pulse_color(selection: ui::Color, backdrop: ui::Color, progress: Float64) ui::Color {
+  let amount = 0.22 * progress
+  to_ui(tint(from_ui(selection), from_ui(backdrop), amount))
+}
+
 fn system() Theme {
   resolve(kittheme::Definition{}, ctheme::default())
 }
@@ -166,6 +179,7 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
   }
   Theme{
     background: painted(background),
+    selection_backdrop: to_ui(backdrop),
     foreground: painted(token(tokens, kittheme::TokenTextPrimary, from_ui(base.foreground), backdrop)),
     muted: color(tokens, kittheme::TokenTextMuted, from_ui(base.muted_foreground), backdrop),
     disabled: color(tokens, kittheme::TokenTextPlaceholder, from_ui(base.disabled_foreground), backdrop),

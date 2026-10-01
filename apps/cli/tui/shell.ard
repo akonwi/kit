@@ -1,6 +1,7 @@
 use ard/async
 
 use cooper
+use cooper/animation
 use cooper/cui
 use cooper/event
 use cooper/keymap
@@ -129,6 +130,9 @@ struct Shell {
   context_window: Int,
   notice: Str,
   composer: Str,
+  // 1 at the start of copy feedback, fading to 0 over 240ms.
+  selection_copy_pulse: Float64,
+  selection_copy_base: ui::Color,
   latest_out_of_view: Bool,
   start_pending: Bool,
   abort_pending: Bool,
@@ -180,6 +184,8 @@ fn new(props: mut Props) mut Shell {
     context_window: 0,
     notice: "",
     composer: "",
+    selection_copy_pulse: 0.0,
+    selection_copy_base: ui::rgb(0, 0, 0),
     latest_out_of_view: false,
     start_pending: false,
     abort_pending: false,
@@ -832,6 +838,8 @@ impl cui::Component for Shell {
       // Keep the application key layer attached to a focusable shell owner;
       // terminal key routing otherwise has no initial target before deferred
       // child autofocus settles.
+      // Let focused controls handle Cmd+C first. This application fallback
+      // copies the active cross-control selection without changing focus.
       [self.header(), divider(colors.border), self.body(), divider(colors.border), self.footer()],
       key: "shell.surface",
       styles: ui::style(
@@ -844,7 +852,33 @@ impl cui::Component for Shell {
       commands: commands.@,
       bindings: bindings.@,
       binding_scope: keymap::ScopeMode::application,
-      on_key: fn(received: mut event::KeyEvent, ctx: cui::Context) {},
+      on_key: fn(received: mut event::KeyEvent, ctx: cui::Context) {
+        if received.event_type == event::KeyEventType::press and received.modifiers.super and received.name == "c" {
+          match (ctx.current_selection)() {
+            selection => {
+              if selection.selected_text != "" {
+                (ctx.copy)(selection.selected_text)
+                if self.selection_copy_pulse == 0.0 {
+                  self.selection_copy_base = self.props.themes.current().selection
+                }
+                self.selection_copy_pulse = 1.0
+                self.update_selection_copy_pulse(1.0)
+                let _ = ctx.animate(
+                  240,
+                  fn(frame: animation::Frame) {
+                    self.selection_copy_pulse = 1.0 - frame.progress
+                    self.update_selection_copy_pulse(self.selection_copy_pulse)
+                  },
+                  ease: animation::in_out_sine,
+                )
+                received.prevent_default()
+                received.stop_propagation()
+              }
+            },
+            _ => (),
+          }
+        }
+      },
     )
     let layers = mut List::new<cui::View>()
     layers.push(shell)
@@ -875,6 +909,18 @@ impl cui::Component for Shell {
 }
 
 impl Shell {
+  // update_selection_copy_pulse updates the shared presentation token so
+  // VirtualList rows and other independently retained subtrees repaint too.
+  fn mut update_selection_copy_pulse(progress: Float64) {
+    let colors = mut self.props.themes.current()
+    colors.selection = theme::selection_pulse_color(
+      self.selection_copy_base,
+      colors.selection_backdrop,
+      progress,
+    )
+    self.props.themes.replace(colors.@)
+  }
+
   // show_toast adds a bounded notification. Persistent notices remain until dismissed.
   fn mut show_toast(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
     let normalized_title = strings::TrimSpace(title)
