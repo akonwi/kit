@@ -19,6 +19,7 @@ use kit/tui/modal
 use kit/tui/palette
 use kit/tui/spinner
 use kit/tui/theme
+use kit/tui/toast
 use kit/tui/transcript
 use go:strings
 use go:time
@@ -125,6 +126,8 @@ struct Shell {
   picker_hidden_above: Bool,
   picker_hidden_below: Bool,
   picker_viewport: Int,
+  toasts: [toast::Item],
+  toast_next_id: Int,
   picker_list: mut cui::VirtualListRef,
   connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
@@ -170,6 +173,8 @@ fn new(props: mut Props) mut Shell {
     picker_hidden_above: false,
     picker_hidden_below: false,
     picker_viewport: 0,
+    toasts: [],
+    toast_next_id: 0,
     picker_list: cui::virtual_list_ref(),
     connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
@@ -794,6 +799,13 @@ impl cui::Component for Shell {
       ActiveModal::browser_login => layers.push(self.browser_login_modal()),
       _ => (),
     }
+    if self.toasts.size() > 0 {
+      layers.push(
+        toast::stack(self.props.themes, self.toasts, fn(id: Int) {
+          self.dismiss_toast(id)
+        }),
+      )
+    }
     cui::box(
       layers.@,
       styles: ui::style(
@@ -807,6 +819,59 @@ impl cui::Component for Shell {
 }
 
 impl Shell {
+  // show_toast adds a bounded notification. Persistent notices remain until dismissed.
+  fn mut show_toast(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+    let normalized_title = strings::TrimSpace(title)
+    if normalized_title != "" {
+      self.toast_next_id = self.toast_next_id + 1
+      let id = self.toast_next_id
+      self.toasts.push(
+        toast::Item{
+          id: id,
+          title: normalized_title,
+          detail: strings::TrimSpace(detail),
+          variant: variant,
+          persistent: persistent,
+        },
+      )
+      if self.toasts.size() > 5 {
+        mut victim = self.toasts.at(0).expect("toast")
+        for item in self.toasts {
+          if not victim.persistent {
+            ()
+          } else if not item.persistent {
+            victim = item
+          }
+        }
+        self.dismiss_toast(victim.id)
+      }
+      if not persistent {
+        match self.context {
+          ctx => {
+            let dispatch = ctx.dispatch
+            async::start(fn() {
+              time::After(time::Second * 10).recv()
+              let _ = dispatch(fn() {
+                self.dismiss_toast(id)
+              })
+            })
+          },
+          _ => (),
+        }
+      }
+    }
+  }
+
+  fn mut dismiss_toast(id: Int) {
+    let retained = mut List::new<toast::Item>()
+    for item in self.toasts {
+      if item.id != id {
+        retained.push(item)
+      }
+    }
+    self.toasts = retained.@
+  }
+
   fn mut open_provider_picker() Bool {
     self.auth_error = ""
     self.active_modal = ActiveModal::provider_picker
@@ -903,7 +968,11 @@ impl Shell {
       body.push(
         line("Enter this code", ui::text_style(foreground: self.props.themes.current().muted)),
       )
-      body.push(copyable::value(self.props.themes, self.device_code))
+      body.push(
+        copyable::value(self.props.themes, self.device_code, fn() {
+          self.show_toast("Copied to clipboard", "", toast::Variant::info, false)
+        }),
+      )
       body.push(blank())
       body.push(spinner::spinner())
       body.push(
