@@ -13,6 +13,7 @@ use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
 use kit/tui/controls
+use kit/tui/copyable
 use kit/tui/format
 use kit/tui/modal
 use kit/tui/palette
@@ -902,7 +903,7 @@ impl Shell {
       body.push(
         line("Enter this code", ui::text_style(foreground: self.props.themes.current().muted)),
       )
-      body.push(line(self.device_code, ui::text_style(bold: true)))
+      body.push(copyable::value(self.props.themes, self.device_code))
       body.push(blank())
       body.push(spinner::spinner())
       body.push(
