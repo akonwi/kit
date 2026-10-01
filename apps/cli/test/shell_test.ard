@@ -104,14 +104,9 @@ test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
   defer renderer.destroy()
   terminal.flush()
 
-  mut connect_row = 0
-  for row, index in rows(terminal) {
-    if row.contains("Connect a provider") {
-      connect_row = index
-    }
-  }
-  terminal.mouse_down(30, connect_row)
-  terminal.mouse_up(30, connect_row)
+  // The initial action takes focus, so Return is equivalent to activating its
+  // visible Connect button without a separate screen-level key binding.
+  terminal.key(key("return"))
   terminal.flush()
   try testing::assert(
     terminal.frame().text().contains("OpenAI Codex"),
@@ -192,5 +187,9 @@ test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {
   terminal.flush()
   terminal.key(ctrl("c"))
   terminal.flush()
-  testing::assert(quits.count == 1, "Ctrl+C quit {quits.count} times")
+  try testing::assert(quits.count == 1, "Ctrl+C quit {quits.count} times")
+  testing::assert(
+    not terminal.frame().text().contains("OpenAI Codex"),
+    "Ctrl+C does not activate the focused Connect button",
+  )
 }
