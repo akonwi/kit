@@ -20,6 +20,7 @@ struct ButtonProps {
   compact: Bool,
   focusable: Bool,
   autofocus: Bool,
+  trailing_padding: Int?,
   styles: ui::Style?,
   control: mut cui::BoxRef,
 }
@@ -42,6 +43,7 @@ fn button(
   compact: Bool?,
   focusable: Bool?,
   autofocus: Bool?,
+  trailing_padding: Int?,
   styles: ui::Style?,
   ref: (mut cui::BoxRef)?,
 ) cui::View {
@@ -55,6 +57,7 @@ fn button(
       compact: compact.or(false),
       focusable: focusable.or(true),
       autofocus: autofocus.or(false),
+      trailing_padding: trailing_padding,
       styles: styles,
       control: ref.or(cui::box_ref()),
     },
@@ -155,6 +158,7 @@ impl cui::Component for Button {
       true => 1,
       false => 2,
     }
+    let trailing = self.props.trailing_padding.or(horizontal)
     let commands = mut List::new<keymap::Command>()
     let bindings = mut List::new<keymap::Binding>()
     if self.props.focusable {
@@ -170,7 +174,7 @@ impl cui::Component for Button {
             background: self.fill(),
             padding: ui::Edges{
               top: ui::cells(0),
-              right: ui::cells(horizontal),
+              right: ui::cells(trailing),
               bottom: ui::cells(0),
               left: ui::cells(horizontal),
             },
