@@ -67,6 +67,7 @@ impl cui::Component for Value {
           command,
           variant: controls::ButtonVariant::secondary,
           compact: true,
+          trailing_padding: 2,
         ),
       ],
       styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
