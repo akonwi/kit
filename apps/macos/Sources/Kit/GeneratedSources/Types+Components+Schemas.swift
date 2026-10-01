@@ -623,11 +623,11 @@ extension Components {
         /// - Remark: Generated from `#/components/schemas/MessagePage`.
         internal struct MessagePage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MessagePage/HasMore`.
-            internal var hasMore: Swift.Bool
+            internal var hasMore: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/MessagePage/Messages`.
-            internal var messages: [Components.Schemas.TranscriptMessage]?
+            internal var messages: [Components.Schemas.TranscriptMessage]
             /// - Remark: Generated from `#/components/schemas/MessagePage/SessionID`.
-            internal var sessionID: Swift.String
+            internal var sessionID: Swift.String?
             /// - Remark: Generated from `#/components/schemas/MessagePage/nextCursor`.
             internal var nextCursor: Swift.String?
             /// Creates a new `MessagePage`.
@@ -638,9 +638,9 @@ extension Components {
             ///   - sessionID:
             ///   - nextCursor:
             internal init(
-                hasMore: Swift.Bool,
-                messages: [Components.Schemas.TranscriptMessage]? = nil,
-                sessionID: Swift.String,
+                hasMore: Swift.Bool? = nil,
+                messages: [Components.Schemas.TranscriptMessage],
+                sessionID: Swift.String? = nil,
                 nextCursor: Swift.String? = nil
             ) {
                 self.hasMore = hasMore
@@ -656,15 +656,15 @@ extension Components {
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.hasMore = try container.decode(
+                self.hasMore = try container.decodeIfPresent(
                     Swift.Bool.self,
                     forKey: .hasMore
                 )
-                self.messages = try container.decodeIfPresent(
+                self.messages = try container.decode(
                     [Components.Schemas.TranscriptMessage].self,
                     forKey: .messages
                 )
-                self.sessionID = try container.decode(
+                self.sessionID = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .sessionID
                 )
@@ -1255,17 +1255,17 @@ extension Components {
         /// - Remark: Generated from `#/components/schemas/RestoreFollowUpsResult`.
         internal struct RestoreFollowUpsResult: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/RestoreFollowUpsResult/messages`.
-            internal var messages: [Components.Schemas.PromptInput]?
+            internal var messages: [Components.Schemas.PromptInput]
             /// - Remark: Generated from `#/components/schemas/RestoreFollowUpsResult/queue`.
-            internal var queue: Components.Schemas.FollowUpQueue
+            internal var queue: Components.Schemas.FollowUpQueue?
             /// Creates a new `RestoreFollowUpsResult`.
             ///
             /// - Parameters:
             ///   - messages:
             ///   - queue:
             internal init(
-                messages: [Components.Schemas.PromptInput]? = nil,
-                queue: Components.Schemas.FollowUpQueue
+                messages: [Components.Schemas.PromptInput],
+                queue: Components.Schemas.FollowUpQueue? = nil
             ) {
                 self.messages = messages
                 self.queue = queue
@@ -1276,11 +1276,11 @@ extension Components {
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.messages = try container.decodeIfPresent(
+                self.messages = try container.decode(
                     [Components.Schemas.PromptInput].self,
                     forKey: .messages
                 )
-                self.queue = try container.decode(
+                self.queue = try container.decodeIfPresent(
                     Components.Schemas.FollowUpQueue.self,
                     forKey: .queue
                 )
@@ -1743,7 +1743,7 @@ extension Components {
         /// - Remark: Generated from `#/components/schemas/SessionEventBatch`.
         internal struct SessionEventBatch: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SessionEventBatch/events`.
-            internal var events: [Components.Schemas.SessionEvent]?
+            internal var events: [Components.Schemas.SessionEvent]
             /// - Remark: Generated from `#/components/schemas/SessionEventBatch/firstSequence`.
             internal var firstSequence: Swift.Int64?
             /// - Remark: Generated from `#/components/schemas/SessionEventBatch/lastSequence`.
@@ -1764,7 +1764,7 @@ extension Components {
             ///   - streamId:
             ///   - usageBaseline:
             internal init(
-                events: [Components.Schemas.SessionEvent]? = nil,
+                events: [Components.Schemas.SessionEvent],
                 firstSequence: Swift.Int64? = nil,
                 lastSequence: Swift.Int64? = nil,
                 resyncRequired: Swift.Bool? = nil,
@@ -1788,7 +1788,7 @@ extension Components {
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.events = try container.decodeIfPresent(
+                self.events = try container.decode(
                     [Components.Schemas.SessionEvent].self,
                     forKey: .events
                 )
@@ -2229,11 +2229,11 @@ extension Components {
             /// - Remark: Generated from `#/components/schemas/TranscriptPage/hasMoreMessages`.
             internal var hasMoreMessages: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/TranscriptPage/messages`.
-            internal var messages: [Components.Schemas.TranscriptMessage]?
+            internal var messages: [Components.Schemas.TranscriptMessage]
             /// - Remark: Generated from `#/components/schemas/TranscriptPage/previousMessageCursor`.
             internal var previousMessageCursor: Swift.String?
             /// - Remark: Generated from `#/components/schemas/TranscriptPage/sessionId`.
-            internal var sessionId: Swift.String
+            internal var sessionId: Swift.String?
             /// Creates a new `TranscriptPage`.
             ///
             /// - Parameters:
@@ -2243,9 +2243,9 @@ extension Components {
             ///   - sessionId:
             internal init(
                 hasMoreMessages: Swift.Bool? = nil,
-                messages: [Components.Schemas.TranscriptMessage]? = nil,
+                messages: [Components.Schemas.TranscriptMessage],
                 previousMessageCursor: Swift.String? = nil,
-                sessionId: Swift.String
+                sessionId: Swift.String? = nil
             ) {
                 self.hasMoreMessages = hasMoreMessages
                 self.messages = messages
@@ -2264,7 +2264,7 @@ extension Components {
                     Swift.Bool.self,
                     forKey: .hasMoreMessages
                 )
-                self.messages = try container.decodeIfPresent(
+                self.messages = try container.decode(
                     [Components.Schemas.TranscriptMessage].self,
                     forKey: .messages
                 )
@@ -2272,7 +2272,7 @@ extension Components {
                     Swift.String.self,
                     forKey: .previousMessageCursor
                 )
-                self.sessionId = try container.decode(
+                self.sessionId = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .sessionId
                 )

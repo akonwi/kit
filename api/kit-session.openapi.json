@@ -282,7 +282,6 @@
             "items": {
               "$ref": "#/components/schemas/TranscriptMessage"
             },
-            "nullable": true,
             "type": "array"
           },
           "SessionID": {
@@ -293,9 +292,7 @@
           }
         },
         "required": [
-          "SessionID",
-          "Messages",
-          "HasMore"
+          "Messages"
         ],
         "type": "object"
       },
@@ -553,7 +550,6 @@
             "items": {
               "$ref": "#/components/schemas/PromptInput"
             },
-            "nullable": true,
             "type": "array"
           },
           "queue": {
@@ -561,8 +557,7 @@
           }
         },
         "required": [
-          "messages",
-          "queue"
+          "messages"
         ],
         "type": "object"
       },
@@ -784,7 +779,6 @@
             "items": {
               "$ref": "#/components/schemas/SessionEvent"
             },
-            "nullable": true,
             "type": "array"
           },
           "firstSequence": {
@@ -968,7 +962,6 @@
             "items": {
               "$ref": "#/components/schemas/TranscriptMessage"
             },
-            "nullable": true,
             "type": "array"
           },
           "previousMessageCursor": {
@@ -979,7 +972,6 @@
           }
         },
         "required": [
-          "sessionId",
           "messages"
         ],
         "type": "object"

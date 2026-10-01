@@ -509,8 +509,26 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 			base = base.Elem()
 		}
 		if (base.Kind() == reflect.Slice || base.Kind() == reflect.Map) && options != "omitempty" {
-			if value, ok := property["type"].(string); ok {
-				property["type"] = []any{value, "null"}
+			// Collection fields without omitempty have explicit zero values on the
+			// wire. Publish them as required, non-null collections rather than
+			// allowing an absent or null collection.
+			delete(property, "nullable")
+			if types, ok := property["type"].([]any); ok {
+				nonNull := types[:0]
+				for _, value := range types {
+					if value != "null" {
+						nonNull = append(nonNull, value)
+					}
+				}
+				if len(nonNull) == 1 {
+					property["type"] = nonNull[0]
+				} else {
+					property["type"] = nonNull
+				}
+			}
+			required, _ := schema["required"].([]string)
+			if !contains(required, jsonName) {
+				schema["required"] = append(required, jsonName)
 			}
 		}
 	}
