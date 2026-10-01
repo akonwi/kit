@@ -2,6 +2,7 @@ use ard/async
 
 use cooper
 use cooper/cui
+use cooper/event
 use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/protocol
@@ -552,8 +553,7 @@ impl Shell {
         )
         children.push(blank())
         let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
-          self.active_modal = ActiveModal::provider_picker
-          true
+          self.open_provider_picker()
         })
         children.push(
           controls::button(
@@ -561,6 +561,7 @@ impl Shell {
             "Connect a provider",
             connect,
             variant: controls::ButtonVariant::primary,
+            autofocus: true,
             ref: self.connect_button,
           ),
         )
@@ -715,7 +716,22 @@ impl cui::Component for Shell {
         _ => true,
       }
     })
+    let commands = mut List::new<keymap::Command>()
+    let bindings = mut List::new<keymap::Binding>()
+    commands.push(interrupt)
+    bindings.push(keymap::binding(keymap::key("c", ctrl: true), interrupt.with()))
+    if self.phase == Phase::auth and self.active_modal == ActiveModal::none {
+      let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
+        self.open_provider_picker()
+      })
+      commands.push(connect)
+      bindings.push(keymap::binding(keymap::key("return"), connect.with()))
+      bindings.push(keymap::binding(keymap::key("space"), connect.with()))
+    }
     let shell = cui::box(
+      // Keep the application key layer attached to a focusable shell owner;
+      // terminal key routing otherwise has no initial target before deferred
+      // child autofocus settles.
       [self.header(), divider(colors.border), self.body(), divider(colors.border), self.footer()],
       key: "shell.surface",
       styles: ui::style(
@@ -725,9 +741,10 @@ impl cui::Component for Shell {
         background: colors.background,
         foreground: colors.foreground,
       ),
-      commands: [interrupt],
-      bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
+      commands: commands.@,
+      bindings: bindings.@,
       binding_scope: keymap::ScopeMode::application,
+      on_key: fn(received: mut event::KeyEvent, ctx: cui::Context) {},
     )
     let layers = mut List::new<cui::View>()
     layers.push(shell)
@@ -748,6 +765,11 @@ impl cui::Component for Shell {
 }
 
 impl Shell {
+  fn mut open_provider_picker() Bool {
+    self.active_modal = ActiveModal::provider_picker
+    true
+  }
+
   fn mut dismiss_modal() Bool {
     self.active_modal = ActiveModal::none
     match self.context {
