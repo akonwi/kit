@@ -94,6 +94,24 @@ test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
   testing::assert(live.activity == "", "finished run clears activity")
 }
 
+test fn submitted_prompt_stays_pending_until_the_server_claims_it() Void!Str {
+  let live = mut transcript::live()
+  live.submit("hi")
+  try testing::assert(live.submission_pending(), "new local prompt is pending server identity")
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "hi",
+        },
+      ],
+    ),
+  )
+  testing::assert(not live.submission_pending(), "user event claims the optimistic prompt")
+}
+
 test fn replayed_events_are_ignored() Void!Str {
   let live = mut transcript::live()
   let stream = sequenced([assistant_started(), text_delta("one"), text_delta(" two")])
