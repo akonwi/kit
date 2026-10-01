@@ -130,10 +130,6 @@ private fn panel_style(colors: theme::Theme, placement: Placement) ui::Style {
     Placement::picker => ui::percent(80.0),
     Placement::centered => ui::percent(70.0),
   }
-  let left = match placement {
-    Placement::picker => ui::percent(10.0),
-    Placement::centered => ui::percent(15.0),
-  }
   let top = match placement {
     Placement::picker => ui::percent(25.0),
     Placement::centered => ui::percent(33.0),
@@ -145,8 +141,8 @@ private fn panel_style(colors: theme::Theme, placement: Placement) ui::Style {
   ui::style(
     position: ui::Position::absolute,
     top: top,
-    left: left,
     width: width,
+    align_self: ui::Align::center,
     height: height,
     min_width: ui::cells(48),
     max_width: ui::cells(96),
