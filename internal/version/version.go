@@ -20,5 +20,6 @@ const (
 	// parent-directed request replies alongside task-completion notifications.
 	// 42: Session API errors use one code-bearing body for scratchpad operations
 	// and requests rejected before routing.
-	SessionProtocolVersion = 42
+	// 43: Turns replace runs throughout the session wire contract.
+	SessionProtocolVersion = 43
 )

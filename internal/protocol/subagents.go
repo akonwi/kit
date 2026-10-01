@@ -179,15 +179,15 @@ func (page SubagentLiveEventPage) Validate() error {
 			return fmt.Errorf("subagent event %d is invalid", index)
 		}
 		switch event.Kind {
-		case "message.text.delta", "message.thinking.delta":
+		case "assistant.text.delta", "assistant.thinking.delta":
 			if event.MessageID == "" || event.Delta == "" || event.ToolCallID != "" || event.ToolName != "" || event.Text != "" || event.IsError {
 				return fmt.Errorf("subagent delta event %d has invalid fields", index)
 			}
-		case "tool.planned", "tool.started", "tool.updated", "tool.completed":
-			if event.ToolCallID == "" || event.ToolName == "" || event.Delta != "" || event.MessageID != "" || event.IsError && event.Kind != "tool.updated" && event.Kind != "tool.completed" {
+		case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
+			if event.ToolCallID == "" || event.ToolName == "" || event.Delta != "" || event.MessageID != "" || event.IsError && event.Kind != "tool.output.delta" && event.Kind != "tool.completed" {
 				return fmt.Errorf("subagent tool event %d has invalid fields", index)
 			}
-		case "message.completed":
+		case "assistant.completed":
 			if event.Delta != "" || event.Text != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
 				return fmt.Errorf("subagent message event %d has invalid fields", index)
 			}

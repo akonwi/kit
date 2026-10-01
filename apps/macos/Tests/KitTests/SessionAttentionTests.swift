@@ -58,7 +58,7 @@ struct SessionAttentionTests {
         let feedback = SessionAttention(isActive: { false }, bounce: { bounces += 1 })
         var value = session(run: "r1")
         feedback.observe(value, server: "a")
-        value.pendingInteractions = [WireInteractionRequest(id: "question", sessionId: "s", runId: "r1",
+        value.pendingInteractions = [WireInteractionRequest(id: "question", sessionId: "s", turnId: "r1",
             toolCallId: "tool", kind: .value0, title: "Continue?", detail: nil, options: nil, questions: nil, createdAt: "")]
         feedback.observe(value, server: "a")
         feedback.observe(value, server: "a")

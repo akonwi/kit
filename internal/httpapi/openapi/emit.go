@@ -40,6 +40,9 @@ func Emit() ([]byte, error) {
 			}
 		}
 	}
+	for name, schema := range components {
+		components[name] = normalizeSchema(schema)
+	}
 	paths := map[string]any{}
 	for _, descriptor := range descriptors {
 		responses, err := operationResponses(descriptor, components)
@@ -92,11 +95,46 @@ func operationParameters(descriptor httpapi.Descriptor) []any {
 		typ = typ.Elem()
 	}
 	for i := 0; i < typ.NumField(); i++ {
-		if name := typ.Field(i).Tag.Get("path"); name != "" {
+		field := typ.Field(i)
+		if name := field.Tag.Get("path"); name != "" {
 			parameters = append(parameters, map[string]any{"name": name, "in": "path", "required": true, "schema": map[string]any{"type": "string"}})
+			continue
+		}
+		if raw := field.Tag.Get("query"); raw != "" {
+			name, options, _ := strings.Cut(raw, ",")
+			if name == "" {
+				continue
+			}
+			parameters = append(parameters, map[string]any{"name": name, "in": "query", "required": !strings.Contains(options, "omitempty"), "schema": parameterSchema(field.Type)})
+			continue
+		}
+		if raw := field.Tag.Get("header"); raw != "" {
+			name, options, _ := strings.Cut(raw, ",")
+			if name == "" {
+				continue
+			}
+			parameters = append(parameters, map[string]any{"name": name, "in": "header", "required": !strings.Contains(options, "omitempty"), "schema": parameterSchema(field.Type)})
 		}
 	}
 	return parameters
+}
+
+func parameterSchema(typ reflect.Type) map[string]any {
+	for typ.Kind() == reflect.Pointer {
+		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Slice {
+		return map[string]any{"type": "array", "items": parameterSchema(typ.Elem())}
+	}
+	switch typ.Kind() {
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64,
+		reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		return map[string]any{"type": "integer"}
+	case reflect.Bool:
+		return map[string]any{"type": "boolean"}
+	default:
+		return map[string]any{"type": "string"}
+	}
 }
 
 func operationResponses(descriptor httpapi.Descriptor, components map[string]any) (map[string]any, error) {
@@ -193,6 +231,59 @@ func schemaName(typ reflect.Type) string {
 	return typ.Name()
 }
 
+// normalizeSchema replaces boolean JSON Schema nodes with object equivalents.
+// Swift OpenAPI Generator accepts only mapping schema nodes, while an empty
+// object remains the OpenAPI 3.1 equivalent of the permissive true schema.
+func normalizeSchema(value any) any {
+	if allowed, ok := value.(bool); ok {
+		if allowed {
+			return map[string]any{}
+		}
+		return map[string]any{"not": map[string]any{}}
+	}
+	schema, ok := value.(map[string]any)
+	if !ok {
+		return value
+	}
+	if types, ok := schema["type"].([]any); ok {
+		var nonNull []any
+		nullable := false
+		for _, typ := range types {
+			if typ == "null" {
+				nullable = true
+			} else {
+				nonNull = append(nonNull, typ)
+			}
+		}
+		if nullable && len(nonNull) == 1 {
+			schema["type"], schema["nullable"] = nonNull[0], true
+		}
+	}
+	for _, key := range []string{"properties", "patternProperties", "$defs"} {
+		if children, ok := schema[key].(map[string]any); ok {
+			for name, child := range children {
+				children[name] = normalizeSchema(child)
+			}
+		}
+	}
+	for _, key := range []string{"items", "not", "if", "then", "else"} {
+		if child, exists := schema[key]; exists {
+			schema[key] = normalizeSchema(child)
+		}
+	}
+	if child, ok := schema["additionalProperties"].(map[string]any); ok {
+		schema["additionalProperties"] = normalizeSchema(child)
+	}
+	for _, key := range []string{"allOf", "anyOf", "oneOf", "prefixItems"} {
+		if children, ok := schema[key].([]any); ok {
+			for index, child := range children {
+				children[index] = normalizeSchema(child)
+			}
+		}
+	}
+	return schema
+}
+
 func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) {
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
@@ -217,6 +308,7 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 	if err := json.Unmarshal(encoded, &root); err != nil {
 		return "", err
 	}
+	root = normalizeSchema(root).(map[string]any)
 	definitions, _ := root["$defs"].(map[string]any)
 	for definitionName, definition := range definitions {
 		components[definitionName] = definition
@@ -417,8 +509,26 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 			base = base.Elem()
 		}
 		if (base.Kind() == reflect.Slice || base.Kind() == reflect.Map) && options != "omitempty" {
-			if value, ok := property["type"].(string); ok {
-				property["type"] = []any{value, "null"}
+			// Collection fields without omitempty have explicit zero values on the
+			// wire. Publish them as required, non-null collections rather than
+			// allowing an absent or null collection.
+			delete(property, "nullable")
+			if types, ok := property["type"].([]any); ok {
+				nonNull := types[:0]
+				for _, value := range types {
+					if value != "null" {
+						nonNull = append(nonNull, value)
+					}
+				}
+				if len(nonNull) == 1 {
+					property["type"] = nonNull[0]
+				} else {
+					property["type"] = nonNull
+				}
+			}
+			required, _ := schema["required"].([]string)
+			if !contains(required, jsonName) {
+				schema["required"] = append(required, jsonName)
 			}
 		}
 	}

@@ -46,7 +46,7 @@ private actor MutationStub: SessionMutationClient {
     }
     func acknowledge(_ session: String = "s", queued: Bool = false) {
         queue = WireFollowUpQueue(count: queued ? 1 : 0, previews: queued ? ["Queued prompt"] : [], annotationIds: nil)
-        continuation?.resume(returning: WirePromptSubmission(reservation: queued ? nil : WireRunReservation(sessionId: session, turnId: "turn", runId: "run"), queued: queued, queue: queue))
+        continuation?.resume(returning: WirePromptSubmission(reservation: queued ? nil : WireTurnReservation(sessionId: session, turnId: "turn"), queued: queued, queue: queue))
         continuation = nil
     }
     func reject(_ error: ClientError) { continuation?.resume(throwing: error); continuation = nil }
@@ -59,7 +59,7 @@ private actor MutationStub: SessionMutationClient {
         queue = WireFollowUpQueue(count: 0, previews: [], annotationIds: nil)
         return WirePromoteFollowUpsResult(promoted: 1, queue: queue)
     }
-    func abort(_ session: String, run: String) async throws { aborted.append(run) }
+    func abort(_ session: String, turn: String) async throws { aborted.append(turn) }
 }
 
 @MainActor struct SessionOperationsTests {
@@ -225,7 +225,7 @@ private actor MutationStub: SessionMutationClient {
         var session = try await client.snapshot("s")
         session.activeRunID = "run"
         operations.reconcile(session)
-        operations.abort(client: client, session: "s", run: "run")
+        operations.abort(client: client, session: "s", turn: "run")
         try await wait { await client.aborted.count == 1 }
         #expect(operations.abortingRun == "run")
         operations.reconcile(session)

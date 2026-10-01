@@ -19,9 +19,9 @@ struct SessionEventProjection {
 
     init(_ snapshot: WireSessionSnapshot, terminalError: String? = nil) throws {
         try self.init(session: SessionProjection.snapshot(snapshot), source: snapshot.messages ?? [],
-            activeRunID: snapshot.activeRunId, replayAvailable: snapshot.eventReplayAvailable == true,
-            pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.runId == snapshot.activeRunId }.map(\.id)))
-        if snapshot.activeRunId == nil && session.terminalError == nil { session.terminalError = terminalError }
+            activeRunID: snapshot.activeTurnId, replayAvailable: snapshot.eventReplayAvailable == true,
+            pendingInteractions: Set((snapshot.pendingInteractions ?? []).filter { $0.plugin != nil || $0.turnId == snapshot.activeTurnId }.map(\.id)))
+        if snapshot.activeTurnId == nil && session.terminalError == nil { session.terminalError = terminalError }
     }
 
     init(session: SessionExcerpt, source: [WireTranscriptMessage], activeRunID: String? = nil,
@@ -87,16 +87,16 @@ struct SessionEventProjection {
         case "annotation.submitted":
             guard let ids = event.annotationIds, ids.count <= 64, Set(ids).count == ids.count else { throw ClientError.invalidPayload }
             session.annotations?.removeAll { ids.contains($0.id) }
-        case "run.started":
+        case "turn.started":
             candidateAnnotationTurn = nil
             session.activeCompactionID = nil
-            if activeRunID != event.runId { retainPluginInteractions() }
-            activeRunID = event.runId
+            if activeRunID != event.turnId { retainPluginInteractions() }
+            activeRunID = event.turnId
             session.terminalError = nil
             session.activity = "Working…"
         case "interaction.requested":
             guard let interaction = event.interaction else { throw ClientError.invalidPayload }
-            if interaction.plugin != nil || interaction.runId == activeRunID {
+            if interaction.plugin != nil || interaction.turnId == activeRunID {
                 pendingInteractions.insert(interaction.id)
                 var requests = session.pendingInteractions ?? []
                 requests.removeAll { $0.id == interaction.id }
@@ -107,7 +107,7 @@ struct SessionEventProjection {
             guard let id = event.interactionId else { throw ClientError.invalidPayload }
             pendingInteractions.remove(id)
             session.pendingInteractions?.removeAll { $0.id == id }
-        case "message.user":
+        case "user.message.added":
             let annotations = try (event.content ?? []).flatMap { $0.annotations ?? [] }.map(FileAnnotation.init)
             let value = event.text ?? SessionProjection.visibleText(event.content ?? [])
             if userTurns.insert(event.turnId).inserted {
@@ -165,7 +165,7 @@ struct SessionEventProjection {
             text[id] = nil
             session.activity = "Working…"
             lastTurn = event.turnId
-        case "tool.planned", "tool.started", "tool.updated", "tool.completed":
+        case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
             guard let id = event.toolCallId, !id.isEmpty, let name = event.toolName, !name.isEmpty else { throw ClientError.invalidPayload }
             guard !persistedTools.contains(id) else { return }
             session.activity = "Working…"
@@ -203,7 +203,7 @@ struct SessionEventProjection {
             session.providerRetryCount = event.providerRetry?.count
         case "provider.retry.started":
             session.providerRetryAt = nil
-        case "run.finished":
+        case "turn.completed":
             session.activeCompactionID = nil
             session.terminalError = event.errorMessage
             session.providerRetryAt = nil
@@ -215,9 +215,9 @@ struct SessionEventProjection {
         case "compaction.started":
             session.activeCompactionID = event.compactionID
             session.activity = "Compacting context…"
-        case "compaction.failed", "compaction.completed":
+        case "compaction.completed":
             if let id = event.compactionID, session.activeCompactionID == id {
-                let failed = event.kind == "compaction.failed"
+                let failed = event.isError == true
                 let detail = event.errorMessage?.trimmingCharacters(in: .whitespacesAndNewlines)
                 session.compactionOutcome = CompactionOutcome(id: id, failed: failed,
                                                               detail: failed && (detail?.isEmpty ?? true)
@@ -225,13 +225,13 @@ struct SessionEventProjection {
                 session.activeCompactionID = nil
                 session.activity = activeRunID == nil ? nil : "Working…"
             }
-        case "usage.updated":
+        case "usage.changed":
             guard let usage = event.usage else { throw ClientError.invalidPayload }
             session.usage = SessionUsage(usage)
-        case "context.updated":
+        case "context.changed":
             session.contextTokens = event.contextTokens
             session.contextWindow = event.contextWindow
-        case "session.renamed": session.title = event.sessionName ?? "Untitled session"
+        case "session.name.changed": session.title = event.sessionName ?? "Untitled session"
         default: break
         }
         session.activeRunID = activeRunID

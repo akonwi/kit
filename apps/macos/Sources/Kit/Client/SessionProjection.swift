@@ -39,12 +39,12 @@ enum SessionProjection {
         guard session.mcpWarnings!.count <= 8, session.mcpWarnings!.allSatisfy({ $0.utf8.count <= 512 }) else { throw ClientError.invalidPayload }
         session.activeCompactionID = snapshot.activeCompaction?.id
         session.activeBashID = snapshot.activeBashExecutionId
-        session.activeRunID = snapshot.activeRunId
+        session.activeRunID = snapshot.activeTurnId
         session.observedTurns = Array(Set((snapshot.messages ?? []).map(\.turnId)))
         session.followUps = try FollowUpState(snapshot.followUps)
         session.providerRetryAt = snapshot.providerRetry?.retryAt
         session.providerRetryCount = snapshot.providerRetry?.count
-        session.terminalError = snapshot.activeRunId == nil ? snapshot.messages?.last(where: { $0.role == "assistant" })?.errorMessage : nil
+        session.terminalError = snapshot.activeTurnId == nil ? snapshot.messages?.last(where: { $0.role == "assistant" })?.errorMessage : nil
         session.historyStart = snapshot.messages?.first?.sequence
         return session
     }

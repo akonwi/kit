@@ -18,7 +18,7 @@ struct ClientTests {
     @Test func cursorsIgnoreReplayAndRejectGapsAndWrongSession() throws {
         func batch(_ sequences: [Int], session: String = "s") throws -> WireSessionEventBatch {
             let events = sequences.map { ["streamId": "stream", "sequence": $0, "sessionId": session,
-                "turnId": "", "runId": "", "kind": "session.renamed"] as [String: Any] }
+                "turnId": "", "kind": "session.name.changed"] as [String: Any] }
             return try JSONDecoder().decode(WireSessionEventBatch.self, from: JSONSerialization.data(withJSONObject: ["streamId": "stream", "events": events]))
         }
         #expect(try EventCursor.accept(batch([2, 3, 4]), session: "s", stream: "stream", cursor: 3) == 4)

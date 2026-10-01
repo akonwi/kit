@@ -54,7 +54,8 @@ extension AnnotationTests {
         var projection = try SessionEventProjection(session: session, source: [])
         func event(_ kind: String, _ extra: [String: Any]) throws -> WireSessionEvent {
             var payload: [String: Any] = ["kind": kind, "sessionId": "session_a", "streamId": "stream",
-                "sequence": 1, "turnId": "", "runId": ""]
+                "sequence": 1, "turnId": ""
+            ]
             payload.merge(extra) { _, new in new }
             return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: payload))
         }
@@ -186,7 +187,7 @@ extension AnnotationTests {
             let second = try await client.createAnnotation(id, input: .init(anchor: currentAnchor, body: "This is a disposable verification session."))
             #expect(first.id > created.id)
             let receipt = try await client.submit(id, input: .init(text: "", attachmentIds: [], annotationIds: [second.id, first.id]))
-            if let run = receipt.reservation?.runId { try? await client.abort(id, run: run) }
+            if let turn = receipt.reservation?.turnId { try? await client.abort(id, turn: turn) }
             #expect(try await client.annotations(id).isEmpty)
             try "newer source\n".write(to: file, atomically: true, encoding: .utf8)
             var accepted = try await client.snapshot(id)
@@ -220,12 +221,12 @@ extension AnnotationTests {
     @Test func annotationSubmissionWaitsForPersistedEvidence() throws {
         func event(_ sequence: Int64, _ kind: String, text: String? = nil) throws -> WireSessionEvent {
             var json: [String: Any] = ["streamId": "stream", "sequence": sequence,
-                "sessionId": "session_test", "turnId": "turn_test", "runId": "turn_test", "kind": kind]
+                "sessionId": "session_test", "turnId": "turn_test", "kind": kind]
             if let text { json["text"] = text }
             return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
         }
-        let started = try event(1, "run.started")
-        let placeholder = try event(2, "message.user", text: "Annotations")
+        let started = try event(1, "turn.started")
+        let placeholder = try event(2, "user.message.added", text: "Annotations")
         let submitted = try event(3, "annotation.submitted")
         var split = LiveAnnotationGate()
         #expect(split.shouldPublish([started, placeholder]) == false)
@@ -234,10 +235,10 @@ extension AnnotationTests {
         #expect(together.shouldPublish([started, placeholder, submitted]) == true)
         var plain = LiveAnnotationGate()
         #expect(plain.shouldPublish([started, placeholder]) == false)
-        #expect(plain.shouldPublish([try event(3, "run.finished")]) == true)
+        #expect(plain.shouldPublish([try event(3, "turn.completed")]) == true)
         #expect(plain.releasedOrdinaryCandidate)
         var ordinary = LiveAnnotationGate()
-        #expect(ordinary.shouldPublish([started, try event(2, "message.user", text: "Hello")]) == true)
+        #expect(ordinary.shouldPublish([started, try event(2, "user.message.added", text: "Hello")]) == true)
     }
 
     @Test @MainActor func annotationOnlyTranscriptUsesFrozenStructuredEvidence() throws {

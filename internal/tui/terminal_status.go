@@ -55,7 +55,7 @@ type terminalStatusReporter struct {
 	progressRetryAfter      time.Time
 	status                  terminalStatusState
 	statusSet               bool
-	runID                   string
+	turnID                  string
 	runningAnimationStarted time.Time
 	sessionName             string
 	cwd                     string
@@ -71,7 +71,7 @@ func newTerminalStatusReporter() *terminalStatusReporter {
 
 // Update projects one title/progress state. Raw progress failures retry with
 // bounded backoff only when another application frame is naturally requested.
-func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd, runID string, state terminalStatusState, setTitle func(string)) {
+func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd, turnID string, state terminalStatusState, setTitle func(string)) {
 	if r == nil {
 		return
 	}
@@ -80,15 +80,15 @@ func (r *terminalStatusReporter) Update(now time.Time, sessionName, cwd, runID s
 
 	r.sessionName = sessionName
 	r.cwd = cwd
-	replacementRun := r.runID != "" && runID != "" && runID != r.runID
-	if !r.statusSet || state != r.status || replacementRun {
+	replacementTurn := r.turnID != "" && turnID != "" && turnID != r.turnID
+	if !r.statusSet || state != r.status || replacementTurn {
 		r.status = state
 		r.statusSet = true
 		if state == terminalStatusRunning {
 			r.runningAnimationStarted = now
 		}
 	}
-	r.runID = runID
+	r.turnID = turnID
 	title := formatTerminalTitleWithMarker(sessionName, cwd, terminalStatusMarker(
 		state, now, r.runningAnimationStarted, r.titleFrameDuration,
 	))

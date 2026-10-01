@@ -198,7 +198,7 @@ func TestPluginConfirmationHonorsLabelsDefaultAndFocusTraversal(t *testing.T) {
 }
 
 func TestPluginDialogMetadataHasOneEventOwnerDuringModelRun(t *testing.T) {
-	state := appState{session: protocol.SessionInfo{ID: "session"}, activeRunID: "run", liveAssistant: -1, liveTools: make(map[string]int)}
+	state := appState{session: protocol.SessionInfo{ID: "session"}, activeTurnID: "run", liveAssistant: -1, liveTools: make(map[string]int)}
 	request := protocol.InteractionRequest{ID: "plugin_request", Plugin: &protocol.PluginInteractionOwner{PluginID: "demo", Instance: "host:1"}, Kind: protocol.InteractionConfirm, Title: "Plugin action"}
 	requested := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 1, Payload: protocol.InteractionRequestedEvent{Interaction: &request}}
 	resolved := protocol.SessionEvent{SessionID: "session", StreamID: "stream", Sequence: 2, Payload: protocol.InteractionResolvedEvent{InteractionID: request.ID, InteractionResolution: "answered"}}
@@ -207,22 +207,22 @@ func TestPluginDialogMetadataHasOneEventOwnerDuringModelRun(t *testing.T) {
 		t.Fatalf("plugin dialog during model run = %#v", state.pendingInteractions)
 	}
 	state.applySessionMetadataEvents([]protocol.SessionEvent{resolved})
-	state.applyRunEvents([]protocol.SessionEvent{requested})
+	state.applyTurnEvents([]protocol.SessionEvent{requested})
 	if len(state.pendingInteractions) != 0 || state.agentFeedbackPending {
 		t.Fatalf("delayed run watcher reopened plugin dialog: %#v", state.pendingInteractions)
 	}
 	model := request
 	model.Plugin = nil
 	model.ID = "model_request"
-	model.RunID = "run"
+	model.TurnID = "run"
 	model.ToolCallID = "tool"
 	requested.Payload = protocol.InteractionRequestedEvent{Interaction: &model}
-	requested.RunID = "run"
+	requested.TurnID = "run"
 	requested.Sequence = 3
-	resolved.RunID = "run"
+	resolved.TurnID = "run"
 	resolved.Payload = protocol.InteractionResolvedEvent{InteractionID: model.ID, InteractionResolution: "answered"}
 	resolved.Sequence = 4
-	state.applyRunEvents([]protocol.SessionEvent{requested, resolved})
+	state.applyTurnEvents([]protocol.SessionEvent{requested, resolved})
 	state.applySessionMetadataEvents([]protocol.SessionEvent{requested})
 	if len(state.pendingInteractions) != 0 || state.agentFeedbackPending {
 		t.Fatalf("delayed metadata watcher reopened model dialog: %#v", state.pendingInteractions)

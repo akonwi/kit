@@ -16,8 +16,8 @@ private final class ChildFeed: @unchecked Sendable {
             ["sequence": 1, "kind": "turn.started", "turnId": "t"],
             ["sequence": 2, "kind": "message.thinking.delta", "turnId": "t", "messageId": "m", "delta": "Inspecting resources"],
             ["sequence": 3, "kind": "tool.started", "turnId": "t", "toolCallId": "call", "toolName": "bash"],
-            ["sequence": 4, "kind": "tool.updated", "turnId": "t", "toolCallId": "call", "toolName": "bash", "text": "first"],
-            ["sequence": 5, "kind": "tool.updated", "turnId": "t", "toolCallId": "call", "toolName": "bash", "text": " second"],
+            ["sequence": 4, "kind": "tool.output.delta", "turnId": "t", "toolCallId": "call", "toolName": "bash", "text": "first"],
+            ["sequence": 5, "kind": "tool.output.delta", "turnId": "t", "toolCallId": "call", "toolName": "bash", "text": " second"],
             ["sequence": 6, "kind": "tool.completed", "turnId": "t", "toolCallId": "call", "toolName": "bash", "text": "final"],
             ["sequence": 7, "kind": "turn.settled", "turnId": "t"]]
         let last = settled ? 7 : after == 0 ? 4 : 5

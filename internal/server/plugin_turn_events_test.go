@@ -74,7 +74,7 @@ for line in sys.stdin:
 		snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 		return err == nil && len(snapshot.PluginCommands) == 1 && snapshot.PluginCommands[0].ID == "turn-events.ready"
 	})
-	result, err := client.RunPrompt(t.Context(), created.ID, "one prompt")
+	result, err := client.Prompt(t.Context(), created.ID, "one prompt")
 	if err != nil {
 		t.Fatal(err)
 	}

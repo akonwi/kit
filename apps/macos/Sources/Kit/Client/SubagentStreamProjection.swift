@@ -30,7 +30,7 @@ struct SubagentStreamProjection {
             case "message.text.delta", "message.thinking.delta":
                 guard !(event.messageId ?? "").isEmpty, !(event.delta ?? "").isEmpty,
                       event.toolCallId == nil, event.toolName == nil, event.text == nil else { throw ClientError.invalidPayload }
-            case "tool.planned", "tool.started", "tool.updated", "tool.completed":
+            case "tool.planned", "tool.started", "tool.output.delta", "tool.completed":
                 guard !(event.toolCallId ?? "").isEmpty, !(event.toolName ?? "").isEmpty,
                       event.delta == nil else { throw ClientError.invalidPayload }
             default:

@@ -212,11 +212,11 @@ type appState struct {
 	pluginCommandToastID    uint64
 	pluginToastWatchCancel  context.CancelFunc
 	pluginToastIDs          map[uint64]bool
-	runWatchCancel          context.CancelFunc
-	runWatchID              string
-	runWatchGeneration      uint64
-	notifiedRunIDs          map[string]bool
-	notifiedRunOrder        []string
+	turnWatchCancel         context.CancelFunc
+	turnWatchID             string
+	turnWatchGeneration     uint64
+	notifiedTurnIDs         map[string]bool
+	notifiedTurnOrder       []string
 	sessionWatchCancel      context.CancelFunc
 	deferredSessionSnapshot *protocol.SessionSnapshot
 	subagentWatchCancel     context.CancelFunc
@@ -335,8 +335,8 @@ type appState struct {
 	attachmentUploadGeneration       uint64
 	pendingInteractions              []protocol.InteractionRequest
 	followUpMutationPending          bool
-	runStopping                      bool
-	runAbortGeneration               uint64
+	turnStopping                     bool
+	turnAbortGeneration              uint64
 	providerRetry                    *protocol.ProviderRetry
 	activeCompactionID               string
 	compactionOutcomeIDs             map[string]struct{}
@@ -421,12 +421,12 @@ type appState struct {
 	scrollPendingLayout              bool
 	transcriptVisible                bool
 	transcriptPinnedOnHide           bool
-	activeRun                        sessionclient.Run
-	activeRunID                      string
-	runPending                       bool
-	terminalRunActive                bool
-	terminalRunID                    string
-	terminalSettledRunID             string
+	activeTurn                       sessionclient.Turn
+	activeTurnID                     string
+	turnPending                      bool
+	terminalTurnActive               bool
+	terminalTurnID                   string
+	terminalSettledTurnID            string
 	agentFeedbackPending             bool
 	reloadPending                    bool
 	modelRefreshPending              bool
@@ -815,7 +815,7 @@ func (s *appState) loadTranscriptHistory() {
 					return
 				}
 				if refreshed != nil {
-					if refreshed.ActiveRunID != "" && refreshed.ActiveRunID == s.activeRunID {
+					if refreshed.ActiveTurnID != "" && refreshed.ActiveTurnID == s.activeTurnID {
 						// The bounded snapshot omits this active turn, so refresh only
 						// durable state and leave its streamed projection intact.
 						s.messages = projectTranscript(refreshed.Messages)
@@ -962,7 +962,7 @@ func (s *appState) syncTerminalStatus(now time.Time, setTitle func(string)) {
 	if cwd == "" {
 		cwd = s.terminalCWD
 	}
-	s.terminalStatus.Update(now, name, cwd, s.terminalRunID, resolveTerminalStatus(s.terminalRunActive, s.agentFeedbackPending), setTitle)
+	s.terminalStatus.Update(now, name, cwd, s.terminalTurnID, resolveTerminalStatus(s.terminalTurnActive, s.agentFeedbackPending), setTitle)
 }
 
 func (s *appState) storeToast(input toastInput) toastShowResult {
@@ -1095,12 +1095,12 @@ func (s *appState) resetAttachmentContext() {
 	}
 	s.pluginCommandGeneration++
 	s.setPluginCommandPending("")
-	if s.runWatchCancel != nil {
-		s.runWatchCancel()
-		s.runWatchCancel = nil
+	if s.turnWatchCancel != nil {
+		s.turnWatchCancel()
+		s.turnWatchCancel = nil
 	}
-	s.runWatchID = ""
-	s.runWatchGeneration++
+	s.turnWatchID = ""
+	s.turnWatchGeneration++
 	if s.sessionWatchCancel != nil {
 		s.sessionWatchCancel()
 		s.sessionWatchCancel = nil
@@ -1224,7 +1224,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		Messages:                      presentedMessages,
 		Attachments:                   attachments,
 		Running:                       s.hasActiveWork(),
-		AgentRunning:                  s.runPending,
+		AgentRunning:                  s.turnPending,
 		TurnActivity:                  s.presentedTurnActivity(time.Now()),
 		TurnThinking:                  s.turnThinking,
 		FollowUps:                     s.followUps,
@@ -1368,7 +1368,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			s.SetState(func() {
 				s.activityConversationID = ""
 				presentation := s.activityPresentation(presentedMessages, "")
-				opening := !activitySourceIsOpen(s.inlineActivityOpen, presentation, sourceID, s.runPending)
+				opening := !activitySourceIsOpen(s.inlineActivityOpen, presentation, sourceID, s.turnPending)
 				for id := range s.inlineActivityOpen {
 					s.inlineActivityOpen[id] = false
 				}
@@ -2262,7 +2262,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 				})
 				return
 			}
-			running := snapshot.ActiveRunID != ""
+			running := snapshot.ActiveTurnID != ""
 			activeBashID := snapshot.ActiveBashExecutionID
 			s.SetState(func() {
 				s.phase = phaseReady
@@ -2281,7 +2281,7 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
 			if running {
-				s.watchSession(bound, operation, snapshot.ActiveRunID)
+				s.watchSession(bound, operation, snapshot.ActiveTurnID)
 			}
 			if activeBashID != "" {
 				s.resumeBash(bound, operation, activeBashID)
@@ -2582,17 +2582,17 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 	s.contextTokens = snapshot.ContextTokens
 	s.contextWindow = snapshot.ContextWindow
 	s.sessionUsage = snapshot.Usage
-	s.activeRunID = snapshot.ActiveRunID
-	s.runPending = snapshot.ActiveRunID != ""
+	s.activeTurnID = snapshot.ActiveTurnID
+	s.turnPending = snapshot.ActiveTurnID != ""
 	s.providerRetry = cloneProviderRetry(snapshot.ProviderRetry)
 	s.activeCompactionID = ""
-	if snapshot.ActiveCompaction != nil && snapshot.ActiveCompaction.RunID == snapshot.ActiveRunID {
+	if snapshot.ActiveCompaction != nil && snapshot.ActiveCompaction.TurnID == snapshot.ActiveTurnID {
 		s.activeCompactionID = snapshot.ActiveCompaction.ID
 		s.setTurnThinking("")
 		s.setTurnActivity("Compacting session…")
 	}
-	if snapshot.ActiveRunID != "" && snapshot.ActiveRunID != s.terminalSettledRunID {
-		s.markTerminalRunStarted(snapshot.ActiveRunID)
+	if snapshot.ActiveTurnID != "" && snapshot.ActiveTurnID != s.terminalSettledTurnID {
+		s.markTerminalRunStarted(snapshot.ActiveTurnID)
 	}
 	if snapshot.ActiveBashExecutionID != "" || s.activeBash == nil {
 		s.activeBashID = snapshot.ActiveBashExecutionID
@@ -2601,7 +2601,7 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 		s.activeBashID = ""
 	}
 	s.agentFeedbackPending = len(s.pendingInteractions) > 0
-	if s.runPending {
+	if s.turnPending {
 		if s.agentFeedbackPending {
 			s.turnActivity = "Waiting for feedback…"
 		} else if s.activeCompactionID != "" {
@@ -2610,8 +2610,8 @@ func (s *appState) applySnapshot(snapshot protocol.SessionSnapshot) {
 			s.turnActivity = "Working…"
 		}
 	}
-	if !s.runPending {
-		s.activeRun = nil
+	if !s.turnPending {
+		s.activeTurn = nil
 		s.prompt = nil
 		if !s.daemonIncompatible {
 			s.recovery = footerHealthy
@@ -2754,46 +2754,46 @@ func (s *appState) resetLiveRun() {
 	s.liveStreamID = ""
 	s.turnActivity = ""
 	s.turnThinking = ""
-	s.runStopping = false
+	s.turnStopping = false
 	s.providerRetry = nil
 	s.activeCompactionID = ""
-	s.terminalRunActive = false
-	s.terminalRunID = ""
+	s.terminalTurnActive = false
+	s.terminalTurnID = ""
 	s.agentFeedbackPending = false
 }
 
-func (s *appState) markTerminalRunStarted(runID string) {
-	if runID != "" && runID == s.terminalSettledRunID {
+func (s *appState) markTerminalRunStarted(turnID string) {
+	if turnID != "" && turnID == s.terminalSettledTurnID {
 		return
 	}
-	s.terminalRunActive = true
-	s.terminalRunID = runID
+	s.terminalTurnActive = true
+	s.terminalTurnID = turnID
 }
 
-func (s *appState) markTerminalRunSettled(runID string) {
-	if runID != "" && s.terminalRunID != "" && runID != s.terminalRunID {
+func (s *appState) markTerminalRunSettled(turnID string) {
+	if turnID != "" && s.terminalTurnID != "" && turnID != s.terminalTurnID {
 		return
 	}
-	if runID == "" {
-		runID = s.terminalRunID
+	if turnID == "" {
+		turnID = s.terminalTurnID
 	}
-	s.terminalRunActive = false
-	s.terminalRunID = ""
-	if runID != "" {
-		s.terminalSettledRunID = runID
+	s.terminalTurnActive = false
+	s.terminalTurnID = ""
+	if turnID != "" {
+		s.terminalSettledTurnID = turnID
 	}
 	s.agentFeedbackPending = false
 }
 
 func (s *appState) setTurnActivity(activity string) {
-	if s.runStopping && activity != "" {
+	if s.turnStopping && activity != "" {
 		return
 	}
 	s.turnActivity = activity
 }
 
 func (s *appState) setTurnThinking(thinking string) {
-	if s.runStopping && thinking != "" {
+	if s.turnStopping && thinking != "" {
 		return
 	}
 	s.turnThinking = thinking
@@ -2844,7 +2844,7 @@ func (s *appState) recordCompactionOutcome(id string) bool {
 }
 
 func (s *appState) presentedTurnActivity(now time.Time) string {
-	if !s.runStopping {
+	if !s.turnStopping {
 		if activity := providerRetryActivity(s.providerRetry, now); activity != "" {
 			return activity
 		}
@@ -2861,9 +2861,9 @@ type subagentToolDetails struct {
 	Warning string `json:"warning"`
 }
 
-// clearRecoveredRunStatus clears only active-stream recovery. Final transcript
+// clearRecoveredTurnStatus clears only active-stream recovery. Final transcript
 // synchronization is resolved by its authoritative snapshot, not SSE activity.
-func (s *appState) clearRecoveredRunStatus() {
+func (s *appState) clearRecoveredTurnStatus() {
 	if s.recovery == footerReconnectingActivity {
 		s.recovery = footerHealthy
 	}
@@ -2882,7 +2882,7 @@ func projectToolPayload(payload protocol.SessionEventPayload) toolEventPayload {
 		return toolEventPayload{MessageID: value.MessageID, ToolCallID: value.ToolCallID, ToolName: value.ToolName, Arguments: value.Arguments, ArgumentsTruncated: value.ArgumentsTruncated}
 	case protocol.ToolStartedEvent:
 		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Arguments: value.Arguments, ArgumentsTruncated: value.ArgumentsTruncated}
-	case protocol.ToolUpdatedEvent:
+	case protocol.ToolOutputDeltaEvent:
 		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Content: value.Content, IsError: value.IsError}
 	case protocol.ToolCompletedEvent:
 		return toolEventPayload{ToolCallID: value.ToolCallID, ToolName: value.ToolName, Content: value.Content, ContentTruncated: value.ContentTruncated, Details: value.Details, DetailsOmitted: value.DetailsOmitted, IsError: value.IsError}
@@ -2890,7 +2890,7 @@ func projectToolPayload(payload protocol.SessionEventPayload) toolEventPayload {
 	return toolEventPayload{}
 }
 
-func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
+func (s *appState) applyTurnEvents(events []protocol.SessionEvent) string {
 	transcriptChanged := false
 	changedCWD := ""
 	for _, event := range events {
@@ -2898,17 +2898,17 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			continue
 		}
 		s.liveSequence = event.Sequence
-		s.clearRecoveredRunStatus()
+		s.clearRecoveredTurnStatus()
 		if event.StreamID != "" {
 			s.liveStreamID = event.StreamID
 		}
 		s.applyAnnotationEvent(event)
 		switch payload := event.Payload.(type) {
-		case protocol.RunStartedEvent:
-			s.markTerminalRunStarted(event.RunID)
+		case protocol.TurnStartedEvent:
+			s.markTerminalRunStarted(event.TurnID)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
-		case protocol.UserMessageEvent:
+		case protocol.UserMessageAddedEvent:
 			transcriptChanged = true
 			if s.turnActivity == "" {
 				s.setTurnActivity("Working…")
@@ -3004,14 +3004,14 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 			} else {
 				s.liveMessages[index].ToolStatus = "Running…"
 			}
-		case protocol.ToolUpdatedEvent, protocol.ToolCompletedEvent:
+		case protocol.ToolOutputDeltaEvent, protocol.ToolCompletedEvent:
 			tool := projectToolPayload(payload)
 			s.setTurnThinking("")
 			s.setTurnActivity("Working…")
 			s.ensureLiveAssistantToolCall(event)
 			index := s.ensureLiveTool(event.TurnID, tool.ToolCallID, tool.ToolName)
 			text := toolResultContentText(tool.Content)
-			if event.Kind() == protocol.SessionEventToolUpdated {
+			if event.Kind() == protocol.SessionEventToolOutputDelta {
 				appendLiveToolContent(&s.liveMessages[index], tool.Content)
 			} else {
 				s.liveMessages[index].Text = text
@@ -3072,7 +3072,7 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				s.setTurnActivity("Waiting for feedback…")
 			}
 		case protocol.InteractionResolvedEvent:
-			if event.RunID == "" {
+			if event.TurnID == "" {
 				continue
 			}
 			for index := range s.pendingInteractions {
@@ -3105,26 +3105,20 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				s.setTurnActivity("Working…")
 			}
 			if !stale && s.recordCompactionOutcome(payload.CompactionID) {
-				s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
+				if payload.ErrorMessage != "" {
+					s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: payload.ErrorMessage, Variant: toastError})
+				} else {
+					s.showToast(toastInput{Title: "Session compacted", Subtitle: "Session context was compacted.", Variant: toastInfo})
+				}
 			}
-		case protocol.CompactionFailedEvent:
-			current := s.activeCompactionID == payload.CompactionID
-			stale := s.activeCompactionID != "" && !current
-			if current {
-				s.activeCompactionID = ""
-				s.setTurnActivity("Working…")
-			}
-			if !stale && s.recordCompactionOutcome(payload.CompactionID) {
-				s.showToast(toastInput{Title: "Auto-compaction failed", Subtitle: payload.ErrorMessage, Variant: toastError})
-			}
-		case protocol.ContextUpdatedEvent:
+		case protocol.ContextChangedEvent:
 			s.contextTokens = payload.ContextTokens
 			s.contextWindow = payload.ContextWindow
-		case protocol.UsageUpdatedEvent:
+		case protocol.UsageChangedEvent:
 			if payload.Usage != nil && !sessionUsageDecreased(s.sessionUsage, *payload.Usage) {
 				s.sessionUsage = *payload.Usage
 			}
-		case protocol.RunFinishedEvent:
+		case protocol.TurnCompletedEvent:
 			transcriptChanged = true
 			if s.activityConversationID == "" {
 				for id := range s.inlineActivityOpen {
@@ -3133,14 +3127,14 @@ func (s *appState) applyRunEvents(events []protocol.SessionEvent) string {
 				s.activitySourceID = ""
 				s.activityCursor = activityToolKey{}
 			}
-			s.markTerminalRunSettled(event.RunID)
+			s.markTerminalRunSettled(event.TurnID)
 			for _, index := range s.liveTools {
 				if index >= 0 && index < len(s.liveMessages) && s.liveMessages[index].ToolStatus == "Planned" {
 					s.liveMessages[index].Pending = false
 					s.liveMessages[index].ToolStatus = "Not run"
 				}
 			}
-			s.runStopping = false
+			s.turnStopping = false
 			s.providerRetry = nil
 			s.activeCompactionID = ""
 			s.setTurnThinking("")
@@ -3373,23 +3367,23 @@ func latestThinkingLine(thinking string) string {
 	return "Thinking…"
 }
 
-// finishRunWithoutSnapshot settles once and keeps the failure visible until
+// finishTurnWithoutSnapshot settles once and keeps the failure visible until
 // acknowledged; retries themselves never create duplicate notifications.
-func (s *appState) finishRunWithoutSnapshot(info protocol.RunInfo, err error) {
-	s.SetState(func() { s.settleRunWithoutSnapshot(info, err) })
+func (s *appState) finishTurnWithoutSnapshot(info protocol.TurnInfo, err error) {
+	s.SetState(func() { s.settleTurnWithoutSnapshot(info, err) })
 	s.showToast(toastInput{Title: "Transcript refresh failed", Subtitle: "The next turn will retry. " + err.Error(), Variant: toastError, Persistent: true})
 }
 
 // A terminal snapshot can also report a successor run. The final transcript
 // recovery belongs to the completed run, not the newly active one.
-func (s *appState) settleTranscriptRecovery(finishedRunID, nextRunID string) {
-	if nextRunID == "" || nextRunID != finishedRunID {
+func (s *appState) settleTranscriptRecovery(finishedTurnID, nextTurnID string) {
+	if nextTurnID == "" || nextTurnID != finishedTurnID {
 		s.recovery = footerHealthy
 	}
 }
 
-func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, _ error) {
-	s.markTerminalRunSettled(info.RunID)
+func (s *appState) settleTurnWithoutSnapshot(info protocol.TurnInfo, _ error) {
+	s.markTerminalRunSettled(info.TurnID)
 	for index := range s.liveMessages {
 		s.liveMessages[index].Pending = false
 		if s.liveMessages[index].Role == "tool" && s.liveMessages[index].ToolStatus != "" {
@@ -3398,16 +3392,16 @@ func (s *appState) settleRunWithoutSnapshot(info protocol.RunInfo, _ error) {
 	}
 	s.messages = append(s.messages, s.liveMessages...)
 	s.resetLiveRun()
-	if info.Status != protocol.RunStatusCompleted {
+	if info.Status != protocol.TurnStatusCompleted {
 		message := info.ErrorMessage
 		if message == "" {
 			message = "Run " + string(info.Status)
 		}
 		s.messages = append(s.messages, transcriptMessage{Role: "error", Text: message})
 	}
-	s.activeRun = nil
-	s.activeRunID = ""
-	s.runPending = false
+	s.activeTurn = nil
+	s.activeTurnID = ""
+	s.turnPending = false
 	s.prompt = nil
 	s.recovery = footerHealthy
 	s.followTranscriptIfPinned()
@@ -3426,14 +3420,14 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 		s.metadataSequence = event.Sequence
 		s.applyAnnotationEvent(event)
 		switch payload := event.Payload.(type) {
-		case protocol.SessionRenamedEvent:
+		case protocol.SessionNameChangedEvent:
 			s.session.Name = payload.SessionName
 			s.sessionExplorer.ApplyExternalRename(event.SessionID, payload.SessionName)
 		case protocol.InteractionRequestedEvent, protocol.InteractionResolvedEvent:
 			// Model interactions are applied by the run watcher. Giving each
 			// ownership domain one event writer prevents delayed replay from
 			// reopening a dialog already resolved by the other watcher.
-			if event.RunID == "" {
+			if event.TurnID == "" {
 				s.applyInteractionMetadataEvent(event)
 			}
 		case protocol.ScratchpadChangedEvent:
@@ -3456,7 +3450,7 @@ func (s *appState) applySessionMetadataEvents(events []protocol.SessionEvent) (c
 
 func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
 	switch kind {
-	case protocol.SessionEventInteractionRequested, protocol.SessionEventInteractionResolved, protocol.SessionEventSessionRenamed, protocol.SessionEventSessionCWDChanged, protocol.SessionEventScratchpadChanged,
+	case protocol.SessionEventInteractionRequested, protocol.SessionEventInteractionResolved, protocol.SessionEventSessionNameChanged, protocol.SessionEventSessionCWDChanged, protocol.SessionEventScratchpadChanged,
 		protocol.SessionEventAnnotationCreated, protocol.SessionEventAnnotationUpdated,
 		protocol.SessionEventAnnotationDeleted, protocol.SessionEventAnnotationSubmitted:
 		return true
@@ -3465,24 +3459,24 @@ func sessionMetadataEvent(kind protocol.SessionEventKind) bool {
 	}
 }
 
-func attachedRunLifecycle(events []protocol.SessionEvent) (startedRunID, finishedRunID string, status protocol.RunStatus) {
+func attachedTurnLifecycle(events []protocol.SessionEvent) (startedTurnID, finishedTurnID string, status protocol.TurnStatus) {
 	for _, event := range events {
 		switch event.Payload.(type) {
-		case protocol.RunStartedEvent:
-			startedRunID = event.RunID
-		case protocol.RunFinishedEvent:
-			finishedRunID = event.RunID
-			status = event.Payload.(protocol.RunFinishedEvent).Status
+		case protocol.TurnStartedEvent:
+			startedTurnID = event.TurnID
+		case protocol.TurnCompletedEvent:
+			finishedTurnID = event.TurnID
+			status = event.Payload.(protocol.TurnCompletedEvent).Status
 		}
 	}
-	return startedRunID, finishedRunID, status
+	return startedTurnID, finishedTurnID, status
 }
 
-func shouldApplyAttachedSnapshot(runPending bool, activeRunID, snapshotRunID string) bool {
-	if runPending && activeRunID == "" && snapshotRunID == "" {
+func shouldApplyAttachedSnapshot(turnPending bool, activeTurnID, snapshotTurnID string) bool {
+	if turnPending && activeTurnID == "" && snapshotTurnID == "" {
 		return false
 	}
-	return snapshotRunID == "" || snapshotRunID != activeRunID
+	return snapshotTurnID == "" || snapshotTurnID != activeTurnID
 }
 
 func (s *appState) dismissDaemonMismatchToast() {
@@ -3514,10 +3508,10 @@ func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound sessionclient.
 		if s.sessionWatchCancel != nil {
 			s.sessionWatchCancel()
 		}
-		if s.runWatchCancel != nil {
-			s.runWatchCancel()
+		if s.turnWatchCancel != nil {
+			s.turnWatchCancel()
 		}
-		s.runWatchGeneration++
+		s.turnWatchGeneration++
 		s.stopVCSMonitoring()
 		s.SetState(func() {
 			s.daemonMismatchToastID = s.storeToast(toastInput{Title: "Server compatibility changed", Subtitle: err.Error(), Variant: toastError, Persistent: true}).ID
@@ -3575,12 +3569,12 @@ func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocatio
 				s.showToast(toastInput{Title: "Server recheck failed", Subtitle: err.Error(), Variant: toastError})
 				return
 			}
-			nextRunID, nextBashID := snapshot.ActiveRunID, snapshot.ActiveBashExecutionID
+			nextTurnID, nextBashID := snapshot.ActiveTurnID, snapshot.ActiveBashExecutionID
 			s.SetState(func() { s.installSession(next, snapshot, location) })
 			s.startVCSMonitoring()
 			s.watchAttachedSession(next, s.operation)
-			if nextRunID != "" {
-				s.watchSession(next, s.operation, nextRunID)
+			if nextTurnID != "" {
+				s.watchSession(next, s.operation, nextTurnID)
 			}
 			if nextBashID != "" {
 				s.resumeBash(next, s.operation, nextBashID)
@@ -3602,12 +3596,12 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 	watchContext, cancel := context.WithCancel(s.attachmentCtx)
 	s.sessionWatchCancel = cancel
 	runtime := s.Context().Runtime()
-	applySnapshot := func(snapshot protocol.SessionSnapshot, finishedRunID string, status protocol.RunStatus) {
+	applySnapshot := func(snapshot protocol.SessionSnapshot, finishedTurnID string, status protocol.TurnStatus) {
 		runtime.Dispatch(func() {
 			if operation != s.operation || s.bound != bound || watchContext.Err() != nil || s.daemonIncompatible {
 				return
 			}
-			if !shouldApplyAttachedSnapshot(s.runPending, s.activeRunID, snapshot.ActiveRunID) {
+			if !shouldApplyAttachedSnapshot(s.turnPending, s.activeTurnID, snapshot.ActiveTurnID) {
 				copy := snapshot
 				s.SetState(func() {
 					s.applySessionMetadataBaseline(snapshot)
@@ -3616,35 +3610,35 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 				return
 			}
 			s.deferredSessionSnapshot = nil
-			alreadySettled := finishedRunID != "" && finishedRunID == s.terminalSettledRunID
-			nextRunID := snapshot.ActiveRunID
+			alreadySettled := finishedTurnID != "" && finishedTurnID == s.terminalSettledTurnID
+			nextTurnID := snapshot.ActiveTurnID
 			s.SetState(func() {
 				s.applySessionMetadataBaseline(snapshot)
 				s.applySnapshot(snapshot)
-				if nextRunID != "" {
-					s.activeRun = nil
+				if nextTurnID != "" {
+					s.activeTurn = nil
 					s.prompt = nil
 				} else {
-					s.activeRun = nil
+					s.activeTurn = nil
 					s.prompt = nil
-					if finishedRunID != "" {
-						s.markTerminalRunSettled(finishedRunID)
+					if finishedTurnID != "" {
+						s.markTerminalRunSettled(finishedTurnID)
 					}
 				}
 			})
-			if nextRunID != "" && s.runWatchID != nextRunID {
-				s.watchSession(bound, operation, nextRunID)
-			} else if finishedRunID != "" && !alreadySettled {
-				s.notifyTurnSettledOnce(finishedRunID, status)
+			if nextTurnID != "" && s.turnWatchID != nextTurnID {
+				s.watchSession(bound, operation, nextTurnID)
+			} else if finishedTurnID != "" && !alreadySettled {
+				s.notifyTurnSettledOnce(finishedTurnID, status)
 			}
 		})
 	}
-	reconcile := func(finishedRunID string, status protocol.RunStatus) bool {
+	reconcile := func(finishedTurnID string, status protocol.TurnStatus) bool {
 		delay := 50 * time.Millisecond
 		for watchContext.Err() == nil {
 			snapshot, err := bound.Snapshot(watchContext)
 			if err == nil {
-				applySnapshot(snapshot, finishedRunID, status)
+				applySnapshot(snapshot, finishedTurnID, status)
 				return true
 			}
 			if s.reportDaemonMismatch(runtime, bound, operation, err) {
@@ -3690,11 +3684,11 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 							}
 						})
 					}
-					startedRunID, finishedRunID, status := attachedRunLifecycle(updates)
-					if startedRunID == "" && finishedRunID == "" {
+					startedTurnID, finishedTurnID, status := attachedTurnLifecycle(updates)
+					if startedTurnID == "" && finishedTurnID == "" {
 						continue
 					}
-					if !reconcile(finishedRunID, status) {
+					if !reconcile(finishedTurnID, status) {
 						return
 					}
 				}
@@ -3711,11 +3705,11 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 	}()
 }
 
-func (s *appState) watchSession(bound sessionclient.Session, operation uint64, runID string) {
+func (s *appState) watchSession(bound sessionclient.Session, operation uint64, turnID string) {
 	if s.daemonIncompatible {
 		return
 	}
-	if s.runWatchCancel != nil && s.runWatchID == runID {
+	if s.turnWatchCancel != nil && s.turnWatchID == turnID {
 		return
 	}
 	runtime := s.Context().Runtime()
@@ -3723,15 +3717,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 	if attachmentCtx == nil {
 		attachmentCtx = s.ctx
 	}
-	if s.runWatchCancel != nil {
-		s.runWatchCancel()
+	if s.turnWatchCancel != nil {
+		s.turnWatchCancel()
 	}
 	s.SetState(func() { s.recovery = footerHealthy })
-	s.runWatchGeneration++
-	watchGeneration := s.runWatchGeneration
+	s.turnWatchGeneration++
+	watchGeneration := s.turnWatchGeneration
 	watchCtx, cancel := context.WithCancel(attachmentCtx)
-	s.runWatchCancel = cancel
-	s.runWatchID = runID
+	s.turnWatchCancel = cancel
+	s.turnWatchID = turnID
 	attachmentCtx = watchCtx
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
@@ -3746,7 +3740,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				streamCancel()
 			}
 			streamContext, cancel := context.WithCancel(attachmentCtx)
-			connected, err := bound.Stream(streamContext, runID)
+			connected, err := bound.Stream(streamContext, turnID)
 			if err != nil {
 				cancel()
 				streamCancel = nil
@@ -3794,10 +3788,10 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 						if s.reportDaemonMismatch(runtime, bound, operation, snapshotErr) {
 							return
 						}
-						if snapshotErr == nil && snapshot.ActiveRunID == runID {
+						if snapshotErr == nil && snapshot.ActiveTurnID == turnID {
 							if !snapshot.EventReplayAvailable {
 								runtime.Dispatch(func() {
-									if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
+									if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
 										s.SetState(func() { s.applySnapshot(snapshot) })
 									}
 								})
@@ -3805,7 +3799,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 							continue
 						}
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
+							if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
 								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
@@ -3816,11 +3810,11 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				retryAt = time.Time{}
 				batch := append([]protocol.SessionEvent(nil), events...)
 				runtime.Dispatch(func() {
-					if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
+					if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
 						changedCWD := ""
 						var eventToasts []toastInput
 						s.SetState(func() {
-							changedCWD = s.applyRunEvents(batch)
+							changedCWD = s.applyTurnEvents(batch)
 							eventToasts = append([]toastInput(nil), s.eventToasts...)
 							s.eventToasts = nil
 						})
@@ -3840,7 +3834,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 				if updates != nil || time.Now().Before(retryAt) {
 					continue
 				}
-				info, err := bound.Run(attachmentCtx, runID)
+				info, err := bound.Turn(attachmentCtx, turnID)
 				if err != nil {
 					if s.reportDaemonMismatch(runtime, bound, operation, err) {
 						return
@@ -3850,18 +3844,18 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					retryAt = time.Now().Add(100 * time.Millisecond * time.Duration(1<<exponent))
 					if attachmentCtx.Err() == nil {
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
+							if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
 								s.SetState(func() { s.recovery = footerReconnectingActivity })
 							}
 						})
 					}
 					continue
 				}
-				if info.Status == protocol.RunStatusQueued || info.Status == protocol.RunStatusRunning {
-					verifiedRunID := runID
+				if info.Status == protocol.TurnStatusQueued || info.Status == protocol.TurnStatusRunning {
+					verifiedTurnID := turnID
 					runtime.Dispatch(func() {
-						if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible && s.activeRunID == verifiedRunID {
-							s.SetState(func() { s.clearRecoveredRunStatus() })
+						if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible && s.activeTurnID == verifiedTurnID {
+							s.SetState(func() { s.clearRecoveredTurnStatus() })
 						}
 					})
 					if updates == nil && !connect() {
@@ -3869,10 +3863,10 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					continue
 				}
-				settledRunID := runID
+				settledTurnID := turnID
 				runtime.Dispatch(func() {
-					if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
-						s.SetState(func() { s.markTerminalRunSettled(settledRunID) })
+					if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
+						s.SetState(func() { s.markTerminalRunSettled(settledTurnID) })
 					}
 				})
 				snapshot, err := bound.Snapshot(attachmentCtx)
@@ -3886,15 +3880,15 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 					if snapshotFailures >= 6 {
 						runtime.Dispatch(func() {
-							if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
-								s.finishRunWithoutSnapshot(info, err)
-								s.notifyTurnSettledOnce(info.RunID, info.Status)
+							if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
+								s.finishTurnWithoutSnapshot(info, err)
+								s.notifyTurnSettledOnce(info.TurnID, info.Status)
 							}
 						})
 						return
 					}
 					runtime.Dispatch(func() {
-						if operation == s.operation && watchGeneration == s.runWatchGeneration && !s.daemonIncompatible {
+						if operation == s.operation && watchGeneration == s.turnWatchGeneration && !s.daemonIncompatible {
 							s.SetState(func() { s.recovery = footerSyncingFinalTranscript })
 						}
 					})
@@ -3909,7 +3903,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					continue
 				}
 				snapshotFailures = 0
-				nextRunID := snapshot.ActiveRunID
+				nextTurnID := snapshot.ActiveTurnID
 				terminalErrorPersisted := false
 				for _, message := range snapshot.Messages {
 					if message.TurnID == info.TurnID && message.IsError {
@@ -3918,29 +3912,29 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 					}
 				}
 				runtime.Dispatch(func() {
-					if operation != s.operation || watchGeneration != s.runWatchGeneration || s.daemonIncompatible {
+					if operation != s.operation || watchGeneration != s.turnWatchGeneration || s.daemonIncompatible {
 						return
 					}
 					s.SetState(func() {
 						s.applySnapshot(snapshot)
-						s.settleTranscriptRecovery(info.RunID, nextRunID)
-						if info.Status != protocol.RunStatusCompleted && !terminalErrorPersisted {
+						s.settleTranscriptRecovery(info.TurnID, nextTurnID)
+						if info.Status != protocol.TurnStatusCompleted && !terminalErrorPersisted {
 							message := info.ErrorMessage
 							if message == "" {
 								message = "Run " + string(info.Status)
 							}
 							s.messages = append(s.messages, transcriptMessage{Role: "error", Text: message})
 						}
-						if nextRunID != "" {
-							s.runWatchID = nextRunID
+						if nextTurnID != "" {
+							s.turnWatchID = nextTurnID
 						}
 					})
-					s.notifyTurnSettledOnce(info.RunID, info.Status)
+					s.notifyTurnSettledOnce(info.TurnID, info.Status)
 				})
-				if nextRunID == "" {
+				if nextTurnID == "" {
 					return
 				}
-				runID = nextRunID
+				turnID = nextTurnID
 				snapshotFailures = 0
 				stream = nil
 				updates = nil
@@ -3952,32 +3946,32 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, r
 	}()
 }
 
-func (s *appState) notifyTurnSettledOnce(runID string, status protocol.RunStatus) {
-	if runID == "" {
+func (s *appState) notifyTurnSettledOnce(turnID string, status protocol.TurnStatus) {
+	if turnID == "" {
 		return
 	}
-	if s.notifiedRunIDs == nil {
-		s.notifiedRunIDs = make(map[string]bool)
+	if s.notifiedTurnIDs == nil {
+		s.notifiedTurnIDs = make(map[string]bool)
 	}
-	if s.notifiedRunIDs[runID] {
+	if s.notifiedTurnIDs[turnID] {
 		return
 	}
-	s.notifiedRunIDs[runID] = true
-	s.notifiedRunOrder = append(s.notifiedRunOrder, runID)
-	if len(s.notifiedRunOrder) > 64 {
-		oldest := s.notifiedRunOrder[0]
-		s.notifiedRunOrder = s.notifiedRunOrder[1:]
-		delete(s.notifiedRunIDs, oldest)
+	s.notifiedTurnIDs[turnID] = true
+	s.notifiedTurnOrder = append(s.notifiedTurnOrder, turnID)
+	if len(s.notifiedTurnOrder) > 64 {
+		oldest := s.notifiedTurnOrder[0]
+		s.notifiedTurnOrder = s.notifiedTurnOrder[1:]
+		delete(s.notifiedTurnIDs, oldest)
 	}
 	s.notifyTurnSettled(status)
 }
 
-func (s *appState) notifyTurnSettled(status protocol.RunStatus) {
+func (s *appState) notifyTurnSettled(status protocol.TurnStatus) {
 	if s.terminalStatus != nil {
 		s.terminalStatus.Bell()
 	}
 	message := "Agent turn complete"
-	if status == protocol.RunStatusFailed || status == protocol.RunStatusInterrupted {
+	if status == protocol.TurnStatusFailed || status == protocol.TurnStatusInterrupted {
 		message = "Agent turn failed"
 	}
 	s.Context().EventContext().Notify("Kit", message)
@@ -4278,7 +4272,7 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.runPending || s.reloadPending || s.modelRefreshPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
+	return s.turnPending || s.reloadPending || s.modelRefreshPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -6215,10 +6209,10 @@ func (s *appState) forkCurrentSession(message string) {
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
 			if prompt := strings.TrimSpace(message); prompt != "" {
-				s.startPromptSubmission(prompt, func(ctx context.Context) (sessionclient.Run, error) {
+				s.startPromptSubmission(prompt, func(ctx context.Context) (sessionclient.Turn, error) {
 					if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
 						result, submitErr := structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: prompt})
-						return result.Run, submitErr
+						return result.Turn, submitErr
 					}
 					return bound.StartPrompt(ctx, prompt)
 				})
@@ -6291,7 +6285,7 @@ func (s *appState) switchSelectedSession() {
 				return
 			}
 			var operation uint64
-			nextRunID := snapshot.ActiveRunID
+			nextTurnID := snapshot.ActiveTurnID
 			nextBashID := snapshot.ActiveBashExecutionID
 			s.SetState(func() {
 				if !s.sessionExplorer.ResolveSwitch(generation, nil) {
@@ -6308,8 +6302,8 @@ func (s *appState) switchSelectedSession() {
 			}
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
-			if nextRunID != "" {
-				s.watchSession(bound, operation, nextRunID)
+			if nextTurnID != "" {
+				s.watchSession(bound, operation, nextTurnID)
 			}
 			if nextBashID != "" {
 				s.resumeBash(bound, operation, nextBashID)
@@ -6371,9 +6365,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.sessionMentions.Entries = nil
 	s.sessionMentions.generation++
 	s.operation++
-	s.terminalSettledRunID = ""
-	s.notifiedRunIDs = make(map[string]bool)
-	s.notifiedRunOrder = nil
+	s.terminalSettledTurnID = ""
+	s.notifiedTurnIDs = make(map[string]bool)
+	s.notifiedTurnOrder = nil
 	s.deferredSessionSnapshot = nil
 	s.session = snapshot.Session
 	s.metadataStreamID = snapshot.EventStreamID
@@ -6473,9 +6467,9 @@ func (s *appState) installSession(bound sessionclient.Session, snapshot protocol
 	s.inlineActivityOpen = make(map[string]bool)
 	s.activityExpanded = make(map[activityToolKey]bool)
 	s.activityCursor = activityToolKey{}
-	s.activeRun = nil
-	s.activeRunID = ""
-	s.runPending = false
+	s.activeTurn = nil
+	s.activeTurnID = ""
+	s.turnPending = false
 	s.prompt = nil
 	s.activeBash = nil
 	s.activeBashID = ""
@@ -6538,7 +6532,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	attachmentIDs := s.composerPromptAttachmentIDs()
 	annotationIDs := s.annotationIDs()
 	if text == "" && len(attachmentIDs) == 0 && len(annotationIDs) == 0 {
-		if s.runPending {
+		if s.turnPending {
 			s.promoteFollowUps()
 		}
 		return
@@ -6547,13 +6541,13 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.startDirectBash(value, command, excludeFromContext)
 		return
 	}
-	if s.runPending {
+	if s.turnPending {
 		s.queueFollowUp(text, s.Context().Runtime())
 		return
 	}
 	bound := s.bound
 	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs, AnnotationIDs: annotationIDs}
-	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Run, error) {
+	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Turn, error) {
 		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
 			result, err := structured.SubmitPromptInput(ctx, input)
 			if err != nil {
@@ -6562,7 +6556,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			if result.Queued {
 				return nil, promptQueuedError{queue: result.Queue}
 			}
-			return result.Run, nil
+			return result.Turn, nil
 		}
 		if queueAware, ok := bound.(sessionclient.FollowUpSession); ok {
 			result, err := queueAware.SubmitPrompt(ctx, text)
@@ -6572,7 +6566,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			if result.Queued {
 				return nil, promptQueuedError{queue: result.Queue}
 			}
-			return result.Run, nil
+			return result.Turn, nil
 		}
 		return bound.StartPrompt(ctx, text)
 	})
@@ -6601,7 +6595,7 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 		var snapshot protocol.SessionSnapshot
 		var snapshotErr error
 		if err == nil && !result.Queued {
-			if result.Run == nil {
+			if result.Turn == nil {
 				err = errors.New("prompt submission started without a run")
 			} else {
 				snapshot, snapshotErr = bound.Snapshot(ctx)
@@ -6631,11 +6625,11 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 					s.resetLiveRun()
 					s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: text})
 					s.liveHasUser = true
-					s.runPending = true
-					s.markTerminalRunStarted(result.Run.ID())
+					s.turnPending = true
+					s.markTerminalRunStarted(result.Turn.ID())
 				}
-				s.activeRun = result.Run
-				s.activeRunID = result.Run.ID()
+				s.activeTurn = result.Turn
+				s.activeTurnID = result.Turn.ID()
 				if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
 					s.composer = ""
 					s.composerAttachmentIDs = nil
@@ -6653,7 +6647,7 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 			}
 			if !result.Queued {
 				s.showToast(toastInput{Title: "Prompt started", Subtitle: "The previous run finished before the message was queued.", Variant: toastInfo})
-				s.watchSession(bound, operation, result.Run.ID())
+				s.watchSession(bound, operation, result.Turn.ID())
 			}
 		})
 	}()
@@ -6767,7 +6761,7 @@ func (s *appState) submitPromptCommand(name, args string) {
 		display += " " + trimmed
 	}
 	bound := s.bound
-	s.startPromptSubmission(display, func(ctx context.Context) (sessionclient.Run, error) {
+	s.startPromptSubmission(display, func(ctx context.Context) (sessionclient.Turn, error) {
 		return bound.StartPromptCommand(ctx, name, args)
 	})
 }
@@ -6776,12 +6770,12 @@ type promptQueuedError struct{ queue protocol.FollowUpQueue }
 
 func (err promptQueuedError) Error() string { return "prompt queued behind active work" }
 
-func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Run, error)) {
+func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Turn, error)) {
 	if s.daemonIncompatible {
 		s.showToast(toastInput{Title: "Submissions paused", Subtitle: "Press Ctrl+r to recheck server compatibility.", Variant: toastInfo})
 		return
 	}
-	if s.runPending {
+	if s.turnPending {
 		// Composer submissions queue separately; this guard covers other
 		// admission paths, such as a prompt command racing with an active run.
 		s.showToast(toastInput{Title: "Run in progress", Variant: toastInfo})
@@ -6802,7 +6796,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 		s.liveMessages = append(s.liveMessages, transcriptMessage{Role: "user", Text: display, Content: attachmentTranscriptContent(display, submittedRows)})
 		s.liveHasUser = true
 		s.requestTranscriptScroll()
-		s.runPending = true
+		s.turnPending = true
 		s.markTerminalRunStarted("")
 		s.prompt = admission
 	})
@@ -6818,7 +6812,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 					}
 					s.SetState(func() {
 						s.resetLiveRun()
-						s.runPending = false
+						s.turnPending = false
 						s.prompt = nil
 						s.followUps = queued.queue
 						if snapshotErr == nil {
@@ -6826,8 +6820,8 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 							s.applySnapshot(snapshot)
 						}
 					})
-					if snapshotErr == nil && snapshot.ActiveRunID != "" {
-						s.watchSession(bound, operation, snapshot.ActiveRunID)
+					if snapshotErr == nil && snapshot.ActiveTurnID != "" {
+						s.watchSession(bound, operation, snapshot.ActiveTurnID)
 					}
 				})
 				return
@@ -6844,7 +6838,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 						})
 					}
 				})
-				s.finishRun(runtime, operation, protocol.PromptOutcome{}, err)
+				s.finishTurn(runtime, operation, protocol.PromptOutcome{}, err)
 			}
 			return
 		}
@@ -6855,7 +6849,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 			if !admission.abort.Load() {
 				return
 			}
-			abortContext, cancel := context.WithTimeout(context.Background(), runAbortTimeout)
+			abortContext, cancel := context.WithTimeout(context.Background(), turnAbortTimeout)
 			defer cancel()
 			_ = run.Abort(abortContext)
 		}
@@ -6875,14 +6869,14 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 				return
 			}
 			if admission.abort.Load() {
-				s.requestRunAbort(runtime.Dispatch, runAbortTimeout)
+				s.requestRunAbort(runtime.Dispatch, turnAbortTimeout)
 			}
 			s.watchSession(bound, operation, run.ID())
 		})
 	}()
 }
 
-func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run) bool {
+func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Turn) bool {
 	if operation != s.operation {
 		return false
 	}
@@ -6898,15 +6892,15 @@ func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Run
 		s.followTranscriptIfPinned()
 		s.deferredSessionSnapshot = nil
 	}
-	s.activeRun = run
-	s.activeRunID = run.ID()
-	if s.terminalRunActive && s.terminalRunID == "" {
-		s.terminalRunID = run.ID()
+	s.activeTurn = run
+	s.activeTurnID = run.ID()
+	if s.terminalTurnActive && s.terminalTurnID == "" {
+		s.terminalTurnID = run.ID()
 	}
 	return true
 }
 
-func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome protocol.PromptOutcome, runErr error) {
+func (s *appState) finishTurn(runtime ui.Runtime, operation uint64, outcome protocol.PromptOutcome, runErr error) {
 	// Never retry an ambiguous submission after a compatibility failure.
 	s.reportDaemonMismatch(runtime, s.bound, operation, runErr)
 	var snapshot protocol.SessionSnapshot
@@ -6924,21 +6918,21 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			snapshotErr = nil
 		}
 		s.deferredSessionSnapshot = nil
-		nextRunID := ""
+		nextTurnID := ""
 		nextBashID := ""
 		reconciledSubmission := false
 		s.SetState(func() {
-			s.markTerminalRunSettled(s.activeRunID)
-			s.activeRun = nil
-			s.activeRunID = ""
-			s.runPending = false
+			s.markTerminalRunSettled(s.activeTurnID)
+			s.activeTurn = nil
+			s.activeTurnID = ""
+			s.turnPending = false
 			s.prompt = nil
 			s.followTranscriptIfPinned()
 			if runErr != nil {
 				if snapshotErr == nil && snapshot.Session.ID != "" {
 					reconciledSubmission = true
 					s.applySnapshot(snapshot)
-					nextRunID = snapshot.ActiveRunID
+					nextTurnID = snapshot.ActiveTurnID
 					if s.activeBash == nil {
 						nextBashID = snapshot.ActiveBashExecutionID
 					}
@@ -6951,7 +6945,7 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 				}
 				return
 			}
-			if outcome.Status != protocol.RunStatusCompleted {
+			if outcome.Status != protocol.TurnStatusCompleted {
 				message := outcome.ErrorMessage
 				if message == "" {
 					message = "Run " + string(outcome.Status)
@@ -6961,7 +6955,7 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 			}
 			if snapshotErr == nil && snapshot.Session.ID != "" {
 				s.applySnapshot(snapshot)
-				nextRunID = snapshot.ActiveRunID
+				nextTurnID = snapshot.ActiveTurnID
 				if s.activeBash == nil {
 					nextBashID = snapshot.ActiveBashExecutionID
 				}
@@ -6972,8 +6966,8 @@ func (s *appState) finishRun(runtime ui.Runtime, operation uint64, outcome proto
 		if runErr != nil && reconciledSubmission {
 			s.showToast(toastInput{Title: "Prompt submission reconciled", Subtitle: runErr.Error(), Variant: toastWarning})
 		}
-		if nextRunID != "" && s.bound != nil {
-			s.watchSession(s.bound, s.operation, nextRunID)
+		if nextTurnID != "" && s.bound != nil {
+			s.watchSession(s.bound, s.operation, nextTurnID)
 		}
 		if nextBashID != "" && s.bound != nil {
 			s.resumeBash(s.bound, s.operation, nextBashID)
@@ -7137,10 +7131,10 @@ func (s *appState) dismiss(_ ui.EventContext) {
 			}
 			return
 		}
-		if !s.runPending || s.runStopping {
+		if !s.turnPending || s.turnStopping {
 			return
 		}
-		s.abortRunWithDispatch(s.Context().Runtime().Dispatch, runAbortTimeout)
+		s.abortRunWithDispatch(s.Context().Runtime().Dispatch, turnAbortTimeout)
 	}
 }
 

@@ -288,7 +288,7 @@ func (s *appState) upsertBashExecution(execution protocol.BashExecution) {
 		ID: execution.ID, Role: "bash", Bash: &copy,
 		Pending: execution.Status == protocol.BashExecutionRunning,
 	}
-	if s.runPending {
+	if s.turnPending {
 		s.liveMessages = append(s.liveMessages, message)
 	} else {
 		s.messages = append(s.messages, message)

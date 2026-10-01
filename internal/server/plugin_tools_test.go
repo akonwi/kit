@@ -136,7 +136,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	}
 	// Background registration must become visible on a later request without reload.
 	for {
-		if _, err := client.RunPrompt(t.Context(), created.ID, "probe tool catalog"); err != nil {
+		if _, err := client.Prompt(t.Context(), created.ID, "probe tool catalog"); err != nil {
 			t.Fatal(err)
 		}
 		providers.toolMu.Lock()
@@ -153,7 +153,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	providers.toolMu.Lock()
 	providers.execute = true
 	providers.toolMu.Unlock()
-	if _, err := client.RunPrompt(t.Context(), created.ID, "use the plugin echo tool"); err != nil {
+	if _, err := client.Prompt(t.Context(), created.ID, "use the plugin echo tool"); err != nil {
 		t.Fatal(err)
 	}
 	providers.toolMu.Lock()

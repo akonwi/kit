@@ -49,15 +49,15 @@ type localSession struct {
 	pendingCWDMutation string
 	eventStreamID      string
 	eventCursor        int64
-	eventRunID         string
-	eventRunStarted    bool
+	eventTurnID        string
+	eventTurnStarted   bool
 }
 
 type scratchpadLocalSession struct{ *localSession }
 
 var _ sessionclient.ScratchpadSession = (*scratchpadLocalSession)(nil)
 
-type localRun struct {
+type localTurn struct {
 	transport *kitserver.Client
 	sessionID string
 	turnID    string
@@ -93,7 +93,7 @@ var _ sessionclient.AttachmentSession = (*localSession)(nil)
 var _ sessionclient.AttachmentMetadataSession = (*localSession)(nil)
 var _ sessionclient.SubagentEventReader = (*localSession)(nil)
 var _ sessionclient.BashHistorySession = (*localSession)(nil)
-var _ sessionclient.Run = (*localRun)(nil)
+var _ sessionclient.Turn = (*localTurn)(nil)
 var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
 // NewLocalServer creates an authenticated loopback server client.
@@ -372,15 +372,15 @@ func (c *localSession) Snapshot(ctx context.Context) (protocol.SessionSnapshot, 
 		if c.eventStreamID != snapshot.EventStreamID {
 			c.eventStreamID = ""
 			c.eventCursor = 0
-			c.eventRunID = ""
-			c.eventRunStarted = false
+			c.eventTurnID = ""
+			c.eventTurnStarted = false
 		}
-		if snapshot.ActiveRunID != "" && !snapshot.EventReplayAvailable {
-			if c.eventStreamID != snapshot.EventStreamID || c.eventRunID != snapshot.ActiveRunID || c.eventCursor < snapshot.EventCursor {
+		if snapshot.ActiveTurnID != "" && !snapshot.EventReplayAvailable {
+			if c.eventStreamID != snapshot.EventStreamID || c.eventTurnID != snapshot.ActiveTurnID || c.eventCursor < snapshot.EventCursor {
 				c.eventStreamID = snapshot.EventStreamID
 				c.eventCursor = snapshot.EventCursor
-				c.eventRunID = snapshot.ActiveRunID
-				c.eventRunStarted = true
+				c.eventTurnID = snapshot.ActiveTurnID
+				c.eventTurnStarted = true
 			}
 		}
 	} else if scratchpadChanged {
@@ -501,7 +501,7 @@ func (c *localSession) Reload(ctx context.Context) (protocol.ReloadSessionResult
 	c.mu.Lock()
 	c.cacheGeneration++
 	c.snapshot.EventStreamID = result.EventStreamID
-	c.snapshot.ActiveRunID = ""
+	c.snapshot.ActiveTurnID = ""
 	c.snapshot.EventCursor = 0
 	c.snapshot.EventReplayFrom = 0
 	c.snapshot.EventReplayAvailable = false
@@ -543,7 +543,7 @@ func (c *localSession) Configure(ctx context.Context, input protocol.ConfigureSe
 	c.cacheGeneration++
 	c.snapshot.Session = result.Session
 	c.snapshot.EventStreamID = result.EventStreamID
-	c.snapshot.ActiveRunID = ""
+	c.snapshot.ActiveTurnID = ""
 	c.snapshot.EventCursor = 0
 	c.snapshot.EventReplayFrom = 0
 	c.snapshot.EventReplayAvailable = false
@@ -668,7 +668,7 @@ func (c *localSession) Compact(ctx context.Context, input protocol.CompactSessio
 	c.mu.Lock()
 	c.cacheGeneration++
 	c.snapshot.EventStreamID = result.EventStreamID
-	c.snapshot.ActiveRunID = ""
+	c.snapshot.ActiveTurnID = ""
 	c.snapshot.EventCursor = 0
 	c.snapshot.EventReplayFrom = 0
 	c.snapshot.EventReplayAvailable = false
@@ -676,12 +676,12 @@ func (c *localSession) Compact(ctx context.Context, input protocol.CompactSessio
 	return result, nil
 }
 
-func (c *localSession) Run(ctx context.Context, runID string) (protocol.RunInfo, error) {
-	return c.transport.GetRun(ctx, c.id, runID)
+func (c *localSession) Turn(ctx context.Context, turnID string) (protocol.TurnInfo, error) {
+	return c.transport.GetTurn(ctx, c.id, turnID)
 }
 
-func (c *localSession) Abort(ctx context.Context, runID string) error {
-	return c.transport.AbortSession(ctx, c.id, runID)
+func (c *localSession) Abort(ctx context.Context, turnID string) error {
+	return c.transport.AbortSession(ctx, c.id, turnID)
 }
 
 func (c *localSession) RespondInteraction(ctx context.Context, response protocol.InteractionResponse) error {
@@ -741,36 +741,36 @@ func (c *localSession) Watch(ctx context.Context) (protocol.SessionSnapshot, ses
 	return snapshot, stream, nil
 }
 
-func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.EventStream, error) {
+func (c *localSession) Stream(ctx context.Context, turnID string) (sessionclient.EventStream, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
-	if strings.TrimSpace(runID) == "" {
+	if strings.TrimSpace(turnID) == "" {
 		return nil, fmt.Errorf("run id is empty")
 	}
 	c.mu.Lock()
 	snapshot := c.snapshot
 	streamID := ""
 	after := int64(0)
-	seenRunStart := false
+	seenTurnStart := false
 	resumedAssistantMessageID := ""
-	if snapshot.ActiveRunID == runID {
+	if snapshot.ActiveTurnID == turnID {
 		streamID = snapshot.EventStreamID
 		after = snapshot.EventReplayFrom
 		if !snapshot.EventReplayAvailable {
 			after = snapshot.EventCursor
-			seenRunStart = true
+			seenTurnStart = true
 			for index := len(snapshot.Messages) - 1; index >= 0; index-- {
 				message := snapshot.Messages[index]
-				if message.TurnID == runID && message.Role == "assistant" && message.StopReason == "" {
+				if message.TurnID == turnID && message.Role == "assistant" && message.StopReason == "" {
 					resumedAssistantMessageID = message.ID
 					break
 				}
 			}
 		}
-		if c.eventStreamID == streamID && c.eventRunID == runID && c.eventCursor >= after {
+		if c.eventStreamID == streamID && c.eventTurnID == turnID && c.eventCursor >= after {
 			after = c.eventCursor
-			seenRunStart = c.eventRunStarted
+			seenTurnStart = c.eventTurnStarted
 		}
 	}
 	c.mu.Unlock()
@@ -779,24 +779,24 @@ func (c *localSession) Stream(ctx context.Context, runID string) (sessionclient.
 		return nil, err
 	}
 	stream := &localEventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
-	go stream.readSSE(ctx, body, runID, seenRunStart, resumedAssistantMessageID, streamID, after, func(streamID string, cursor int64, runStarted bool) {
+	go stream.readSSE(ctx, body, turnID, seenTurnStart, resumedAssistantMessageID, streamID, after, func(streamID string, cursor int64, turnStarted bool) {
 		c.mu.Lock()
 		if c.eventStreamID == "" || (c.eventStreamID == streamID && cursor >= c.eventCursor) {
 			c.eventStreamID = streamID
 			c.eventCursor = cursor
-			c.eventRunID = runID
-			c.eventRunStarted = runStarted
+			c.eventTurnID = turnID
+			c.eventTurnStarted = turnStarted
 		}
 		c.mu.Unlock()
 	}, c.reduceScratchpadEvents, false)
 	return stream, nil
 }
 
-func (c *localSession) StartPrompt(ctx context.Context, text string) (sessionclient.Run, error) {
+func (c *localSession) StartPrompt(ctx context.Context, text string) (sessionclient.Turn, error) {
 	return c.StartPromptInput(ctx, protocol.PromptInput{Text: text})
 }
 
-func (c *localSession) StartPromptInput(ctx context.Context, input protocol.PromptInput) (sessionclient.Run, error) {
+func (c *localSession) StartPromptInput(ctx context.Context, input protocol.PromptInput) (sessionclient.Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -807,7 +807,7 @@ func (c *localSession) StartPromptInput(ctx context.Context, input protocol.Prom
 	if err != nil {
 		return nil, err
 	}
-	return c.runFromReservation(reservation), nil
+	return c.turnFromReservation(reservation), nil
 }
 
 func (c *localSession) SubmitPrompt(ctx context.Context, text string) (sessionclient.PromptSubmission, error) {
@@ -824,7 +824,7 @@ func (c *localSession) SubmitPromptInput(ctx context.Context, input protocol.Pro
 	}
 	output := sessionclient.PromptSubmission{Queued: result.Queued, Queue: result.Queue}
 	if result.Reservation != nil {
-		output.Run = c.runFromReservation(*result.Reservation)
+		output.Turn = c.turnFromReservation(*result.Reservation)
 	}
 	return output, nil
 }
@@ -837,7 +837,7 @@ func (c *localSession) PromoteFollowUps(ctx context.Context) (protocol.PromoteFo
 	return c.transport.PromoteFollowUps(ctx, c.id)
 }
 
-func (c *localSession) StartPromptCommand(ctx context.Context, name, args string) (sessionclient.Run, error) {
+func (c *localSession) StartPromptCommand(ctx context.Context, name, args string) (sessionclient.Turn, error) {
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -845,25 +845,25 @@ func (c *localSession) StartPromptCommand(ctx context.Context, name, args string
 	if err != nil {
 		return nil, err
 	}
-	return c.runFromReservation(reservation), nil
+	return c.turnFromReservation(reservation), nil
 }
 
-func (c *localSession) runFromReservation(reservation protocol.RunReservation) sessionclient.Run {
-	return &localRun{
+func (c *localSession) turnFromReservation(reservation protocol.TurnReservation) sessionclient.Turn {
+	return &localTurn{
 		transport: c.transport, sessionID: c.id,
-		turnID: reservation.TurnID, id: reservation.RunID,
+		turnID: reservation.TurnID, id: reservation.TurnID,
 	}
 }
 
-func (r *localRun) ID() string { return r.id }
+func (r *localTurn) ID() string { return r.id }
 
-func (r *localRun) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
+func (r *localTurn) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	pollFailures := 0
 	snapshotFailures := 0
 	for {
-		info, err := r.transport.GetRun(ctx, r.sessionID, r.id)
+		info, err := r.transport.GetTurn(ctx, r.sessionID, r.id)
 		if err != nil {
 			pollFailures++
 			if !retryablePollingError(err) || pollFailures >= 6 {
@@ -876,11 +876,11 @@ func (r *localRun) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 		}
 		pollFailures = 0
 		switch info.Status {
-		case protocol.RunStatusQueued, protocol.RunStatusRunning:
+		case protocol.TurnStatusQueued, protocol.TurnStatusRunning:
 			if err := waitForPoll(ctx, ticker.C); err != nil {
 				return protocol.PromptOutcome{}, err
 			}
-		case protocol.RunStatusCompleted:
+		case protocol.TurnStatusCompleted:
 			snapshot, err := r.transport.GetSessionSnapshot(ctx, r.sessionID)
 			if err != nil {
 				snapshotFailures++
@@ -901,16 +901,16 @@ func (r *localRun) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
 				}
 			}
 			return protocol.PromptOutcome{
-				SessionID: r.sessionID, TurnID: r.turnID, RunID: r.id,
-				Status: protocol.RunStatusCompleted, Text: text,
+				SessionID: r.sessionID, TurnID: r.turnID,
+				Status: protocol.TurnStatusCompleted, Text: text,
 			}, nil
-		case protocol.RunStatusFailed, protocol.RunStatusAborted, protocol.RunStatusInterrupted:
+		case protocol.TurnStatusFailed, protocol.TurnStatusAborted, protocol.TurnStatusInterrupted:
 			return protocol.PromptOutcome{
-				SessionID: r.sessionID, TurnID: r.turnID, RunID: r.id,
+				SessionID: r.sessionID, TurnID: r.turnID,
 				Status: info.Status, ErrorMessage: info.ErrorMessage,
 			}, nil
 		default:
-			return protocol.PromptOutcome{}, fmt.Errorf("daemon returned unknown run status %q", info.Status)
+			return protocol.PromptOutcome{}, fmt.Errorf("daemon returned unknown turn status %q", info.Status)
 		}
 	}
 }
@@ -947,7 +947,7 @@ func waitForPoll(ctx context.Context, tick <-chan time.Time) error {
 	}
 }
 
-func (r *localRun) Abort(ctx context.Context) error {
+func (r *localTurn) Abort(ctx context.Context) error {
 	return r.transport.AbortSession(ctx, r.sessionID, r.id)
 }
 
@@ -1019,8 +1019,8 @@ func isSessionScopedEvent(kind protocol.SessionEventKind) bool {
 func (s *localEventStream) readSSE(
 	ctx context.Context,
 	body io.ReadCloser,
-	runID string,
-	seenRunStart bool,
+	turnID string,
+	seenTurnStart bool,
 	activeAssistantMessageID string,
 	expectedStreamID string,
 	after int64,
@@ -1036,7 +1036,7 @@ func (s *localEventStream) readSSE(
 	scanner.Buffer(make([]byte, 64<<10), 8<<20)
 	var data strings.Builder
 	finished := false
-	resumedFromSnapshot := seenRunStart
+	resumedFromSnapshot := seenTurnStart
 	consume := func() bool {
 		if data.Len() == 0 {
 			return true
@@ -1087,18 +1087,18 @@ func (s *localEventStream) readSSE(
 				matching = append(matching, event)
 				continue
 			}
-			if event.RunID != runID {
+			if event.TurnID != turnID {
 				if isSessionScopedEvent(event.Kind()) {
 					matching = append(matching, event)
 				}
 				continue
 			}
-			if !seenRunStart {
-				if event.Kind() != protocol.SessionEventRunStarted {
+			if !seenTurnStart {
+				if event.Kind() != protocol.SessionEventTurnStarted {
 					s.err = errEventResyncRequired
 					return false
 				}
-				seenRunStart = true
+				seenTurnStart = true
 			}
 			if resumedFromSnapshot && activeAssistantMessageID == "" {
 				switch event.Kind() {
@@ -1116,10 +1116,10 @@ func (s *localEventStream) readSSE(
 				return false
 			}
 			matching = append(matching, event)
-			if event.Kind() == protocol.SessionEventRunStarted || event.Kind() == protocol.SessionEventAssistantStarted {
+			if event.Kind() == protocol.SessionEventTurnStarted || event.Kind() == protocol.SessionEventAssistantStarted {
 				resumedFromSnapshot = false
 			}
-			finished = finished || event.Kind() == protocol.SessionEventRunFinished
+			finished = finished || event.Kind() == protocol.SessionEventTurnCompleted
 		}
 		if len(matching) > 0 {
 			select {
@@ -1132,7 +1132,7 @@ func (s *localEventStream) readSSE(
 		if cursor > 0 {
 			after = cursor
 			if recordCursor != nil {
-				recordCursor(batch.StreamID, cursor, seenRunStart)
+				recordCursor(batch.StreamID, cursor, seenTurnStart)
 			}
 		}
 		return !finished
@@ -1187,7 +1187,7 @@ func sessionEventMessageID(event protocol.SessionEvent) string {
 
 func reduceAssistantMessageID(current string, event protocol.SessionEvent) (string, error) {
 	switch event.Kind() {
-	case protocol.SessionEventRunStarted:
+	case protocol.SessionEventTurnStarted:
 		return "", nil
 	case protocol.SessionEventAssistantStarted:
 		if current != "" {
@@ -1204,7 +1204,7 @@ func reduceAssistantMessageID(current string, event protocol.SessionEvent) (stri
 			return current, fmt.Errorf("completed assistant message id %q does not match active message %q", sessionEventMessageID(event), current)
 		}
 		return "", nil
-	case protocol.SessionEventRunFinished:
+	case protocol.SessionEventTurnCompleted:
 		if current != "" {
 			return current, fmt.Errorf("run finished before assistant message %q completed", current)
 		}

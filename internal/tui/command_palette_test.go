@@ -444,7 +444,7 @@ func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing
 
 	var presented toastInput
 	state := &appState{
-		runPending:        true,
+		turnPending:       true,
 		palette:           paletteController{Open: true, Selection: paletteCommandCD},
 		showToastOverride: func(toast toastInput) { presented = toast },
 	}

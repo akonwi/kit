@@ -37,7 +37,7 @@ struct AnnotationLiveTransportTests {
             instance: "test", serverID: "test", configuration: configuration)
     }
     private func acceptedEvent() throws -> WireSessionEvent {
-        let json = #"{"streamId":"stream","sequence":3,"sessionId":"session_test","turnId":"","runId":"","kind":"annotation.submitted","annotationIds":[5],"acceptedMessageId":"message_0123456789abcdef0123456789abcdef"}"#
+        let json = #"{"streamId":"stream","sequence":3,"sessionId":"session_test","turnId":"","kind":"annotation.submitted","annotationIds":[5],"acceptedMessageId":"message_0123456789abcdef0123456789abcdef"}"#
         return try JSONDecoder().decode(WireSessionEvent.self, from: Data(json.utf8))
     }
 

@@ -8,7 +8,7 @@ struct SessionEventProjectionTests {
         return try JSONDecoder().decode(WireSessionSnapshot.self, from: Data(json.utf8))
     }
     private func event(_ kind: String, _ fields: [String: Any] = [:]) throws -> WireSessionEvent {
-        var json: [String: Any] = ["streamId": "stream", "sequence": 1, "sessionId": "s", "turnId": "t", "runId": "t", "kind": kind]
+        var json: [String: Any] = ["streamId": "stream", "sequence": 1, "sessionId": "s", "turnId": "t", "kind": kind]
         json.merge(fields) { _, new in new }
         return try JSONDecoder().decode(WireSessionEvent.self, from: JSONSerialization.data(withJSONObject: json))
     }
@@ -16,15 +16,15 @@ struct SessionEventProjectionTests {
         var state = try SessionEventProjection(snapshot())
         let request: [String: Any] = ["id": "interaction_plugin", "sessionId": "s", "plugin": ["pluginId": "demo", "instance": "host:1"],
             "kind": "input", "title": "Plugin note", "initialValue": "hello", "createdAt": "2026-09-21T00:00:00Z"]
-        try state.apply(event("interaction.requested", ["runId": "", "turnId": "", "interaction": request]))
+        try state.apply(event("interaction.requested", ["turnId": "", "interaction": request]))
         #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
         #expect(state.session.tabStatus == .awaitingResponse)
-        try state.apply(event("run.started"))
+        try state.apply(event("turn.started"))
         #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
-        try state.apply(event("run.finished"))
+        try state.apply(event("turn.completed"))
         #expect(state.session.pendingInteractions?.map(\.id) == ["interaction_plugin"])
         #expect(state.session.tabStatus == .awaitingResponse)
-        try state.apply(event("interaction.resolved", ["runId": "", "turnId": "", "interactionId": "interaction_plugin"]))
+        try state.apply(event("interaction.resolved", ["turnId": "", "interactionId": "interaction_plugin"]))
         #expect(state.session.pendingInteractions?.count == 0)
         #expect(state.session.tabStatus == .idle)
     }
@@ -35,7 +35,7 @@ struct SessionEventProjectionTests {
         let usage: [String: Any] = ["input": 1200, "output": 340, "cacheRead": 5000,
             "cacheWrite": 20, "reasoning": 100, "totalTokens": 6560,
             "cost": ["input": 0.001, "output": 0.002, "cacheRead": 0.001, "cacheWrite": 0.0001, "total": 0.0041]]
-        let update = try event("usage.updated", ["usage": usage])
+        let update = try event("usage.changed", ["usage": usage])
         try state.apply(update)
         try state.apply(update)
         let totals = try #require(state.session.usage)
@@ -51,8 +51,8 @@ struct SessionEventProjectionTests {
 
     @Test func compactionProgressUsesSnapshotAndMatchingEvents() throws {
         var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as? [String: Any])
-        json["activeCompaction"] = ["id": "compact_a", "runId": "t"]
-        json["activeRunId"] = "t"
+        json["activeCompaction"] = ["id": "compact_a", "turnId": "t"]
+        json["activeTurnId"] = "t"
         let initial = try JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json))
         var state = try SessionEventProjection(initial)
         #expect(state.session.activeCompactionID == "compact_a")
@@ -69,7 +69,7 @@ struct SessionEventProjectionTests {
     @MainActor @Test func failedCompactionAlwaysProvidesToastDetail() throws {
         var state = try SessionEventProjection(snapshot())
         try state.apply(event("compaction.started", ["compactionId": "compact_a"]))
-        try state.apply(event("compaction.failed", ["compactionId": "compact_a"]))
+        try state.apply(event("compaction.completed", ["compactionId": "compact_a", "isError": true]))
         #expect(state.session.compactionOutcome?.failed == true)
         #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
         let feedback = SessionFeedback()
@@ -77,11 +77,11 @@ struct SessionEventProjectionTests {
         #expect(feedback.notices.first?.detail == "Context compaction failed")
 
         try state.apply(event("compaction.started", ["compactionId": "compact_b"]))
-        try state.apply(event("compaction.failed", ["compactionId": "compact_b", "errorMessage": "  "]))
+        try state.apply(event("compaction.completed", ["compactionId": "compact_b", "errorMessage": "  ", "isError": true]))
         #expect(state.session.compactionOutcome?.detail == "Context compaction failed")
 
         try state.apply(event("compaction.started", ["compactionId": "compact_c"]))
-        try state.apply(event("compaction.failed", ["compactionId": "compact_c", "errorMessage": "Provider unavailable"]))
+        try state.apply(event("compaction.completed", ["compactionId": "compact_c", "errorMessage": "Provider unavailable", "isError": true]))
         #expect(state.session.compactionOutcome?.detail == "Provider unavailable")
     }
 
@@ -94,16 +94,16 @@ struct SessionEventProjectionTests {
         var state = try SessionEventProjection(initial)
         #expect(state.session.contextTokens == 82_000)
         #expect(state.session.contextWindow == 200_000)
-        try state.apply(event("context.updated", ["contextTokens": 180_000, "contextWindow": 200_000]))
+        try state.apply(event("context.changed", ["contextTokens": 180_000, "contextWindow": 200_000]))
         #expect(SessionContext(tokens: state.session.contextTokens, capacity: state.session.contextWindow)?.percentage == 90)
-        try state.apply(event("context.updated", ["contextTokens": 20_000, "contextWindow": 100_000]))
+        try state.apply(event("context.changed", ["contextTokens": 20_000, "contextWindow": 100_000]))
         #expect(SessionContext(tokens: state.session.contextTokens, capacity: state.session.contextWindow)?.percentage == 20)
     }
 
     @Test func liveImageResultsRetainAttachmentIdentityAndTruncation() throws {
         var state = try SessionEventProjection(snapshot())
-        try state.apply(event("run.started"))
-        try state.apply(event("tool.completed", ["toolCallId": "image", "toolName": "show_image",
+        try state.apply(event("turn.started"))
+        try state.apply(event("tool.output.delta", ["toolCallId": "image", "toolName": "show_image",
             "contentTruncated": true, "content": [["kind": "image", "filename": "live.png",
                 "mediaType": "image/png", "attachmentId": "attachment_live"]]]))
         let tool = try #require(state.session.messages.last?.tools.first)
@@ -113,8 +113,8 @@ struct SessionEventProjectionTests {
 
     @Test func annotationOnlyLivePreviewWaitsForPersistedEvidence() throws {
         var state = try SessionEventProjection(snapshot())
-        try state.apply(event("run.started"))
-        try state.apply(event("message.user", ["text": "Annotations"]))
+        try state.apply(event("turn.started"))
+        try state.apply(event("user.message.added", ["text": "Annotations"]))
         #expect(state.session.observedTurns == ["t"])
         #expect(state.session.messages.map(\.text) == ["Annotations"])
         try state.apply(event("annotation.submitted", ["annotationIds": [5]]))
@@ -135,7 +135,7 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages.first?.annotations?.map(\.source) == ["Kit is implemented in Go."])
 
         var withText = try SessionEventProjection(snapshot())
-        try withText.apply(event("message.user", ["text": "Please review this"]))
+        try withText.apply(event("user.message.added", ["text": "Please review this"]))
         var textAndEvidence = canonical
         textAndEvidence["content"] = [["kind": "text", "text": "Please review this"], evidence]
         let acceptedWithText = try JSONDecoder().decode(WireTranscriptMessage.self,
@@ -145,14 +145,14 @@ struct SessionEventProjectionTests {
         #expect(withText.session.messages.first?.annotations?.map(\.body) == ["testing annotations"])
 
         var failedLookup = try SessionEventProjection(snapshot())
-        try failedLookup.apply(event("message.user", ["text": "Annotations"]))
+        try failedLookup.apply(event("user.message.added", ["text": "Annotations"]))
         try failedLookup.apply(event("annotation.submitted", ["annotationIds": [5]]))
         failedLookup.discardAnnotationPreview()
         #expect(failedLookup.session.messages.isEmpty)
 
         var literal = try SessionEventProjection(snapshot())
-        try literal.apply(event("message.user", ["text": "Annotations"]))
-        try literal.apply(event("run.finished"))
+        try literal.apply(event("user.message.added", ["text": "Annotations"]))
+        try literal.apply(event("turn.completed"))
         literal.clearAnnotationPreviewCandidate()
         literal.discardAnnotationPreview()
         #expect(literal.session.messages.map(\.text) == ["Annotations"])
@@ -160,16 +160,16 @@ struct SessionEventProjectionTests {
 
     @Test func runIdentityRetryAndTerminalFailureAreProjected() throws {
         var state = try SessionEventProjection(snapshot())
-        try state.apply(event("run.started"))
+        try state.apply(event("turn.started"))
         #expect(state.session.activeRunID == "t")
-        try state.apply(event("message.user", ["text": "Hello"]))
+        try state.apply(event("user.message.added", ["text": "Hello"]))
         #expect(state.session.observedTurns == ["t"])
         try state.apply(event("provider.retry.scheduled", ["providerRetry": ["count": 2, "retryAt": "2026-09-13T18:00:00Z"]]))
         #expect(state.session.providerRetryCount == 2)
         #expect(state.session.providerRetryAt == "2026-09-13T18:00:00Z")
         try state.apply(event("provider.retry.started"))
         #expect(state.session.providerRetryAt == nil)
-        try state.apply(event("run.finished", ["errorMessage": "Provider unavailable"]))
+        try state.apply(event("turn.completed", ["errorMessage": "Provider unavailable"]))
         #expect(state.session.activeRunID == nil)
         #expect(state.session.terminalError == "Provider unavailable")
         let refreshed = try SessionEventProjection(snapshot(), terminalError: state.session.terminalError)
@@ -178,7 +178,7 @@ struct SessionEventProjectionTests {
 
     @Test func renameUpdatesTitleWithoutChangingIdentity() throws {
         var state = try SessionEventProjection(snapshot())
-        try state.apply(event("session.renamed", ["sessionName": "New title"]))
+        try state.apply(event("session.name.changed", ["sessionName": "New title"]))
         #expect(state.session.id == "s")
         #expect(state.session.title == "New title")
     }
@@ -190,7 +190,7 @@ struct SessionEventProjectionTests {
         try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "bash"]))
         #expect(state.session.messages[0].tools[0].status == "Running…")
         for value in ["first", " second"] {
-            try state.apply(event("tool.updated", ["toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": value]]]))
+            try state.apply(event("tool.output.delta", ["toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": value]]]))
         }
         #expect(state.session.messages[0].tools[0].output == "first second")
         try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "bash", "content": [["kind": "text", "text": "Final"]], "isError": true]))
@@ -210,7 +210,7 @@ struct SessionEventProjectionTests {
         #expect(state.session.messages.count == 0)
         try state.apply(event("assistant.completed", ["messageId": "m", "text": "Hello world"]))
         #expect(state.session.messages.map(\.text) == ["Hello world"])
-        try state.apply(event("run.finished", ["status": "completed"]))
+        try state.apply(event("turn.completed", ["status": "completed"]))
         #expect(state.session.activity == nil)
     }
     @Test func repeatedLiveCompletionUpdatesResponseInPlace() throws {
@@ -234,14 +234,14 @@ struct SessionEventProjectionTests {
         ]
         var state = try SessionEventProjection(JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)))
         try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "read"]))
-        try state.apply(event("tool.completed", ["toolCallId": "a", "toolName": "read", "content": [["kind": "text", "text": "Persisted result"]]]))
+        try state.apply(event("tool.output.delta", ["toolCallId": "a", "toolName": "read", "content": [["kind": "text", "text": "Persisted result"]]]))
         #expect(state.session.messages.count == 1)
         #expect(state.session.messages[0].tools.map(\.output) == ["Persisted result"])
     }
 
     @Test func pendingSnapshotProseStaysBufferedOnResume() throws {
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
-        json["activeRunId"] = "t"
+        json["activeTurnId"] = "t"
         json["messages"] = [["id": "m", "turnId": "t", "sequence": 1, "role": "assistant", "createdAt": "",
                               "content": [["kind": "text", "text": "Hello"]]]]
         var state = try SessionEventProjection(JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)))
@@ -263,16 +263,16 @@ struct SessionEventProjectionTests {
         try state.apply(event("tool.started", ["toolCallId": "a", "toolName": "read"]))
         try state.apply(event("tool.started", ["toolCallId": "b", "toolName": "read"]))
         #expect(state.session.messages[0].tools.compactMap(\.thinking) == ["**Inspect** the files carefully"])
-        try state.apply(event("run.finished", ["status": "completed"]))
+        try state.apply(event("turn.completed", ["status": "completed"]))
         #expect(state.session.messages[0].tools[0].thinking == "**Inspect** the files carefully")
     }
 
     @Test func tabStatusTracksRunAndMultiplePendingRequests() throws {
         var state = try SessionEventProjection(snapshot())
         #expect(state.session.tabStatus == .idle)
-        try state.apply(event("run.started"))
+        try state.apply(event("turn.started"))
         #expect(state.session.tabStatus == .running)
-        let request: [String: Any] = ["id": "one", "sessionId": "s", "runId": "t", "toolCallId": "tool",
+        let request: [String: Any] = ["id": "one", "sessionId": "s", "turnId": "t", "toolCallId": "tool",
                                       "kind": "confirm", "title": "Continue?", "createdAt": ""]
         var second = request
         second["id"] = "two"
@@ -284,11 +284,11 @@ struct SessionEventProjectionTests {
         #expect(state.session.tabStatus == .awaitingResponse)
         try state.apply(event("interaction.resolved", ["interactionId": "two"]))
         #expect(state.session.tabStatus == .running)
-        try state.apply(event("run.finished", ["status": "completed"]))
+        try state.apply(event("turn.completed", ["status": "completed"]))
         #expect(state.session.tabStatus == .idle)
 
         var json = try JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as! [String: Any]
-        json["activeRunId"] = "t"
+        json["activeTurnId"] = "t"
         json["pendingInteractions"] = [request]
         let resumed = try SessionEventProjection(JSONDecoder().decode(WireSessionSnapshot.self, from: JSONSerialization.data(withJSONObject: json)))
         #expect(resumed.session.tabStatus == .awaitingResponse)

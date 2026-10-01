@@ -590,51 +590,42 @@ func (execution BashExecution) Validate() error {
 	return nil
 }
 
-// Validate checks a run reservation received across a transport boundary.
-func (reservation RunReservation) Validate() error {
-	if reservation.SessionID == "" || reservation.TurnID == "" || reservation.RunID == "" {
-		return fmt.Errorf("run reservation session, turn, and run ids are required")
-	}
-	if reservation.RunID != reservation.TurnID {
-		return fmt.Errorf("run reservation identity must equal its droid turn identity")
+// Validate checks a turn reservation received across a transport boundary.
+func (reservation TurnReservation) Validate() error {
+	if reservation.SessionID == "" || reservation.TurnID == "" {
+		return fmt.Errorf("turn reservation session and turn ids are required")
 	}
 	return nil
 }
 
-// Validate checks a durable run projection received across a transport boundary.
-func (run RunInfo) Validate() error {
-	if run.SessionID == "" || run.TurnID == "" || run.RunID == "" {
-		return fmt.Errorf("run info session, turn, and run ids are required")
+// Validate checks a durable turn projection received across a transport boundary.
+func (turn TurnInfo) Validate() error {
+	if turn.SessionID == "" || turn.TurnID == "" {
+		return fmt.Errorf("turn info session and turn ids are required")
 	}
-	if run.RunID != run.TurnID {
-		return fmt.Errorf("run info identity must equal its droid turn identity")
-	}
-	switch run.Status {
-	case RunStatusQueued, RunStatusRunning, RunStatusCompleted,
-		RunStatusFailed, RunStatusAborted, RunStatusInterrupted:
+	switch turn.Status {
+	case TurnStatusQueued, TurnStatusRunning, TurnStatusCompleted,
+		TurnStatusFailed, TurnStatusAborted, TurnStatusInterrupted:
 	default:
-		return fmt.Errorf("run info status %q is invalid", run.Status)
+		return fmt.Errorf("turn info status %q is invalid", turn.Status)
 	}
-	if run.Status != RunStatusQueued && run.Status != RunStatusRunning && run.Status != RunStatusCompleted && run.ErrorMessage == "" {
-		return fmt.Errorf("run info status %q requires an error message", run.Status)
+	if turn.Status != TurnStatusQueued && turn.Status != TurnStatusRunning && turn.Status != TurnStatusCompleted && turn.ErrorMessage == "" {
+		return fmt.Errorf("turn info status %q requires an error message", turn.Status)
 	}
 	return nil
 }
 
 // Validate checks a terminal prompt outcome received across a transport boundary.
 func (outcome PromptOutcome) Validate() error {
-	if outcome.SessionID == "" || outcome.TurnID == "" || outcome.RunID == "" {
-		return fmt.Errorf("prompt outcome session, turn, and run ids are required")
-	}
-	if outcome.RunID != outcome.TurnID {
-		return fmt.Errorf("prompt outcome identity must equal its droid turn identity")
+	if outcome.SessionID == "" || outcome.TurnID == "" {
+		return fmt.Errorf("prompt outcome session and turn ids are required")
 	}
 	switch outcome.Status {
-	case RunStatusCompleted, RunStatusFailed, RunStatusAborted, RunStatusInterrupted:
+	case TurnStatusCompleted, TurnStatusFailed, TurnStatusAborted, TurnStatusInterrupted:
 	default:
 		return fmt.Errorf("prompt outcome status %q is invalid", outcome.Status)
 	}
-	if outcome.Status != RunStatusCompleted && outcome.ErrorMessage == "" {
+	if outcome.Status != TurnStatusCompleted && outcome.ErrorMessage == "" {
 		return fmt.Errorf("prompt outcome status %q requires an error message", outcome.Status)
 	}
 	switch outcome.ErrorKind {
@@ -644,7 +635,7 @@ func (outcome PromptOutcome) Validate() error {
 	default:
 		return fmt.Errorf("prompt outcome error kind %q is invalid", outcome.ErrorKind)
 	}
-	if outcome.Status == RunStatusCompleted && outcome.ErrorKind != "" {
+	if outcome.Status == TurnStatusCompleted && outcome.ErrorKind != "" {
 		return fmt.Errorf("completed prompt outcome has error kind %q", outcome.ErrorKind)
 	}
 	return nil

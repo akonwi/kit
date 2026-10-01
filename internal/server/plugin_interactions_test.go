@@ -96,7 +96,7 @@ func nextPluginInteraction(t *testing.T, client *Client, id, previous string) pr
 		if err != nil {
 			t.Fatal(err)
 		}
-		if snapshot.ActiveRunID != "" || len(snapshot.Messages) != 0 {
+		if snapshot.ActiveTurnID != "" || len(snapshot.Messages) != 0 {
 			t.Fatal("plugin dialog fabricated a model turn")
 		}
 		if len(snapshot.PendingInteractions) == 1 && snapshot.PendingInteractions[0].ID != previous {
@@ -121,7 +121,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 	for step, kind := range []protocol.InteractionKind{protocol.InteractionSelect, protocol.InteractionSelect, protocol.InteractionInput, protocol.InteractionConfirm} {
 		request := nextPluginInteraction(t, client, id, previous)
 		previous = request.ID
-		if request.Kind != kind || request.Plugin == nil || request.Plugin.PluginID != "ui-api-demo" || request.Plugin.Instance != commandOwnerInstance(command.Instance) || request.RunID != "" || request.ToolCallID != "" {
+		if request.Kind != kind || request.Plugin == nil || request.Plugin.PluginID != "ui-api-demo" || request.Plugin.Instance != commandOwnerInstance(command.Instance) || request.TurnID != "" || request.ToolCallID != "" {
 			t.Fatalf("plugin-owned request = %#v", request)
 		}
 		response := protocol.InteractionResponse{RequestID: request.ID}
@@ -180,7 +180,7 @@ func TestPluginUIDemoUsesSharedSessionBrokerWithoutModelRun(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(snapshot.PendingInteractions) != 0 || len(snapshot.Messages) != 0 || snapshot.ActiveRunID != "" {
+	if len(snapshot.PendingInteractions) != 0 || len(snapshot.Messages) != 0 || snapshot.ActiveTurnID != "" {
 		t.Fatalf("completed UI state = %#v", snapshot)
 	}
 }

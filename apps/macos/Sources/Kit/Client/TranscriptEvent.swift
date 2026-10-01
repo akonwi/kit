@@ -33,7 +33,7 @@ struct TranscriptEvent {
     init(_ event: WireSessionEvent) {
         annotation = event.annotation; annotationId = event.annotationId; annotationIds = event.annotationIds
         scratchpad = event.scratchpad
-        kind = event.kind.rawValue; turnId = event.turnId; runId = event.runId
+        kind = event.kind.rawValue; turnId = event.turnId ?? ""; runId = event.turnId ?? ""
         messageId = event.messageId; contentIndex = event.contentIndex
         delta = event.delta; text = event.text; thinking = event.thinking
         toolCallId = event.toolCallId; toolName = event.toolName; arguments = event.arguments
@@ -53,9 +53,9 @@ struct TranscriptEvent {
         case "message.completed":
             guard event.messageId != nil else { return nil }
             kind = "assistant.completed"
-        case "turn.started", "execution.started": kind = "run.started"
-        case "turn.settled", "execution.settled": kind = "run.finished"
-        case "tool.planned", "tool.started", "tool.updated", "tool.completed": kind = event.kind
+        case "turn.started", "execution.started": kind = "turn.started"
+        case "turn.settled", "execution.settled": kind = "turn.completed"
+        case "tool.planned", "tool.started", "tool.output.delta", "tool.completed": kind = event.kind
         default: return nil
         }
         turnId = event.turnId ?? ""

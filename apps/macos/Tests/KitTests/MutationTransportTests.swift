@@ -9,9 +9,9 @@ private final class MutationResponse: URLProtocol, @unchecked Sendable {
         let url = request.url!
         let rejected = url.port == 19102
         let wrong = url.port == 19103
-        let body = rejected ? #"{"error":"invalid input"}"# : "{\"reservation\":{\"sessionId\":\"\(wrong ? "wrong" : "s")\",\"turnId\":\"turn\",\"runId\":\"run\"},\"queued\":false,\"queue\":{\"count\":0}}"
+        let body = rejected ? #"{"error":"invalid input"}"# : "{\"reservation\":{\"sessionId\":\"\(wrong ? "wrong" : "s")\",\"turnId\":\"turn\"},\"queued\":false,\"queue\":{\"count\":0}}"
         #expect(request.httpMethod == "POST")
-        #expect(url.path == "/v1/sessions/s/submissions")
+        #expect(url.path == "/v1/sessions/s/turns/submissions")
         #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: rejected ? 400 : 202,
@@ -31,7 +31,7 @@ struct MutationTransportTests {
     @Test func acceptedSubmissionReturnsCanonicalReservation() async throws {
         let result = try await client(19101).submit("s", input: WirePromptInput(text: "Hello", attachmentIds: [], annotationIds: nil))
         #expect(result.reservation?.turnId == "turn")
-        #expect(result.reservation?.runId == "run")
+        #expect(result.reservation?.turnId == "turn")
         #expect(result.queued == false)
     }
     @Test func rejectionAndWrongIdentityAreRejected() async throws {

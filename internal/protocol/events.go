@@ -19,25 +19,24 @@ const (
 type SessionEventKind string
 
 const (
-	SessionEventRunStarted             SessionEventKind = "run.started"
-	SessionEventUserMessage            SessionEventKind = "message.user"
+	SessionEventTurnStarted            SessionEventKind = "turn.started"
+	SessionEventUserMessageAdded       SessionEventKind = "user.message.added"
 	SessionEventAssistantStarted       SessionEventKind = "assistant.started"
 	SessionEventAssistantTextDelta     SessionEventKind = "assistant.text.delta"
 	SessionEventThinkingDelta          SessionEventKind = "assistant.thinking.delta"
 	SessionEventAssistantCompleted     SessionEventKind = "assistant.completed"
 	SessionEventToolPlanned            SessionEventKind = "tool.planned"
 	SessionEventToolStarted            SessionEventKind = "tool.started"
-	SessionEventToolUpdated            SessionEventKind = "tool.updated"
+	SessionEventToolOutputDelta        SessionEventKind = "tool.output.delta"
 	SessionEventToolCompleted          SessionEventKind = "tool.completed"
 	SessionEventCompactionStarted      SessionEventKind = "compaction.started"
 	SessionEventCompactionCompleted    SessionEventKind = "compaction.completed"
-	SessionEventCompactionFailed       SessionEventKind = "compaction.failed"
 	SessionEventProviderRetryScheduled SessionEventKind = "provider.retry.scheduled"
 	SessionEventProviderRetryStarted   SessionEventKind = "provider.retry.started"
-	SessionEventContextUpdated         SessionEventKind = "context.updated"
-	SessionEventUsageUpdated           SessionEventKind = "usage.updated"
-	SessionEventRunFinished            SessionEventKind = "run.finished"
-	SessionEventSessionRenamed         SessionEventKind = "session.renamed"
+	SessionEventContextChanged         SessionEventKind = "context.changed"
+	SessionEventUsageChanged           SessionEventKind = "usage.changed"
+	SessionEventTurnCompleted          SessionEventKind = "turn.completed"
+	SessionEventSessionNameChanged     SessionEventKind = "session.name.changed"
 	SessionEventSessionCWDChanged      SessionEventKind = "session.cwd.changed"
 	SessionEventSubagentChanged        SessionEventKind = "subagent.changed"
 	SessionEventPeerQueryChanged       SessionEventKind = "peer_query.changed"
@@ -55,8 +54,7 @@ type SessionEvent struct {
 	StreamID  string              `json:"streamId"`
 	Sequence  int64               `json:"sequence"`
 	SessionID string              `json:"sessionId"`
-	TurnID    string              `json:"turnId"`
-	RunID     string              `json:"runId"`
+	TurnID    string              `json:"turnId,omitempty"`
 	Payload   SessionEventPayload `json:"-"`
 }
 
@@ -116,31 +114,31 @@ func (event sessionEventWire) validate() error {
 		return fmt.Errorf("event session id is required")
 	}
 	if event.Kind == SessionEventScratchpadChanged {
-		if event.TurnID != "" || event.RunID != "" || event.Scratchpad == nil {
+		if event.TurnID != "" || event.Scratchpad == nil {
 			return fmt.Errorf("scratchpad event requires a record without parent turn identity")
 		}
-	} else if event.Kind == SessionEventSessionRenamed || event.Kind == SessionEventSessionCWDChanged {
-		if event.TurnID != "" || event.RunID != "" {
+	} else if event.Kind == SessionEventSessionNameChanged || event.Kind == SessionEventSessionCWDChanged {
+		if event.TurnID != "" {
 			return fmt.Errorf("session rename event cannot carry parent turn identity")
 		}
 	} else if event.Kind == SessionEventSubagentChanged {
-		if event.TurnID != "" || event.RunID != "" || event.SubagentConversationID == "" {
+		if event.TurnID != "" || event.SubagentConversationID == "" {
 			return fmt.Errorf("subagent event requires conversation identity without parent turn identity")
 		}
 	} else if event.Kind == SessionEventPeerQueryChanged {
-		if event.TurnID != "" || event.RunID != "" || !identifier.Valid(event.PeerRequestID, "peer_") {
+		if event.TurnID != "" || !identifier.Valid(event.PeerRequestID, "peer_") {
 			return fmt.Errorf("peer query event requires request identity without turn identity")
 		}
 	} else if event.Kind == SessionEventAnnotationCreated || event.Kind == SessionEventAnnotationUpdated {
-		if event.TurnID != "" || event.RunID != "" || event.AnnotationID == 0 || event.Annotation == nil || event.Annotation.ID != event.AnnotationID || event.Annotation.SessionID != event.SessionID {
+		if event.TurnID != "" || event.AnnotationID == 0 || event.Annotation == nil || event.Annotation.ID != event.AnnotationID || event.Annotation.SessionID != event.SessionID {
 			return fmt.Errorf("annotation change event is invalid")
 		}
 	} else if event.Kind == SessionEventAnnotationDeleted {
-		if event.TurnID != "" || event.RunID != "" || event.AnnotationID == 0 || event.Annotation != nil {
+		if event.TurnID != "" || event.AnnotationID == 0 || event.Annotation != nil {
 			return fmt.Errorf("annotation deletion event is invalid")
 		}
 	} else if event.Kind == SessionEventAnnotationSubmitted {
-		if event.TurnID != "" || event.RunID != "" || event.AnnotationID != 0 || event.Annotation != nil || !identifier.Valid(event.AcceptedMessageID, "message_") || len(event.AnnotationIDs) == 0 || len(event.AnnotationIDs) > MaxAnnotationsPerPrompt {
+		if event.TurnID != "" || event.AnnotationID != 0 || event.Annotation != nil || !identifier.Valid(event.AcceptedMessageID, "message_") || len(event.AnnotationIDs) == 0 || len(event.AnnotationIDs) > MaxAnnotationsPerPrompt {
 			return fmt.Errorf("annotation submission event is invalid")
 		}
 		seen := make(map[uint64]struct{}, len(event.AnnotationIDs))
@@ -153,7 +151,7 @@ func (event sessionEventWire) validate() error {
 			}
 			seen[id] = struct{}{}
 		}
-	} else if (event.Kind == SessionEventInteractionRequested || event.Kind == SessionEventInteractionResolved) && event.RunID == "" {
+	} else if (event.Kind == SessionEventInteractionRequested || event.Kind == SessionEventInteractionResolved) && event.TurnID == "" {
 		if event.TurnID != "" || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
 			return fmt.Errorf("invalid session interaction identity")
 		}
@@ -161,14 +159,11 @@ func (event sessionEventWire) validate() error {
 			return fmt.Errorf("session interaction requires plugin ownership")
 		}
 	} else {
-		if event.TurnID == "" || event.RunID == "" {
-			return fmt.Errorf("event turn and run ids are required")
-		}
-		if event.RunID != event.TurnID {
-			return fmt.Errorf("event run identity must equal its droid turn identity")
+		if event.TurnID == "" {
+			return fmt.Errorf("event turn id is required")
 		}
 		if event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" || event.AnnotationID != 0 {
-			return fmt.Errorf("parent run event cannot carry external identity")
+			return fmt.Errorf("turn event cannot carry external identity")
 		}
 	}
 	if len(event.Content) > maxSessionEventContentBlocks {
@@ -206,11 +201,11 @@ func (event sessionEventWire) validate() error {
 		return fmt.Errorf("event payload exceeds 128 KiB")
 	}
 	switch event.Kind {
-	case SessionEventRunStarted:
-		if event.Status != RunStatusRunning {
-			return fmt.Errorf("started run status must be running")
+	case SessionEventTurnStarted:
+		if event.Status != TurnStatusRunning {
+			return fmt.Errorf("started turn status must be running")
 		}
-	case SessionEventUserMessage:
+	case SessionEventUserMessageAdded:
 		if event.Text == "" {
 			return fmt.Errorf("user message text is required")
 		}
@@ -232,7 +227,7 @@ func (event sessionEventWire) validate() error {
 		if (event.Arguments == "") == !event.ArgumentsTruncated {
 			return fmt.Errorf("tool event requires either complete or explicitly truncated arguments")
 		}
-	case SessionEventToolUpdated:
+	case SessionEventToolOutputDelta:
 		if event.ToolCallID == "" || event.ToolName == "" || len(event.Content) == 0 {
 			return fmt.Errorf("tool update requires call id, name, and append-only content")
 		}
@@ -243,13 +238,13 @@ func (event sessionEventWire) validate() error {
 		if event.ToolCallID == "" || event.ToolName == "" {
 			return fmt.Errorf("completed tool requires call id and name")
 		}
-	case SessionEventCompactionStarted, SessionEventCompactionCompleted:
+	case SessionEventCompactionStarted:
 		if !validRendererText(event.CompactionID, 256) {
 			return fmt.Errorf("compaction event requires a valid identity")
 		}
-	case SessionEventCompactionFailed:
-		if !validRendererText(event.CompactionID, 256) || event.ErrorKind != "" || !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes) {
-			return fmt.Errorf("failed compaction requires an error message")
+	case SessionEventCompactionCompleted:
+		if !validRendererText(event.CompactionID, 256) || event.ErrorKind != "" || (event.ErrorMessage != "" && !validRendererText(event.ErrorMessage, maxSessionEventPayloadBytes)) {
+			return fmt.Errorf("completed compaction is invalid")
 		}
 	case SessionEventProviderRetryScheduled:
 		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt == "" {
@@ -262,18 +257,18 @@ func (event sessionEventWire) validate() error {
 		if event.ProviderRetry == nil || event.ProviderRetry.Count <= 0 || event.ProviderRetry.RetryAt != "" {
 			return fmt.Errorf("started provider retry requires a positive count without a deadline")
 		}
-	case SessionEventContextUpdated:
+	case SessionEventContextChanged:
 		if event.ContextTokens < 0 || event.ContextWindow <= 0 {
 			return fmt.Errorf("context update requires non-negative tokens and a positive window")
 		}
-	case SessionEventUsageUpdated:
+	case SessionEventUsageChanged:
 		if event.Usage == nil {
 			return fmt.Errorf("usage update requires an absolute session total")
 		}
 		if err := event.Usage.Validate(); err != nil {
 			return fmt.Errorf("usage update: %w", err)
 		}
-	case SessionEventSessionRenamed:
+	case SessionEventSessionNameChanged:
 		if strings.TrimSpace(event.SessionName) != event.SessionName || !validRendererText(event.SessionName, 256) {
 			return fmt.Errorf("session rename event requires a renderer-safe name")
 		}
@@ -307,7 +302,7 @@ func (event sessionEventWire) validate() error {
 			return fmt.Errorf("annotation submission event payload is invalid")
 		}
 	case SessionEventInteractionRequested:
-		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.SessionID != event.SessionID || event.Interaction.RunID != event.RunID {
+		if event.Interaction == nil || event.InteractionID != "" || event.Interaction.SessionID != event.SessionID || event.Interaction.TurnID != event.TurnID {
 			return fmt.Errorf("interaction request event is invalid")
 		}
 		if err := event.Interaction.Validate(); err != nil {
@@ -317,23 +312,23 @@ func (event sessionEventWire) validate() error {
 		if event.Interaction != nil || !identifier.Valid(event.InteractionID, "interaction_") || !validProtocolInteractionResolution(event.InteractionResolution) {
 			return fmt.Errorf("interaction resolution event is invalid")
 		}
-	case SessionEventRunFinished:
+	case SessionEventTurnCompleted:
 		switch event.Status {
-		case RunStatusCompleted:
+		case TurnStatusCompleted:
 			if event.ErrorKind != "" || event.ErrorMessage != "" {
-				return fmt.Errorf("completed run cannot carry error metadata")
+				return fmt.Errorf("completed turn cannot carry error metadata")
 			}
-		case RunStatusFailed, RunStatusAborted, RunStatusInterrupted:
+		case TurnStatusFailed, TurnStatusAborted, TurnStatusInterrupted:
 			if event.ErrorMessage == "" {
-				return fmt.Errorf("terminal run status %q requires an error message", event.Status)
+				return fmt.Errorf("terminal turn status %q requires an error message", event.Status)
 			}
 		default:
-			return fmt.Errorf("run finish status %q is invalid", event.Status)
+			return fmt.Errorf("turn completion status %q is invalid", event.Status)
 		}
 	default:
 		return fmt.Errorf("event kind %q is invalid", event.Kind)
 	}
-	if event.Kind == SessionEventSessionRenamed {
+	if event.Kind == SessionEventSessionNameChanged {
 		if payloadBytes != len(event.SessionName) || event.MessageID != "" || event.Status != "" || event.ErrorKind != "" || event.Usage != nil ||
 			event.ContextTokens != 0 || event.ContextWindow != 0 || event.SubagentConversationID != "" || event.SubagentTaskID != "" || event.PeerRequestID != "" ||
 			event.IsError || event.ArgumentsTruncated || event.ContentTruncated || event.DetailsOmitted {
@@ -358,19 +353,19 @@ func (event sessionEventWire) validate() error {
 	default:
 		return fmt.Errorf("error kind %q is invalid", event.ErrorKind)
 	}
-	if event.Kind != SessionEventRunStarted && event.Kind != SessionEventRunFinished && event.Status != "" {
-		return fmt.Errorf("event kind %q cannot carry run status", event.Kind)
+	if event.Kind != SessionEventTurnStarted && event.Kind != SessionEventTurnCompleted && event.Status != "" {
+		return fmt.Errorf("event kind %q cannot carry turn status", event.Kind)
 	}
-	if event.Kind != SessionEventRunFinished && event.Kind != SessionEventCompactionFailed && (event.ErrorKind != "" || event.ErrorMessage != "") {
-		return fmt.Errorf("event kind %q cannot carry run error metadata", event.Kind)
+	if event.Kind != SessionEventTurnCompleted && event.Kind != SessionEventCompactionCompleted && (event.ErrorKind != "" || event.ErrorMessage != "") {
+		return fmt.Errorf("event kind %q cannot carry turn error metadata", event.Kind)
 	}
-	if event.Kind != SessionEventUsageUpdated && event.Usage != nil {
+	if event.Kind != SessionEventUsageChanged && event.Usage != nil {
 		return fmt.Errorf("event kind %q cannot carry session usage", event.Kind)
 	}
-	if event.Kind != SessionEventContextUpdated && (event.ContextTokens != 0 || event.ContextWindow != 0) {
+	if event.Kind != SessionEventContextChanged && (event.ContextTokens != 0 || event.ContextWindow != 0) {
 		return fmt.Errorf("event kind %q cannot carry context usage", event.Kind)
 	}
-	isCompaction := event.Kind == SessionEventCompactionStarted || event.Kind == SessionEventCompactionCompleted || event.Kind == SessionEventCompactionFailed
+	isCompaction := event.Kind == SessionEventCompactionStarted || event.Kind == SessionEventCompactionCompleted
 	if !isCompaction && event.CompactionID != "" {
 		return fmt.Errorf("event kind %q cannot carry compaction identity", event.Kind)
 	}
@@ -384,7 +379,7 @@ func (event sessionEventWire) validate() error {
 	if isRetry && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
 		return fmt.Errorf("provider retry event cannot carry assistant content")
 	}
-	if event.Kind != SessionEventSessionRenamed && event.SessionName != "" {
+	if event.Kind != SessionEventSessionNameChanged && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)
 	}
 	if event.Kind != SessionEventSessionCWDChanged && event.Workspace != nil {
@@ -403,7 +398,7 @@ func (event sessionEventWire) validate() error {
 	if !isAnnotation && (event.AnnotationID != 0 || event.Annotation != nil || len(event.AnnotationIDs) > 0 || event.AcceptedMessageID != "") {
 		return fmt.Errorf("event kind %q cannot carry annotation data", event.Kind)
 	}
-	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolUpdated || event.Kind == SessionEventToolCompleted
+	isTool := event.Kind == SessionEventToolPlanned || event.Kind == SessionEventToolStarted || event.Kind == SessionEventToolOutputDelta || event.Kind == SessionEventToolCompleted
 	if !isTool && (event.ToolCallID != "" || event.ToolName != "" || event.Arguments != "" || event.ArgumentsTruncated || len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted || event.IsError) {
 		return fmt.Errorf("event kind %q cannot carry tool data", event.Kind)
 	}
@@ -413,7 +408,7 @@ func (event sessionEventWire) validate() error {
 	if event.Kind != SessionEventToolPlanned && event.Kind != SessionEventToolStarted && (event.Arguments != "" || event.ArgumentsTruncated) {
 		return fmt.Errorf("event kind %q cannot carry tool arguments", event.Kind)
 	}
-	if event.Kind != SessionEventToolUpdated && event.Kind != SessionEventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
+	if event.Kind != SessionEventToolOutputDelta && event.Kind != SessionEventToolCompleted && (len(event.Content) > 0 || event.ContentTruncated || len(event.Details) > 0 || event.DetailsOmitted) {
 		return fmt.Errorf("event kind %q cannot carry tool result data", event.Kind)
 	}
 	if event.DetailsOmitted && len(event.Details) > 0 {
@@ -440,7 +435,7 @@ func (event sessionEventWire) validate() error {
 
 func validProtocolInteractionResolution(reason string) bool {
 	switch reason {
-	case "answered", "negative_confirmation", "user_cancelled", "run_abort", "deleted", "shutdown", "unavailable":
+	case "answered", "negative_confirmation", "user_cancelled", "turn_abort", "deleted", "shutdown", "unavailable":
 		return true
 	default:
 		return false
@@ -476,7 +471,7 @@ func (batch SessionEventBatch) Validate() error {
 		return fmt.Errorf("non-empty event batch requires a retention range")
 	}
 	previous := int64(0)
-	activeAssistantRunID := ""
+	activeAssistantTurnID := ""
 	activeAssistantMessageID := ""
 	previousUsage := batch.UsageBaseline
 	for index, event := range batch.Events {
@@ -498,12 +493,12 @@ func (batch SessionEventBatch) Validate() error {
 		if batch.FirstSequence > 0 && wire.Sequence < batch.FirstSequence || batch.LastSequence > 0 && wire.Sequence > batch.LastSequence {
 			return fmt.Errorf("event %d sequence is outside the retention range", index)
 		}
-		if wire.Kind == SessionEventSessionRenamed || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted {
+		if wire.Kind == SessionEventSessionNameChanged || wire.Kind == SessionEventSessionCWDChanged || wire.Kind == SessionEventScratchpadChanged || wire.Kind == SessionEventSubagentChanged || wire.Kind == SessionEventPeerQueryChanged || wire.Kind == SessionEventAnnotationCreated || wire.Kind == SessionEventAnnotationUpdated || wire.Kind == SessionEventAnnotationDeleted || wire.Kind == SessionEventAnnotationSubmitted {
 			previous = wire.Sequence
 			continue
 		}
-		if wire.RunID != activeAssistantRunID || wire.Kind == SessionEventRunStarted {
-			activeAssistantRunID = wire.RunID
+		if wire.TurnID != activeAssistantTurnID || wire.Kind == SessionEventTurnStarted {
+			activeAssistantTurnID = wire.TurnID
 			activeAssistantMessageID = ""
 		}
 		if wire.MessageID != "" {
@@ -516,7 +511,7 @@ func (batch SessionEventBatch) Validate() error {
 				activeAssistantMessageID = ""
 			}
 		}
-		if wire.Kind == SessionEventRunFinished {
+		if wire.Kind == SessionEventTurnCompleted {
 			activeAssistantMessageID = ""
 		}
 		if wire.Usage != nil {

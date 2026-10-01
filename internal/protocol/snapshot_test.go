@@ -68,16 +68,16 @@ func TestSessionSnapshotValidatesActiveCompaction(t *testing.T) {
 	t.Parallel()
 
 	snapshot := validTranscriptSnapshot()
-	snapshot.ActiveRunID = "turn_2"
-	snapshot.ActiveCompaction = &ActiveCompaction{ID: "compact_00000000000000000000000000000001", RunID: "turn_2"}
+	snapshot.ActiveTurnID = "turn_2"
+	snapshot.ActiveCompaction = &ActiveCompaction{ID: "compact_00000000000000000000000000000001", TurnID: "turn_2"}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatalf("active compaction Validate() error = %v", err)
 	}
-	snapshot.ActiveCompaction.RunID = "turn_other"
+	snapshot.ActiveCompaction.TurnID = "turn_other"
 	if err := snapshot.Validate(); err == nil {
 		t.Fatal("snapshot accepted compaction for another run")
 	}
-	snapshot.ActiveCompaction.RunID = "turn_2"
+	snapshot.ActiveCompaction.TurnID = "turn_2"
 	snapshot.ActiveCompaction.ID = "compact_short"
 	if err := snapshot.Validate(); err == nil {
 		t.Fatal("snapshot accepted malformed compaction identity")
@@ -88,18 +88,18 @@ func TestSessionSnapshotValidatesProviderRetry(t *testing.T) {
 	t.Parallel()
 
 	snapshot := validTranscriptSnapshot()
-	snapshot.ActiveRunID = "turn_2"
+	snapshot.ActiveTurnID = "turn_2"
 	snapshot.ProviderRetry = &ProviderRetry{
 		Count: 1, RetryAt: time.Now().Add(-time.Second).UTC().Format(time.RFC3339Nano),
 	}
 	if err := snapshot.Validate(); err != nil {
 		t.Fatalf("past provider retry Validate() error = %v", err)
 	}
-	snapshot.ActiveRunID = ""
+	snapshot.ActiveTurnID = ""
 	if err := snapshot.Validate(); err == nil {
 		t.Fatal("snapshot provider retry accepted without an active run")
 	}
-	snapshot.ActiveRunID = "turn_2"
+	snapshot.ActiveTurnID = "turn_2"
 	snapshot.ProviderRetry.RetryAt = "invalid"
 	if err := snapshot.Validate(); err == nil {
 		t.Fatal("snapshot provider retry accepted an invalid deadline")

@@ -129,22 +129,22 @@ final class SessionOperations {
         }
     }
 
-    func abort(client: any SessionMutationClient, session: String, run: String) {
+    func abort(client: any SessionMutationClient, session: String, turn: String) {
         guard abortingRun == nil else { return }
         let generation = UUID()
         abortGeneration = generation
-        abortingRun = run
-        currentRun = run
+        abortingRun = turn
+        currentRun = turn
         abortError = nil
         abortTask = Task { [weak self] in
             do {
-                try await client.abort(session, run: run)
+                try await client.abort(session, turn: turn)
                 guard !Task.isCancelled, let self, self.abortGeneration == generation else { return }
-                if self.currentRun != run { self.abortingRun = nil }
+                if self.currentRun != turn { self.abortingRun = nil }
                 self.abortTask = nil
             } catch {
                 guard !Task.isCancelled, let self, self.abortGeneration == generation else { return }
-                self.abortError = self.currentRun == run ? error.localizedDescription : nil
+                self.abortError = self.currentRun == turn ? error.localizedDescription : nil
                 self.abortingRun = nil
                 self.abortTask = nil
             }

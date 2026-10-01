@@ -134,14 +134,14 @@ type sessionService interface {
 	Scratchpad(context.Context, string) (protocol.Scratchpad, error)
 	UpdateScratchpad(context.Context, string, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
-	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.RunReservation, error)
+	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.TurnReservation, error)
 	SubmitPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
 	ExecutePluginCommand(context.Context, string, protocol.PluginCommandInput) error
-	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
-	Run(context.Context, string, string) (protocol.RunInfo, error)
-	RunPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
+	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.TurnReservation, error)
+	Turn(context.Context, string, string) (protocol.TurnInfo, error)
+	Prompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
 	RespondInteraction(context.Context, string, protocol.InteractionResponse) error
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
@@ -755,7 +755,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		}
 	}
 	result := protocol.SessionSnapshot{
-		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveRunID: snapshot.ActiveRunID,
+		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveTurnID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
@@ -795,7 +795,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		}
 	}
 	if snapshot.ActiveCompaction != nil {
-		result.ActiveCompaction = &protocol.ActiveCompaction{ID: snapshot.ActiveCompaction.ID, RunID: snapshot.ActiveCompaction.RunID}
+		result.ActiveCompaction = &protocol.ActiveCompaction{ID: snapshot.ActiveCompaction.ID, TurnID: snapshot.ActiveCompaction.RunID}
 	}
 	for _, interaction := range snapshot.PendingInteractions {
 		result.PendingInteractions = append(result.PendingInteractions, projectInteractionRequest(interaction))
@@ -1276,7 +1276,7 @@ func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, stream
 }
 
 func projectInteractionRequest(request kitsession.InteractionRequest) protocol.InteractionRequest {
-	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, RunID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
+	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, TurnID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
 	if request.Plugin != nil {
 		result.Plugin = &protocol.PluginInteractionOwner{PluginID: request.Plugin.PluginID, Instance: request.Plugin.Instance}
 	}
@@ -1316,7 +1316,7 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 	for _, event := range page.Events {
 		projected := protocol.SessionEvent{
 			StreamID: event.StreamID, Sequence: event.Sequence, SessionID: event.SessionID,
-			TurnID: event.TurnID, RunID: event.RunID,
+			TurnID:  event.TurnID,
 			Payload: s.projectSessionEventPayload(event),
 		}
 		batch.Events = append(batch.Events, projected)
@@ -1366,9 +1366,9 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	}
 	switch event.Kind {
 	case kitsession.EventRunStarted:
-		return protocol.RunStartedEvent{Status: protocol.RunStatus(event.Status)}
+		return protocol.TurnStartedEvent{Status: protocol.TurnStatus(event.Status)}
 	case kitsession.EventUserMessage:
-		return protocol.UserMessageEvent{Text: event.Text}
+		return protocol.UserMessageAddedEvent{Text: event.Text}
 	case kitsession.EventAssistantStarted:
 		return protocol.AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}
 	case kitsession.EventAssistantTextDelta:
@@ -1382,7 +1382,7 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventToolStarted:
 		return protocol.ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}
 	case kitsession.EventToolUpdated:
-		return protocol.ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, IsError: event.IsError}
+		return protocol.ToolOutputDeltaEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, IsError: event.IsError}
 	case kitsession.EventToolCompleted:
 		return protocol.ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, ContentTruncated: event.ContentTruncated, Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}
 	case kitsession.EventCompactionStarted:
@@ -1390,19 +1390,19 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventCompactionCompleted:
 		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID}
 	case kitsession.EventCompactionFailed:
-		return protocol.CompactionFailedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
+		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
 	case kitsession.EventProviderRetryScheduled:
 		return protocol.ProviderRetryScheduledEvent{ProviderRetry: providerRetry()}
 	case kitsession.EventProviderRetryStarted:
 		return protocol.ProviderRetryStartedEvent{ProviderRetry: providerRetry()}
 	case kitsession.EventContextUpdated:
-		return protocol.ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}
+		return protocol.ContextChangedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}
 	case kitsession.EventUsageUpdated:
-		return protocol.UsageUpdatedEvent{Usage: projectSessionUsagePointer(event.Usage)}
+		return protocol.UsageChangedEvent{Usage: projectSessionUsagePointer(event.Usage)}
 	case kitsession.EventRunFinished:
-		return protocol.RunFinishedEvent{Status: protocol.RunStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
+		return protocol.TurnCompletedEvent{Status: protocol.TurnStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
 	case kitsession.EventSessionRenamed:
-		return protocol.SessionRenamedEvent{SessionName: event.SessionName}
+		return protocol.SessionNameChangedEvent{SessionName: event.SessionName}
 	case kitsession.EventSessionCWDChanged:
 		var workspace *protocol.WorkspaceRef
 		if s.workspaces != nil {
@@ -1579,13 +1579,13 @@ func promptSectionKind(kind systemprompt.SectionKind) protocol.PromptSectionKind
 	}
 }
 
-func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
+func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
 	reservation, err := s.manager.StartPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
-	return protocol.RunReservation{
-		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	return protocol.TurnReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID,
 	}, nil
 }
 
@@ -1596,7 +1596,7 @@ func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID strin
 	}
 	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
 	if !result.Queued {
-		output.Reservation = &protocol.RunReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID, RunID: result.Reservation.RunID}
+		output.Reservation = &protocol.TurnReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID}
 	}
 	return output, nil
 }
@@ -1619,36 +1619,36 @@ func (s runtimeSessionService) ExecutePluginCommand(ctx context.Context, session
 	return s.manager.ExecutePluginCommand(ctx, sessionID, input.Instance, input.ID, input.Args)
 }
 
-func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	reservation, err := s.manager.StartPromptCommand(ctx, sessionID, input.Name, input.Args)
 	if err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
-	return protocol.RunReservation{
-		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	return protocol.TurnReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID,
 	}, nil
 }
 
-func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
-	record, err := s.manager.GetRun(ctx, sessionID, runID)
+func (s runtimeSessionService) Turn(ctx context.Context, sessionID, turnID string) (protocol.TurnInfo, error) {
+	record, err := s.manager.GetRun(ctx, sessionID, turnID)
 	if err != nil {
-		return protocol.RunInfo{}, err
+		return protocol.TurnInfo{}, err
 	}
-	return protocol.RunInfo{
-		SessionID: record.SessionID, TurnID: record.TurnID, RunID: record.ID,
-		Status: protocol.RunStatus(record.Status), ErrorMessage: record.Error,
+	return protocol.TurnInfo{
+		SessionID: record.SessionID, TurnID: record.TurnID,
+		Status: protocol.TurnStatus(record.Status), ErrorMessage: record.Error,
 	}, nil
 }
 
-func (s runtimeSessionService) RunPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
+func (s runtimeSessionService) Prompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
 	result, err := s.manager.RunPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	return protocol.PromptOutcome{
-		SessionID: result.SessionID, TurnID: result.TurnID, RunID: result.RunID,
+		SessionID: result.SessionID, TurnID: result.TurnID,
 		Text: result.Text, StopReason: result.StopReason,
-		Status: protocol.RunStatus(result.Status), ErrorKind: projectProviderErrorKind(result.ErrorKind),
+		Status: protocol.TurnStatus(result.Status), ErrorKind: projectProviderErrorKind(result.ErrorKind),
 		ErrorMessage: result.ErrorMessage,
 	}, nil
 }
@@ -1672,8 +1672,8 @@ func projectProviderErrorKind(kind kitsession.ProviderErrorKind) protocol.Provid
 	}
 }
 
-func (s runtimeSessionService) Abort(ctx context.Context, sessionID, runID string) error {
-	return s.manager.Abort(ctx, sessionID, runID)
+func (s runtimeSessionService) Abort(ctx context.Context, sessionID, turnID string) error {
+	return s.manager.Abort(ctx, sessionID, turnID)
 }
 
 func (s runtimeSessionService) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
@@ -1719,7 +1719,58 @@ func projectBashExecution(execution kitsession.BashExecution) protocol.BashExecu
 	}
 }
 
+type sessionEventStreamSource struct {
+	service   sessionService
+	sessionID string
+	streamID  string
+	after     int64
+	initial   *protocol.SessionEventBatch
+	terminal  bool
+}
+
+func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.StreamRecord[protocol.SessionEventBatch], error) {
+	if source.terminal {
+		return httpapi.StreamRecord[protocol.SessionEventBatch]{}, io.EOF
+	}
+	var batch protocol.SessionEventBatch
+	if source.initial != nil {
+		batch, source.initial = *source.initial, nil
+	} else {
+		var err error
+		batch, err = source.service.WaitEvents(ctx, source.sessionID, source.streamID, source.after)
+		if err != nil {
+			return httpapi.StreamRecord[protocol.SessionEventBatch]{}, err
+		}
+	}
+	if err := batch.Validate(); err != nil {
+		return httpapi.StreamRecord[protocol.SessionEventBatch]{}, err
+	}
+	for _, event := range batch.Events {
+		if event.Sequence > source.after {
+			source.after = event.Sequence
+		}
+	}
+	if batch.StreamID != "" {
+		source.streamID = batch.StreamID
+	}
+	name := httpapi.SessionEventsRecord
+	id := source.streamID + ":" + strconv.FormatInt(source.after, 10)
+	if batch.ResyncRequired {
+		name, id, source.terminal = httpapi.SessionResyncRecord, "", true
+	}
+	return httpapi.StreamRecord[protocol.SessionEventBatch]{Name: name, ID: id, Payload: batch}, nil
+}
+
+func (*sessionEventStreamSource) Close() {}
+
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
+	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, WriteError: func(writer http.ResponseWriter, err error) {
+		var requestErr *httpapi.RequestError
+		if errors.As(err, &requestErr) {
+			err = fmt.Errorf("%w: %v", errInvalidSessionRequest, requestErr)
+		}
+		writeSessionError(writer, err)
+	}}
 	mux.HandleFunc("POST /v1/models/refresh", func(writer http.ResponseWriter, request *http.Request) {
 		catalog, err := service.RefreshModels(request.Context())
 		if err != nil {
@@ -2141,80 +2192,19 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, batch)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/events/stream", func(writer http.ResponseWriter, request *http.Request) {
-		streamID, after, err := sessionEventCursor(request)
+	httpapi.HandleStream(mux, httpOptions, httpapi.StreamSessionEvents, func(ctx context.Context, params httpapi.EventStreamPath) (httpapi.StreamSource[protocol.SessionEventBatch], error) {
+		streamID, after, err := sessionEventCursorValues(params.StreamID, strconv.FormatInt(params.After, 10), params.LastEventID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return nil, err
 		}
-		flusher, ok := writer.(http.Flusher)
-		if !ok {
-			writeSessionError(writer, errors.New("streaming responses are unsupported"))
-			return
-		}
-		batch, err := service.Events(request.Context(), request.PathValue("sessionID"), streamID, after)
+		batch, err := service.Events(ctx, params.SessionID, streamID, after)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return nil, err
 		}
 		if err := batch.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session event batch: %w", err))
-			return
+			return nil, fmt.Errorf("invalid session event batch: %w", err)
 		}
-		writer.Header().Set("Content-Type", "text/event-stream; charset=utf-8")
-		writer.Header().Set("Cache-Control", "no-cache")
-		writer.Header().Set("X-Accel-Buffering", "no")
-		writer.WriteHeader(http.StatusOK)
-		if _, err := io.WriteString(writer, ": connected\n\n"); err != nil {
-			return
-		}
-		flusher.Flush()
-		initial := true
-		for {
-			if !initial {
-				waitContext, cancel := context.WithTimeout(request.Context(), 15*time.Second)
-				var waitErr error
-				batch, waitErr = service.WaitEvents(waitContext, request.PathValue("sessionID"), streamID, after)
-				cancel()
-				if waitErr != nil {
-					if errors.Is(waitErr, context.DeadlineExceeded) && request.Context().Err() == nil {
-						if _, err := io.WriteString(writer, ": heartbeat\n\n"); err != nil {
-							return
-						}
-						flusher.Flush()
-						continue
-					}
-					return
-				}
-				if err := batch.Validate(); err != nil {
-					return
-				}
-			}
-			initial = false
-			encoded, err := json.Marshal(batch)
-			if err != nil {
-				return
-			}
-			for _, event := range batch.Events {
-				if event.Sequence > after {
-					after = event.Sequence
-				}
-			}
-			if batch.StreamID != "" {
-				streamID = batch.StreamID
-			}
-			if batch.ResyncRequired {
-				if _, err := fmt.Fprintf(writer, "event: session.resync\ndata: %s\n\n", encoded); err != nil {
-					return
-				}
-				flusher.Flush()
-				return
-			}
-			if _, err := fmt.Fprintf(writer, "event: session.events\nid: %s:%d\ndata: %s\n\n", streamID, after, encoded); err != nil {
-				return
-			}
-			flusher.Flush()
-		}
+		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, initial: &batch}, nil
 	})
 	mux.HandleFunc("POST /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.CreateSessionInput
@@ -2254,13 +2244,6 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, WriteError: func(writer http.ResponseWriter, err error) {
-		var requestErr *httpapi.RequestError
-		if errors.As(err, &requestErr) {
-			err = fmt.Errorf("%w: %v", errInvalidSessionRequest, requestErr)
-		}
-		writeSessionError(writer, err)
-	}}
 	registerVCSRoutes(mux, httpOptions, service)
 	registerPluginRoutes(mux, httpOptions, service)
 	httpapi.Handle(mux, httpOptions, httpapi.GetScratchpad, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.Scratchpad, error) {
@@ -2398,7 +2381,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, status, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/submissions", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/submissions", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2419,7 +2402,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/follow-ups/restore", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/follow-ups/restore", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.RestoreFollowUps(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2431,7 +2414,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/follow-ups/promote", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/follow-ups/promote", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.PromoteFollowUps(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2443,7 +2426,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompts", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompts", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2458,13 +2441,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
+		if result.TurnID == "" {
 			writeSessionError(writer, errors.New("session prompt returned no reservation"))
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptCommandInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2479,13 +2462,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
+		if result.TurnID == "" {
 			writeSessionError(writer, errors.New("session prompt command returned no reservation"))
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/prompt", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompt", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2495,13 +2478,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
-		result, err := service.RunPrompt(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.Prompt(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
-			writeSessionError(writer, errors.New("session run returned no result"))
+		if result.TurnID == "" {
+			writeSessionError(writer, errors.New("session turn returned no result"))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -2538,44 +2521,30 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/runs/{runID}", func(writer http.ResponseWriter, request *http.Request) {
-		run, err := service.Run(
-			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/turns/{turnID}", func(writer http.ResponseWriter, request *http.Request) {
+		turn, err := service.Turn(
+			request.Context(), request.PathValue("sessionID"), request.PathValue("turnID"),
 		)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
-		writeJSON(writer, http.StatusOK, run)
+		writeJSON(writer, http.StatusOK, turn)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/interactions/{interactionID}/response", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.InteractionResponse
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.RespondInteraction, func(ctx context.Context, params httpapi.InteractionPath, input protocol.InteractionResponse) (protocol.InteractionResponseResult, error) {
+		if input.RequestID != params.InteractionID || input.Validate() != nil {
+			return protocol.InteractionResponseResult{}, httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 		}
-		if input.RequestID != request.PathValue("interactionID") {
-			writeSessionError(writer, fmt.Errorf("%w: interaction identity mismatch", errInvalidSessionRequest))
-			return
+		if err := service.RespondInteraction(ctx, params.SessionID, input); err != nil {
+			return protocol.InteractionResponseResult{}, turnAPIError(err)
 		}
-		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
-		}
-		if err := service.RespondInteraction(request.Context(), request.PathValue("sessionID"), input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		writeJSON(writer, http.StatusOK, map[string]bool{"settled": true})
+		return protocol.InteractionResponseResult{Settled: true}, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/runs/{runID}/abort", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.Abort(
-			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
-		); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.AbortTurn, func(ctx context.Context, params httpapi.TurnPath, _ httpapi.NoBody) (protocol.TurnAbortResult, error) {
+		if err := service.Abort(ctx, params.SessionID, params.TurnID); err != nil {
+			return protocol.TurnAbortResult{}, turnAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
+		return protocol.TurnAbortResult{Aborting: true}, nil
 	})
 }
 
@@ -2600,9 +2569,10 @@ func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
 }
 
 func sessionEventCursor(request *http.Request) (string, int64, error) {
-	streamID := request.URL.Query().Get("stream")
-	rawAfter := request.URL.Query().Get("after")
-	lastEventID := request.Header.Get("Last-Event-ID")
+	return sessionEventCursorValues(request.URL.Query().Get("stream"), request.URL.Query().Get("after"), request.Header.Get("Last-Event-ID"))
+}
+
+func sessionEventCursorValues(streamID, rawAfter, lastEventID string) (string, int64, error) {
 	if eventID := lastEventID; eventID != "" {
 		separator := strings.LastIndexByte(eventID, ':')
 		if separator <= 0 {
@@ -2645,6 +2615,30 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 		return fmt.Errorf("%w: invalid JSON: %v", errInvalidSessionRequest, err)
 	}
 	return nil
+}
+
+// turnAPIError projects the generic failures declared by catalogued turn
+// operations into ADR-0034 envelopes. Domain-specific session errors remain
+// private until their operation declares a dedicated code.
+func turnAPIError(err error) error {
+	var apiErr *httpapi.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	status, code, message := http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error"
+	switch {
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound):
+		status, code, message = http.StatusNotFound, httpapi.ErrorNotFound, "not found"
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled):
+		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with session state"
+	case errors.Is(err, kitsession.ErrInteractionCapacity):
+		status, code, message = http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "interaction capacity exceeded"
+	case errors.Is(err, kitsession.ErrClosed):
+		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session is unavailable"
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
+		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
+	}
+	return httpapi.NewAPIError(status, code, message, nil)
 }
 
 func scratchpadAPIError(err error) error {

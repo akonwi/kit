@@ -44,9 +44,9 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 		name, client, daemon string
 		compatible           bool
 	}{
-		{"baseline to next stable", "0.39.0", "0.39.1", true},
-		{"next stable to baseline", "0.39.1", "0.39.0", true},
-		{"future major stable", "1.0.0", "0.39.0", true},
+		{"protocol-42 baseline to next stable", "0.39.0", "0.39.1", false},
+		{"next stable to protocol-42 baseline", "0.39.1", "0.39.0", false},
+		{"future major to protocol-42 baseline", "1.0.0", "0.39.0", false},
 		{"same prerelease", "0.39.0-rc.1", "0.39.0-rc.1", true},
 		{"same dev label remains local-only", "dev", "dev", true},
 		{"rc to stable", "0.39.0-rc.1", "0.39.0", false},

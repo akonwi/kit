@@ -2175,10 +2175,12 @@ func (m *Manager) executePrompt(loaded *runtime, run *liveRun, handle droids.Exe
 		m.startQueuedFollowUps(loaded, sessionID)
 		m.scheduleAutoName(sessionID)
 	}
-	loaded.mu.Lock()
-	close(run.done)
-	loaded.mu.Unlock()
+	// A completed prompt is observable only after its transition lock is
+	// released. Callers commonly configure the session after RunPrompt returns;
+	// signaling completion while this lock is still held makes that sequence
+	// spuriously report ErrConfigureBusy.
 	loaded.transitionMu.Unlock()
+	close(run.done)
 }
 
 func (m *Manager) startQueuedFollowUps(loaded *runtime, sessionID string) {

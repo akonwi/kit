@@ -10,8 +10,7 @@ type sessionEventWire struct {
 	StreamID               string              `json:"streamId"`
 	Sequence               int64               `json:"sequence"`
 	SessionID              string              `json:"sessionId"`
-	TurnID                 string              `json:"turnId"`
-	RunID                  string              `json:"runId"`
+	TurnID                 string              `json:"turnId,omitempty"`
 	MessageID              string              `json:"messageId,omitempty"`
 	Kind                   SessionEventKind    `json:"kind"`
 	ContentIndex           int                 `json:"contentIndex,omitempty"`
@@ -27,7 +26,7 @@ type sessionEventWire struct {
 	Details                json.RawMessage     `json:"details,omitempty"`
 	DetailsOmitted         bool                `json:"detailsOmitted,omitempty"`
 	IsError                bool                `json:"isError,omitempty"`
-	Status                 RunStatus           `json:"status,omitempty"`
+	Status                 TurnStatus          `json:"status,omitempty"`
 	ErrorKind              ProviderErrorKind   `json:"errorKind,omitempty"`
 	ErrorMessage           string              `json:"errorMessage,omitempty"`
 	CompactionID           string              `json:"compactionId,omitempty"`
@@ -94,7 +93,7 @@ func validateSessionEventPayloadPresence(payload SessionEventPayload) error {
 		if payload.ProviderRetry == nil {
 			return fmt.Errorf("provider retry is required")
 		}
-	case UsageUpdatedEvent:
+	case UsageChangedEvent:
 		if payload.Usage == nil {
 			return fmt.Errorf("usage is required")
 		}

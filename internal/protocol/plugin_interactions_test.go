@@ -25,7 +25,7 @@ func TestPluginInteractionWireOwnershipAndPresentation(t *testing.T) {
 	if decoded.Plugin == nil || *decoded.Plugin != *request.Plugin || decoded.DefaultValue == nil || !*decoded.DefaultValue || decoded.ConfirmLabel != "Proceed" || decoded.CancelLabel != "Stop" {
 		t.Fatalf("wire projection = %s", data)
 	}
-	for _, mutate := range []func(*InteractionRequest){func(r *InteractionRequest) { r.RunID = "run_0123456789abcdef0123456789abcdef" }, func(r *InteractionRequest) { r.ToolCallID = "tool_0123456789abcdef0123456789abcdef" }, func(r *InteractionRequest) { r.Plugin = nil }, func(r *InteractionRequest) { r.Kind = InteractionGuided }, func(r *InteractionRequest) { r.InitialValue = "misplaced" }, func(r *InteractionRequest) { r.Filterable = &yes }, func(r *InteractionRequest) { r.Placeholder = "misplaced" }} {
+	for _, mutate := range []func(*InteractionRequest){func(r *InteractionRequest) { r.TurnID = "run_0123456789abcdef0123456789abcdef" }, func(r *InteractionRequest) { r.ToolCallID = "tool_0123456789abcdef0123456789abcdef" }, func(r *InteractionRequest) { r.Plugin = nil }, func(r *InteractionRequest) { r.Kind = InteractionGuided }, func(r *InteractionRequest) { r.InitialValue = "misplaced" }, func(r *InteractionRequest) { r.Filterable = &yes }, func(r *InteractionRequest) { r.Placeholder = "misplaced" }} {
 		invalid := request
 		mutate(&invalid)
 		if err := invalid.Validate(); err == nil {

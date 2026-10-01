@@ -401,22 +401,8 @@ func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before ui
 
 // GetMessagePage returns newest-first durable messages matching query.
 func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
-	values := url.Values{}
-	if query.Limit > 0 {
-		values.Set("limit", strconv.Itoa(query.Limit))
-	}
-	if query.Before > 0 {
-		values.Set("before", strconv.FormatUint(query.Before, 10))
-	}
-	for _, role := range query.Roles {
-		values.Add("role", role)
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/messages"
-	if encoded := values.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	var output protocol.MessagePage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetMessagePage, httpapi.MessagePagePath{SessionID: sessionID, Before: query.Before, Limit: query.Limit, Roles: query.Roles}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.MessagePage{}, err
 	}
 	before := ""
@@ -434,9 +420,8 @@ func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query pro
 
 // GetTranscriptPage returns the complete-turn page preceding before.
 func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string) (protocol.TranscriptPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/transcript?before=" + url.QueryEscape(before)
-	var output protocol.TranscriptPage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetTranscriptPage, httpapi.TranscriptPagePath{SessionID: sessionID, Before: before}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.TranscriptPage{}, err
 	}
 	if err := output.ValidateBefore(before); err != nil {
@@ -465,14 +450,8 @@ func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (pro
 
 // GetSessionEvents returns the next ordered page after a session stream sequence.
 func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (protocol.SessionEventBatch, error) {
-	values := url.Values{}
-	values.Set("after", strconv.FormatInt(after, 10))
-	if streamID != "" {
-		values.Set("stream", streamID)
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/events?" + values.Encode()
-	var output protocol.SessionEventBatch
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSessionEventPage, httpapi.EventPagePath{SessionID: sessionID, StreamID: streamID, After: after}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SessionEventBatch{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -828,9 +807,8 @@ func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (prot
 }
 
 func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/submissions"
-	var output protocol.PromptSubmission
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.SubmitPrompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.PromptSubmission{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -844,9 +822,8 @@ func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input 
 
 // RestoreFollowUps atomically drains one session's deferred prompts.
 func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/restore"
-	var output protocol.RestoreFollowUpsResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.RestoreTurnFollowUps, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.RestoreFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -857,9 +834,8 @@ func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protoc
 
 // PromoteFollowUps moves one session's deferred prompts into active steering.
 func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/promote"
-	var output protocol.PromoteFollowUpsResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.PromoteTurnFollowUps, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.PromoteFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -869,75 +845,71 @@ func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protoc
 }
 
 // StartPrompt admits a droid-owned turn and returns its canonical identity.
-func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
+func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.TurnReservation, error) {
 	return c.StartPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
 }
 
-func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
-	var output protocol.RunReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
-		return protocol.RunReservation{}, err
+func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.StartPrompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
+		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
-		return protocol.RunReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
+	if output.SessionID != sessionID || output.TurnID == "" {
+		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
 	}
 	return output, nil
 }
 
 // StartPromptCommand expands and admits one discovered prompt command.
-func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	if err := input.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate prompt command request: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate prompt command request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt-commands"
-	var output protocol.RunReservation
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
-		return protocol.RunReservation{}, err
+	output, err := httpapi.Call(ctx, c, httpapi.StartPromptCommand, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
+		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
-		return protocol.RunReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
+	if output.SessionID != sessionID || output.TurnID == "" {
+		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
 	}
 	return output, nil
 }
 
-// GetRun returns a loaded droid turn's transient protocol projection.
-func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID)
-	var output protocol.RunInfo
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
-		return protocol.RunInfo{}, err
+// GetTurn returns a loaded droid turn's transient protocol projection.
+func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (protocol.TurnInfo, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.GetTurn, httpapi.TurnPath{SessionID: sessionID, TurnID: turnID}, httpapi.NoBody{})
+	if err != nil {
+		return protocol.TurnInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunInfo{}, fmt.Errorf("validate daemon run response: %w", err)
+		return protocol.TurnInfo{}, fmt.Errorf("validate daemon turn response: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != runID {
-		return protocol.RunInfo{}, fmt.Errorf("daemon run response identity mismatch")
+	if output.SessionID != sessionID || output.TurnID != turnID {
+		return protocol.TurnInfo{}, fmt.Errorf("daemon turn response identity mismatch")
 	}
 	return output, nil
 }
 
-// RunPrompt admits and waits for one droid turn.
-func (c *Client) RunPrompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
-	return c.RunPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
+// Prompt admits and waits for one droid turn.
+func (c *Client) Prompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
+	return c.PromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
 }
 
-func (c *Client) RunPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
-	var output protocol.PromptOutcome
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+func (c *Client) PromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.Prompt, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	if err := output.Validate(); err != nil {
 		return protocol.PromptOutcome{}, fmt.Errorf("validate daemon prompt response: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
+	if output.SessionID != sessionID || output.TurnID == "" {
 		return protocol.PromptOutcome{}, fmt.Errorf("daemon prompt response identity mismatch")
 	}
 	return output, nil
@@ -983,14 +955,26 @@ func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) e
 
 // RespondInteraction atomically settles one pending model-user interaction.
 func (c *Client) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interactions/" + url.PathEscape(response.RequestID) + "/response"
-	return c.sessionJSON(ctx, http.MethodPost, path, response, http.StatusOK, nil)
+	result, err := httpapi.Call(ctx, c, httpapi.RespondInteraction, httpapi.InteractionPath{SessionID: sessionID, InteractionID: response.RequestID}, response)
+	if err != nil {
+		return err
+	}
+	if !result.Settled {
+		return fmt.Errorf("daemon did not settle interaction")
+	}
+	return nil
 }
 
-// AbortSession requests cancellation of a loaded session's active run.
-func (c *Client) AbortSession(ctx context.Context, sessionID, runID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID) + "/abort"
-	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+// AbortSession requests cancellation of a loaded session's active turn.
+func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) error {
+	result, err := httpapi.Call(ctx, c, httpapi.AbortTurn, httpapi.TurnPath{SessionID: sessionID, TurnID: turnID}, httpapi.NoBody{})
+	if err != nil {
+		return err
+	}
+	if !result.Aborting {
+		return fmt.Errorf("daemon did not acknowledge turn abort")
+	}
+	return nil
 }
 
 // StreamSessionEvents opens the session's authenticated SSE event response.

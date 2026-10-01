@@ -43,9 +43,11 @@ func TestSchemaPostProcessing(t *testing.T) {
 	}
 	properties := schema["properties"].(map[string]any)
 	items := properties["items"].(map[string]any)
-	types := items["type"].([]any)
-	if len(types) != 2 || types[0] != "array" || types[1] != "null" {
-		t.Fatalf("slice type = %#v", types)
+	if items["type"] != "array" || items["nullable"] != nil {
+		t.Fatalf("slice schema = %#v", items)
+	}
+	if required, _ := schema["required"].([]string); !contains(required, "items") {
+		t.Fatalf("required = %#v", required)
 	}
 	count := properties["count"].(map[string]any)
 	if count["format"] != "uint64" || count["minimum"] != 0 {
@@ -247,7 +249,7 @@ func TestOptionalPointerFieldsAreOmitted(t *testing.T) {
 		}
 	}
 	schema, _ := SchemaForTesting(reflect.TypeOf(optionalPointers{}))
-	if !reflect.DeepEqual(schema["required"], []any{"items"}) {
+	if !reflect.DeepEqual(schema["required"], []string{"items"}) {
 		t.Fatalf("required = %#v, want only items", schema["required"])
 	}
 }

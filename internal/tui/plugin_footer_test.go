@@ -50,7 +50,7 @@ func TestPluginFooterUsesLabeledOverflow(t *testing.T) {
 }
 
 func TestPluginFooterMetadataRefreshesDuringRunAndRejectsStaleBaseline(t *testing.T) {
-	state := appState{session: protocol.SessionInfo{ID: "session"}, activeRunID: "run", liveSequence: 10, liveStreamID: "stream", metadataStreamID: "stream", metadataSequence: 1}
+	state := appState{session: protocol.SessionInfo{ID: "session"}, activeTurnID: "run", liveSequence: 10, liveStreamID: "stream", metadataStreamID: "stream", metadataSequence: 1}
 	footer := &protocol.PluginFooter{LocationHidden: true, Items: []protocol.PluginFooterItem{{ID: "demo.status", Content: []protocol.PluginFooterSegment{{Text: "Current"}}}}}
 	state.applySessionMetadataBaseline(protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session"}, EventStreamID: "stream", EventCursor: 5, PluginFooter: footer})
 	if state.pluginFooter != footer {

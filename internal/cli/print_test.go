@@ -16,7 +16,7 @@ func TestExecutePrintResumesLatestCWDSession(t *testing.T) {
 	client := &fakeSessionClient{
 		sessions: []protocol.SessionInfo{{ID: "session-1", Model: "test/echo"}},
 		outcome: protocol.PromptOutcome{
-			SessionID: "session-1", Status: protocol.RunStatusCompleted, Text: "hello",
+			SessionID: "session-1", Status: protocol.TurnStatusCompleted, Text: "hello",
 		},
 	}
 	var stdout, stderr bytes.Buffer
@@ -42,7 +42,7 @@ func TestExecutePrintSkipsSessionsWithoutAvailableProvider(t *testing.T) {
 			{ID: "session-unavailable", Model: "missing/model"},
 			{ID: "session-available", Model: "test/echo"},
 		},
-		outcome: protocol.PromptOutcome{SessionID: "session-available", Status: protocol.RunStatusCompleted},
+		outcome: protocol.PromptOutcome{SessionID: "session-available", Status: protocol.TurnStatusCompleted},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{
@@ -71,7 +71,7 @@ func TestExecutePrintCreatesSessionFromAvailableCatalogWithoutDefault(t *testing
 	client := &fakeSessionClient{
 		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/echo", Provider: "test", Available: true}}},
 		created: protocol.SessionInfo{ID: "session-new", Model: "test/echo", ThinkingLevel: "off"},
-		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.RunStatusCompleted},
+		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.TurnStatusCompleted},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{
@@ -87,7 +87,7 @@ func TestExecutePrintReplacesStaleImplicitDefaultFromSameProvider(t *testing.T) 
 	client := &fakeSessionClient{
 		models:  protocol.ModelCatalog{Models: []protocol.ModelCapability{{ID: "test/current", Provider: "test", Available: true}}},
 		created: protocol.SessionInfo{ID: "session-new", Model: "test/current", ThinkingLevel: "off"},
-		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.RunStatusCompleted},
+		outcome: protocol.PromptOutcome{SessionID: "session-new", Status: protocol.TurnStatusCompleted},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{
@@ -105,7 +105,7 @@ func TestExecutePrintCreatesSessionForModel(t *testing.T) {
 	client := &fakeSessionClient{
 		created: protocol.SessionInfo{ID: "session-new", Model: "test/echo"},
 		outcome: protocol.PromptOutcome{
-			SessionID: "session-new", Status: protocol.RunStatusCompleted, Text: "created",
+			SessionID: "session-new", Status: protocol.TurnStatusCompleted, Text: "created",
 		},
 	}
 	var stdout, stderr bytes.Buffer
@@ -129,7 +129,7 @@ func TestExecutePrintResolvesShortSessionID(t *testing.T) {
 	const sessionID = "session_0123456789abcdef0123456789abcdef"
 	client := &fakeSessionClient{
 		sessions: []protocol.SessionInfo{{ID: sessionID, Model: "test/echo"}},
-		outcome:  protocol.PromptOutcome{SessionID: sessionID, Status: protocol.RunStatusCompleted, Text: "continued"},
+		outcome:  protocol.PromptOutcome{SessionID: sessionID, Status: protocol.TurnStatusCompleted, Text: "continued"},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{
@@ -145,7 +145,7 @@ func TestExecutePrintDisposesTemporarySession(t *testing.T) {
 
 	client := &fakeSessionClient{
 		created: protocol.SessionInfo{ID: "session_temporary", Model: "test/echo"},
-		outcome: protocol.PromptOutcome{SessionID: "session_temporary", Status: protocol.RunStatusCompleted, Text: "temporary"},
+		outcome: protocol.PromptOutcome{SessionID: "session_temporary", Status: protocol.TurnStatusCompleted, Text: "temporary"},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{
@@ -164,7 +164,7 @@ func TestExecutePrintKeepsFailuresOffStdout(t *testing.T) {
 
 	client := &fakeSessionClient{
 		sessions: []protocol.SessionInfo{{ID: "session-1", Model: "test/echo"}},
-		outcome:  protocol.PromptOutcome{SessionID: "session-1", Status: protocol.RunStatusFailed, ErrorMessage: "provider failed"},
+		outcome:  protocol.PromptOutcome{SessionID: "session-1", Status: protocol.TurnStatusFailed, ErrorMessage: "provider failed"},
 	}
 	var stdout, stderr bytes.Buffer
 	code := executePrint(context.Background(), client, printOptions{CWD: "/workspace", Prompt: "go"}, &stdout, &stderr)
@@ -308,8 +308,8 @@ func (c *fakeBoundSession) Compact(context.Context, protocol.CompactSessionInput
 	panic("unexpected Compact")
 }
 
-func (c *fakeBoundSession) Run(context.Context, string) (protocol.RunInfo, error) {
-	return protocol.RunInfo{}, nil
+func (c *fakeBoundSession) Turn(context.Context, string) (protocol.TurnInfo, error) {
+	return protocol.TurnInfo{}, nil
 }
 
 func (c *fakeBoundSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
@@ -331,12 +331,12 @@ func (c *fakeBoundSession) StartBash(context.Context, string, string, bool) (ses
 func (c *fakeBoundSession) StartPrompt(
 	_ context.Context,
 	prompt string,
-) (sessionclient.Run, error) {
+) (sessionclient.Turn, error) {
 	c.server.runPrompt = prompt
 	return &fakeRun{server: c.server}, nil
 }
 
-func (c *fakeBoundSession) StartPromptCommand(context.Context, string, string) (sessionclient.Run, error) {
+func (c *fakeBoundSession) StartPromptCommand(context.Context, string, string) (sessionclient.Turn, error) {
 	panic("unexpected StartPromptCommand")
 }
 
