@@ -179,7 +179,7 @@ change in an ADR before implementing it. Wire changes bump
   fields (including interaction and snapshot run identity), removes `runId`,
   and omits turn identity from session-scoped events. Depends on
   `CORE-PROTO-009`.
-- [ ] CORE-PROTO-013 — Sessions slice: list, create, read, rename, delete,
+- [x] CORE-PROTO-013 — Sessions slice: list, create, read, rename, delete,
   dispose, fork, cwd change, configure, compact, and reload. The server/OpenAPI
   catalog phase is complete; migrate the macOS client to the generated sessions
   operations and generated wire types.
