@@ -94,10 +94,10 @@ test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
   testing::assert(live.activity == "", "finished run clears activity")
 }
 
-test fn submitted_prompt_stays_pending_until_the_server_claims_it() Void!Str {
+test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Void!Str {
   let live = mut transcript::live()
   live.submit("hi")
-  try testing::assert(live.submission_pending(), "new local prompt is pending server identity")
+  try testing::assert(live.blocks_snapshot_replacement(), "new local prompt blocks stale snapshots")
   let _ = live.apply(
     sequenced(
       [
@@ -109,7 +109,10 @@ test fn submitted_prompt_stays_pending_until_the_server_claims_it() Void!Str {
       ],
     ),
   )
-  testing::assert(not live.submission_pending(), "user event claims the optimistic prompt")
+  testing::assert(
+    live.blocks_snapshot_replacement(),
+    "durable user identity must not let an active snapshot erase the live tail",
+  )
 }
 
 test fn replayed_events_are_ignored() Void!Str {
