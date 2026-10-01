@@ -71,6 +71,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		return 1
 	}
 	server := kitclient.NewLocalServer(paths)
+	transport := kitserver.NewClient(paths)
 	if options.SessionID != "" {
 		resolveContext, resolveCancel := context.WithTimeout(ctx, 3*time.Second)
 		selected, resolveErr := sessionclient.ResolveSession(resolveContext, server, options.SessionID)
@@ -84,7 +85,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := kitserver.NewClient(paths).Probe(probeContext)
+	_, health, err := transport.Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
@@ -160,6 +161,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	runErr := runTUI(TUIOptions{
 		Context:               ctx,
 		Server:                server,
+		Transport:             transport,
 		CWD:                   cwd,
 		Location:              interactiveLocation(ctx, cwd),
 		ResolveLocation:       interactiveLocation,

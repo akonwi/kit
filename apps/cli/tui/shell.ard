@@ -5,6 +5,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use go:github.com/akonwi/kit/internal/httpapi
 use go:github.com/akonwi/kit/internal/protocol
 use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/authbridge
@@ -1637,15 +1638,23 @@ impl Shell {
       } else {
         match self.lifetime {
           lifetime => {
-            match self.session {
-              session => {
+            match self.info {
+              info => {
                 match self.context {
                   context => {
                     let run_id = self.run_id
+                    let session_id = info.ID
+                    let transport = self.props.options.Transport
                     let dispatch = context.dispatch
                     self.abort_pending = true
                     async::start(fn() {
-                      let _ = session.Abort(lifetime.Context, run_id)
+                      let _ = httpapi::Call<httpapi::TurnPath, httpapi::NoBody, protocol::TurnAbortResult>(
+                        lifetime.Context,
+                        transport,
+                        httpapi::AbortTurn,
+                        httpapi::TurnPath{SessionID: session_id, TurnID: run_id},
+                        httpapi::NoBody{},
+                      )
                       let _ = dispatch(fn() {
                         if self.run_id == run_id {
                           self.abort_pending = false
@@ -1666,14 +1675,14 @@ impl Shell {
     true
   }
 
-  // Submits the composer as a prompt when no run is active.
+  // Submits the composer as a prompt when no turn is active.
   fn mut submit() Bool {
     let text = strings::TrimSpace(self.composer)
     if self.phase == Phase::ready and text != "" and self.live.activity == "" {
       match self.lifetime {
         lifetime => {
-          match self.session {
-            session => {
+          match self.info {
+            info => {
               match self.context {
                 context => {
                   self.composer = ""
@@ -1682,11 +1691,19 @@ impl Shell {
                   self.start_pending = true
                   self.request_end()
                   let ctx = lifetime.Context
+                  let session_id = info.ID
+                  let transport = self.props.options.Transport
                   let dispatch = context.dispatch
                   async::start(fn() {
-                    match session.StartPrompt(ctx, text) {
-                      ok(run) => {
-                        let run_id = run.ID()
+                    match httpapi::Call<httpapi::SessionPath, protocol::PromptInput, protocol::TurnReservation>(
+                      ctx,
+                      transport,
+                      httpapi::StartPrompt,
+                      httpapi::SessionPath{SessionID: session_id},
+                      protocol::PromptInput{Text: text},
+                    ) {
+                      ok(reservation) => {
+                        let run_id = reservation.TurnID
                         let _ = dispatch(fn() {
                           self.start_pending = false
                           self.follow_run(run_id)
