@@ -1,0 +1,440 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+// A palette host mirroring the shell's controlled picker state, so palette
+// presentation can be tested without booting the whole client.
+struct Model {
+  activated: [Str],
+  query: Str,
+  selection: Str,
+  hovered: Str,
+  hidden_above: Bool,
+  hidden_below: Bool,
+  viewport: Int,
+}
+
+struct Props {
+  model: mut Model,
+  catalog: [palette::Item],
+  height: Int,
+}
+
+struct Host {
+  props: mut Props,
+  list: mut cui::VirtualListRef,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props, list: cui::virtual_list_ref()})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let picker = palette::Props{
+      colors: theme::system(),
+      placeholder: "Search providers…",
+      catalog: self.props.catalog,
+      query: model.query,
+      selection: model.selection,
+      hovered: model.hovered,
+      hidden_above: model.hidden_above,
+      hidden_below: model.hidden_below,
+      on_query_change: fn(query: Str) {
+        model.query = query
+        model.hovered = ""
+        let next = palette::first_enabled(
+          palette::items(
+            palette::Props{
+              colors: theme::system(),
+              placeholder: "",
+              catalog: self.props.catalog,
+              query: query,
+              selection: "",
+              hovered: "",
+              hidden_above: false,
+              hidden_below: false,
+              on_query_change: fn(value: Str) {},
+              on_selection_change: fn(value: Str) {},
+              on_hover_change: fn(value: Str) {},
+              on_activate: fn(item: palette::Item) {},
+            },
+          ),
+        )
+        if next != "" {
+          model.selection = next
+        }
+        let selection = model.selection
+        let _ = self.list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
+      },
+      on_selection_change: fn(selection: Str) {
+        model.selection = selection
+        let _ = self.list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
+      },
+      on_hover_change: fn(hovered: Str) {
+        model.hovered = hovered
+      },
+      on_activate: fn(item: palette::Item) {
+        let activated = mut List::new<Str>()
+        for prior in model.activated {
+          activated.push(prior)
+        }
+        if item.disabled_reason == "" {
+          activated.push(item.key)
+        }
+        model.activated = activated.@
+      },
+    }
+    let navigation = palette::navigation(picker)
+    let children = mut List::new<cui::View>()
+    for view in palette::header(picker) {
+      children.push(view)
+    }
+    children.push(palette::body(picker, self.viewport()))
+    // Navigation bindings sit on the panel-like root so they apply while
+    // focus rests in the header search input, as the modal shell arranges.
+    cui::box(
+      children.@,
+      styles: ui::style(
+        width: ui::cells(40),
+        height: ui::cells(self.props.height),
+        flex_direction: ui::FlexDirection::column,
+      ),
+      commands: palette::commands(navigation),
+      bindings: palette::bindings(navigation),
+      binding_scope: keymap::ScopeMode::focus_within,
+    )
+  }
+}
+impl Host {
+  // The picker viewport: the virtual list plus its committed-visibility
+  // overflow state and page controls.
+  fn mut viewport() palette::Viewport {
+    let model = self.props.model
+    let catalog = self.props.catalog
+    let list = self.list
+    palette::Viewport{
+      list: list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = palette::items(
+          palette::Props{
+            colors: theme::system(),
+            placeholder: "",
+            catalog: catalog,
+            query: model.query,
+            selection: "",
+            hovered: "",
+            hidden_above: false,
+            hidden_below: false,
+            on_query_change: fn(value: Str) {},
+            on_selection_change: fn(value: Str) {},
+            on_hover_change: fn(value: Str) {},
+            on_activate: fn(item: palette::Item) {},
+          },
+        )
+        model.hidden_above = update.state.visible_range.start > 0
+        model.hidden_below = update.state.visible_range.end < visible.size()
+        model.viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match model.viewport > 1 {
+          true => model.viewport - 1,
+          false => 1,
+        }
+        let _ = list.current.map(fn(list) {
+          let _ = list.scroll_by(direction * step)
+        })
+      },
+    }
+  }
+}
+
+fn catalog() [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  let labels = [
+    "Alpha",
+    "Beta",
+    "Gamma",
+    "Delta",
+    "Epsilon",
+    "Zeta",
+    "Eta",
+    "Theta",
+    "Iota",
+    "Kappa",
+  ]
+  for label, index in labels {
+    items.push(
+      palette::Item{
+        key: strings::ToLower(label),
+        label: label,
+        description: "API key",
+        search_terms: ["api key"],
+        disabled_reason: "",
+      },
+    )
+  }
+  items.push(
+    palette::Item{
+      key: "omega",
+      label: "Omega",
+      description: "Browser login",
+      search_terms: ["browser"],
+      disabled_reason: "unavailable",
+    },
+  )
+  items.@
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn mount(terminal: headless::TestApp, model: mut Model, height: Int) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      Props{
+        model: model,
+        catalog: catalog(),
+        height: height,
+      },
+    ),
+  )
+}
+
+fn key(name: Str, text: Str?) mut event::KeyEvent {
+  event::key(
+    name,
+    text.or(""),
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+// Sends one plain character as a keypress with its text payload.
+fn character(value: Str) mut event::KeyEvent {
+  key(value, text: value)
+}
+
+test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
+  let terminal = headless::new(40, 12)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 12)
+  defer renderer.destroy()
+  terminal.flush()
+  // The search input autofocuses on mount; typed characters carry text.
+  for value in ["o", "m", "e", "g", "a"] {
+    terminal.key(character(value))
+    terminal.flush()
+  }
+  let rendered = rows(terminal)
+  mut shows_omega = false
+  for row in rendered {
+    if row.contains("Omega") and row.contains("⊘ unavailable") {
+      shows_omega = true
+    }
+  }
+  try testing::assert(shows_omega, "searching finds the disabled item and shows its reason")
+  mut hidden = true
+  for row in rendered {
+    if row.contains("Alpha") {
+      hidden = false
+    }
+  }
+  try testing::assert(hidden, "filtered-out items are not rendered")
+  // Enter on a disabled row must not activate.
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.activated.size() == 0, "disabled rows do not activate on Enter")
+  // A live item activates.
+  for _ in [0, 1, 2, 3, 4] {
+    terminal.key(key("backspace"))
+  }
+  terminal.flush()
+  terminal.key(key("down"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    model.activated.size() == 1 and model.activated.at(0).or("") == "beta",
+    "Enter activates the selected enabled item",
+  )
+  testing::pass()
+}
+
+test fn navigation_wraps_and_pointer_selection_activates() Void!Str {
+  let terminal = headless::new(40, 12)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 12)
+  defer renderer.destroy()
+  terminal.flush()
+  // The search input takes focus on mount without submitting.
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(model.selection == "omega", "Up wraps to the last item")
+  terminal.key(key("down"))
+  terminal.flush()
+  try testing::assert(model.selection == "alpha", "Down wraps back to the first item")
+  // Click the second catalog row (below the search row and its divider).
+  terminal.mouse_move(10, 3)
+  terminal.mouse_down(10, 3)
+  terminal.mouse_up(10, 3)
+  terminal.flush()
+  try testing::assert(
+    model.selection == "beta",
+    "pointer release selects the row under it: selection={model.selection}",
+  )
+  try testing::assert(
+    model.activated.size() == 1 and model.activated.at(0).or("") == "beta",
+    "pointer release activates the row: activated={strings::Join(mut model.activated, ",")}",
+  )
+  testing::pass()
+}
+
+test fn long_catalogs_virtualize_with_overflow_rows_and_paging() Void!Str {
+  // Viewport fits only some of the 11-item catalog.
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 8)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  let rendered = rows(terminal)
+  mut bottom_marker = 0
+  for row, index in rendered {
+    if strings::TrimSpace(row) == "⋯" {
+      bottom_marker = index
+    }
+  }
+  try testing::assert(
+    bottom_marker > 0,
+    "a bottom overflow row appears when items extend below: rows={strings::Join(mut rendered, "|")}",
+  )
+  mut shows_theta = false
+  for row in rendered {
+    if row.contains("Theta") {
+      shows_theta = true
+    }
+  }
+  try testing::assert(not shows_theta, "far items stay unrendered before paging")
+  // The wheel scrolls the hidden-scrollbar list like the vaxis picker.
+  terminal.scroll(10, 3, 1)
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  let paged = rows(terminal)
+  mut shows_delta_after = false
+  mut shows_alpha_after = false
+  for row in paged {
+    if row.contains("Delta") {
+      shows_delta_after = true
+    }
+    if row.contains("Alpha") {
+      shows_alpha_after = true
+    }
+  }
+  try testing::assert(
+    shows_delta_after,
+    "wheel scrolling reveals later items: rows={strings::Join(mut paged, "|")}",
+  )
+  try testing::assert(not shows_alpha_after, "wheel scrolling moves early items out of the viewport")
+  mut top_marker = false
+  for row, index in paged {
+    if strings::TrimSpace(row) == "⋯" and index < bottom_marker {
+      top_marker = true
+    }
+  }
+  try testing::assert(top_marker, "a top overflow row appears after scrolling down")
+  testing::pass()
+}
+
+test fn selection_keystrokes_reveal_scrolled_items() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 8)
+  defer renderer.destroy()
+  terminal.flush()
+  for _ in [0, 1, 2, 3, 4, 5, 6, 7, 8, 9] {
+    terminal.key(key("down"))
+    terminal.flush()
+  }
+  let rendered = rows(terminal)
+  mut shows_omega = false
+  mut gutter_omega = false
+  for row in rendered {
+    if row.contains("Omega") {
+      shows_omega = true
+      if strings::HasPrefix(row, "▌") {
+        gutter_omega = true
+      }
+    }
+  }
+  try testing::assert(
+    shows_omega,
+    "Down navigation reveals the selected far item: rows={strings::Join(mut rendered, "|")} sel={model.selection}",
+  )
+  try testing::assert(gutter_omega, "the revealed row carries the selection gutter")
+  testing::pass()
+}

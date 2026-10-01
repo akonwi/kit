@@ -118,6 +118,46 @@ test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
     "Connect action opens the provider modal",
   )
   let rendered = rows(terminal)
+  // The search field's text sits in the label column, one cell past the
+  // gutter, as in the vaxis picker search field.
+  mut search_column = -1
+  mut search_row = -1
+  for row, index in rendered {
+    if row.contains("Search providers") {
+      search_row = index
+      mut column = 0
+      for character in strings::Split(row, "") {
+        if character != " " {
+          search_column = column
+          break
+        }
+        column =+ 1
+      }
+    }
+  }
+  mut label_column = -1
+  mut codex_row = -1
+  for row, index in rendered {
+    if row.contains("OpenAI Codex") {
+      codex_row = index
+      mut column = 0
+      for character in strings::Split(row, "") {
+        if character != " " and character != "▌" {
+          label_column = column
+          break
+        }
+        column =+ 1
+      }
+    }
+  }
+  try testing::assert(
+    search_row >= 0 and codex_row == search_row + 2,
+    "the search field sits one divider row above the provider rows",
+  )
+  try testing::assert(
+    search_column == label_column,
+    "search text aligns with item labels: search column {search_column}, label column {label_column}",
+  )
   mut joined_footer = false
   for row, index in rendered {
     if row.contains("Esc close") and index > 0 {
