@@ -814,17 +814,14 @@ impl Shell {
     modal::dialog(
       self.props.theme,
       modal::Dialog{
+        // No hint footer: arrows, Enter, and Esc are intuitive primitives and
+        // the provider picker has no custom bindings to teach yet.
         placement: modal::Placement::picker,
         title: "Connect a provider",
         meta: "",
         header: palette::header(picker),
         body: palette::body(picker, self.picker_viewport()),
-        footer: Maybe::new(
-          cui::box(
-            [line("Esc close", ui::text_style(foreground: self.props.theme.muted))],
-            styles: ui::style(padding: inset(), flex_shrink: 0.0),
-          ),
-        ),
+        footer: Maybe::new<cui::View>(),
         autofocus: false,
         dismiss: dismiss,
         commands: palette::commands(navigation),
