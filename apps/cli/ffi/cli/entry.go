@@ -4,6 +4,7 @@ import (
 	"context"
 
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
@@ -27,6 +28,7 @@ type PickSessionFunc func(SessionPickerOptions) (string, error)
 type TUIOptions struct {
 	Context               context.Context
 	Server                sessionclient.Server
+	Transport             httpapi.Transport
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string
