@@ -252,21 +252,11 @@ impl Live {
     self.sequence > 0 and snapshot.EventStreamID == self.stream_id and snapshot.EventCursor < self.sequence
   }
 
-  // Reports whether this live projection still owns a submitted user turn
-  // that the server has not identified. Attached-session snapshots must not
-  // erase it during prompt admission.
-  fn submission_pending() Bool {
-    if self.activity == "" {
-      false
-    } else {
-      mut pending = false
-      for message in self.messages {
-        if message.role == Role::user and message.id == "" and message.turn_id == "" {
-          pending = true
-        }
-      }
-      pending
-    }
+  // Reports whether an active live turn owns the transcript tail. Attached
+  // session snapshots are not authoritative for this in-flight turn, even
+  // after its optimistic user row gains a durable identity.
+  fn blocks_snapshot_replacement() Bool {
+    self.activity != ""
   }
 
   // Shows a submitted prompt before the server accepts it.

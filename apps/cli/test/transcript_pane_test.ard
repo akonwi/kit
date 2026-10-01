@@ -103,6 +103,50 @@ fn render(count: Int) [Str] {
   rows(terminal)
 }
 
+test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [],
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    model.messages = [
+      transcript::Message{
+        id: "",
+        turn_id: "",
+        role: transcript::Role::user,
+        text: "test message",
+        thinking: "",
+        tool_call_id: "",
+        tool_name: "",
+        tool_calls: [],
+        tool_state: transcript::ToolState::none,
+        error_message: "",
+        is_error: false,
+        aborted: false,
+        pending: false,
+      },
+    ]
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text().contains("test message"),
+    "optimistic user message renders before server reconciliation",
+  )
+}
+
 test fn opening_a_long_transcript_shows_its_latest_message() Void!Str {
   // The scrollbar thumb rests at the bottom of the track.
   expect_rows(

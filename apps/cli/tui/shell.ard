@@ -1490,10 +1490,11 @@ impl Shell {
       self.info = Maybe::new(snapshot.Session)
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
-      // A watch baseline can arrive after local submission but before its
-      // user-message event. Keep that optimistic row until the event claims
-      // it or the turn settles; otherwise this snapshot erases it.
-      if not self.live.submission_pending() {
+      // Watch snapshots can lag the active turn. Keep its complete live tail
+      // (including the optimistic user row) until turn settlement; a snapshot
+      // that happens to include the user event can still omit later live
+      // content and must not replace it.
+      if not self.live.blocks_snapshot_replacement() {
         self.messages = transcript::project(snapshot.Messages)
         self.live.reset()
       }
