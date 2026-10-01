@@ -172,7 +172,7 @@ change in an ADR before implementing it. Wire changes bump
 
 - [x] CORE-PROTO-011 — VCS slice, with the shared `internal/httpapi` SSE stream
   operation, writer, and reader and the streaming macOS transport path.
-- [ ] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
+- [x] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
   prompts, prompt commands, follow-ups, turn status and abort, interaction
   responses, event pages and stream, message and transcript pages. Adopts the
   ADR 0033 vocabulary and turn-only terminology across paths, records, and
