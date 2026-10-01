@@ -82,6 +82,42 @@ private fn command_item(key: Str, description: Str, terms: Str, disabled_reason:
   }
 }
 
+// sorted_catalog keeps built-ins and discovered commands in one stable,
+// case-insensitive alphabetical catalog.
+private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  let placed = mut List::new<Str>()
+  while result.size() < items.size() {
+    mut next = Maybe::new<palette::Item>()
+    for item in items {
+      mut already_placed = false
+      for key in placed {
+        if key == item.key {
+          already_placed = true
+        }
+      }
+      if not already_placed {
+        match next {
+          current => {
+            if strings::Compare(strings::ToLower(item.label), strings::ToLower(current.label)) < 0 {
+              next = Maybe::new(item)
+            }
+          },
+          _ => { next = Maybe::new(item) },
+        }
+      }
+    }
+    match next {
+      item => {
+        placed.push(item.key)
+        result.push(item)
+      },
+      _ => (),
+    }
+  }
+  result.@
+}
+
 private fn command_catalog(running: Bool, prompt_commands: [protocol::PromptCommand]) [palette::Item] {
   let idle = match running {
     true => "idle only",
@@ -145,7 +181,7 @@ private fn command_catalog(running: Bool, prompt_commands: [protocol::PromptComm
       )
     }
   }
-  catalog.@
+  sorted_catalog(catalog.@)
 }
 
 private fn provider_catalog() [palette::Item] {
