@@ -3,6 +3,7 @@ package httpapi
 // Catalog returns the currently migrated session operations in stable order.
 func Catalog() []Descriptor {
 	return []Descriptor{
+		ListSessions.Describe(), CreateSession.Describe(), GetSession.Describe(), RenameSession.Describe(), DeleteSession.Describe(), DisposeTemporarySession.Describe(), ForkSession.Describe(), ChangeSessionCWD.Describe(), ConfigureSession.Describe(), CompactSession.Describe(), ReloadSession.Describe(),
 		GetScratchpad.Describe(), UpdateScratchpad.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),

@@ -61,7 +61,7 @@ func TestInternalSessionErrorLogsCause(t *testing.T) {
 	if response.Code != http.StatusInternalServerError {
 		t.Fatalf("status = %d %s", response.Code, response.Body.String())
 	}
-	if got, want := response.Body.String(), `{"error":"internal server error"}`+"\n"; got != want {
+	if got, want := response.Body.String(), `{"error":{"code":"internal","message":"internal server error"}}`+"\n"; got != want {
 		t.Fatalf("body = %q, want %q", got, want)
 	}
 	want := `level=ERROR msg="request failed" method=POST path=/v1/sessions/session_test/compact status=500 error="droid store is corrupt"` + "\n"

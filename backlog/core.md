@@ -180,7 +180,9 @@ change in an ADR before implementing it. Wire changes bump
   and omits turn identity from session-scoped events. Depends on
   `CORE-PROTO-009`.
 - [ ] CORE-PROTO-013 — Sessions slice: list, create, read, rename, delete,
-  dispose, fork, cwd change, configure, compact, and reload.
+  dispose, fork, cwd change, configure, compact, and reload. The server/OpenAPI
+  catalog phase is complete; migrate the macOS client to the generated sessions
+  operations and generated wire types.
 - [ ] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
   file reads, and file index.
 - [ ] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file

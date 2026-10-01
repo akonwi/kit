@@ -253,6 +253,11 @@ type BashHistoryPage struct {
 	HasMore    bool               `json:"hasMore"`
 }
 
+// SessionList is the authoritative ordered collection of session metadata.
+type SessionList struct {
+	Sessions []SessionInfo `json:"sessions"`
+}
+
 // SessionInfo is the client-facing projection of authoritative session metadata.
 type SessionInfo struct {
 	ID                    string `json:"id"`

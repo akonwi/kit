@@ -58,11 +58,13 @@ type TypedError struct {
 
 // APIError is a non-success response from the local session protocol.
 type APIError struct {
-	StatusCode        int
-	Code              string
-	Message           string
-	Details           map[string]string
-	TypedDetails      any
+	StatusCode   int
+	Code         string
+	Message      string
+	Details      map[string]string
+	TypedDetails any
+	// Cause is server-only diagnostic context. It is never serialized.
+	Cause             error
 	CurrentScratchpad *protocol.Scratchpad
 
 	scratchpadError    *protocol.ScratchpadError
