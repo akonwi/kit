@@ -1488,10 +1488,15 @@ impl Shell {
   fn mut apply_snapshot(snapshot: protocol::SessionSnapshot) {
     if not self.live.supersedes(snapshot) {
       self.info = Maybe::new(snapshot.Session)
-      self.messages = transcript::project(snapshot.Messages)
-      self.live.reset()
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
+      // A watch baseline can arrive after local submission but before its
+      // user-message event. Keep that optimistic row until the event claims
+      // it or the turn settles; otherwise this snapshot erases it.
+      if not self.live.submission_pending() {
+        self.messages = transcript::project(snapshot.Messages)
+        self.live.reset()
+      }
     }
   }
 
