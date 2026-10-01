@@ -129,6 +129,9 @@ struct Shell {
   notice: Str,
   composer: Str,
   latest_out_of_view: Bool,
+  start_pending: Bool,
+  abort_pending: Bool,
+  abort_after_start: Bool,
   active_modal: ActiveModal,
   auth_provider: Str,
   auth_api_key: Str,
@@ -177,6 +180,9 @@ fn new(props: mut Props) mut Shell {
     notice: "",
     composer: "",
     latest_out_of_view: false,
+    start_pending: false,
+    abort_pending: false,
+    abort_after_start: false,
     active_modal: ActiveModal::none,
     auth_provider: "",
     auth_api_key: "",
@@ -787,6 +793,13 @@ impl cui::Component for Shell {
     let bindings = mut List::new<keymap::Binding>()
     commands.push(interrupt)
     bindings.push(keymap::binding(keymap::key("c", ctrl: true), interrupt.with()))
+    if self.phase == Phase::ready and self.active_modal == ActiveModal::none and self.can_abort() {
+      let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
+        self.abort_run()
+      })
+      commands.push(abort)
+      bindings.push(keymap::binding(keymap::key("escape"), abort.with()))
+    }
     if self.phase == Phase::auth and self.active_modal == ActiveModal::none {
       let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
         self.open_provider_picker()
@@ -1553,6 +1566,10 @@ impl Shell {
   fn mut follow_run(run_id: Str) {
     if run_id != "" and run_id != self.run_id {
       self.run_id = run_id
+      if self.abort_after_start {
+        self.abort_after_start = false
+        self.abort_run()
+      }
       match self.lifetime {
         lifetime => {
           match self.session {
@@ -1600,7 +1617,53 @@ impl Shell {
         self.context_tokens = self.live.context_tokens
         self.context_window = self.live.context_window
       }
+      if self.live.activity == "" {
+        self.abort_pending = false
+      }
     }
+  }
+
+  // Whether Escape should target the current active droid turn.
+  fn can_abort() Bool {
+    (self.run_id != "" or self.start_pending) and self.live.activity != "" and (not self.abort_pending) and (not self.abort_after_start)
+  }
+
+  // Requests cancellation without changing the composer or adding transient
+  // status UI. The streamed run-finished event remains authoritative.
+  fn mut abort_run() Bool {
+    if self.can_abort() {
+      if self.run_id == "" {
+        self.abort_after_start = true
+      } else {
+        match self.lifetime {
+          lifetime => {
+            match self.session {
+              session => {
+                match self.context {
+                  context => {
+                    let run_id = self.run_id
+                    let dispatch = context.dispatch
+                    self.abort_pending = true
+                    async::start(fn() {
+                      let _ = session.Abort(lifetime.Context, run_id)
+                      let _ = dispatch(fn() {
+                        if self.run_id == run_id {
+                          self.abort_pending = false
+                        }
+                      })
+                    })
+                  },
+                  _ => (),
+                }
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      }
+    }
+    true
   }
 
   // Submits the composer as a prompt when no run is active.
@@ -1616,6 +1679,7 @@ impl Shell {
                   self.composer = ""
                   self.notice = ""
                   self.live.submit(text)
+                  self.start_pending = true
                   self.request_end()
                   let ctx = lifetime.Context
                   let dispatch = context.dispatch
@@ -1624,6 +1688,7 @@ impl Shell {
                       ok(run) => {
                         let run_id = run.ID()
                         let _ = dispatch(fn() {
+                          self.start_pending = false
                           self.follow_run(run_id)
                         })
                       },
@@ -1634,6 +1699,8 @@ impl Shell {
                             self.composer = text
                           }
                           self.live.reset()
+                          self.start_pending = false
+                          self.abort_after_start = false
                           self.notice = message
                         })
                       },

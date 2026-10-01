@@ -67,9 +67,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   bottom and latest-message shortcut (now driven by committed virtual-list
   updates); tall-reply reading position, reading sections, and older-history
   loading remain.
-- [ ] TUI-COOPER-004 — Composer: prompt submission and abort, editing
-  bindings, bracketed paste, history recall, follow-up queue, bash mode and
-  history, attachments, file and session mentions, and annotation chips.
+- [~] TUI-COOPER-004 — Composer: prompt submission and Escape abort are
+  complete. Remaining: editing bindings, bracketed paste, history recall,
+  follow-up queue, bash mode and history, attachments, file and session
+  mentions, and annotation chips.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
