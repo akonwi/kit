@@ -1103,7 +1103,7 @@ impl Shell {
       modal::Dialog{
         placement: modal::Placement::centered,
         title: "Connect Claude",
-        meta: "browser",
+        meta: "",
         header: [],
         body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
         footer: Maybe::new<cui::View>(),
@@ -1228,7 +1228,7 @@ impl Shell {
       modal::Dialog{
         placement: modal::Placement::centered,
         title: "Connect {self.auth_provider_label()}",
-        meta: "API key",
+        meta: "",
         header: [],
         body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: inset())),
         footer: Maybe::new<cui::View>(),
