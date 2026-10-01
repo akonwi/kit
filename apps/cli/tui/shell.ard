@@ -788,6 +788,7 @@ impl Shell {
       styles: ui::style(flex_shrink: 0.0, max_height: ui::cells(10), padding: inset()),
       placeholder: "Ask kit to do something…",
       placeholder_style: ui::text_style(foreground: colors.muted),
+      selection_style: theme::selection_style(colors),
       autofocus: true,
       on_input: fn(value: Str, ctx: cui::Context) {
         self.composer = value
