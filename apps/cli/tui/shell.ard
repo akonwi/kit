@@ -45,6 +45,27 @@ enum ActiveModal {
   browser_login,
 }
 
+private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
+  let remaining = expires_at_ms - time::Now().UnixMilli()
+  match remaining > 0 {
+    true => (remaining + Int64::from(999)) / Int64::from(1000),
+    false => Int64::from(0),
+  }
+}
+
+private fn device_waiting_text(remaining: Int64) Str {
+  let seconds = remaining % Int64::from(60)
+  let second_text = match seconds < Int64::from(10) {
+    true => "0{seconds}",
+    false => "{seconds}",
+  }
+  let duration = "{remaining / Int64::from(60)}:{second_text}"
+  match remaining <= Int64::from(120) {
+    true => "Code expires in {duration} — Esc to get a new code",
+    false => "Waiting for approval — expires in {duration}",
+  }
+}
+
 private fn provider_catalog() [palette::Item] {
   [
     palette::Item{
@@ -117,6 +138,7 @@ struct Shell {
   auth_attempt: contextbridge::Cancellation?,
   device_url: Str,
   device_code: Str,
+  device_remaining_seconds: Int64,
   browser_code: Str,
   browser_manual: Chan<Str>?,
   browser_url: Str,
@@ -164,6 +186,7 @@ fn new(props: mut Props) mut Shell {
     auth_attempt: Maybe::new<contextbridge::Cancellation>(),
     device_url: "",
     device_code: "",
+    device_remaining_seconds: Int64::from(0),
     browser_code: "",
     browser_manual: Maybe::new<Chan<Str>>(),
     browser_url: "",
@@ -974,11 +997,15 @@ impl Shell {
         }),
       )
       body.push(blank())
+      let waiting_style = match self.device_remaining_seconds <= Int64::from(120) {
+        true => ui::text_style(foreground: self.props.themes.current().warning_text),
+        false => ui::text_style(foreground: self.props.themes.current().muted),
+      }
       body.push(
         cui::box(
           [
             spinner::spinner(),
-            line("Waiting for approval…", ui::text_style(foreground: self.props.themes.current().muted)),
+            line(device_waiting_text(self.device_remaining_seconds), waiting_style),
           ],
           styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
         ),
@@ -1016,6 +1043,7 @@ impl Shell {
         self.auth_error = ""
         self.device_url = ""
         self.device_code = ""
+        self.device_remaining_seconds = Int64::from(0)
         async::start(fn() {
           let result = authbridge::RunDevice(
             attempt.Context,
@@ -1025,6 +1053,27 @@ impl Shell {
                 if generation == self.auth_generation {
                   self.device_url = instructions.VerificationURI
                   self.device_code = instructions.UserCode
+                  self.device_remaining_seconds = device_remaining_seconds(
+                    instructions.ExpiresAtUnixMS,
+                  )
+                }
+              })
+              async::start(fn() {
+                mut ticking = true
+                while ticking {
+                  select {
+                    attempt.Context.Done().recv() => { ticking = false },
+                    time::After(time::Second).recv() => {
+                      let remaining = device_remaining_seconds(instructions.ExpiresAtUnixMS)
+                      if dispatch(fn() {
+                        if generation == self.auth_generation {
+                          self.device_remaining_seconds = remaining
+                        }
+                      }).is_err() {
+                        ticking = false
+                      }
+                    },
+                  }
                 }
               })
             },
