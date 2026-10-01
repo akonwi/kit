@@ -50,6 +50,22 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
 
+test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenPickerFocusedBackground,
+    kittheme::Color{
+      R: 40,
+      G: 80,
+      B: 120,
+      A: 255,
+    },
+  )
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("primary", colors.primary, ui::rgb(40, 80, 120))
+  check("primary hovered", colors.primary_hovered, ui::rgb(68, 103, 138))
+}
+
 test fn translucent_tokens_blend_over_the_background() Void!Str {
   let tokens = mut Map::new<kittheme::Color>()
   tokens.set(
