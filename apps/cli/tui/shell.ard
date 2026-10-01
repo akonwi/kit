@@ -1577,7 +1577,7 @@ impl Shell {
       self.props.themes,
       modal::Dialog{
         placement: modal::Placement::picker,
-        title: "Command palette",
+        title: "",
         meta: "",
         header: palette::header(picker),
         body: palette::body(picker, self.command_picker_viewport()),

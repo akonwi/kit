@@ -100,10 +100,12 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     ),
   )
   let content = mut List::new<cui::View>()
-  content.push(header)
-  // A dialog title is its structural header. Its divider belongs to the frame,
-  // not to each feature that supplies body content.
-  content.push(cui::divider())
+  // Pickers whose search field is their header omit a redundant title row.
+  // Titled dialogs retain their structural header divider here.
+  if spec.title != "" or spec.meta != "" {
+    content.push(header)
+    content.push(cui::divider())
+  }
   for child in spec.header {
     content.push(child)
   }
