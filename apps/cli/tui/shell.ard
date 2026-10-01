@@ -130,7 +130,7 @@ struct Shell {
   context_window: Int,
   notice: Str,
   composer: Str,
-  // 1 at the start of copy feedback, fading to 0 over 240ms.
+  // 1 at the start of copy feedback, fading to 0 over 350ms.
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
   latest_out_of_view: Bool,
@@ -864,7 +864,7 @@ impl cui::Component for Shell {
                 self.selection_copy_pulse = 1.0
                 self.update_selection_copy_pulse(1.0)
                 let _ = ctx.animate(
-                  240,
+                  350,
                   fn(frame: animation::Frame) {
                     self.selection_copy_pulse = 1.0 - frame.progress
                     self.update_selection_copy_pulse(self.selection_copy_pulse)
