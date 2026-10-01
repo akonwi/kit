@@ -33,5 +33,3 @@ struct DiffReadError: LocalizedError {
         }
     }
 }
-
-struct DiffErrorEnvelope: Decodable { let error: WireDiffError }

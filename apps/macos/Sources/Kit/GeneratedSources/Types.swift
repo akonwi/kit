@@ -35,6 +35,18 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/cwd`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/cwd/post(changeSessionCWD)`.
     func changeSessionCWD(_ input: Operations.ChangeSessionCWD.Input) async throws -> Operations.ChangeSessionCWD.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/files/read/post(readFileDiff)`.
+    func readFileDiff(_ input: Operations.ReadFileDiff.Input) async throws -> Operations.ReadFileDiff.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/observations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/observations/post(observeDiff)`.
+    func observeDiff(_ input: Operations.ObserveDiff.Input) async throws -> Operations.ObserveDiff.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/targets`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/targets/post(listDiffTargets)`.
+    func listDiffTargets(_ input: Operations.ListDiffTargets.Input) async throws -> Operations.ListDiffTargets.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/working-tree`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/working-tree/post(observeWorkingTree)`.
+    func observeWorkingTree(_ input: Operations.ObserveWorkingTree.Input) async throws -> Operations.ObserveWorkingTree.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/dispose`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/dispose/post(disposeTemporarySession)`.
     func disposeTemporarySession(_ input: Operations.DisposeTemporarySession.Input) async throws -> Operations.DisposeTemporarySession.Output
@@ -196,6 +208,58 @@ extension APIProtocol {
         body: Operations.ChangeSessionCWD.Input.Body
     ) async throws -> Operations.ChangeSessionCWD.Output {
         try await changeSessionCWD(Operations.ChangeSessionCWD.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/files/read/post(readFileDiff)`.
+    internal func readFileDiff(
+        path: Operations.ReadFileDiff.Input.Path,
+        headers: Operations.ReadFileDiff.Input.Headers,
+        body: Operations.ReadFileDiff.Input.Body
+    ) async throws -> Operations.ReadFileDiff.Output {
+        try await readFileDiff(Operations.ReadFileDiff.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/observations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/observations/post(observeDiff)`.
+    internal func observeDiff(
+        path: Operations.ObserveDiff.Input.Path,
+        headers: Operations.ObserveDiff.Input.Headers,
+        body: Operations.ObserveDiff.Input.Body
+    ) async throws -> Operations.ObserveDiff.Output {
+        try await observeDiff(Operations.ObserveDiff.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/targets`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/targets/post(listDiffTargets)`.
+    internal func listDiffTargets(
+        path: Operations.ListDiffTargets.Input.Path,
+        headers: Operations.ListDiffTargets.Input.Headers,
+        body: Operations.ListDiffTargets.Input.Body
+    ) async throws -> Operations.ListDiffTargets.Output {
+        try await listDiffTargets(Operations.ListDiffTargets.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/diff/working-tree`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/diff/working-tree/post(observeWorkingTree)`.
+    internal func observeWorkingTree(
+        path: Operations.ObserveWorkingTree.Input.Path,
+        headers: Operations.ObserveWorkingTree.Input.Headers,
+        body: Operations.ObserveWorkingTree.Input.Body
+    ) async throws -> Operations.ObserveWorkingTree.Output {
+        try await observeWorkingTree(Operations.ObserveWorkingTree.Input(
             path: path,
             headers: headers,
             body: body

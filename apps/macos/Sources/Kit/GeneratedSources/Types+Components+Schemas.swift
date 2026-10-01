@@ -650,6 +650,97 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError`.
+        internal struct DiffCapacityExceededError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case capacityExceeded = "capacity_exceeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError/code`.
+            internal var code: Components.Schemas.DiffCapacityExceededError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError/details`.
+            internal var details: Components.Schemas.DiffCapacityDetails
+            /// - Remark: Generated from `#/components/schemas/DiffCapacityExceededError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffCapacityExceededError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffCapacityExceededError.CodePayload,
+                details: Components.Schemas.DiffCapacityDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffCapacityExceededError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.DiffCapacityDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffComputation`.
+        internal struct DiffComputation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffComputation/reason`.
+            internal var reason: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffComputation/state`.
+            internal var state: Swift.String
+            /// Creates a new `DiffComputation`.
+            ///
+            /// - Parameters:
+            ///   - reason:
+            ///   - state:
+            internal init(
+                reason: Swift.String? = nil,
+                state: Swift.String
+            ) {
+                self.reason = reason
+                self.state = state
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case reason
+                case state
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.reason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "reason",
+                    "state"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/DiffEndpoint`.
         internal struct DiffEndpoint: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/DiffEndpoint/kind`.
@@ -685,6 +776,1409 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "kind",
                     "oid"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffFileSummary`.
+        internal struct DiffFileSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/additions`.
+            internal var additions: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/change`.
+            internal var change: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/contentState`.
+            internal var contentState: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/deletions`.
+            internal var deletions: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/fileRevision`.
+            internal var fileRevision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/new`.
+            internal var new: Components.Schemas.DiffSide
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/old`.
+            internal var old: Components.Schemas.DiffSide
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffFileSummary/reason`.
+            internal var reason: Swift.String?
+            /// Creates a new `DiffFileSummary`.
+            ///
+            /// - Parameters:
+            ///   - additions:
+            ///   - change:
+            ///   - contentState:
+            ///   - deletions:
+            ///   - fileRevision:
+            ///   - new:
+            ///   - old:
+            ///   - path:
+            ///   - reason:
+            internal init(
+                additions: Swift.Int? = nil,
+                change: Swift.String,
+                contentState: Swift.String,
+                deletions: Swift.Int? = nil,
+                fileRevision: Swift.String? = nil,
+                new: Components.Schemas.DiffSide,
+                old: Components.Schemas.DiffSide,
+                path: Swift.String,
+                reason: Swift.String? = nil
+            ) {
+                self.additions = additions
+                self.change = change
+                self.contentState = contentState
+                self.deletions = deletions
+                self.fileRevision = fileRevision
+                self.new = new
+                self.old = old
+                self.path = path
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case additions
+                case change
+                case contentState
+                case deletions
+                case fileRevision
+                case new
+                case old
+                case path
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.additions = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .additions
+                )
+                self.change = try container.decode(
+                    Swift.String.self,
+                    forKey: .change
+                )
+                self.contentState = try container.decode(
+                    Swift.String.self,
+                    forKey: .contentState
+                )
+                self.deletions = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .deletions
+                )
+                self.fileRevision = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .fileRevision
+                )
+                self.new = try container.decode(
+                    Components.Schemas.DiffSide.self,
+                    forKey: .new
+                )
+                self.old = try container.decode(
+                    Components.Schemas.DiffSide.self,
+                    forKey: .old
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.reason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "additions",
+                    "change",
+                    "contentState",
+                    "deletions",
+                    "fileRevision",
+                    "new",
+                    "old",
+                    "path",
+                    "reason"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffHead`.
+        internal struct DiffHead: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffHead/oid`.
+            internal var oid: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffHead/state`.
+            internal var state: Swift.String
+            /// Creates a new `DiffHead`.
+            ///
+            /// - Parameters:
+            ///   - oid:
+            ///   - state:
+            internal init(
+                oid: Swift.String? = nil,
+                state: Swift.String
+            ) {
+                self.oid = oid
+                self.state = state
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case oid
+                case state
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.oid = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .oid
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "oid",
+                    "state"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffHunk`.
+        internal struct DiffHunk: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/continuedAfter`.
+            internal var continuedAfter: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/continuedBefore`.
+            internal var continuedBefore: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/lines`.
+            internal var lines: [Components.Schemas.DiffLine]
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/newCount`.
+            internal var newCount: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/newStart`.
+            internal var newStart: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/oldCount`.
+            internal var oldCount: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffHunk/oldStart`.
+            internal var oldStart: Swift.Int
+            /// Creates a new `DiffHunk`.
+            ///
+            /// - Parameters:
+            ///   - continuedAfter:
+            ///   - continuedBefore:
+            ///   - lines:
+            ///   - newCount:
+            ///   - newStart:
+            ///   - oldCount:
+            ///   - oldStart:
+            internal init(
+                continuedAfter: Swift.Bool,
+                continuedBefore: Swift.Bool,
+                lines: [Components.Schemas.DiffLine],
+                newCount: Swift.Int,
+                newStart: Swift.Int,
+                oldCount: Swift.Int,
+                oldStart: Swift.Int
+            ) {
+                self.continuedAfter = continuedAfter
+                self.continuedBefore = continuedBefore
+                self.lines = lines
+                self.newCount = newCount
+                self.newStart = newStart
+                self.oldCount = oldCount
+                self.oldStart = oldStart
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case continuedAfter
+                case continuedBefore
+                case lines
+                case newCount
+                case newStart
+                case oldCount
+                case oldStart
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.continuedAfter = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .continuedAfter
+                )
+                self.continuedBefore = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .continuedBefore
+                )
+                self.lines = try container.decode(
+                    [Components.Schemas.DiffLine].self,
+                    forKey: .lines
+                )
+                self.newCount = try container.decode(
+                    Swift.Int.self,
+                    forKey: .newCount
+                )
+                self.newStart = try container.decode(
+                    Swift.Int.self,
+                    forKey: .newStart
+                )
+                self.oldCount = try container.decode(
+                    Swift.Int.self,
+                    forKey: .oldCount
+                )
+                self.oldStart = try container.decode(
+                    Swift.Int.self,
+                    forKey: .oldStart
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "continuedAfter",
+                    "continuedBefore",
+                    "lines",
+                    "newCount",
+                    "newStart",
+                    "oldCount",
+                    "oldStart"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffInvalidPathError`.
+        internal struct DiffInvalidPathError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffInvalidPathError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case invalidPath = "invalid_path"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffInvalidPathError/code`.
+            internal var code: Components.Schemas.DiffInvalidPathError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffInvalidPathError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffInvalidPathError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffInvalidPathError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffInvalidPathError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffLimitExceededError`.
+        internal struct DiffLimitExceededError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffLimitExceededError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case limitExceeded = "limit_exceeded"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffLimitExceededError/code`.
+            internal var code: Components.Schemas.DiffLimitExceededError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffLimitExceededError/details`.
+            internal var details: Components.Schemas.DiffLimitDetails
+            /// - Remark: Generated from `#/components/schemas/DiffLimitExceededError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffLimitExceededError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffLimitExceededError.CodePayload,
+                details: Components.Schemas.DiffLimitDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffLimitExceededError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.DiffLimitDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffLine`.
+        internal struct DiffLine: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffLine/content`.
+            internal var content: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffLine/hasTerminatingLF`.
+            internal var hasTerminatingLF: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/DiffLine/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffLine/newLine`.
+            internal var newLine: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/DiffLine/oldLine`.
+            internal var oldLine: Swift.Int?
+            /// Creates a new `DiffLine`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - hasTerminatingLF:
+            ///   - kind:
+            ///   - newLine:
+            ///   - oldLine:
+            internal init(
+                content: Swift.String,
+                hasTerminatingLF: Swift.Bool,
+                kind: Swift.String,
+                newLine: Swift.Int? = nil,
+                oldLine: Swift.Int? = nil
+            ) {
+                self.content = content
+                self.hasTerminatingLF = hasTerminatingLF
+                self.kind = kind
+                self.newLine = newLine
+                self.oldLine = oldLine
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case content
+                case hasTerminatingLF
+                case kind
+                case newLine
+                case oldLine
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decode(
+                    Swift.String.self,
+                    forKey: .content
+                )
+                self.hasTerminatingLF = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .hasTerminatingLF
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.newLine = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .newLine
+                )
+                self.oldLine = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .oldLine
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "hasTerminatingLF",
+                    "kind",
+                    "newLine",
+                    "oldLine"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffNotRepositoryError`.
+        internal struct DiffNotRepositoryError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffNotRepositoryError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case notRepository = "not_repository"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffNotRepositoryError/code`.
+            internal var code: Components.Schemas.DiffNotRepositoryError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffNotRepositoryError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffNotRepositoryError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffNotRepositoryError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffNotRepositoryError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffObservation`.
+        internal struct DiffObservation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/complete`.
+            internal var complete: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/head`.
+            internal var head: Components.Schemas.DiffHead?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/indexSummary`.
+            internal var indexSummary: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/omissions`.
+            internal var omissions: [Components.Schemas.DiffOmission]
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/revision`.
+            internal var revision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/sessionId`.
+            internal var sessionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/target`.
+            internal var target: Components.Schemas.DiffTarget?
+            /// - Remark: Generated from `#/components/schemas/DiffObservation/truncation`.
+            internal var truncation: Components.Schemas.DiffTruncation?
+            /// Creates a new `DiffObservation`.
+            ///
+            /// - Parameters:
+            ///   - complete:
+            ///   - head:
+            ///   - indexSummary:
+            ///   - omissions:
+            ///   - revision:
+            ///   - sessionId:
+            ///   - target:
+            ///   - truncation:
+            internal init(
+                complete: Swift.Bool? = nil,
+                head: Components.Schemas.DiffHead? = nil,
+                indexSummary: Swift.String? = nil,
+                omissions: [Components.Schemas.DiffOmission],
+                revision: Swift.String? = nil,
+                sessionId: Swift.String? = nil,
+                target: Components.Schemas.DiffTarget? = nil,
+                truncation: Components.Schemas.DiffTruncation? = nil
+            ) {
+                self.complete = complete
+                self.head = head
+                self.indexSummary = indexSummary
+                self.omissions = omissions
+                self.revision = revision
+                self.sessionId = sessionId
+                self.target = target
+                self.truncation = truncation
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case complete
+                case head
+                case indexSummary
+                case omissions
+                case revision
+                case sessionId
+                case target
+                case truncation
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.complete = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .complete
+                )
+                self.head = try container.decodeIfPresent(
+                    Components.Schemas.DiffHead.self,
+                    forKey: .head
+                )
+                self.indexSummary = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .indexSummary
+                )
+                self.omissions = try container.decode(
+                    [Components.Schemas.DiffOmission].self,
+                    forKey: .omissions
+                )
+                self.revision = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .revision
+                )
+                self.sessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.target = try container.decodeIfPresent(
+                    Components.Schemas.DiffTarget.self,
+                    forKey: .target
+                )
+                self.truncation = try container.decodeIfPresent(
+                    Components.Schemas.DiffTruncation.self,
+                    forKey: .truncation
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "complete",
+                    "head",
+                    "indexSummary",
+                    "omissions",
+                    "revision",
+                    "sessionId",
+                    "target",
+                    "truncation"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffOmission`.
+        internal struct DiffOmission: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffOmission/count`.
+            internal var count: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffOmission/reason`.
+            internal var reason: Swift.String
+            /// Creates a new `DiffOmission`.
+            ///
+            /// - Parameters:
+            ///   - count:
+            ///   - reason:
+            internal init(
+                count: Swift.Int,
+                reason: Swift.String
+            ) {
+                self.count = count
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case count
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.count = try container.decode(
+                    Swift.Int.self,
+                    forKey: .count
+                )
+                self.reason = try container.decode(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "count",
+                    "reason"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffPermissionDeniedError`.
+        internal struct DiffPermissionDeniedError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffPermissionDeniedError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case permissionDenied = "permission_denied"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffPermissionDeniedError/code`.
+            internal var code: Components.Schemas.DiffPermissionDeniedError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffPermissionDeniedError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffPermissionDeniedError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffPermissionDeniedError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffPermissionDeniedError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffRepositoryUnavailableError`.
+        internal struct DiffRepositoryUnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffRepositoryUnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case repositoryUnavailable = "repository_unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffRepositoryUnavailableError/code`.
+            internal var code: Components.Schemas.DiffRepositoryUnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffRepositoryUnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffRepositoryUnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffRepositoryUnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffRepositoryUnavailableError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffSide`.
+        internal struct DiffSide: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffSide/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffSide/mode`.
+            internal var mode: Swift.Int
+            /// Creates a new `DiffSide`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - mode:
+            internal init(
+                kind: Swift.String,
+                mode: Swift.Int
+            ) {
+                self.kind = kind
+                self.mode = mode
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case mode
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.mode = try container.decode(
+                    Swift.Int.self,
+                    forKey: .mode
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "mode"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffStaleCursorError`.
+        internal struct DiffStaleCursorError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffStaleCursorError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleCursor = "stale_cursor"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffStaleCursorError/code`.
+            internal var code: Components.Schemas.DiffStaleCursorError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffStaleCursorError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffStaleCursorError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffStaleCursorError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffStaleCursorError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffStaleFileError`.
+        internal struct DiffStaleFileError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffStaleFileError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleFile = "stale_file"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffStaleFileError/code`.
+            internal var code: Components.Schemas.DiffStaleFileError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffStaleFileError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffStaleFileError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffStaleFileError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffStaleFileError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffStaleTargetError`.
+        internal struct DiffStaleTargetError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffStaleTargetError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleTarget = "stale_target"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffStaleTargetError/code`.
+            internal var code: Components.Schemas.DiffStaleTargetError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffStaleTargetError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffStaleTargetError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffStaleTargetError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffStaleTargetError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffStaleWorkspaceError`.
+        internal struct DiffStaleWorkspaceError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffStaleWorkspaceError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleWorkspace = "stale_workspace"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffStaleWorkspaceError/code`.
+            internal var code: Components.Schemas.DiffStaleWorkspaceError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffStaleWorkspaceError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffStaleWorkspaceError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffStaleWorkspaceError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffStaleWorkspaceError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTarget`.
+        internal struct DiffTarget: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/base`.
+            internal var base: Components.Schemas.DiffEndpoint?
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/head`.
+            internal var head: Components.Schemas.DiffEndpoint?
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/repositoryPath`.
+            internal var repositoryPath: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTarget/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `DiffTarget`.
+            ///
+            /// - Parameters:
+            ///   - base:
+            ///   - head:
+            ///   - id:
+            ///   - kind:
+            ///   - repositoryPath:
+            ///   - workspaceId:
+            internal init(
+                base: Components.Schemas.DiffEndpoint? = nil,
+                head: Components.Schemas.DiffEndpoint? = nil,
+                id: Swift.String,
+                kind: Swift.String,
+                repositoryPath: Swift.String,
+                workspaceId: Swift.String
+            ) {
+                self.base = base
+                self.head = head
+                self.id = id
+                self.kind = kind
+                self.repositoryPath = repositoryPath
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case base
+                case head
+                case id
+                case kind
+                case repositoryPath
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.base = try container.decodeIfPresent(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .base
+                )
+                self.head = try container.decodeIfPresent(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .head
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.repositoryPath = try container.decode(
+                    Swift.String.self,
+                    forKey: .repositoryPath
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "base",
+                    "head",
+                    "id",
+                    "kind",
+                    "repositoryPath",
+                    "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTargetCatalog`.
+        internal struct DiffTargetCatalog: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTargetCatalog/diagnostics`.
+            internal var diagnostics: [Components.Schemas.DiffTargetDiagnostic]
+            /// - Remark: Generated from `#/components/schemas/DiffTargetCatalog/sessionId`.
+            internal var sessionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetCatalog/targets`.
+            internal var targets: [Components.Schemas.DiffTargetEntry]
+            /// - Remark: Generated from `#/components/schemas/DiffTargetCatalog/workspaceId`.
+            internal var workspaceId: Swift.String?
+            /// Creates a new `DiffTargetCatalog`.
+            ///
+            /// - Parameters:
+            ///   - diagnostics:
+            ///   - sessionId:
+            ///   - targets:
+            ///   - workspaceId:
+            internal init(
+                diagnostics: [Components.Schemas.DiffTargetDiagnostic],
+                sessionId: Swift.String? = nil,
+                targets: [Components.Schemas.DiffTargetEntry],
+                workspaceId: Swift.String? = nil
+            ) {
+                self.diagnostics = diagnostics
+                self.sessionId = sessionId
+                self.targets = targets
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case diagnostics
+                case sessionId
+                case targets
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.diagnostics = try container.decode(
+                    [Components.Schemas.DiffTargetDiagnostic].self,
+                    forKey: .diagnostics
+                )
+                self.sessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.targets = try container.decode(
+                    [Components.Schemas.DiffTargetEntry].self,
+                    forKey: .targets
+                )
+                self.workspaceId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "diagnostics",
+                    "sessionId",
+                    "targets",
+                    "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTargetDiagnostic`.
+        internal struct DiffTargetDiagnostic: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTargetDiagnostic/count`.
+            internal var count: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffTargetDiagnostic/reason`.
+            internal var reason: Swift.String
+            /// Creates a new `DiffTargetDiagnostic`.
+            ///
+            /// - Parameters:
+            ///   - count:
+            ///   - reason:
+            internal init(
+                count: Swift.Int,
+                reason: Swift.String
+            ) {
+                self.count = count
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case count
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.count = try container.decode(
+                    Swift.Int.self,
+                    forKey: .count
+                )
+                self.reason = try container.decode(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "count",
+                    "reason"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTargetEntry`.
+        internal struct DiffTargetEntry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/annotationCount`.
+            internal var annotationCount: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/base`.
+            internal var base: Components.Schemas.DiffEndpoint
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/head`.
+            internal var head: Components.Schemas.DiffEndpoint
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/metadata`.
+            internal var metadata: Components.Schemas.DiffTargetMetadata
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/reference`.
+            internal var reference: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTargetEntry/targetId`.
+            internal var targetId: Swift.String
+            /// Creates a new `DiffTargetEntry`.
+            ///
+            /// - Parameters:
+            ///   - annotationCount:
+            ///   - base:
+            ///   - head:
+            ///   - kind:
+            ///   - metadata:
+            ///   - reference:
+            ///   - targetId:
+            internal init(
+                annotationCount: Swift.Int? = nil,
+                base: Components.Schemas.DiffEndpoint,
+                head: Components.Schemas.DiffEndpoint,
+                kind: Swift.String,
+                metadata: Components.Schemas.DiffTargetMetadata,
+                reference: Swift.String,
+                targetId: Swift.String
+            ) {
+                self.annotationCount = annotationCount
+                self.base = base
+                self.head = head
+                self.kind = kind
+                self.metadata = metadata
+                self.reference = reference
+                self.targetId = targetId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case annotationCount
+                case base
+                case head
+                case kind
+                case metadata
+                case reference
+                case targetId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotationCount = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .annotationCount
+                )
+                self.base = try container.decode(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .base
+                )
+                self.head = try container.decode(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .head
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.metadata = try container.decode(
+                    Components.Schemas.DiffTargetMetadata.self,
+                    forKey: .metadata
+                )
+                self.reference = try container.decode(
+                    Swift.String.self,
+                    forKey: .reference
+                )
+                self.targetId = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotationCount",
+                    "base",
+                    "head",
+                    "kind",
+                    "metadata",
+                    "reference",
+                    "targetId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata`.
+        internal struct DiffTargetMetadata: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/abbreviatedOid`.
+            internal var abbreviatedOid: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/baseRefName`.
+            internal var baseRefName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/committedAt`.
+            internal var committedAt: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/label`.
+            internal var label: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/refName`.
+            internal var refName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/DiffTargetMetadata/subject`.
+            internal var subject: Swift.String?
+            /// Creates a new `DiffTargetMetadata`.
+            ///
+            /// - Parameters:
+            ///   - abbreviatedOid:
+            ///   - baseRefName:
+            ///   - committedAt:
+            ///   - label:
+            ///   - refName:
+            ///   - subject:
+            internal init(
+                abbreviatedOid: Swift.String? = nil,
+                baseRefName: Swift.String? = nil,
+                committedAt: Swift.Int? = nil,
+                label: Swift.String,
+                refName: Swift.String? = nil,
+                subject: Swift.String? = nil
+            ) {
+                self.abbreviatedOid = abbreviatedOid
+                self.baseRefName = baseRefName
+                self.committedAt = committedAt
+                self.label = label
+                self.refName = refName
+                self.subject = subject
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case abbreviatedOid
+                case baseRefName
+                case committedAt
+                case label
+                case refName
+                case subject
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.abbreviatedOid = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .abbreviatedOid
+                )
+                self.baseRefName = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .baseRefName
+                )
+                self.committedAt = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .committedAt
+                )
+                self.label = try container.decode(
+                    Swift.String.self,
+                    forKey: .label
+                )
+                self.refName = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .refName
+                )
+                self.subject = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .subject
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "abbreviatedOid",
+                    "baseRefName",
+                    "committedAt",
+                    "label",
+                    "refName",
+                    "subject"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffTruncation`.
+        internal struct DiffTruncation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffTruncation/count`.
+            internal var count: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/DiffTruncation/reason`.
+            internal var reason: Swift.String
+            /// Creates a new `DiffTruncation`.
+            ///
+            /// - Parameters:
+            ///   - count:
+            ///   - reason:
+            internal init(
+                count: Swift.Int,
+                reason: Swift.String
+            ) {
+                self.count = count
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case count
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.count = try container.decode(
+                    Swift.Int.self,
+                    forKey: .count
+                )
+                self.reason = try container.decode(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "count",
+                    "reason"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffUnsupportedRepositoryError`.
+        internal struct DiffUnsupportedRepositoryError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffUnsupportedRepositoryError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case unsupportedRepository = "unsupported_repository"
+            }
+            /// - Remark: Generated from `#/components/schemas/DiffUnsupportedRepositoryError/code`.
+            internal var code: Components.Schemas.DiffUnsupportedRepositoryError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/DiffUnsupportedRepositoryError/details`.
+            internal var details: Components.Schemas.DiffUnsupportedRepositoryDetails
+            /// - Remark: Generated from `#/components/schemas/DiffUnsupportedRepositoryError/message`.
+            internal var message: Swift.String
+            /// Creates a new `DiffUnsupportedRepositoryError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - details:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.DiffUnsupportedRepositoryError.CodePayload,
+                details: Components.Schemas.DiffUnsupportedRepositoryDetails,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.details = details
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case details
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.DiffUnsupportedRepositoryError.CodePayload.self,
+                    forKey: .code
+                )
+                self.details = try container.decode(
+                    Components.Schemas.DiffUnsupportedRepositoryDetails.self,
+                    forKey: .details
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "details",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/FileDiffPage`.
+        internal struct FileDiffPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/computation`.
+            internal var computation: Components.Schemas.DiffComputation?
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/file`.
+            internal var file: Components.Schemas.DiffFileSummary?
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/hunks`.
+            internal var hunks: [Components.Schemas.DiffHunk]
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/nextCursor`.
+            internal var nextCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/FileDiffPage/observation`.
+            internal var observation: Components.Schemas.DiffObservation?
+            /// Creates a new `FileDiffPage`.
+            ///
+            /// - Parameters:
+            ///   - computation:
+            ///   - file:
+            ///   - hunks:
+            ///   - nextCursor:
+            ///   - observation:
+            internal init(
+                computation: Components.Schemas.DiffComputation? = nil,
+                file: Components.Schemas.DiffFileSummary? = nil,
+                hunks: [Components.Schemas.DiffHunk],
+                nextCursor: Swift.String? = nil,
+                observation: Components.Schemas.DiffObservation? = nil
+            ) {
+                self.computation = computation
+                self.file = file
+                self.hunks = hunks
+                self.nextCursor = nextCursor
+                self.observation = observation
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case computation
+                case file
+                case hunks
+                case nextCursor
+                case observation
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.computation = try container.decodeIfPresent(
+                    Components.Schemas.DiffComputation.self,
+                    forKey: .computation
+                )
+                self.file = try container.decodeIfPresent(
+                    Components.Schemas.DiffFileSummary.self,
+                    forKey: .file
+                )
+                self.hunks = try container.decode(
+                    [Components.Schemas.DiffHunk].self,
+                    forKey: .hunks
+                )
+                self.nextCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .nextCursor
+                )
+                self.observation = try container.decodeIfPresent(
+                    Components.Schemas.DiffObservation.self,
+                    forKey: .observation
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "computation",
+                    "file",
+                    "hunks",
+                    "nextCursor",
+                    "observation"
                 ])
             }
         }
@@ -1584,6 +3078,31 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ListDiffTargetsInput`.
+        internal struct ListDiffTargetsInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ListDiffTargetsInput/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `ListDiffTargetsInput`.
+            ///
+            /// - Parameters:
+            ///   - workspaceId:
+            internal init(workspaceId: Swift.String) {
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "workspaceId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/MCPServerStatus`.
         internal struct MCPServerStatus: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MCPServerStatus/configPath`.
@@ -1798,6 +3317,137 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObserveDiffInput`.
+        internal struct ObserveDiffInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/cursor`.
+            internal var cursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/expectedTargetId`.
+            internal var expectedTargetId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/expectedTargetRevision`.
+            internal var expectedTargetRevision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/pageSize`.
+            internal var pageSize: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/targetReference`.
+            internal var targetReference: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ObserveDiffInput/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `ObserveDiffInput`.
+            ///
+            /// - Parameters:
+            ///   - cursor:
+            ///   - expectedTargetId:
+            ///   - expectedTargetRevision:
+            ///   - pageSize:
+            ///   - targetReference:
+            ///   - workspaceId:
+            internal init(
+                cursor: Swift.String? = nil,
+                expectedTargetId: Swift.String,
+                expectedTargetRevision: Swift.String? = nil,
+                pageSize: Swift.Int? = nil,
+                targetReference: Swift.String,
+                workspaceId: Swift.String
+            ) {
+                self.cursor = cursor
+                self.expectedTargetId = expectedTargetId
+                self.expectedTargetRevision = expectedTargetRevision
+                self.pageSize = pageSize
+                self.targetReference = targetReference
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cursor
+                case expectedTargetId
+                case expectedTargetRevision
+                case pageSize
+                case targetReference
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .cursor
+                )
+                self.expectedTargetId = try container.decode(
+                    Swift.String.self,
+                    forKey: .expectedTargetId
+                )
+                self.expectedTargetRevision = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .expectedTargetRevision
+                )
+                self.pageSize = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .pageSize
+                )
+                self.targetReference = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetReference
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cursor",
+                    "expectedTargetId",
+                    "expectedTargetRevision",
+                    "pageSize",
+                    "targetReference",
+                    "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ObserveWorkingTreeInput`.
+        internal struct ObserveWorkingTreeInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ObserveWorkingTreeInput/cursor`.
+            internal var cursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ObserveWorkingTreeInput/pageSize`.
+            internal var pageSize: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ObserveWorkingTreeInput/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `ObserveWorkingTreeInput`.
+            ///
+            /// - Parameters:
+            ///   - cursor:
+            ///   - pageSize:
+            ///   - workspaceId:
+            internal init(
+                cursor: Swift.String? = nil,
+                pageSize: Swift.Int? = nil,
+                workspaceId: Swift.String
+            ) {
+                self.cursor = cursor
+                self.pageSize = pageSize
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cursor
+                case pageSize
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .cursor
+                )
+                self.pageSize = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .pageSize
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cursor",
+                    "pageSize",
+                    "workspaceId"
                 ])
             }
         }
@@ -3059,6 +4709,110 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "count",
                     "retryAt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput`.
+        internal struct ReadFileDiffInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/annotationId`.
+            internal var annotationId: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/cursor`.
+            internal var cursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/expectedFileRevision`.
+            internal var expectedFileRevision: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/maxHunks`.
+            internal var maxHunks: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/pageSize`.
+            internal var pageSize: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/targetId`.
+            internal var targetId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ReadFileDiffInput/targetRevision`.
+            internal var targetRevision: Swift.String
+            /// Creates a new `ReadFileDiffInput`.
+            ///
+            /// - Parameters:
+            ///   - annotationId:
+            ///   - cursor:
+            ///   - expectedFileRevision:
+            ///   - maxHunks:
+            ///   - pageSize:
+            ///   - path:
+            ///   - targetId:
+            ///   - targetRevision:
+            internal init(
+                annotationId: Swift.Int? = nil,
+                cursor: Swift.String? = nil,
+                expectedFileRevision: Swift.String? = nil,
+                maxHunks: Swift.Int? = nil,
+                pageSize: Swift.Int? = nil,
+                path: Swift.String,
+                targetId: Swift.String,
+                targetRevision: Swift.String
+            ) {
+                self.annotationId = annotationId
+                self.cursor = cursor
+                self.expectedFileRevision = expectedFileRevision
+                self.maxHunks = maxHunks
+                self.pageSize = pageSize
+                self.path = path
+                self.targetId = targetId
+                self.targetRevision = targetRevision
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case annotationId
+                case cursor
+                case expectedFileRevision
+                case maxHunks
+                case pageSize
+                case path
+                case targetId
+                case targetRevision
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotationId = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                self.cursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .cursor
+                )
+                self.expectedFileRevision = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .expectedFileRevision
+                )
+                self.maxHunks = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .maxHunks
+                )
+                self.pageSize = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .pageSize
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.targetId = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetId
+                )
+                self.targetRevision = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetRevision
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotationId",
+                    "cursor",
+                    "expectedFileRevision",
+                    "maxHunks",
+                    "pageSize",
+                    "path",
+                    "targetId",
+                    "targetRevision"
                 ])
             }
         }
@@ -5740,6 +7494,55 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/WorkingTreePage`.
+        internal struct WorkingTreePage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkingTreePage/files`.
+            internal var files: [Components.Schemas.DiffFileSummary]
+            /// - Remark: Generated from `#/components/schemas/WorkingTreePage/nextCursor`.
+            internal var nextCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/WorkingTreePage/observation`.
+            internal var observation: Components.Schemas.DiffObservation?
+            /// Creates a new `WorkingTreePage`.
+            ///
+            /// - Parameters:
+            ///   - files:
+            ///   - nextCursor:
+            ///   - observation:
+            internal init(
+                files: [Components.Schemas.DiffFileSummary],
+                nextCursor: Swift.String? = nil,
+                observation: Components.Schemas.DiffObservation? = nil
+            ) {
+                self.files = files
+                self.nextCursor = nextCursor
+                self.observation = observation
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case files
+                case nextCursor
+                case observation
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.files = try container.decode(
+                    [Components.Schemas.DiffFileSummary].self,
+                    forKey: .files
+                )
+                self.nextCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .nextCursor
+                )
+                self.observation = try container.decodeIfPresent(
+                    Components.Schemas.DiffObservation.self,
+                    forKey: .observation
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "files",
+                    "nextCursor",
+                    "observation"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor`.
         internal struct WorkspaceFileAnnotationAnchor: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/endLine`.
@@ -6016,6 +7819,81 @@ extension Components {
                     "sessionId",
                     "state",
                     "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/diffCapacityDetails`.
+        internal struct DiffCapacityDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/diffCapacityDetails/scope`.
+            internal var scope: Swift.String
+            /// Creates a new `DiffCapacityDetails`.
+            ///
+            /// - Parameters:
+            ///   - scope:
+            internal init(scope: Swift.String) {
+                self.scope = scope
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case scope
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.scope = try container.decode(
+                    Swift.String.self,
+                    forKey: .scope
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "scope"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/diffLimitDetails`.
+        internal struct DiffLimitDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/diffLimitDetails/limit`.
+            internal var limit: Swift.String
+            /// Creates a new `DiffLimitDetails`.
+            ///
+            /// - Parameters:
+            ///   - limit:
+            internal init(limit: Swift.String) {
+                self.limit = limit
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case limit
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.limit = try container.decode(
+                    Swift.String.self,
+                    forKey: .limit
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "limit"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/diffUnsupportedRepositoryDetails`.
+        internal struct DiffUnsupportedRepositoryDetails: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/diffUnsupportedRepositoryDetails/reason`.
+            internal var reason: Swift.String
+            /// Creates a new `DiffUnsupportedRepositoryDetails`.
+            ///
+            /// - Parameters:
+            ///   - reason:
+            internal init(reason: Swift.String) {
+                self.reason = reason
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case reason
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.reason = try container.decode(
+                    Swift.String.self,
+                    forKey: .reason
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "reason"
                 ])
             }
         }

@@ -169,6 +169,11 @@ func errorEnvelopeSchema(tag string, response httpapi.ErrorResponse, components 
 	mapping := make(map[string]any, len(response.Codes))
 	for _, code := range response.Codes {
 		details, hasDetails := response.Details[code]
+		if hasDetails {
+			if _, err := addTypeSchema(components, details); err != nil {
+				return nil, err
+			}
+		}
 		name := errorVariantName(tag, code, hasDetails)
 		variant := errorVariantSchema(code, details, hasDetails)
 		if existing, ok := components[name]; ok {

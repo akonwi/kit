@@ -269,36 +269,14 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         } onCancel: { bytes.task.cancel() }
     }
 
-    private func diffRequest<Input: Encodable, Output: Decodable>(_ id: String, suffix: String, input: Input) async throws -> Output {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }) else { throw ClientError.invalidPayload }
-        var request = try request("v1/sessions/" + id + "/diff/" + suffix)
-        request.httpMethod = "POST"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(input)
-        let (bytes, response) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        return try await withTaskCancellationHandler {
-            var data = Data()
-            for try await byte in bytes {
-                guard data.count < 512 * 1024 else { throw ClientError.oversized }
-                data.append(byte)
-            }
-            guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-            guard response.statusCode == 200 else {
-                if let value = try? JSONDecoder().decode(DiffErrorEnvelope.self, from: data) {
-                    throw DiffReadError(code: value.error.code.rawValue)
-                }
-                throw ClientError.http(response.statusCode)
-            }
-            return try JSONDecoder().decode(Output.self, from: data)
-        } onCancel: { bytes.task.cancel() }
-    }
-
     func diffTargets(_ id: String) async throws -> WireDiffTargetCatalog {
         let workspace: WireWorkspaceRef = try await get("v1/sessions/" + id + "/workspace")
-        guard workspace.sessionId == id, workspace.state.rawValue == "ready" else { throw WorkspaceFileError.unavailable }
-        let result: WireDiffTargetCatalog = try await diffRequest(id, suffix: "targets",
-            input: WireListDiffTargetsInput(workspaceId: workspace.workspaceId))
+        guard Self.validScratchpadSession(id), workspace.sessionId == id, workspace.state.rawValue == "ready",
+              let version = Operations.ListDiffTargets.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let input = Components.Schemas.ListDiffTargetsInput(workspaceId: workspace.workspaceId)
+        let output = try await api.listDiffTargets(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(input))
+        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        let result: WireDiffTargetCatalog = try generated(try response.body.json, as: WireDiffTargetCatalog.self)
         guard result.sessionId == id, result.workspaceId == workspace.workspaceId,
               let targets = result.targets, targets.count <= 42,
               Set(targets.map(\.targetId)).count == targets.count,
@@ -307,7 +285,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func observeDiff(_ id: String, input: WireObserveDiffInput) async throws -> WireWorkingTreePage {
-        let page: WireWorkingTreePage = try await diffRequest(id, suffix: "observations", input: input)
+        guard Self.validScratchpadSession(id), let version = Operations.ObserveDiff.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.ObserveDiffInput = try generated(input, as: Components.Schemas.ObserveDiffInput.self)
+        let output = try await api.observeDiff(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        let page: WireWorkingTreePage = try generated(try response.body.json, as: WireWorkingTreePage.self)
         try DiffValidation.observation(page.observation, session: id, target: input.expectedTargetId, revision: input.expectedTargetRevision)
         guard page.observation.target.workspaceId == input.workspaceId, let files = page.files, files.count <= 200,
               Set(files.map(\.path)).count == files.count else { throw ClientError.invalidPayload }
@@ -317,7 +299,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func readDiff(_ id: String, input: WireReadFileDiffInput) async throws -> WireFileDiffPage {
-        let page: WireFileDiffPage = try await diffRequest(id, suffix: "files/read", input: input)
+        guard Self.validScratchpadSession(id), let version = Operations.ReadFileDiff.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.ReadFileDiffInput = try generated(input, as: Components.Schemas.ReadFileDiffInput.self)
+        let output = try await api.readFileDiff(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw DiffReadError(code: "unavailable") }
+        let page: WireFileDiffPage = try generated(try response.body.json, as: WireFileDiffPage.self)
         try DiffValidation.observation(page.observation, session: id, target: input.targetId, revision: input.targetRevision)
         guard page.file.path == input.path, input.expectedFileRevision == nil || page.file.fileRevision == input.expectedFileRevision else { throw ClientError.invalidPayload }
         try DiffValidation.file(page.file)

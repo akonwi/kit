@@ -6,6 +6,7 @@ namingStrategy: idiomatic
 filter:
   tags:
     - sessions
+    - diff
     - scratchpad
     - vcs
     - plugin
