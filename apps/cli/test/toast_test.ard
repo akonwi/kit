@@ -1,0 +1,79 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/theme
+use kit/tui/toast
+use go:strings
+
+test fn toast_stack_uses_top_right_status_cards() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::box(
+      [
+        cui::box([], styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0))),
+        toast::stack(
+          theme::context(theme::store(theme::system())),
+          [
+            toast::Item{
+              id: 1,
+              title: "Device code copied",
+              detail: "",
+              variant: toast::Variant::info,
+              persistent: false,
+            },
+            toast::Item{
+              id: 2,
+              title: "Login failed",
+              detail: "Try again.",
+              variant: toast::Variant::error,
+              persistent: false,
+            },
+          ],
+          fn(id: Int) {},
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+      ),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let entering = terminal.frame().text()
+  try testing::assert(
+    not entering.contains("Device code copied"),
+    "new toast starts clipped beyond the right edge",
+  )
+  terminal.advance_time(0)
+  terminal.advance_time(350)
+  terminal.render()
+  terminal.flush()
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  mut copied_row = -1
+  mut copied_column = -1
+  for row, index in rows {
+    let column = strings::Index(row, "Device code copied")
+    if column >= 0 {
+      copied_row = index
+      copied_column = column
+    }
+  }
+  try testing::assert(copied_row >= 1, "toast card content row {copied_row}:\n{terminal.frame().text()}")
+  try testing::assert(
+    copied_column >= 34,
+    "toast takes its content width at the right edge of a 60-cell terminal",
+  )
+  try testing::assert(
+    terminal.frame().text().contains("●") and terminal.frame().text().contains("×"),
+    "toast variants expose their status glyphs",
+  )
+  testing::assert(terminal.frame().text().contains("Try again."), "toast detail is visible")
+}

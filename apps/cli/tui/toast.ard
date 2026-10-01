@@ -1,0 +1,153 @@
+use cooper/animation
+use cooper/cui
+use cooper/event
+use cooper/ui
+use kit/tui/theme
+
+// Variant communicates the severity of a transient application notification.
+enum Variant {
+  info,
+  warning,
+  error,
+}
+
+// Item is a shell-owned toast record.
+struct Item {
+  id: Int,
+  title: Str,
+  detail: Str,
+  variant: Variant,
+  persistent: Bool,
+}
+
+// stack renders the application's non-modal notification overlay.
+fn stack(themes: theme::Context, items: [Item], dismiss: fn(Int)) cui::View {
+  let cards = mut List::new<cui::View>()
+  for item in items {
+    cards.push(
+      cui::child(
+        new_toast,
+        ToastProps{
+          themes: themes,
+          item: item,
+          dismiss: dismiss,
+        },
+      ),
+    )
+  }
+  cui::box(
+    cards.@,
+    key: "toast.stack",
+    styles: ui::style(
+      position: ui::Position::absolute,
+      top: ui::cells(2),
+      right: ui::cells(2),
+      width: ui::percent(60.0),
+      flex_direction: ui::FlexDirection::column,
+      gap: ui::cells(1),
+      align_items: ui::Align::end,
+      z_index: 200,
+    ),
+  )
+}
+
+struct ToastProps {
+  themes: theme::Context,
+  item: Item,
+  dismiss: fn(Int),
+}
+
+struct Toast {
+  props: mut ToastProps,
+  offset: Int,
+}
+
+private fn new_toast(props: mut ToastProps) mut Toast {
+  (mut Toast{props: props, offset: 20})
+}
+
+impl cui::Lifecycle for Toast {
+  fn mut mounted(ctx: cui::Context) {
+    let _ = ctx.animate(
+      300,
+      fn(frame: animation::Frame) {
+        self.offset = animation::lerp_int(20, 0, frame.progress)
+      },
+      ease: animation::out_circ,
+    )
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl cui::Component for Toast {
+  fn mut render() cui::View {
+    cui::box(
+      [card(self.props.themes.current(), self.props.item, self.offset, self.props.dismiss)],
+      key: "toast.frame.{self.props.item.id}",
+      styles: ui::style(position: ui::Position::relative, overflow: ui::Overflow::hidden),
+    )
+  }
+}
+
+private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int)) cui::View {
+  let color = match item.variant {
+    Variant::info => colors.primary,
+    Variant::warning => colors.warning_text,
+    Variant::error => colors.danger_text,
+  }
+  let icon = match item.variant {
+    Variant::info => "●",
+    Variant::warning => "▲",
+    Variant::error => "×",
+  }
+  let text = mut List::new<cui::View>()
+  text.push(cui::text(item.title, text_style: ui::text_style(foreground: color)))
+  if item.detail != "" {
+    text.push(cui::text(item.detail, text_style: ui::text_style(foreground: colors.muted)))
+  }
+  let content = mut List::new<cui::View>()
+  content.push(cui::text(icon, text_style: ui::text_style(foreground: color)))
+  content.push(cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)))
+  if item.persistent {
+    content.push(
+      cui::box(
+        [cui::text("×", text_style: ui::text_style(foreground: colors.muted))],
+        styles: ui::style(
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          received.prevent_default()
+          dismiss(item.id)
+        },
+      ),
+    )
+  }
+  cui::box(
+    content.@,
+    key: "toast.{item.id}",
+    styles: ui::style(
+      position: ui::Position::relative,
+      left: ui::cells(offset),
+      flex_direction: ui::FlexDirection::row,
+      gap: ui::cells(1),
+      padding: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(1),
+        bottom: ui::cells(1),
+        left: ui::cells(1),
+      },
+      background: colors.background,
+      border: ui::Border::single,
+      border_color: color,
+    ),
+    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      received.prevent_default()
+    },
+  )
+}

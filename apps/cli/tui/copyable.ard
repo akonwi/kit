@@ -8,6 +8,7 @@ use kit/tui/theme
 struct ValueProps {
   themes: theme::Context,
   value: Str,
+  on_copied: fn(),
 }
 
 struct Value {
@@ -16,8 +17,15 @@ struct Value {
 }
 
 // value renders a safe copyable value. Never use it for submitted secrets.
-fn value(themes: theme::Context, text: Str) cui::View {
-  cui::child(new, ValueProps{themes: themes, value: text})
+fn value(themes: theme::Context, text: Str, on_copied: fn()) cui::View {
+  cui::child(
+    new,
+    ValueProps{
+      themes: themes,
+      value: text,
+      on_copied: on_copied,
+    },
+  )
 }
 
 private fn new(props: mut ValueProps) mut Value {
@@ -37,6 +45,7 @@ impl Value {
     match self.context {
       ctx => {
         ctx.copy(self.props.value)
+        (self.props.on_copied)()
         true
       },
       _ => false,
