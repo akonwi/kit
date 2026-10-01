@@ -18,7 +18,7 @@ struct Item {
 // Catalog, query, selection, hover, and overflow visibility are controlled by
 // the feature owner; the picker only projects them.
 struct Props {
-  colors: theme::Theme,
+  themes: theme::Context,
   placeholder: Str,
   catalog: [Item],
   query: Str,
@@ -112,7 +112,7 @@ fn header(props: Props) [cui::View] {
       [
         cui::box(
           [cui::text(" ", styles: ui::style(width: ui::cells(1), flex_shrink: 0.0))],
-          styles: ui::style(background: props.colors.background),
+          styles: ui::style(background: props.themes.current().background),
         ),
         cui::input(
           // A trailing pad cell keeps room for the cursor at the end of the
@@ -128,7 +128,7 @@ fn header(props: Props) [cui::View] {
               bottom: ui::cells(0),
               left: ui::cells(0),
             },
-            background: props.colors.background,
+            background: props.themes.current().background,
             flex_grow: 1.0,
             flex_basis: ui::cells(0),
           ),
@@ -152,7 +152,7 @@ fn header(props: Props) [cui::View] {
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
         flex_shrink: 0.0,
-        background: props.colors.background,
+        background: props.themes.current().background,
       ),
     ),
     cui::divider(),
@@ -176,7 +176,7 @@ fn body(props: Props, viewport: Viewport) cui::View {
               left: ui::cells(1),
             },
           ),
-          text_style: ui::text_style(foreground: props.colors.muted),
+          text_style: ui::text_style(foreground: props.themes.current().muted),
         ),
       ],
       styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
@@ -238,7 +238,7 @@ private fn overflow_slot(props: Props, key: Str, direction: Int, on_page: fn(Int
 
 private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)) cui::View {
   cui::box(
-    [cui::text("⋯", text_style: ui::text_style(foreground: props.colors.muted))],
+    [cui::text("⋯", text_style: ui::text_style(foreground: props.themes.current().muted))],
     key: "palette.overflow.{key}",
     styles: ui::style(
       height: ui::cells(1),
@@ -249,7 +249,7 @@ private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)
         bottom: ui::cells(0),
         left: ui::cells(1),
       },
-      background: props.colors.background,
+      background: props.themes.current().background,
     ),
     on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
       if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
@@ -265,13 +265,13 @@ private fn row(props: Props, item: Item) cui::View {
   let active = item.key == props.selection
   let hovered = item.key == props.hovered
   let fill = match {
-    active => props.colors.surface_hovered,
-    hovered and item.disabled_reason == "" => props.colors.surface_hovered,
-    _ => props.colors.background,
+    active => props.themes.current().surface_hovered,
+    hovered and item.disabled_reason == "" => props.themes.current().surface_hovered,
+    _ => props.themes.current().background,
   }
   let label_color = match item.disabled_reason != "" {
-    true => props.colors.disabled,
-    false => props.colors.foreground,
+    true => props.themes.current().disabled,
+    false => props.themes.current().foreground,
   }
   let description = match item.disabled_reason == "" {
     true => item.description,
@@ -285,7 +285,7 @@ private fn row(props: Props, item: Item) cui::View {
           true => "▌",
           false => " ",
         },
-        text_style: ui::text_style(foreground: props.colors.primary),
+        text_style: ui::text_style(foreground: props.themes.current().primary),
       ),
       cui::box(
         [
@@ -300,7 +300,7 @@ private fn row(props: Props, item: Item) cui::View {
       ),
       cui::text(
         description,
-        text_style: ui::text_style(foreground: props.colors.muted),
+        text_style: ui::text_style(foreground: props.themes.current().muted),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
       ),

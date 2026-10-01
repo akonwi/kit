@@ -12,9 +12,10 @@ fn run(options: cli::TUIOptions) Void!Error {
   let application = try cooper::app(exit_on_ctrl_c: false)
   let system = application.theme()
   defer application.destroy()
+  let themes = theme::context(theme::store(theme::resolve(options.ThemeDefinition, system)))
   let props = shell::Props{
     options: options,
-    theme: theme::resolve(options.ThemeDefinition, system),
+    themes: themes,
     quit: fn() {
       application.context.destroy_live()
     },
