@@ -55,10 +55,10 @@ type Session interface {
 	Reload(context.Context) (protocol.ReloadSessionResult, error)
 	Configure(context.Context, protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error)
 	Compact(context.Context, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
-	Run(context.Context, string) (protocol.RunInfo, error)
+	Turn(context.Context, string) (protocol.TurnInfo, error)
 	Stream(context.Context, string) (EventStream, error)
-	StartPrompt(context.Context, string) (Run, error)
-	StartPromptCommand(context.Context, string, string) (Run, error)
+	StartPrompt(context.Context, string) (Turn, error)
+	StartPromptCommand(context.Context, string, string) (Turn, error)
 	Bash(context.Context, string) (BashExecution, error)
 	StartBash(context.Context, string, string, bool) (BashExecution, error)
 	AbortBash(context.Context, string) error
@@ -150,7 +150,7 @@ type SubagentEventReader interface {
 
 // SessionEventWatcher is the optional attachment-scoped event surface. It
 // carries all session events so an idle client can discover externally admitted
-// runs as well as session-level invalidations.
+// turns as well as session-level invalidations.
 type SessionEventWatcher interface {
 	Watch(context.Context) (protocol.SessionSnapshot, EventStream, error)
 }
@@ -168,7 +168,7 @@ type AttachmentMetadataSession interface {
 }
 
 type StructuredPromptSession interface {
-	StartPromptInput(context.Context, protocol.PromptInput) (Run, error)
+	StartPromptInput(context.Context, protocol.PromptInput) (Turn, error)
 	SubmitPromptInput(context.Context, protocol.PromptInput) (PromptSubmission, error)
 }
 
@@ -181,14 +181,14 @@ type FollowUpSession interface {
 
 // PromptSubmission reports whether a prompt started or became a follow-up.
 type PromptSubmission struct {
-	Run    Run
+	Turn   Turn
 	Queued bool
 	Queue  protocol.FollowUpQueue
 }
 
-// Run is one droid turn handle. Waiting may be detached or canceled without
+// Turn is one droid turn handle. Waiting may be detached or canceled without
 // aborting; Abort explicitly targets only this droid turn identity.
-type Run interface {
+type Turn interface {
 	ID() string
 	Wait(context.Context) (protocol.PromptOutcome, error)
 	Abort(context.Context) error
@@ -203,8 +203,8 @@ type BashExecution interface {
 	Abort(context.Context) error
 }
 
-// EventStream delivers ordered batches for one run. Err is available after
-// Updates closes; cancellation of the stream does not abort the run.
+// EventStream delivers ordered batches for one turn. Err is available after
+// Updates closes; cancellation of the stream does not abort the turn.
 type EventStream interface {
 	Updates() <-chan []protocol.SessionEvent
 	Err() error

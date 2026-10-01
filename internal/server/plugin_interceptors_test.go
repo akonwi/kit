@@ -125,9 +125,9 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				time.Sleep(10 * time.Millisecond)
 			}
 			turn := make(chan error, 1)
-			go func() { _, err := client.RunPrompt(ctx, created.ID, "run the tool"); turn <- err }()
+			go func() { _, err := client.Prompt(ctx, created.ID, "run the tool"); turn <- err }()
 			var interaction protocol.InteractionRequest
-			var runID string
+			var turnID string
 			for {
 				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
 				if err != nil {
@@ -135,7 +135,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				}
 				if len(snapshot.PendingInteractions) == 1 {
 					interaction = snapshot.PendingInteractions[0]
-					runID = snapshot.ActiveRunID
+					turnID = snapshot.ActiveTurnID
 					break
 				}
 				if time.Now().After(deadline) {
@@ -147,7 +147,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				t.Fatalf("interceptor dialog=%#v", interaction)
 			}
 			if mode == "cancel" {
-				if err := client.AbortSession(ctx, created.ID, runID); err != nil {
+				if err := client.AbortSession(ctx, created.ID, turnID); err != nil {
 					t.Fatal(err)
 				}
 				select {

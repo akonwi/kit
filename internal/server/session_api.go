@@ -134,14 +134,14 @@ type sessionService interface {
 	Scratchpad(context.Context, string) (protocol.Scratchpad, error)
 	UpdateScratchpad(context.Context, string, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
 	Compact(context.Context, string, protocol.CompactSessionInput) (protocol.CompactSessionResult, error)
-	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.RunReservation, error)
+	StartPrompt(context.Context, string, protocol.PromptInput) (protocol.TurnReservation, error)
 	SubmitPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
 	ExecutePluginCommand(context.Context, string, protocol.PluginCommandInput) error
-	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.RunReservation, error)
-	Run(context.Context, string, string) (protocol.RunInfo, error)
-	RunPrompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
+	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.TurnReservation, error)
+	Turn(context.Context, string, string) (protocol.TurnInfo, error)
+	Prompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
 	RespondInteraction(context.Context, string, protocol.InteractionResponse) error
 	StartBash(context.Context, string, protocol.BashExecutionInput) (protocol.BashExecution, error)
@@ -755,7 +755,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		}
 	}
 	result := protocol.SessionSnapshot{
-		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveRunID: snapshot.ActiveRunID,
+		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveTurnID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
@@ -795,7 +795,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		}
 	}
 	if snapshot.ActiveCompaction != nil {
-		result.ActiveCompaction = &protocol.ActiveCompaction{ID: snapshot.ActiveCompaction.ID, RunID: snapshot.ActiveCompaction.RunID}
+		result.ActiveCompaction = &protocol.ActiveCompaction{ID: snapshot.ActiveCompaction.ID, TurnID: snapshot.ActiveCompaction.RunID}
 	}
 	for _, interaction := range snapshot.PendingInteractions {
 		result.PendingInteractions = append(result.PendingInteractions, projectInteractionRequest(interaction))
@@ -1276,7 +1276,7 @@ func (s runtimeSessionService) WaitEvents(ctx context.Context, sessionID, stream
 }
 
 func projectInteractionRequest(request kitsession.InteractionRequest) protocol.InteractionRequest {
-	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, RunID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
+	result := protocol.InteractionRequest{ID: request.ID, SessionID: request.SessionID, TurnID: request.RunID, ToolCallID: request.ToolCallID, Kind: protocol.InteractionKind(request.Kind), Title: request.Title, Detail: request.Detail, CreatedAt: request.CreatedAt.Format(time.RFC3339Nano), Options: make([]protocol.InteractionOption, 0, len(request.Options)), Questions: make([]protocol.InteractionQuestion, 0, len(request.Questions))}
 	if request.Plugin != nil {
 		result.Plugin = &protocol.PluginInteractionOwner{PluginID: request.Plugin.PluginID, Instance: request.Plugin.Instance}
 	}
@@ -1316,7 +1316,7 @@ func (s runtimeSessionService) projectSessionEventPage(page kitsession.EventPage
 	for _, event := range page.Events {
 		projected := protocol.SessionEvent{
 			StreamID: event.StreamID, Sequence: event.Sequence, SessionID: event.SessionID,
-			TurnID: event.TurnID, RunID: event.RunID,
+			TurnID:  event.TurnID,
 			Payload: s.projectSessionEventPayload(event),
 		}
 		batch.Events = append(batch.Events, projected)
@@ -1366,9 +1366,9 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	}
 	switch event.Kind {
 	case kitsession.EventRunStarted:
-		return protocol.RunStartedEvent{Status: protocol.RunStatus(event.Status)}
+		return protocol.TurnStartedEvent{Status: protocol.TurnStatus(event.Status)}
 	case kitsession.EventUserMessage:
-		return protocol.UserMessageEvent{Text: event.Text}
+		return protocol.UserMessageAddedEvent{Text: event.Text}
 	case kitsession.EventAssistantStarted:
 		return protocol.AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}
 	case kitsession.EventAssistantTextDelta:
@@ -1382,7 +1382,7 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventToolStarted:
 		return protocol.ToolStartedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Arguments: event.Arguments, ArgumentsTruncated: event.ArgumentsTruncated}
 	case kitsession.EventToolUpdated:
-		return protocol.ToolUpdatedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, IsError: event.IsError}
+		return protocol.ToolOutputDeltaEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, IsError: event.IsError}
 	case kitsession.EventToolCompleted:
 		return protocol.ToolCompletedEvent{ToolCallID: event.ToolCallID, ToolName: event.ToolName, Content: content, ContentTruncated: event.ContentTruncated, Details: append(json.RawMessage(nil), event.Details...), DetailsOmitted: event.DetailsOmitted, IsError: event.IsError}
 	case kitsession.EventCompactionStarted:
@@ -1390,19 +1390,19 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 	case kitsession.EventCompactionCompleted:
 		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID}
 	case kitsession.EventCompactionFailed:
-		return protocol.CompactionFailedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
+		return protocol.CompactionCompletedEvent{CompactionID: event.CompactionID, ErrorMessage: event.ErrorMessage}
 	case kitsession.EventProviderRetryScheduled:
 		return protocol.ProviderRetryScheduledEvent{ProviderRetry: providerRetry()}
 	case kitsession.EventProviderRetryStarted:
 		return protocol.ProviderRetryStartedEvent{ProviderRetry: providerRetry()}
 	case kitsession.EventContextUpdated:
-		return protocol.ContextUpdatedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}
+		return protocol.ContextChangedEvent{ContextTokens: event.ContextTokens, ContextWindow: event.ContextWindow}
 	case kitsession.EventUsageUpdated:
-		return protocol.UsageUpdatedEvent{Usage: projectSessionUsagePointer(event.Usage)}
+		return protocol.UsageChangedEvent{Usage: projectSessionUsagePointer(event.Usage)}
 	case kitsession.EventRunFinished:
-		return protocol.RunFinishedEvent{Status: protocol.RunStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
+		return protocol.TurnCompletedEvent{Status: protocol.TurnStatus(event.Status), ErrorKind: projectProviderErrorKind(event.ErrorKind), ErrorMessage: event.ErrorMessage}
 	case kitsession.EventSessionRenamed:
-		return protocol.SessionRenamedEvent{SessionName: event.SessionName}
+		return protocol.SessionNameChangedEvent{SessionName: event.SessionName}
 	case kitsession.EventSessionCWDChanged:
 		var workspace *protocol.WorkspaceRef
 		if s.workspaces != nil {
@@ -1579,13 +1579,13 @@ func promptSectionKind(kind systemprompt.SectionKind) protocol.PromptSectionKind
 	}
 }
 
-func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
+func (s runtimeSessionService) StartPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
 	reservation, err := s.manager.StartPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
-	return protocol.RunReservation{
-		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	return protocol.TurnReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID,
 	}, nil
 }
 
@@ -1596,7 +1596,7 @@ func (s runtimeSessionService) SubmitPrompt(ctx context.Context, sessionID strin
 	}
 	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
 	if !result.Queued {
-		output.Reservation = &protocol.RunReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID, RunID: result.Reservation.RunID}
+		output.Reservation = &protocol.TurnReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID}
 	}
 	return output, nil
 }
@@ -1619,36 +1619,36 @@ func (s runtimeSessionService) ExecutePluginCommand(ctx context.Context, session
 	return s.manager.ExecutePluginCommand(ctx, sessionID, input.Instance, input.ID, input.Args)
 }
 
-func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	reservation, err := s.manager.StartPromptCommand(ctx, sessionID, input.Name, input.Args)
 	if err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
-	return protocol.RunReservation{
-		SessionID: reservation.SessionID, TurnID: reservation.TurnID, RunID: reservation.RunID,
+	return protocol.TurnReservation{
+		SessionID: reservation.SessionID, TurnID: reservation.TurnID,
 	}, nil
 }
 
-func (s runtimeSessionService) Run(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
-	record, err := s.manager.GetRun(ctx, sessionID, runID)
+func (s runtimeSessionService) Turn(ctx context.Context, sessionID, turnID string) (protocol.TurnInfo, error) {
+	record, err := s.manager.GetRun(ctx, sessionID, turnID)
 	if err != nil {
-		return protocol.RunInfo{}, err
+		return protocol.TurnInfo{}, err
 	}
-	return protocol.RunInfo{
-		SessionID: record.SessionID, TurnID: record.TurnID, RunID: record.ID,
-		Status: protocol.RunStatus(record.Status), ErrorMessage: record.Error,
+	return protocol.TurnInfo{
+		SessionID: record.SessionID, TurnID: record.TurnID,
+		Status: protocol.TurnStatus(record.Status), ErrorMessage: record.Error,
 	}, nil
 }
 
-func (s runtimeSessionService) RunPrompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
+func (s runtimeSessionService) Prompt(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
 	result, err := s.manager.RunPromptInput(ctx, sessionID, kitsession.PromptInput{Text: input.Text, AttachmentIDs: input.AttachmentIDs, AnnotationIDs: input.AnnotationIDs})
 	if err != nil {
 		return protocol.PromptOutcome{}, err
 	}
 	return protocol.PromptOutcome{
-		SessionID: result.SessionID, TurnID: result.TurnID, RunID: result.RunID,
+		SessionID: result.SessionID, TurnID: result.TurnID,
 		Text: result.Text, StopReason: result.StopReason,
-		Status: protocol.RunStatus(result.Status), ErrorKind: projectProviderErrorKind(result.ErrorKind),
+		Status: protocol.TurnStatus(result.Status), ErrorKind: projectProviderErrorKind(result.ErrorKind),
 		ErrorMessage: result.ErrorMessage,
 	}, nil
 }
@@ -1672,8 +1672,8 @@ func projectProviderErrorKind(kind kitsession.ProviderErrorKind) protocol.Provid
 	}
 }
 
-func (s runtimeSessionService) Abort(ctx context.Context, sessionID, runID string) error {
-	return s.manager.Abort(ctx, sessionID, runID)
+func (s runtimeSessionService) Abort(ctx context.Context, sessionID, turnID string) error {
+	return s.manager.Abort(ctx, sessionID, turnID)
 }
 
 func (s runtimeSessionService) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
@@ -2458,7 +2458,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
+		if result.TurnID == "" {
 			writeSessionError(writer, errors.New("session prompt returned no reservation"))
 			return
 		}
@@ -2479,7 +2479,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
+		if result.TurnID == "" {
 			writeSessionError(writer, errors.New("session prompt command returned no reservation"))
 			return
 		}
@@ -2495,13 +2495,13 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
 			return
 		}
-		result, err := service.RunPrompt(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.Prompt(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
-		if result.RunID == "" {
-			writeSessionError(writer, errors.New("session run returned no result"))
+		if result.TurnID == "" {
+			writeSessionError(writer, errors.New("session turn returned no result"))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -2538,15 +2538,15 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/runs/{runID}", func(writer http.ResponseWriter, request *http.Request) {
-		run, err := service.Run(
-			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
+	mux.HandleFunc("GET /v1/sessions/{sessionID}/turns/{turnID}", func(writer http.ResponseWriter, request *http.Request) {
+		turn, err := service.Turn(
+			request.Context(), request.PathValue("sessionID"), request.PathValue("turnID"),
 		)
 		if err != nil {
 			writeSessionError(writer, err)
 			return
 		}
-		writeJSON(writer, http.StatusOK, run)
+		writeJSON(writer, http.StatusOK, turn)
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/interactions/{interactionID}/response", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.InteractionResponse
@@ -2568,9 +2568,9 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, map[string]bool{"settled": true})
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/runs/{runID}/abort", func(writer http.ResponseWriter, request *http.Request) {
+	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/{turnID}/abort", func(writer http.ResponseWriter, request *http.Request) {
 		if err := service.Abort(
-			request.Context(), request.PathValue("sessionID"), request.PathValue("runID"),
+			request.Context(), request.PathValue("sessionID"), request.PathValue("turnID"),
 		); err != nil {
 			writeSessionError(writer, err)
 			return

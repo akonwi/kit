@@ -132,7 +132,7 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(after.Messages) != 0 || after.ActiveRunID != "" || after.Usage != before.Usage {
+	if len(after.Messages) != 0 || after.ActiveTurnID != "" || after.Usage != before.Usage {
 		t.Fatalf("command started model run: %#v", after)
 	}
 	if _, err := client.ReloadSession(t.Context(), created.ID); err != nil {

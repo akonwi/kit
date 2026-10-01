@@ -156,7 +156,7 @@ func TestPreRoutingErrorResponsesConformToContract(t *testing.T) {
 		{"origin", http.StatusForbidden, "forbidden", func(r *http.Request) { r.Header.Set("Origin", "http://wrong.example") }},
 		{"bearer", http.StatusUnauthorized, "unauthorized", func(r *http.Request) { r.Header.Set("Authorization", "Bearer wrong") }},
 		{"instance", http.StatusConflict, "instance_mismatch", func(r *http.Request) { r.Header.Set(instanceHeader, "wrong") }},
-		{"protocol", http.StatusUpgradeRequired, "protocol_mismatch", func(r *http.Request) { r.Header.Set(protocolHeader, "+42") }},
+		{"protocol", http.StatusUpgradeRequired, "protocol_mismatch", func(r *http.Request) { r.Header.Set(protocolHeader, "+43") }},
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {

@@ -55,7 +55,7 @@ func TestPluginFooterFixtureProjectsAndRevokesSharedChrome(t *testing.T) {
 	if item.ID != "footer-demo.status" || item.PluginID != "footer-demo" || item.Instance != commandOwnerInstance(command.Instance) || item.Content[0].Style.FG != "toolText" || !item.Content[0].Style.Bold {
 		t.Fatalf("wire footer = %#v", item)
 	}
-	if visible.ActiveRunID != "" || len(visible.Messages) != 0 {
+	if visible.ActiveTurnID != "" || len(visible.Messages) != 0 {
 		t.Fatal("footer command fabricated model work")
 	}
 	// Catalog invalidation must also carry footer-only changes to live clients.

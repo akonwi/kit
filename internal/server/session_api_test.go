@@ -42,7 +42,7 @@ func protocolRenamePayload(events []protocol.SessionEvent) (string, bool) {
 	if len(events) != 1 {
 		return "", false
 	}
-	payload, ok := events[0].Payload.(protocol.SessionRenamedEvent)
+	payload, ok := events[0].Payload.(protocol.SessionNameChangedEvent)
 	return payload.SessionName, ok
 }
 
@@ -448,7 +448,7 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	}
 }
 
-func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
+func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	t.Parallel()
 
 	paths := apphome.FromHome(filepath.Join(t.TempDir(), "kit"))
@@ -660,7 +660,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("deleted session remained listed: %+v", listedAfterDelete)
 		}
 	}
-	runID, err := identifier.New("run_")
+	turnID, err := identifier.New("run_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
@@ -668,22 +668,22 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartPrompt() error = %v", err)
 	}
-	if reservation.RunID == runID || reservation.RunID != reservation.TurnID {
+	if reservation.TurnID == "" {
 		t.Fatalf("reservation = %+v", reservation)
 	}
-	runID = reservation.RunID
-	var run protocol.RunInfo
-	runDeadline := time.Now().Add(5 * time.Second)
+	turnID = reservation.TurnID
+	var turn protocol.TurnInfo
+	turnDeadline := time.Now().Add(5 * time.Second)
 	for {
-		run, err = client.GetRun(context.Background(), created.ID, runID)
+		turn, err = client.GetTurn(context.Background(), created.ID, turnID)
 		if err != nil {
-			t.Fatalf("GetRun() error = %v", err)
+			t.Fatalf("GetTurn() error = %v", err)
 		}
-		if run.Status == protocol.RunStatusCompleted {
+		if turn.Status == protocol.TurnStatusCompleted {
 			break
 		}
-		if time.Now().After(runDeadline) {
-			t.Fatalf("run did not complete: %+v", run)
+		if time.Now().After(turnDeadline) {
+			t.Fatalf("turn did not complete: %+v", turn)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -726,12 +726,12 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("GetSessionEvents() error = %v", err)
 	}
 	wantEventKinds := []protocol.SessionEventKind{
-		protocol.SessionEventRunStarted,
-		protocol.SessionEventUserMessage,
+		protocol.SessionEventTurnStarted,
+		protocol.SessionEventUserMessageAdded,
 		protocol.SessionEventAssistantStarted,
 		protocol.SessionEventAssistantCompleted,
-		protocol.SessionEventUsageUpdated,
-		protocol.SessionEventRunFinished,
+		protocol.SessionEventUsageChanged,
+		protocol.SessionEventTurnCompleted,
 	}
 	if len(eventBatch.Events) != len(wantEventKinds) {
 		t.Fatalf("session event count = %d, want %d: %+v", len(eventBatch.Events), len(wantEventKinds), eventBatch.Events)
@@ -743,13 +743,13 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 	startedPayload := eventBatch.Events[2].Payload.(protocol.AssistantStartedEvent)
 	completedPayload := eventBatch.Events[3].Payload.(protocol.AssistantCompletedEvent)
-	usagePayload := eventBatch.Events[4].Payload.(protocol.UsageUpdatedEvent)
-	finishedPayload := eventBatch.Events[5].Payload.(protocol.RunFinishedEvent)
+	usagePayload := eventBatch.Events[4].Payload.(protocol.UsageChangedEvent)
+	finishedPayload := eventBatch.Events[5].Payload.(protocol.TurnCompletedEvent)
 	if startedPayload.MessageID != snapshot.Messages[1].ID || completedPayload.MessageID != snapshot.Messages[1].ID {
 		t.Errorf("live assistant ids = %q/%q, snapshot id = %q", startedPayload.MessageID, completedPayload.MessageID, snapshot.Messages[1].ID)
 	}
 	if eventBatch.Events[3].Kind() != protocol.SessionEventAssistantCompleted || usagePayload.Usage == nil ||
-		*usagePayload.Usage != snapshot.Usage || finishedPayload.Status != protocol.RunStatusCompleted {
+		*usagePayload.Usage != snapshot.Usage || finishedPayload.Status != protocol.TurnStatusCompleted {
 		t.Errorf("terminal session events = %+v", eventBatch.Events[3:])
 	}
 
@@ -795,7 +795,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	providers.block = block
 	providers.requestStarted = requestStarted
 	providers.mu.Unlock()
-	activeRunID, err := identifier.New("run_")
+	activeTurnID, err := identifier.New("run_")
 	if err != nil {
 		t.Fatalf("identifier.New() error = %v", err)
 	}
@@ -803,11 +803,11 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatalf("StartPrompt() blocking run error = %v", err)
 	}
-	activeRunID = activeReservation.RunID
+	activeTurnID = activeReservation.TurnID
 	<-requestStarted
-	active, err := client.GetRun(context.Background(), created.ID, activeRunID)
-	if err != nil || active.Status != protocol.RunStatusRunning {
-		t.Fatalf("active run = %+v, %v", active, err)
+	active, err := client.GetTurn(context.Background(), created.ID, activeTurnID)
+	if err != nil || active.Status != protocol.TurnStatusRunning {
+		t.Fatalf("active turn = %+v, %v", active, err)
 	}
 	if _, err := client.ReloadSession(context.Background(), created.ID); err != nil {
 		t.Fatalf("ReloadSession() during active session: %v", err)
@@ -829,27 +829,27 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatalf("reloaded provider skill catalog:\n%s", reloadedProviderPrompt)
 	}
 	activeSnapshot, err := client.GetSessionSnapshot(context.Background(), created.ID)
-	if err != nil || activeSnapshot.ActiveRunID != activeRunID || len(activeSnapshot.Messages) != 2 {
+	if err != nil || activeSnapshot.ActiveTurnID != activeTurnID || len(activeSnapshot.Messages) != 2 {
 		t.Fatalf("active snapshot = %+v, %v", activeSnapshot, err)
 	}
-	if err := client.AbortSession(context.Background(), created.ID, activeRunID); err != nil {
-		t.Fatalf("AbortSession() active run error = %v", err)
+	if err := client.AbortSession(context.Background(), created.ID, activeTurnID); err != nil {
+		t.Fatalf("AbortSession() active turn error = %v", err)
 	}
 	providers.mu.Lock()
 	providers.block = nil
 	providers.mu.Unlock()
 	activeDeadline := time.Now().Add(5 * time.Second)
 	for {
-		active, err = client.GetRun(context.Background(), created.ID, activeRunID)
+		active, err = client.GetTurn(context.Background(), created.ID, activeTurnID)
 		if err != nil {
-			t.Fatalf("GetRun() aborted active run error = %v", err)
+			t.Fatalf("GetTurn() aborted active turn error = %v", err)
 		}
-		if active.Status == protocol.RunStatusAborted {
+		if active.Status == protocol.TurnStatusAborted {
 			close(block)
 			break
 		}
 		if time.Now().After(activeDeadline) {
-			t.Fatalf("active run did not abort: %+v", active)
+			t.Fatalf("active turn did not abort: %+v", active)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -862,15 +862,15 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	}
 	commandDeadline := time.Now().Add(5 * time.Second)
 	for {
-		commandRun, runErr := client.GetRun(context.Background(), created.ID, commandReservation.RunID)
-		if runErr != nil {
-			t.Fatal(runErr)
+		commandTurn, turnErr := client.GetTurn(context.Background(), created.ID, commandReservation.TurnID)
+		if turnErr != nil {
+			t.Fatal(turnErr)
 		}
-		if commandRun.Status == protocol.RunStatusCompleted {
+		if commandTurn.Status == protocol.TurnStatusCompleted {
 			break
 		}
 		if time.Now().After(commandDeadline) {
-			t.Fatalf("prompt command did not complete: %+v", commandRun)
+			t.Fatalf("prompt command did not complete: %+v", commandTurn)
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
@@ -1014,9 +1014,9 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 			t.Fatalf("temporary session appeared in saved directory: %+v", sessions)
 		}
 	}
-	temporaryOutcome, err := client.RunPrompt(context.Background(), temporaryID, "temporary")
-	if err != nil || temporaryOutcome.Status != protocol.RunStatusCompleted {
-		t.Fatalf("RunPrompt(temporary) = %+v, %v", temporaryOutcome, err)
+	temporaryOutcome, err := client.Prompt(context.Background(), temporaryID, "temporary")
+	if err != nil || temporaryOutcome.Status != protocol.TurnStatusCompleted {
+		t.Fatalf("Prompt(temporary) = %+v, %v", temporaryOutcome, err)
 	}
 	if matches, err := filepath.Glob(filepath.Join(paths.Droids, temporaryID+".db*")); err != nil || len(matches) != 0 {
 		t.Fatalf("temporary droid files = %v, %v", matches, err)
@@ -1091,7 +1091,7 @@ func TestLocalSessionClientRunsPersistedDroidsPrompt(t *testing.T) {
 	if reopened.Session.Model != "test/echo-alt" || reopened.Session.ThinkingLevel != "off" || reopened.Session.ConfigurationRevision != configured.Session.ConfigurationRevision {
 		t.Fatalf("reopened protocol configuration = %+v", reopened.Session)
 	}
-	if _, err := client.RunPrompt(context.Background(), created.ID, "after daemon restart"); err != nil {
+	if _, err := client.Prompt(context.Background(), created.ID, "after daemon restart"); err != nil {
 		t.Fatal(err)
 	}
 	restartStopContext, cancelRestartStop := context.WithTimeout(context.Background(), 5*time.Second)

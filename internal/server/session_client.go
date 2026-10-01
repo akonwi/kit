@@ -869,66 +869,66 @@ func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protoc
 }
 
 // StartPrompt admits a droid-owned turn and returns its canonical identity.
-func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.RunReservation, error) {
+func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (protocol.TurnReservation, error) {
 	return c.StartPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
 }
 
-func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.RunReservation, error) {
+func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
-	var output protocol.RunReservation
+	var output protocol.TurnReservation
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
-		return protocol.RunReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
+	if output.SessionID != sessionID || output.TurnID == "" {
+		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
 	}
 	return output, nil
 }
 
 // StartPromptCommand expands and admits one discovered prompt command.
-func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.RunReservation, error) {
+func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	if err := input.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate prompt command request: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate prompt command request: %w", err)
 	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt-commands"
-	var output protocol.RunReservation
+	var output protocol.TurnReservation
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
-		return protocol.RunReservation{}, err
+		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
+		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
-		return protocol.RunReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
+	if output.SessionID != sessionID || output.TurnID == "" {
+		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
 	}
 	return output, nil
 }
 
-// GetRun returns a loaded droid turn's transient protocol projection.
-func (c *Client) GetRun(ctx context.Context, sessionID, runID string) (protocol.RunInfo, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID)
-	var output protocol.RunInfo
+// GetTurn returns a loaded droid turn's transient protocol projection.
+func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (protocol.TurnInfo, error) {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/" + url.PathEscape(turnID)
+	var output protocol.TurnInfo
 	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
-		return protocol.RunInfo{}, err
+		return protocol.TurnInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RunInfo{}, fmt.Errorf("validate daemon run response: %w", err)
+		return protocol.TurnInfo{}, fmt.Errorf("validate daemon turn response: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != runID {
-		return protocol.RunInfo{}, fmt.Errorf("daemon run response identity mismatch")
+	if output.SessionID != sessionID || output.TurnID != turnID {
+		return protocol.TurnInfo{}, fmt.Errorf("daemon turn response identity mismatch")
 	}
 	return output, nil
 }
 
-// RunPrompt admits and waits for one droid turn.
-func (c *Client) RunPrompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
-	return c.RunPromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
+// Prompt admits and waits for one droid turn.
+func (c *Client) Prompt(ctx context.Context, sessionID, text string) (protocol.PromptOutcome, error) {
+	return c.PromptInput(ctx, sessionID, protocol.PromptInput{Text: text})
 }
 
-func (c *Client) RunPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
+func (c *Client) PromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
 	var output protocol.PromptOutcome
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
@@ -937,7 +937,7 @@ func (c *Client) RunPromptInput(ctx context.Context, sessionID string, input pro
 	if err := output.Validate(); err != nil {
 		return protocol.PromptOutcome{}, fmt.Errorf("validate daemon prompt response: %w", err)
 	}
-	if output.SessionID != sessionID || output.RunID != output.TurnID {
+	if output.SessionID != sessionID || output.TurnID == "" {
 		return protocol.PromptOutcome{}, fmt.Errorf("daemon prompt response identity mismatch")
 	}
 	return output, nil
@@ -987,9 +987,9 @@ func (c *Client) RespondInteraction(ctx context.Context, sessionID string, respo
 	return c.sessionJSON(ctx, http.MethodPost, path, response, http.StatusOK, nil)
 }
 
-// AbortSession requests cancellation of a loaded session's active run.
-func (c *Client) AbortSession(ctx context.Context, sessionID, runID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/runs/" + url.PathEscape(runID) + "/abort"
+// AbortSession requests cancellation of a loaded session's active turn.
+func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) error {
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/" + url.PathEscape(turnID) + "/abort"
 	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
 }
 
