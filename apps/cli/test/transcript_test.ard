@@ -1,11 +1,12 @@
 use ard/testing
 
 use go:github.com/akonwi/kit/internal/protocol
+use go:kit/ffi/sessionbridge
 use kit/tui/transcript
 
 // Numbers events 1, 2, 3, … in order, as one server stream would.
-fn sequenced(events: [protocol::SessionEvent]) [protocol::SessionEvent] {
-  let numbered = mut List::new<protocol::SessionEvent>()
+fn sequenced(events: [sessionbridge::Event]) [sessionbridge::Event] {
+  let numbered = mut List::new<sessionbridge::Event>()
   mut next: Int64 = 1
   for event in events {
     let copy = mut event
@@ -16,17 +17,13 @@ fn sequenced(events: [protocol::SessionEvent]) [protocol::SessionEvent] {
   numbered.@
 }
 
-fn event(kind: protocol::SessionEventKind) protocol::SessionEvent {
-  protocol::SessionEvent{
-    Kind: kind,
-    TurnID: "turn-1",
-    RunID: "run-1",
-  }
+fn event(kind: Str) sessionbridge::Event {
+  sessionbridge::Event{Kind: kind, TurnID: "turn-1"}
 }
 
-fn text_delta(delta: Str) protocol::SessionEvent {
-  protocol::SessionEvent{
-    Kind: protocol::SessionEventAssistantTextDelta,
+fn text_delta(delta: Str) sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "assistant.text.delta",
     TurnID: "turn-1",
     MessageID: "assistant-1",
     ContentIndex: 0,
@@ -34,9 +31,9 @@ fn text_delta(delta: Str) protocol::SessionEvent {
   }
 }
 
-fn assistant_started() protocol::SessionEvent {
-  protocol::SessionEvent{
-    Kind: protocol::SessionEventAssistantStarted,
+fn assistant_started() sessionbridge::Event {
+  sessionbridge::Event{
+    Kind: "assistant.started",
     TurnID: "turn-1",
     MessageID: "assistant-1",
   }
@@ -63,22 +60,22 @@ test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
   try testing::assert(live.activity == "Working…", "submission shows activity")
   let stream = sequenced(
     [
-      event(protocol::SessionEventRunStarted),
-      protocol::SessionEvent{
-        Kind: protocol::SessionEventUserMessage,
+      event("turn.started"),
+      sessionbridge::Event{
+        Kind: "user.message.added",
         TurnID: "turn-1",
         Text: "hi",
       },
       assistant_started(),
       text_delta("Hel"),
       text_delta("lo"),
-      protocol::SessionEvent{
-        Kind: protocol::SessionEventAssistantCompleted,
+      sessionbridge::Event{
+        Kind: "assistant.completed",
         TurnID: "turn-1",
         MessageID: "assistant-1",
         Text: "Hello!",
       },
-      event(protocol::SessionEventRunFinished),
+      event("turn.completed"),
     ],
   )
   let _ = live.apply(stream.slice(end: 5).expect("streaming prefix").to_list())
@@ -108,8 +105,8 @@ test fn replayed_events_are_ignored() Void!Str {
 
 test fn streamed_thinking_shows_its_latest_line_as_activity() Void!Str {
   let live = mut transcript::live()
-  let thinking = protocol::SessionEvent{
-    Kind: protocol::SessionEventThinkingDelta,
+  let thinking = sessionbridge::Event{
+    Kind: "assistant.thinking.delta",
     TurnID: "turn-1",
     MessageID: "assistant-1",
     ContentIndex: 0,
@@ -129,26 +126,26 @@ test fn tools_attach_to_their_turn_and_unrun_plans_settle_at_run_end() Void!Str 
   let _ = live.apply(
     sequenced(
       [
-        protocol::SessionEvent{
-          Kind: protocol::SessionEventToolPlanned,
+        sessionbridge::Event{
+          Kind: "tool.planned",
           TurnID: "turn-1",
           ToolCallID: "call-1",
           ToolName: "read",
         },
-        protocol::SessionEvent{
-          Kind: protocol::SessionEventToolPlanned,
+        sessionbridge::Event{
+          Kind: "tool.planned",
           TurnID: "turn-1",
           ToolCallID: "call-2",
           ToolName: "bash",
         },
-        protocol::SessionEvent{
-          Kind: protocol::SessionEventToolCompleted,
+        sessionbridge::Event{
+          Kind: "tool.completed",
           TurnID: "turn-1",
           ToolCallID: "call-1",
           ToolName: "read",
-          Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "file body"}],
+          Content: [sessionbridge::Content{Kind: "text", Text: "file body"}],
         },
-        event(protocol::SessionEventRunFinished),
+        event("turn.completed"),
       ],
     ),
   )
@@ -177,7 +174,7 @@ test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
       protocol::TranscriptMessage{
         ID: "user-1",
         Role: "user",
-        Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "question"}],
+        Content: [protocol::TextBlock("question")],
       },
       protocol::TranscriptMessage{
         ID: "failed",

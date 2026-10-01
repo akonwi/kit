@@ -469,13 +469,13 @@ func executePrint(
 			fmt.Fprintln(stderr, "kit: prompt timed out")
 			return 1
 		}
-		fmt.Fprintf(stderr, "kit: run prompt: %v\n", err)
+		fmt.Fprintf(stderr, "kit: turn prompt: %v\n", err)
 		return 1
 	}
-	if outcome.Status != protocol.RunStatusCompleted {
+	if outcome.Status != protocol.TurnStatusCompleted {
 		message := outcome.ErrorMessage
 		if message == "" {
-			message = "agent run " + string(outcome.Status)
+			message = "agent turn " + string(outcome.Status)
 		}
 		fmt.Fprintf(stderr, "kit: %s\n", message)
 		return 1

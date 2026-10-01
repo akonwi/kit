@@ -1479,7 +1479,7 @@ impl Shell {
     self.phase = Phase::ready
     self.apply_snapshot(attached.snapshot)
     self.watch()
-    self.follow_run(attached.snapshot.ActiveRunID)
+    self.follow_run(attached.snapshot.ActiveTurnID)
   }
 
   // Replaces the transcript with a server snapshot unless live events have
@@ -1521,9 +1521,9 @@ impl Shell {
                           match updates.recv() {
                             batch => {
                               for event in batch {
-                                let kind = transcript::classify(event.Kind)
+                                let kind = transcript::classify(event.Kind().to_str())
                                 if kind == transcript::Event::run_started {
-                                  let run_id = event.RunID
+                                  let run_id = event.TurnID
                                   let _ = dispatch(fn() {
                                     self.follow_run(run_id)
                                   })
@@ -1612,7 +1612,7 @@ impl Shell {
   fn mut apply_events(run_id: Str, batch: [protocol::SessionEvent]) {
     if run_id == self.run_id {
       // A transcript pinned to its end follows new content on its own.
-      let _ = self.live.apply(batch)
+      let _ = self.live.apply(sessionbridge::Events(mut batch))
       if self.live.context_window > 0 {
         self.context_tokens = self.live.context_tokens
         self.context_window = self.live.context_window

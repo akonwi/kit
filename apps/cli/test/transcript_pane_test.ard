@@ -53,7 +53,7 @@ fn replies(count: Int) [transcript::Message] {
       protocol::TranscriptMessage{
         ID: "reply-{index}",
         Role: "assistant",
-        Content: [protocol::TranscriptContent{Kind: protocol::TranscriptContentText, Text: "reply {index}"}],
+        Content: [protocol::TextBlock("reply {index}")],
       },
     )
     index =+ 1

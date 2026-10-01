@@ -1,4 +1,5 @@
 use go:github.com/akonwi/kit/internal/protocol
+use go:kit/ffi/sessionbridge
 use go:strings
 
 // The transcript model: messages projected from session snapshots plus the
@@ -63,25 +64,24 @@ enum Event {
   other,
 }
 
-fn classify(kind: protocol::SessionEventKind) Event {
-  match {
-    kind == protocol::SessionEventRunStarted => Event::run_started,
-    kind == protocol::SessionEventUserMessage => Event::user_message,
-    kind == protocol::SessionEventAssistantStarted => Event::assistant_started,
-    kind == protocol::SessionEventAssistantTextDelta => Event::text_delta,
-    kind == protocol::SessionEventThinkingDelta => Event::thinking_delta,
-    kind == protocol::SessionEventAssistantCompleted => Event::assistant_completed,
-    kind == protocol::SessionEventToolPlanned => Event::tool_planned,
-    kind == protocol::SessionEventToolStarted => Event::tool_started,
-    kind == protocol::SessionEventToolUpdated => Event::tool_updated,
-    kind == protocol::SessionEventToolCompleted => Event::tool_completed,
-    kind == protocol::SessionEventCompactionStarted => Event::compaction_started,
-    kind == protocol::SessionEventCompactionCompleted => Event::compaction_finished,
-    kind == protocol::SessionEventCompactionFailed => Event::compaction_finished,
-    kind == protocol::SessionEventProviderRetryScheduled => Event::retry_scheduled,
-    kind == protocol::SessionEventProviderRetryStarted => Event::retry_started,
-    kind == protocol::SessionEventContextUpdated => Event::context_updated,
-    kind == protocol::SessionEventRunFinished => Event::run_finished,
+fn classify(kind: Str) Event {
+  match kind {
+    "turn.started" => Event::run_started,
+    "user.message.added" => Event::user_message,
+    "assistant.started" => Event::assistant_started,
+    "assistant.text.delta" => Event::text_delta,
+    "assistant.thinking.delta" => Event::thinking_delta,
+    "assistant.completed" => Event::assistant_completed,
+    "tool.planned" => Event::tool_planned,
+    "tool.started" => Event::tool_started,
+    "tool.output.delta" => Event::tool_updated,
+    "tool.completed" => Event::tool_completed,
+    "compaction.started" => Event::compaction_started,
+    "compaction.completed" => Event::compaction_finished,
+    "provider.retry.scheduled" => Event::retry_scheduled,
+    "provider.retry.started" => Event::retry_started,
+    "context.changed" => Event::context_updated,
+    "turn.completed" => Event::run_finished,
     _ => Event::other,
   }
 }
@@ -118,23 +118,21 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
 // messages with no displayable content.
 fn project(messages: [protocol::TranscriptMessage]) [Message] {
   let result = mut List::new<Message>()
-  for source in messages {
+  for source in sessionbridge::Messages(mut messages) {
     let text_parts = mut List::new<Str>()
     let thinking_parts = mut List::new<Str>()
     let calls = mut List::new<ToolCall>()
     for block in source.Content {
       match {
-        block.Kind == protocol::TranscriptContentText => text_parts.push(block.Text),
-        block.Kind == protocol::TranscriptContentThinking => thinking_parts.push(block.Text),
-        block.Kind == protocol::TranscriptContentToolCall => {
-          calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName})
-        },
-        block.Kind == protocol::TranscriptContentImage => {
+        block.Kind == "text" => text_parts.push(block.Text),
+        block.Kind == "thinking" => thinking_parts.push(block.Text),
+        block.Kind == "toolCall" => calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName}),
+        block.Kind == "image" => {
           if block.AttachmentID == "" {
             text_parts.push("[image]")
           }
         },
-        block.Kind == protocol::TranscriptContentFile => text_parts.push("[file: {block.Filename}]"),
+        block.Kind == "file" => text_parts.push("[file: {block.Filename}]"),
         _ => (),
       }
     }
@@ -208,13 +206,13 @@ fn live() Live {
 }
 
 // The text of a tool result's content blocks.
-fn content_text(content: [protocol::TranscriptContent]) Str {
+fn content_text(content: [sessionbridge::Content]) Str {
   let parts = mut List::new<Str>()
   for block in content {
     match {
-      block.Kind == protocol::TranscriptContentText => parts.push(block.Text),
-      block.Kind == protocol::TranscriptContentImage => parts.push("[image]"),
-      block.Kind == protocol::TranscriptContentFile => parts.push("[file: {block.Filename}]"),
+      block.Kind == "text" => parts.push(block.Text),
+      block.Kind == "image" => parts.push("[image]"),
+      block.Kind == "file" => parts.push("[file: {block.Filename}]"),
       _ => (),
     }
   }
@@ -373,7 +371,7 @@ impl Live {
 
   // Records a tool call on its assistant message, creating one when the call
   // arrives before any assistant content for the turn.
-  private fn mut ensure_tool_call(event: protocol::SessionEvent) {
+  private fn mut ensure_tool_call(event: sessionbridge::Event) {
     mut known = false
     for current in self.messages {
       if current.role == Role::assistant and current.turn_id == event.TurnID {
@@ -420,7 +418,7 @@ impl Live {
   // added or reshaped, which asks a view pinned to the end to follow. Streamed
   // assistant text does not request a follow by itself. Events at or before
   // the last applied sequence are ignored, so replayed batches are harmless.
-  fn mut apply(events: [protocol::SessionEvent]) Bool {
+  fn mut apply(events: [sessionbridge::Event]) Bool {
     mut changed = false
     for event in events {
       if event.Sequence > self.sequence {
@@ -436,7 +434,7 @@ impl Live {
     changed
   }
 
-  private fn mut apply_one(event: protocol::SessionEvent) Bool {
+  private fn mut apply_one(event: sessionbridge::Event) Bool {
     match classify(event.Kind) {
       Event::run_started => {
         self.thinking = ""
@@ -590,7 +588,7 @@ impl Live {
     }
   }
 
-  private fn mut delta(event: protocol::SessionEvent, thinking: Bool) Bool {
+  private fn mut delta(event: sessionbridge::Event, thinking: Bool) Bool {
     let index = self.ensure_assistant(event.MessageID, event.TurnID)
     let existing = self.content.get(event.ContentIndex)
     let compatible = match existing {
@@ -622,7 +620,7 @@ impl Live {
     }
   }
 
-  private fn mut tool_scheduled(event: protocol::SessionEvent, state: ToolState) Bool {
+  private fn mut tool_scheduled(event: sessionbridge::Event, state: ToolState) Bool {
     self.thinking = ""
     self.activity = "Working…"
     self.ensure_tool_call(event)
