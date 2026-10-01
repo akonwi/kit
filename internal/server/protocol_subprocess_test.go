@@ -36,6 +36,9 @@ func TestSubprocessProtocol42ReleaseGate(t *testing.T) {
 // from the same source in both directions, including attachment during work.
 // The pinned-revision matrix separately checks source-level skew.
 func TestSubprocessProtocol42StableSkew(t *testing.T) {
+	if version.SessionProtocolVersion != 42 {
+		t.Skip("protocol 43 intentionally breaks the protocol-42 release compatibility promise")
+	}
 	if testing.Short() {
 		t.Skip("skipping subprocess builds in short mode")
 	}
