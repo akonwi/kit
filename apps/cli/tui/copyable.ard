@@ -1,0 +1,66 @@
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/theme
+
+// Value presents safe, selectable text with an adjacent copy icon action.
+struct ValueProps {
+  themes: theme::Context,
+  value: Str,
+}
+
+struct Value {
+  props: mut ValueProps,
+  context: cui::Context?,
+}
+
+// value renders a safe copyable value. Never use it for submitted secrets.
+fn value(themes: theme::Context, text: Str) cui::View {
+  cui::child(new, ValueProps{themes: themes, value: text})
+}
+
+private fn new(props: mut ValueProps) mut Value {
+  (mut Value{props: props, context: Maybe::new<cui::Context>()})
+}
+
+impl cui::Lifecycle for Value {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Value {
+  fn mut copy() Bool {
+    match self.context {
+      ctx => {
+        ctx.copy(self.props.value)
+        true
+      },
+      _ => false,
+    }
+  }
+}
+
+impl cui::Component for Value {
+  fn mut render() cui::View {
+    let command = keymap::simple_command("copyable.copy", "Copy value", fn() Bool {
+      self.copy()
+    })
+    cui::box(
+      [
+        cui::text(self.props.value),
+        controls::button(
+          self.props.themes,
+          "⧉",
+          command,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+        ),
+      ],
+      styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+    )
+  }
+}
