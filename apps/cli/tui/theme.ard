@@ -38,6 +38,41 @@ struct Rgb {
   b: Int,
 }
 
+// Store is the client-wide owner of Kit's resolved semantic theme.
+struct Store {
+  value: Theme,
+  revision: Int,
+}
+
+// Context is the render-facing handle for the shared Store. It is deliberately
+// shaped as the future value of a Cooper dependency provider.
+struct Context {
+  store: mut Store,
+}
+
+fn store(initial: Theme) mut Store {
+  (mut Store{value: initial, revision: 0})
+}
+
+fn context(shared: mut Store) Context {
+  Context{store: shared}
+}
+
+impl Context {
+  fn current() Theme {
+    self.store.value
+  }
+
+  fn revision() Int {
+    self.store.revision
+  }
+
+  fn mut replace(next: Theme) {
+    self.store.value = next
+    self.store.revision =+ 1
+  }
+}
+
 private fn rgb(r: Int, g: Int, b: Int) Rgb {
   Rgb{
     r: r,

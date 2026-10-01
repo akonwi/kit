@@ -33,7 +33,8 @@ struct Dialog {
 
 // dialog renders a transparent input barrier and one bounded dialog above it.
 // It is intended as a root-shell child, so its absolute layer fills the viewport.
-fn dialog(colors: theme::Theme, spec: Dialog) cui::View {
+fn dialog(themes: theme::Context, spec: Dialog) cui::View {
+  let colors = themes.current()
   cui::box(
     [
       cui::box(

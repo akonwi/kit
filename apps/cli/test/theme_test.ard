@@ -50,6 +50,16 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
 
+test fn shared_theme_context_updates_one_store_and_revision() Void!Str {
+  let shared = theme::store(theme::system())
+  let first = mut theme::context(shared)
+  let second = theme::context(shared)
+  let next = theme::resolve(kittheme::Definition{}, dark())
+  first.replace(next)
+  try testing::assert(second.revision() == 1, "theme revision is shared")
+  check("shared primary", second.current().primary, next.primary)
+}
+
 test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
   let tokens = mut Map::new<kittheme::Color>()
   tokens.set(

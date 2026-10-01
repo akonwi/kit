@@ -26,6 +26,7 @@ struct Props {
   model: mut Model,
   catalog: [palette::Item],
   height: Int,
+  themes: theme::Context,
 }
 
 struct Host {
@@ -41,7 +42,7 @@ impl cui::Component for Host {
   fn mut render() cui::View {
     let model = self.props.model
     let picker = palette::Props{
-      colors: theme::system(),
+      themes: self.props.themes,
       placeholder: "Search providers…",
       catalog: self.props.catalog,
       query: model.query,
@@ -55,7 +56,7 @@ impl cui::Component for Host {
         let next = palette::first_enabled(
           palette::items(
             palette::Props{
-              colors: theme::system(),
+              themes: self.props.themes,
               placeholder: "",
               catalog: self.props.catalog,
               query: query,
@@ -131,7 +132,7 @@ impl Host {
       on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
         let visible = palette::items(
           palette::Props{
-            colors: theme::system(),
+            themes: self.props.themes,
             placeholder: "",
             catalog: catalog,
             query: model.query,
@@ -217,6 +218,7 @@ fn mount(terminal: headless::TestApp, model: mut Model, height: Int) cui::Render
         model: model,
         catalog: catalog(),
         height: height,
+        themes: theme::context(theme::store(theme::system())),
       },
     ),
   )

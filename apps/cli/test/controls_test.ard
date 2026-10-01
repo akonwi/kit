@@ -15,14 +15,16 @@ struct Model {
 
 struct Props {
   model: mut Model,
+  themes: theme::Context,
 }
 
 struct Host {
   model: mut Model,
+  themes: theme::Context,
 }
 
 fn host(props: mut Props) mut Host {
-  (mut Host{model: props.model})
+  (mut Host{model: props.model, themes: props.themes})
 }
 
 impl cui::Component for Host {
@@ -33,16 +35,16 @@ impl cui::Component for Host {
     })
     cui::box(
       [
-        controls::button(theme::system(), "Act", action, styles: ui::style(width: ui::cells(10))),
+        controls::button(self.themes, "Act", action, styles: ui::style(width: ui::cells(10))),
         controls::button(
-          theme::system(),
+          self.themes,
           "Alt",
           action,
           variant: controls::ButtonVariant::secondary,
           styles: ui::style(width: ui::cells(10)),
         ),
         controls::button(
-          theme::system(),
+          self.themes,
           "Delete",
           action,
           variant: controls::ButtonVariant::danger,
@@ -70,7 +72,8 @@ test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{presses: 0}
-  let renderer = cui::mount(app, cui::child(host, Props{model: model}))
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(host, Props{model: model, themes: themes}))
   defer renderer.destroy()
   terminal.flush()
   let colors = theme::system()

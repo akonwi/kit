@@ -59,7 +59,7 @@ fn mount_signed_out(terminal: headless::TestApp, quits: mut Quits) cui::Renderer
       CWD: "/private/tmp",
       Location: "/private/tmp",
     },
-    theme: theme::system(),
+    themes: theme::context(theme::store(theme::system())),
     quit: fn() {
       quits.count =+ 1
     },
