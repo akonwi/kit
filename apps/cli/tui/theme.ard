@@ -22,6 +22,10 @@ struct Theme {
   primary: ui::Color,
   primary_hovered: ui::Color,
   primary_pressed: ui::Color,
+  // Picker rows tint this focus color over the resolved terminal background.
+  picker_selected: ui::Color,
+  picker_hovered: ui::Color,
+  picker_disabled: ui::Color,
   danger: ui::Color,
   // Surface colors used for turn washes and raised controls.
   surface: ui::Color,
@@ -160,6 +164,9 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     primary: to_ui(primary),
     primary_hovered: to_ui(primary_hovered),
     primary_pressed: to_ui(primary_pressed),
+    picker_selected: to_ui(tint(backdrop, primary, 0.20)),
+    picker_hovered: to_ui(tint(backdrop, primary, 0.08)),
+    picker_disabled: to_ui(tint(backdrop, primary, 0.10)),
     danger: to_ui(danger),
     surface: to_ui(surface),
     surface_raised: color(tokens, kittheme::TokenPickerBackground, from_ui(base.surface_raised), backdrop),

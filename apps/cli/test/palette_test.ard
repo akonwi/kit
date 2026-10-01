@@ -298,6 +298,32 @@ test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
   testing::pass()
 }
 
+test fn selected_picker_rows_use_the_vaxis_focus_tint() Void!Str {
+  let terminal = headless::new(40, 12)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 12)
+  defer renderer.destroy()
+  terminal.flush()
+  let actual = terminal.frame().cell(
+    2,
+    2,
+  ).expect("selected alpha row").style.background.expect("selected fill")
+  let expected = theme::system().picker_selected
+  testing::assert(
+    actual.red == expected.red and actual.green == expected.green and actual.blue == expected.blue,
+    "selected fill rgb({actual.red}, {actual.green}, {actual.blue}), expected vaxis picker tint rgb({expected.red}, {expected.green}, {expected.blue})",
+  )
+}
+
 test fn navigation_wraps_and_pointer_selection_activates() Void!Str {
   let terminal = headless::new(40, 12)
   defer terminal.destroy()

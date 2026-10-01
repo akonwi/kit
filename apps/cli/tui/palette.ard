@@ -264,14 +264,16 @@ private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)
 private fn row(props: Props, item: Item) cui::View {
   let active = item.key == props.selection
   let hovered = item.key == props.hovered
+  let colors = props.themes.current()
   let fill = match {
-    active => props.themes.current().surface_hovered,
-    hovered and item.disabled_reason == "" => props.themes.current().surface_hovered,
-    _ => props.themes.current().background,
+    active and item.disabled_reason != "" => colors.picker_disabled,
+    active => colors.picker_selected,
+    hovered and item.disabled_reason == "" => colors.picker_hovered,
+    _ => colors.background,
   }
   let label_color = match item.disabled_reason != "" {
-    true => props.themes.current().disabled,
-    false => props.themes.current().foreground,
+    true => colors.disabled,
+    false => colors.foreground,
   }
   let description = match item.disabled_reason == "" {
     true => item.description,
@@ -285,7 +287,7 @@ private fn row(props: Props, item: Item) cui::View {
           true => "▌",
           false => " ",
         },
-        text_style: ui::text_style(foreground: props.themes.current().primary),
+        text_style: ui::text_style(foreground: colors.primary),
       ),
       cui::box(
         [
@@ -300,7 +302,7 @@ private fn row(props: Props, item: Item) cui::View {
       ),
       cui::text(
         description,
-        text_style: ui::text_style(foreground: props.themes.current().muted),
+        text_style: ui::text_style(foreground: colors.muted),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
       ),
