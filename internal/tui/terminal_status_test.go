@@ -244,7 +244,7 @@ func TestAppTerminalStatusUsesAttachedSessionAndFeedbackPrecedence(t *testing.T)
 	var titles []string
 	reporter := &terminalStatusReporter{}
 	state := appState{
-		phase: phaseReady, runPending: true, terminalRunActive: true,
+		phase: phaseReady, turnPending: true, terminalTurnActive: true,
 		session:        protocol.SessionInfo{Name: "Status work", CWD: "/work/kit"},
 		terminalStatus: reporter,
 	}

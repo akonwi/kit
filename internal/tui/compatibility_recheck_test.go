@@ -57,7 +57,7 @@ func TestQueuedRunUpdateCannotChangeFrozenTranscript(t *testing.T) {
 	case <-time.After(3 * time.Second):
 		t.Fatal("run watcher did not connect")
 	}
-	updates <- []protocol.SessionEvent{{Sequence: 5, Payload: protocol.UsageUpdatedEvent{}}}
+	updates <- []protocol.SessionEvent{{Sequence: 5, Payload: protocol.UsageChangedEvent{}}}
 	stale := receiveAbortCompletion(t, state)
 	state.reportDaemonMismatch(state.Context().Runtime(), session, state.operation, &kitserver.APIError{StatusCode: 426, Message: "upgrade required"})
 	freeze := receiveAbortCompletion(t, state)

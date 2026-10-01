@@ -88,12 +88,12 @@ func (s *reconnectLookupSession) Stream(context.Context, string) (sessionclient.
 	return abortTestStream{updates: updates}, nil
 }
 
-func (s *reconnectLookupSession) Run(_ context.Context, id string) (protocol.RunInfo, error) {
+func (s *reconnectLookupSession) Turn(_ context.Context, id string) (protocol.TurnInfo, error) {
 	select {
 	case s.lookup <- id:
 	default:
 	}
-	return protocol.RunInfo{RunID: id, Status: protocol.RunStatusRunning}, nil
+	return protocol.TurnInfo{TurnID: id, Status: protocol.TurnStatusRunning}, nil
 }
 
 func TestReplacementRunWatcherClearsStaleRecovery(t *testing.T) {
@@ -101,7 +101,7 @@ func TestReplacementRunWatcherClearsStaleRecovery(t *testing.T) {
 	session := &reconnectLookupSession{fakeSession: fakeSession{id: state.session.ID}, lookup: make(chan string, 2)}
 	state.bound = session
 	state.recovery = footerReconnectingActivity
-	state.watchSession(session, state.operation, state.activeRunID)
+	state.watchSession(session, state.operation, state.activeTurnID)
 	select {
 	case id := <-session.lookup:
 		if id != "run_abort" {
@@ -112,8 +112,8 @@ func TestReplacementRunWatcherClearsStaleRecovery(t *testing.T) {
 	}
 	receiveAbortCompletion(t, state)()
 	application.Pump(120, 36)
-	if state.recovery != footerHealthy || !state.runPending {
-		t.Fatalf("recovered run: recovery=%v pending=%t", state.recovery, state.runPending)
+	if state.recovery != footerHealthy || !state.turnPending {
+		t.Fatalf("recovered run: recovery=%v pending=%t", state.recovery, state.turnPending)
 	}
 }
 
@@ -124,11 +124,11 @@ type abortTestRun struct {
 
 func (r abortTestRun) Abort(ctx context.Context) error { return r.abort(ctx) }
 
-type runAbortHarness struct{ state *runAbortTestState }
+type turnAbortHarness struct{ state *turnAbortTestState }
 
-func (h runAbortHarness) CreateState() ui.State { return h.state }
+func (h turnAbortHarness) CreateState() ui.State { return h.state }
 
-type runAbortTestState struct {
+type turnAbortTestState struct {
 	appState
 	scroll      ui.ScrollController
 	completions chan func()
@@ -136,18 +136,18 @@ type runAbortTestState struct {
 	cancel      context.CancelFunc
 }
 
-func (*runAbortTestState) InitState()          {}
-func (*runAbortTestState) Dispose()            {}
-func (s *runAbortTestState) dispatch(f func()) { s.completions <- f }
-func (s *runAbortTestState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
+func (*turnAbortTestState) InitState()          {}
+func (*turnAbortTestState) Dispose()            {}
+func (s *turnAbortTestState) dispatch(f func()) { s.completions <- f }
+func (s *turnAbortTestState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
 	return s.appState.HandleEvent(ctx, event)
 }
-func (s *runAbortTestState) Build(ui.BuildContext) ui.Widget {
+func (s *turnAbortTestState) Build(ui.BuildContext) ui.Widget {
 	s.reconcileInputOwner()
 	s.renderedInput = s.inputToken()
 	messages := append(append([]transcriptMessage(nil), s.messages...), s.liveMessages...)
 	return shellView{Snapshot: shellSnapshot{
-		Phase: s.phase, Session: s.session, Messages: messages, Running: s.runPending, AgentRunning: s.runPending,
+		Phase: s.phase, Session: s.session, Messages: messages, Running: s.turnPending, AgentRunning: s.turnPending,
 		TurnActivity: s.presentedTurnActivity(time.Now()), TurnThinking: s.turnThinking,
 		Recovery: s.recovery, Scroll: &s.scroll, Toasts: s.toasts.Snapshot(),
 		PendingInteractions: append([]protocol.InteractionRequest(nil), s.pendingInteractions...),
@@ -158,23 +158,23 @@ func (s *runAbortTestState) Build(ui.BuildContext) ui.Widget {
 	}}
 }
 
-func mountRunAbort(t *testing.T) (*abortTestApp, *runAbortTestState, *abortTestSession) {
+func mountRunAbort(t *testing.T) (*abortTestApp, *turnAbortTestState, *abortTestSession) {
 	t.Helper()
 	ctx, cancel := context.WithCancel(context.Background())
 	t.Cleanup(cancel)
 	session := &abortTestSession{fakeSession: fakeSession{id: "session_abort"}, streams: make(chan string, 4)}
 	session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
 		// Active-turn content is intentionally omitted from bounded snapshots.
-		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveRunID: "run_abort", EventStreamID: "stream", EventCursor: 4}, nil
+		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveTurnID: "run_abort", EventStreamID: "stream", EventCursor: 4}, nil
 	}
-	state := &runAbortTestState{completions: make(chan func(), 8), timeout: time.Second, cancel: cancel, appState: appState{
+	state := &turnAbortTestState{completions: make(chan func(), 8), timeout: time.Second, cancel: cancel, appState: appState{
 		ctx: ctx, attachmentCtx: ctx, phase: phaseReady, session: protocol.SessionInfo{ID: "session_abort", Name: "Abort test", Model: "test/model"},
-		bound: session, runPending: true, activeRunID: "run_abort", turnActivity: "Working…", liveStreamID: "stream", liveSequence: 4,
+		bound: session, turnPending: true, activeTurnID: "run_abort", turnActivity: "Working…", liveStreamID: "stream", liveSequence: 4,
 		messages:     []transcriptMessage{{ID: "old", Role: "assistant", Text: "Retained evidence"}},
 		liveMessages: []transcriptMessage{{ID: "prompt", Role: "user", Text: "Current prompt"}},
 	}}
 	state.showToastOverride = func(input toastInput) { state.SetState(func() { state.storeToast(input) }) }
-	application := newAbortTestApp(t, runAbortHarness{state}, state.dispatch)
+	application := newAbortTestApp(t, turnAbortHarness{state}, state.dispatch)
 	application.Pump(120, 36)
 	column, row := findTextCell(t, toastPainterRows(application.backend.painter), "Ask kit to do something…")
 	application.Click(column, row)
@@ -195,7 +195,7 @@ func pressAbort(application *abortTestApp) {
 	application.Pump(120, 36)
 	application.Pump(120, 36)
 }
-func receiveAbortCompletion(t *testing.T, state *runAbortTestState) func() {
+func receiveAbortCompletion(t *testing.T, state *turnAbortTestState) func() {
 	t.Helper()
 	select {
 	case f := <-state.completions:
@@ -205,7 +205,7 @@ func receiveAbortCompletion(t *testing.T, state *runAbortTestState) func() {
 		return nil
 	}
 }
-func completeAbort(t *testing.T, application *abortTestApp, state *runAbortTestState) {
+func completeAbort(t *testing.T, application *abortTestApp, state *turnAbortTestState) {
 	t.Helper()
 	receiveAbortCompletion(t, state)()
 	application.Pump(120, 36)
@@ -220,7 +220,7 @@ func TestRunAbortFailurePreservesEvidenceAndAllowsEscapeRetry(t *testing.T) {
 			calls := make(chan string, 4)
 			session.abort = func(_ context.Context, id string) error { calls <- id; return errors.New("provider unavailable") }
 			if activeHandle {
-				state.activeRun = abortTestRun{appTestRun: appTestRun{id: "run_abort"}, abort: func(ctx context.Context) error { return session.Abort(ctx, "run_abort") }}
+				state.activeTurn = abortTestRun{appTestRun: appTestRun{id: "run_abort"}, abort: func(ctx context.Context) error { return session.Abort(ctx, "run_abort") }}
 			}
 			pressAbort(application)
 			assertAbortText(t, application, "Stopping…")
@@ -232,8 +232,8 @@ func TestRunAbortFailurePreservesEvidenceAndAllowsEscapeRetry(t *testing.T) {
 			assertAbortText(t, application, "Press Esc to retry")
 			assertAbortText(t, application, "Retained evidence")
 			assertAbortText(t, application, "Current prompt")
-			if len(calls) != 1 || !state.runPending || state.runStopping {
-				t.Fatalf("recovery: calls=%d pending=%t stopping=%t", len(calls), state.runPending, state.runStopping)
+			if len(calls) != 1 || !state.turnPending || state.turnStopping {
+				t.Fatalf("recovery: calls=%d pending=%t stopping=%t", len(calls), state.turnPending, state.turnStopping)
 			}
 			pressAbort(application)
 			completeAbort(t, application, state)
@@ -260,8 +260,8 @@ func TestRunAbortTimeoutAndUnavailableSnapshotPermitRetry(t *testing.T) {
 	assertAbortText(t, application, "Run status is unconfirmed")
 	assertAbortText(t, application, "Retained evidence")
 	assertAbortText(t, application, "Current prompt")
-	if !state.runPending || state.runStopping {
-		t.Fatalf("timeout terminalized the run: %+v", state.appState.activeRunID)
+	if !state.turnPending || state.turnStopping {
+		t.Fatalf("timeout terminalized the run: %+v", state.appState.activeTurnID)
 	}
 	pressAbort(application)
 	completeAbort(t, application, state)
@@ -282,8 +282,8 @@ func TestRunAbortFailureReconcilesTerminalSnapshot(t *testing.T) {
 	assertAbortText(t, application, "Finished response")
 	assertAbortText(t, application, "Retained evidence")
 	assertAbortText(t, application, "Current prompt")
-	if state.runPending || state.runStopping || state.activeRunID != "" || len(state.toasts.Snapshot()) != 0 {
-		t.Fatalf("terminal recovery: pending=%t stopping=%t id=%q toasts=%+v", state.runPending, state.runStopping, state.activeRunID, state.toasts.Snapshot())
+	if state.turnPending || state.turnStopping || state.activeTurnID != "" || len(state.toasts.Snapshot()) != 0 {
+		t.Fatalf("terminal recovery: pending=%t stopping=%t id=%q toasts=%+v", state.turnPending, state.turnStopping, state.activeTurnID, state.toasts.Snapshot())
 	}
 }
 
@@ -298,14 +298,14 @@ func TestRunAbortSuccessWaitsForAuthoritativeTerminalEvent(t *testing.T) {
 		t.Fatal("abort not called")
 	}
 	assertAbortText(t, application, "Stopping…")
-	if !state.runPending {
+	if !state.turnPending {
 		t.Fatal("successful abort RPC prematurely settled run")
 	}
 	state.SetState(func() {
-		state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream", Sequence: 5, RunID: "run_abort", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusAborted}}})
+		state.applyTurnEvents([]protocol.SessionEvent{{StreamID: "stream", Sequence: 5, TurnID: "run_abort", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusAborted}}})
 	})
 	application.Pump(120, 36)
-	if state.runStopping {
+	if state.turnStopping {
 		t.Fatal("terminal event retained stopping state")
 	}
 	assertAbortText(t, application, "Retained evidence")
@@ -322,7 +322,7 @@ func TestRunAbortSuccessWaitsForAuthoritativeTerminalEvent(t *testing.T) {
 	application.Pump(120, 36)
 	assertAbortText(t, application, "Run aborted")
 	assertAbortText(t, application, "Retained evidence")
-	if state.runPending || state.activeRunID != "" {
+	if state.turnPending || state.activeTurnID != "" {
 		t.Fatal("terminal snapshot did not settle the aborted run")
 	}
 }
@@ -342,7 +342,7 @@ func TestRunAbortLateRecoveryDoesNotAffectNewRunOrDisposedApp(t *testing.T) {
 			if tc == "disposed" {
 				state.cancel()
 			} else if tc == "successor" {
-				state.SetState(func() { state.activeRunID = "run_next"; state.turnActivity = "New run stopping…" })
+				state.SetState(func() { state.activeTurnID = "run_next"; state.turnActivity = "New run stopping…" })
 			} else {
 				state.SetState(func() {
 					state.liveSequence = 6
@@ -372,13 +372,13 @@ func TestRunAbortLateRecoveryDoesNotAffectNewRunOrDisposedApp(t *testing.T) {
 
 func TestRunAbortDuringAdmissionIsSentOnceAfterAcceptance(t *testing.T) {
 	application, state, session := mountRunAbort(t)
-	state.runPending = false
-	state.activeRunID = ""
+	state.turnPending = false
+	state.activeTurnID = ""
 	calls := make(chan struct{}, 4)
 	session.abort = func(context.Context, string) error { calls <- struct{}{}; return errors.New("abort rejected") }
 	run := abortTestRun{appTestRun: appTestRun{id: "run_abort"}, abort: func(ctx context.Context) error { return session.Abort(ctx, "run_abort") }}
 	release := make(chan struct{})
-	state.startPromptSubmission("Current prompt", func(ctx context.Context) (sessionclient.Run, error) {
+	state.startPromptSubmission("Current prompt", func(ctx context.Context) (sessionclient.Turn, error) {
 		select {
 		case <-release:
 			return run, nil
@@ -448,7 +448,7 @@ func TestRunAbortRecoveryRestoresSnapshotCompaction(t *testing.T) {
 	application, state, session := mountRunAbort(t)
 	session.abort = func(context.Context, string) error { return errors.New("abort rejected") }
 	session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
-		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveRunID: "run_abort", EventStreamID: "stream", EventCursor: 5, ActiveCompaction: &protocol.ActiveCompaction{ID: "compact", RunID: "run_abort"}}, nil
+		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveTurnID: "run_abort", EventStreamID: "stream", EventCursor: 5, ActiveCompaction: &protocol.ActiveCompaction{ID: "compact", TurnID: "run_abort"}}, nil
 	}
 	pressAbort(application)
 	completeAbort(t, application, state)
@@ -459,13 +459,13 @@ func TestRunAbortRecoveryRestoresSnapshotCompaction(t *testing.T) {
 func TestRunAbortRecoveryAdoptsSuccessorWithoutAbortingIt(t *testing.T) {
 	application, state, session := mountRunAbort(t)
 	oldWatcherCanceled := false
-	state.runWatchID = "run_abort"
-	state.runWatchCancel = func() { oldWatcherCanceled = true }
+	state.turnWatchID = "run_abort"
+	state.turnWatchCancel = func() { oldWatcherCanceled = true }
 	state.prompt = &promptAdmission{}
 	calls := make(chan string, 4)
 	session.abort = func(_ context.Context, id string) error { calls <- id; return errors.New("previous run finished") }
 	session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
-		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveRunID: "run_successor", EventStreamID: "stream", EventCursor: 5, Messages: []protocol.TranscriptMessage{
+		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveTurnID: "run_successor", EventStreamID: "stream", EventCursor: 5, Messages: []protocol.TranscriptMessage{
 			{ID: "old", Role: "assistant", Content: []protocol.TranscriptContent{protocol.TextBlock("Retained evidence")}},
 		}}, nil
 	}
@@ -482,8 +482,8 @@ func TestRunAbortRecoveryAdoptsSuccessorWithoutAbortingIt(t *testing.T) {
 	assertAbortText(t, application, "Working…")
 	assertAbortText(t, application, "Retained evidence")
 	assertAbortText(t, application, "The previous run finished")
-	if state.activeRunID != "run_successor" || state.runStopping || !state.runPending || state.activeRun != nil || state.prompt != nil || !oldWatcherCanceled {
-		t.Fatalf("successor state = %q, pending=%t stopping=%t", state.activeRunID, state.runPending, state.runStopping)
+	if state.activeTurnID != "run_successor" || state.turnStopping || !state.turnPending || state.activeTurn != nil || state.prompt != nil || !oldWatcherCanceled {
+		t.Fatalf("successor state = %q, pending=%t stopping=%t", state.activeTurnID, state.turnPending, state.turnStopping)
 	}
 	if len(calls) != 1 || <-calls != "run_abort" {
 		t.Fatal("recovery aborted the successor")
@@ -496,7 +496,7 @@ func TestRunAbortRecoveryRestoresRetryAndFeedback(t *testing.T) {
 			application, state, session := mountRunAbort(t)
 			session.abort = func(context.Context, string) error { return errors.New("abort rejected") }
 			session.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
-				snapshot := protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveRunID: "run_abort", EventStreamID: "stream", EventCursor: 5}
+				snapshot := protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}, ActiveTurnID: "run_abort", EventStreamID: "stream", EventCursor: 5}
 				if tc == "retry" {
 					snapshot.ProviderRetry = &protocol.ProviderRetry{Count: 2, RetryAt: "2000-01-01T00:00:00Z"}
 				} else {

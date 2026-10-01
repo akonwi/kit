@@ -185,11 +185,11 @@ func TestAttachmentEventStreamIncludesRunLifecycleEvents(t *testing.T) {
 	batch := protocol.SessionEventBatch{
 		StreamID: "stream_test", FirstSequence: 1, LastSequence: 5,
 		Events: []protocol.SessionEvent{
-			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}},
-			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}}},
-			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1}}},
-			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Payload: protocol.AssistantCompletedEvent{MessageID: "message_one"}},
-			{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", TurnID: "run_one", RunID: "run_one", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}},
+			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_one", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning}},
+			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_one", Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}}},
+			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_one", Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1}}},
+			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_one", Payload: protocol.AssistantCompletedEvent{MessageID: "message_one"}},
+			{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", TurnID: "run_one", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}},
 		},
 	}
 	encoded, err := json.Marshal(batch)
@@ -203,7 +203,7 @@ func TestAttachmentEventStreamIncludesRunLifecycleEvents(t *testing.T) {
 	for events := range stream.Updates() {
 		received = append(received, events...)
 	}
-	if len(received) != 5 || received[1].Kind() != protocol.SessionEventProviderRetryScheduled || received[2].Kind() != protocol.SessionEventProviderRetryStarted || received[4].Kind() != protocol.SessionEventRunFinished {
+	if len(received) != 5 || received[1].Kind() != protocol.SessionEventProviderRetryScheduled || received[2].Kind() != protocol.SessionEventProviderRetryStarted || received[4].Kind() != protocol.SessionEventTurnCompleted {
 		t.Fatalf("attachment events = %#v", received)
 	}
 }
@@ -214,12 +214,12 @@ func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	batch := protocol.SessionEventBatch{
 		StreamID: "stream_test", FirstSequence: 1, LastSequence: 6,
 		Events: []protocol.SessionEvent{
-			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_other", RunID: "run_other", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}},
-			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}},
-			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}}},
-			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1}}},
+			{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_other", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning}},
+			{StreamID: "stream_test", Sequence: 2, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning}},
+			{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: "2026-01-02T03:04:05Z"}}},
+			{StreamID: "stream_test", Sequence: 4, SessionID: "session_test", TurnID: "run_test", Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 1}}},
 			{StreamID: "stream_test", Sequence: 5, SessionID: "session_test", Payload: protocol.AnnotationSubmittedEvent{AnnotationIDs: []uint64{9}, AcceptedMessageID: "message_0123456789abcdef0123456789abcdef"}},
-			{StreamID: "stream_test", Sequence: 6, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}},
+			{StreamID: "stream_test", Sequence: 6, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}},
 		},
 	}
 	encoded, err := json.Marshal(batch)
@@ -237,7 +237,7 @@ func TestLocalEventStreamReadsSSEUntilBoundRunFinishes(t *testing.T) {
 	if err := stream.Err(); err != nil {
 		t.Fatalf("event stream error = %v", err)
 	}
-	if len(received) != 5 || received[1].Kind() != protocol.SessionEventProviderRetryScheduled || received[2].Kind() != protocol.SessionEventProviderRetryStarted || received[3].Kind() != protocol.SessionEventAnnotationSubmitted || received[4].Kind() != protocol.SessionEventRunFinished {
+	if len(received) != 5 || received[1].Kind() != protocol.SessionEventProviderRetryScheduled || received[2].Kind() != protocol.SessionEventProviderRetryStarted || received[3].Kind() != protocol.SessionEventAnnotationSubmitted || received[4].Kind() != protocol.SessionEventTurnCompleted {
 		t.Fatalf("received = %+v", received)
 	}
 }
@@ -248,9 +248,9 @@ func TestLocalEventStreamResumesFromSnapshotBaseline(t *testing.T) {
 	batch := protocol.SessionEventBatch{
 		StreamID: "stream_test", FirstSequence: 42, LastSequence: 44,
 		Events: []protocol.SessionEvent{
-			{StreamID: "stream_test", Sequence: 42, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_test", Delta: "continued"}},
-			{StreamID: "stream_test", Sequence: 43, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
-			{StreamID: "stream_test", Sequence: 44, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}},
+			{StreamID: "stream_test", Sequence: 42, SessionID: "session_test", TurnID: "run_test", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_test", Delta: "continued"}},
+			{StreamID: "stream_test", Sequence: 43, SessionID: "session_test", TurnID: "run_test", Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
+			{StreamID: "stream_test", Sequence: 44, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}},
 		},
 	}
 	encoded, err := json.Marshal(batch)
@@ -300,7 +300,7 @@ func TestLocalEventStreamDoesNotAdvanceCursorBeforeDelivery(t *testing.T) {
 	batch := protocol.SessionEventBatch{
 		StreamID: "stream_test", FirstSequence: 1, LastSequence: 1,
 		Events: []protocol.SessionEvent{{
-			StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning},
+			StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning},
 		}},
 	}
 	encoded, err := json.Marshal(batch)
@@ -325,8 +325,8 @@ func TestLocalEventStreamRejectsSequenceGapAcrossRecords(t *testing.T) {
 	t.Parallel()
 
 	batches := []protocol.SessionEventBatch{
-		{StreamID: "stream_test", FirstSequence: 1, LastSequence: 1, Events: []protocol.SessionEvent{{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}}}},
-		{StreamID: "stream_test", FirstSequence: 3, LastSequence: 3, Events: []protocol.SessionEvent{{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", RunID: "run_test", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}}}},
+		{StreamID: "stream_test", FirstSequence: 1, LastSequence: 1, Events: []protocol.SessionEvent{{StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning}}}},
+		{StreamID: "stream_test", FirstSequence: 3, LastSequence: 3, Events: []protocol.SessionEvent{{StreamID: "stream_test", Sequence: 3, SessionID: "session_test", TurnID: "run_test", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}}}},
 	}
 	var payload strings.Builder
 	for _, batch := range batches {

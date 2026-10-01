@@ -20,17 +20,17 @@ import (
 
 func TestRecoveredRunStatusClearsOnlyOnFreshEvidence(t *testing.T) {
 	t.Parallel()
-	state := appState{recovery: footerReconnectingActivity, liveSequence: 7, runPending: true}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 7, Payload: protocol.UsageUpdatedEvent{}}})
+	state := appState{recovery: footerReconnectingActivity, liveSequence: 7, turnPending: true}
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 7, Payload: protocol.UsageChangedEvent{}}})
 	if state.recovery != footerReconnectingActivity {
 		t.Fatalf("stale event changed recovery to %v", state.recovery)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 8, Payload: protocol.UsageUpdatedEvent{}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 8, Payload: protocol.UsageChangedEvent{}}})
 	if state.recovery != footerHealthy {
 		t.Fatalf("fresh event left recovery at %v", state.recovery)
 	}
 	state.recovery = footerSyncingFinalTranscript
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 9, Payload: protocol.UsageUpdatedEvent{}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 9, Payload: protocol.UsageChangedEvent{}}})
 	if state.recovery != footerSyncingFinalTranscript {
 		t.Fatalf("run event cleared transcript sync: %v", state.recovery)
 	}
@@ -46,7 +46,7 @@ func TestTerminalMismatchPausesSubmissionsWithoutDroppingDraft(t *testing.T) {
 	}
 	receiveAbortCompletion(t, state)()
 	application.Pump(120, 36)
-	state.startPromptSubmission("keep my draft", func(context.Context) (sessionclient.Run, error) {
+	state.startPromptSubmission("keep my draft", func(context.Context) (sessionclient.Turn, error) {
 		t.Fatal("started a prompt while daemon is incompatible")
 		return nil, nil
 	})
@@ -104,12 +104,12 @@ func TestActiveRunAdmissionGuardPreservesDraftAndShowsInformationalToast(t *test
 	_, state, _ := mountRunAbort(t)
 	state.recovery = footerReconnectingActivity
 	state.composer = "another prompt"
-	state.startPromptSubmission("another prompt", func(context.Context) (sessionclient.Run, error) {
+	state.startPromptSubmission("another prompt", func(context.Context) (sessionclient.Turn, error) {
 		t.Fatal("submitted a prompt during an active run")
 		return nil, nil
 	})
-	if state.recovery != footerReconnectingActivity || state.composer != "another prompt" || !state.runPending {
-		t.Fatalf("active run guard: recovery=%v composer=%q pending=%t", state.recovery, state.composer, state.runPending)
+	if state.recovery != footerReconnectingActivity || state.composer != "another prompt" || !state.turnPending {
+		t.Fatalf("active run guard: recovery=%v composer=%q pending=%t", state.recovery, state.composer, state.turnPending)
 	}
 	if got := state.toasts.Snapshot(); len(got) != 1 || got[0].Title != "Run in progress" || got[0].Variant != toastInfo || got[0].Persistent {
 		t.Fatalf("defensive admission feedback = %+v, want transient information toast", got)
@@ -168,7 +168,7 @@ func TestSessionRenameEventUpdatesAttachedSessionAndExplorer(t *testing.T) {
 		}}},
 	}
 	state.applySessionMetadataEvents([]protocol.SessionEvent{{
-		StreamID: "stream_1", Sequence: 3, SessionID: "session_1", Payload: protocol.SessionRenamedEvent{SessionName: "After"},
+		StreamID: "stream_1", Sequence: 3, SessionID: "session_1", Payload: protocol.SessionNameChangedEvent{SessionName: "After"},
 	}})
 	state.applySnapshot(protocol.SessionSnapshot{
 		Session: protocol.SessionInfo{ID: "session_1", Name: "Before"}, EventStreamID: "stream_1", EventCursor: 2,
@@ -206,8 +206,8 @@ func TestAcceptedPromptMergesDeferredAutonomousResponse(t *testing.T) {
 	if !state.acceptPromptAdmission(7, appTestRun{id: "run_new"}) {
 		t.Fatal("prompt admission was rejected")
 	}
-	if state.deferredSessionSnapshot != nil || state.activeRunID != "run_new" || len(state.messages) != 1 || state.messages[0].Text != "autonomous response" || len(state.liveMessages) != 1 {
-		t.Fatalf("accepted state = deferred:%v run:%q messages:%+v live:%+v", state.deferredSessionSnapshot, state.activeRunID, state.messages, state.liveMessages)
+	if state.deferredSessionSnapshot != nil || state.activeTurnID != "run_new" || len(state.messages) != 1 || state.messages[0].Text != "autonomous response" || len(state.liveMessages) != 1 {
+		t.Fatalf("accepted state = deferred:%v run:%q messages:%+v live:%+v", state.deferredSessionSnapshot, state.activeTurnID, state.messages, state.liveMessages)
 	}
 }
 
@@ -235,8 +235,8 @@ func (run recordingAbortRun) Abort(context.Context) error {
 func TestDismissIgnoresRepeatedRunAbort(t *testing.T) {
 	calls := make(chan struct{}, 1)
 	state := &appState{
-		phase: phaseReady, runPending: true, runStopping: true,
-		activeRun: recordingAbortRun{calls: calls}, activeRunID: "turn_test",
+		phase: phaseReady, turnPending: true, turnStopping: true,
+		activeTurn: recordingAbortRun{calls: calls}, activeTurnID: "turn_test",
 	}
 	state.dismiss(ui.EventContext{})
 	select {
@@ -249,19 +249,19 @@ func TestDismissIgnoresRepeatedRunAbort(t *testing.T) {
 func TestAttachedSnapshotReconcilesCompletedAndSuccessorRuns(t *testing.T) {
 	t.Parallel()
 	for _, test := range []struct {
-		name                       string
-		pending                    bool
-		activeRunID, snapshotRunID string
-		want                       bool
+		name                         string
+		pending                      bool
+		activeTurnID, snapshotTurnID string
+		want                         bool
 	}{
 		{name: "idle baseline catches completed run", want: true},
 		{name: "admission keeps optimistic prompt", pending: true, want: false},
-		{name: "same active run stays with current watcher", pending: true, activeRunID: "run_a", snapshotRunID: "run_a", want: false},
-		{name: "successor replaces stale active run", pending: true, activeRunID: "run_a", snapshotRunID: "run_b", want: true},
-		{name: "terminal snapshot settles stale active run", pending: true, activeRunID: "run_a", want: true},
+		{name: "same active run stays with current watcher", pending: true, activeTurnID: "run_a", snapshotTurnID: "run_a", want: false},
+		{name: "successor replaces stale active run", pending: true, activeTurnID: "run_a", snapshotTurnID: "run_b", want: true},
+		{name: "terminal snapshot settles stale active run", pending: true, activeTurnID: "run_a", want: true},
 	} {
 		t.Run(test.name, func(t *testing.T) {
-			if got := shouldApplyAttachedSnapshot(test.pending, test.activeRunID, test.snapshotRunID); got != test.want {
+			if got := shouldApplyAttachedSnapshot(test.pending, test.activeTurnID, test.snapshotTurnID); got != test.want {
 				t.Fatalf("should apply = %t, want %t", got, test.want)
 			}
 		})
@@ -270,13 +270,13 @@ func TestAttachedSnapshotReconcilesCompletedAndSuccessorRuns(t *testing.T) {
 
 func TestAttachedRunLifecycleFindsAutonomousRunBoundaries(t *testing.T) {
 	t.Parallel()
-	started, finished, status := attachedRunLifecycle([]protocol.SessionEvent{
+	started, finished, status := attachedTurnLifecycle([]protocol.SessionEvent{
 		{Payload: protocol.SubagentChangedEvent{}},
-		{RunID: "run_autonomous", Payload: protocol.RunStartedEvent{Status: protocol.RunStatusRunning}},
-		{RunID: "run_autonomous", Payload: protocol.AssistantCompletedEvent{}},
-		{RunID: "run_autonomous", Payload: protocol.RunFinishedEvent{Status: protocol.RunStatusCompleted}},
+		{TurnID: "run_autonomous", Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning}},
+		{TurnID: "run_autonomous", Payload: protocol.AssistantCompletedEvent{}},
+		{TurnID: "run_autonomous", Payload: protocol.TurnCompletedEvent{Status: protocol.TurnStatusCompleted}},
 	})
-	if started != "run_autonomous" || finished != "run_autonomous" || status != protocol.RunStatusCompleted {
+	if started != "run_autonomous" || finished != "run_autonomous" || status != protocol.TurnStatusCompleted {
 		t.Fatalf("attached lifecycle = started:%q finished:%q status:%q", started, finished, status)
 	}
 }
@@ -286,7 +286,7 @@ func TestProviderRetryEventsDriveCountdownState(t *testing.T) {
 
 	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{{
+	state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 1, Payload: protocol.ProviderRetryScheduledEvent{ProviderRetry: &protocol.ProviderRetry{Count: 2, RetryAt: now.Add(3500 * time.Millisecond).Format(time.RFC3339Nano)}},
 	}})
 	if got := state.presentedTurnActivity(now); got != "Retry 2 in 4s…" {
@@ -296,12 +296,12 @@ func TestProviderRetryEventsDriveCountdownState(t *testing.T) {
 		t.Fatalf("past retry activity = %q", got)
 	}
 	state.setTurnActivity("Stopping…")
-	state.runStopping = true
+	state.turnStopping = true
 	if got := state.presentedTurnActivity(now); got != "Stopping…" {
 		t.Fatalf("stopping precedence activity = %q", got)
 	}
-	state.runStopping = false
-	state.applyRunEvents([]protocol.SessionEvent{{
+	state.turnStopping = false
+	state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 2, Payload: protocol.ProviderRetryStartedEvent{ProviderRetry: &protocol.ProviderRetry{Count: 2}},
 	}})
 	if state.providerRetry != nil || state.presentedTurnActivity(now) != "Working…" {
@@ -315,7 +315,7 @@ func TestProviderRetrySnapshotRestoresCountdownState(t *testing.T) {
 	now := time.Date(2026, time.January, 2, 3, 4, 5, 0, time.UTC)
 	state := &appState{}
 	state.applySnapshot(protocol.SessionSnapshot{
-		ActiveRunID:   "turn_test",
+		ActiveTurnID:  "turn_test",
 		ProviderRetry: &protocol.ProviderRetry{Count: 1, RetryAt: now.Add(time.Second).Format(time.RFC3339Nano)},
 	})
 	if got := state.presentedTurnActivity(now); got != "Retry 1 in 1s…" {
@@ -326,19 +326,19 @@ func TestProviderRetrySnapshotRestoresCountdownState(t *testing.T) {
 func TestAutomaticCompactionEventsShowPendingAndOutcomeFeedback(t *testing.T) {
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.CompactionStartedEvent{CompactionID: "compact_00000000000000000000000000000001"}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 1, Payload: protocol.CompactionStartedEvent{CompactionID: "compact_00000000000000000000000000000001"}}})
 	if state.turnActivity != "Compacting session…" {
 		t.Fatalf("started compaction activity = %q", state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 2, Payload: protocol.CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000001"}},
-		{Sequence: 3, Payload: protocol.ContextUpdatedEvent{ContextTokens: 20, ContextWindow: 200}},
+		{Sequence: 3, Payload: protocol.ContextChangedEvent{ContextTokens: 20, ContextWindow: 200}},
 	})
 	if state.turnActivity != "Working…" || state.contextTokens != 20 || state.contextWindow != 200 || len(toasts) != 1 || toasts[0].Title != "Session compacted" ||
 		toasts[0].Subtitle != "Session context was compacted." || toasts[0].Variant != toastInfo {
 		t.Fatalf("completed compaction activity=%q context=%d/%d toasts=%+v", state.turnActivity, state.contextTokens, state.contextWindow, toasts)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 4, Payload: protocol.CompactionFailedEvent{CompactionID: "compact_00000000000000000000000000000002", ErrorMessage: "Context compaction failed"}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 4, Payload: protocol.CompactionCompletedEvent{CompactionID: "compact_00000000000000000000000000000002", ErrorMessage: "Context compaction failed"}}})
 	if len(toasts) != 2 || toasts[1].Title != "Auto-compaction failed" || toasts[1].Subtitle != "Context compaction failed" || toasts[1].Variant != toastError {
 		t.Fatalf("failed compaction toasts = %+v", toasts)
 	}
@@ -352,26 +352,26 @@ func TestCompactionSnapshotAndDelayedEventsDoNotRegressNewerOperation(t *testing
 	var toasts []toastInput
 	state := &appState{showToastOverride: func(toast toastInput) { toasts = append(toasts, toast) }}
 	state.applySnapshot(protocol.SessionSnapshot{
-		ActiveRunID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
-		ActiveCompaction: &protocol.ActiveCompaction{ID: first, RunID: "turn_test"},
+		ActiveTurnID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
+		ActiveCompaction: &protocol.ActiveCompaction{ID: first, TurnID: "turn_test"},
 	})
 	if state.activeCompactionID != first || state.turnActivity != "Compacting session…" {
 		t.Fatalf("restored compaction = %q activity=%q", state.activeCompactionID, state.turnActivity)
 	}
 
-	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 5, Payload: protocol.CompactionStartedEvent{CompactionID: second}}})
-	state.applySnapshot(protocol.SessionSnapshot{ActiveRunID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
-		ActiveCompaction: &protocol.ActiveCompaction{ID: first, RunID: "turn_test"}})
-	state.applyRunEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 6, Payload: protocol.CompactionCompletedEvent{CompactionID: first}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 5, Payload: protocol.CompactionStartedEvent{CompactionID: second}}})
+	state.applySnapshot(protocol.SessionSnapshot{ActiveTurnID: "turn_test", EventStreamID: "stream_test", EventCursor: 4,
+		ActiveCompaction: &protocol.ActiveCompaction{ID: first, TurnID: "turn_test"}})
+	state.applyTurnEvents([]protocol.SessionEvent{{StreamID: "stream_test", Sequence: 6, Payload: protocol.CompactionCompletedEvent{CompactionID: first}}})
 	if state.activeCompactionID != second || state.turnActivity != "Compacting session…" || len(toasts) != 0 {
 		t.Fatalf("delayed state regressed: active=%q activity=%q toasts=%+v", state.activeCompactionID, state.turnActivity, toasts)
 	}
 
 	outcome := protocol.SessionEvent{StreamID: "stream_test", Payload: protocol.CompactionCompletedEvent{CompactionID: second}}
 	outcome.Sequence = 7
-	state.applyRunEvents([]protocol.SessionEvent{outcome})
+	state.applyTurnEvents([]protocol.SessionEvent{outcome})
 	outcome.Sequence = 8
-	state.applyRunEvents([]protocol.SessionEvent{outcome})
+	state.applyTurnEvents([]protocol.SessionEvent{outcome})
 	if state.activeCompactionID != "" || len(toasts) != 1 {
 		t.Fatalf("duplicate outcome: active=%q toasts=%+v", state.activeCompactionID, toasts)
 	}
@@ -386,7 +386,7 @@ func TestCompletedChangeCWDToolUpdatesSessionScopeAndRequestsToast(t *testing.T)
 		session: protocol.SessionInfo{CWD: "/repo"}, liveAssistant: -1,
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
-	changed := state.applyRunEvents([]protocol.SessionEvent{{
+	changed := state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 1,
 		TurnID:   "turn_1", Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "change_cwd", Details: details},
 	}})
@@ -401,7 +401,7 @@ func TestSubagentFallbackToolResultRequestsEphemeralToast(t *testing.T) {
 		t.Fatal(err)
 	}
 	state := &appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{{
+	state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 1,
 		TurnID:   "turn_1", Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "subagent", Details: details},
 	}})
@@ -620,7 +620,7 @@ func TestAssistantStartedSurfacesInitialThinkingContent(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1", Thinking: "**Considering options**"}},
 	})
 	if state.turnThinking != "**Considering options**" || len(state.liveMessages) != 1 || state.liveMessages[0].Thinking != "**Considering options**" {
@@ -632,7 +632,7 @@ func TestAssistantTextDeltaDoesNotMoveTranscriptUntilCompletion(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1"}},
 		{Sequence: 2, TurnID: "turn_1", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_1", ContentIndex: 0, Delta: "partial response"}},
 	})
@@ -640,7 +640,7 @@ func TestAssistantTextDeltaDoesNotMoveTranscriptUntilCompletion(t *testing.T) {
 		t.Fatalf("buffered response = messages %+v needsScroll %v", state.liveMessages, state.needsScroll)
 	}
 
-	state.applyRunEvents([]protocol.SessionEvent{{
+	state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 3, TurnID: "turn_1", Payload: protocol.AssistantCompletedEvent{MessageID: "message_1"},
 	}})
 	if !state.needsScroll || state.liveMessages[0].Pending {
@@ -652,7 +652,7 @@ func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, TurnID: "turn_1", Payload: protocol.AssistantStartedEvent{MessageID: "message_1"}},
 		{Sequence: 2, TurnID: "turn_1", Payload: protocol.ThinkingDeltaEvent{MessageID: "message_1", ContentIndex: 0, Delta: "reasoning"}},
 		{Sequence: 3, TurnID: "turn_1", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_1", ContentIndex: 1, Delta: "partial response"}},
@@ -663,7 +663,7 @@ func TestAssistantCompletionPreservesUnspecifiedAccumulatedChannels(t *testing.T
 	}
 
 	state = appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, TurnID: "turn_2", Payload: protocol.AssistantStartedEvent{MessageID: "message_2"}},
 		{Sequence: 2, TurnID: "turn_2", Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_2", ContentIndex: 0, Delta: "response"}},
 		{Sequence: 3, TurnID: "turn_2", Payload: protocol.ThinkingDeltaEvent{MessageID: "message_2", ContentIndex: 1, Delta: "partial reasoning"}},
@@ -678,9 +678,9 @@ func TestToolPlanningSurvivesEmptyAssistantCompletion(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Payload: protocol.RunStartedEvent{}},
-		{Sequence: 2, Payload: protocol.UserMessageEvent{Text: "read it"}},
+	state.applyTurnEvents([]protocol.SessionEvent{
+		{Sequence: 1, Payload: protocol.TurnStartedEvent{}},
+		{Sequence: 2, Payload: protocol.UserMessageAddedEvent{Text: "read it"}},
 		{Sequence: 3, Payload: protocol.AssistantStartedEvent{MessageID: "message_test"}},
 		{Sequence: 4, Payload: protocol.ToolPlannedEvent{MessageID: "message_test", ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
 		{Sequence: 5, Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
@@ -699,15 +699,15 @@ func TestToolResultDeltasAppendAndCompletionReconciles(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
-		{Sequence: 2, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("con")}}},
-		{Sequence: 3, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("tents")}}},
+		{Sequence: 2, Payload: protocol.ToolOutputDeltaEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("con")}}},
+		{Sequence: 3, Payload: protocol.ToolOutputDeltaEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock("tents")}}},
 	})
 	if tool := liveToolMessage(t, &state, "call_1"); tool.Text != "contents" || !tool.Pending {
 		t.Fatalf("streamed tool = %+v", state.liveMessages)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{
+	state.applyTurnEvents([]protocol.SessionEvent{{
 		Sequence: 4, Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read",
 			Content: []protocol.TranscriptContent{protocol.TextBlock("authoritative contents")},
 			Details: json.RawMessage(`{"lines":1}`)},
@@ -723,9 +723,9 @@ func TestToolResultDeltaPreviewIsCumulativelyBounded(t *testing.T) {
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
 	chunk := strings.Repeat("x", 40<<10)
-	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
-		{Sequence: 2, Payload: protocol.ToolUpdatedEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
+	state.applyTurnEvents([]protocol.SessionEvent{
+		{Sequence: 1, Payload: protocol.ToolOutputDeltaEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
+		{Sequence: 2, Payload: protocol.ToolOutputDeltaEvent{ToolCallID: "call_1", ToolName: "read", Content: []protocol.TranscriptContent{protocol.TextBlock(chunk)}}},
 	})
 	tool := liveToolMessage(t, &state, "call_1")
 	if !tool.ToolContentTruncated || len(tool.ToolContent) != 2 || !strings.HasSuffix(tool.Text, "… live output truncated") || len(tool.Text) > maxLiveToolPreviewBytes+64 {
@@ -737,12 +737,12 @@ func TestUnexecutedToolPlanSettlesWhenRunFinishes(t *testing.T) {
 	t.Parallel()
 
 	state := appState{liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock)}
-	state.applyRunEvents([]protocol.SessionEvent{
-		{Sequence: 1, Payload: protocol.RunStartedEvent{}},
+	state.applyTurnEvents([]protocol.SessionEvent{
+		{Sequence: 1, Payload: protocol.TurnStartedEvent{}},
 		{Sequence: 2, Payload: protocol.AssistantStartedEvent{MessageID: "message_test"}},
 		{Sequence: 3, Payload: protocol.ToolPlannedEvent{MessageID: "message_test", ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"README.md"}`}},
 		{Sequence: 4, Payload: protocol.AssistantCompletedEvent{MessageID: "message_test"}},
-		{Sequence: 5, Payload: protocol.RunFinishedEvent{}},
+		{Sequence: 5, Payload: protocol.TurnCompletedEvent{}},
 	})
 	if tool := liveToolMessage(t, &state, "call_1"); tool.Pending || tool.ToolStatus != "Not run" {
 		t.Fatalf("settled tool plan = %+v", state.liveMessages)
@@ -753,16 +753,16 @@ func TestStoppingTurnActivityTakesPrecedenceUntilRunFinishes(t *testing.T) {
 	t.Parallel()
 
 	state := appState{
-		turnActivity: "Stopping…", runStopping: true, liveAssistant: -1,
+		turnActivity: "Stopping…", turnStopping: true, liveAssistant: -1,
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
-	state.applyRunEvents([]protocol.SessionEvent{
+	state.applyTurnEvents([]protocol.SessionEvent{
 		{Sequence: 1, Payload: protocol.AssistantTextDeltaEvent{MessageID: "message_test", ContentIndex: 0, Delta: "late output"}},
 	})
 	if state.turnActivity != "Stopping…" {
 		t.Fatalf("activity after buffered delta = %q, want Stopping…", state.turnActivity)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{Sequence: 2, Payload: protocol.RunFinishedEvent{}}})
+	state.applyTurnEvents([]protocol.SessionEvent{{Sequence: 2, Payload: protocol.TurnCompletedEvent{}}})
 	if state.turnActivity != "" {
 		t.Fatalf("activity after run finish = %q, want blank", state.turnActivity)
 	}
@@ -772,26 +772,26 @@ func TestTerminalRunStatusStopsBeforeTranscriptSettlement(t *testing.T) {
 	t.Parallel()
 
 	state := appState{
-		runPending: true, terminalRunActive: true, terminalRunID: "run_1",
+		turnPending: true, terminalTurnActive: true, terminalTurnID: "run_1",
 		liveAssistant: -1, liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 1, RunID: "run_1", Payload: protocol.RunFinishedEvent{},
+	state.applyTurnEvents([]protocol.SessionEvent{{
+		Sequence: 1, TurnID: "run_1", Payload: protocol.TurnCompletedEvent{},
 	}})
-	if state.terminalRunActive || !state.runPending {
-		t.Fatalf("terminal settlement = active %t admission pending %t", state.terminalRunActive, state.runPending)
+	if state.terminalTurnActive || !state.turnPending {
+		t.Fatalf("terminal settlement = active %t admission pending %t", state.terminalTurnActive, state.turnPending)
 	}
-	state.applyRunEvents([]protocol.SessionEvent{{
-		Sequence: 2, RunID: "run_1", Payload: protocol.RunStartedEvent{},
+	state.applyTurnEvents([]protocol.SessionEvent{{
+		Sequence: 2, TurnID: "run_1", Payload: protocol.TurnStartedEvent{},
 	}})
-	if state.terminalRunActive {
+	if state.terminalTurnActive {
 		t.Fatal("delayed start event reactivated a settled run")
 	}
 
 	state.markTerminalRunStarted("run_2")
 	state.markTerminalRunSettled("run_1")
-	if !state.terminalRunActive || state.terminalRunID != "run_2" {
-		t.Fatalf("stale settlement changed active run: active %t id %q", state.terminalRunActive, state.terminalRunID)
+	if !state.terminalTurnActive || state.terminalTurnID != "run_2" {
+		t.Fatalf("stale settlement changed active run: active %t id %q", state.terminalTurnActive, state.terminalTurnID)
 	}
 }
 
@@ -799,16 +799,16 @@ func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
 	t.Parallel()
 
 	state := appState{
-		runPending: true, activeRunID: "run_test", liveAssistant: 1,
+		turnPending: true, activeTurnID: "run_test", liveAssistant: 1,
 		liveTools: make(map[string]int), liveContent: make(map[int]liveContentBlock),
 		liveMessages: []transcriptMessage{
 			{Role: "user", Text: "hello"},
 			{Role: "assistant", Text: "partial response", Pending: true},
 		},
 	}
-	state.settleRunWithoutSnapshot(protocol.RunInfo{Status: protocol.RunStatusCompleted}, errors.New("snapshot too large"))
-	if state.runPending || state.activeRunID != "" || len(state.liveMessages) != 0 {
-		t.Fatalf("settled run state = pending %v id %q live %+v", state.runPending, state.activeRunID, state.liveMessages)
+	state.settleTurnWithoutSnapshot(protocol.TurnInfo{Status: protocol.TurnStatusCompleted}, errors.New("snapshot too large"))
+	if state.turnPending || state.activeTurnID != "" || len(state.liveMessages) != 0 {
+		t.Fatalf("settled run state = pending %v id %q live %+v", state.turnPending, state.activeTurnID, state.liveMessages)
 	}
 	if len(state.messages) != 2 || state.messages[0].Text != "hello" || state.messages[1].Text != "partial response" || state.messages[1].Pending {
 		t.Fatalf("settled transcript = %+v", state.messages)
@@ -820,14 +820,14 @@ func TestTerminalSnapshotFailureSettlesLiveTurnForContinuedInput(t *testing.T) {
 
 func TestAuthoritativeSnapshotClearsSyncOnlyWhenTurnSettles(t *testing.T) {
 	t.Parallel()
-	state := &appState{recovery: footerSyncingFinalTranscript, runPending: true, activeRunID: "run_a"}
-	state.applySnapshot(protocol.SessionSnapshot{ActiveRunID: "run_a"})
+	state := &appState{recovery: footerSyncingFinalTranscript, turnPending: true, activeTurnID: "run_a"}
+	state.applySnapshot(protocol.SessionSnapshot{ActiveTurnID: "run_a"})
 	if state.recovery != footerSyncingFinalTranscript {
 		t.Fatalf("active-run snapshot changed recovery to %v", state.recovery)
 	}
 	state.applySnapshot(protocol.SessionSnapshot{})
-	if state.recovery != footerHealthy || state.runPending {
-		t.Fatalf("terminal snapshot left recovery=%v pending=%t", state.recovery, state.runPending)
+	if state.recovery != footerHealthy || state.turnPending {
+		t.Fatalf("terminal snapshot left recovery=%v pending=%t", state.recovery, state.turnPending)
 	}
 }
 
@@ -855,10 +855,10 @@ func TestSuccessorRunClearsCompletedTranscriptRecovery(t *testing.T) {
 func TestTerminalSnapshotFailureClearsRecoveryAndShowsPersistentToast(t *testing.T) {
 	application, state, _ := mountRunAbort(t)
 	state.recovery = footerSyncingFinalTranscript
-	state.finishRunWithoutSnapshot(protocol.RunInfo{RunID: state.activeRunID, Status: protocol.RunStatusCompleted}, errors.New("snapshot too large"))
+	state.finishTurnWithoutSnapshot(protocol.TurnInfo{TurnID: state.activeTurnID, Status: protocol.TurnStatusCompleted}, errors.New("snapshot too large"))
 	application.Pump(120, 36)
-	if state.recovery != footerHealthy || state.runPending {
-		t.Fatalf("failed refresh left recovery=%v pending=%t", state.recovery, state.runPending)
+	if state.recovery != footerHealthy || state.turnPending {
+		t.Fatalf("failed refresh left recovery=%v pending=%t", state.recovery, state.turnPending)
 	}
 	toasts := state.toasts.Snapshot()
 	if len(toasts) != 1 || toasts[0].Title != "Transcript refresh failed" || toasts[0].Variant != toastError || !toasts[0].Persistent || !strings.Contains(toasts[0].Subtitle, "snapshot too large") {
@@ -1105,7 +1105,7 @@ func TestSessionMetadataSnapshotPreservesActivePresentation(t *testing.T) {
 		session:      protocol.SessionInfo{ID: "session_test", ThinkingLevel: "low"},
 		messages:     []transcriptMessage{{ID: "settled", Role: "user", Text: "settled"}},
 		liveMessages: []transcriptMessage{{ID: "live", Role: "assistant", Text: "streaming"}},
-		runPending:   true,
+		turnPending:  true,
 	}
 	state.applySessionMetadataSnapshot(protocol.SessionSnapshot{
 		Session: protocol.SessionInfo{ID: "session_test", ThinkingLevel: "high"}, ContextTokens: 12, ContextWindow: 100,
@@ -1180,8 +1180,8 @@ func TestStalePromptAdmissionCannotAttachToSwitchedSession(t *testing.T) {
 	if state.acceptPromptAdmission(1, nil) {
 		t.Fatal("stale source-session prompt admission was accepted")
 	}
-	if state.activeRun != nil || state.activeRunID != "" || state.session.ID != "session_target" {
-		t.Fatalf("stale prompt admission changed target state: active=%v id=%q session=%q", state.activeRun != nil, state.activeRunID, state.session.ID)
+	if state.activeTurn != nil || state.activeTurnID != "" || state.session.ID != "session_target" {
+		t.Fatalf("stale prompt admission changed target state: active=%v id=%q session=%q", state.activeTurn != nil, state.activeTurnID, state.session.ID)
 	}
 }
 
@@ -1210,8 +1210,8 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	t.Cleanup(func() { state.attachmentCancel() })
 	sourceAttachment := state.attachmentCtx
 	target := protocol.SessionSnapshot{
-		Session:     protocol.SessionInfo{ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel},
-		ActiveRunID: "run_target",
+		Session:      protocol.SessionInfo{ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel},
+		ActiveTurnID: "run_target",
 		Messages: []protocol.TranscriptMessage{{
 			ID: "target-message", TurnID: "target-turn", Role: "user",
 			Content: []protocol.TranscriptContent{protocol.TextBlock("target history")},
@@ -1249,8 +1249,8 @@ func TestInstallSessionReplacesAuthoritativeBindingAndKeepsPerSessionDrafts(t *t
 	if len(state.messages) != 1 || state.messages[0].ID != "target-message" || state.location != "~/other/repo" {
 		t.Fatalf("target presentation messages=%+v location=%q", state.messages, state.location)
 	}
-	if !state.runPending || state.activeRunID != "run_target" || state.recovery != footerHealthy {
-		t.Fatalf("active target run pending=%t id=%q recovery=%v", state.runPending, state.activeRunID, state.recovery)
+	if !state.turnPending || state.activeTurnID != "run_target" || state.recovery != footerHealthy {
+		t.Fatalf("active target run pending=%t id=%q recovery=%v", state.turnPending, state.activeTurnID, state.recovery)
 	}
 	if state.cwdPending || state.reloadPending {
 		t.Fatalf("source mutation state leaked into target: cwd=%v reload=%v", state.cwdPending, state.reloadPending)
@@ -1703,8 +1703,8 @@ func (s fakeSession) Compact(ctx context.Context, input protocol.CompactSessionI
 	return s.compact(ctx, input)
 }
 
-func (fakeSession) Run(context.Context, string) (protocol.RunInfo, error) {
-	return protocol.RunInfo{}, nil
+func (fakeSession) Turn(context.Context, string) (protocol.TurnInfo, error) {
+	return protocol.TurnInfo{}, nil
 }
 
 func (fakeSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
@@ -1723,10 +1723,10 @@ func (fakeSession) StartBash(context.Context, string, string, bool) (sessionclie
 	panic("unexpected StartBash")
 }
 
-func (fakeSession) StartPrompt(context.Context, string) (sessionclient.Run, error) {
+func (fakeSession) StartPrompt(context.Context, string) (sessionclient.Turn, error) {
 	panic("unexpected StartPrompt")
 }
 
-func (fakeSession) StartPromptCommand(context.Context, string, string) (sessionclient.Run, error) {
+func (fakeSession) StartPromptCommand(context.Context, string, string) (sessionclient.Turn, error) {
 	panic("unexpected StartPromptCommand")
 }

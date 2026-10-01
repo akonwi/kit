@@ -134,8 +134,8 @@ func TestPluginCommandExecutionPreservesDraftAndDoesNotStartModelRun(t *testing.
 	case <-time.After(time.Second):
 		t.Fatal("command not dispatched")
 	}
-	if state.composer != "Keep this composer draft unchanged" || state.runPending || state.palette.Open || state.pluginCommandID != command.ID {
-		t.Fatalf("execution changed draft/model: %q, running=%v, palette=%v", state.composer, state.runPending, state.palette.Open)
+	if state.composer != "Keep this composer draft unchanged" || state.turnPending || state.palette.Open || state.pluginCommandID != command.ID {
+		t.Fatalf("execution changed draft/model: %q, running=%v, palette=%v", state.composer, state.turnPending, state.palette.Open)
 	}
 	state.runPluginCommandWithDispatch(command, "not replayed", func(f func()) { completions <- f })
 	if last := (*notices)[len(*notices)-1]; last.Title != "Plugin command in progress" || last.Variant != toastWarning {
@@ -148,7 +148,7 @@ func TestPluginCommandExecutionPreservesDraftAndDoesNotStartModelRun(t *testing.
 	case <-time.After(time.Second):
 		t.Fatal("completion not dispatched")
 	}
-	if state.pluginCommandID != "" || state.composer != "Keep this composer draft unchanged" || state.runPending {
+	if state.pluginCommandID != "" || state.composer != "Keep this composer draft unchanged" || state.turnPending {
 		t.Fatal("completion changed model/draft state")
 	}
 }
@@ -203,9 +203,9 @@ func TestPluginPaletteContributionsPreserveCapabilityAndNamespace(t *testing.T) 
 }
 
 func TestPluginCatalogUpdatesDuringActiveRunMetadataBaseline(t *testing.T) {
-	state := appState{bound: &pluginCommandTestSession{}, runPending: true, activeRunID: "running", composer: "Preserve draft"}
+	state := appState{bound: &pluginCommandTestSession{}, turnPending: true, activeTurnID: "running", composer: "Preserve draft"}
 	command := testPluginCommand()
-	snapshot := protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "attached", CWD: "/repo"}, ActiveRunID: "running", EventStreamID: "stream-first", PluginCommands: []protocol.PluginCommand{command}}
+	snapshot := protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "attached", CWD: "/repo"}, ActiveTurnID: "running", EventStreamID: "stream-first", PluginCommands: []protocol.PluginCommand{command}}
 	state.applySessionMetadataBaseline(snapshot)
 	state.palette.OpenFor(true)
 	state.palette.SetQuery(true, command.ID)
@@ -224,7 +224,7 @@ func TestPluginCatalogUpdatesDuringActiveRunMetadataBaseline(t *testing.T) {
 	if !ok || selected.Plugin.Instance != "pluginhost_replacement:2" {
 		t.Fatalf("active-run replacement = %#v", selected)
 	}
-	if !state.runPending || state.activeRunID != "running" || state.composer != "Preserve draft" {
+	if !state.turnPending || state.activeTurnID != "running" || state.composer != "Preserve draft" {
 		t.Fatal("metadata update disturbed active run or draft")
 	}
 }

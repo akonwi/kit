@@ -42,7 +42,7 @@ func TestQueueFollowUpRetainsAnnotationsAndAttachments(t *testing.T) {
 	for _, text := range []string{"", "queued text"} {
 		t.Run(text, func(t *testing.T) {
 			bound := &followUpTestSession{}
-			state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, runPending: true, composer: text, annotations: []protocol.AnnotationSummary{{ID: 7, BodyPreview: "Captured note"}}, composerAttachments: []stagedAttachment{{Info: protocol.AttachmentInfo{ID: "attachment_test", Filename: "file.txt"}}}}}
+			state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, turnPending: true, composer: text, annotations: []protocol.AnnotationSummary{{ID: 7, BodyPreview: "Captured note"}}, composerAttachments: []stagedAttachment{{Info: protocol.AttachmentInfo{ID: "attachment_test", Filename: "file.txt"}}}}}
 			application := uitest.New(followUpHarness{state})
 			application.Pump(80, 24)
 			runtime := followUpTestRuntime{callbacks: make(chan func(), 1)}

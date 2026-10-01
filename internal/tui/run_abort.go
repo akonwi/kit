@@ -8,17 +8,17 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 )
 
-const runAbortTimeout = 3 * time.Second
+const turnAbortTimeout = 3 * time.Second
 
 func (s *appState) abortRunWithDispatch(dispatch func(func()), timeout time.Duration) {
-	if !s.runPending || s.runStopping {
+	if !s.turnPending || s.turnStopping {
 		return
 	}
 	if s.prompt != nil {
 		s.prompt.abort.Store(true)
 	}
 	s.SetState(func() {
-		s.runStopping = true
+		s.turnStopping = true
 		s.turnActivity = "Stopping…"
 		s.turnThinking = ""
 	})
@@ -28,12 +28,12 @@ func (s *appState) abortRunWithDispatch(dispatch func(func()), timeout time.Dura
 // requestRunAbort also handles a cancellation requested before prompt admission.
 // An accepted abort remains stopping until the authoritative run watcher settles it.
 func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration) {
-	run, runID, bound := s.activeRun, s.activeRunID, s.bound
-	if runID == "" || (run == nil && bound == nil) {
+	run, turnID, bound := s.activeTurn, s.activeTurnID, s.bound
+	if turnID == "" || (run == nil && bound == nil) {
 		return
 	}
-	s.runAbortGeneration++
-	generation, operation, sessionID := s.runAbortGeneration, s.operation, s.session.ID
+	s.turnAbortGeneration++
+	generation, operation, sessionID := s.turnAbortGeneration, s.operation, s.session.ID
 	admission := s.prompt
 	base := s.attachmentCtx
 	if base == nil {
@@ -48,7 +48,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 		if run != nil {
 			err = run.Abort(ctx)
 		} else {
-			err = bound.Abort(ctx, runID)
+			err = bound.Abort(ctx, turnID)
 		}
 		cancel()
 		if err == nil || base.Err() != nil {
@@ -66,7 +66,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 			return
 		}
 		dispatch(func() {
-			if base.Err() != nil || operation != s.operation || generation != s.runAbortGeneration || s.bound != bound || s.prompt != admission || sessionID != s.session.ID || runID != s.activeRunID || !s.runPending || !s.runStopping {
+			if base.Err() != nil || operation != s.operation || generation != s.turnAbortGeneration || s.bound != bound || s.prompt != admission || sessionID != s.session.ID || turnID != s.activeTurnID || !s.turnPending || !s.turnStopping {
 				return
 			}
 			// Do not replace evidence with a snapshot older than the live event stream,
@@ -74,18 +74,18 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 			fresh := snapshotErr == nil && snapshot.Session.ID == sessionID &&
 				(s.liveStreamID == streamID || snapshot.EventStreamID == s.liveStreamID) &&
 				(snapshot.EventStreamID != s.liveStreamID || snapshot.EventCursor >= s.liveSequence)
-			nextRunID := runID
+			nextTurnID := turnID
 			s.SetState(func() {
-				s.runStopping = false
+				s.turnStopping = false
 				if s.prompt != nil {
 					s.prompt.abort.Store(false)
 				}
-				if fresh && snapshot.ActiveRunID != runID {
-					s.markTerminalRunSettled(runID)
+				if fresh && snapshot.ActiveTurnID != turnID {
+					s.markTerminalRunSettled(turnID)
 					s.applySnapshot(snapshot)
-					s.activeRun = nil
+					s.activeTurn = nil
 					s.prompt = nil
-					nextRunID = snapshot.ActiveRunID
+					nextTurnID = snapshot.ActiveTurnID
 				} else {
 					if fresh {
 						s.applySessionMetadataSnapshot(snapshot)
@@ -94,7 +94,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 						s.reconcileInputOwner()
 						s.providerRetry = cloneProviderRetry(snapshot.ProviderRetry)
 						s.activeCompactionID = ""
-						if snapshot.ActiveCompaction != nil && snapshot.ActiveCompaction.RunID == runID {
+						if snapshot.ActiveCompaction != nil && snapshot.ActiveCompaction.TurnID == turnID {
 							s.activeCompactionID = snapshot.ActiveCompaction.ID
 						}
 					}
@@ -108,7 +108,7 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 					}
 				}
 			})
-			if fresh && nextRunID == "" {
+			if fresh && nextTurnID == "" {
 				return // It finished despite the failed RPC.
 			}
 			detail := fmt.Sprintf("Press Esc to retry. %v. Ctrl+C detaches without stopping the run.", err)
@@ -119,9 +119,9 @@ func (s *appState) requestRunAbort(dispatch func(func()), timeout time.Duration)
 				}
 				detail = fmt.Sprintf("Press Esc to retry.\n%v.\nRun status is unconfirmed: %s.", err, reason)
 			}
-			if nextRunID != runID {
+			if nextTurnID != turnID {
 				detail = "The previous run finished; a new run is active. Press Esc to stop the current run."
-				s.watchSession(bound, operation, nextRunID)
+				s.watchSession(bound, operation, nextTurnID)
 			}
 			s.showToast(toastInput{Title: "Abort failed", Subtitle: detail, Variant: toastError, Persistent: true})
 		})
