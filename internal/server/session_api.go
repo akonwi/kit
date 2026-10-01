@@ -2531,34 +2531,20 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, turn)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/interactions/{interactionID}/response", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.InteractionResponse
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.RespondInteraction, func(ctx context.Context, params httpapi.InteractionPath, input protocol.InteractionResponse) (protocol.InteractionResponseResult, error) {
+		if input.RequestID != params.InteractionID || input.Validate() != nil {
+			return protocol.InteractionResponseResult{}, httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 		}
-		if input.RequestID != request.PathValue("interactionID") {
-			writeSessionError(writer, fmt.Errorf("%w: interaction identity mismatch", errInvalidSessionRequest))
-			return
+		if err := service.RespondInteraction(ctx, params.SessionID, input); err != nil {
+			return protocol.InteractionResponseResult{}, turnAPIError(err)
 		}
-		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
-		}
-		if err := service.RespondInteraction(request.Context(), request.PathValue("sessionID"), input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
-		writeJSON(writer, http.StatusOK, map[string]bool{"settled": true})
+		return protocol.InteractionResponseResult{Settled: true}, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/{turnID}/abort", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.Abort(
-			request.Context(), request.PathValue("sessionID"), request.PathValue("turnID"),
-		); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.AbortTurn, func(ctx context.Context, params httpapi.TurnPath, _ httpapi.NoBody) (protocol.TurnAbortResult, error) {
+		if err := service.Abort(ctx, params.SessionID, params.TurnID); err != nil {
+			return protocol.TurnAbortResult{}, turnAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
+		return protocol.TurnAbortResult{Aborting: true}, nil
 	})
 }
 
@@ -2629,6 +2615,30 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 		return fmt.Errorf("%w: invalid JSON: %v", errInvalidSessionRequest, err)
 	}
 	return nil
+}
+
+// turnAPIError projects the generic failures declared by catalogued turn
+// operations into ADR-0034 envelopes. Domain-specific session errors remain
+// private until their operation declares a dedicated code.
+func turnAPIError(err error) error {
+	var apiErr *httpapi.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	status, code, message := http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error"
+	switch {
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, kitsession.ErrInteractionNotFound):
+		status, code, message = http.StatusNotFound, httpapi.ErrorNotFound, "not found"
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrRunNotAbortable), errors.Is(err, kitsession.ErrInteractionSettled):
+		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with session state"
+	case errors.Is(err, kitsession.ErrInteractionCapacity):
+		status, code, message = http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "interaction capacity exceeded"
+	case errors.Is(err, kitsession.ErrClosed):
+		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session is unavailable"
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, errInvalidSessionRequest):
+		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
+	}
+	return httpapi.NewAPIError(status, code, message, nil)
 }
 
 func scratchpadAPIError(err error) error {

@@ -955,14 +955,26 @@ func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) e
 
 // RespondInteraction atomically settles one pending model-user interaction.
 func (c *Client) RespondInteraction(ctx context.Context, sessionID string, response protocol.InteractionResponse) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/interactions/" + url.PathEscape(response.RequestID) + "/response"
-	return c.sessionJSON(ctx, http.MethodPost, path, response, http.StatusOK, nil)
+	result, err := httpapi.Call(ctx, c, httpapi.RespondInteraction, httpapi.InteractionPath{SessionID: sessionID, InteractionID: response.RequestID}, response)
+	if err != nil {
+		return err
+	}
+	if !result.Settled {
+		return fmt.Errorf("daemon did not settle interaction")
+	}
+	return nil
 }
 
 // AbortSession requests cancellation of a loaded session's active turn.
 func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/" + url.PathEscape(turnID) + "/abort"
-	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+	result, err := httpapi.Call(ctx, c, httpapi.AbortTurn, httpapi.TurnPath{SessionID: sessionID, TurnID: turnID}, httpapi.NoBody{})
+	if err != nil {
+		return err
+	}
+	if !result.Aborting {
+		return fmt.Errorf("daemon did not acknowledge turn abort")
+	}
+	return nil
 }
 
 // StreamSessionEvents opens the session's authenticated SSE event response.
