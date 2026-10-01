@@ -7,6 +7,7 @@ use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/protocol
 use go:github.com/akonwi/kit/internal/sessionclient
+use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
@@ -37,6 +38,9 @@ enum Phase {
 enum ActiveModal {
   none,
   provider_picker,
+  api_key,
+  device_login,
+  browser_login,
 }
 
 private fn provider_catalog() [palette::Item] {
@@ -103,6 +107,17 @@ struct Shell {
   composer: Str,
   latest_out_of_view: Bool,
   active_modal: ActiveModal,
+  auth_provider: Str,
+  auth_api_key: Str,
+  auth_error: Str,
+  auth_pending: Bool,
+  auth_generation: Int,
+  auth_attempt: contextbridge::Cancellation?,
+  device_url: Str,
+  device_code: Str,
+  browser_code: Str,
+  browser_manual: Chan<Str>?,
+  browser_url: Str,
   picker_query: Str,
   picker_selection: Str,
   picker_hover: Str,
@@ -137,6 +152,17 @@ fn new(props: mut Props) mut Shell {
     composer: "",
     latest_out_of_view: false,
     active_modal: ActiveModal::none,
+    auth_provider: "",
+    auth_api_key: "",
+    auth_error: "",
+    auth_pending: false,
+    auth_generation: 0,
+    auth_attempt: Maybe::new<contextbridge::Cancellation>(),
+    device_url: "",
+    device_code: "",
+    browser_code: "",
+    browser_manual: Maybe::new<Chan<Str>>(),
+    browser_url: "",
     picker_query: "",
     picker_selection: "codex",
     picker_hover: "",
@@ -750,6 +776,9 @@ impl cui::Component for Shell {
     layers.push(shell)
     match self.active_modal {
       ActiveModal::provider_picker => layers.push(self.provider_picker_modal()),
+      ActiveModal::api_key => layers.push(self.api_key_modal()),
+      ActiveModal::device_login => layers.push(self.device_login_modal()),
+      ActiveModal::browser_login => layers.push(self.browser_login_modal()),
       _ => (),
     }
     cui::box(
@@ -766,17 +795,411 @@ impl cui::Component for Shell {
 
 impl Shell {
   fn mut open_provider_picker() Bool {
+    self.auth_error = ""
     self.active_modal = ActiveModal::provider_picker
     true
   }
 
+  fn mut select_auth_provider(key: Str) {
+    if self.auth_pending {
+      ()
+    } else if key == "codex" {
+      self.auth_provider = key
+      self.start_device_login()
+    } else if key == "claude" {
+      self.auth_provider = key
+      self.start_browser_login()
+    } else {
+      self.auth_provider = key
+      self.auth_api_key = ""
+      self.auth_error = ""
+      self.active_modal = ActiveModal::api_key
+    }
+  }
+
   fn mut dismiss_modal() Bool {
-    self.active_modal = ActiveModal::none
-    match self.context {
-      ctx => self.connect_button.focus(ctx),
-      _ => (),
+    self.cancel_auth_attempt()
+    match self.active_modal {
+      ActiveModal::api_key => { self.active_modal = ActiveModal::provider_picker },
+      ActiveModal::device_login => { self.active_modal = ActiveModal::provider_picker },
+      ActiveModal::browser_login => { self.active_modal = ActiveModal::provider_picker },
+      _ => {
+        self.active_modal = ActiveModal::none
+        match self.context {
+          ctx => self.connect_button.focus(ctx),
+          _ => (),
+        }
+      },
     }
     true
+  }
+
+  fn mut cancel_auth_attempt() {
+    self.auth_generation =+ 1
+    match self.auth_attempt {
+      attempt => attempt.Cancel(),
+      _ => (),
+    }
+    self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
+    self.auth_pending = false
+  }
+
+  fn auth_provider_label() Str {
+    match self.auth_provider {
+      "anthropic" => "Anthropic",
+      "openai" => "OpenAI",
+      "opencode" => "OpenCode Go",
+      "codex" => "OpenAI Codex",
+      "claude" => "Claude",
+      _ => "provider",
+    }
+  }
+
+  fn auth_provider_id() Str {
+    match self.auth_provider {
+      "opencode" => "opencode-go",
+      _ => self.auth_provider,
+    }
+  }
+
+  fn mut device_login_modal() cui::View {
+    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
+      self.dismiss_modal()
+    })
+    let body = mut List::new<cui::View>()
+    if self.auth_error != "" {
+      body.push(
+        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+      )
+      body.push(blank())
+    }
+    if self.device_url == "" {
+      body.push(spinner::spinner())
+      body.push(
+        line(
+          "Starting device authorization…",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
+      )
+    } else {
+      body.push(
+        line("Open this URL", ui::text_style(foreground: self.props.themes.current().muted)),
+      )
+      body.push(
+        line(self.device_url, ui::text_style(foreground: self.props.themes.current().primary_text)),
+      )
+      body.push(blank())
+      body.push(
+        line("Enter this code", ui::text_style(foreground: self.props.themes.current().muted)),
+      )
+      body.push(line(self.device_code, ui::text_style(bold: true)))
+      body.push(blank())
+      body.push(spinner::spinner())
+      body.push(
+        line(
+          "Waiting for approval…",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
+      )
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect OpenAI Codex",
+        meta: "",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  fn mut start_device_login() {
+    self.cancel_auth_attempt()
+    match self.lifetime {
+      lifetime => {
+        let attempt = contextbridge::WithCancel(lifetime.Context)
+        let generation = self.auth_generation
+        let ui_context = self.context.expect("mounted auth shell")
+        let dispatch = ui_context.dispatch
+        let login = self.props.options.Login
+        self.active_modal = ActiveModal::device_login
+        self.auth_attempt = Maybe::new(attempt)
+        self.auth_pending = true
+        self.auth_error = ""
+        self.device_url = ""
+        self.device_code = ""
+        async::start(fn() {
+          let result = authbridge::RunDevice(
+            attempt.Context,
+            login,
+            fn(instructions: authbridge::DeviceInstructions) {
+              let _ = dispatch(fn() {
+                if generation == self.auth_generation {
+                  self.device_url = instructions.VerificationURI
+                  self.device_code = instructions.UserCode
+                }
+              })
+            },
+          )
+          let _ = dispatch(fn() {
+            if generation == self.auth_generation {
+              self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
+              self.auth_pending = false
+              match result {
+                ok(_) => {
+                  self.active_modal = ActiveModal::none
+                  self.phase = Phase::loading
+                  self.bootstrap(ui_context, lifetime)
+                },
+                err(error) => {
+                  self.active_modal = ActiveModal::provider_picker
+                  self.auth_error = "{error}"
+                },
+              }
+            }
+          })
+        })
+      },
+      _ => {
+        self.active_modal = ActiveModal::device_login
+        self.auth_error = "OpenAI Codex login is unavailable"
+      },
+    }
+  }
+
+  fn mut browser_login_modal() cui::View {
+    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
+      self.dismiss_modal()
+    })
+    let body = mut List::new<cui::View>()
+    if self.auth_error != "" {
+      body.push(
+        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+      )
+    }
+    if self.browser_url == "" {
+      body.push(spinner::spinner())
+      body.push(
+        line(
+          "Starting Claude sign-in…",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
+      )
+    } else {
+      body.push(
+        line(
+          "Complete authentication in your browser.",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
+      )
+      body.push(blank())
+      body.push(
+        line(
+          self.browser_url,
+          ui::text_style(foreground: self.props.themes.current().primary_text),
+        ),
+      )
+      body.push(blank())
+      body.push(
+        cui::input(
+          self.browser_code,
+          key: "auth.browser-code",
+          placeholder: "Paste final redirect URL or authorization code…",
+          autofocus: not self.auth_pending,
+          on_input: fn(value: Str, ctx: cui::Context) {
+            self.browser_code = value
+          },
+          on_submit: fn(value: Str, ctx: cui::Context) {
+            self.submit_browser_code(value)
+          },
+        ),
+      )
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect Claude",
+        meta: "browser",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  fn mut start_browser_login() {
+    self.cancel_auth_attempt()
+    match self.lifetime {
+      lifetime => {
+        let attempt = contextbridge::WithCancel(lifetime.Context)
+        let generation = self.auth_generation
+        let ui_context = self.context.expect("mounted auth shell")
+        let dispatch = ui_context.dispatch
+        let login = self.props.options.BrowserLogin
+        let manual = Chan::new<Str>(1)
+        self.active_modal = ActiveModal::browser_login
+        self.auth_attempt = Maybe::new(attempt)
+        self.browser_manual = Maybe::new(manual)
+        self.browser_url = ""
+        self.browser_code = ""
+        self.auth_error = ""
+        self.auth_pending = true
+        async::start(fn() {
+          let result = authbridge::RunBrowser(
+            attempt.Context,
+            login,
+            manual.receiver(),
+            fn(instructions: authbridge::BrowserInstructions) {
+              let _ = dispatch(fn() {
+                if generation == self.auth_generation {
+                  self.browser_url = instructions.AuthorizationURL
+                }
+              })
+            },
+          )
+          let _ = dispatch(fn() {
+            if generation == self.auth_generation {
+              self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
+              self.browser_manual = Maybe::new<Chan<Str>>()
+              self.auth_pending = false
+              match result {
+                ok(_) => {
+                  self.active_modal = ActiveModal::none
+                  self.phase = Phase::loading
+                  self.bootstrap(ui_context, lifetime)
+                },
+                err(error) => {
+                  self.active_modal = ActiveModal::provider_picker
+                  self.auth_error = "{error}"
+                },
+              }
+            }
+          })
+        })
+      },
+      _ => {
+        self.active_modal = ActiveModal::browser_login
+        self.auth_error = "Claude subscription login is unavailable"
+      },
+    }
+  }
+
+  fn mut submit_browser_code(value: Str) {
+    if value != "" and self.auth_pending {
+      match self.browser_manual {
+        manual => {
+          manual.send(value)
+          self.browser_code = ""
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut api_key_modal() cui::View {
+    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
+      self.dismiss_modal()
+    })
+    let body = mut List::new<cui::View>()
+    body.push(
+      cui::input(
+        self.auth_api_key,
+        key: "auth.api-key",
+        styles: ui::style(width: ui::percent(100.0)),
+        placeholder: "Paste API key…",
+        autofocus: not self.auth_pending,
+        on_input: fn(value: Str, ctx: cui::Context) {
+          if not self.auth_pending {
+            self.auth_api_key = value
+            self.auth_error = ""
+          }
+        },
+        on_submit: fn(value: Str, ctx: cui::Context) {
+          self.submit_api_key(value)
+        },
+      ),
+    )
+    if self.auth_error != "" {
+      body.push(blank())
+      body.push(
+        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+      )
+    }
+    match self.auth_pending {
+      true => {
+        body.push(blank())
+        body.push(spinner::spinner())
+        body.push(
+          line("Saving API key…", ui::text_style(foreground: self.props.themes.current().muted)),
+        )
+      },
+      false => (),
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect {self.auth_provider_label()}",
+        meta: "API key",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: inset())),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  fn mut submit_api_key(value: Str) {
+    if self.auth_pending or value == "" {
+      ()
+    } else {
+      match self.lifetime {
+        lifetime => {
+          let attempt = contextbridge::WithCancel(lifetime.Context)
+          let generation = self.auth_generation
+          let ui_context = self.context.expect("mounted auth shell")
+          let dispatch = ui_context.dispatch
+          let login = self.props.options.APIKeyLogin
+          let provider = self.auth_provider_id()
+          self.auth_attempt = Maybe::new(attempt)
+          self.auth_pending = true
+          self.auth_error = ""
+          async::start(fn() {
+            let result = authbridge::RunAPIKey(attempt.Context, login, provider, value)
+            let _ = dispatch(fn() {
+              if generation == self.auth_generation {
+                self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
+                self.auth_pending = false
+                match result {
+                  ok(_) => {
+                    self.auth_api_key = ""
+                    self.active_modal = ActiveModal::none
+                    self.phase = Phase::loading
+                    self.bootstrap(ui_context, lifetime)
+                  },
+                  err(error) => { self.auth_error = "{error}" },
+                }
+              }
+            })
+          })
+        },
+        _ => { self.auth_error = "Authentication is unavailable" },
+      }
+    }
   }
 
   fn mut provider_picker_modal() cui::View {
@@ -828,7 +1251,9 @@ impl Shell {
       on_hover_change: fn(hovered: Str) {
         self.picker_hover = hovered
       },
-      on_activate: fn(item: palette::Item) {},
+      on_activate: fn(item: palette::Item) {
+        self.select_auth_provider(item.key)
+      },
     }
     let navigation = palette::navigation(picker)
     let dismiss = keymap::simple_command("auth.dismiss", "Close", fn() Bool {
