@@ -12,6 +12,197 @@ import struct Foundation.Date
 extension Components {
     /// Types generated from the `#/components/schemas` section of the OpenAPI document.
     internal enum Schemas {
+        /// - Remark: Generated from `#/components/schemas/ActiveCompaction`.
+        internal struct ActiveCompaction: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ActiveCompaction/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ActiveCompaction/turnId`.
+            internal var turnId: Swift.String
+            /// Creates a new `ActiveCompaction`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - turnId:
+            internal init(
+                id: Swift.String,
+                turnId: Swift.String
+            ) {
+                self.id = id
+                self.turnId = turnId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case id
+                case turnId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.turnId = try container.decode(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "turnId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationAnchor`.
+        internal struct AnnotationAnchor: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationAnchor/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationAnchor/workingTreeDiff`.
+            internal var workingTreeDiff: Components.Schemas.WorkingTreeDiffAnnotationAnchor?
+            /// - Remark: Generated from `#/components/schemas/AnnotationAnchor/workspaceFile`.
+            internal var workspaceFile: Components.Schemas.WorkspaceFileAnnotationAnchor?
+            /// Creates a new `AnnotationAnchor`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - workingTreeDiff:
+            ///   - workspaceFile:
+            internal init(
+                kind: Swift.String,
+                workingTreeDiff: Components.Schemas.WorkingTreeDiffAnnotationAnchor? = nil,
+                workspaceFile: Components.Schemas.WorkspaceFileAnnotationAnchor? = nil
+            ) {
+                self.kind = kind
+                self.workingTreeDiff = workingTreeDiff
+                self.workspaceFile = workspaceFile
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case workingTreeDiff
+                case workspaceFile
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.workingTreeDiff = try container.decodeIfPresent(
+                    Components.Schemas.WorkingTreeDiffAnnotationAnchor.self,
+                    forKey: .workingTreeDiff
+                )
+                self.workspaceFile = try container.decodeIfPresent(
+                    Components.Schemas.WorkspaceFileAnnotationAnchor.self,
+                    forKey: .workspaceFile
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "workingTreeDiff",
+                    "workspaceFile"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationSummary`.
+        internal struct AnnotationSummary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/anchor`.
+            internal var anchor: Components.Schemas.AnnotationAnchor
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/bodyPreview`.
+            internal var bodyPreview: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/diffTarget`.
+            internal var diffTarget: Components.Schemas.PinnedDiffTarget?
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/id`.
+            internal var id: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/preview`.
+            internal var preview: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/stale`.
+            internal var stale: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/staleReason`.
+            internal var staleReason: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AnnotationSummary/validationDeferred`.
+            internal var validationDeferred: Swift.Bool?
+            /// Creates a new `AnnotationSummary`.
+            ///
+            /// - Parameters:
+            ///   - anchor:
+            ///   - bodyPreview:
+            ///   - diffTarget:
+            ///   - id:
+            ///   - preview:
+            ///   - stale:
+            ///   - staleReason:
+            ///   - validationDeferred:
+            internal init(
+                anchor: Components.Schemas.AnnotationAnchor,
+                bodyPreview: Swift.String,
+                diffTarget: Components.Schemas.PinnedDiffTarget? = nil,
+                id: Swift.Int,
+                preview: Swift.String,
+                stale: Swift.Bool? = nil,
+                staleReason: Swift.String? = nil,
+                validationDeferred: Swift.Bool? = nil
+            ) {
+                self.anchor = anchor
+                self.bodyPreview = bodyPreview
+                self.diffTarget = diffTarget
+                self.id = id
+                self.preview = preview
+                self.stale = stale
+                self.staleReason = staleReason
+                self.validationDeferred = validationDeferred
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case anchor
+                case bodyPreview
+                case diffTarget
+                case id
+                case preview
+                case stale
+                case staleReason
+                case validationDeferred
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.anchor = try container.decode(
+                    Components.Schemas.AnnotationAnchor.self,
+                    forKey: .anchor
+                )
+                self.bodyPreview = try container.decode(
+                    Swift.String.self,
+                    forKey: .bodyPreview
+                )
+                self.diffTarget = try container.decodeIfPresent(
+                    Components.Schemas.PinnedDiffTarget.self,
+                    forKey: .diffTarget
+                )
+                self.id = try container.decode(
+                    Swift.Int.self,
+                    forKey: .id
+                )
+                self.preview = try container.decode(
+                    Swift.String.self,
+                    forKey: .preview
+                )
+                self.stale = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .stale
+                )
+                self.staleReason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .staleReason
+                )
+                self.validationDeferred = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .validationDeferred
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "anchor",
+                    "bodyPreview",
+                    "diffTarget",
+                    "id",
+                    "preview",
+                    "stale",
+                    "staleReason",
+                    "validationDeferred"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CapacityExceededError`.
         internal struct CapacityExceededError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.
@@ -54,6 +245,287 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ChangeCWDInput`.
+        internal struct ChangeCWDInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ChangeCWDInput/mutationId`.
+            internal var mutationId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ChangeCWDInput/path`.
+            internal var path: Swift.String
+            /// Creates a new `ChangeCWDInput`.
+            ///
+            /// - Parameters:
+            ///   - mutationId:
+            ///   - path:
+            internal init(
+                mutationId: Swift.String,
+                path: Swift.String
+            ) {
+                self.mutationId = mutationId
+                self.path = path
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case mutationId
+                case path
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.mutationId = try container.decode(
+                    Swift.String.self,
+                    forKey: .mutationId
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "mutationId",
+                    "path"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ChangeWorkspaceCWDResult`.
+        internal struct ChangeWorkspaceCWDResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ChangeWorkspaceCWDResult/session`.
+            internal var session: Components.Schemas.SessionInfo
+            /// - Remark: Generated from `#/components/schemas/ChangeWorkspaceCWDResult/workspace`.
+            internal var workspace: Components.Schemas.WorkspaceRef
+            /// Creates a new `ChangeWorkspaceCWDResult`.
+            ///
+            /// - Parameters:
+            ///   - session:
+            ///   - workspace:
+            internal init(
+                session: Components.Schemas.SessionInfo,
+                workspace: Components.Schemas.WorkspaceRef
+            ) {
+                self.session = session
+                self.workspace = workspace
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case session
+                case workspace
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.session = try container.decode(
+                    Components.Schemas.SessionInfo.self,
+                    forKey: .session
+                )
+                self.workspace = try container.decode(
+                    Components.Schemas.WorkspaceRef.self,
+                    forKey: .workspace
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "session",
+                    "workspace"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CompactSessionInput`.
+        internal struct CompactSessionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompactSessionInput/operationId`.
+            internal var operationId: Swift.String
+            /// Creates a new `CompactSessionInput`.
+            ///
+            /// - Parameters:
+            ///   - operationId:
+            internal init(operationId: Swift.String) {
+                self.operationId = operationId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case operationId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.operationId = try container.decode(
+                    Swift.String.self,
+                    forKey: .operationId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "operationId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CompactSessionResult`.
+        internal struct CompactSessionResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CompactSessionResult/checkpointId`.
+            internal var checkpointId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CompactSessionResult/compacted`.
+            internal var compacted: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/CompactSessionResult/eventStreamId`.
+            internal var eventStreamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CompactSessionResult/operationId`.
+            internal var operationId: Swift.String
+            /// Creates a new `CompactSessionResult`.
+            ///
+            /// - Parameters:
+            ///   - checkpointId:
+            ///   - compacted:
+            ///   - eventStreamId:
+            ///   - operationId:
+            internal init(
+                checkpointId: Swift.String? = nil,
+                compacted: Swift.Bool,
+                eventStreamId: Swift.String,
+                operationId: Swift.String
+            ) {
+                self.checkpointId = checkpointId
+                self.compacted = compacted
+                self.eventStreamId = eventStreamId
+                self.operationId = operationId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case checkpointId
+                case compacted
+                case eventStreamId
+                case operationId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.checkpointId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .checkpointId
+                )
+                self.compacted = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .compacted
+                )
+                self.eventStreamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .eventStreamId
+                )
+                self.operationId = try container.decode(
+                    Swift.String.self,
+                    forKey: .operationId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "checkpointId",
+                    "compacted",
+                    "eventStreamId",
+                    "operationId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ConfigureSessionInput`.
+        internal struct ConfigureSessionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionInput/expectedRevision`.
+            internal var expectedRevision: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionInput/model`.
+            internal var model: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionInput/thinkingLevel`.
+            internal var thinkingLevel: Swift.String?
+            /// Creates a new `ConfigureSessionInput`.
+            ///
+            /// - Parameters:
+            ///   - expectedRevision:
+            ///   - model:
+            ///   - thinkingLevel:
+            internal init(
+                expectedRevision: Swift.Int,
+                model: Swift.String,
+                thinkingLevel: Swift.String? = nil
+            ) {
+                self.expectedRevision = expectedRevision
+                self.model = model
+                self.thinkingLevel = thinkingLevel
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case expectedRevision
+                case model
+                case thinkingLevel
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.expectedRevision = try container.decode(
+                    Swift.Int.self,
+                    forKey: .expectedRevision
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.thinkingLevel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "expectedRevision",
+                    "model",
+                    "thinkingLevel"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult`.
+        internal struct ConfigureSessionResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult/checkpointId`.
+            internal var checkpointId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult/compacted`.
+            internal var compacted: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult/eventStreamId`.
+            internal var eventStreamId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult/session`.
+            internal var session: Components.Schemas.SessionInfo
+            /// - Remark: Generated from `#/components/schemas/ConfigureSessionResult/warnings`.
+            internal var warnings: [Swift.String]?
+            /// Creates a new `ConfigureSessionResult`.
+            ///
+            /// - Parameters:
+            ///   - checkpointId:
+            ///   - compacted:
+            ///   - eventStreamId:
+            ///   - session:
+            ///   - warnings:
+            internal init(
+                checkpointId: Swift.String? = nil,
+                compacted: Swift.Bool? = nil,
+                eventStreamId: Swift.String,
+                session: Components.Schemas.SessionInfo,
+                warnings: [Swift.String]? = nil
+            ) {
+                self.checkpointId = checkpointId
+                self.compacted = compacted
+                self.eventStreamId = eventStreamId
+                self.session = session
+                self.warnings = warnings
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case checkpointId
+                case compacted
+                case eventStreamId
+                case session
+                case warnings
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.checkpointId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .checkpointId
+                )
+                self.compacted = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .compacted
+                )
+                self.eventStreamId = try container.decode(
+                    Swift.String.self,
+                    forKey: .eventStreamId
+                )
+                self.session = try container.decode(
+                    Components.Schemas.SessionInfo.self,
+                    forKey: .session
+                )
+                self.warnings = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .warnings
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "checkpointId",
+                    "compacted",
+                    "eventStreamId",
+                    "session",
+                    "warnings"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ConflictError`.
         internal struct ConflictError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ConflictError/code`.
@@ -93,6 +565,126 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/CreateSessionInput`.
+        internal struct CreateSessionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/cwd`.
+            internal var cwd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/id`.
+            internal var id: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/model`.
+            internal var model: Swift.String
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/name`.
+            internal var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/temporary`.
+            internal var temporary: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/CreateSessionInput/thinkingLevel`.
+            internal var thinkingLevel: Swift.String?
+            /// Creates a new `CreateSessionInput`.
+            ///
+            /// - Parameters:
+            ///   - cwd:
+            ///   - id:
+            ///   - model:
+            ///   - name:
+            ///   - temporary:
+            ///   - thinkingLevel:
+            internal init(
+                cwd: Swift.String,
+                id: Swift.String? = nil,
+                model: Swift.String,
+                name: Swift.String? = nil,
+                temporary: Swift.Bool? = nil,
+                thinkingLevel: Swift.String? = nil
+            ) {
+                self.cwd = cwd
+                self.id = id
+                self.model = model
+                self.name = name
+                self.temporary = temporary
+                self.thinkingLevel = thinkingLevel
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cwd
+                case id
+                case model
+                case name
+                case temporary
+                case thinkingLevel
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cwd = try container.decode(
+                    Swift.String.self,
+                    forKey: .cwd
+                )
+                self.id = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.temporary = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .temporary
+                )
+                self.thinkingLevel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cwd",
+                    "id",
+                    "model",
+                    "name",
+                    "temporary",
+                    "thinkingLevel"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DiffEndpoint`.
+        internal struct DiffEndpoint: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DiffEndpoint/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/DiffEndpoint/oid`.
+            internal var oid: Swift.String?
+            /// Creates a new `DiffEndpoint`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - oid:
+            internal init(
+                kind: Swift.String,
+                oid: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.oid = oid
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case oid
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.oid = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .oid
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "oid"
                 ])
             }
         }
@@ -184,6 +776,44 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ForkSessionInput`.
+        internal struct ForkSessionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ForkSessionInput/id`.
+            internal var id: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ForkSessionInput/name`.
+            internal var name: Swift.String?
+            /// Creates a new `ForkSessionInput`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - name:
+            internal init(
+                id: Swift.String? = nil,
+                name: Swift.String? = nil
+            ) {
+                self.id = id
+                self.name = name
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case id
+                case name
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "name"
                 ])
             }
         }
@@ -324,6 +954,340 @@ extension Components {
                     "optionIds",
                     "skipped",
                     "text"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InteractionOption`.
+        internal struct InteractionOption: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InteractionOption/detail`.
+            internal var detail: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionOption/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionOption/label`.
+            internal var label: Swift.String
+            /// Creates a new `InteractionOption`.
+            ///
+            /// - Parameters:
+            ///   - detail:
+            ///   - id:
+            ///   - label:
+            internal init(
+                detail: Swift.String? = nil,
+                id: Swift.String,
+                label: Swift.String
+            ) {
+                self.detail = detail
+                self.id = id
+                self.label = label
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case detail
+                case id
+                case label
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.detail = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .detail
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.label = try container.decode(
+                    Swift.String.self,
+                    forKey: .label
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "detail",
+                    "id",
+                    "label"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InteractionQuestion`.
+        internal struct InteractionQuestion: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/detail`.
+            internal var detail: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/options`.
+            internal var options: [Components.Schemas.InteractionOption]?
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/prompt`.
+            internal var prompt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionQuestion/required`.
+            internal var required: Swift.Bool
+            /// Creates a new `InteractionQuestion`.
+            ///
+            /// - Parameters:
+            ///   - detail:
+            ///   - id:
+            ///   - kind:
+            ///   - options:
+            ///   - prompt:
+            ///   - required:
+            internal init(
+                detail: Swift.String? = nil,
+                id: Swift.String,
+                kind: Swift.String,
+                options: [Components.Schemas.InteractionOption]? = nil,
+                prompt: Swift.String,
+                required: Swift.Bool
+            ) {
+                self.detail = detail
+                self.id = id
+                self.kind = kind
+                self.options = options
+                self.prompt = prompt
+                self.required = required
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case detail
+                case id
+                case kind
+                case options
+                case prompt
+                case required
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.detail = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .detail
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.options = try container.decodeIfPresent(
+                    [Components.Schemas.InteractionOption].self,
+                    forKey: .options
+                )
+                self.prompt = try container.decode(
+                    Swift.String.self,
+                    forKey: .prompt
+                )
+                self.required = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .required
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "detail",
+                    "id",
+                    "kind",
+                    "options",
+                    "prompt",
+                    "required"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/InteractionRequest`.
+        internal struct InteractionRequest: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/cancelLabel`.
+            internal var cancelLabel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/confirmLabel`.
+            internal var confirmLabel: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/createdAt`.
+            internal var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/defaultValue`.
+            internal var defaultValue: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/detail`.
+            internal var detail: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/filterable`.
+            internal var filterable: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/initialValue`.
+            internal var initialValue: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/options`.
+            internal var options: [Components.Schemas.InteractionOption]?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/placeholder`.
+            internal var placeholder: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/plugin`.
+            internal var plugin: Components.Schemas.PluginInteractionOwner?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/questions`.
+            internal var questions: [Components.Schemas.InteractionQuestion]?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/title`.
+            internal var title: Swift.String
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/toolCallId`.
+            internal var toolCallId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/InteractionRequest/turnId`.
+            internal var turnId: Swift.String?
+            /// Creates a new `InteractionRequest`.
+            ///
+            /// - Parameters:
+            ///   - cancelLabel:
+            ///   - confirmLabel:
+            ///   - createdAt:
+            ///   - defaultValue:
+            ///   - detail:
+            ///   - filterable:
+            ///   - id:
+            ///   - initialValue:
+            ///   - kind:
+            ///   - options:
+            ///   - placeholder:
+            ///   - plugin:
+            ///   - questions:
+            ///   - sessionId:
+            ///   - title:
+            ///   - toolCallId:
+            ///   - turnId:
+            internal init(
+                cancelLabel: Swift.String? = nil,
+                confirmLabel: Swift.String? = nil,
+                createdAt: Swift.String,
+                defaultValue: Swift.Bool? = nil,
+                detail: Swift.String? = nil,
+                filterable: Swift.Bool? = nil,
+                id: Swift.String,
+                initialValue: Swift.String? = nil,
+                kind: Swift.String,
+                options: [Components.Schemas.InteractionOption]? = nil,
+                placeholder: Swift.String? = nil,
+                plugin: Components.Schemas.PluginInteractionOwner? = nil,
+                questions: [Components.Schemas.InteractionQuestion]? = nil,
+                sessionId: Swift.String,
+                title: Swift.String,
+                toolCallId: Swift.String? = nil,
+                turnId: Swift.String? = nil
+            ) {
+                self.cancelLabel = cancelLabel
+                self.confirmLabel = confirmLabel
+                self.createdAt = createdAt
+                self.defaultValue = defaultValue
+                self.detail = detail
+                self.filterable = filterable
+                self.id = id
+                self.initialValue = initialValue
+                self.kind = kind
+                self.options = options
+                self.placeholder = placeholder
+                self.plugin = plugin
+                self.questions = questions
+                self.sessionId = sessionId
+                self.title = title
+                self.toolCallId = toolCallId
+                self.turnId = turnId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cancelLabel
+                case confirmLabel
+                case createdAt
+                case defaultValue
+                case detail
+                case filterable
+                case id
+                case initialValue
+                case kind
+                case options
+                case placeholder
+                case plugin
+                case questions
+                case sessionId
+                case title
+                case toolCallId
+                case turnId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cancelLabel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .cancelLabel
+                )
+                self.confirmLabel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .confirmLabel
+                )
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.defaultValue = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .defaultValue
+                )
+                self.detail = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .detail
+                )
+                self.filterable = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .filterable
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.initialValue = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .initialValue
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.options = try container.decodeIfPresent(
+                    [Components.Schemas.InteractionOption].self,
+                    forKey: .options
+                )
+                self.placeholder = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .placeholder
+                )
+                self.plugin = try container.decodeIfPresent(
+                    Components.Schemas.PluginInteractionOwner.self,
+                    forKey: .plugin
+                )
+                self.questions = try container.decodeIfPresent(
+                    [Components.Schemas.InteractionQuestion].self,
+                    forKey: .questions
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.title = try container.decode(
+                    Swift.String.self,
+                    forKey: .title
+                )
+                self.toolCallId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.turnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .turnId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cancelLabel",
+                    "confirmLabel",
+                    "createdAt",
+                    "defaultValue",
+                    "detail",
+                    "filterable",
+                    "id",
+                    "initialValue",
+                    "kind",
+                    "options",
+                    "placeholder",
+                    "plugin",
+                    "questions",
+                    "sessionId",
+                    "title",
+                    "toolCallId",
+                    "turnId"
                 ])
             }
         }
@@ -620,6 +1584,121 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/MCPServerStatus`.
+        internal struct MCPServerStatus: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/configPath`.
+            internal var configPath: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/description`.
+            internal var description: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/lastError`.
+            internal var lastError: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/name`.
+            internal var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/oauthSaved`.
+            internal var oauthSaved: Swift.Bool
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/source`.
+            internal var source: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/state`.
+            internal var state: Swift.String
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/toolCount`.
+            internal var toolCount: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/MCPServerStatus/transport`.
+            internal var transport: Swift.String
+            /// Creates a new `MCPServerStatus`.
+            ///
+            /// - Parameters:
+            ///   - configPath:
+            ///   - description:
+            ///   - lastError:
+            ///   - name:
+            ///   - oauthSaved:
+            ///   - source:
+            ///   - state:
+            ///   - toolCount:
+            ///   - transport:
+            internal init(
+                configPath: Swift.String? = nil,
+                description: Swift.String? = nil,
+                lastError: Swift.String? = nil,
+                name: Swift.String,
+                oauthSaved: Swift.Bool,
+                source: Swift.String,
+                state: Swift.String,
+                toolCount: Swift.Int,
+                transport: Swift.String
+            ) {
+                self.configPath = configPath
+                self.description = description
+                self.lastError = lastError
+                self.name = name
+                self.oauthSaved = oauthSaved
+                self.source = source
+                self.state = state
+                self.toolCount = toolCount
+                self.transport = transport
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case configPath
+                case description
+                case lastError
+                case name
+                case oauthSaved
+                case source
+                case state
+                case toolCount
+                case transport
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.configPath = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .configPath
+                )
+                self.description = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .description
+                )
+                self.lastError = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .lastError
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.oauthSaved = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .oauthSaved
+                )
+                self.source = try container.decode(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                self.toolCount = try container.decode(
+                    Swift.Int.self,
+                    forKey: .toolCount
+                )
+                self.transport = try container.decode(
+                    Swift.String.self,
+                    forKey: .transport
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "configPath",
+                    "description",
+                    "lastError",
+                    "name",
+                    "oauthSaved",
+                    "source",
+                    "state",
+                    "toolCount",
+                    "transport"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/MessagePage`.
         internal struct MessagePage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/MessagePage/HasMore`.
@@ -719,6 +1798,241 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PendingBoundary`.
+        internal struct PendingBoundary: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/acceptedAt`.
+            internal var acceptedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/content`.
+            internal var content: [Components.Schemas.TranscriptContent]
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/details`.
+            internal var details: OpenAPIRuntime.OpenAPIValueContainer?
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PendingBoundary/source`.
+            internal var source: Swift.String?
+            /// Creates a new `PendingBoundary`.
+            ///
+            /// - Parameters:
+            ///   - acceptedAt:
+            ///   - content:
+            ///   - details:
+            ///   - id:
+            ///   - kind:
+            ///   - source:
+            internal init(
+                acceptedAt: Swift.String,
+                content: [Components.Schemas.TranscriptContent],
+                details: OpenAPIRuntime.OpenAPIValueContainer? = nil,
+                id: Swift.String,
+                kind: Swift.String,
+                source: Swift.String? = nil
+            ) {
+                self.acceptedAt = acceptedAt
+                self.content = content
+                self.details = details
+                self.id = id
+                self.kind = kind
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case acceptedAt
+                case content
+                case details
+                case id
+                case kind
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.acceptedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .acceptedAt
+                )
+                self.content = try container.decode(
+                    [Components.Schemas.TranscriptContent].self,
+                    forKey: .content
+                )
+                self.details = try container.decodeIfPresent(
+                    OpenAPIRuntime.OpenAPIValueContainer.self,
+                    forKey: .details
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.source = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "acceptedAt",
+                    "content",
+                    "details",
+                    "id",
+                    "kind",
+                    "source"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget`.
+        internal struct PinnedDiffTarget: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/base`.
+            internal var base: Components.Schemas.DiffEndpoint
+            /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/head`.
+            internal var head: Components.Schemas.DiffEndpoint
+            /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PinnedDiffTarget/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `PinnedDiffTarget`.
+            ///
+            /// - Parameters:
+            ///   - base:
+            ///   - head:
+            ///   - kind:
+            ///   - workspaceId:
+            internal init(
+                base: Components.Schemas.DiffEndpoint,
+                head: Components.Schemas.DiffEndpoint,
+                kind: Swift.String,
+                workspaceId: Swift.String
+            ) {
+                self.base = base
+                self.head = head
+                self.kind = kind
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case base
+                case head
+                case kind
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.base = try container.decode(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .base
+                )
+                self.head = try container.decode(
+                    Components.Schemas.DiffEndpoint.self,
+                    forKey: .head
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "base",
+                    "head",
+                    "kind",
+                    "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginCommand`.
+        internal struct PluginCommand: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/argName`.
+            internal var argName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/category`.
+            internal var category: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/description`.
+            internal var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/instance`.
+            internal var instance: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/localId`.
+            internal var localId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginCommand/pluginId`.
+            internal var pluginId: Swift.String
+            /// Creates a new `PluginCommand`.
+            ///
+            /// - Parameters:
+            ///   - argName:
+            ///   - category:
+            ///   - description:
+            ///   - id:
+            ///   - instance:
+            ///   - localId:
+            ///   - pluginId:
+            internal init(
+                argName: Swift.String? = nil,
+                category: Swift.String? = nil,
+                description: Swift.String,
+                id: Swift.String,
+                instance: Swift.String,
+                localId: Swift.String,
+                pluginId: Swift.String
+            ) {
+                self.argName = argName
+                self.category = category
+                self.description = description
+                self.id = id
+                self.instance = instance
+                self.localId = localId
+                self.pluginId = pluginId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case argName
+                case category
+                case description
+                case id
+                case instance
+                case localId
+                case pluginId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.argName = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .argName
+                )
+                self.category = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .category
+                )
+                self.description = try container.decode(
+                    Swift.String.self,
+                    forKey: .description
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.instance = try container.decode(
+                    Swift.String.self,
+                    forKey: .instance
+                )
+                self.localId = try container.decode(
+                    Swift.String.self,
+                    forKey: .localId
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "argName",
+                    "category",
+                    "description",
+                    "id",
+                    "instance",
+                    "localId",
+                    "pluginId"
                 ])
             }
         }
@@ -855,6 +2169,273 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PluginFooter`.
+        internal struct PluginFooter: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginFooter/items`.
+            internal var items: [Components.Schemas.PluginFooterItem]
+            /// - Remark: Generated from `#/components/schemas/PluginFooter/locationHidden`.
+            internal var locationHidden: Swift.Bool?
+            /// Creates a new `PluginFooter`.
+            ///
+            /// - Parameters:
+            ///   - items:
+            ///   - locationHidden:
+            internal init(
+                items: [Components.Schemas.PluginFooterItem],
+                locationHidden: Swift.Bool? = nil
+            ) {
+                self.items = items
+                self.locationHidden = locationHidden
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case items
+                case locationHidden
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.items = try container.decode(
+                    [Components.Schemas.PluginFooterItem].self,
+                    forKey: .items
+                )
+                self.locationHidden = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .locationHidden
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "items",
+                    "locationHidden"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginFooterItem`.
+        internal struct PluginFooterItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginFooterItem/content`.
+            internal var content: [Components.Schemas.PluginFooterSegment]
+            /// - Remark: Generated from `#/components/schemas/PluginFooterItem/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginFooterItem/instance`.
+            internal var instance: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginFooterItem/pluginId`.
+            internal var pluginId: Swift.String
+            /// Creates a new `PluginFooterItem`.
+            ///
+            /// - Parameters:
+            ///   - content:
+            ///   - id:
+            ///   - instance:
+            ///   - pluginId:
+            internal init(
+                content: [Components.Schemas.PluginFooterSegment],
+                id: Swift.String,
+                instance: Swift.String,
+                pluginId: Swift.String
+            ) {
+                self.content = content
+                self.id = id
+                self.instance = instance
+                self.pluginId = pluginId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case content
+                case id
+                case instance
+                case pluginId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.content = try container.decode(
+                    [Components.Schemas.PluginFooterSegment].self,
+                    forKey: .content
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.instance = try container.decode(
+                    Swift.String.self,
+                    forKey: .instance
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "content",
+                    "id",
+                    "instance",
+                    "pluginId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginFooterSegment`.
+        internal struct PluginFooterSegment: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginFooterSegment/style`.
+            internal var style: Components.Schemas.PluginFooterStyle
+            /// - Remark: Generated from `#/components/schemas/PluginFooterSegment/text`.
+            internal var text: Swift.String
+            /// Creates a new `PluginFooterSegment`.
+            ///
+            /// - Parameters:
+            ///   - style:
+            ///   - text:
+            internal init(
+                style: Components.Schemas.PluginFooterStyle,
+                text: Swift.String
+            ) {
+                self.style = style
+                self.text = text
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case style
+                case text
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.style = try container.decode(
+                    Components.Schemas.PluginFooterStyle.self,
+                    forKey: .style
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "style",
+                    "text"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginFooterStyle`.
+        internal struct PluginFooterStyle: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/bg`.
+            internal var bg: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/bold`.
+            internal var bold: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/dim`.
+            internal var dim: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/fg`.
+            internal var fg: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/italic`.
+            internal var italic: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/strikethrough`.
+            internal var strikethrough: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/PluginFooterStyle/underline`.
+            internal var underline: Swift.Bool?
+            /// Creates a new `PluginFooterStyle`.
+            ///
+            /// - Parameters:
+            ///   - bg:
+            ///   - bold:
+            ///   - dim:
+            ///   - fg:
+            ///   - italic:
+            ///   - strikethrough:
+            ///   - underline:
+            internal init(
+                bg: Swift.String? = nil,
+                bold: Swift.Bool? = nil,
+                dim: Swift.Bool? = nil,
+                fg: Swift.String? = nil,
+                italic: Swift.Bool? = nil,
+                strikethrough: Swift.Bool? = nil,
+                underline: Swift.Bool? = nil
+            ) {
+                self.bg = bg
+                self.bold = bold
+                self.dim = dim
+                self.fg = fg
+                self.italic = italic
+                self.strikethrough = strikethrough
+                self.underline = underline
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case bg
+                case bold
+                case dim
+                case fg
+                case italic
+                case strikethrough
+                case underline
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.bg = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .bg
+                )
+                self.bold = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .bold
+                )
+                self.dim = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .dim
+                )
+                self.fg = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .fg
+                )
+                self.italic = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .italic
+                )
+                self.strikethrough = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .strikethrough
+                )
+                self.underline = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .underline
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "bg",
+                    "bold",
+                    "dim",
+                    "fg",
+                    "italic",
+                    "strikethrough",
+                    "underline"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PluginInteractionOwner`.
+        internal struct PluginInteractionOwner: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PluginInteractionOwner/instance`.
+            internal var instance: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PluginInteractionOwner/pluginId`.
+            internal var pluginId: Swift.String
+            /// Creates a new `PluginInteractionOwner`.
+            ///
+            /// - Parameters:
+            ///   - instance:
+            ///   - pluginId:
+            internal init(
+                instance: Swift.String,
+                pluginId: Swift.String
+            ) {
+                self.instance = instance
+                self.pluginId = pluginId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case instance
+                case pluginId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.instance = try container.decode(
+                    Swift.String.self,
+                    forKey: .instance
+                )
+                self.pluginId = try container.decode(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "instance",
+                    "pluginId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PluginToast`.
         internal struct PluginToast: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PluginToast/instance`.
@@ -981,6 +2562,77 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PromptCommand`.
+        internal struct PromptCommand: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PromptCommand/argumentHint`.
+            internal var argumentHint: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PromptCommand/description`.
+            internal var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptCommand/location`.
+            internal var location: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptCommand/name`.
+            internal var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptCommand/source`.
+            internal var source: Swift.String
+            /// Creates a new `PromptCommand`.
+            ///
+            /// - Parameters:
+            ///   - argumentHint:
+            ///   - description:
+            ///   - location:
+            ///   - name:
+            ///   - source:
+            internal init(
+                argumentHint: Swift.String? = nil,
+                description: Swift.String,
+                location: Swift.String,
+                name: Swift.String,
+                source: Swift.String
+            ) {
+                self.argumentHint = argumentHint
+                self.description = description
+                self.location = location
+                self.name = name
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case argumentHint
+                case description
+                case location
+                case name
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.argumentHint = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .argumentHint
+                )
+                self.description = try container.decode(
+                    Swift.String.self,
+                    forKey: .description
+                )
+                self.location = try container.decode(
+                    Swift.String.self,
+                    forKey: .location
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.source = try container.decode(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "argumentHint",
+                    "description",
+                    "location",
+                    "name",
+                    "source"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PromptCommandInput`.
         internal struct PromptCommandInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PromptCommandInput/args`.
@@ -1016,6 +2668,66 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "args",
                     "name"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/PromptDiagnostic`.
+        internal struct PromptDiagnostic: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PromptDiagnostic/code`.
+            internal var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptDiagnostic/message`.
+            internal var message: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptDiagnostic/severity`.
+            internal var severity: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptDiagnostic/source`.
+            internal var source: Components.Schemas.PromptSource
+            /// Creates a new `PromptDiagnostic`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            ///   - severity:
+            ///   - source:
+            internal init(
+                code: Swift.String,
+                message: Swift.String,
+                severity: Swift.String,
+                source: Components.Schemas.PromptSource
+            ) {
+                self.code = code
+                self.message = message
+                self.severity = severity
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+                case severity
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Swift.String.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                self.severity = try container.decode(
+                    Swift.String.self,
+                    forKey: .severity
+                )
+                self.source = try container.decode(
+                    Components.Schemas.PromptSource.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message",
+                    "severity",
+                    "source"
                 ])
             }
         }
@@ -1161,6 +2873,66 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PromptSource`.
+        internal struct PromptSource: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PromptSource/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptSource/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptSource/path`.
+            internal var path: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PromptSource/sectionId`.
+            internal var sectionId: Swift.String
+            /// Creates a new `PromptSource`.
+            ///
+            /// - Parameters:
+            ///   - id:
+            ///   - kind:
+            ///   - path:
+            ///   - sectionId:
+            internal init(
+                id: Swift.String,
+                kind: Swift.String,
+                path: Swift.String? = nil,
+                sectionId: Swift.String
+            ) {
+                self.id = id
+                self.kind = kind
+                self.path = path
+                self.sectionId = sectionId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case id
+                case kind
+                case path
+                case sectionId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.path = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.sectionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sectionId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "id",
+                    "kind",
+                    "path",
+                    "sectionId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PromptSubmission`.
         internal struct PromptSubmission: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PromptSubmission/queue`.
@@ -1249,6 +3021,140 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ProviderRetry`.
+        internal struct ProviderRetry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ProviderRetry/count`.
+            internal var count: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ProviderRetry/retryAt`.
+            internal var retryAt: Swift.String?
+            /// Creates a new `ProviderRetry`.
+            ///
+            /// - Parameters:
+            ///   - count:
+            ///   - retryAt:
+            internal init(
+                count: Swift.Int,
+                retryAt: Swift.String? = nil
+            ) {
+                self.count = count
+                self.retryAt = retryAt
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case count
+                case retryAt
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.count = try container.decode(
+                    Swift.Int.self,
+                    forKey: .count
+                )
+                self.retryAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .retryAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "count",
+                    "retryAt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ReloadSessionResult`.
+        internal struct ReloadSessionResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/diagnostics`.
+            internal var diagnostics: [Components.Schemas.PromptDiagnostic]?
+            /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/eventStreamId`.
+            internal var eventStreamId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/sessionId`.
+            internal var sessionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/sources`.
+            internal var sources: [Components.Schemas.PromptSource]
+            /// - Remark: Generated from `#/components/schemas/ReloadSessionResult/warnings`.
+            internal var warnings: [Swift.String]?
+            /// Creates a new `ReloadSessionResult`.
+            ///
+            /// - Parameters:
+            ///   - diagnostics:
+            ///   - eventStreamId:
+            ///   - sessionId:
+            ///   - sources:
+            ///   - warnings:
+            internal init(
+                diagnostics: [Components.Schemas.PromptDiagnostic]? = nil,
+                eventStreamId: Swift.String? = nil,
+                sessionId: Swift.String? = nil,
+                sources: [Components.Schemas.PromptSource],
+                warnings: [Swift.String]? = nil
+            ) {
+                self.diagnostics = diagnostics
+                self.eventStreamId = eventStreamId
+                self.sessionId = sessionId
+                self.sources = sources
+                self.warnings = warnings
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case diagnostics
+                case eventStreamId
+                case sessionId
+                case sources
+                case warnings
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.diagnostics = try container.decodeIfPresent(
+                    [Components.Schemas.PromptDiagnostic].self,
+                    forKey: .diagnostics
+                )
+                self.eventStreamId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .eventStreamId
+                )
+                self.sessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.sources = try container.decode(
+                    [Components.Schemas.PromptSource].self,
+                    forKey: .sources
+                )
+                self.warnings = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .warnings
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "diagnostics",
+                    "eventStreamId",
+                    "sessionId",
+                    "sources",
+                    "warnings"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/RenameSessionInput`.
+        internal struct RenameSessionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/RenameSessionInput/name`.
+            internal var name: Swift.String
+            /// Creates a new `RenameSessionInput`.
+            ///
+            /// - Parameters:
+            ///   - name:
+            internal init(name: Swift.String) {
+                self.name = name
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case name
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "name"
                 ])
             }
         }
@@ -1822,6 +3728,525 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/SessionInfo`.
+        internal struct SessionInfo: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/configurationRevision`.
+            internal var configurationRevision: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/createdAt`.
+            internal var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/cwd`.
+            internal var cwd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/model`.
+            internal var model: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/name`.
+            internal var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/parentSessionId`.
+            internal var parentSessionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/parentSessionName`.
+            internal var parentSessionName: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/temporary`.
+            internal var temporary: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/thinkingLevel`.
+            internal var thinkingLevel: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/updatedAt`.
+            internal var updatedAt: Swift.String
+            /// Creates a new `SessionInfo`.
+            ///
+            /// - Parameters:
+            ///   - configurationRevision:
+            ///   - createdAt:
+            ///   - cwd:
+            ///   - id:
+            ///   - model:
+            ///   - name:
+            ///   - parentSessionId:
+            ///   - parentSessionName:
+            ///   - temporary:
+            ///   - thinkingLevel:
+            ///   - updatedAt:
+            internal init(
+                configurationRevision: Swift.Int,
+                createdAt: Swift.String,
+                cwd: Swift.String,
+                id: Swift.String,
+                model: Swift.String,
+                name: Swift.String? = nil,
+                parentSessionId: Swift.String? = nil,
+                parentSessionName: Swift.String? = nil,
+                temporary: Swift.Bool? = nil,
+                thinkingLevel: Swift.String,
+                updatedAt: Swift.String
+            ) {
+                self.configurationRevision = configurationRevision
+                self.createdAt = createdAt
+                self.cwd = cwd
+                self.id = id
+                self.model = model
+                self.name = name
+                self.parentSessionId = parentSessionId
+                self.parentSessionName = parentSessionName
+                self.temporary = temporary
+                self.thinkingLevel = thinkingLevel
+                self.updatedAt = updatedAt
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case configurationRevision
+                case createdAt
+                case cwd
+                case id
+                case model
+                case name
+                case parentSessionId
+                case parentSessionName
+                case temporary
+                case thinkingLevel
+                case updatedAt
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.configurationRevision = try container.decode(
+                    Swift.Int.self,
+                    forKey: .configurationRevision
+                )
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.cwd = try container.decode(
+                    Swift.String.self,
+                    forKey: .cwd
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.name = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.parentSessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .parentSessionId
+                )
+                self.parentSessionName = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .parentSessionName
+                )
+                self.temporary = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .temporary
+                )
+                self.thinkingLevel = try container.decode(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                self.updatedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .updatedAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "configurationRevision",
+                    "createdAt",
+                    "cwd",
+                    "id",
+                    "model",
+                    "name",
+                    "parentSessionId",
+                    "parentSessionName",
+                    "temporary",
+                    "thinkingLevel",
+                    "updatedAt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionList`.
+        internal struct SessionList: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionList/sessions`.
+            internal var sessions: [Components.Schemas.SessionInfo]
+            /// Creates a new `SessionList`.
+            ///
+            /// - Parameters:
+            ///   - sessions:
+            internal init(sessions: [Components.Schemas.SessionInfo]) {
+                self.sessions = sessions
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case sessions
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.sessions = try container.decode(
+                    [Components.Schemas.SessionInfo].self,
+                    forKey: .sessions
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "sessions"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SessionSnapshot`.
+        internal struct SessionSnapshot: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/activeBashExecutionId`.
+            internal var activeBashExecutionId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/activeCompaction`.
+            internal var activeCompaction: Components.Schemas.ActiveCompaction?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/activeTurnId`.
+            internal var activeTurnId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/annotations`.
+            internal var annotations: [Components.Schemas.AnnotationSummary]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/contextTokens`.
+            internal var contextTokens: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/contextWindow`.
+            internal var contextWindow: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/eventCursor`.
+            internal var eventCursor: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/eventReplayAvailable`.
+            internal var eventReplayAvailable: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/eventReplayFrom`.
+            internal var eventReplayFrom: Swift.Int64?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/eventStreamId`.
+            internal var eventStreamId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/followUps`.
+            internal var followUps: Components.Schemas.FollowUpQueue?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/hasMoreMessages`.
+            internal var hasMoreMessages: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/mcpServers`.
+            internal var mcpServers: [Components.Schemas.MCPServerStatus]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/mcpWarnings`.
+            internal var mcpWarnings: [Swift.String]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/messages`.
+            internal var messages: [Components.Schemas.TranscriptMessage]
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pendingBoundaries`.
+            internal var pendingBoundaries: [Components.Schemas.PendingBoundary]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pendingInteractions`.
+            internal var pendingInteractions: [Components.Schemas.InteractionRequest]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pluginCommands`.
+            internal var pluginCommands: [Components.Schemas.PluginCommand]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/pluginFooter`.
+            internal var pluginFooter: Components.Schemas.PluginFooter?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/previousMessageCursor`.
+            internal var previousMessageCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/promptCommands`.
+            internal var promptCommands: [Components.Schemas.PromptCommand]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/providerRetry`.
+            internal var providerRetry: Components.Schemas.ProviderRetry?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/scratchpad`.
+            internal var scratchpad: Components.Schemas.Scratchpad?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/session`.
+            internal var session: Components.Schemas.SessionInfo?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/subagentConversations`.
+            internal var subagentConversations: [Components.Schemas.SubagentConversation]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/subagentDefinitions`.
+            internal var subagentDefinitions: [Components.Schemas.SubagentDefinition]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/subagentDiagnostics`.
+            internal var subagentDiagnostics: [Components.Schemas.SubagentDiagnostic]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/subagentMailbox`.
+            internal var subagentMailbox: [Components.Schemas.SubagentMailboxItem]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/usage`.
+            internal var usage: Components.Schemas.SessionUsage?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/warnings`.
+            internal var warnings: [Swift.String]?
+            /// - Remark: Generated from `#/components/schemas/SessionSnapshot/workspace`.
+            internal var workspace: Components.Schemas.WorkspaceRef?
+            /// Creates a new `SessionSnapshot`.
+            ///
+            /// - Parameters:
+            ///   - activeBashExecutionId:
+            ///   - activeCompaction:
+            ///   - activeTurnId:
+            ///   - annotations:
+            ///   - contextTokens:
+            ///   - contextWindow:
+            ///   - eventCursor:
+            ///   - eventReplayAvailable:
+            ///   - eventReplayFrom:
+            ///   - eventStreamId:
+            ///   - followUps:
+            ///   - hasMoreMessages:
+            ///   - mcpServers:
+            ///   - mcpWarnings:
+            ///   - messages:
+            ///   - pendingBoundaries:
+            ///   - pendingInteractions:
+            ///   - pluginCommands:
+            ///   - pluginFooter:
+            ///   - previousMessageCursor:
+            ///   - promptCommands:
+            ///   - providerRetry:
+            ///   - scratchpad:
+            ///   - session:
+            ///   - subagentConversations:
+            ///   - subagentDefinitions:
+            ///   - subagentDiagnostics:
+            ///   - subagentMailbox:
+            ///   - usage:
+            ///   - warnings:
+            ///   - workspace:
+            internal init(
+                activeBashExecutionId: Swift.String? = nil,
+                activeCompaction: Components.Schemas.ActiveCompaction? = nil,
+                activeTurnId: Swift.String? = nil,
+                annotations: [Components.Schemas.AnnotationSummary]? = nil,
+                contextTokens: Swift.Int? = nil,
+                contextWindow: Swift.Int? = nil,
+                eventCursor: Swift.Int64? = nil,
+                eventReplayAvailable: Swift.Bool? = nil,
+                eventReplayFrom: Swift.Int64? = nil,
+                eventStreamId: Swift.String? = nil,
+                followUps: Components.Schemas.FollowUpQueue? = nil,
+                hasMoreMessages: Swift.Bool? = nil,
+                mcpServers: [Components.Schemas.MCPServerStatus]? = nil,
+                mcpWarnings: [Swift.String]? = nil,
+                messages: [Components.Schemas.TranscriptMessage],
+                pendingBoundaries: [Components.Schemas.PendingBoundary]? = nil,
+                pendingInteractions: [Components.Schemas.InteractionRequest]? = nil,
+                pluginCommands: [Components.Schemas.PluginCommand]? = nil,
+                pluginFooter: Components.Schemas.PluginFooter? = nil,
+                previousMessageCursor: Swift.String? = nil,
+                promptCommands: [Components.Schemas.PromptCommand]? = nil,
+                providerRetry: Components.Schemas.ProviderRetry? = nil,
+                scratchpad: Components.Schemas.Scratchpad? = nil,
+                session: Components.Schemas.SessionInfo? = nil,
+                subagentConversations: [Components.Schemas.SubagentConversation]? = nil,
+                subagentDefinitions: [Components.Schemas.SubagentDefinition]? = nil,
+                subagentDiagnostics: [Components.Schemas.SubagentDiagnostic]? = nil,
+                subagentMailbox: [Components.Schemas.SubagentMailboxItem]? = nil,
+                usage: Components.Schemas.SessionUsage? = nil,
+                warnings: [Swift.String]? = nil,
+                workspace: Components.Schemas.WorkspaceRef? = nil
+            ) {
+                self.activeBashExecutionId = activeBashExecutionId
+                self.activeCompaction = activeCompaction
+                self.activeTurnId = activeTurnId
+                self.annotations = annotations
+                self.contextTokens = contextTokens
+                self.contextWindow = contextWindow
+                self.eventCursor = eventCursor
+                self.eventReplayAvailable = eventReplayAvailable
+                self.eventReplayFrom = eventReplayFrom
+                self.eventStreamId = eventStreamId
+                self.followUps = followUps
+                self.hasMoreMessages = hasMoreMessages
+                self.mcpServers = mcpServers
+                self.mcpWarnings = mcpWarnings
+                self.messages = messages
+                self.pendingBoundaries = pendingBoundaries
+                self.pendingInteractions = pendingInteractions
+                self.pluginCommands = pluginCommands
+                self.pluginFooter = pluginFooter
+                self.previousMessageCursor = previousMessageCursor
+                self.promptCommands = promptCommands
+                self.providerRetry = providerRetry
+                self.scratchpad = scratchpad
+                self.session = session
+                self.subagentConversations = subagentConversations
+                self.subagentDefinitions = subagentDefinitions
+                self.subagentDiagnostics = subagentDiagnostics
+                self.subagentMailbox = subagentMailbox
+                self.usage = usage
+                self.warnings = warnings
+                self.workspace = workspace
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case activeBashExecutionId
+                case activeCompaction
+                case activeTurnId
+                case annotations
+                case contextTokens
+                case contextWindow
+                case eventCursor
+                case eventReplayAvailable
+                case eventReplayFrom
+                case eventStreamId
+                case followUps
+                case hasMoreMessages
+                case mcpServers
+                case mcpWarnings
+                case messages
+                case pendingBoundaries
+                case pendingInteractions
+                case pluginCommands
+                case pluginFooter
+                case previousMessageCursor
+                case promptCommands
+                case providerRetry
+                case scratchpad
+                case session
+                case subagentConversations
+                case subagentDefinitions
+                case subagentDiagnostics
+                case subagentMailbox
+                case usage
+                case warnings
+                case workspace
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.activeBashExecutionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .activeBashExecutionId
+                )
+                self.activeCompaction = try container.decodeIfPresent(
+                    Components.Schemas.ActiveCompaction.self,
+                    forKey: .activeCompaction
+                )
+                self.activeTurnId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .activeTurnId
+                )
+                self.annotations = try container.decodeIfPresent(
+                    [Components.Schemas.AnnotationSummary].self,
+                    forKey: .annotations
+                )
+                self.contextTokens = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contextTokens
+                )
+                self.contextWindow = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .contextWindow
+                )
+                self.eventCursor = try container.decodeIfPresent(
+                    Swift.Int64.self,
+                    forKey: .eventCursor
+                )
+                self.eventReplayAvailable = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .eventReplayAvailable
+                )
+                self.eventReplayFrom = try container.decodeIfPresent(
+                    Swift.Int64.self,
+                    forKey: .eventReplayFrom
+                )
+                self.eventStreamId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .eventStreamId
+                )
+                self.followUps = try container.decodeIfPresent(
+                    Components.Schemas.FollowUpQueue.self,
+                    forKey: .followUps
+                )
+                self.hasMoreMessages = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .hasMoreMessages
+                )
+                self.mcpServers = try container.decodeIfPresent(
+                    [Components.Schemas.MCPServerStatus].self,
+                    forKey: .mcpServers
+                )
+                self.mcpWarnings = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .mcpWarnings
+                )
+                self.messages = try container.decode(
+                    [Components.Schemas.TranscriptMessage].self,
+                    forKey: .messages
+                )
+                self.pendingBoundaries = try container.decodeIfPresent(
+                    [Components.Schemas.PendingBoundary].self,
+                    forKey: .pendingBoundaries
+                )
+                self.pendingInteractions = try container.decodeIfPresent(
+                    [Components.Schemas.InteractionRequest].self,
+                    forKey: .pendingInteractions
+                )
+                self.pluginCommands = try container.decodeIfPresent(
+                    [Components.Schemas.PluginCommand].self,
+                    forKey: .pluginCommands
+                )
+                self.pluginFooter = try container.decodeIfPresent(
+                    Components.Schemas.PluginFooter.self,
+                    forKey: .pluginFooter
+                )
+                self.previousMessageCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .previousMessageCursor
+                )
+                self.promptCommands = try container.decodeIfPresent(
+                    [Components.Schemas.PromptCommand].self,
+                    forKey: .promptCommands
+                )
+                self.providerRetry = try container.decodeIfPresent(
+                    Components.Schemas.ProviderRetry.self,
+                    forKey: .providerRetry
+                )
+                self.scratchpad = try container.decodeIfPresent(
+                    Components.Schemas.Scratchpad.self,
+                    forKey: .scratchpad
+                )
+                self.session = try container.decodeIfPresent(
+                    Components.Schemas.SessionInfo.self,
+                    forKey: .session
+                )
+                self.subagentConversations = try container.decodeIfPresent(
+                    [Components.Schemas.SubagentConversation].self,
+                    forKey: .subagentConversations
+                )
+                self.subagentDefinitions = try container.decodeIfPresent(
+                    [Components.Schemas.SubagentDefinition].self,
+                    forKey: .subagentDefinitions
+                )
+                self.subagentDiagnostics = try container.decodeIfPresent(
+                    [Components.Schemas.SubagentDiagnostic].self,
+                    forKey: .subagentDiagnostics
+                )
+                self.subagentMailbox = try container.decodeIfPresent(
+                    [Components.Schemas.SubagentMailboxItem].self,
+                    forKey: .subagentMailbox
+                )
+                self.usage = try container.decodeIfPresent(
+                    Components.Schemas.SessionUsage.self,
+                    forKey: .usage
+                )
+                self.warnings = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .warnings
+                )
+                self.workspace = try container.decodeIfPresent(
+                    Components.Schemas.WorkspaceRef.self,
+                    forKey: .workspace
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "activeBashExecutionId",
+                    "activeCompaction",
+                    "activeTurnId",
+                    "annotations",
+                    "contextTokens",
+                    "contextWindow",
+                    "eventCursor",
+                    "eventReplayAvailable",
+                    "eventReplayFrom",
+                    "eventStreamId",
+                    "followUps",
+                    "hasMoreMessages",
+                    "mcpServers",
+                    "mcpWarnings",
+                    "messages",
+                    "pendingBoundaries",
+                    "pendingInteractions",
+                    "pluginCommands",
+                    "pluginFooter",
+                    "previousMessageCursor",
+                    "promptCommands",
+                    "providerRetry",
+                    "scratchpad",
+                    "session",
+                    "subagentConversations",
+                    "subagentDefinitions",
+                    "subagentDiagnostics",
+                    "subagentMailbox",
+                    "usage",
+                    "warnings",
+                    "workspace"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/SessionUsage`.
         internal struct SessionUsage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SessionUsage/cacheRead`.
@@ -2032,6 +4457,542 @@ extension Components {
                     "cwd",
                     "sessionId",
                     "status"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentConversation`.
+        internal struct SubagentConversation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/activeTaskId`.
+            internal var activeTaskId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/agentName`.
+            internal var agentName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/generation`.
+            internal var generation: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/lastCompletedTaskId`.
+            internal var lastCompletedTaskId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/lastResultSummary`.
+            internal var lastResultSummary: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/model`.
+            internal var model: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/queuedTasks`.
+            internal var queuedTasks: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/state`.
+            internal var state: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/tasks`.
+            internal var tasks: [Components.Schemas.SubagentTask]?
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/thinkingLevel`.
+            internal var thinkingLevel: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentConversation/updatedAt`.
+            internal var updatedAt: Swift.String
+            /// Creates a new `SubagentConversation`.
+            ///
+            /// - Parameters:
+            ///   - activeTaskId:
+            ///   - agentName:
+            ///   - generation:
+            ///   - id:
+            ///   - lastCompletedTaskId:
+            ///   - lastResultSummary:
+            ///   - model:
+            ///   - queuedTasks:
+            ///   - state:
+            ///   - tasks:
+            ///   - thinkingLevel:
+            ///   - updatedAt:
+            internal init(
+                activeTaskId: Swift.String? = nil,
+                agentName: Swift.String,
+                generation: Swift.Int,
+                id: Swift.String,
+                lastCompletedTaskId: Swift.String? = nil,
+                lastResultSummary: Swift.String? = nil,
+                model: Swift.String,
+                queuedTasks: Swift.Int,
+                state: Swift.String,
+                tasks: [Components.Schemas.SubagentTask]? = nil,
+                thinkingLevel: Swift.String,
+                updatedAt: Swift.String
+            ) {
+                self.activeTaskId = activeTaskId
+                self.agentName = agentName
+                self.generation = generation
+                self.id = id
+                self.lastCompletedTaskId = lastCompletedTaskId
+                self.lastResultSummary = lastResultSummary
+                self.model = model
+                self.queuedTasks = queuedTasks
+                self.state = state
+                self.tasks = tasks
+                self.thinkingLevel = thinkingLevel
+                self.updatedAt = updatedAt
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case activeTaskId
+                case agentName
+                case generation
+                case id
+                case lastCompletedTaskId
+                case lastResultSummary
+                case model
+                case queuedTasks
+                case state
+                case tasks
+                case thinkingLevel
+                case updatedAt
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.activeTaskId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .activeTaskId
+                )
+                self.agentName = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentName
+                )
+                self.generation = try container.decode(
+                    Swift.Int.self,
+                    forKey: .generation
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.lastCompletedTaskId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .lastCompletedTaskId
+                )
+                self.lastResultSummary = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .lastResultSummary
+                )
+                self.model = try container.decode(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.queuedTasks = try container.decode(
+                    Swift.Int.self,
+                    forKey: .queuedTasks
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                self.tasks = try container.decodeIfPresent(
+                    [Components.Schemas.SubagentTask].self,
+                    forKey: .tasks
+                )
+                self.thinkingLevel = try container.decode(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                self.updatedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .updatedAt
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "activeTaskId",
+                    "agentName",
+                    "generation",
+                    "id",
+                    "lastCompletedTaskId",
+                    "lastResultSummary",
+                    "model",
+                    "queuedTasks",
+                    "state",
+                    "tasks",
+                    "thinkingLevel",
+                    "updatedAt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentDefinition`.
+        internal struct SubagentDefinition: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentDefinition/description`.
+            internal var description: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentDefinition/model`.
+            internal var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentDefinition/name`.
+            internal var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentDefinition/source`.
+            internal var source: Components.Schemas.SubagentSource
+            /// Creates a new `SubagentDefinition`.
+            ///
+            /// - Parameters:
+            ///   - description:
+            ///   - model:
+            ///   - name:
+            ///   - source:
+            internal init(
+                description: Swift.String,
+                model: Swift.String? = nil,
+                name: Swift.String,
+                source: Components.Schemas.SubagentSource
+            ) {
+                self.description = description
+                self.model = model
+                self.name = name
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case description
+                case model
+                case name
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.description = try container.decode(
+                    Swift.String.self,
+                    forKey: .description
+                )
+                self.model = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.source = try container.decode(
+                    Components.Schemas.SubagentSource.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "description",
+                    "model",
+                    "name",
+                    "source"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentDiagnostic`.
+        internal struct SubagentDiagnostic: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentDiagnostic/code`.
+            internal var code: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentDiagnostic/message`.
+            internal var message: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentDiagnostic/severity`.
+            internal var severity: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentDiagnostic/source`.
+            internal var source: Components.Schemas.SubagentSource
+            /// Creates a new `SubagentDiagnostic`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            ///   - severity:
+            ///   - source:
+            internal init(
+                code: Swift.String,
+                message: Swift.String,
+                severity: Swift.String,
+                source: Components.Schemas.SubagentSource
+            ) {
+                self.code = code
+                self.message = message
+                self.severity = severity
+                self.source = source
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+                case severity
+                case source
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Swift.String.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                self.severity = try container.decode(
+                    Swift.String.self,
+                    forKey: .severity
+                )
+                self.source = try container.decode(
+                    Components.Schemas.SubagentSource.self,
+                    forKey: .source
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message",
+                    "severity",
+                    "source"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem`.
+        internal struct SubagentMailboxItem: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/agentName`.
+            internal var agentName: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/conversationId`.
+            internal var conversationId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/createdAt`.
+            internal var createdAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/error`.
+            internal var error: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/state`.
+            internal var state: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentMailboxItem/summary`.
+            internal var summary: Swift.String?
+            /// Creates a new `SubagentMailboxItem`.
+            ///
+            /// - Parameters:
+            ///   - agentName:
+            ///   - conversationId:
+            ///   - createdAt:
+            ///   - error:
+            ///   - id:
+            ///   - kind:
+            ///   - state:
+            ///   - summary:
+            internal init(
+                agentName: Swift.String,
+                conversationId: Swift.String,
+                createdAt: Swift.String,
+                error: Swift.String? = nil,
+                id: Swift.String,
+                kind: Swift.String,
+                state: Swift.String,
+                summary: Swift.String? = nil
+            ) {
+                self.agentName = agentName
+                self.conversationId = conversationId
+                self.createdAt = createdAt
+                self.error = error
+                self.id = id
+                self.kind = kind
+                self.state = state
+                self.summary = summary
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case agentName
+                case conversationId
+                case createdAt
+                case error
+                case id
+                case kind
+                case state
+                case summary
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.agentName = try container.decode(
+                    Swift.String.self,
+                    forKey: .agentName
+                )
+                self.conversationId = try container.decode(
+                    Swift.String.self,
+                    forKey: .conversationId
+                )
+                self.createdAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .createdAt
+                )
+                self.error = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .error
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                self.summary = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .summary
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "agentName",
+                    "conversationId",
+                    "createdAt",
+                    "error",
+                    "id",
+                    "kind",
+                    "state",
+                    "summary"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentSource`.
+        internal struct SubagentSource: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentSource/kind`.
+            internal var kind: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentSource/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentSource/pluginId`.
+            internal var pluginId: Swift.String?
+            /// Creates a new `SubagentSource`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - path:
+            ///   - pluginId:
+            internal init(
+                kind: Swift.String,
+                path: Swift.String,
+                pluginId: Swift.String? = nil
+            ) {
+                self.kind = kind
+                self.path = path
+                self.pluginId = pluginId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case path
+                case pluginId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.pluginId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .pluginId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "path",
+                    "pluginId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/SubagentTask`.
+        internal struct SubagentTask: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/cancellationGeneration`.
+            internal var cancellationGeneration: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/error`.
+            internal var error: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/finishedAt`.
+            internal var finishedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/queuedAt`.
+            internal var queuedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/resultSummary`.
+            internal var resultSummary: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/sequence`.
+            internal var sequence: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/startedAt`.
+            internal var startedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/SubagentTask/state`.
+            internal var state: Swift.String
+            /// Creates a new `SubagentTask`.
+            ///
+            /// - Parameters:
+            ///   - cancellationGeneration:
+            ///   - error:
+            ///   - finishedAt:
+            ///   - id:
+            ///   - queuedAt:
+            ///   - resultSummary:
+            ///   - sequence:
+            ///   - startedAt:
+            ///   - state:
+            internal init(
+                cancellationGeneration: Swift.Int,
+                error: Swift.String? = nil,
+                finishedAt: Swift.String? = nil,
+                id: Swift.String,
+                queuedAt: Swift.String,
+                resultSummary: Swift.String? = nil,
+                sequence: Swift.Int,
+                startedAt: Swift.String? = nil,
+                state: Swift.String
+            ) {
+                self.cancellationGeneration = cancellationGeneration
+                self.error = error
+                self.finishedAt = finishedAt
+                self.id = id
+                self.queuedAt = queuedAt
+                self.resultSummary = resultSummary
+                self.sequence = sequence
+                self.startedAt = startedAt
+                self.state = state
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cancellationGeneration
+                case error
+                case finishedAt
+                case id
+                case queuedAt
+                case resultSummary
+                case sequence
+                case startedAt
+                case state
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cancellationGeneration = try container.decode(
+                    Swift.Int.self,
+                    forKey: .cancellationGeneration
+                )
+                self.error = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .error
+                )
+                self.finishedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .finishedAt
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.queuedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .queuedAt
+                )
+                self.resultSummary = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .resultSummary
+                )
+                self.sequence = try container.decode(
+                    Swift.Int.self,
+                    forKey: .sequence
+                )
+                self.startedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .startedAt
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cancellationGeneration",
+                    "error",
+                    "finishedAt",
+                    "id",
+                    "queuedAt",
+                    "resultSummary",
+                    "sequence",
+                    "startedAt",
+                    "state"
                 ])
             }
         }
@@ -2683,6 +5644,378 @@ extension Components {
                     "head",
                     "pullRequest",
                     "root"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor`.
+        internal struct WorkingTreeDiffAnnotationAnchor: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/endLine`.
+            internal var endLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/fileRevision`.
+            internal var fileRevision: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/side`.
+            internal var side: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/startLine`.
+            internal var startLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/targetId`.
+            internal var targetId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkingTreeDiffAnnotationAnchor/targetRevision`.
+            internal var targetRevision: Swift.String
+            /// Creates a new `WorkingTreeDiffAnnotationAnchor`.
+            ///
+            /// - Parameters:
+            ///   - endLine:
+            ///   - fileRevision:
+            ///   - path:
+            ///   - side:
+            ///   - startLine:
+            ///   - targetId:
+            ///   - targetRevision:
+            internal init(
+                endLine: Swift.Int,
+                fileRevision: Swift.String,
+                path: Swift.String,
+                side: Swift.String,
+                startLine: Swift.Int,
+                targetId: Swift.String,
+                targetRevision: Swift.String
+            ) {
+                self.endLine = endLine
+                self.fileRevision = fileRevision
+                self.path = path
+                self.side = side
+                self.startLine = startLine
+                self.targetId = targetId
+                self.targetRevision = targetRevision
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case endLine
+                case fileRevision
+                case path
+                case side
+                case startLine
+                case targetId
+                case targetRevision
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.endLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .endLine
+                )
+                self.fileRevision = try container.decode(
+                    Swift.String.self,
+                    forKey: .fileRevision
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.side = try container.decode(
+                    Swift.String.self,
+                    forKey: .side
+                )
+                self.startLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .startLine
+                )
+                self.targetId = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetId
+                )
+                self.targetRevision = try container.decode(
+                    Swift.String.self,
+                    forKey: .targetRevision
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "endLine",
+                    "fileRevision",
+                    "path",
+                    "side",
+                    "startLine",
+                    "targetId",
+                    "targetRevision"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor`.
+        internal struct WorkspaceFileAnnotationAnchor: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/endLine`.
+            internal var endLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/fileRevision`.
+            internal var fileRevision: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/path`.
+            internal var path: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/startLine`.
+            internal var startLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceFileAnnotationAnchor/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `WorkspaceFileAnnotationAnchor`.
+            ///
+            /// - Parameters:
+            ///   - endLine:
+            ///   - fileRevision:
+            ///   - path:
+            ///   - startLine:
+            ///   - workspaceId:
+            internal init(
+                endLine: Swift.Int,
+                fileRevision: Swift.String,
+                path: Swift.String,
+                startLine: Swift.Int,
+                workspaceId: Swift.String
+            ) {
+                self.endLine = endLine
+                self.fileRevision = fileRevision
+                self.path = path
+                self.startLine = startLine
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case endLine
+                case fileRevision
+                case path
+                case startLine
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.endLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .endLine
+                )
+                self.fileRevision = try container.decode(
+                    Swift.String.self,
+                    forKey: .fileRevision
+                )
+                self.path = try container.decode(
+                    Swift.String.self,
+                    forKey: .path
+                )
+                self.startLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .startLine
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "endLine",
+                    "fileRevision",
+                    "path",
+                    "startLine",
+                    "workspaceId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceLimits`.
+        internal struct WorkspaceLimits: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/defaultDirectoryPageSize`.
+            internal var defaultDirectoryPageSize: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxActiveRequests`.
+            internal var maxActiveRequests: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxDirectoryEntries`.
+            internal var maxDirectoryEntries: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxDirectoryObservationBytes`.
+            internal var maxDirectoryObservationBytes: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxDirectoryPageSize`.
+            internal var maxDirectoryPageSize: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxDirectoryResponseBytes`.
+            internal var maxDirectoryResponseBytes: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxPathBytes`.
+            internal var maxPathBytes: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxPathComponents`.
+            internal var maxPathComponents: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxPendingRequests`.
+            internal var maxPendingRequests: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxPreviewBytes`.
+            internal var maxPreviewBytes: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/WorkspaceLimits/maxPreviewLines`.
+            internal var maxPreviewLines: Swift.Int
+            /// Creates a new `WorkspaceLimits`.
+            ///
+            /// - Parameters:
+            ///   - defaultDirectoryPageSize:
+            ///   - maxActiveRequests:
+            ///   - maxDirectoryEntries:
+            ///   - maxDirectoryObservationBytes:
+            ///   - maxDirectoryPageSize:
+            ///   - maxDirectoryResponseBytes:
+            ///   - maxPathBytes:
+            ///   - maxPathComponents:
+            ///   - maxPendingRequests:
+            ///   - maxPreviewBytes:
+            ///   - maxPreviewLines:
+            internal init(
+                defaultDirectoryPageSize: Swift.Int,
+                maxActiveRequests: Swift.Int,
+                maxDirectoryEntries: Swift.Int,
+                maxDirectoryObservationBytes: Swift.Int,
+                maxDirectoryPageSize: Swift.Int,
+                maxDirectoryResponseBytes: Swift.Int,
+                maxPathBytes: Swift.Int,
+                maxPathComponents: Swift.Int,
+                maxPendingRequests: Swift.Int,
+                maxPreviewBytes: Swift.Int,
+                maxPreviewLines: Swift.Int
+            ) {
+                self.defaultDirectoryPageSize = defaultDirectoryPageSize
+                self.maxActiveRequests = maxActiveRequests
+                self.maxDirectoryEntries = maxDirectoryEntries
+                self.maxDirectoryObservationBytes = maxDirectoryObservationBytes
+                self.maxDirectoryPageSize = maxDirectoryPageSize
+                self.maxDirectoryResponseBytes = maxDirectoryResponseBytes
+                self.maxPathBytes = maxPathBytes
+                self.maxPathComponents = maxPathComponents
+                self.maxPendingRequests = maxPendingRequests
+                self.maxPreviewBytes = maxPreviewBytes
+                self.maxPreviewLines = maxPreviewLines
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case defaultDirectoryPageSize
+                case maxActiveRequests
+                case maxDirectoryEntries
+                case maxDirectoryObservationBytes
+                case maxDirectoryPageSize
+                case maxDirectoryResponseBytes
+                case maxPathBytes
+                case maxPathComponents
+                case maxPendingRequests
+                case maxPreviewBytes
+                case maxPreviewLines
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.defaultDirectoryPageSize = try container.decode(
+                    Swift.Int.self,
+                    forKey: .defaultDirectoryPageSize
+                )
+                self.maxActiveRequests = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxActiveRequests
+                )
+                self.maxDirectoryEntries = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxDirectoryEntries
+                )
+                self.maxDirectoryObservationBytes = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxDirectoryObservationBytes
+                )
+                self.maxDirectoryPageSize = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxDirectoryPageSize
+                )
+                self.maxDirectoryResponseBytes = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxDirectoryResponseBytes
+                )
+                self.maxPathBytes = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxPathBytes
+                )
+                self.maxPathComponents = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxPathComponents
+                )
+                self.maxPendingRequests = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxPendingRequests
+                )
+                self.maxPreviewBytes = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxPreviewBytes
+                )
+                self.maxPreviewLines = try container.decode(
+                    Swift.Int.self,
+                    forKey: .maxPreviewLines
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "defaultDirectoryPageSize",
+                    "maxActiveRequests",
+                    "maxDirectoryEntries",
+                    "maxDirectoryObservationBytes",
+                    "maxDirectoryPageSize",
+                    "maxDirectoryResponseBytes",
+                    "maxPathBytes",
+                    "maxPathComponents",
+                    "maxPendingRequests",
+                    "maxPreviewBytes",
+                    "maxPreviewLines"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/WorkspaceRef`.
+        internal struct WorkspaceRef: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRef/cwd`.
+            internal var cwd: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRef/limits`.
+            internal var limits: Components.Schemas.WorkspaceLimits
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRef/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRef/state`.
+            internal var state: Swift.String
+            /// - Remark: Generated from `#/components/schemas/WorkspaceRef/workspaceId`.
+            internal var workspaceId: Swift.String
+            /// Creates a new `WorkspaceRef`.
+            ///
+            /// - Parameters:
+            ///   - cwd:
+            ///   - limits:
+            ///   - sessionId:
+            ///   - state:
+            ///   - workspaceId:
+            internal init(
+                cwd: Swift.String,
+                limits: Components.Schemas.WorkspaceLimits,
+                sessionId: Swift.String,
+                state: Swift.String,
+                workspaceId: Swift.String
+            ) {
+                self.cwd = cwd
+                self.limits = limits
+                self.sessionId = sessionId
+                self.state = state
+                self.workspaceId = workspaceId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case cwd
+                case limits
+                case sessionId
+                case state
+                case workspaceId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.cwd = try container.decode(
+                    Swift.String.self,
+                    forKey: .cwd
+                )
+                self.limits = try container.decode(
+                    Components.Schemas.WorkspaceLimits.self,
+                    forKey: .limits
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.state = try container.decode(
+                    Swift.String.self,
+                    forKey: .state
+                )
+                self.workspaceId = try container.decode(
+                    Swift.String.self,
+                    forKey: .workspaceId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "cwd",
+                    "limits",
+                    "sessionId",
+                    "state",
+                    "workspaceId"
                 ])
             }
         }
