@@ -13,7 +13,7 @@ enum ButtonVariant {
 }
 
 struct ButtonProps {
-  colors: theme::Theme,
+  themes: theme::Context,
   label: Str,
   command: keymap::SimpleCommand,
   variant: ButtonVariant,
@@ -34,7 +34,7 @@ struct Button {
 // button renders a Kit-styled, focusable action. It owns activation feedback:
 // callers provide a command and may only customize its layout through styles.
 fn button(
-  colors: theme::Theme,
+  themes: theme::Context,
   label: Str,
   command: keymap::SimpleCommand,
   variant: ButtonVariant?,
@@ -46,7 +46,7 @@ fn button(
   cui::child(
     new,
     ButtonProps{
-      colors: colors,
+      themes: themes,
       label: label,
       command: command,
       variant: variant.or(ButtonVariant::primary),
@@ -89,20 +89,21 @@ impl cui::Lifecycle for Button {
 
 impl Button {
   private fn fill() ui::Color {
+    let colors = self.props.themes.current()
     match self.props.variant {
       ButtonVariant::primary => {
         match {
-          self.pressed => self.props.colors.primary_pressed,
-          self.hovered or self.focused => self.props.colors.primary_hovered,
-          _ => self.props.colors.primary,
+          self.pressed => colors.primary_pressed,
+          self.hovered or self.focused => colors.primary_hovered,
+          _ => colors.primary,
         }
       },
-      ButtonVariant::danger => self.props.colors.danger,
+      ButtonVariant::danger => colors.danger,
       ButtonVariant::secondary => {
         match {
-          self.pressed => self.props.colors.surface_pressed,
-          self.hovered or self.focused => self.props.colors.surface_hovered,
-          _ => self.props.colors.surface,
+          self.pressed => colors.surface_pressed,
+          self.hovered or self.focused => colors.surface_hovered,
+          _ => colors.surface,
         }
       },
     }
@@ -116,7 +117,7 @@ impl Button {
   }
 
   private fn foreground() ui::Color {
-    self.props.colors.foreground
+    self.props.themes.current().foreground
   }
 
   private fn mut mouse(received: mut event::MouseEvent) {

@@ -80,7 +80,7 @@ private fn provider_catalog() [palette::Item] {
 
 struct Props {
   options: cli::TUIOptions,
-  theme: theme::Theme,
+  themes: theme::Context,
   quit: fn(),
 }
 
@@ -155,7 +155,7 @@ impl cui::Lifecycle for Shell {
     self.context = Maybe::new(ctx)
     let definition = self.props.options.ThemeDefinition
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
-      self.props.theme = theme::resolve(definition, next)
+      self.props.themes.replace(theme::resolve(definition, next))
     })
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
@@ -214,12 +214,13 @@ struct Entry {
 // until the user scrolls away; returning to the end resumes following. Short
 // transcripts rest on the composer, as in the vaxis client.
 fn transcript_pane(
-  colors: theme::Theme,
+  themes: theme::Context,
   messages: [transcript::Message],
   session_id: Str,
   list: mut cui::VirtualListRef,
   on_update: fn(cui::VirtualListUpdate, cui::Context),
 ) cui::View {
+  let colors = themes.current()
   let shown = mut List::new<transcript::Message>()
   for message in messages {
     if renders(message) {
@@ -249,7 +250,7 @@ fn transcript_pane(
           entry.key
         },
         render_item: fn(entry: Entry) cui::View {
-          transcript_row(colors, entry)
+          transcript_row(themes.current(), entry)
         },
         estimated_height: 4,
         overscan: 2,
@@ -441,7 +442,7 @@ fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
 
 impl Shell {
   fn header() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     let left = mut List::new<cui::View>()
     let right = mut List::new<ui::Span>()
     match self.info {
@@ -494,7 +495,7 @@ impl Shell {
   }
 
   fn footer() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     let bash = strings::HasPrefix(self.composer, "!")
     let state = match strings::HasPrefix(self.composer, "!!") {
       true => "bash command · result excluded from context",
@@ -537,7 +538,7 @@ impl Shell {
 
 impl Shell {
   fn mut body() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     match self.phase {
       Phase::loading => empty_state(colors, "Starting Kit…"),
       Phase::auth => {
@@ -556,7 +557,7 @@ impl Shell {
         })
         children.push(
           controls::button(
-            colors,
+            self.props.themes,
             "Connect a provider",
             connect,
             variant: controls::ButtonVariant::primary,
@@ -585,7 +586,7 @@ impl Shell {
   }
 
   fn mut conversation() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     cui::box(
       [self.transcript_region(), self.pending_row(), divider(colors.border), self.composer_view()],
       styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
@@ -605,7 +606,7 @@ impl Shell {
       _ => "",
     }
     transcript_pane(
-      self.props.theme,
+      self.props.themes,
       messages.@,
       session_id,
       self.list,
@@ -641,7 +642,7 @@ impl Shell {
       true
     })
     controls::button(
-      self.props.theme,
+      self.props.themes,
       "↓ Latest",
       latest,
       variant: controls::ButtonVariant::secondary,
@@ -657,7 +658,7 @@ impl Shell {
   }
 
   fn pending_row() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     let content = match self.notice != "" {
       true => line(self.notice, ui::text_style(foreground: colors.danger_text)),
       false => {
@@ -679,7 +680,7 @@ impl Shell {
   }
 
   fn mut composer_view() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     let editing = keymap::rebind(
       ui::default_text_area_bindings(),
       ui::TextAreaAction::insert_newline,
@@ -707,7 +708,7 @@ impl Shell {
 
 impl cui::Component for Shell {
   fn mut render() cui::View {
-    let colors = self.props.theme
+    let colors = self.props.themes.current()
     let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
       match self.active_modal {
         ActiveModal::none => self.interrupt(),
@@ -759,7 +760,7 @@ impl Shell {
   fn mut provider_picker_modal() cui::View {
     let catalog = provider_catalog()
     let picker = palette::Props{
-      colors: self.props.theme,
+      themes: self.props.themes,
       placeholder: "Search providers…",
       catalog: catalog,
       query: self.picker_query,
@@ -773,7 +774,7 @@ impl Shell {
         let next = palette::first_enabled(
           palette::items(
             palette::Props{
-              colors: self.props.theme,
+              themes: self.props.themes,
               placeholder: "",
               catalog: catalog,
               query: query,
@@ -812,7 +813,7 @@ impl Shell {
       self.dismiss_modal()
     })
     modal::dialog(
-      self.props.theme,
+      self.props.themes,
       modal::Dialog{
         // No hint footer: arrows, Enter, and Esc are intuitive primitives and
         // the provider picker has no custom bindings to teach yet.
@@ -838,7 +839,7 @@ impl Shell {
       on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
         let visible = palette::items(
           palette::Props{
-            colors: self.props.theme,
+            themes: self.props.themes,
             placeholder: "",
             catalog: provider_catalog(),
             query: self.picker_query,

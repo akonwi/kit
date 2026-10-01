@@ -17,22 +17,24 @@ struct Model {
 
 struct HostProps {
   model: mut Model,
+  themes: theme::Context,
 }
 
 // Hosts the transcript pane the way the shell does: a fixed-height column
 // that owns the scroll box ref.
 struct Host {
   model: mut Model,
+  themes: theme::Context,
 }
 
 fn host(props: mut HostProps) mut Host {
-  (mut Host{model: props.model})
+  (mut Host{model: props.model, themes: props.themes})
 }
 
 impl cui::Component for Host {
   fn mut render() cui::View {
     shell::transcript_pane(
-      theme::system(),
+      self.themes,
       self.model.messages,
       "session-1",
       self.model.list,
@@ -89,7 +91,13 @@ fn render(count: Int) [Str] {
     latest_out_of_view: false,
     list: cui::virtual_list_ref(),
   }
-  let renderer = cui::mount(app, cui::child(host, HostProps{model: model}))
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
   defer renderer.destroy()
   terminal.flush()
   rows(terminal)
@@ -123,7 +131,13 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     latest_out_of_view: false,
     list: cui::virtual_list_ref(),
   }
-  let renderer = cui::mount(app, cui::child(host, HostProps{model: model}))
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
   defer renderer.destroy()
   terminal.flush()
   try testing::assert(not model.latest_out_of_view, "the settled tail keeps the latest reply visible")
@@ -148,7 +162,13 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     latest_out_of_view: false,
     list: cui::virtual_list_ref(),
   }
-  let renderer = cui::mount(app, cui::child(host, HostProps{model: model}))
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
   defer renderer.destroy()
   terminal.flush()
   renderer.update(fn() {
