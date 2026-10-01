@@ -182,9 +182,11 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 
 // ListDiffTargets returns a bounded authoritative target catalog.
 func (c *Client) ListDiffTargets(ctx context.Context, sessionID string, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/targets"
-	var output protocol.DiffTargetCatalog
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	if err := input.Validate(); err != nil {
+		return protocol.DiffTargetCatalog{}, fmt.Errorf("validate diff target request: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.ListDiffTargets, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.DiffTargetCatalog{}, err
 	}
 	if err := validateDiffTargetCatalogResponse(sessionID, input, output); err != nil {
@@ -205,9 +207,11 @@ func validateDiffTargetCatalogResponse(sessionID string, input protocol.ListDiff
 
 // ObserveDiff observes one server-issued target reference.
 func (c *Client) ObserveDiff(ctx context.Context, sessionID string, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/observations"
-	var output protocol.DiffPage
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	if err := input.Validate(); err != nil {
+		return protocol.DiffPage{}, fmt.Errorf("validate diff observation request: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.ObserveDiff, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.DiffPage{}, err
 	}
 	if err := validateObserveDiffResponse(sessionID, input, output); err != nil {
@@ -228,9 +232,11 @@ func validateObserveDiffResponse(sessionID string, input protocol.ObserveDiffInp
 
 // ObserveWorkingTree returns a stable page from a retained working-tree observation.
 func (c *Client) ObserveWorkingTree(ctx context.Context, sessionID string, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/working-tree"
-	var output protocol.WorkingTreePage
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	if err := input.Validate(); err != nil {
+		return protocol.WorkingTreePage{}, fmt.Errorf("validate working-tree request: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.ObserveWorkingTree, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.WorkingTreePage{}, err
 	}
 	if err := output.Validate(); err != nil || output.Observation.SessionID != sessionID {
@@ -241,9 +247,11 @@ func (c *Client) ObserveWorkingTree(ctx context.Context, sessionID string, input
 
 // ReadFileDiff returns guarded semantic hunk fragments.
 func (c *Client) ReadFileDiff(ctx context.Context, sessionID string, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/diff/files/read"
-	var output protocol.FileDiffPage
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	if err := input.Validate(); err != nil {
+		return protocol.FileDiffPage{}, fmt.Errorf("validate file diff request: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.ReadFileDiff, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.FileDiffPage{}, err
 	}
 	if err := validateFileDiffResponse(sessionID, input, output); err != nil {

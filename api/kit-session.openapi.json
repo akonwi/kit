@@ -257,6 +257,46 @@
         ],
         "type": "object"
       },
+      "DiffCapacityExceededError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "capacity_exceeded"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/diffCapacityDetails"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object"
+      },
+      "DiffComputation": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
       "DiffEndpoint": {
         "additionalProperties": false,
         "properties": {
@@ -269,6 +309,593 @@
         },
         "required": [
           "kind"
+        ],
+        "type": "object"
+      },
+      "DiffFileSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "additions": {
+            "type": "integer"
+          },
+          "change": {
+            "type": "string"
+          },
+          "contentState": {
+            "type": "string"
+          },
+          "deletions": {
+            "type": "integer"
+          },
+          "fileRevision": {
+            "type": "string"
+          },
+          "new": {
+            "$ref": "#/components/schemas/DiffSide"
+          },
+          "old": {
+            "$ref": "#/components/schemas/DiffSide"
+          },
+          "path": {
+            "type": "string"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "path",
+          "change",
+          "old",
+          "new",
+          "contentState"
+        ],
+        "type": "object"
+      },
+      "DiffHead": {
+        "additionalProperties": false,
+        "properties": {
+          "oid": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "state"
+        ],
+        "type": "object"
+      },
+      "DiffHunk": {
+        "additionalProperties": false,
+        "properties": {
+          "continuedAfter": {
+            "type": "boolean"
+          },
+          "continuedBefore": {
+            "type": "boolean"
+          },
+          "lines": {
+            "items": {
+              "$ref": "#/components/schemas/DiffLine"
+            },
+            "type": "array"
+          },
+          "newCount": {
+            "type": "integer"
+          },
+          "newStart": {
+            "type": "integer"
+          },
+          "oldCount": {
+            "type": "integer"
+          },
+          "oldStart": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "oldStart",
+          "oldCount",
+          "newStart",
+          "newCount",
+          "continuedBefore",
+          "continuedAfter",
+          "lines"
+        ],
+        "type": "object"
+      },
+      "DiffInvalidPathError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_path"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffLimitExceededError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "limit_exceeded"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/diffLimitDetails"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object"
+      },
+      "DiffLine": {
+        "additionalProperties": false,
+        "properties": {
+          "content": {
+            "type": "string"
+          },
+          "hasTerminatingLF": {
+            "type": "boolean"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "newLine": {
+            "type": "integer"
+          },
+          "oldLine": {
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "content",
+          "hasTerminatingLF"
+        ],
+        "type": "object"
+      },
+      "DiffNotRepositoryError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "not_repository"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffObservation": {
+        "additionalProperties": false,
+        "properties": {
+          "complete": {
+            "type": "boolean"
+          },
+          "head": {
+            "$ref": "#/components/schemas/DiffHead"
+          },
+          "indexSummary": {
+            "type": "string"
+          },
+          "omissions": {
+            "items": {
+              "$ref": "#/components/schemas/DiffOmission"
+            },
+            "type": "array"
+          },
+          "revision": {
+            "type": "string"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "target": {
+            "$ref": "#/components/schemas/DiffTarget"
+          },
+          "truncation": {
+            "$ref": "#/components/schemas/DiffTruncation"
+          }
+        },
+        "required": [
+          "omissions"
+        ],
+        "type": "object"
+      },
+      "DiffOmission": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "type": "object"
+      },
+      "DiffPermissionDeniedError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "permission_denied"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffRepositoryUnavailableError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "repository_unavailable"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffSide": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "type": "string"
+          },
+          "mode": {
+            "format": "uint32",
+            "minimum": 0,
+            "type": "integer"
+          }
+        },
+        "required": [
+          "kind",
+          "mode"
+        ],
+        "type": "object"
+      },
+      "DiffStaleCursorError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_cursor"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffStaleFileError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_file"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffStaleTargetError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_target"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffStaleWorkspaceError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_workspace"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "DiffTarget": {
+        "additionalProperties": false,
+        "properties": {
+          "base": {
+            "$ref": "#/components/schemas/DiffEndpoint"
+          },
+          "head": {
+            "$ref": "#/components/schemas/DiffEndpoint"
+          },
+          "id": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "repositoryPath": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "workspaceId",
+          "kind",
+          "repositoryPath"
+        ],
+        "type": "object"
+      },
+      "DiffTargetCatalog": {
+        "additionalProperties": false,
+        "properties": {
+          "diagnostics": {
+            "items": {
+              "$ref": "#/components/schemas/DiffTargetDiagnostic"
+            },
+            "type": "array"
+          },
+          "sessionId": {
+            "type": "string"
+          },
+          "targets": {
+            "items": {
+              "$ref": "#/components/schemas/DiffTargetEntry"
+            },
+            "type": "array"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "targets",
+          "diagnostics"
+        ],
+        "type": "object"
+      },
+      "DiffTargetDiagnostic": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "type": "object"
+      },
+      "DiffTargetEntry": {
+        "additionalProperties": false,
+        "properties": {
+          "annotationCount": {
+            "type": "integer"
+          },
+          "base": {
+            "$ref": "#/components/schemas/DiffEndpoint"
+          },
+          "head": {
+            "$ref": "#/components/schemas/DiffEndpoint"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/DiffTargetMetadata"
+          },
+          "reference": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reference",
+          "targetId",
+          "kind",
+          "base",
+          "head",
+          "metadata"
+        ],
+        "type": "object"
+      },
+      "DiffTargetMetadata": {
+        "additionalProperties": false,
+        "properties": {
+          "abbreviatedOid": {
+            "type": "string"
+          },
+          "baseRefName": {
+            "type": "string"
+          },
+          "committedAt": {
+            "type": "integer"
+          },
+          "label": {
+            "type": "string"
+          },
+          "refName": {
+            "type": "string"
+          },
+          "subject": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "label"
+        ],
+        "type": "object"
+      },
+      "DiffTruncation": {
+        "additionalProperties": false,
+        "properties": {
+          "count": {
+            "type": "integer"
+          },
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason",
+          "count"
+        ],
+        "type": "object"
+      },
+      "DiffUnsupportedRepositoryError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "unsupported_repository"
+            ],
+            "type": "string"
+          },
+          "details": {
+            "$ref": "#/components/schemas/diffUnsupportedRepositoryDetails"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "details"
+        ],
+        "type": "object"
+      },
+      "FileDiffPage": {
+        "additionalProperties": false,
+        "properties": {
+          "computation": {
+            "$ref": "#/components/schemas/DiffComputation"
+          },
+          "file": {
+            "$ref": "#/components/schemas/DiffFileSummary"
+          },
+          "hunks": {
+            "items": {
+              "$ref": "#/components/schemas/DiffHunk"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/DiffObservation"
+          }
+        },
+        "required": [
+          "hunks"
         ],
         "type": "object"
       },
@@ -635,6 +1262,18 @@
         ],
         "type": "object"
       },
+      "ListDiffTargetsInput": {
+        "additionalProperties": false,
+        "properties": {
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
+        ],
+        "type": "object"
+      },
       "MCPServerStatus": {
         "additionalProperties": false,
         "properties": {
@@ -718,6 +1357,53 @@
         "required": [
           "code",
           "message"
+        ],
+        "type": "object"
+      },
+      "ObserveDiffInput": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "expectedTargetId": {
+            "type": "string"
+          },
+          "expectedTargetRevision": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "targetReference": {
+            "type": "string"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId",
+          "targetReference",
+          "expectedTargetId"
+        ],
+        "type": "object"
+      },
+      "ObserveWorkingTreeInput": {
+        "additionalProperties": false,
+        "properties": {
+          "cursor": {
+            "type": "string"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "workspaceId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "workspaceId"
         ],
         "type": "object"
       },
@@ -1226,6 +1912,43 @@
         },
         "required": [
           "count"
+        ],
+        "type": "object"
+      },
+      "ReadFileDiffInput": {
+        "additionalProperties": false,
+        "properties": {
+          "annotationId": {
+            "format": "uint64",
+            "minimum": 0,
+            "type": "integer"
+          },
+          "cursor": {
+            "type": "string"
+          },
+          "expectedFileRevision": {
+            "type": "string"
+          },
+          "maxHunks": {
+            "type": "integer"
+          },
+          "pageSize": {
+            "type": "integer"
+          },
+          "path": {
+            "type": "string"
+          },
+          "targetId": {
+            "type": "string"
+          },
+          "targetRevision": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "targetId",
+          "targetRevision",
+          "path"
         ],
         "type": "object"
       },
@@ -2327,6 +3050,27 @@
         ],
         "type": "object"
       },
+      "WorkingTreePage": {
+        "additionalProperties": false,
+        "properties": {
+          "files": {
+            "items": {
+              "$ref": "#/components/schemas/DiffFileSummary"
+            },
+            "type": "array"
+          },
+          "nextCursor": {
+            "type": "string"
+          },
+          "observation": {
+            "$ref": "#/components/schemas/DiffObservation"
+          }
+        },
+        "required": [
+          "files"
+        ],
+        "type": "object"
+      },
       "WorkspaceFileAnnotationAnchor": {
         "additionalProperties": false,
         "properties": {
@@ -2432,6 +3176,42 @@
           "workspaceId",
           "state",
           "limits"
+        ],
+        "type": "object"
+      },
+      "diffCapacityDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "scope": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "scope"
+        ],
+        "type": "object"
+      },
+      "diffLimitDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "limit"
+        ],
+        "type": "object"
+      },
+      "diffUnsupportedRepositoryDetails": {
+        "additionalProperties": false,
+        "properties": {
+          "reason": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason"
         ],
         "type": "object"
       }
@@ -5164,6 +5944,1774 @@
         ],
         "tags": [
           "sessions"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/diff/files/read": {
+      "post": {
+        "operationId": "readFileDiff",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                43
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReadFileDiffInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/FileDiffPage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_path": "#/components/schemas/DiffInvalidPathError",
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffInvalidPathError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError",
+                          "permission_denied": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError",
+                          "not_repository": "#/components/schemas/DiffNotRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffNotRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_cursor": "#/components/schemas/DiffStaleCursorError",
+                          "stale_file": "#/components/schemas/DiffStaleFileError",
+                          "stale_target": "#/components/schemas/DiffStaleTargetError",
+                          "stale_workspace": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleFileError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/DiffLimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffLimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unsupported_repository": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "repository_unavailable": "#/components/schemas/DiffRepositoryUnavailableError",
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffRepositoryUnavailableError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "diff"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/diff/observations": {
+      "post": {
+        "operationId": "observeDiff",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                43
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObserveDiffInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreePage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_path": "#/components/schemas/DiffInvalidPathError",
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffInvalidPathError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError",
+                          "permission_denied": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError",
+                          "not_repository": "#/components/schemas/DiffNotRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffNotRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_cursor": "#/components/schemas/DiffStaleCursorError",
+                          "stale_file": "#/components/schemas/DiffStaleFileError",
+                          "stale_target": "#/components/schemas/DiffStaleTargetError",
+                          "stale_workspace": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleFileError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/DiffLimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffLimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unsupported_repository": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "repository_unavailable": "#/components/schemas/DiffRepositoryUnavailableError",
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffRepositoryUnavailableError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "diff"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/diff/targets": {
+      "post": {
+        "operationId": "listDiffTargets",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                43
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ListDiffTargetsInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DiffTargetCatalog"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_path": "#/components/schemas/DiffInvalidPathError",
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffInvalidPathError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError",
+                          "permission_denied": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError",
+                          "not_repository": "#/components/schemas/DiffNotRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffNotRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_target": "#/components/schemas/DiffStaleTargetError",
+                          "stale_workspace": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/DiffLimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffLimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unsupported_repository": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "repository_unavailable": "#/components/schemas/DiffRepositoryUnavailableError",
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffRepositoryUnavailableError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "diff"
+        ]
+      }
+    },
+    "/v1/sessions/{sessionID}/diff/working-tree": {
+      "post": {
+        "operationId": "observeWorkingTree",
+        "parameters": [
+          {
+            "in": "header",
+            "name": "X-Kit-Instance-ID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "header",
+            "name": "X-Kit-Protocol-Version",
+            "required": true,
+            "schema": {
+              "enum": [
+                43
+              ],
+              "type": "integer"
+            }
+          },
+          {
+            "in": "path",
+            "name": "sessionID",
+            "required": true,
+            "schema": {
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ObserveWorkingTreeInput"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/WorkingTreePage"
+                }
+              }
+            },
+            "description": "Success"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_path": "#/components/schemas/DiffInvalidPathError",
+                          "invalid_request": "#/components/schemas/InvalidRequestError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffInvalidPathError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Bad Request"
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unauthorized": "#/components/schemas/UnauthorizedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnauthorizedError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unauthorized"
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "forbidden": "#/components/schemas/ForbiddenError",
+                          "permission_denied": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffPermissionDeniedError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/ForbiddenError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Forbidden"
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "not_found": "#/components/schemas/NotFoundError",
+                          "not_repository": "#/components/schemas/DiffNotRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/NotFoundError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffNotRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Not Found"
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_cursor": "#/components/schemas/DiffStaleCursorError",
+                          "stale_file": "#/components/schemas/DiffStaleFileError",
+                          "stale_target": "#/components/schemas/DiffStaleTargetError",
+                          "stale_workspace": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleFileError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/DiffStaleCursorError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/InstanceMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Conflict"
+          },
+          "413": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "limit_exceeded": "#/components/schemas/DiffLimitExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffLimitExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Request Entity Too Large"
+          },
+          "421": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "invalid_host": "#/components/schemas/InvalidHostError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InvalidHostError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Misdirected Request"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "unsupported_repository": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffUnsupportedRepositoryError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Unprocessable Entity"
+          },
+          "426": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "protocol_mismatch": "#/components/schemas/ProtocolMismatchError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/ProtocolMismatchError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/DiffCapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffCapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
+          "500": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "internal": "#/components/schemas/InternalError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/InternalError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Internal Server Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "repository_unavailable": "#/components/schemas/DiffRepositoryUnavailableError",
+                          "unavailable": "#/components/schemas/UnavailableError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/DiffRepositoryUnavailableError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Service Unavailable"
+          }
+        },
+        "security": [
+          {
+            "daemonBearer": []
+          }
+        ],
+        "tags": [
+          "diff"
         ]
       }
     },

@@ -1991,91 +1991,57 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/targets", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ListDiffTargetsInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ListDiffTargets, func(ctx context.Context, params httpapi.SessionPath, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.DiffTargetCatalog{}, invalidAPIError()
 		}
-		sessionID := request.PathValue("sessionID")
-		result, err := service.ListDiffTargets(request.Context(), sessionID, input)
+		result, err := service.ListDiffTargets(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.DiffTargetCatalog{}, diffAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid diff target catalog: %w", err))
-			return
+		if err := validateDiffTargetCatalogResponse(params.SessionID, input, result); err != nil {
+			return protocol.DiffTargetCatalog{}, internalAPIError()
 		}
-		if result.SessionID != sessionID || result.WorkspaceID != input.WorkspaceID {
-			writeSessionError(writer, fmt.Errorf("diff target catalog identity does not match request"))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/observations", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ObserveDiffInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ObserveDiff, func(ctx context.Context, params httpapi.SessionPath, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.DiffPage{}, invalidAPIError()
 		}
-		sessionID := request.PathValue("sessionID")
-		result, err := service.ObserveDiff(request.Context(), sessionID, input)
+		result, err := service.ObserveDiff(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.DiffPage{}, diffAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid diff observation page: %w", err))
-			return
+		if err := validateObserveDiffResponse(params.SessionID, input, result); err != nil {
+			return protocol.DiffPage{}, internalAPIError()
 		}
-		if result.Observation.SessionID != sessionID || result.Observation.Target.WorkspaceID != input.WorkspaceID || result.Observation.Target.ID != input.ExpectedTargetID || input.ExpectedTargetRevision != "" && result.Observation.Revision != input.ExpectedTargetRevision {
-			writeSessionError(writer, fmt.Errorf("diff observation identity does not match request"))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/working-tree", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ObserveWorkingTreeInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.ObserveWorkingTree, func(ctx context.Context, params httpapi.SessionPath, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
+		if err := input.Validate(); err != nil {
+			return protocol.WorkingTreePage{}, invalidAPIError()
 		}
-		result, err := service.ObserveWorkingTree(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.ObserveWorkingTree(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.WorkingTreePage{}, diffAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid working-tree page: %w", err))
-			return
+		if err := result.Validate(); err != nil || result.Observation.SessionID != params.SessionID {
+			return protocol.WorkingTreePage{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/diff/files/read", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ReadFileDiffInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.ReadFileDiff, func(ctx context.Context, params httpapi.SessionPath, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
+		if err := input.Validate(); err != nil {
+			return protocol.FileDiffPage{}, invalidAPIError()
 		}
-		result, err := service.ReadFileDiff(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.ReadFileDiff(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.FileDiffPage{}, diffAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid file diff page: %w", err))
-			return
+		if err := validateFileDiffResponse(params.SessionID, input, result); err != nil {
+			return protocol.FileDiffPage{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
 		input := protocol.ListAnnotationsInput{Cursor: request.URL.Query().Get("cursor")}
@@ -2645,6 +2611,48 @@ func turnAPIError(err error) error {
 		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
 	}
 	return httpapi.NewAPIError(status, code, message, nil)
+}
+
+// diffAPIError projects the declared diff failures into ADR-0034 envelopes.
+func diffAPIError(err error) error {
+	var diffErr *protocol.DiffError
+	if errors.As(err, &diffErr) {
+		if diffErr.Validate() != nil {
+			return internalAPIError()
+		}
+		status := map[protocol.DiffErrorCode]int{
+			protocol.DiffErrorInvalidPath:           http.StatusBadRequest,
+			protocol.DiffErrorNotRepository:         http.StatusNotFound,
+			protocol.DiffErrorUnsupportedRepository: http.StatusUnprocessableEntity,
+			protocol.DiffErrorStaleWorkspace:        http.StatusConflict,
+			protocol.DiffErrorStaleTarget:           http.StatusConflict,
+			protocol.DiffErrorStaleFile:             http.StatusConflict,
+			protocol.DiffErrorStaleCursor:           http.StatusConflict,
+			protocol.DiffErrorNotFound:              http.StatusNotFound,
+			protocol.DiffErrorPermissionDenied:      http.StatusForbidden,
+			protocol.DiffErrorLimit:                 http.StatusRequestEntityTooLarge,
+			protocol.DiffErrorCapacity:              http.StatusTooManyRequests,
+			protocol.DiffErrorRepositoryUnavailable: http.StatusServiceUnavailable,
+			protocol.DiffErrorUnavailable:           http.StatusServiceUnavailable,
+		}[diffErr.Code]
+		code := httpapi.ErrorCode(diffErr.Code)
+		if diffErr.Code == protocol.DiffErrorUnavailable {
+			code = httpapi.ErrorUnavailable
+		}
+		var details any
+		switch diffErr.Code {
+		case protocol.DiffErrorUnsupportedRepository, protocol.DiffErrorLimit, protocol.DiffErrorCapacity:
+			details = diffErr.Details
+		}
+		return httpapi.NewAPIError(status, code, diffErr.Message, details)
+	}
+	if errors.Is(err, kitsession.ErrNotFound) {
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	}
+	if errors.Is(err, kitsession.ErrInvalidInput) || errors.Is(err, errInvalidSessionRequest) {
+		return invalidAPIError()
+	}
+	return internalAPIError()
 }
 
 func scratchpadAPIError(err error) error {
