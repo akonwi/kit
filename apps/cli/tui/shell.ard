@@ -974,11 +974,13 @@ impl Shell {
         }),
       )
       body.push(blank())
-      body.push(spinner::spinner())
       body.push(
-        line(
-          "Waiting for approval…",
-          ui::text_style(foreground: self.props.themes.current().muted),
+        cui::box(
+          [
+            spinner::spinner(),
+            line("Waiting for approval…", ui::text_style(foreground: self.props.themes.current().muted)),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
         ),
       )
     }
