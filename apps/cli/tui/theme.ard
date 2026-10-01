@@ -81,18 +81,21 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     from_ui(base.primary_text),
     backdrop,
   ).or(from_ui(base.primary_text))
-  let primary = token(
+  let primary_override = token(
     tokens,
     kittheme::TokenPickerFocusedBackground,
     from_ui(base.primary),
     backdrop,
-  ).or(from_ui(base.primary))
-  let primary_hovered = token(
-    tokens,
-    kittheme::TokenPickerFocusedBackground,
-    from_ui(base.primary_hovered),
-    backdrop,
-  ).or(from_ui(base.primary_hovered))
+  )
+  let primary = primary_override.or(from_ui(base.primary))
+  // User themes have one focused-picker fill, not a separate hover fill. On a
+  // dark terminal, reusing it for both states made the primary button's hover
+  // state visually indistinguishable. Lift that resolved fill toward terminal
+  // foreground; keep Cooper's contrast-derived light-mode hover tone.
+  let primary_hovered = match base.mode {
+    ctheme::Mode::dark => tint(primary, from_ui(base.foreground), 0.16),
+    ctheme::Mode::light => primary_override.or(from_ui(base.primary_hovered)),
+  }
   let primary_pressed = token(
     tokens,
     kittheme::TokenBackgroundAccent,
