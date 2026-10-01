@@ -50,7 +50,7 @@ struct SubagentTests {
 
     @Test func rosterRefreshPreservesActiveMainTranscript() throws {
         var projection = try SessionEventProjection(snapshot())
-        let event = try JSONDecoder().decode(WireSessionEvent.self, from: Data(#"{"streamId":"stream","sequence":1,"sessionId":"s","turnId":"t","runId":"t","kind":"tool.started","toolCallId":"tool","toolName":"bash"}"#.utf8))
+        let event = try JSONDecoder().decode(WireSessionEvent.self, from: Data(#"{"streamId":"stream","sequence":1,"sessionId":"s","turnId":"t","kind":"tool.started","toolCallId":"tool","toolName":"bash"}"#.utf8))
         try projection.apply(event)
         let messages = projection.session.messages
         try projection.updateSubagents(snapshot(conversations: [conversation("reviewer", status: "running")]))

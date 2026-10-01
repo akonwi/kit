@@ -3,10 +3,10 @@ import Testing
 @testable import Kit
 
 struct DaemonCompatibilityTests {
-    @Test func stableProtocol42ReleaseSkewAttachesBidirectionally() {
+    @Test func protocol43RejectsReleaseSkew() {
         for (app, daemon) in [("0.39.0", "0.39.1"), ("0.39.1", "0.39.0"), ("1.0.0", "0.39.0")] {
-            #expect(DaemonCompatibility.accepts(clientVersion: app, daemonVersion: daemon,
-                                               clientProtocol: 42, daemonProtocol: 42))
+            #expect(!DaemonCompatibility.accepts(clientVersion: app, daemonVersion: daemon,
+                                               clientProtocol: 43, daemonProtocol: 43))
         }
     }
 
@@ -17,25 +17,25 @@ struct DaemonCompatibilityTests {
                               ("0.39.00", "0.39.0"), ("0.39.0+meta", "0.39.0"),
                               ("0.39.0", "0.39.0+meta")] {
             #expect(!DaemonCompatibility.accepts(clientVersion: app, daemonVersion: daemon,
-                                                clientProtocol: 42, daemonProtocol: 42))
+                                                clientProtocol: 43, daemonProtocol: 43))
         }
-        #expect(DaemonCompatibility.accepts(clientVersion: "dev", daemonVersion: "dev", clientProtocol: 42, daemonProtocol: 42))
+        #expect(DaemonCompatibility.accepts(clientVersion: "dev", daemonVersion: "dev", clientProtocol: 43, daemonProtocol: 43))
         #expect(DaemonCompatibility.mismatch(clientVersion: "0.39.0", daemonVersion: "0.39.0",
                                              clientProtocol: 42, daemonProtocol: 43) == .clientProtocolOlder)
         #expect(DaemonCompatibility.mismatch(clientVersion: "0.39.0", daemonVersion: "0.39.0",
                                              clientProtocol: 42, daemonProtocol: 41) == .daemonProtocolOlder)
         #expect(DaemonCompatibility.mismatch(clientVersion: "0.39.0", daemonVersion: "dev",
-                                             clientProtocol: 42, daemonProtocol: 42) == .releaseMismatch)
+                                             clientProtocol: 43, daemonProtocol: 43) == .releaseMismatch)
     }
 
-    private func registry(version: String = "0.39.0", protocolNumber: Int = 42) throws -> LocalDaemonRegistry {
+    private func registry(version: String = "0.39.0", protocolNumber: Int = 43) throws -> LocalDaemonRegistry {
         try JSONDecoder().decode(LocalDaemonRegistry.self, from: Data("""
         {"registryVersion":1,"protocolVersion":\(protocolNumber),"kitVersion":"\(version)",
          "url":"http://127.0.0.1:12345","instanceId":"test-instance","pid":123}
         """.utf8))
     }
 
-    private func health(version: String = "0.39.0", protocolNumber: Int = 42,
+    private func health(version: String = "0.39.0", protocolNumber: Int = 43,
                         instance: String = "test-instance", pid: Int = 123, ready: Bool = true) throws -> LocalDaemonHealth {
         try JSONDecoder().decode(LocalDaemonHealth.self, from: Data("""
         {"instanceId":"\(instance)","protocolVersion":\(protocolNumber),"kitVersion":"\(version)",
@@ -45,7 +45,7 @@ struct DaemonCompatibilityTests {
 
     @Test func discoveryAuthenticatesIdentityAndReadinessBeforeNegotiation() throws {
         try HTTPClient.validateDiscovery(registry: registry(), health: health(), clientRelease: "0.39.0")
-        for altered in [try health(version: "0.40.0"), try health(protocolNumber: 43),
+        for altered in [try health(version: "0.40.0"), try health(protocolNumber: 42),
                         try health(instance: "another"), try health(pid: 124)] {
             do {
                 try HTTPClient.validateDiscovery(registry: registry(), health: altered, clientRelease: "0.39.0")
@@ -62,8 +62,8 @@ struct DaemonCompatibilityTests {
         } catch ClientError.incompatibleDaemon(let app, let daemon, let appProtocol, let daemonProtocol, let reason) {
             #expect(app == "0.39.0")
             #expect(daemon == "dev")
-            #expect(appProtocol == 42)
-            #expect(daemonProtocol == 42)
+            #expect(appProtocol == 43)
+            #expect(daemonProtocol == 43)
             #expect(reason == .releaseMismatch)
         }
     }

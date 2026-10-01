@@ -8,3 +8,6 @@ filter:
     - scratchpad
     - vcs
     - plugin
+    - turns
+    - transcript
+    - events

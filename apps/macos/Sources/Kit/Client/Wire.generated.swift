@@ -160,7 +160,7 @@ struct WireProviderRetry: Codable, Sendable {
 
 struct WireActiveCompaction: Codable, Sendable {
     let `id`: String
-    let `runId`: String
+    let `turnId`: String
 }
 
 struct WireSessionUsageCost: Codable, Sendable {
@@ -346,7 +346,7 @@ struct WireInteractionRequest: Codable, Sendable {
     let `filterable`: Bool?
     let `id`: String
     let `sessionId`: String
-    let `runId`: String?
+    let `turnId`: String?
     let `toolCallId`: String?
     let `kind`: WireInteractionKind
     let `title`: String
@@ -354,7 +354,7 @@ struct WireInteractionRequest: Codable, Sendable {
     let `options`: [WireInteractionOption]?
     let `questions`: [WireInteractionQuestion]?
     let `createdAt`: String
-    init(plugin: WirePluginInteractionOwner? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, defaultValue: Bool? = nil, placeholder: String? = nil, initialValue: String? = nil, filterable: Bool? = nil, id: String, sessionId: String, runId: String? = nil, toolCallId: String? = nil, kind: WireInteractionKind, title: String, detail: String? = nil, options: [WireInteractionOption]? = nil, questions: [WireInteractionQuestion]? = nil, createdAt: String) { self.plugin = plugin; self.confirmLabel = confirmLabel; self.cancelLabel = cancelLabel; self.defaultValue = defaultValue; self.placeholder = placeholder; self.initialValue = initialValue; self.filterable = filterable; self.id = id; self.sessionId = sessionId; self.runId = runId; self.toolCallId = toolCallId; self.kind = kind; self.title = title; self.detail = detail; self.options = options; self.questions = questions; self.createdAt = createdAt }
+    init(plugin: WirePluginInteractionOwner? = nil, confirmLabel: String? = nil, cancelLabel: String? = nil, defaultValue: Bool? = nil, placeholder: String? = nil, initialValue: String? = nil, filterable: Bool? = nil, id: String, sessionId: String, turnId: String? = nil, toolCallId: String? = nil, kind: WireInteractionKind, title: String, detail: String? = nil, options: [WireInteractionOption]? = nil, questions: [WireInteractionQuestion]? = nil, createdAt: String) { self.plugin = plugin; self.confirmLabel = confirmLabel; self.cancelLabel = cancelLabel; self.defaultValue = defaultValue; self.placeholder = placeholder; self.initialValue = initialValue; self.filterable = filterable; self.id = id; self.sessionId = sessionId; self.turnId = turnId; self.toolCallId = toolCallId; self.kind = kind; self.title = title; self.detail = detail; self.options = options; self.questions = questions; self.createdAt = createdAt }
 }
 
 enum WireAnnotationStaleReason: String, Codable, Sendable {
@@ -390,7 +390,7 @@ struct WireSessionSnapshot: Codable, Sendable {
     let `previousMessageCursor`: String?
     let `hasMoreMessages`: Bool?
     let `pendingBoundaries`: [WirePendingBoundary]?
-    let `activeRunId`: String?
+    let `activeTurnId`: String?
     let `providerRetry`: WireProviderRetry?
     let `activeCompaction`: WireActiveCompaction?
     let `activeBashExecutionId`: String?
@@ -418,38 +418,37 @@ struct WireSessionSnapshot: Codable, Sendable {
 }
 
 enum WireSessionEventKind: String, Codable, Sendable {
-    case value0 = "run.started"
-    case value1 = "message.user"
+    case value0 = "turn.started"
+    case value1 = "user.message.added"
     case value2 = "assistant.started"
     case value3 = "assistant.text.delta"
     case value4 = "assistant.thinking.delta"
     case value5 = "assistant.completed"
     case value6 = "tool.planned"
     case value7 = "tool.started"
-    case value8 = "tool.updated"
+    case value8 = "tool.output.delta"
     case value9 = "tool.completed"
     case value10 = "compaction.started"
     case value11 = "compaction.completed"
-    case value12 = "compaction.failed"
-    case value13 = "provider.retry.scheduled"
-    case value14 = "provider.retry.started"
-    case value15 = "context.updated"
-    case value16 = "usage.updated"
-    case value17 = "run.finished"
-    case value18 = "session.renamed"
-    case value19 = "session.cwd.changed"
-    case value20 = "subagent.changed"
-    case value21 = "peer_query.changed"
-    case value22 = "interaction.requested"
-    case value23 = "interaction.resolved"
-    case value24 = "annotation.created"
-    case value25 = "annotation.updated"
-    case value26 = "annotation.deleted"
-    case value27 = "annotation.submitted"
-    case value28 = "scratchpad.changed"
+    case value12 = "provider.retry.scheduled"
+    case value13 = "provider.retry.started"
+    case value14 = "context.changed"
+    case value15 = "usage.changed"
+    case value16 = "turn.completed"
+    case value17 = "session.name.changed"
+    case value18 = "session.cwd.changed"
+    case value19 = "subagent.changed"
+    case value20 = "peer_query.changed"
+    case value21 = "interaction.requested"
+    case value22 = "interaction.resolved"
+    case value23 = "annotation.created"
+    case value24 = "annotation.updated"
+    case value25 = "annotation.deleted"
+    case value26 = "annotation.submitted"
+    case value27 = "scratchpad.changed"
 }
 
-enum WireRunStatus: String, Codable, Sendable {
+enum WireTurnStatus: String, Codable, Sendable {
     case value0 = "queued"
     case value1 = "running"
     case value2 = "completed"
@@ -483,8 +482,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `streamId`: String
     let `sequence`: Int64
     let `sessionId`: String
-    let `turnId`: String
-    let `runId`: String
+    let `turnId`: String?
     let `messageId`: String?
     let `kind`: WireSessionEventKind
     let `contentIndex`: Int?
@@ -500,7 +498,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `details`: WireJSON?
     let `detailsOmitted`: Bool?
     let `isError`: Bool?
-    let `status`: WireRunStatus?
+    let `status`: WireTurnStatus?
     let `errorKind`: WireProviderErrorKind?
     let `errorMessage`: String?
     let `compactionId`: String?
@@ -690,14 +688,13 @@ struct WireBashHistoryPage: Codable, Sendable {
     let `hasMore`: Bool
 }
 
-struct WireRunReservation: Codable, Sendable {
+struct WireTurnReservation: Codable, Sendable {
     let `sessionId`: String
     let `turnId`: String
-    let `runId`: String
 }
 
 struct WirePromptSubmission: Codable, Sendable {
-    let `reservation`: WireRunReservation?
+    let `reservation`: WireTurnReservation?
     let `queued`: Bool
     let `queue`: WireFollowUpQueue
 }
@@ -1083,4 +1080,4 @@ struct WireDiffError: Codable, Sendable {
     let `details`: [String: String]?
 }
 
-let kitWireVersion = 42
+let kitWireVersion = 43

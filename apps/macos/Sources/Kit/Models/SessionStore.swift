@@ -634,7 +634,7 @@ final class SessionStore {
 
     func abortRun() {
         guard !unavailable, let client = mutationClient, let run = selected?.activeRunID else { return }
-        operations.abort(client: client, session: selectedID, run: run)
+        operations.abort(client: client, session: selectedID, turn: run)
     }
 
     func changeQueue(_ action: SessionOperations.QueueAction) {

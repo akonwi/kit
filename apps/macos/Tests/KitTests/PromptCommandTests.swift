@@ -11,10 +11,10 @@ private actor CommandClient: PromptCommandClient {
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.disconnected }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireRunReservation {
+    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
         requests.append(input)
         if fails { throw ClientError.disconnected }
-        return .init(sessionId: id, turnId: "turn_a", runId: "turn_a")
+        return .init(sessionId: id, turnId: "turn_a")
     }
 }
 
@@ -34,10 +34,10 @@ private actor PalettePromptClient: PromptCommandClient {
         await receive(try await snapshot(id))
         while !Task.isCancelled { try await Task.sleep(for: .seconds(1)) }
     }
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireRunReservation {
+    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
         requests.append(input)
         if paused { await withCheckedContinuation { waiting = $0 } }
-        return .init(sessionId: id, turnId: "turn_a", runId: "turn_a")
+        return .init(sessionId: id, turnId: "turn_a")
     }
 }
 
@@ -143,7 +143,7 @@ private actor PalettePromptClient: PromptCommandClient {
             let initial = try await client.snapshot(id)
             #expect(initial.promptCommands?.first(where: { $0.name == "verify-command" })?.description == "Verify command arguments")
             let receipt = try await client.runPromptCommand(id, input: .init(name: "verify-command", args: "\"blue sky\" CHECK"))
-            #expect(receipt.runId == receipt.turnId)
+            #expect(receipt.turnId == receipt.turnId)
             var final = try await client.snapshot(id)
             let deadline = Date().addingTimeInterval(60)
             while final.activeRunID != nil && Date() < deadline {

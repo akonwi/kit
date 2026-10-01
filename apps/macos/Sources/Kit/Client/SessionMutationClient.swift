@@ -15,7 +15,7 @@ protocol SessionMutationClient: SessionClient {
     func submit(_ session: String, input: WirePromptInput) async throws -> WirePromptSubmission
     func restoreFollowUps(_ session: String) async throws -> WireRestoreFollowUpsResult
     func promoteFollowUps(_ session: String) async throws -> WirePromoteFollowUpsResult
-    func abort(_ session: String, run: String) async throws
+    func abort(_ session: String, turn: String) async throws
 }
 
 /// Discovery failures occur before a mutation was sent; transport failures after that are ambiguous.
@@ -45,7 +45,7 @@ extension LocalClient: SessionMutationClient {
     func promoteFollowUps(_ session: String) async throws -> WirePromoteFollowUpsResult {
         try await mutationTransport().promoteFollowUps(session)
     }
-    func abort(_ session: String, run: String) async throws {
-        try await mutationTransport().abort(session, run: run)
+    func abort(_ session: String, turn: String) async throws {
+        try await mutationTransport().abort(session, turn: turn)
     }
 }

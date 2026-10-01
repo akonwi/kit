@@ -11,6 +11,18 @@ import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 internal protocol APIProtocol: Sendable {
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/get(getSessionEventPage)`.
+    func getSessionEventPage(_ input: Operations.GetSessionEventPage.Input) async throws -> Operations.GetSessionEventPage.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events/stream`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/stream/get(streamSessionEvents)`.
+    func streamSessionEvents(_ input: Operations.StreamSessionEvents.Input) async throws -> Operations.StreamSessionEvents.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
+    func respondInteraction(_ input: Operations.RespondInteraction.Input) async throws -> Operations.RespondInteraction.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/messages`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/messages/get(getMessagePage)`.
+    func getMessagePage(_ input: Operations.GetMessagePage.Input) async throws -> Operations.GetMessagePage.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/plugin-commands`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)`.
     func executePluginCommand(_ input: Operations.ExecutePluginCommand.Input) async throws -> Operations.ExecutePluginCommand.Output
@@ -23,6 +35,33 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/put(updateScratchpad)`.
     func updateScratchpad(_ input: Operations.UpdateScratchpad.Input) async throws -> Operations.UpdateScratchpad.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/transcript`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/transcript/get(getTranscriptPage)`.
+    func getTranscriptPage(_ input: Operations.GetTranscriptPage.Input) async throws -> Operations.GetTranscriptPage.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/follow-ups/promote`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/promote/post(promoteTurnFollowUps)`.
+    func promoteTurnFollowUps(_ input: Operations.PromoteTurnFollowUps.Input) async throws -> Operations.PromoteTurnFollowUps.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/follow-ups/restore`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/restore/post(restoreTurnFollowUps)`.
+    func restoreTurnFollowUps(_ input: Operations.RestoreTurnFollowUps.Input) async throws -> Operations.RestoreTurnFollowUps.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt/post(prompt)`.
+    func prompt(_ input: Operations.Prompt.Input) async throws -> Operations.Prompt.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-commands`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-commands/post(startPromptCommand)`.
+    func startPromptCommand(_ input: Operations.StartPromptCommand.Input) async throws -> Operations.StartPromptCommand.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompts`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompts/post(startPrompt)`.
+    func startPrompt(_ input: Operations.StartPrompt.Input) async throws -> Operations.StartPrompt.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/submissions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/submissions/post(submitPrompt)`.
+    func submitPrompt(_ input: Operations.SubmitPrompt.Input) async throws -> Operations.SubmitPrompt.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/turns/{turnID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/get(getTurn)`.
+    func getTurn(_ input: Operations.GetTurn.Input) async throws -> Operations.GetTurn.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/{turnID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/abort/post(abortTurn)`.
+    func abortTurn(_ input: Operations.AbortTurn.Input) async throws -> Operations.AbortTurn.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/get(getSessionVCS)`.
     func getSessionVCS(_ input: Operations.GetSessionVCS.Input) async throws -> Operations.GetSessionVCS.Output
@@ -33,6 +72,58 @@ internal protocol APIProtocol: Sendable {
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/get(getSessionEventPage)`.
+    internal func getSessionEventPage(
+        path: Operations.GetSessionEventPage.Input.Path,
+        query: Operations.GetSessionEventPage.Input.Query = .init(),
+        headers: Operations.GetSessionEventPage.Input.Headers
+    ) async throws -> Operations.GetSessionEventPage.Output {
+        try await getSessionEventPage(Operations.GetSessionEventPage.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events/stream`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/stream/get(streamSessionEvents)`.
+    internal func streamSessionEvents(
+        path: Operations.StreamSessionEvents.Input.Path,
+        query: Operations.StreamSessionEvents.Input.Query = .init(),
+        headers: Operations.StreamSessionEvents.Input.Headers
+    ) async throws -> Operations.StreamSessionEvents.Output {
+        try await streamSessionEvents(Operations.StreamSessionEvents.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
+    internal func respondInteraction(
+        path: Operations.RespondInteraction.Input.Path,
+        headers: Operations.RespondInteraction.Input.Headers,
+        body: Operations.RespondInteraction.Input.Body
+    ) async throws -> Operations.RespondInteraction.Output {
+        try await respondInteraction(Operations.RespondInteraction.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/messages`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/messages/get(getMessagePage)`.
+    internal func getMessagePage(
+        path: Operations.GetMessagePage.Input.Path,
+        query: Operations.GetMessagePage.Input.Query = .init(),
+        headers: Operations.GetMessagePage.Input.Headers
+    ) async throws -> Operations.GetMessagePage.Output {
+        try await getMessagePage(Operations.GetMessagePage.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/plugin-commands`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-commands/post(executePluginCommand)`.
     internal func executePluginCommand(
@@ -79,6 +170,115 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/transcript`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/transcript/get(getTranscriptPage)`.
+    internal func getTranscriptPage(
+        path: Operations.GetTranscriptPage.Input.Path,
+        query: Operations.GetTranscriptPage.Input.Query,
+        headers: Operations.GetTranscriptPage.Input.Headers
+    ) async throws -> Operations.GetTranscriptPage.Output {
+        try await getTranscriptPage(Operations.GetTranscriptPage.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/follow-ups/promote`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/promote/post(promoteTurnFollowUps)`.
+    internal func promoteTurnFollowUps(
+        path: Operations.PromoteTurnFollowUps.Input.Path,
+        headers: Operations.PromoteTurnFollowUps.Input.Headers
+    ) async throws -> Operations.PromoteTurnFollowUps.Output {
+        try await promoteTurnFollowUps(Operations.PromoteTurnFollowUps.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/follow-ups/restore`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/follow-ups/restore/post(restoreTurnFollowUps)`.
+    internal func restoreTurnFollowUps(
+        path: Operations.RestoreTurnFollowUps.Input.Path,
+        headers: Operations.RestoreTurnFollowUps.Input.Headers
+    ) async throws -> Operations.RestoreTurnFollowUps.Output {
+        try await restoreTurnFollowUps(Operations.RestoreTurnFollowUps.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt/post(prompt)`.
+    internal func prompt(
+        path: Operations.Prompt.Input.Path,
+        headers: Operations.Prompt.Input.Headers,
+        body: Operations.Prompt.Input.Body
+    ) async throws -> Operations.Prompt.Output {
+        try await prompt(Operations.Prompt.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-commands`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-commands/post(startPromptCommand)`.
+    internal func startPromptCommand(
+        path: Operations.StartPromptCommand.Input.Path,
+        headers: Operations.StartPromptCommand.Input.Headers,
+        body: Operations.StartPromptCommand.Input.Body
+    ) async throws -> Operations.StartPromptCommand.Output {
+        try await startPromptCommand(Operations.StartPromptCommand.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompts`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompts/post(startPrompt)`.
+    internal func startPrompt(
+        path: Operations.StartPrompt.Input.Path,
+        headers: Operations.StartPrompt.Input.Headers,
+        body: Operations.StartPrompt.Input.Body
+    ) async throws -> Operations.StartPrompt.Output {
+        try await startPrompt(Operations.StartPrompt.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/submissions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/submissions/post(submitPrompt)`.
+    internal func submitPrompt(
+        path: Operations.SubmitPrompt.Input.Path,
+        headers: Operations.SubmitPrompt.Input.Headers,
+        body: Operations.SubmitPrompt.Input.Body
+    ) async throws -> Operations.SubmitPrompt.Output {
+        try await submitPrompt(Operations.SubmitPrompt.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/turns/{turnID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/get(getTurn)`.
+    internal func getTurn(
+        path: Operations.GetTurn.Input.Path,
+        headers: Operations.GetTurn.Input.Headers
+    ) async throws -> Operations.GetTurn.Output {
+        try await getTurn(Operations.GetTurn.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/{turnID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/{turnID}/abort/post(abortTurn)`.
+    internal func abortTurn(
+        path: Operations.AbortTurn.Input.Path,
+        headers: Operations.AbortTurn.Input.Headers
+    ) async throws -> Operations.AbortTurn.Output {
+        try await abortTurn(Operations.AbortTurn.Input(
+            path: path,
+            headers: headers
         ))
     }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs`.

@@ -29,7 +29,7 @@ struct SubagentStreamingTests {
         let events = [event(1, "turn.started"),
             event(2, "message.thinking.delta", fields: ["messageId": "m", "delta": "Checking ownership"]),
             event(3, "tool.started", fields: ["toolCallId": "call", "toolName": "bash"]),
-            event(4, "tool.updated", fields: ["toolCallId": "call", "toolName": "bash", "text": "first"])]
+            event(4, "tool.output.delta", fields: ["toolCallId": "call", "toolName": "bash", "text": "first"])]
         #expect(try state.accept(page(events)))
         let running = try state.project(history())
         #expect(running.messages.map(\.role) == ["tools"])
@@ -39,7 +39,7 @@ struct SubagentStreamingTests {
         #expect(running.activity == "Working…")
         #expect(try state.accept(page(events)))
         #expect(try state.project(history()).messages == running.messages)
-        #expect(try state.accept(page([event(5, "tool.updated", fields: ["toolCallId": "call", "toolName": "bash", "text": " second"])])))
+        #expect(try state.accept(page([event(5, "tool.output.delta", fields: ["toolCallId": "call", "toolName": "bash", "text": " second"])])))
         #expect(try state.project(history()).messages[0].tools[0].output == "first second")
         #expect(try state.accept(page([event(6, "tool.completed", fields: ["toolCallId": "call", "toolName": "bash", "text": "final"]), event(7, "turn.settled") ])))
         let final = try state.project(history())
@@ -64,7 +64,7 @@ struct SubagentStreamingTests {
             message("a", content: [["kind": "toolCall", "toolCallId": "call", "toolName": "bash", "arguments": "{}"]]),
             message("b", sequence: 2, role: "tool", content: [["kind": "text", "text": "old"]], call: "call")])
         #expect(try state.accept(page([event(1, "tool.started", turn: "next", fields: ["toolCallId": "call", "toolName": "bash"]),
-            event(2, "tool.updated", turn: "next", fields: ["toolCallId": "call", "toolName": "bash", "text": "new"]) ])))
+            event(2, "tool.output.delta", turn: "next", fields: ["toolCallId": "call", "toolName": "bash", "text": "new"]) ])))
         let result = try state.project(stored)
         #expect(result.messages.count == 2)
         #expect(result.messages.flatMap(\.tools).map(\.output) == ["old", "new"])

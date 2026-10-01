@@ -75,7 +75,7 @@ private actor ComposerMock: ComposerClient {
         #expect(uploads.readyIDs == [])
     }
     @Test func guidedResponsesUseOptionIdentitiesEvenWhenLabelsMatch() throws {
-        let request = WireInteractionRequest(id: "interaction_test", sessionId: "s", runId: "r", toolCallId: "t",
+        let request = WireInteractionRequest(id: "interaction_test", sessionId: "s", turnId: "r", toolCallId: "t",
             kind: try #require(WireInteractionKind(rawValue: "guided")), title: "Plan", detail: nil, options: nil,
             questions: [.init(id: "question_a", prompt: "Choose", detail: nil,
                 kind: try #require(WireInteractionQuestionKind(rawValue: "select")), required: true,
