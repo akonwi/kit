@@ -1088,7 +1088,7 @@ impl Shell {
           self.browser_code,
           key: "auth.browser-code",
           placeholder: "Paste final redirect URL or authorization code…",
-          autofocus: not self.auth_pending,
+          autofocus: true,
           on_input: fn(value: Str, ctx: cui::Context) {
             self.browser_code = value
           },
