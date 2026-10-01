@@ -550,6 +550,16 @@ type TurnInfo struct {
 	ErrorMessage string     `json:"errorMessage,omitempty"`
 }
 
+// TurnAbortResult acknowledges that cancellation was requested for a turn.
+type TurnAbortResult struct {
+	Aborting bool `json:"aborting"`
+}
+
+// InteractionResponseResult acknowledges that an interaction was settled.
+type InteractionResponseResult struct {
+	Settled bool `json:"settled"`
+}
+
 // PromptOutcome is the terminal projection of one droid turn.
 type PromptOutcome struct {
 	SessionID    string            `json:"sessionId"`

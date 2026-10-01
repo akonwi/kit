@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"reflect"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
 )
@@ -83,14 +85,69 @@ func bindPathParams(r *http.Request, target any) error {
 	value = value.Elem()
 	typ := value.Type()
 	for i := 0; i < typ.NumField(); i++ {
-		name := typ.Field(i).Tag.Get("path")
-		if name == "" {
+		field := typ.Field(i)
+		name := field.Tag.Get("path")
+		if name != "" {
+			if value.Field(i).Kind() != reflect.String || !value.Field(i).CanSet() {
+				return fmt.Errorf("httpapi: path parameter %s must be a settable string", name)
+			}
+			value.Field(i).SetString(r.PathValue(name))
 			continue
 		}
-		if value.Field(i).Kind() != reflect.String || !value.Field(i).CanSet() {
-			return fmt.Errorf("httpapi: path parameter %s must be a settable string", name)
+		if raw := field.Tag.Get("query"); raw != "" {
+			name, _, _ := strings.Cut(raw, ",")
+			if err := bindParameter(value.Field(i), r.URL.Query()[name]); err != nil {
+				return fmt.Errorf("httpapi: query parameter %s: %w", name, err)
+			}
+			continue
 		}
-		value.Field(i).SetString(r.PathValue(name))
+		if raw := field.Tag.Get("header"); raw != "" {
+			name, _, _ := strings.Cut(raw, ",")
+			if err := bindParameter(value.Field(i), r.Header.Values(name)); err != nil {
+				return fmt.Errorf("httpapi: header parameter %s: %w", name, err)
+			}
+		}
+	}
+	return nil
+}
+
+func bindParameter(field reflect.Value, values []string) error {
+	if !field.CanSet() || len(values) == 0 {
+		return nil
+	}
+	if field.Kind() == reflect.Slice {
+		if field.Type().Elem().Kind() != reflect.String {
+			return errors.New("unsupported slice type")
+		}
+		field.Set(reflect.ValueOf(append([]string(nil), values...)))
+		return nil
+	}
+	if len(values) != 1 {
+		return errors.New("must appear once")
+	}
+	switch field.Kind() {
+	case reflect.String:
+		field.SetString(values[0])
+	case reflect.Int, reflect.Int8, reflect.Int16, reflect.Int32, reflect.Int64:
+		parsed, err := strconv.ParseInt(values[0], 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetInt(parsed)
+	case reflect.Uint, reflect.Uint8, reflect.Uint16, reflect.Uint32, reflect.Uint64:
+		parsed, err := strconv.ParseUint(values[0], 10, field.Type().Bits())
+		if err != nil {
+			return err
+		}
+		field.SetUint(parsed)
+	case reflect.Bool:
+		parsed, err := strconv.ParseBool(values[0])
+		if err != nil {
+			return err
+		}
+		field.SetBool(parsed)
+	default:
+		return errors.New("unsupported parameter type")
 	}
 	return nil
 }

@@ -828,7 +828,7 @@ func (c *Client) SubmitPrompt(ctx context.Context, sessionID, text string) (prot
 }
 
 func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/submissions"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/submissions"
 	var output protocol.PromptSubmission
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
 		return protocol.PromptSubmission{}, err
@@ -844,7 +844,7 @@ func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input 
 
 // RestoreFollowUps atomically drains one session's deferred prompts.
 func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protocol.RestoreFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/restore"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/follow-ups/restore"
 	var output protocol.RestoreFollowUpsResult
 	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
 		return protocol.RestoreFollowUpsResult{}, err
@@ -857,7 +857,7 @@ func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protoc
 
 // PromoteFollowUps moves one session's deferred prompts into active steering.
 func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protocol.PromoteFollowUpsResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/follow-ups/promote"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/follow-ups/promote"
 	var output protocol.PromoteFollowUpsResult
 	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
 		return protocol.PromoteFollowUpsResult{}, err
@@ -874,7 +874,7 @@ func (c *Client) StartPrompt(ctx context.Context, sessionID, text string) (proto
 }
 
 func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.TurnReservation, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompts"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompts"
 	var output protocol.TurnReservation
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
 		return protocol.TurnReservation{}, err
@@ -893,7 +893,7 @@ func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input
 	if err := input.Validate(); err != nil {
 		return protocol.TurnReservation{}, fmt.Errorf("validate prompt command request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt-commands"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompt-commands"
 	var output protocol.TurnReservation
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
 		return protocol.TurnReservation{}, err
@@ -929,7 +929,7 @@ func (c *Client) Prompt(ctx context.Context, sessionID, text string) (protocol.P
 }
 
 func (c *Client) PromptInput(ctx context.Context, sessionID string, input protocol.PromptInput) (protocol.PromptOutcome, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/prompt"
+	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/turns/prompt"
 	var output protocol.PromptOutcome
 	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
 		return protocol.PromptOutcome{}, err
