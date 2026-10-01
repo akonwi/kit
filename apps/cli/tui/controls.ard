@@ -19,6 +19,7 @@ struct ButtonProps {
   variant: ButtonVariant,
   compact: Bool,
   focusable: Bool,
+  autofocus: Bool,
   styles: ui::Style?,
   control: mut cui::BoxRef,
 }
@@ -40,6 +41,7 @@ fn button(
   variant: ButtonVariant?,
   compact: Bool?,
   focusable: Bool?,
+  autofocus: Bool?,
   styles: ui::Style?,
   ref: (mut cui::BoxRef)?,
 ) cui::View {
@@ -52,6 +54,7 @@ fn button(
       variant: variant.or(ButtonVariant::primary),
       compact: compact.or(false),
       focusable: focusable.or(true),
+      autofocus: autofocus.or(false),
       styles: styles,
       control: ref.or(cui::box_ref()),
     },
@@ -110,7 +113,7 @@ impl Button {
   }
 
   private fn focused_state() Bool? {
-    match self.props.focusable {
+    match self.props.focusable and not self.props.autofocus {
       true => Maybe::new(self.focused),
       false => Maybe::new<Bool>(),
     }
@@ -176,6 +179,7 @@ impl cui::Component for Button {
       ],
       styles: self.props.styles,
       focused: self.focused_state(),
+      autofocus: self.props.autofocus and self.props.focusable,
       ref: self.control,
       on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
         self.mouse(received)
