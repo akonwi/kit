@@ -158,14 +158,15 @@ test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
     search_column == label_column,
     "search text aligns with item labels: search column {search_column}, label column {label_column}",
   )
-  mut joined_footer = false
-  for row, index in rendered {
-    if row.contains("Esc close") and index > 0 {
-      let divider = rendered.at(index - 1).or("")
-      joined_footer = divider.contains("├") and divider.contains("┤")
+  // With no hint footer, the body ends at the bottom border without a
+  // divider, and no fundamental-primitive hints are shown.
+  mut shows_hint_footer = false
+  for row in rendered {
+    if row.contains("esc close") or row.contains("Esc close") {
+      shows_hint_footer = true
     }
   }
-  try testing::assert(joined_footer, "Modal footer divider joins both side borders")
+  try testing::assert(not shows_hint_footer, "intuitive primitives are not shown as footer hints")
   terminal.key(key("escape"))
   terminal.flush()
   try testing::assert(

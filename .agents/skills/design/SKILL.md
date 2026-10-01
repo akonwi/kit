@@ -312,6 +312,21 @@ Use an in-pane drawer for navigation that belongs to one pane, such as a reposit
 
 ## Headers, Footers, and Hints
 
+### Binding-hint policy
+
+Hint bars teach bindings a user cannot guess; they do not narrate universal
+terminal primitives. Do not show hints for:
+
+- Arrow keys for list/navigation movement.
+- Enter for selecting, submitting, or confirming.
+- Esc for dismissing a dialog or elevated context.
+
+These are intuitive primitives shared by every terminal UI; showing them is
+noise that crowds out the hint that matters. Reserve hint slots for bindings
+that are custom or unique to the view, such as a composer shortcut, a picker
+toggle, or paging and overflow keys. A view with no custom bindings shows no
+hint bar at all (a status slot may still be present).
+
 ### `HintBar`
 
 `HintBar` renders `key action · key action · ...` and is **bordered by default**.
