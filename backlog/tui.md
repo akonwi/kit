@@ -81,7 +81,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   dismissal.
 - [ ] TUI-COOPER-010 — Sessions: picker and explorer (`kit sessions`), rename,
   delete, details, and forking.
-- [ ] TUI-COOPER-011 — Provider login flows and API-key entry.
+- [~] TUI-COOPER-011 — Provider login flows and API-key entry. The signed-out
+  provider picker, Codex device login, Claude browser/manual-code login, and
+  Anthropic, OpenAI, and OpenCode Go API-key entry are complete. Remaining:
+  connect another provider from an already-ready session.
 - [ ] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
   selection copy, and link opening.
 - [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
