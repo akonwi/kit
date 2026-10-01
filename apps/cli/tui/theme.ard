@@ -15,6 +15,9 @@ struct Theme {
   muted: ui::Color,
   disabled: ui::Color,
   border: ui::Color,
+  // The foreground/background pair used when selectable evidence is marked.
+  // This is Cooper's vaxis-compatible terminal-derived selection fill.
+  selection: ui::Color,
   primary_text: ui::Color,
   success_text: ui::Color,
   warning_text: ui::Color,
@@ -60,6 +63,16 @@ fn store(initial: Theme) mut Store {
 
 fn context(shared: mut Store) Context {
   Context{store: shared}
+}
+
+// selection_style paints selected evidence as vaxis does: terminal foreground
+// over the resolved terminal selection fill, never reverse video.
+fn selection_style(colors: Theme) fn(mut ui::TextStyle) {
+  fn(style: mut ui::TextStyle) {
+    style.foreground = colors.foreground
+    style.background = colors.selection
+    style.reverse = false
+  }
 }
 
 impl Context {
@@ -157,6 +170,7 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     muted: color(tokens, kittheme::TokenTextMuted, from_ui(base.muted_foreground), backdrop),
     disabled: color(tokens, kittheme::TokenTextPlaceholder, from_ui(base.disabled_foreground), backdrop),
     border: color(tokens, kittheme::TokenBorderDefault, from_ui(base.border), backdrop),
+    selection: to_ui(from_ui(base.selection)),
     primary_text: to_ui(primary_text),
     success_text: color(tokens, kittheme::TokenToolText, from_ui(base.success_text), backdrop),
     warning_text: color(tokens, kittheme::TokenWarningText, from_ui(base.warning_text), backdrop),
