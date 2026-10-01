@@ -185,7 +185,7 @@ change in an ADR before implementing it. Wire changes bump
   operations and generated wire types.
 - [ ] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
   file reads, and file index.
-- [ ] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file
+- [x] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file
   diffs.
 - [ ] CORE-PROTO-016 — Annotations slice: list, create, update, and delete.
 - [ ] CORE-PROTO-017 — Bash slice: start, read, abort, and history.
