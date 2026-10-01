@@ -101,7 +101,9 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
   )
   let content = mut List::new<cui::View>()
   content.push(header)
-  content.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+  // A dialog title is its structural header. Its divider belongs to the frame,
+  // not to each feature that supplies body content.
+  content.push(cui::divider())
   for child in spec.header {
     content.push(child)
   }
