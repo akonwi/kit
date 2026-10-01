@@ -12,7 +12,7 @@ private final class CreationResponse: URLProtocol, @unchecked Sendable {
         let status: Int
         if url.path == "/v1/sessions/resync" {
             status = 200
-            body = #"{"session":{"id":"resync","cwd":"/tmp","model":"provider/model","thinkingLevel":"medium","configurationRevision":0,"createdAt":"","updatedAt":""},"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"followUps":{"count":0},"eventStreamId":"stream","eventCursor":0}"#
+            body = #"{"session":{"id":"resync","cwd":"/tmp","model":"provider/model","thinkingLevel":"medium","configurationRevision":0,"createdAt":"","updatedAt":""},"messages":[],"usage":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"reasoning":0,"totalTokens":0,"cost":{"input":0,"output":0,"cacheRead":0,"cacheWrite":0,"total":0}},"followUps":{"count":0},"eventStreamId":"stream","eventCursor":0}"#
         } else if url.path.hasSuffix("/events/stream") {
             status = 200
             body = url.port == 19204 ? "" : url.port == 19203
@@ -25,7 +25,7 @@ private final class CreationResponse: URLProtocol, @unchecked Sendable {
         } else {
             #expect(url.path == "/v1/sessions")
             #expect(request.httpMethod == "POST")
-            #expect(request.value(forHTTPHeaderField: "Content-Type") == "application/json")
+            #expect(request.value(forHTTPHeaderField: "Content-Type")?.hasPrefix("application/json") == true)
             var data = request.httpBody ?? Data()
             if let stream = request.httpBodyStream {
                 stream.open(); defer { stream.close() }
@@ -43,7 +43,9 @@ private final class CreationResponse: URLProtocol, @unchecked Sendable {
             #expect(input?.temporary == (url.port == 19205))
             if url.port == 19205 { #expect(input?.id == "session_test") }
             status = url.port == 19202 ? 400 : 201
-            body = #"{"id":"session_test","cwd":"/tmp/test","name":"New workspace","model":"provider/model","thinkingLevel":"medium","configurationRevision":1,"createdAt":"2026-09-13T00:00:00Z","updatedAt":"2026-09-13T00:00:00Z"}"#
+            body = url.port == 19202
+                ? #"{"error":{"code":"invalid_request","message":"invalid request"}}"#
+                : #"{"id":"session_test","cwd":"/tmp/test","name":"New workspace","model":"provider/model","thinkingLevel":"medium","configurationRevision":1,"createdAt":"2026-09-13T00:00:00Z","updatedAt":"2026-09-13T00:00:00Z"}"#
         }
         client?.urlProtocol(self, didReceive: HTTPURLResponse(url: url, statusCode: status, httpVersion: nil,
             headerFields: ["Content-Type":url.path.hasSuffix("/events/stream") ? "text/event-stream" : "application/json"])!, cacheStoragePolicy: .notAllowed)

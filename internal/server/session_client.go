@@ -31,8 +31,8 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 	if err := input.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate session request: %w", err)
 	}
-	var output protocol.SessionInfo
-	if err := c.sessionJSON(ctx, http.MethodPost, "/v1/sessions", input, http.StatusCreated, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.CreateSession, httpapi.NoBody{}, input)
+	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -49,9 +49,8 @@ func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input 
 	if err := input.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate session fork: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sourceSessionID) + "/forks"
-	var output protocol.SessionInfo
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusCreated, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ForkSession, httpapi.SessionPath{SessionID: sourceSessionID}, input)
+	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -69,9 +68,8 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 	if err := input.Validate(); err != nil {
 		return protocol.SessionInfo{}, fmt.Errorf("validate session rename: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID)
-	var output protocol.SessionInfo
-	if err := c.sessionJSON(ctx, http.MethodPatch, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.RenameSession, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -88,34 +86,24 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 
 // DeleteSession permanently deletes one persisted session and its stored history.
 func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID)
-	return c.sessionJSON(ctx, http.MethodDelete, path, nil, http.StatusNoContent, nil)
+	_, err := httpapi.Call(ctx, c, httpapi.DeleteSession, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	return err
 }
 
 // DisposeTemporarySession revokes and removes one process-local session.
 func (c *Client) DisposeTemporarySession(ctx context.Context, sessionID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/dispose"
-	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusNoContent, nil)
+	_, err := httpapi.Call(ctx, c, httpapi.DisposeTemporarySession, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	return err
 }
 
 // ListSessions lists daemon sessions, optionally filtered to one cwd.
 func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
-	path := "/v1/sessions"
-	if cwd != "" {
-		values := url.Values{}
-		values.Set("cwd", cwd)
-		path += "?" + values.Encode()
-	}
-	var output struct {
-		Sessions []protocol.SessionInfo `json:"sessions"`
-	}
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ListSessions, httpapi.ListSessionsPath{CWD: cwd}, httpapi.NoBody{})
+	if err != nil {
 		return nil, err
 	}
-	for index, session := range output.Sessions {
-		if err := session.Validate(); err != nil {
-			return nil, fmt.Errorf("validate daemon session %d: %w", index, err)
-		}
+	if err := output.Validate(); err != nil {
+		return nil, fmt.Errorf("validate daemon session list: %w", err)
 	}
 	return output.Sessions, nil
 }
@@ -359,9 +347,8 @@ func (c *Client) getSessionFileIndex(ctx context.Context, sessionID string, refr
 
 // GetSessionSnapshot returns an authoritative transcript and active-run snapshot.
 func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (protocol.SessionSnapshot, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID)
-	var output protocol.SessionSnapshot
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSession, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SessionSnapshot{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -490,9 +477,8 @@ func (c *Client) ChangeSessionWorkspaceCWDWithID(ctx context.Context, sessionID,
 	if err := input.Validate(); err != nil {
 		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("validate session cwd request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/cwd"
-	var output protocol.ChangeWorkspaceCWDResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ChangeSessionCWD, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.ChangeWorkspaceCWDResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -506,9 +492,8 @@ func (c *Client) ChangeSessionWorkspaceCWDWithID(ctx context.Context, sessionID,
 
 // ReloadSession refreshes one idle session's authoritative prompt and tools.
 func (c *Client) ReloadSession(ctx context.Context, sessionID string) (protocol.ReloadSessionResult, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/reload"
-	var output protocol.ReloadSessionResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ReloadSession, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.ReloadSessionResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -525,9 +510,8 @@ func (c *Client) ConfigureSession(ctx context.Context, sessionID string, input p
 	if err := input.Validate(); err != nil {
 		return protocol.ConfigureSessionResult{}, fmt.Errorf("validate session configuration request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/configure"
-	var output protocol.ConfigureSessionResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ConfigureSession, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.ConfigureSessionResult{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {
@@ -579,9 +563,8 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 	if err := input.Validate(); err != nil {
 		return protocol.CompactSessionResult{}, fmt.Errorf("validate session compaction request: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/compact"
-	var output protocol.CompactSessionResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.CompactSession, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.CompactSessionResult{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {

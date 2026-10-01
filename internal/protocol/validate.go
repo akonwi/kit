@@ -373,6 +373,27 @@ func validVCSOID(value string) bool {
 	return err == nil
 }
 
+// Validate checks a session list received across a transport boundary.
+func (list SessionList) Validate() error {
+	if list.Sessions == nil {
+		return fmt.Errorf("session list is null")
+	}
+	ids := make(map[string]struct{}, len(list.Sessions))
+	for index, session := range list.Sessions {
+		if err := session.Validate(); err != nil {
+			return fmt.Errorf("session %d: %w", index, err)
+		}
+		if session.Temporary {
+			return fmt.Errorf("session %d is temporary", index)
+		}
+		if _, exists := ids[session.ID]; exists {
+			return fmt.Errorf("session %d is duplicated", index)
+		}
+		ids[session.ID] = struct{}{}
+	}
+	return nil
+}
+
 // Validate checks a session projection received across a transport boundary.
 func (session SessionInfo) Validate() error {
 	if session.ID == "" {

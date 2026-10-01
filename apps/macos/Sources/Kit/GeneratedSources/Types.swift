@@ -11,12 +11,42 @@ import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 internal protocol APIProtocol: Sendable {
+    /// - Remark: HTTP `GET /v1/sessions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
+    func listSessions(_ input: Operations.ListSessions.Input) async throws -> Operations.ListSessions.Output
+    /// - Remark: HTTP `POST /v1/sessions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/post(createSession)`.
+    func createSession(_ input: Operations.CreateSession.Input) async throws -> Operations.CreateSession.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/get(getSession)`.
+    func getSession(_ input: Operations.GetSession.Input) async throws -> Operations.GetSession.Output
+    /// - Remark: HTTP `PATCH /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/patch(renameSession)`.
+    func renameSession(_ input: Operations.RenameSession.Input) async throws -> Operations.RenameSession.Output
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/delete(deleteSession)`.
+    func deleteSession(_ input: Operations.DeleteSession.Input) async throws -> Operations.DeleteSession.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
+    func compactSession(_ input: Operations.CompactSession.Input) async throws -> Operations.CompactSession.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/configure`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/configure/post(configureSession)`.
+    func configureSession(_ input: Operations.ConfigureSession.Input) async throws -> Operations.ConfigureSession.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/cwd`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/cwd/post(changeSessionCWD)`.
+    func changeSessionCWD(_ input: Operations.ChangeSessionCWD.Input) async throws -> Operations.ChangeSessionCWD.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/dispose`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/dispose/post(disposeTemporarySession)`.
+    func disposeTemporarySession(_ input: Operations.DisposeTemporarySession.Input) async throws -> Operations.DisposeTemporarySession.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/get(getSessionEventPage)`.
     func getSessionEventPage(_ input: Operations.GetSessionEventPage.Input) async throws -> Operations.GetSessionEventPage.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events/stream`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/stream/get(streamSessionEvents)`.
     func streamSessionEvents(_ input: Operations.StreamSessionEvents.Input) async throws -> Operations.StreamSessionEvents.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
+    func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/interactions/{interactionID}/response/post(respondInteraction)`.
     func respondInteraction(_ input: Operations.RespondInteraction.Input) async throws -> Operations.RespondInteraction.Output
@@ -29,6 +59,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/plugin-toasts`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/plugin-toasts/get(streamPluginToasts)`.
     func streamPluginToasts(_ input: Operations.StreamPluginToasts.Input) async throws -> Operations.StreamPluginToasts.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/reload`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/reload/post(reloadSession)`.
+    func reloadSession(_ input: Operations.ReloadSession.Input) async throws -> Operations.ReloadSession.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/get(getScratchpad)`.
     func getScratchpad(_ input: Operations.GetScratchpad.Input) async throws -> Operations.GetScratchpad.Output
@@ -72,6 +105,113 @@ internal protocol APIProtocol: Sendable {
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
+    /// - Remark: HTTP `GET /v1/sessions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
+    internal func listSessions(
+        query: Operations.ListSessions.Input.Query = .init(),
+        headers: Operations.ListSessions.Input.Headers
+    ) async throws -> Operations.ListSessions.Output {
+        try await listSessions(Operations.ListSessions.Input(
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/post(createSession)`.
+    internal func createSession(
+        headers: Operations.CreateSession.Input.Headers,
+        body: Operations.CreateSession.Input.Body
+    ) async throws -> Operations.CreateSession.Output {
+        try await createSession(Operations.CreateSession.Input(
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/get(getSession)`.
+    internal func getSession(
+        path: Operations.GetSession.Input.Path,
+        headers: Operations.GetSession.Input.Headers
+    ) async throws -> Operations.GetSession.Output {
+        try await getSession(Operations.GetSession.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `PATCH /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/patch(renameSession)`.
+    internal func renameSession(
+        path: Operations.RenameSession.Input.Path,
+        headers: Operations.RenameSession.Input.Headers,
+        body: Operations.RenameSession.Input.Body
+    ) async throws -> Operations.RenameSession.Output {
+        try await renameSession(Operations.RenameSession.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/delete(deleteSession)`.
+    internal func deleteSession(
+        path: Operations.DeleteSession.Input.Path,
+        headers: Operations.DeleteSession.Input.Headers
+    ) async throws -> Operations.DeleteSession.Output {
+        try await deleteSession(Operations.DeleteSession.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
+    internal func compactSession(
+        path: Operations.CompactSession.Input.Path,
+        headers: Operations.CompactSession.Input.Headers,
+        body: Operations.CompactSession.Input.Body
+    ) async throws -> Operations.CompactSession.Output {
+        try await compactSession(Operations.CompactSession.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/configure`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/configure/post(configureSession)`.
+    internal func configureSession(
+        path: Operations.ConfigureSession.Input.Path,
+        headers: Operations.ConfigureSession.Input.Headers,
+        body: Operations.ConfigureSession.Input.Body
+    ) async throws -> Operations.ConfigureSession.Output {
+        try await configureSession(Operations.ConfigureSession.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/cwd`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/cwd/post(changeSessionCWD)`.
+    internal func changeSessionCWD(
+        path: Operations.ChangeSessionCWD.Input.Path,
+        headers: Operations.ChangeSessionCWD.Input.Headers,
+        body: Operations.ChangeSessionCWD.Input.Body
+    ) async throws -> Operations.ChangeSessionCWD.Output {
+        try await changeSessionCWD(Operations.ChangeSessionCWD.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/dispose`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/dispose/post(disposeTemporarySession)`.
+    internal func disposeTemporarySession(
+        path: Operations.DisposeTemporarySession.Input.Path,
+        headers: Operations.DisposeTemporarySession.Input.Headers
+    ) async throws -> Operations.DisposeTemporarySession.Output {
+        try await disposeTemporarySession(Operations.DisposeTemporarySession.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/get(getSessionEventPage)`.
     internal func getSessionEventPage(
@@ -96,6 +236,19 @@ extension APIProtocol {
             path: path,
             query: query,
             headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
+    internal func forkSession(
+        path: Operations.ForkSession.Input.Path,
+        headers: Operations.ForkSession.Input.Headers,
+        body: Operations.ForkSession.Input.Body
+    ) async throws -> Operations.ForkSession.Output {
+        try await forkSession(Operations.ForkSession.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/interactions/{interactionID}/response`.
@@ -144,6 +297,17 @@ extension APIProtocol {
         headers: Operations.StreamPluginToasts.Input.Headers
     ) async throws -> Operations.StreamPluginToasts.Output {
         try await streamPluginToasts(Operations.StreamPluginToasts.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/reload`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/reload/post(reloadSession)`.
+    internal func reloadSession(
+        path: Operations.ReloadSession.Input.Path,
+        headers: Operations.ReloadSession.Input.Headers
+    ) async throws -> Operations.ReloadSession.Output {
+        try await reloadSession(Operations.ReloadSession.Input(
             path: path,
             headers: headers
         ))

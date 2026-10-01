@@ -1795,69 +1795,67 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, catalog)
 	})
-	mux.HandleFunc("GET /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
-		records, err := service.List(request.Context(), request.URL.Query().Get("cwd"))
+	httpapi.Handle(mux, httpOptions, httpapi.ListSessions, func(ctx context.Context, params httpapi.ListSessionsPath, _ httpapi.NoBody) (protocol.SessionList, error) {
+		records, err := service.List(ctx, params.CWD)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.SessionList{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, map[string]any{"sessions": records})
+		if records == nil {
+			records = []protocol.SessionInfo{}
+		}
+		result := protocol.SessionList{Sessions: records}
+		if err := result.Validate(); err != nil {
+			return protocol.SessionList{}, internalAPIError()
+		}
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/forks", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ForkSessionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ForkSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.SessionInfo{}, invalidAPIError()
 		}
-		record, err := service.Fork(request.Context(), request.PathValue("sessionID"), input)
+		record, err := service.Fork(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.SessionInfo{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusCreated, record)
+		if err := record.Validate(); err != nil {
+			return protocol.SessionInfo{}, internalAPIError()
+		}
+		return record, nil
 	})
-	mux.HandleFunc("PATCH /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.RenameSessionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.RenameSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.RenameSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.SessionInfo{}, invalidAPIError()
 		}
-		record, err := service.Rename(request.Context(), request.PathValue("sessionID"), input)
+		record, err := service.Rename(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.SessionInfo{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, record)
-	})
-	mux.HandleFunc("DELETE /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.Delete(request.Context(), request.PathValue("sessionID")); err != nil {
-			writeSessionError(writer, err)
-			return
+		if err := record.Validate(); err != nil {
+			return protocol.SessionInfo{}, internalAPIError()
 		}
-		writer.WriteHeader(http.StatusNoContent)
+		return record, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/dispose", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.DisposeTemporary(request.Context(), request.PathValue("sessionID")); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.DeleteSession, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (httpapi.NoBody, error) {
+		if err := service.Delete(ctx, params.SessionID); err != nil {
+			return httpapi.NoBody{}, lifecycleAPIError(err)
 		}
-		writer.WriteHeader(http.StatusNoContent)
+		return httpapi.NoBody{}, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}", func(writer http.ResponseWriter, request *http.Request) {
-		snapshot, err := service.Snapshot(request.Context(), request.PathValue("sessionID"))
+	httpapi.Handle(mux, httpOptions, httpapi.DisposeTemporarySession, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (httpapi.NoBody, error) {
+		if err := service.DisposeTemporary(ctx, params.SessionID); err != nil {
+			return httpapi.NoBody{}, lifecycleAPIError(err)
+		}
+		return httpapi.NoBody{}, nil
+	})
+	httpapi.Handle(mux, httpOptions, httpapi.GetSession, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.SessionSnapshot, error) {
+		snapshot, err := service.Snapshot(ctx, params.SessionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.SessionSnapshot{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, snapshot)
+		if err := snapshot.Validate(); err != nil {
+			return protocol.SessionSnapshot{}, internalAPIError()
+		}
+		return snapshot, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-history", func(writer http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()
@@ -2206,43 +2204,31 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return &sessionEventStreamSource{service: service, sessionID: params.SessionID, streamID: streamID, after: after, initial: &batch}, nil
 	})
-	mux.HandleFunc("POST /v1/sessions", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.CreateSessionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.CreateSession, func(ctx context.Context, _ httpapi.NoBody, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.SessionInfo{}, invalidAPIError()
 		}
-		record, err := service.Create(request.Context(), input)
+		record, err := service.Create(ctx, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.SessionInfo{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusCreated, record)
+		if err := record.Validate(); err != nil {
+			return protocol.SessionInfo{}, internalAPIError()
+		}
+		return record, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/cwd", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ChangeCWDInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ChangeSessionCWD, func(ctx context.Context, params httpapi.SessionPath, input protocol.ChangeCWDInput) (protocol.ChangeWorkspaceCWDResult, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.ChangeWorkspaceCWDResult{}, invalidAPIError()
 		}
-		result, err := service.ChangeCWD(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.ChangeCWD(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.ChangeWorkspaceCWDResult{}, lifecycleAPIError(err)
 		}
 		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session cwd result: %w", err))
-			return
+			return protocol.ChangeWorkspaceCWDResult{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
 	registerVCSRoutes(mux, httpOptions, service)
 	registerPluginRoutes(mux, httpOptions, service)
@@ -2269,59 +2255,41 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return record, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/configure", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.ConfigureSessionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ConfigureSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.ConfigureSessionResult{}, invalidAPIError()
 		}
-		result, err := service.Configure(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.Configure(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.ConfigureSessionResult{}, lifecycleAPIError(err)
 		}
 		if err := result.ValidateApplied(input); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session configuration result: %w", err))
-			return
+			return protocol.ConfigureSessionResult{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/compact", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.CompactSessionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.CompactSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.CompactSessionResult{}, invalidAPIError()
 		}
-		result, err := service.Compact(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.Compact(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.CompactSessionResult{}, lifecycleAPIError(err)
 		}
 		if err := result.ValidateApplied(input); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session compaction result: %w", err))
-			return
+			return protocol.CompactSessionResult{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/reload", func(writer http.ResponseWriter, request *http.Request) {
-		result, err := service.Reload(request.Context(), request.PathValue("sessionID"))
+	httpapi.Handle(mux, httpOptions, httpapi.ReloadSession, func(ctx context.Context, params httpapi.SessionPath, _ httpapi.NoBody) (protocol.ReloadSessionResult, error) {
+		result, err := service.Reload(ctx, params.SessionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.ReloadSessionResult{}, lifecycleAPIError(err)
 		}
 		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid session reload result: %w", err))
-			return
+			return protocol.ReloadSessionResult{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/subagents/{conversationID}/events", func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)
@@ -2617,6 +2585,44 @@ func decodeSessionJSON(writer http.ResponseWriter, request *http.Request, target
 	return nil
 }
 
+func invalidAPIError() error {
+	return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
+}
+
+func internalAPIError() error {
+	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
+}
+
+// lifecycleAPIError projects the declared ADR-0034 failures for the initial
+// session lifecycle catalog. Domain-specific distinctions remain private until
+// their operation declares a stable code.
+func lifecycleAPIError(err error) error {
+	var apiErr *httpapi.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	var workspaceErr *kitworkspace.Error
+	workspaceUnavailable := errors.As(err, &workspaceErr) && workspaceErr.Code == kitworkspace.Unavailable
+	status, code, message := http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error"
+	switch {
+	case errors.Is(err, kitsession.ErrNotFound):
+		status, code, message = http.StatusNotFound, httpapi.ErrorNotFound, "session not found"
+	case errors.Is(err, kitsession.ErrBusy), errors.Is(err, kitsession.ErrReloadBusy), errors.Is(err, kitsession.ErrConfigureBusy), errors.Is(err, kitsession.ErrDeleteBusy), errors.As(err, new(*kitsession.ConfigurationConflictError)):
+		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with session state"
+	case errors.Is(err, kitsession.ErrCompactionFailed):
+		status, code, message = http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, "context compaction failed"
+	case errors.Is(err, kitsession.ErrClosed):
+		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "session is unavailable"
+	case workspaceUnavailable:
+		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "workspace service is unavailable"
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, kitsession.ErrTemporary), errors.Is(err, kitsession.ErrNotTemporary), errors.Is(err, errInvalidSessionRequest):
+		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
+	}
+	apiErr = httpapi.NewAPIError(status, code, message, nil)
+	apiErr.Cause = err
+	return apiErr
+}
+
 // turnAPIError projects the generic failures declared by catalogued turn
 // operations into ADR-0034 envelopes. Domain-specific session errors remain
 // private until their operation declares a dedicated code.
@@ -2679,8 +2685,12 @@ func scratchpadAPIError(err error) error {
 func writeSessionError(writer http.ResponseWriter, err error) {
 	var apiError *httpapi.APIError
 	if errors.As(err, &apiError) {
-		if apiError.StatusCode >= http.StatusInternalServerError {
-			reportRequestError(writer, apiError.StatusCode, err)
+		if apiError.StatusCode >= http.StatusInternalServerError || apiError.Cause != nil && apiError.StatusCode == http.StatusUnprocessableEntity {
+			logged := err
+			if apiError.Cause != nil {
+				logged = apiError.Cause
+			}
+			reportRequestError(writer, apiError.StatusCode, logged)
 		}
 		httpapi.WriteError(writer, apiError)
 		return

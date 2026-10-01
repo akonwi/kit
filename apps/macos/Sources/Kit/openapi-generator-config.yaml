@@ -5,6 +5,7 @@ accessModifier: internal
 namingStrategy: idiomatic
 filter:
   tags:
+    - sessions
     - scratchpad
     - vcs
     - plugin

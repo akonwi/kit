@@ -129,6 +129,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return request
     }
 
+    private func generated<Source: Encodable, Destination: Decodable>(_ source: Source, as: Destination.Type) throws -> Destination {
+        try JSONDecoder().decode(Destination.self, from: JSONEncoder().encode(source))
+    }
+
     private func check(_ response: URLResponse) throws {
         guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
         guard response.statusCode == 200 else { throw ClientError.http(response.statusCode) }
@@ -382,42 +386,33 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func deleteSession(_ id: String) async throws {
-        try await removeSession(id, temporary: false)
+        guard Self.validScratchpadSession(id), let version = Operations.DeleteSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let output = try await api.deleteSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 
     func disposeSession(_ id: String) async throws {
-        try await removeSession(id, temporary: true)
-    }
-
-    private func removeSession(_ id: String, temporary: Bool) async throws {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
-            throw MutationNotSent(reason: "The session identity is invalid.")
-        }
-        var request = try request("v1/sessions/" + id + (temporary ? "/dispose" : ""))
-        request.httpMethod = temporary ? "POST" : "DELETE"
-        let (bytes, response) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-        guard response.statusCode == 204 else { throw ClientError.http(response.statusCode) }
+        guard Self.validScratchpadSession(id), let version = Operations.DisposeTemporarySession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let output = try await api.disposeTemporarySession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 
     func forkSession(_ id: String, input: WireForkSessionInput) async throws -> SessionExcerpt {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else {
-            throw MutationNotSent(reason: "The source session identity is invalid.")
-        }
-        let record: WireSessionInfo = try await post("v1/sessions/" + id + "/forks", input: input, status: [201])
+        guard Self.validScratchpadSession(id), let version = Operations.ForkSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "The source session identity is invalid.") }
+        let body: Components.Schemas.ForkSessionInput = try generated(input, as: Components.Schemas.ForkSessionInput.self)
+        let output = try await api.forkSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .created(response) = output else { throw ClientError.invalidPayload }
+        let record: WireSessionInfo = try generated(try response.body.json, as: WireSessionInfo.self)
         guard record.id == input.id, record.parentSessionId == id else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(record)
     }
 
     func renameSession(_ id: String, name: String) async throws -> SessionExcerpt {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              let name = SessionName.normalized(name) else { throw MutationNotSent(reason: "Enter a valid session name of at most 256 bytes.") }
-        var request = try request("v1/sessions/" + id)
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(WireRenameSessionInput(name: name))
-        let record: WireSessionInfo = try await send(request, status: [200])
+        guard Self.validScratchpadSession(id), let name = SessionName.normalized(name), let version = Operations.RenameSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "Enter a valid session name of at most 256 bytes.") }
+        let body: Components.Schemas.RenameSessionInput = try generated(WireRenameSessionInput(name: name), as: Components.Schemas.RenameSessionInput.self)
+        let output = try await api.renameSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let record: WireSessionInfo = try generated(try response.body.json, as: WireSessionInfo.self)
         guard record.id == id, record.name == name else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(record)
     }
@@ -609,37 +604,31 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func compactSession(_ id: String, input: WireCompactSessionInput) async throws -> WireCompactSessionResult {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              !input.operationId.isEmpty, input.operationId.utf8.count <= 256 else { throw ClientError.invalidPayload }
-        var request = try request("v1/sessions/" + id + "/compact")
-        request.httpMethod = "POST"
-        request.timeoutInterval = 120
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(input)
-        let result: WireCompactSessionResult = try await send(request, status: [200])
-        guard result.operationId == input.operationId, result.eventStreamId.hasPrefix("stream_"),
-              !result.compacted || !(result.checkpointId ?? "").isEmpty else { throw ClientError.invalidPayload }
+        guard Self.validScratchpadSession(id), !input.operationId.isEmpty, input.operationId.utf8.count <= 256, let version = Operations.CompactSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.CompactSessionInput = try generated(input, as: Components.Schemas.CompactSessionInput.self)
+        let output = try await api.compactSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireCompactSessionResult = try generated(try response.body.json, as: WireCompactSessionResult.self)
+        guard result.operationId == input.operationId, result.eventStreamId.hasPrefix("stream_"), !result.compacted || !(result.checkpointId ?? "").isEmpty else { throw ClientError.invalidPayload }
         return result
     }
 
     func reloadSession(_ id: String) async throws -> WireReloadSessionResult {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let result: WireReloadSessionResult = try await post("v1/sessions/" + id + "/reload", input: [String: String](), status: [200])
-        guard result.sessionId == id, !result.eventStreamId.isEmpty,
-              (1...512).contains(result.sources?.count ?? 0),
-              (result.diagnostics?.count ?? 0) <= 256, (result.warnings?.count ?? 0) <= 8,
-              (result.sources ?? []).allSatisfy({ !$0.id.isEmpty && !$0.sectionId.isEmpty }),
-              (result.diagnostics ?? []).allSatisfy({ ["info", "warning"].contains($0.severity) && !$0.code.isEmpty && !$0.message.isEmpty })
-        else { throw ClientError.invalidPayload }
+        guard Self.validScratchpadSession(id), let version = Operations.ReloadSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let output = try await api.reloadSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireReloadSessionResult = try generated(try response.body.json, as: WireReloadSessionResult.self)
+        guard result.sessionId == id, !result.eventStreamId.isEmpty, (1...512).contains(result.sources?.count ?? 0), (result.diagnostics?.count ?? 0) <= 256, (result.warnings?.count ?? 0) <= 8, (result.sources ?? []).allSatisfy({ !$0.id.isEmpty && !$0.sectionId.isEmpty }), (result.diagnostics ?? []).allSatisfy({ ["info", "warning"].contains($0.severity) && !$0.code.isEmpty && !$0.message.isEmpty }) else { throw ClientError.invalidPayload }
         return result
     }
 
     func changeDirectory(_ id: String, input: WireChangeCWDInput) async throws -> SessionExcerpt {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
-              !input.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { throw ClientError.invalidPayload }
-        let result: WireChangeWorkspaceCWDResult = try await post("v1/sessions/" + id + "/cwd", input: input, status: [200])
-        guard result.session.id == id, result.workspace.sessionId == id,
-              result.workspace.cwd == result.session.cwd else { throw ClientError.invalidPayload }
+        guard Self.validScratchpadSession(id), !input.path.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty, let version = Operations.ChangeSessionCWD.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.ChangeCWDInput = try generated(input, as: Components.Schemas.ChangeCWDInput.self)
+        let output = try await api.changeSessionCWD(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireChangeWorkspaceCWDResult = try generated(try response.body.json, as: WireChangeWorkspaceCWDResult.self)
+        guard result.session.id == id, result.workspace.sessionId == id, result.workspace.cwd == result.session.cwd else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(result.session)
     }
 
@@ -712,10 +701,12 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func configure(_ id: String, input: WireConfigureSessionInput) async throws -> WireConfigureSessionResult {
-        let result: WireConfigureSessionResult = try await mutate(id, suffix: "configure", input: input)
-        guard result.session.id == id, result.session.model == input.model,
-              result.session.configurationRevision > input.expectedRevision,
-              !result.eventStreamId.isEmpty else { throw ClientError.invalidPayload }
+        guard Self.validScratchpadSession(id), let version = Operations.ConfigureSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let body: Components.Schemas.ConfigureSessionInput = try generated(input, as: Components.Schemas.ConfigureSessionInput.self)
+        let output = try await api.configureSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireConfigureSessionResult = try generated(try response.body.json, as: WireConfigureSessionResult.self)
+        guard result.session.id == id, result.session.model == input.model, result.session.configurationRevision > input.expectedRevision, !result.eventStreamId.isEmpty else { throw ClientError.invalidPayload }
         _ = try SessionProjection.summary(result.session)
         return result
     }
@@ -800,7 +791,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func createSession(_ input: WireCreateSessionInput) async throws -> SessionExcerpt {
-        let record: WireSessionInfo = try await post("v1/sessions", input: input, status: [201])
+        guard let version = Operations.CreateSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
+        let body: Components.Schemas.CreateSessionInput = try generated(input, as: Components.Schemas.CreateSessionInput.self)
+        let output = try await api.createSession(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .created(response) = output else { throw ClientError.invalidPayload }
+        let record: WireSessionInfo = try generated(try response.body.json, as: WireSessionInfo.self)
         guard input.id == nil || input.id == record.id else { throw ClientError.invalidPayload }
         return try SessionProjection.summary(record)
     }
@@ -835,9 +830,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func sessions() async throws -> [SessionExcerpt] {
-        struct List: Decodable { let sessions: [WireSessionInfo]? }
-        let list: List = try await get("v1/sessions")
-        return try (list.sessions ?? []).map { try SessionProjection.summary($0) }
+        guard let version = Operations.ListSessions.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
+        let output = try await api.listSessions(query: .init(), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let list: [WireSessionInfo] = try generated(try response.body.json.sessions, as: [WireSessionInfo].self)
+        return try list.map { try SessionProjection.summary($0) }
     }
 
     func history(_ id: String, before: String) async throws -> TranscriptHistoryPage {
@@ -876,8 +873,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     private func wireSnapshot(_ id: String) async throws -> WireSessionSnapshot {
-        guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let snapshot: WireSessionSnapshot = try await get("v1/sessions/" + id)
+        guard Self.validScratchpadSession(id), let version = Operations.GetSession.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let output = try await api.getSession(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let snapshot: WireSessionSnapshot = try generated(try response.body.json, as: WireSessionSnapshot.self)
         guard snapshot.session.id == id, (snapshot.eventCursor ?? 0) >= 0 else { throw ClientError.invalidPayload }
         _ = try SessionProjection.snapshot(snapshot)
         return snapshot
