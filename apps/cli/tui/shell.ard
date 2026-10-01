@@ -369,13 +369,27 @@ fn entry_view(colors: theme::Theme, message: transcript::Message) cui::View? {
       }
       match message.text == "" {
         true => Maybe::new<cui::View>(),
-        false => Maybe::new(cui::text(message.text, text_style: ui::text_style(foreground: tone))),
+        false => {
+          Maybe::new(
+            cui::text(
+              message.text,
+              text_style: ui::text_style(foreground: tone),
+              selectable: true,
+              selection_style: theme::selection_style(colors),
+            ),
+          )
+        },
       }
     },
     transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
     transcript::Role::bash => {
       Maybe::new(
-        cui::text("$ {message.text}", text_style: ui::text_style(foreground: colors.muted)),
+        cui::text(
+          "$ {message.text}",
+          text_style: ui::text_style(foreground: colors.muted),
+          selectable: true,
+          selection_style: theme::selection_style(colors),
+        ),
       )
     },
     transcript::Role::other => Maybe::new<cui::View>(),
@@ -404,6 +418,8 @@ fn user_entry(colors: theme::Theme, message: transcript::Message) cui::View? {
                 cui::text(
                   message.text,
                   text_style: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
+                  selectable: true,
+                  selection_style: theme::selection_style(colors),
                 ),
               ],
               styles: ui::style(
@@ -478,6 +494,8 @@ fn link_line(url: Str, colors: theme::Theme) cui::View {
     ),
     wrap: ui::TextWrap::none,
     overflow: ui::TextOverflow::ellipsis,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
   )
 }
 

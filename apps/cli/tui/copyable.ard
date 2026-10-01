@@ -55,12 +55,13 @@ impl Value {
 
 impl cui::Component for Value {
   fn mut render() cui::View {
+    let colors = self.props.themes.current()
     let command = keymap::simple_command("copyable.copy", "Copy value", fn() Bool {
       self.copy()
     })
     cui::box(
       [
-        cui::text(self.props.value),
+        cui::text(self.props.value, selectable: true, selection_style: theme::selection_style(colors)),
         controls::button(
           self.props.themes,
           "⧉",

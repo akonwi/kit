@@ -39,6 +39,9 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   try check("background", colors.background, ui::terminal_default())
   try check("foreground", colors.foreground, ui::terminal_default())
   try check("border", colors.border, ui::rgb(96, 101, 110))
+  // vaxis's selectable-text style keeps the terminal foreground over this
+  // terminal-derived selection fill.
+  try check("selection", colors.selection, ui::rgb(52, 102, 143))
   try check("muted", colors.muted, ui::rgb(122, 127, 137))
   try check("disabled", colors.disabled, ui::rgb(96, 101, 110))
   try check("primary_text", colors.primary_text, ui::rgb(118, 187, 245))
