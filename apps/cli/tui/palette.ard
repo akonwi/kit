@@ -15,15 +15,27 @@ struct Item {
   disabled_reason: Str,
 }
 
+// Catalog, query, selection, hover, and overflow visibility are controlled by
+// the feature owner; the picker only projects them.
 struct Props {
   colors: theme::Theme,
   placeholder: Str,
   catalog: [Item],
   query: Str,
   selection: Str,
+  hovered: Str,
+  hidden_above: Bool,
+  hidden_below: Bool,
   on_query_change: fn(Str),
   on_selection_change: fn(Str),
+  on_hover_change: fn(Str),
   on_activate: fn(Item),
+}
+
+struct Viewport {
+  list: mut cui::VirtualListRef,
+  on_update: fn(cui::VirtualListUpdate, cui::Context),
+  on_page: fn(Int),
 }
 
 fn items(props: Props) [Item] {
@@ -70,59 +82,192 @@ fn selected(items: [Item], key: Str) Item? {
   result
 }
 
+// Rows align across the whole unfiltered catalog so filtering never shifts the
+// description column.
+struct Columns {
+  label: Int,
+  description: Int,
+}
+
+fn columns(catalog: [Item]) Columns {
+  let columns = mut Columns{label: 1, description: 1}
+  for item in catalog {
+    columns.label = match item.label.size() > columns.label {
+      true => item.label.size(),
+      false => columns.label,
+    }
+    columns.description = match item.description.size() > columns.description {
+      true => item.description.size(),
+      false => columns.description,
+    }
+  }
+  columns.@
+}
+
 fn header(props: Props) [cui::View] {
   [
-    cui::input(
-      props.query,
-      key: "palette.search",
-      placeholder: props.placeholder,
-      autofocus: true,
+    // A one-cell leading spacer puts the field's text in the label column,
+    // aligned with the result rows, as in the vaxis picker search field.
+    cui::box(
+      [
+        cui::box(
+          [cui::text(" ", styles: ui::style(width: ui::cells(1), flex_shrink: 0.0))],
+          styles: ui::style(background: props.colors.background),
+        ),
+        cui::input(
+          // A trailing pad cell keeps room for the cursor at the end of the
+          // query, as in the vaxis picker field.
+          props.query,
+          key: "palette.search",
+          placeholder: props.placeholder,
+          autofocus: true,
+          styles: ui::style(
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(0),
+            },
+            background: props.colors.background,
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+          ),
+          on_input: fn(value: Str, ctx: cui::Context) {
+            props.on_query_change(value)
+          },
+          on_submit: fn(value: Str, ctx: cui::Context) {
+            selected(
+              items(props),
+              props.selection,
+            ).map(fn(item) {
+              if item.disabled_reason == "" {
+                props.on_activate(item)
+              } else {
+                ()
+              }
+            })
+          },
+        ),
+      ],
       styles: ui::style(
-        padding: ui::Edges{
-          top: ui::cells(0),
-          right: ui::cells(1),
-          bottom: ui::cells(0),
-          left: ui::cells(1),
-        },
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
         background: props.colors.background,
       ),
-      on_input: fn(value: Str, ctx: cui::Context) {
-        props.on_query_change(value)
-      },
-      on_submit: fn(value: Str, ctx: cui::Context) {
-        selected(
-          items(props),
-          props.selection,
-        ).map(fn(item) {
-          if item.disabled_reason == "" {
-            props.on_activate(item)
-          } else {
-            ()
-          }
-        })
-      },
     ),
     cui::divider(),
   ]
 }
 
-fn body(props: Props) cui::View {
+// The body is a hidden-scrollbar virtual list with `⋯` overflow rows above and
+// below when the catalog extends past the viewport.
+fn body(props: Props, viewport: Viewport) cui::View {
   let visible = items(props)
-  let rows = mut List::new<cui::View>()
   if visible.size() == 0 {
-    rows.push(cui::text("No results", text_style: ui::text_style(foreground: props.colors.muted)))
+    cui::box(
+      [
+        cui::text(
+          "No results",
+          styles: ui::style(
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+          text_style: ui::text_style(foreground: props.colors.muted),
+        ),
+      ],
+      styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+    )
   } else {
-    for item in visible {
-      rows.push(row(props, item, item.key == props.selection))
-    }
+    // Marker slots are always present; a transparent spacer keeps the
+    // virtual list at a stable child position so scrolling survives
+    // overflow-marker changes.
+    let children = mut List::new<cui::View>()
+    children.push(overflow_slot(props, "above", -1, viewport.on_page))
+    children.push(
+      cui::virtual_list(
+        visible,
+        item_key: fn(item: Item) Str {
+          item.key
+        },
+        render_item: fn(item: Item) cui::View {
+          row(props, item)
+        },
+        row_height: 1,
+        estimated_height: 1,
+        overscan: 2,
+        scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+        key: "palette.list",
+        ref: viewport.list,
+        on_update: viewport.on_update,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      ),
+    )
+    children.push(overflow_slot(props, "below", 1, viewport.on_page))
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
   }
-  cui::box(rows.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)))
 }
 
-private fn row(props: Props, item: Item, active: Bool) cui::View {
-  let fill = match active {
-    true => props.colors.surface_hovered,
-    false => props.colors.background,
+// One stable overflow slot: a clickable `⋯` page row when content extends
+// past that edge, otherwise a transparent spacer.
+private fn overflow_slot(props: Props, key: Str, direction: Int, on_page: fn(Int)) cui::View {
+  let hidden = match direction < 0 {
+    true => not props.hidden_above,
+    false => not props.hidden_below,
+  }
+  if hidden {
+    cui::box(
+      [],
+      key: "palette.overflow.{key}",
+      styles: ui::style(height: ui::cells(0), flex_shrink: 0.0),
+    )
+  } else {
+    overflow_row(props, key, direction, on_page)
+  }
+}
+
+private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)) cui::View {
+  cui::box(
+    [cui::text("⋯", text_style: ui::text_style(foreground: props.colors.muted))],
+    key: "palette.overflow.{key}",
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+      background: props.colors.background,
+    ),
+    on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+      if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+        on_page(direction)
+        received.prevent_default()
+        received.stop_propagation()
+      }
+    },
+  )
+}
+
+private fn row(props: Props, item: Item) cui::View {
+  let active = item.key == props.selection
+  let hovered = item.key == props.hovered
+  let fill = match {
+    active => props.colors.surface_hovered,
+    hovered and item.disabled_reason == "" => props.colors.surface_hovered,
+    _ => props.colors.background,
   }
   let label_color = match item.disabled_reason != "" {
     true => props.colors.disabled,
@@ -132,6 +277,7 @@ private fn row(props: Props, item: Item, active: Bool) cui::View {
     true => item.description,
     false => "⊘ {item.disabled_reason}",
   }
+  let columns = columns(props.catalog)
   cui::box(
     [
       cui::text(
@@ -142,19 +288,48 @@ private fn row(props: Props, item: Item, active: Bool) cui::View {
         text_style: ui::text_style(foreground: props.colors.primary),
       ),
       cui::box(
-        [cui::text(item.label, text_style: ui::text_style(foreground: label_color))],
-        styles: ui::style(width: ui::cells(16)),
+        [
+          cui::text(
+            item.label,
+            text_style: ui::text_style(foreground: label_color),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        ],
+        styles: ui::style(width: ui::cells(columns.label + 1)),
       ),
-      cui::text(description, text_style: ui::text_style(foreground: props.colors.muted)),
+      cui::text(
+        description,
+        text_style: ui::text_style(foreground: props.colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
     ],
-    styles: ui::style(background: fill, flex_direction: ui::FlexDirection::row),
+    styles: ui::style(
+      background: fill,
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
     on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
-      if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
-        props.on_selection_change(item.key)
-        if item.disabled_reason == "" {
-          props.on_activate(item)
-        }
-        received.prevent_default()
+      match received.event_type {
+        event::MouseEventType::over => props.on_hover_change(item.key),
+        event::MouseEventType::move => props.on_hover_change(item.key),
+        event::MouseEventType::out => {
+          if props.hovered == item.key {
+            props.on_hover_change("")
+          }
+        },
+        event::MouseEventType::up => {
+          if received.button == event::MouseButton::left {
+            props.on_selection_change(item.key)
+            if item.disabled_reason == "" {
+              props.on_activate(item)
+            }
+            received.prevent_default()
+          }
+        },
+        _ => (),
       }
     },
   )

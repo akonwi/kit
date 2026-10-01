@@ -25,6 +25,10 @@ struct Dialog {
   // autofocus is a fallback for dialogs without an autofocusable descendant.
   autofocus: Bool,
   dismiss: keymap::SimpleCommand,
+  // Optional key bindings owned by the panel so they apply while focus rests
+  // in any of its descendants, such as a picker's search input.
+  commands: [keymap::Command]?,
+  bindings: [keymap::Binding]?,
 }
 
 // dialog renders a transparent input barrier and one bounded dialog above it.
@@ -62,6 +66,17 @@ fn dialog(colors: theme::Theme, spec: Dialog) cui::View {
 }
 
 private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
+  let commands = mut List::new<keymap::Command>()
+  commands.push(spec.dismiss)
+  for command in spec.commands.or([]) {
+    commands.push(command)
+  }
+  let dismiss_binding = keymap::binding(keymap::key("escape"), spec.dismiss.with())
+  let panel_bindings = mut List::new<keymap::Binding>()
+  panel_bindings.push(dismiss_binding)
+  for binding in spec.bindings.or([]) {
+    panel_bindings.push(binding)
+  }
   let header = cui::box(
     [
       cui::text(
@@ -93,8 +108,8 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     key: "modal.panel",
     autofocus: spec.autofocus,
     styles: panel_style(colors, spec.placement),
-    commands: [spec.dismiss],
-    bindings: [keymap::binding(keymap::key("escape"), spec.dismiss.with())],
+    commands: commands.@,
+    bindings: panel_bindings.@,
     binding_scope: keymap::ScopeMode::focus_within,
     binding_priority: 100,
   )

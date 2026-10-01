@@ -104,6 +104,11 @@ struct Shell {
   active_modal: ActiveModal,
   picker_query: Str,
   picker_selection: Str,
+  picker_hover: Str,
+  picker_hidden_above: Bool,
+  picker_hidden_below: Bool,
+  picker_viewport: Int,
+  picker_list: mut cui::VirtualListRef,
   connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
 }
@@ -133,6 +138,11 @@ fn new(props: mut Props) mut Shell {
     active_modal: ActiveModal::none,
     picker_query: "",
     picker_selection: "codex",
+    picker_hover: "",
+    picker_hidden_above: false,
+    picker_hidden_below: false,
+    picker_viewport: 0,
+    picker_list: cui::virtual_list_ref(),
     connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
   })
@@ -754,9 +764,13 @@ impl Shell {
       catalog: catalog,
       query: self.picker_query,
       selection: self.picker_selection,
+      hovered: self.picker_hover,
+      hidden_above: self.picker_hidden_above,
+      hidden_below: self.picker_hidden_below,
       on_query_change: fn(query: Str) {
         self.picker_query = query
-        self.picker_selection = palette::first_enabled(
+        self.picker_hover = ""
+        let next = palette::first_enabled(
           palette::items(
             palette::Props{
               colors: self.props.theme,
@@ -764,15 +778,32 @@ impl Shell {
               catalog: catalog,
               query: query,
               selection: "",
+              hovered: "",
+              hidden_above: false,
+              hidden_below: false,
               on_query_change: fn(value: Str) {},
               on_selection_change: fn(value: Str) {},
+              on_hover_change: fn(value: Str) {},
               on_activate: fn(item: palette::Item) {},
             },
           ),
         )
+        if next != "" {
+          self.picker_selection = next
+        }
+        let selection = self.picker_selection
+        let _ = self.picker_list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
       },
       on_selection_change: fn(selection: Str) {
         self.picker_selection = selection
+        let _ = self.picker_list.current.map(fn(list) {
+          let _ = list.reveal(selection)
+        })
+      },
+      on_hover_change: fn(hovered: Str) {
+        self.picker_hover = hovered
       },
       on_activate: fn(item: palette::Item) {},
     }
@@ -787,13 +818,7 @@ impl Shell {
         title: "Connect a provider",
         meta: "",
         header: palette::header(picker),
-        body: cui::box(
-          [palette::body(picker)],
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-          commands: palette::commands(navigation),
-          bindings: palette::bindings(navigation),
-          binding_scope: keymap::ScopeMode::focus_within,
-        ),
+        body: palette::body(picker, self.picker_viewport()),
         footer: Maybe::new(
           cui::box(
             [line("Esc close", ui::text_style(foreground: self.props.theme.muted))],
@@ -802,8 +827,52 @@ impl Shell {
         ),
         autofocus: false,
         dismiss: dismiss,
+        commands: palette::commands(navigation),
+        bindings: palette::bindings(navigation),
       },
     )
+  }
+
+  // The picker list viewport: the virtual list plus its committed-visibility
+  // overflow state and page controls.
+  fn mut picker_viewport() palette::Viewport {
+    palette::Viewport{
+      list: self.picker_list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = palette::items(
+          palette::Props{
+            colors: self.props.theme,
+            placeholder: "",
+            catalog: provider_catalog(),
+            query: self.picker_query,
+            selection: "",
+            hovered: "",
+            hidden_above: false,
+            hidden_below: false,
+            on_query_change: fn(value: Str) {},
+            on_selection_change: fn(value: Str) {},
+            on_hover_change: fn(value: Str) {},
+            on_activate: fn(item: palette::Item) {},
+          },
+        )
+        self.picker_hidden_above = update.state.visible_range.start > 0
+        self.picker_hidden_below = update.state.visible_range.end < visible.size()
+        self.picker_viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        self.page_picker(direction)
+      },
+    }
+  }
+
+  fn mut page_picker(direction: Int) {
+    let step = match self.picker_viewport > 1 {
+      true => self.picker_viewport - 1,
+      false => 1,
+    }
+    let _ = self.picker_list.current.map(fn(list) {
+      let _ = list.scroll_by(direction * step)
+    })
   }
 }
 
