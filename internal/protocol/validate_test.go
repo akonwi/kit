@@ -272,17 +272,17 @@ func TestBashExecutionValidate(t *testing.T) {
 	}
 }
 
-func TestRunInfoValidate(t *testing.T) {
+func TestTurnInfoValidate(t *testing.T) {
 	t.Parallel()
 
-	valid := RunInfo{SessionID: "session", TurnID: "turn", RunID: "turn", Status: RunStatusRunning}
+	valid := TurnInfo{SessionID: "session", TurnID: "turn", Status: TurnStatusRunning}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	terminal := valid
-	terminal.Status = RunStatusAborted
+	terminal.Status = TurnStatusAborted
 	if err := terminal.Validate(); err == nil {
-		t.Fatal("Validate() accepted aborted run without an error message")
+		t.Fatal("Validate() accepted aborted turn without an error message")
 	}
 	terminal.ErrorMessage = "aborted"
 	if err := terminal.Validate(); err != nil {
@@ -294,14 +294,14 @@ func TestPromptOutcomeValidate(t *testing.T) {
 	t.Parallel()
 
 	valid := PromptOutcome{
-		SessionID: "session", TurnID: "turn", RunID: "turn",
-		Status: RunStatusCompleted,
+		SessionID: "session", TurnID: "turn",
+		Status: TurnStatusCompleted,
 	}
 	if err := valid.Validate(); err != nil {
 		t.Fatalf("Validate() error = %v", err)
 	}
 	invalid := valid
-	invalid.Status = RunStatus("running")
+	invalid.Status = TurnStatus("running")
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("Validate() accepted non-terminal status")
 	}
@@ -310,7 +310,7 @@ func TestPromptOutcomeValidate(t *testing.T) {
 	if err := invalid.Validate(); err == nil {
 		t.Fatal("Validate() accepted an error kind on a completed outcome")
 	}
-	invalid.Status = RunStatusFailed
+	invalid.Status = TurnStatusFailed
 	invalid.ErrorMessage = "failed"
 	invalid.ErrorKind = ProviderErrorKind("unknown")
 	if err := invalid.Validate(); err == nil {

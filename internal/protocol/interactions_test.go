@@ -7,7 +7,7 @@ import (
 
 func TestInteractionRequestRejectsTerminalControlText(t *testing.T) {
 	t.Parallel()
-	request := InteractionRequest{ID: "interaction_0123456789abcdef0123456789abcdef", SessionID: "session_0123456789abcdef0123456789abcdef", RunID: "run_0123456789abcdef0123456789abcdef", ToolCallID: "tool_0123456789abcdef0123456789abcdef", Kind: InteractionConfirm, Title: "Continue?\x1b[2J", CreatedAt: "2025-01-01T00:00:00Z"}
+	request := InteractionRequest{ID: "interaction_0123456789abcdef0123456789abcdef", SessionID: "session_0123456789abcdef0123456789abcdef", TurnID: "run_0123456789abcdef0123456789abcdef", ToolCallID: "tool_0123456789abcdef0123456789abcdef", Kind: InteractionConfirm, Title: "Continue?\x1b[2J", CreatedAt: "2025-01-01T00:00:00Z"}
 	if err := request.Validate(); err == nil {
 		t.Fatal("Validate accepted terminal control text")
 	}

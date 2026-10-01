@@ -8,13 +8,13 @@ import (
 // SessionEventPayload is the kind-specific data of a SessionEvent.
 type SessionEventPayload interface{ sessionEventKind() SessionEventKind }
 
-// RunStartedEvent records that a run began.
-type RunStartedEvent struct {
-	Status RunStatus `json:"status"`
+// TurnStartedEvent records that a turn began.
+type TurnStartedEvent struct {
+	Status TurnStatus `json:"status"`
 }
 
-// UserMessageEvent records submitted user text.
-type UserMessageEvent struct {
+// UserMessageAddedEvent records submitted user text.
+type UserMessageAddedEvent struct {
 	Text string `json:"text"`
 }
 
@@ -64,8 +64,8 @@ type ToolStartedEvent struct {
 	ArgumentsTruncated bool   `json:"argumentsTruncated,omitempty"`
 }
 
-// ToolUpdatedEvent appends tool result content.
-type ToolUpdatedEvent struct {
+// ToolOutputDeltaEvent appends tool result content.
+type ToolOutputDeltaEvent struct {
 	ToolCallID string            `json:"toolCallId"`
 	ToolName   string            `json:"toolName"`
 	Content    ToolResultContent `json:"content"`
@@ -88,15 +88,11 @@ type CompactionStartedEvent struct {
 	CompactionID string `json:"compactionId"`
 }
 
-// CompactionCompletedEvent identifies a completed compaction.
+// CompactionCompletedEvent records a completed compaction. ErrorMessage is set
+// when compaction completed unsuccessfully.
 type CompactionCompletedEvent struct {
 	CompactionID string `json:"compactionId"`
-}
-
-// CompactionFailedEvent records a failed compaction pending its dedicated error model.
-type CompactionFailedEvent struct {
-	CompactionID string `json:"compactionId"`
-	ErrorMessage string `json:"errorMessage"`
+	ErrorMessage string `json:"errorMessage,omitempty"`
 }
 
 // ProviderRetryScheduledEvent records a retry deadline.
@@ -109,26 +105,26 @@ type ProviderRetryStartedEvent struct {
 	ProviderRetry *ProviderRetry `json:"providerRetry"`
 }
 
-// ContextUpdatedEvent records context consumption.
-type ContextUpdatedEvent struct {
+// ContextChangedEvent records context consumption.
+type ContextChangedEvent struct {
 	ContextTokens int `json:"contextTokens"`
 	ContextWindow int `json:"contextWindow"`
 }
 
-// UsageUpdatedEvent records cumulative session usage.
-type UsageUpdatedEvent struct {
+// UsageChangedEvent records cumulative session usage.
+type UsageChangedEvent struct {
 	Usage *SessionUsage `json:"usage"`
 }
 
-// RunFinishedEvent records terminal run status.
-type RunFinishedEvent struct {
-	Status       RunStatus         `json:"status"`
+// TurnCompletedEvent records terminal turn status.
+type TurnCompletedEvent struct {
+	Status       TurnStatus        `json:"status"`
 	ErrorKind    ProviderErrorKind `json:"errorKind,omitempty"`
 	ErrorMessage string            `json:"errorMessage,omitempty"`
 }
 
-// SessionRenamedEvent records the new session name.
-type SessionRenamedEvent struct {
+// SessionNameChangedEvent records the new session name.
+type SessionNameChangedEvent struct {
 	SessionName string `json:"sessionName"`
 }
 
@@ -187,8 +183,8 @@ type ScratchpadChangedEvent struct {
 	Scratchpad *Scratchpad `json:"scratchpad"`
 }
 
-func (RunStartedEvent) sessionEventKind() SessionEventKind       { return SessionEventRunStarted }
-func (UserMessageEvent) sessionEventKind() SessionEventKind      { return SessionEventUserMessage }
+func (TurnStartedEvent) sessionEventKind() SessionEventKind      { return SessionEventTurnStarted }
+func (UserMessageAddedEvent) sessionEventKind() SessionEventKind { return SessionEventUserMessageAdded }
 func (AssistantStartedEvent) sessionEventKind() SessionEventKind { return SessionEventAssistantStarted }
 func (AssistantTextDeltaEvent) sessionEventKind() SessionEventKind {
 	return SessionEventAssistantTextDelta
@@ -197,27 +193,28 @@ func (ThinkingDeltaEvent) sessionEventKind() SessionEventKind { return SessionEv
 func (AssistantCompletedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventAssistantCompleted
 }
-func (ToolPlannedEvent) sessionEventKind() SessionEventKind   { return SessionEventToolPlanned }
-func (ToolStartedEvent) sessionEventKind() SessionEventKind   { return SessionEventToolStarted }
-func (ToolUpdatedEvent) sessionEventKind() SessionEventKind   { return SessionEventToolUpdated }
-func (ToolCompletedEvent) sessionEventKind() SessionEventKind { return SessionEventToolCompleted }
+func (ToolPlannedEvent) sessionEventKind() SessionEventKind     { return SessionEventToolPlanned }
+func (ToolStartedEvent) sessionEventKind() SessionEventKind     { return SessionEventToolStarted }
+func (ToolOutputDeltaEvent) sessionEventKind() SessionEventKind { return SessionEventToolOutputDelta }
+func (ToolCompletedEvent) sessionEventKind() SessionEventKind   { return SessionEventToolCompleted }
 func (CompactionStartedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventCompactionStarted
 }
 func (CompactionCompletedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventCompactionCompleted
 }
-func (CompactionFailedEvent) sessionEventKind() SessionEventKind { return SessionEventCompactionFailed }
 func (ProviderRetryScheduledEvent) sessionEventKind() SessionEventKind {
 	return SessionEventProviderRetryScheduled
 }
 func (ProviderRetryStartedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventProviderRetryStarted
 }
-func (ContextUpdatedEvent) sessionEventKind() SessionEventKind { return SessionEventContextUpdated }
-func (UsageUpdatedEvent) sessionEventKind() SessionEventKind   { return SessionEventUsageUpdated }
-func (RunFinishedEvent) sessionEventKind() SessionEventKind    { return SessionEventRunFinished }
-func (SessionRenamedEvent) sessionEventKind() SessionEventKind { return SessionEventSessionRenamed }
+func (ContextChangedEvent) sessionEventKind() SessionEventKind { return SessionEventContextChanged }
+func (UsageChangedEvent) sessionEventKind() SessionEventKind   { return SessionEventUsageChanged }
+func (TurnCompletedEvent) sessionEventKind() SessionEventKind  { return SessionEventTurnCompleted }
+func (SessionNameChangedEvent) sessionEventKind() SessionEventKind {
+	return SessionEventSessionNameChanged
+}
 func (SessionCWDChangedEvent) sessionEventKind() SessionEventKind {
 	return SessionEventSessionCWDChanged
 }
@@ -247,7 +244,7 @@ func (ScratchpadChangedEvent) sessionEventKind() SessionEventKind {
 
 func sessionEventVariants() []UnionVariant {
 	return []UnionVariant{
-		{Kind: string(SessionEventRunStarted), Payload: RunStartedEvent{}}, {Kind: string(SessionEventUserMessage), Payload: UserMessageEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolUpdated), Payload: ToolUpdatedEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventCompactionFailed), Payload: CompactionFailedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextUpdated), Payload: ContextUpdatedEvent{}}, {Kind: string(SessionEventUsageUpdated), Payload: UsageUpdatedEvent{}}, {Kind: string(SessionEventRunFinished), Payload: RunFinishedEvent{}}, {Kind: string(SessionEventSessionRenamed), Payload: SessionRenamedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}},
+		{Kind: string(SessionEventTurnStarted), Payload: TurnStartedEvent{}}, {Kind: string(SessionEventUserMessageAdded), Payload: UserMessageAddedEvent{}}, {Kind: string(SessionEventAssistantStarted), Payload: AssistantStartedEvent{}}, {Kind: string(SessionEventAssistantTextDelta), Payload: AssistantTextDeltaEvent{}}, {Kind: string(SessionEventThinkingDelta), Payload: ThinkingDeltaEvent{}}, {Kind: string(SessionEventAssistantCompleted), Payload: AssistantCompletedEvent{}}, {Kind: string(SessionEventToolPlanned), Payload: ToolPlannedEvent{}}, {Kind: string(SessionEventToolStarted), Payload: ToolStartedEvent{}}, {Kind: string(SessionEventToolOutputDelta), Payload: ToolOutputDeltaEvent{}}, {Kind: string(SessionEventToolCompleted), Payload: ToolCompletedEvent{}}, {Kind: string(SessionEventCompactionStarted), Payload: CompactionStartedEvent{}}, {Kind: string(SessionEventCompactionCompleted), Payload: CompactionCompletedEvent{}}, {Kind: string(SessionEventProviderRetryScheduled), Payload: ProviderRetryScheduledEvent{}}, {Kind: string(SessionEventProviderRetryStarted), Payload: ProviderRetryStartedEvent{}}, {Kind: string(SessionEventContextChanged), Payload: ContextChangedEvent{}}, {Kind: string(SessionEventUsageChanged), Payload: UsageChangedEvent{}}, {Kind: string(SessionEventTurnCompleted), Payload: TurnCompletedEvent{}}, {Kind: string(SessionEventSessionNameChanged), Payload: SessionNameChangedEvent{}}, {Kind: string(SessionEventSessionCWDChanged), Payload: SessionCWDChangedEvent{}}, {Kind: string(SessionEventSubagentChanged), Payload: SubagentChangedEvent{}}, {Kind: string(SessionEventPeerQueryChanged), Payload: PeerQueryChangedEvent{}}, {Kind: string(SessionEventInteractionRequested), Payload: InteractionRequestedEvent{}}, {Kind: string(SessionEventInteractionResolved), Payload: InteractionResolvedEvent{}}, {Kind: string(SessionEventAnnotationCreated), Payload: AnnotationCreatedEvent{}}, {Kind: string(SessionEventAnnotationUpdated), Payload: AnnotationUpdatedEvent{}}, {Kind: string(SessionEventAnnotationDeleted), Payload: AnnotationDeletedEvent{}}, {Kind: string(SessionEventAnnotationSubmitted), Payload: AnnotationSubmittedEvent{}}, {Kind: string(SessionEventScratchpadChanged), Payload: ScratchpadChangedEvent{}},
 	}
 }
 

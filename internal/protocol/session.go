@@ -140,11 +140,10 @@ type ReloadSessionResult struct {
 	Warnings      []string           `json:"warnings,omitempty"`
 }
 
-// RunReservation acknowledges a droid-owned turn admission.
-type RunReservation struct {
+// TurnReservation acknowledges a droid-owned turn admission.
+type TurnReservation struct {
 	SessionID string `json:"sessionId"`
 	TurnID    string `json:"turnId"`
-	RunID     string `json:"runId"`
 }
 
 // PromptInput requests admission of one droid-owned turn.
@@ -164,9 +163,9 @@ type FollowUpQueue struct {
 
 // PromptSubmission reports whether a prompt started or became a follow-up.
 type PromptSubmission struct {
-	Reservation *RunReservation `json:"reservation,omitempty"`
-	Queued      bool            `json:"queued"`
-	Queue       FollowUpQueue   `json:"queue"`
+	Reservation *TurnReservation `json:"reservation,omitempty"`
+	Queued      bool             `json:"queued"`
+	Queue       FollowUpQueue    `json:"queue"`
 }
 
 // RestoreFollowUpsResult returns every atomically drained follow-up.
@@ -444,8 +443,8 @@ type ProviderRetry struct {
 
 // ActiveCompaction is an authoritative automatic compaction in progress.
 type ActiveCompaction struct {
-	ID    string `json:"id"`
-	RunID string `json:"runId"`
+	ID     string `json:"id"`
+	TurnID string `json:"turnId"`
 }
 
 // MCPServerStatus is a sanitized MCP server presentation record.
@@ -469,7 +468,7 @@ type SessionSnapshot struct {
 	PreviousMessageCursor string                 `json:"previousMessageCursor,omitempty"`
 	HasMoreMessages       bool                   `json:"hasMoreMessages,omitempty"`
 	PendingBoundaries     []PendingBoundary      `json:"pendingBoundaries,omitempty"`
-	ActiveRunID           string                 `json:"activeRunId,omitempty"`
+	ActiveTurnID          string                 `json:"activeTurnId,omitempty"`
 	ProviderRetry         *ProviderRetry         `json:"providerRetry,omitempty"`
 	ActiveCompaction      *ActiveCompaction      `json:"activeCompaction,omitempty"`
 	ActiveBashExecutionID string                 `json:"activeBashExecutionId,omitempty"`
@@ -519,16 +518,16 @@ type TranscriptPage struct {
 	HasMoreMessages       bool                `json:"hasMoreMessages,omitempty"`
 }
 
-// RunStatus is a canonical parent-run terminal state on the wire.
-type RunStatus string
+// TurnStatus is a canonical parent-turn terminal state on the wire.
+type TurnStatus string
 
 const (
-	RunStatusQueued      RunStatus = "queued"
-	RunStatusRunning     RunStatus = "running"
-	RunStatusCompleted   RunStatus = "completed"
-	RunStatusFailed      RunStatus = "failed"
-	RunStatusAborted     RunStatus = "aborted"
-	RunStatusInterrupted RunStatus = "interrupted"
+	TurnStatusQueued      TurnStatus = "queued"
+	TurnStatusRunning     TurnStatus = "running"
+	TurnStatusCompleted   TurnStatus = "completed"
+	TurnStatusFailed      TurnStatus = "failed"
+	TurnStatusAborted     TurnStatus = "aborted"
+	TurnStatusInterrupted TurnStatus = "interrupted"
 )
 
 // ProviderErrorKind is the canonical recovery class for provider failures.
@@ -543,23 +542,21 @@ const (
 	ProviderErrorProtocol       ProviderErrorKind = "protocol"
 )
 
-// RunInfo is the canonical status of one droid turn.
-type RunInfo struct {
-	SessionID    string    `json:"sessionId"`
-	TurnID       string    `json:"turnId"`
-	RunID        string    `json:"runId"`
-	Status       RunStatus `json:"status"`
-	ErrorMessage string    `json:"errorMessage,omitempty"`
+// TurnInfo is the canonical status of one droid turn.
+type TurnInfo struct {
+	SessionID    string     `json:"sessionId"`
+	TurnID       string     `json:"turnId"`
+	Status       TurnStatus `json:"status"`
+	ErrorMessage string     `json:"errorMessage,omitempty"`
 }
 
 // PromptOutcome is the terminal projection of one droid turn.
 type PromptOutcome struct {
 	SessionID    string            `json:"sessionId"`
 	TurnID       string            `json:"turnId"`
-	RunID        string            `json:"runId"`
 	Text         string            `json:"text"`
 	StopReason   string            `json:"stopReason"`
-	Status       RunStatus         `json:"status"`
+	Status       TurnStatus        `json:"status"`
 	ErrorKind    ProviderErrorKind `json:"errorKind,omitempty"`
 	ErrorMessage string            `json:"errorMessage,omitempty"`
 }

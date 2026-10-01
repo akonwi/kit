@@ -298,21 +298,21 @@ func (snapshot SessionSnapshot) Validate() error {
 	if err := snapshot.Usage.Validate(); err != nil {
 		return fmt.Errorf("snapshot usage: %w", err)
 	}
-	if snapshot.EventReplayAvailable && (snapshot.ActiveRunID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
+	if snapshot.EventReplayAvailable && (snapshot.ActiveTurnID == "" || snapshot.EventStreamID == "" || snapshot.EventReplayFrom > snapshot.EventCursor) {
 		return fmt.Errorf("snapshot replay metadata is incomplete")
 	}
 	if snapshot.ProviderRetry != nil {
-		if snapshot.ActiveRunID == "" || snapshot.ProviderRetry.Count <= 0 || snapshot.ProviderRetry.RetryAt == "" {
-			return fmt.Errorf("snapshot provider retry requires an active run, positive count, and deadline")
+		if snapshot.ActiveTurnID == "" || snapshot.ProviderRetry.Count <= 0 || snapshot.ProviderRetry.RetryAt == "" {
+			return fmt.Errorf("snapshot provider retry requires an active turn, positive count, and deadline")
 		}
 		if _, err := time.Parse(time.RFC3339Nano, snapshot.ProviderRetry.RetryAt); err != nil {
 			return fmt.Errorf("snapshot provider retry deadline is invalid: %w", err)
 		}
 	}
 	if snapshot.ActiveCompaction != nil {
-		if snapshot.ActiveRunID == "" || snapshot.ActiveCompaction.RunID != snapshot.ActiveRunID ||
+		if snapshot.ActiveTurnID == "" || snapshot.ActiveCompaction.TurnID != snapshot.ActiveTurnID ||
 			!identifier.Valid(snapshot.ActiveCompaction.ID, "compact_") {
-			return fmt.Errorf("snapshot active compaction requires matching valid run and compaction identities")
+			return fmt.Errorf("snapshot active compaction requires matching valid turn and compaction identities")
 		}
 	}
 	if snapshot.HasMoreMessages {

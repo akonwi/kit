@@ -75,7 +75,7 @@ type InteractionRequest struct {
 	Filterable   *bool                   `json:"filterable,omitempty"`
 	ID           string                  `json:"id"`
 	SessionID    string                  `json:"sessionId"`
-	RunID        string                  `json:"runId,omitempty"`
+	TurnID       string                  `json:"turnId,omitempty"`
 	ToolCallID   string                  `json:"toolCallId,omitempty"`
 	Kind         InteractionKind         `json:"kind"`
 	Title        string                  `json:"title"`
@@ -108,10 +108,10 @@ func (request InteractionRequest) Validate() error {
 		return fmt.Errorf("interaction identities are required")
 	}
 	if request.Plugin == nil {
-		if request.RunID == "" || request.ToolCallID == "" {
+		if request.TurnID == "" || request.ToolCallID == "" {
 			return fmt.Errorf("interaction model ownership is required")
 		}
-	} else if request.RunID != "" || request.ToolCallID != "" || !validPluginInteractionOwner(*request.Plugin) || request.Kind == InteractionGuided {
+	} else if request.TurnID != "" || request.ToolCallID != "" || !validPluginInteractionOwner(*request.Plugin) || request.Kind == InteractionGuided {
 		return fmt.Errorf("invalid plugin interaction ownership")
 	}
 	if err := validateInteractionPresentation(request); err != nil {
