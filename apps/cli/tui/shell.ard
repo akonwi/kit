@@ -1156,10 +1156,7 @@ impl Shell {
                   self.phase = Phase::loading
                   self.bootstrap(ui_context, lifetime)
                 },
-                err(error) => {
-                  self.active_modal = ActiveModal::provider_picker
-                  self.auth_error = "{error}"
-                },
+                err(error) => { self.auth_error = "{error}" },
               }
             }
           })
@@ -1336,6 +1333,19 @@ impl Shell {
     let dismiss = keymap::simple_command("auth.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
+    let footer = match self.auth_error != "" {
+      true => {
+        Maybe::new(
+          cui::box(
+            [
+              line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+            ],
+            styles: ui::style(padding: inset(), flex_shrink: 0.0),
+          ),
+        )
+      },
+      false => Maybe::new<cui::View>(),
+    }
     modal::dialog(
       self.props.themes,
       modal::Dialog{
@@ -1346,7 +1356,7 @@ impl Shell {
         meta: "",
         header: palette::header(picker),
         body: palette::body(picker, self.picker_viewport()),
-        footer: Maybe::new<cui::View>(),
+        footer: footer,
         autofocus: false,
         dismiss: dismiss,
         commands: palette::commands(navigation),
