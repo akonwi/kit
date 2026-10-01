@@ -178,6 +178,27 @@ test fn signed_out_connect_opens_and_esc_closes_the_provider_modal() Void!Str {
   )
 }
 
+test fn provider_picker_centers_after_its_width_cap() Void!Str {
+  let terminal = headless::new(140, 32)
+  defer terminal.destroy()
+  let quits = mut Quits{count: 0}
+  let renderer = mount_signed_out(terminal, quits)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+
+  mut left = -1
+  for row in rows(terminal) {
+    let candidate = strings::Index(row, "┌")
+    if candidate >= 0 {
+      left = candidate
+    }
+  }
+  // The capped 96-cell picker centers in a 140-cell viewport.
+  testing::assert(left == 22, "picker left border {left}, want 22")
+}
+
 test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {
   let terminal = headless::new(60, 12)
   defer terminal.destroy()
