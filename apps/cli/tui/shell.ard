@@ -433,6 +433,18 @@ fn line(content: Str, style: ui::TextStyle) cui::View {
   )
 }
 
+fn link_line(url: Str, colors: theme::Theme) cui::View {
+  cui::text(
+    ui::styled_text(
+      [
+        ui::span(url, link: url, style: ui::span_style(foreground: colors.primary_text, underline: true)),
+      ],
+    ),
+    wrap: ui::TextWrap::none,
+    overflow: ui::TextOverflow::ellipsis,
+  )
+}
+
 fn blank() cui::View {
   cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
 }
@@ -885,9 +897,7 @@ impl Shell {
       body.push(
         line("Open this URL", ui::text_style(foreground: self.props.themes.current().muted)),
       )
-      body.push(
-        line(self.device_url, ui::text_style(foreground: self.props.themes.current().primary_text)),
-      )
+      body.push(link_line(self.device_url, self.props.themes.current()))
       body.push(blank())
       body.push(
         line("Enter this code", ui::text_style(foreground: self.props.themes.current().muted)),
@@ -999,12 +1009,7 @@ impl Shell {
         ),
       )
       body.push(blank())
-      body.push(
-        line(
-          self.browser_url,
-          ui::text_style(foreground: self.props.themes.current().primary_text),
-        ),
-      )
+      body.push(link_line(self.browser_url, self.props.themes.current()))
       body.push(blank())
       body.push(
         cui::input(
