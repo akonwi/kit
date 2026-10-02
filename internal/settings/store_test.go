@@ -344,3 +344,48 @@ func TestUpdateDiffWrapLinesPersistsPreferenceAndUnknownFields(t *testing.T) {
 		t.Fatalf("settings = %s", data)
 	}
 }
+
+func TestLoadPromptCacheRetention(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		document string
+		want     string
+		warning  string
+	}{
+		{name: "default", document: `{}`, want: PromptCacheShort},
+		{name: "short", document: `{"promptCacheRetention":"short"}`, want: PromptCacheShort},
+		{name: "long", document: `{"promptCacheRetention":"long"}`, want: PromptCacheLong},
+		{name: "unknown value", document: `{"promptCacheRetention":"1h"}`, want: PromptCacheShort, warning: `settings field "promptCacheRetention": must be "short" or "long"; using short`},
+		{name: "wrong type", document: `{"promptCacheRetention":true}`, want: PromptCacheShort, warning: `settings field "promptCacheRetention": must be "short" or "long"; using short`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "settings.json")
+			if err := os.WriteFile(path, []byte(test.document), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			settings, warnings, err := newTestStore(t, path).Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			var gotWarning string
+			if len(warnings) == 1 {
+				gotWarning = warnings[0].Error()
+			}
+			if settings.PromptCacheRetention != test.want || gotWarning != test.warning || len(warnings) > 1 {
+				t.Fatalf("Load() retention = %q, warnings = %v; want %q, %q", settings.PromptCacheRetention, warnings, test.want, test.warning)
+			}
+		})
+	}
+}
+
+func TestLoadMissingSettingsUsesShortPromptCacheRetention(t *testing.T) {
+	t.Parallel()
+
+	settings, _, err := newTestStore(t, filepath.Join(t.TempDir(), "settings.json")).Load()
+	if err != nil || settings.PromptCacheRetention != PromptCacheShort {
+		t.Fatalf("Load() retention = %q, %v; want %q", settings.PromptCacheRetention, err, PromptCacheShort)
+	}
+}

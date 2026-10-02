@@ -80,6 +80,15 @@ type Anthropic struct {
 	ID string
 	// Options are extra SDK request options, applied after the built-ins.
 	Options []option.RequestOption
+	// PromptCacheRetention returns the cache lifetime for each request:
+	// PromptCacheShort (five minutes) or PromptCacheLong (one hour). Nil, or
+	// any other value, selects PromptCacheShort.
+	PromptCacheRetention func() PromptCacheRetention
+	// DisablePromptCaching omits cache_control from requests. By default,
+	// requests use Anthropic's automatic prompt caching plus a breakpoint at
+	// the end of the system prompt. Disable it for gateways that serve other
+	// vendors through the Messages API.
+	DisablePromptCaching bool
 }
 
 func (c Anthropic) build() (providerEntry, error) {
@@ -140,7 +149,8 @@ func (c Anthropic) build() (providerEntry, error) {
 			store: c.CredentialStore, refresher: anthropicoauth.NewClient(c.HTTPClient), now: time.Now, gate: gate,
 		}
 	}
-	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, credentials: credentials, options: opts}
+	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, credentials: credentials, options: opts,
+		promptCaching: !c.DisablePromptCaching, promptCacheRetention: c.PromptCacheRetention}
 	return providerEntry{
 		id:        id,
 		catalogID: "anthropic",
@@ -200,6 +210,10 @@ type anthropicProvider struct {
 	apiKeySource APIKeySource
 	credentials  *anthropicCredentialManager
 	options      []option.RequestOption
+	// promptCaching enables cache_control breakpoints on requests.
+	promptCaching bool
+	// promptCacheRetention optionally selects each request's cache lifetime.
+	promptCacheRetention func() PromptCacheRetention
 }
 
 type anthropicOAuthRefresher interface {
@@ -369,6 +383,9 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	if len(req.Tools) > 0 {
 		params.Tools = toAnthropicTools(req.Tools)
 	}
+	if p.promptCaching {
+		applyAnthropicPromptCaching(&params, p.cacheRetention())
+	}
 	if req.Temperature != nil && !model.SupportsMidConversationEffort {
 		params.Temperature = param.NewOpt(*req.Temperature)
 	}
@@ -480,6 +497,30 @@ func classifyAnthropicError(err error) ProviderErrorKind {
 			return ProviderInternal
 		}
 		return ProviderProtocol
+	}
+}
+
+func (p *anthropicProvider) cacheRetention() PromptCacheRetention {
+	if p.promptCacheRetention == nil {
+		return PromptCacheShort
+	}
+	return p.promptCacheRetention()
+}
+
+// applyAnthropicPromptCaching enables automatic prompt caching, which places
+// a breakpoint on the request's last cacheable block so each request reads the
+// prefix the previous one wrote. A second breakpoint at the end of the system
+// prompt keeps tools and system reusable when the messages change, such as
+// after compaction. Both use the same lifetime, since Anthropic requires
+// longer-lived breakpoints to precede shorter ones.
+func applyAnthropicPromptCaching(params *anthropic.MessageNewParams, retention PromptCacheRetention) {
+	control := anthropic.NewCacheControlEphemeralParam()
+	if retention == PromptCacheLong {
+		control.TTL = anthropic.CacheControlEphemeralTTLTTL1h
+	}
+	params.CacheControl = control
+	if last := len(params.System) - 1; last >= 0 {
+		params.System[last].CacheControl = control
 	}
 }
 
@@ -666,11 +707,13 @@ func assembleAnthropicMessage(model Model, acc anthropic.Message) AssistantMessa
 	}
 
 	msg.Usage = Usage{
-		Input:       int(acc.Usage.InputTokens),
-		Output:      int(acc.Usage.OutputTokens),
-		CacheRead:   int(acc.Usage.CacheReadInputTokens),
-		CacheWrite:  int(acc.Usage.CacheCreationInputTokens),
-		TotalTokens: int(acc.Usage.InputTokens + acc.Usage.OutputTokens),
+		Input:      int(acc.Usage.InputTokens),
+		Output:     int(acc.Usage.OutputTokens),
+		CacheRead:  int(acc.Usage.CacheReadInputTokens),
+		CacheWrite: int(acc.Usage.CacheCreationInputTokens),
+		// Anthropic reports one-hour writes within cache_creation_input_tokens.
+		CacheWrite1h: int(min(acc.Usage.CacheCreation.Ephemeral1hInputTokens, acc.Usage.CacheCreationInputTokens)),
+		TotalTokens:  int(acc.Usage.InputTokens + acc.Usage.CacheReadInputTokens + acc.Usage.CacheCreationInputTokens + acc.Usage.OutputTokens),
 	}
 	return msg
 }

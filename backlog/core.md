@@ -274,6 +274,14 @@ handling, and effort history are documented in the feature guides linked below.
   usage projection, and cost accounting; do not infer advanced support from
   catalog metadata alone. See
   [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
+- [ ] CORE-CACHE-001 — Keep valuable prompt caches warm. Before an entry
+  expires, replay the last request with a minimal output cap to refresh it,
+  while a run is active (for example across long tool calls or subagents) and
+  optionally between runs. Refresh only when the expected saved cache-miss cost
+  exceeds the refresh cost, bound warming by age, skip requests that cannot be
+  replayed without changing the cached prefix, and record refresh usage without
+  adding it to context. See [Pi's cache warmer](https://github.com/badlogic/pi-mono/blob/main/packages/coding-agent/src/core/cache-warmer.ts)
+  and [prompt caching](../docs/features/prompt-caching.md).
 - [ ] CORE-GPT6-007 — Expose supported standard/pro reasoning execution modes
   independently of reasoning effort and service tier. Validate provider/model
   capability and incompatible combinations, persist the effective configuration,

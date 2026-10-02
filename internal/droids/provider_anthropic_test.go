@@ -373,9 +373,10 @@ func TestAnthropicManagedEffortModelsOmitThinkingWhenOff(t *testing.T) {
 
 			body := <-captured
 			want := map[string]any{
-				"model":      modelID,
-				"max_tokens": float64(32_000),
-				"stream":     true,
+				"model":         modelID,
+				"max_tokens":    float64(32_000),
+				"stream":        true,
+				"cache_control": map[string]any{"type": "ephemeral"},
 				"messages": []any{map[string]any{
 					"role":    "user",
 					"content": []any{map[string]any{"type": "text", "text": "summarize"}},

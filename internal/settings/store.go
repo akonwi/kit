@@ -24,6 +24,8 @@ type Settings struct {
 	DefaultModel   string
 	DiffWrapLines  bool
 	ModelOverrides map[string]ModelOverride
+	// PromptCacheRetention is "short" (the default) or "long".
+	PromptCacheRetention string
 
 	fields map[string]json.RawMessage
 }
@@ -44,6 +46,14 @@ func (w Warning) Error() string {
 }
 
 const maxFileSize = 1 << 20
+
+// Prompt cache retention values. Providers map them to their own lifetimes;
+// Anthropic retains short entries for five minutes and long entries for one
+// hour.
+const (
+	PromptCacheShort = "short"
+	PromptCacheLong  = "long"
+)
 
 // Store serializes settings operations performed through one application-owned
 // instance. Independent processes use last-writer-wins persistence.
@@ -186,7 +196,7 @@ func (s *Store) load() (Settings, []Warning, error) {
 	if err != nil {
 		return Settings{}, nil, fmt.Errorf("decode settings %q: %w", s.path, err)
 	}
-	result := Settings{Theme: theme.SystemName, fields: fields}
+	result := Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, fields: fields}
 	var warnings []Warning
 	if raw, ok := fields["theme"]; ok {
 		var name string
@@ -210,6 +220,14 @@ func (s *Store) load() (Settings, []Warning, error) {
 			warnings = append(warnings, Warning{Field: "defaultModel", Err: errors.New("must be an exact provider/model selector; ignoring")})
 		} else {
 			result.DefaultModel = selector
+		}
+	}
+	if raw, ok := fields["promptCacheRetention"]; ok {
+		var retention string
+		if err := json.Unmarshal(raw, &retention); err != nil || (retention != PromptCacheShort && retention != PromptCacheLong) {
+			warnings = append(warnings, Warning{Field: "promptCacheRetention", Err: errors.New(`must be "short" or "long"; using short`)})
+		} else {
+			result.PromptCacheRetention = retention
 		}
 	}
 	if raw, ok := fields["modelOverrides"]; ok {
@@ -270,11 +288,12 @@ func (s *Store) write(fields map[string]json.RawMessage) error {
 }
 
 func defaultSettings() Settings {
-	return Settings{Theme: theme.SystemName, fields: make(map[string]json.RawMessage)}
+	return Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, fields: make(map[string]json.RawMessage)}
 }
 
 func cloneSettings(source Settings) Settings {
-	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, DiffWrapLines: source.DiffWrapLines, fields: make(map[string]json.RawMessage, len(source.fields))}
+	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, DiffWrapLines: source.DiffWrapLines,
+		PromptCacheRetention: source.PromptCacheRetention, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

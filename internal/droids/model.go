@@ -234,13 +234,16 @@ type Cost struct {
 
 // Usage is token and cost accounting for one canonical provider response.
 type Usage struct {
-	Input       int
-	Output      int
-	CacheRead   int
-	CacheWrite  int
-	Reasoning   int // subset of Output, when the provider reports it
-	TotalTokens int
-	Cost        UsageCost
+	Input      int
+	Output     int
+	CacheRead  int
+	CacheWrite int
+	// CacheWrite1h is the subset of CacheWrite written with a one-hour
+	// lifetime, which Anthropic prices at twice the input rate.
+	CacheWrite1h int
+	Reasoning    int // subset of Output, when the provider reports it
+	TotalTokens  int
+	Cost         UsageCost
 }
 
 // UsageCost is the computed dollar cost of a turn, derived from Usage + Model.Cost.
@@ -253,12 +256,15 @@ type UsageCost struct {
 }
 
 // calculateCost fills in u.Cost from the model pricing. Mirrors pi's
-// calculateCost; kept simple (no Anthropic 1h split yet).
+// calculateCost: model cache-write prices are for the default lifetime, and
+// one-hour writes cost twice the input rate.
 func calculateCost(m Model, u *Usage) {
+	longWrite := min(max(u.CacheWrite1h, 0), u.CacheWrite)
+	shortWrite := u.CacheWrite - longWrite
 	u.Cost.Input = m.Cost.Input / 1_000_000 * float64(u.Input)
 	u.Cost.Output = m.Cost.Output / 1_000_000 * float64(u.Output)
 	u.Cost.CacheRead = m.Cost.CacheRead / 1_000_000 * float64(u.CacheRead)
-	u.Cost.CacheWrite = m.Cost.CacheWrite / 1_000_000 * float64(u.CacheWrite)
+	u.Cost.CacheWrite = (m.Cost.CacheWrite*float64(shortWrite) + 2*m.Cost.Input*float64(longWrite)) / 1_000_000
 	u.Cost.Total = u.Cost.Input + u.Cost.Output + u.Cost.CacheRead + u.Cost.CacheWrite
 }
 

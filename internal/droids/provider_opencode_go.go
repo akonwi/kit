@@ -56,8 +56,10 @@ func (c OpenCodeGo) build() (providerEntry, error) {
 	// The Anthropic SDK appends v1/messages while the other protocols append
 	// directly beneath the advertised /v1 base URL.
 	anthropicBaseURL := strings.TrimSuffix(baseURL, "/v1")
+	// Upstream vendors behind the gateway do not all accept cache_control.
 	anthropicEntry, err := (Anthropic{APIKeySource: source, BaseURL: anthropicBaseURL, ID: "opencode-go", Headers: headers,
-		Options: []anthropicoption.RequestOption{anthropicoption.WithoutEnvironmentDefaults(), anthropicoption.WithHTTPClient(&wrappedClient)}}).build()
+		Options:              []anthropicoption.RequestOption{anthropicoption.WithoutEnvironmentDefaults(), anthropicoption.WithHTTPClient(&wrappedClient)},
+		DisablePromptCaching: true}).build()
 	if err != nil {
 		return providerEntry{}, err
 	}

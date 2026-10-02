@@ -39,8 +39,8 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
   persistence failures. Depends on `CORE-SET-001`.
 - [ ] TUI-SET-002 — Expose production settings for default model/thinking,
-  retry behavior, guided questions, and preferred diff layout. Depends on
-  `CORE-SET-002`.
+  retry behavior, guided questions, preferred diff layout, and prompt cache
+  retention. Depends on `CORE-SET-002`.
 
 ### User interaction and integrations
 

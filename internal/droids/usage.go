@@ -32,11 +32,15 @@ func validateUsageTokens(usage Usage) error {
 	for name, value := range map[string]int{
 		"input": usage.Input, "output": usage.Output,
 		"cache_read": usage.CacheRead, "cache_write": usage.CacheWrite,
-		"reasoning": usage.Reasoning, "total": usage.TotalTokens,
+		"cache_write_1h": usage.CacheWrite1h,
+		"reasoning":      usage.Reasoning, "total": usage.TotalTokens,
 	} {
 		if value < 0 {
 			return fmt.Errorf("usage %s is negative", name)
 		}
+	}
+	if usage.CacheWrite1h > usage.CacheWrite {
+		return fmt.Errorf("usage cache_write_1h exceeds cache_write")
 	}
 	return nil
 }
@@ -61,6 +65,9 @@ func mergeUsage(total, delta Usage) (Usage, error) {
 	}
 	if result.CacheWrite, err = addUsageInt(total.CacheWrite, delta.CacheWrite); err != nil {
 		return Usage{}, fmt.Errorf("usage cache write: %w", err)
+	}
+	if result.CacheWrite1h, err = addUsageInt(total.CacheWrite1h, delta.CacheWrite1h); err != nil {
+		return Usage{}, fmt.Errorf("usage one-hour cache write: %w", err)
 	}
 	if result.Reasoning, err = addUsageInt(total.Reasoning, delta.Reasoning); err != nil {
 		return Usage{}, fmt.Errorf("usage reasoning: %w", err)
@@ -250,7 +257,7 @@ func rebuildSessionUsage(ctx context.Context, store Store, conversation Conversa
 
 func usageIsZero(usage Usage) bool {
 	return usage.Input == 0 && usage.Output == 0 && usage.CacheRead == 0 &&
-		usage.CacheWrite == 0 && usage.Reasoning == 0 && usage.TotalTokens == 0 &&
+		usage.CacheWrite == 0 && usage.CacheWrite1h == 0 && usage.Reasoning == 0 && usage.TotalTokens == 0 &&
 		usage.Cost.Input == 0 && usage.Cost.Output == 0 && usage.Cost.CacheRead == 0 &&
 		usage.Cost.CacheWrite == 0 && usage.Cost.Total == 0
 }
