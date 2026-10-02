@@ -409,22 +409,25 @@ type localHandlerOptions struct {
 
 func newHandler(options localHandlerOptions) http.Handler {
 	mux := http.NewServeMux()
-	mux.HandleFunc("GET /v1/health", func(writer http.ResponseWriter, request *http.Request) {
-		ctx, cancel := context.WithTimeout(request.Context(), 2*time.Second)
+	lifecycleOptions := httpapi.ServeOptions{WriteError: func(w http.ResponseWriter, err error) {
+		apiError, ok := err.(*httpapi.APIError)
+		if !ok {
+			apiError = httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal error", nil)
+		}
+		httpapi.WriteError(w, apiError)
+	}}
+	httpapi.Handle(mux, lifecycleOptions, httpapi.GetHealth, func(requestContext context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (httpapi.Health, error) {
+		ctx, cancel := context.WithTimeout(requestContext, 2*time.Second)
 		defer cancel()
-		databaseReady := options.store.Ready(ctx) == nil
-		writeJSON(writer, http.StatusOK, Health{
-			InstanceID:      options.registry.InstanceID,
-			PID:             options.registry.PID,
-			KitVersion:      options.registry.KitVersion,
-			ProtocolVersion: options.registry.ProtocolVersion,
-			DatabaseReady:   databaseReady,
-			Providers:       options.providers(ctx),
-		})
+		return Health{
+			InstanceID: options.registry.InstanceID, PID: options.registry.PID,
+			KitVersion: options.registry.KitVersion, ProtocolVersion: options.registry.ProtocolVersion,
+			DatabaseReady: options.store.Ready(ctx) == nil, Providers: options.providers(ctx),
+		}, nil
 	})
-	mux.HandleFunc("POST /v1/shutdown", func(writer http.ResponseWriter, _ *http.Request) {
-		writeJSON(writer, http.StatusAccepted, map[string]bool{"stopping": true})
+	httpapi.Handle(mux, lifecycleOptions, httpapi.Shutdown, func(context.Context, httpapi.ServerPath, httpapi.NoBody) (httpapi.ShutdownResult, error) {
 		options.requestStop()
+		return httpapi.ShutdownResult{Stopping: true}, nil
 	})
 	if options.sessions != nil {
 		registerSessionRoutes(mux, options.sessions)

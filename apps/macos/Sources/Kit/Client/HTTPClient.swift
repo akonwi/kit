@@ -156,7 +156,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     private func childTranscript(session id: String, conversation: String) async throws -> WireSubagentTranscript {
         guard [id, conversation].allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }) else { throw ClientError.invalidPayload }
-        let result: WireSubagentTranscript = try await get("v1/sessions/" + id + "/subagents/" + conversation + "/transcript")
+        let output = try await api.getSubagentTranscript(path: .init(sessionID: id, conversationID: conversation), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireSubagentTranscript = try generated(try response.body.json, as: WireSubagentTranscript.self)
         guard result.conversationId == conversation else { throw ClientError.invalidPayload }
         return result
     }
@@ -177,9 +179,20 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             let oldStream = projection.stream
             let page: WireSubagentLiveEventPage
             do {
-                page = try await get("v1/sessions/" + id + "/subagents/" + conversation + "/events",
-                    query: [URLQueryItem(name: "stream", value: projection.stream),
-                            URLQueryItem(name: "after", value: String(projection.cursor))])
+                let output = try await api.getSubagentEvents(path: .init(sessionID: id, conversationID: conversation), query: .init(stream: projection.stream, after: Int(projection.cursor)), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+                switch output {
+                case .ok(let response): page = try generated(try response.body.json, as: WireSubagentLiveEventPage.self)
+                case .notFound: throw ClientError.http(404)
+                case .badRequest: throw ClientError.http(400)
+                case .conflict: throw ClientError.http(409)
+                case .serviceUnavailable: throw ClientError.http(503)
+                case .unauthorized: throw ClientError.http(401)
+                case .forbidden: throw ClientError.http(403)
+                case .misdirectedRequest: throw ClientError.http(421)
+                case .upgradeRequired: throw ClientError.http(426)
+                case .internalServerError: throw ClientError.http(500)
+                case .undocumented(let status, _): throw ClientError.http(status)
+                }
             } catch ClientError.http(404) {
                 // Journals are runtime-local; a retained conversation may have no journal after restart.
                 transcript = try await childTranscript(session: id, conversation: conversation)
@@ -270,7 +283,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func diffTargets(_ id: String) async throws -> WireDiffTargetCatalog {
-        let workspace: WireWorkspaceRef = try await get("v1/sessions/" + id + "/workspace")
+        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(workspaceResponse) = workspaceOutput else { throw WorkspaceFileError.unavailable }
+        let workspace: WireWorkspaceRef = try generated(try workspaceResponse.body.json, as: WireWorkspaceRef.self)
         guard Self.validScratchpadSession(id), workspace.sessionId == id, workspace.state.rawValue == "ready",
               let version = Operations.ListDiffTargets.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
         let input = Components.Schemas.ListDiffTargetsInput(workspaceId: workspace.workspaceId)
@@ -337,9 +352,28 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func createAnnotation(_ id: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation {
         guard Self.validScratchpadSession(id), FileAnnotation.validBody(input.body), let version = Operations.CreateAnnotation.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
         let body: Components.Schemas.CreateAnnotationInput = try generated(input, as: Components.Schemas.CreateAnnotationInput.self)
-        let output = try await api.createAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
-        guard case let .created(response) = output else { throw ClientError.invalidPayload }
-        return try FileAnnotation(try generated(try response.body.json, as: WireAnnotation.self), session: id)
+        do {
+            let output = try await api.createAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+            switch output {
+            case .created(let response):
+                return try FileAnnotation(try generated(try response.body.json, as: WireAnnotation.self), session: id)
+            case .conflict(let response):
+                switch try response.body.json.error {
+                case .staleFile: throw AnnotationEvidenceConflict.staleFile
+                case .staleWorkspace: throw AnnotationEvidenceConflict.staleWorkspace
+                case .staleTarget: throw AnnotationEvidenceConflict.staleTarget
+                default: throw ClientError.http(409)
+                }
+            default: throw ClientError.invalidPayload
+            }
+        } catch let error as AnnotationEvidenceConflict { throw error }
+          catch let error as ClientError { throw error }
+          catch {
+            // A future conflict code is intentionally preserved as an HTTP
+            // fallback even when the generated closed union cannot decode it.
+            if String(describing: error).contains("response: 409") { throw ClientError.http(409) }
+            throw error
+        }
     }
 
     func updateAnnotation(_ id: String, input: WireUpdateAnnotationInput) async throws -> FileAnnotation {
@@ -402,7 +436,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         }
         let input = WireSubagentOperationInput(action: .init(rawValue: "dismiss")!, agent: nil, message: nil,
             conversationId: conversation, taskId: nil, timeoutMs: nil, generation: generation)
-        let result: WireSubagentOperationResult = try await post("v1/sessions/" + session + "/subagents", input: input, status: [200])
+        let body: Components.Schemas.SubagentOperationInput = try generated(input, as: Components.Schemas.SubagentOperationInput.self)
+        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         guard result.dismissed == true else { throw ClientError.invalidPayload }
     }
 
@@ -416,7 +453,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         let input = WireSubagentOperationInput(action: .init(rawValue: conversation == nil ? "start" : "message")!,
             agent: conversation == nil ? agent : nil, message: message, conversationId: conversation,
             taskId: nil, timeoutMs: nil, generation: nil)
-        let result: WireSubagentOperationResult = try await post("v1/sessions/" + session + "/subagents", input: input, status: [202])
+        let body: Components.Schemas.SubagentOperationInput = try generated(input, as: Components.Schemas.SubagentOperationInput.self)
+        let output = try await api.operateSubagent(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+        guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
+        let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         return try SubagentReceipt(result, agent: agent, conversation: conversation)
     }
 
@@ -619,11 +659,16 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     private func readWorkspaceFileNow(_ id: String, path: String, expectedRevision: String?) async throws -> WireWorkspaceFileRead {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               !path.isEmpty, !path.hasPrefix("/"), !path.split(separator: "/").contains("..") else { throw ClientError.invalidPayload }
-        let workspace: WireWorkspaceRef = try await get("v1/sessions/" + id + "/workspace")
+        let workspaceOutput = try await api.getWorkspace(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(workspaceResponse) = workspaceOutput else { throw WorkspaceFileError.unavailable }
+        let workspace: WireWorkspaceRef = try generated(try workspaceResponse.body.json, as: WireWorkspaceRef.self)
         guard workspace.sessionId == id, workspace.state.rawValue == "ready" else { throw WorkspaceFileError.unavailable }
         do {
-            let result: WireWorkspaceFileRead = try await post("v1/sessions/" + id + "/workspace/files/read",
-                input: WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision))
+            let input = WireReadWorkspaceFileInput(workspaceId: workspace.workspaceId, path: path, expectedFileRevision: expectedRevision)
+            let body: Components.Schemas.ReadWorkspaceFileInput = try generated(input, as: Components.Schemas.ReadWorkspaceFileInput.self)
+            let output = try await api.readWorkspaceFile(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+            guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+            let result: WireWorkspaceFileRead = try generated(try response.body.json, as: WireWorkspaceFileRead.self)
             guard result.sessionId == id, result.path == path,
                   result.workspace.workspaceId == workspace.workspaceId, result.workspace.cwd == workspace.cwd,
                   result.returnedBytes == result.content.utf8.count,
@@ -631,6 +676,12 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             return result
         } catch ClientError.http(let code) {
             throw WorkspaceFileError.response(code)
+        } catch {
+            let description = String(describing: error)
+            for status in [400, 403, 404, 409, 413, 415, 429, 503] where description.contains("response: \(status)") {
+                throw WorkspaceFileError.response(status)
+            }
+            throw error
         }
     }
 
@@ -662,12 +713,16 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func models() async throws -> [WireModelCapability] {
-        let catalog: WireModelCatalog = try await get("v1/models")
+        let output = try await api.listModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let catalog: WireModelCatalog = try generated(try response.body.json, as: WireModelCatalog.self)
         return try validatedModels(catalog)
     }
 
     func refreshModels() async throws -> [WireModelCapability] {
-        let catalog: WireModelCatalog = try await post("v1/models/refresh", input: EmptyInput())
+        let output = try await api.refreshModels(headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let catalog: WireModelCatalog = try generated(try response.body.json, as: WireModelCatalog.self)
         return try validatedModels(catalog)
     }
 
@@ -697,7 +752,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     func fileIndex(_ id: String, refresh: Bool) async throws -> FileIndex {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }) else { throw ClientError.invalidPayload }
-        let index: WireSessionFileIndex = try await get("v1/sessions/" + id + "/files", query: refresh ? [URLQueryItem(name: "refresh", value: "true")] : [])
+        let output = try await api.getSessionFileIndex(path: .init(sessionID: id), query: .init(refresh: refresh ? true : nil), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let index: WireSessionFileIndex = try generated(try response.body.json, as: WireSessionFileIndex.self)
         guard index.sessionId == id, index.cwd.hasPrefix("/"), let entries = index.entries,
               entries.count <= 4000 else { throw ClientError.invalidPayload }
         for entry in entries {
@@ -731,8 +788,11 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func resolveAttachments(_ id: String, ids: [String]) async throws -> WireAttachmentResolution {
-        let result: WireAttachmentResolution = try await mutate(id, suffix: "attachments/resolve",
-            input: WireAttachmentResolutionInput(attachmentIds: ids))
+        let input = WireAttachmentResolutionInput(attachmentIds: ids)
+        let body: Components.Schemas.AttachmentResolutionInput = try generated(input, as: Components.Schemas.AttachmentResolutionInput.self)
+        let output = try await api.resolveAttachments(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let result: WireAttachmentResolution = try generated(try response.body.json, as: WireAttachmentResolution.self)
         let found = result.attachments ?? []
         let returned = found.map(\.id) + (result.missingAttachmentIds ?? [])
         guard Set(returned) == Set(ids), returned.count == Set(returned).count,
@@ -840,12 +900,13 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func bashHistory(_ id: String, before: String?, limit: Int) async throws -> ComposerBashHistoryPage {
         guard Self.validHistorySession(id), (1...200).contains(limit),
               before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
-        var query = [URLQueryItem(name: "limit", value: String(limit))]
-        if let before { query.append(URLQueryItem(name: "before", value: before)) }
-        let output = try await api.getBashHistory(path: .init(sessionID: id), query: .init(before: before.flatMap(Int.init), limit: limit), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
-        let page: WireBashHistoryPage = try generated(try response.body.json, as: WireBashHistoryPage.self)
-        return try ComposerBashHistoryPage(page, session: id, before: before)
+        do {
+            let output = try await api.getBashHistory(path: .init(sessionID: id), query: .init(before: before.flatMap(Int.init), limit: limit), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+            guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+            let page: WireBashHistoryPage = try generated(try response.body.json, as: WireBashHistoryPage.self)
+            return try ComposerBashHistoryPage(page, session: id, before: before)
+        } catch let error as ClientError { throw error }
+          catch { throw ClientError.invalidPayload }
     }
 
     private static func validHistorySession(_ id: String) -> Bool {

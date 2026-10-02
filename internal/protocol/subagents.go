@@ -136,6 +136,79 @@ func (result SubagentOperationResult) Validate() error {
 	})
 }
 
+// SubagentLiveEventKind identifies one closed child live-event variant.
+type SubagentLiveEventKind string
+
+const (
+	SubagentEventTurnStarted          SubagentLiveEventKind = "turn.started"
+	SubagentEventTurnSettled          SubagentLiveEventKind = "turn.settled"
+	SubagentEventMessageTextDelta     SubagentLiveEventKind = "message.text.delta"
+	SubagentEventMessageThinkingDelta SubagentLiveEventKind = "message.thinking.delta"
+	SubagentEventMessageCompleted     SubagentLiveEventKind = "message.completed"
+	SubagentEventToolPlanned          SubagentLiveEventKind = "tool.planned"
+	SubagentEventToolStarted          SubagentLiveEventKind = "tool.started"
+	SubagentEventToolOutputDelta      SubagentLiveEventKind = "tool.output.delta"
+	SubagentEventToolCompleted        SubagentLiveEventKind = "tool.completed"
+)
+
+// Named payload schemas publish SubagentLiveEvent as a discriminated union.
+type SubagentTurnStartedEvent struct {
+	Sequence int64  `json:"sequence"`
+	TurnID   string `json:"turnId,omitempty"`
+}
+type SubagentTurnSettledEvent struct {
+	Sequence int64  `json:"sequence"`
+	TurnID   string `json:"turnId,omitempty"`
+}
+type SubagentMessageTextDeltaEvent struct {
+	Sequence     int64  `json:"sequence"`
+	TurnID       string `json:"turnId,omitempty"`
+	MessageID    string `json:"messageId"`
+	ContentIndex int    `json:"contentIndex,omitempty"`
+	Delta        string `json:"delta"`
+}
+type SubagentMessageThinkingDeltaEvent struct {
+	Sequence     int64  `json:"sequence"`
+	TurnID       string `json:"turnId,omitempty"`
+	MessageID    string `json:"messageId"`
+	ContentIndex int    `json:"contentIndex,omitempty"`
+	Delta        string `json:"delta"`
+}
+type SubagentMessageCompletedEvent struct {
+	Sequence  int64  `json:"sequence"`
+	TurnID    string `json:"turnId,omitempty"`
+	MessageID string `json:"messageId,omitempty"`
+}
+type SubagentToolPlannedEvent struct {
+	Sequence     int64  `json:"sequence"`
+	TurnID       string `json:"turnId,omitempty"`
+	ContentIndex int    `json:"contentIndex,omitempty"`
+	ToolCallID   string `json:"toolCallId"`
+	ToolName     string `json:"toolName"`
+}
+type SubagentToolStartedEvent struct {
+	Sequence   int64  `json:"sequence"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId"`
+	ToolName   string `json:"toolName"`
+}
+type SubagentToolOutputDeltaEvent struct {
+	Sequence   int64  `json:"sequence"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId"`
+	ToolName   string `json:"toolName"`
+	Text       string `json:"text,omitempty"`
+	IsError    bool   `json:"isError,omitempty"`
+}
+type SubagentToolCompletedEvent struct {
+	Sequence   int64  `json:"sequence"`
+	TurnID     string `json:"turnId,omitempty"`
+	ToolCallID string `json:"toolCallId"`
+	ToolName   string `json:"toolName"`
+	Text       string `json:"text,omitempty"`
+	IsError    bool   `json:"isError,omitempty"`
+}
+
 // SubagentLiveEvent is one bounded child delta or tool update.
 type SubagentLiveEvent struct {
 	Sequence     int64  `json:"sequence"`
@@ -148,6 +221,21 @@ type SubagentLiveEvent struct {
 	ToolCallID   string `json:"toolCallId,omitempty"`
 	ToolName     string `json:"toolName,omitempty"`
 	IsError      bool   `json:"isError,omitempty"`
+}
+
+// UnionVariants declares the closed ADR 0033 event vocabulary.
+func (SubagentLiveEvent) UnionVariants() []UnionVariant {
+	return []UnionVariant{
+		{Kind: string(SubagentEventTurnStarted), Payload: SubagentTurnStartedEvent{}},
+		{Kind: string(SubagentEventTurnSettled), Payload: SubagentTurnSettledEvent{}},
+		{Kind: string(SubagentEventMessageTextDelta), Payload: SubagentMessageTextDeltaEvent{}},
+		{Kind: string(SubagentEventMessageThinkingDelta), Payload: SubagentMessageThinkingDeltaEvent{}},
+		{Kind: string(SubagentEventMessageCompleted), Payload: SubagentMessageCompletedEvent{}},
+		{Kind: string(SubagentEventToolPlanned), Payload: SubagentToolPlannedEvent{}},
+		{Kind: string(SubagentEventToolStarted), Payload: SubagentToolStartedEvent{}},
+		{Kind: string(SubagentEventToolOutputDelta), Payload: SubagentToolOutputDeltaEvent{}},
+		{Kind: string(SubagentEventToolCompleted), Payload: SubagentToolCompletedEvent{}},
+	}
 }
 
 // SubagentLiveEventPage is one runtime-local child event page.
@@ -179,7 +267,7 @@ func (page SubagentLiveEventPage) Validate() error {
 			return fmt.Errorf("subagent event %d is invalid", index)
 		}
 		switch event.Kind {
-		case "assistant.text.delta", "assistant.thinking.delta":
+		case "message.text.delta", "message.thinking.delta":
 			if event.MessageID == "" || event.Delta == "" || event.ToolCallID != "" || event.ToolName != "" || event.Text != "" || event.IsError {
 				return fmt.Errorf("subagent delta event %d has invalid fields", index)
 			}
@@ -187,14 +275,12 @@ func (page SubagentLiveEventPage) Validate() error {
 			if event.ToolCallID == "" || event.ToolName == "" || event.Delta != "" || event.MessageID != "" || event.IsError && event.Kind != "tool.output.delta" && event.Kind != "tool.completed" {
 				return fmt.Errorf("subagent tool event %d has invalid fields", index)
 			}
-		case "assistant.completed":
+		case "message.completed", "turn.started", "turn.settled":
 			if event.Delta != "" || event.Text != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
 				return fmt.Errorf("subagent message event %d has invalid fields", index)
 			}
 		default:
-			if !strings.Contains(event.Kind, ".") || event.Delta != "" || event.Text != "" || event.ToolCallID != "" || event.ToolName != "" || event.IsError {
-				return fmt.Errorf("subagent lifecycle event %d has invalid fields", index)
-			}
+			return fmt.Errorf("subagent event %d has unknown kind", index)
 		}
 		previous = event.Sequence
 	}

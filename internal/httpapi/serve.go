@@ -40,6 +40,13 @@ func registerOperation(id string) {
 	registered.Unlock()
 }
 
+// HandleRaw registers a catalog operation whose multipart, binary, or other
+// specialized wire handling is owned by fn.
+func HandleRaw[Params, In, Out any](mux *http.ServeMux, op Operation[Params, In, Out], fn http.HandlerFunc) {
+	registerOperation(op.ID)
+	mux.HandleFunc(op.Method+" "+op.Path, fn)
+}
+
 // Handle registers a typed operation on mux. Semantic validation remains the handler's responsibility.
 func Handle[Params, In, Out any](mux *http.ServeMux, options ServeOptions, op Operation[Params, In, Out], fn func(context.Context, Params, In) (Out, error)) {
 	registerOperation(op.ID)

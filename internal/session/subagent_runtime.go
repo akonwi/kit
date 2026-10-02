@@ -316,7 +316,14 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 	result := subagent.LiveEvent{TurnID: string(envelope.TurnID)}
 	switch event := envelope.Event.(type) {
 	case droids.LifecycleEvent:
-		result.Kind = event.Kind
+		switch event.Kind {
+		case "execution.started":
+			result.Kind = "turn.started"
+		case "execution.settled", "execution.interrupted":
+			result.Kind = "turn.settled"
+		default:
+			return subagent.LiveEvent{}, false
+		}
 	case droids.MessageDelta:
 		result.MessageID = event.MessageID
 		switch delta := event.Stream.(type) {
@@ -335,7 +342,7 @@ func projectChildLiveEvent(envelope droids.EventEnvelope) (subagent.LiveEvent, b
 	case droids.ToolExecutionStart:
 		result.Kind, result.ToolCallID, result.ToolName = "tool.started", string(event.ToolCallID), event.ToolName
 	case droids.ToolExecutionUpdate:
-		result.Kind, result.ToolCallID, result.ToolName = "tool.updated", string(event.ToolCallID), event.ToolName
+		result.Kind, result.ToolCallID, result.ToolName = "tool.output.delta", string(event.ToolCallID), event.ToolName
 		result.Text = childResultText(event.Delta.Content)
 		result.IsError = event.Delta.IsError
 	case droids.ToolExecutionEnd:

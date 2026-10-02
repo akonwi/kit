@@ -9,6 +9,10 @@ filter:
     - diff
     - annotations
     - bash
+    - attachments
+    - subagents
+    - server
+    - workspace
     - scratchpad
     - vcs
     - plugin

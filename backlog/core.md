@@ -147,7 +147,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   `api/kit-session.openapi.json` with a staleness test, test-only conformance
   middleware, protocol enum values with a coverage test, and tag-filtered Swift
   generation. Retained for slice dependencies.
-- [ ] CORE-PROTO-022 — Gate breaking contract changes in CI with `oasdiff`
+- [x] CORE-PROTO-022 — Gate breaking contract changes in CI with `oasdiff`
   against the document published by the most recent release, requiring a
   `SessionProtocolVersion` greater than that release's.
 - [x] CORE-PROTO-024 — The emitter rejects pointer fields that are not
@@ -183,20 +183,20 @@ change in an ADR before implementing it. Wire changes bump
   dispose, fork, cwd change, configure, compact, and reload. The server/OpenAPI
   catalog phase is complete; migrate the macOS client to the generated sessions
   operations and generated wire types.
-- [ ] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
+- [x] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
   file reads, and file index.
 - [x] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file
   diffs.
-- [ ] CORE-PROTO-016 — Annotations slice: list, create, update, and delete.
-- [ ] CORE-PROTO-017 — Bash slice: start, read, abort, and history.
-- [ ] CORE-PROTO-018 — Attachments slice: multipart upload, resolution, and
+- [x] CORE-PROTO-016 — Annotations slice: list, create, update, and delete.
+- [x] CORE-PROTO-017 — Bash slice: start, read, abort, and history.
+- [x] CORE-PROTO-018 — Attachments slice: multipart upload, resolution, and
   authenticated reads.
-- [ ] CORE-PROTO-019 — Subagents slice: operations, transcript, and live events
+- [x] CORE-PROTO-019 — Subagents slice: operations, transcript, and live events
   with a closed ADR 0033 vocabulary so `SubagentLiveEvent` becomes a
   discriminated union.
 - [x] CORE-PROTO-020 — Plugins slice: plugin command execution and the
   live `plugin.toast` SSE stream (32 KiB records, not resumable).
-- [ ] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
+- [x] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
   require catalog completeness and remove non-catalog route registration.
 
 ### Workspace data, tools, attachments, and interactions

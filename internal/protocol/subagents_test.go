@@ -43,7 +43,7 @@ func TestSubagentLiveEventPageValidation(t *testing.T) {
 	page := protocol.SubagentLiveEventPage{
 		StreamID: "substream_dddddddddddddddddddddddddddddddd", FirstSequence: 1, LastSequence: 2,
 		Events: []protocol.SubagentLiveEvent{
-			{Sequence: 1, Kind: "assistant.text.delta", MessageID: "message_1", Delta: "hello"},
+			{Sequence: 1, Kind: "message.text.delta", MessageID: "message_1", Delta: "hello"},
 			{Sequence: 2, Kind: "tool.started", ToolCallID: "call_1", ToolName: "read"},
 		},
 	}

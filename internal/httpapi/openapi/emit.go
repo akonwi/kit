@@ -60,7 +60,11 @@ func Emit() ([]byte, error) {
 			}
 		}
 		if descriptor.Input != reflect.TypeOf(httpapi.NoBody{}) {
-			operation["requestBody"] = map[string]any{"required": true, "content": jsonContent(schemaRef(descriptor.Input))}
+			mediaType := descriptor.RequestMediaType
+			if mediaType == "" {
+				mediaType = "application/json"
+			}
+			operation["requestBody"] = map[string]any{"required": true, "content": mediaContent(mediaType, schemaRef(descriptor.Input))}
 		}
 		pathItem, _ := paths[descriptor.Path].(map[string]any)
 		if pathItem == nil {
@@ -88,7 +92,9 @@ func Emit() ([]byte, error) {
 func operationParameters(descriptor httpapi.Descriptor) []any {
 	parameters := []any{
 		map[string]any{"name": httpapi.InstanceHeader, "in": "header", "required": true, "schema": map[string]any{"type": "string"}},
-		map[string]any{"name": httpapi.ProtocolHeader, "in": "header", "required": true, "schema": map[string]any{"type": "integer", "enum": []int{version.SessionProtocolVersion}}},
+	}
+	if !descriptor.NoProtocol {
+		parameters = append(parameters, map[string]any{"name": httpapi.ProtocolHeader, "in": "header", "required": true, "schema": map[string]any{"type": "integer", "enum": []int{version.SessionProtocolVersion}}})
 	}
 	typ := descriptor.Params
 	if typ.Kind() == reflect.Pointer {
@@ -138,7 +144,19 @@ func parameterSchema(typ reflect.Type) map[string]any {
 }
 
 func operationResponses(descriptor httpapi.Descriptor, components map[string]any) (map[string]any, error) {
-	success := map[string]any{"description": "Success", "content": jsonContent(schemaRef(descriptor.Output))}
+	mediaTypes := append([]string(nil), descriptor.ResponseMediaTypes...)
+	if len(mediaTypes) == 0 {
+		mediaType := descriptor.ResponseMediaType
+		if mediaType == "" {
+			mediaType = "application/json"
+		}
+		mediaTypes = []string{mediaType}
+	}
+	content := map[string]any{}
+	for _, mediaType := range mediaTypes {
+		content[mediaType] = map[string]any{"schema": schemaRef(descriptor.Output)}
+	}
+	success := map[string]any{"description": "Success", "content": content}
 	if descriptor.Output == reflect.TypeOf(httpapi.NoBody{}) {
 		success = map[string]any{"description": "Success"}
 	}
@@ -148,6 +166,9 @@ func operationResponses(descriptor httpapi.Descriptor, components map[string]any
 			"content": map[string]any{"text/event-stream": map[string]any{"schema": schemaRef(descriptor.Output)}}}
 	}
 	responses := map[string]any{fmt.Sprint(descriptor.Success): success}
+	for _, status := range descriptor.AdditionalSuccess {
+		responses[fmt.Sprint(status)] = success
+	}
 	for _, response := range descriptor.Errors {
 		schema, err := errorEnvelopeSchema(descriptor.Tag, response, components)
 		if err != nil {
@@ -158,8 +179,10 @@ func operationResponses(descriptor httpapi.Descriptor, components map[string]any
 	return responses, nil
 }
 
-func jsonContent(schema any) map[string]any {
-	return map[string]any{"application/json": map[string]any{"schema": schema}}
+func jsonContent(schema any) map[string]any { return mediaContent("application/json", schema) }
+
+func mediaContent(mediaType string, schema any) map[string]any {
+	return map[string]any{mediaType: map[string]any{"schema": schema}}
 }
 
 // errorEnvelopeSchema publishes every error status as a union of shared,
@@ -249,6 +272,10 @@ func normalizeSchema(value any) any {
 	schema, ok := value.(map[string]any)
 	if !ok {
 		return value
+	}
+	if encoding, ok := schema["contentEncoding"].(string); ok && encoding == "base64" {
+		delete(schema, "contentEncoding")
+		schema["format"] = "byte"
 	}
 	if types, ok := schema["type"].([]any); ok {
 		var nonNull []any
@@ -352,7 +379,7 @@ func addUnionSchema(components map[string]any, name string, variants []protocol.
 			schema["properties"] = properties
 		}
 		properties["kind"] = map[string]any{"type": "string", "enum": []string{variant.Kind}}
-		required, _ := schema["required"].([]string)
+		required := requiredValues(schema)
 		if !contains(required, "kind") {
 			schema["required"] = append(required, "kind")
 		}
@@ -362,6 +389,22 @@ func addUnionSchema(components map[string]any, name string, variants []protocol.
 	}
 	components[name] = map[string]any{"oneOf": refs, "discriminator": map[string]any{"propertyName": "kind", "mapping": mapping}}
 	return name, nil
+}
+
+func requiredValues(schema map[string]any) []string {
+	if values, ok := schema["required"].([]string); ok {
+		return append([]string(nil), values...)
+	}
+	if values, ok := schema["required"].([]any); ok {
+		result := make([]string, 0, len(values))
+		for _, value := range values {
+			if text, ok := value.(string); ok {
+				result = append(result, text)
+			}
+		}
+		return result
+	}
+	return nil
 }
 
 func contains(values []string, target string) bool {
@@ -448,8 +491,25 @@ func rewriteRefs(value any) {
 }
 
 func patchSchema(components map[string]any, schema map[string]any, typ reflect.Type) {
+	if _, ok := schema["required"].([]any); ok {
+		schema["required"] = requiredValues(schema)
+	}
 	for typ.Kind() == reflect.Pointer {
 		typ = typ.Elem()
+	}
+	if typ.Kind() == reflect.Slice || typ.Kind() == reflect.Array {
+		elem := typ.Elem()
+		for elem.Kind() == reflect.Pointer {
+			elem = elem.Elem()
+		}
+		if union, ok := reflect.New(elem).Elem().Interface().(unionVariants); ok && elem.Name() == "SubagentLiveEvent" {
+			name, err := addUnionSchema(components, schemaName(elem), union.UnionVariants())
+			if err == nil {
+				schema["items"] = map[string]any{"$ref": "#/components/schemas/" + name}
+			}
+			return
+		}
+		return
 	}
 	if typ == reflect.TypeOf(json.RawMessage{}) {
 		for key := range schema {
@@ -531,7 +591,7 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 					property["type"] = nonNull
 				}
 			}
-			required, _ := schema["required"].([]string)
+			required := requiredValues(schema)
 			if !contains(required, jsonName) {
 				schema["required"] = append(required, jsonName)
 			}
