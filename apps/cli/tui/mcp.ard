@@ -161,6 +161,7 @@ impl cui::Component for Status {
         title: "",
         footer: "",
         dismiss: self.props.dismiss,
+        override: Maybe::new<fn(Str)>(),
         on_activate: fn(item: palette::Item) {},
       },
     )
