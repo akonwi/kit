@@ -1,12 +1,12 @@
 use cooper/cui
 use cooper/keymap
-use cooper/ui
 use go:github.com/akonwi/kit/internal/protocol
 use kit/tui/modal
+use kit/tui/palette
 use kit/tui/theme
 use go:strings
 
-// Props is the snapshot-backed MCP status projection shown in the dialog.
+// Props is the snapshot-backed MCP status projection shown in the picker.
 struct Props {
   themes: theme::Context,
   servers: [protocol::MCPServerStatus],
@@ -16,36 +16,28 @@ struct Props {
 
 struct Status {
   props: Props,
-  scroll: mut cui::ScrollBoxRef,
+  query: Str,
+  selection: Str,
+  hover: Str,
+  hidden_above: Bool,
+  hidden_below: Bool,
+  viewport: Int,
+  list: mut cui::VirtualListRef,
 }
 
 fn new(props: mut Props) mut Status {
-  (mut Status{props: props.@, scroll: cui::scroll_box_ref()})
+  (mut Status{
+    props: props.@,
+    query: "",
+    selection: "",
+    hover: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+    list: cui::virtual_list_ref(),
+  })
 }
 
-private fn inset() ui::Edges {
-  ui::Edges{
-    top: ui::cells(0),
-    right: ui::cells(1),
-    bottom: ui::cells(0),
-    left: ui::cells(1),
-  }
-}
-
-private fn line(value: Str, style: ui::TextStyle) cui::View {
-  cui::text(
-    value,
-    text_style: style,
-    wrap: ui::TextWrap::none,
-    overflow: ui::TextOverflow::ellipsis,
-  )
-}
-
-private fn blank() cui::View {
-  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
-}
-
-// status_label translates internal lifecycle names into user-facing state.
 private fn status_label(state: Str) Str {
   match state {
     "configured" => "available",
@@ -54,184 +46,123 @@ private fn status_label(state: Str) Str {
   }
 }
 
+private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  for server in servers {
+    let tools = match server.ToolCount == 1 {
+      true => "tool",
+      false => "tools",
+    }
+    result.push(
+      palette::Item{
+        key: server.Name,
+        label: server.Name,
+        hint: "",
+        meta: status_label(server.State),
+        description: "{strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}",
+        search_terms: [server.Transport, server.Source, server.Description, server.State],
+        disabled_reason: "",
+      },
+    )
+  }
+  result.@
+}
+
+impl Status {
+  private fn mut picker(catalog: [palette::Item]) palette::Props {
+    palette::Props{
+      // Status remains read-only. Enter is intentionally harmless while rows
+      // remain keyboard-navigable and filterable like other palette pickers.
+      themes: self.props.themes,
+      placeholder: "Search MCP servers…",
+      catalog: catalog,
+      query: self.query,
+      filter_query: "",
+      selection: self.selection,
+      hovered: self.hover,
+      hidden_above: self.hidden_above,
+      hidden_below: self.hidden_below,
+      on_query_change: fn(query: Str) {
+        self.query = query
+        self.hover = ""
+        let next = palette::first_enabled(
+          palette::items(
+            palette::Props{
+              themes: self.props.themes,
+              placeholder: "",
+              catalog: catalog,
+              query: query,
+              filter_query: "",
+              selection: "",
+              hovered: "",
+              hidden_above: false,
+              hidden_below: false,
+              on_query_change: fn(value: Str) {},
+              on_selection_change: fn(value: Str) {},
+              on_hover_change: fn(value: Str) {},
+              on_activate: fn(item: palette::Item) {},
+            },
+          ),
+        )
+        if next != "" {
+          self.selection = next
+        }
+      },
+      on_selection_change: fn(selection: Str) {
+        self.selection = selection
+      },
+      on_hover_change: fn(hover: Str) {
+        self.hover = hover
+      },
+      on_activate: fn(item: palette::Item) {},
+    }
+  }
+
+  private fn mut picker_viewport(catalog: [palette::Item]) palette::Viewport {
+    palette::Viewport{
+      list: self.list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = palette::items(self.picker(catalog))
+        self.hidden_above = update.state.visible_range.start > 0
+        self.hidden_below = update.state.visible_range.end < visible.size()
+        self.viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match self.viewport > 1 {
+          true => self.viewport - 1,
+          false => 1,
+        }
+        let _ = self.list.current.map(fn(list) {
+          list.scroll_by(direction * step)
+        })
+      },
+    }
+  }
+}
+
 impl cui::Component for Status {
   fn mut render() cui::View {
-    let colors = self.props.themes.current()
-    let scroll_up = keymap::simple_command("mcp.scroll_up", "Scroll up", fn() Bool {
-      let _ = self.scroll.current.map(fn(scroll) {
-        scroll.scroll_by(-1)
-      })
-      true
-    })
-    let scroll_down = keymap::simple_command("mcp.scroll_down", "Scroll down", fn() Bool {
-      let _ = self.scroll.current.map(fn(scroll) {
-        scroll.scroll_by(1)
-      })
-      true
-    })
-    let rows = mut List::new<cui::View>()
-    if self.props.servers.size() == 0 {
-      rows.push(line("No MCP servers are configured.", ui::text_style(foreground: colors.muted)))
-    } else {
-      for server in self.props.servers {
-        let status_color = match server.State {
-          "connected" => colors.success_text,
-          "connecting" => colors.warning_text,
-          "authorizing" => colors.warning_text,
-          "error" => colors.danger_text,
-          _ => colors.muted,
-        }
-        let marker = match server.State {
-          "connected" => "✓",
-          "connecting" => "◌",
-          "authorizing" => "◌",
-          "disabled" => "⊘",
-          "error" => "×",
-          _ => "○",
-        }
-        rows.push(
-          cui::box(
-            [
-              line(marker, ui::text_style(foreground: status_color)),
-              line(server.Name, ui::text_style(bold: true)),
-              cui::box(
-                [line(status_label(server.State), ui::text_style(foreground: status_color))],
-                styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), align_items: ui::Align::end),
-              ),
-            ],
-            styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
-          ),
-        )
-        if server.Description != "" {
-          rows.push(
-            cui::text(
-              server.Description,
-              styles: ui::style(
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(0),
-                  bottom: ui::cells(0),
-                  left: ui::cells(2),
-                },
-              ),
-              text_style: ui::text_style(foreground: colors.muted),
-              wrap: ui::TextWrap::word,
-            ),
-          )
-        }
-        let tools = match server.ToolCount == 1 {
-          true => "tool",
-          false => "tools",
-        }
-        let oauth = match server.OAuthSaved {
-          true => " · OAuth saved",
-          false => "",
-        }
-        rows.push(
-          cui::text(
-            "{strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}{oauth}",
-            styles: ui::style(
-              padding: ui::Edges{
-                top: ui::cells(0),
-                right: ui::cells(0),
-                bottom: ui::cells(0),
-                left: ui::cells(2),
-              },
-            ),
-            text_style: ui::text_style(foreground: colors.muted),
-            wrap: ui::TextWrap::none,
-            overflow: ui::TextOverflow::ellipsis,
-          ),
-        )
-        if server.ConfigPath != "" {
-          let source = match server.Source {
-            "kit-user" => "User config",
-            "shared-project" => "Project",
-            "kit-project" => "Kit project",
-            _ => server.Source,
-          }
-          rows.push(
-            cui::text(
-              "{source} · {server.ConfigPath}",
-              styles: ui::style(
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(0),
-                  bottom: ui::cells(0),
-                  left: ui::cells(2),
-                },
-              ),
-              text_style: ui::text_style(foreground: colors.muted),
-              wrap: ui::TextWrap::none,
-              overflow: ui::TextOverflow::ellipsis,
-            ),
-          )
-        }
-        if server.LastError != "" {
-          rows.push(
-            cui::text(
-              server.LastError,
-              styles: ui::style(
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(0),
-                  bottom: ui::cells(0),
-                  left: ui::cells(2),
-                },
-              ),
-              text_style: ui::text_style(foreground: colors.danger_text),
-              wrap: ui::TextWrap::word,
-            ),
-          )
-        }
-        rows.push(blank())
-      }
-    }
-    if self.props.warnings.size() > 0 {
-      rows.push(line("Warnings", ui::text_style(bold: true)))
-      for warning in self.props.warnings {
-        rows.push(
-          cui::text(
-            "▲ {warning}",
-            text_style: ui::text_style(foreground: colors.warning_text),
-            wrap: ui::TextWrap::word,
-          ),
-        )
-      }
-    }
+    let catalog = catalog(self.props.servers)
+    let picker = self.picker(catalog)
+    let navigation = palette::navigation(picker)
     modal::dialog(
       self.props.themes,
       modal::Dialog{
         placement: modal::Placement::picker,
-        title: "MCP servers",
+        title: "",
         meta: "",
-        header: [],
-        body: cui::scroll_box(
-          [cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))],
-          key: "mcp.status.list",
-          styles: ui::style(height: ui::cells(16), padding: inset()),
-          scrollbar_options: ui::scrollbar_options(),
-          ref: self.scroll,
-          key_bindings: keymap::rebind(
-            keymap::rebind(
-              ui::default_scroll_box_bindings(),
-              ui::ScrollBoxAction::up,
-              [keymap::key("up"), keymap::key("k")],
-            ),
-            ui::ScrollBoxAction::down,
-            [keymap::key("down"), keymap::key("j")],
-          ),
-        ),
+        header: palette::header(picker),
+        body: palette::body(picker, self.picker_viewport(catalog)),
         footer: Maybe::new<cui::View>(),
-        autofocus: true,
+        autofocus: false,
         dismiss: self.props.dismiss,
-        commands: Maybe::new([scroll_up, scroll_down]),
+        commands: Maybe::new([navigation.up, navigation.down]),
         bindings: Maybe::new(
           [
-            keymap::binding(keymap::key("up"), scroll_up.with()),
-            keymap::binding(keymap::key("k"), scroll_up.with()),
-            keymap::binding(keymap::key("down"), scroll_down.with()),
-            keymap::binding(keymap::key("j"), scroll_down.with()),
+            keymap::binding(keymap::key("up"), navigation.up.with()),
+            keymap::binding(keymap::key("k"), navigation.up.with()),
+            keymap::binding(keymap::key("down"), navigation.down.with()),
+            keymap::binding(keymap::key("j"), navigation.down.with()),
           ],
         ),
       },
