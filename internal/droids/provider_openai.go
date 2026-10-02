@@ -42,6 +42,12 @@ type OpenAI struct {
 	ID string
 	// Options are extra SDK request options, applied after the built-ins.
 	Options []option.RequestOption
+	// PromptCacheRetention returns the cache lifetime for each request.
+	// Nil, or any value other than PromptCacheLong, selects PromptCacheShort.
+	// Only the public Responses endpoint maps it, and only for models whose
+	// retention field is documented. GPT-5.6 and later use prompt_cache_options.ttl
+	// instead; that lifetime is 30 minutes regardless of this setting.
+	PromptCacheRetention func() PromptCacheRetention
 }
 
 func (c OpenAI) build() (providerEntry, error) {
@@ -78,7 +84,7 @@ func (c OpenAI) build() (providerEntry, error) {
 		models[model.ID] = model
 	}
 
-	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts}
+	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts, promptCacheRetention: c.PromptCacheRetention}
 	return providerEntry{
 		id:          id,
 		catalogID:   "openai",
@@ -103,9 +109,10 @@ func (c OpenAI) build() (providerEntry, error) {
 }
 
 type openAIProvider struct {
-	client       *openai.Client
-	apiKeySource APIKeySource
-	options      []option.RequestOption
+	client               *openai.Client
+	apiKeySource         APIKeySource
+	options              []option.RequestOption
+	promptCacheRetention func() PromptCacheRetention
 }
 
 func (p *openAIProvider) stream(ctx context.Context, model Model, req Request, _ callOptions) Stream {
@@ -126,6 +133,7 @@ func (p *openAIProvider) run(ctx context.Context, model Model, req Request, s *p
 		s.emit(StreamError{Message: final})
 		return
 	}
+	applyOpenAIPromptCache(model, p.cacheRetention(), &params)
 
 	client, err := p.clientForRequest(ctx)
 	if err != nil {
@@ -608,14 +616,7 @@ func assembleResponse(model Model, response responses.Response) AssistantMessage
 		msg.StopReason = StopReasonToolUse
 	}
 
-	u := response.Usage
-	msg.Usage = Usage{
-		Input:       int(u.InputTokens),
-		Output:      int(u.OutputTokens),
-		CacheRead:   int(u.InputTokensDetails.CachedTokens),
-		Reasoning:   int(u.OutputTokensDetails.ReasoningTokens),
-		TotalTokens: int(u.TotalTokens),
-	}
+	msg.Usage = openAIUsage(response.Usage)
 	return msg
 }
 

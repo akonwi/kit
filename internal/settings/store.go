@@ -47,9 +47,11 @@ func (w Warning) Error() string {
 
 const maxFileSize = 1 << 20
 
-// Prompt cache retention values. Providers map them to their own lifetimes;
+// Prompt cache retention values. Providers map them to their own lifetimes.
 // Anthropic retains short entries for five minutes and long entries for one
-// hour.
+// hour. Public OpenAI Responses maps long to 24h, and short to in_memory, only
+// for reviewed earlier models. GPT-5.6 and later ignore it and use a 30-minute
+// prompt_cache_options.ttl.
 const (
 	PromptCacheShort = "short"
 	PromptCacheLong  = "long"

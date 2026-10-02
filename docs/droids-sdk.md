@@ -397,10 +397,12 @@ type SessionUsage = Usage
 ```
 
 `Input` counts input tokens that were neither read from nor written to a
-prompt cache when the provider reports them separately, as Anthropic does;
-`TotalTokens` then includes cache reads and writes. Cache-write cost uses the
-model's cache-write price, except one-hour writes, which cost twice the input
-price.
+prompt cache when the provider reports them separately, as Anthropic does.
+OpenAI Responses reports `cached_tokens` and `cache_write_tokens` as a
+breakdown of `input_tokens`; the provider subtracts both from `Input` and
+keeps the reported `TotalTokens`. Cache-write cost uses the model's
+cache-write price, except Anthropic one-hour writes, which cost twice the
+input price. OpenAI does not use `CacheWrite1h`.
 
 ### Prompt caching
 
@@ -425,8 +427,33 @@ entirely; OpenCode Go sets it. Raw `Options` must not add their own
 rejects requests with more than four breakpoints or with a shorter lifetime
 before a longer one.
 
-`CacheWrite1h` is used for pricing only; Kit's session protocol reports total
-cache writes.
+The `OpenAI` provider sends cache controls only for the public Responses API
+(`https://api.openai.com/v1`). Codex, OpenCode Go, and any other `BaseURL`
+omit them. Its optional `PromptCacheRetention func() PromptCacheRetention` is
+called for each request and defaults to `PromptCacheShort`.
+
+GPT-5.6 and later public models (`gpt-5.6`, `gpt-6`, and IDs prefixed with
+`gpt-5.6-` or `gpt-6-`) send `prompt_cache_options` with `mode: implicit` and
+`ttl: 30m`. That lifetime does not follow `PromptCacheRetention`. A non-empty
+system prompt is moved from `instructions` to the first developer input item,
+with `prompt_cache_breakpoint: { "mode": "explicit" }`, so the stable prefix is
+a cache boundary. Implicit mode still breakpoints the latest eligible message.
+The request keeps `store: false`, includes `reasoning.encrypted_content`, and
+does not set `previous_response_id`, `prompt_cache_key`, `prewarm`, or
+`prompt_cache_retention`.
+
+Earlier reviewed models map retention to `prompt_cache_retention`: `long` is
+`24h`; `short` is `in_memory` except for `gpt-5.5` and `gpt-5.5-pro`, which
+only support `24h` and therefore omit the field when retention is short.
+Unlisted models, including siblings such as `gpt-5-mini`, receive neither
+field. Support is this reviewed list, not a catalog cache-write price.
+
+Encrypted reasoning items replay only when the provider and model match. A
+model change drops them and replays assistant text without requiring a stored
+provider transcript.
+
+`CacheWrite1h` is used for Anthropic pricing only; Kit's session protocol
+reports total cache writes.
 
 `Usage` on an assistant message or settled turn describes that canonical unit.
 `SessionUsage` is the authoritative cumulative total for the conversation. It

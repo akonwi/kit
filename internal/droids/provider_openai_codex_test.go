@@ -100,6 +100,12 @@ func TestOpenAICodexStreamsResponsesDialect(t *testing.T) {
 	if body["model"] != "gpt-5.6-sol" || body["store"] != false || body["stream"] != true || body["instructions"] != "Be concise." {
 		t.Fatalf("request controls = %#v", body)
 	}
+	if _, sent := body["prompt_cache_options"]; sent {
+		t.Fatalf("Codex request included unverified prompt_cache_options: %#v", body["prompt_cache_options"])
+	}
+	if _, sent := body["prompt_cache_retention"]; sent {
+		t.Fatalf("Codex request included unverified prompt_cache_retention: %#v", body["prompt_cache_retention"])
+	}
 	if body["parallel_tool_calls"] != true || body["tool_choice"] != "auto" {
 		t.Fatalf("Codex request controls = %#v", body)
 	}

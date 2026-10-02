@@ -507,7 +507,7 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 	anthropicConfig.PromptCacheRetention = promptCacheRetention(paths)
 	openCodeGoKey, openCodeGoKeySource, openCodeGoSource := providerAPIKey(store, auth.OpenCodeGoProviderID, os.Getenv("OPENCODE_API_KEY"))
 	configs := []droids.ProviderConfig{
-		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
+		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL"), PromptCacheRetention: promptCacheRetention(paths)},
 		anthropicConfig,
 		droids.OpenCodeGo{APIKey: openCodeGoKey, APIKeySource: openCodeGoKeySource},
 	}

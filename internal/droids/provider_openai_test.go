@@ -136,7 +136,7 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	if message.StopReason != StopReasonStop {
 		t.Fatalf("stop reason = %q", message.StopReason)
 	}
-	if message.Usage.Input != 11 || message.Usage.Output != 7 || message.Usage.CacheRead != 3 || message.Usage.Reasoning != 2 || message.Usage.TotalTokens != 18 {
+	if message.Usage.Input != 8 || message.Usage.Output != 7 || message.Usage.CacheRead != 3 || message.Usage.CacheWrite != 0 || message.Usage.Reasoning != 2 || message.Usage.TotalTokens != 18 {
 		t.Fatalf("usage = %#v", message.Usage)
 	}
 	text := message.Content[0].(TextContent)

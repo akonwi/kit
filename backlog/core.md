@@ -237,7 +237,7 @@ gates. The [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-mo
 and linked specifications are the starting point; recheck current compatibility
 before implementation. Public OpenAI API support does not establish Codex OAuth
 endpoint support. Completed temperature compatibility, provider policy-stop
-handling, and effort history are documented in the feature guides linked below.
+handling, effort history, and prompt-cache controls are documented in the feature guides linked below.
 
 - [ ] CORE-GPT6-004 — Let users steer an active provider response over Responses
   WebSockets, retaining boundary-based steering for unsupported providers.
@@ -266,14 +266,6 @@ handling, and effort history are documented in the feature guides linked below.
   duplicate delivery, failure/recovery, and concurrent-session isolation.
   Preserve the existing [provider policy-stop behavior](../docs/features/provider-policy-stops.md);
   see [async tools](https://developers.openai.com/api/docs/guides/async-tool-calling).
-- [ ] CORE-GPT6-006 — Audit and support current OpenAI prompt-cache controls and
-  usage accounting, including `prompt_cache_options.ttl`, cache boundaries, and
-  cache-write billing. Verify encrypted reasoning continuity and compatible
-  replay across turns/model changes without requiring provider-side transcript
-  storage. Document endpoint-specific behavior and test exact request fields,
-  usage projection, and cost accounting; do not infer advanced support from
-  catalog metadata alone. See
-  [prompt caching](https://developers.openai.com/api/docs/guides/prompt-caching).
 - [ ] CORE-CACHE-001 — Keep valuable prompt caches warm. Before an entry
   expires, replay the last request with a minimal output cap to refresh it,
   while a run is active (for example across long tool calls or subagents) and
