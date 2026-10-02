@@ -220,10 +220,13 @@ impl Picker {
         self.hidden_below = update.state.visible_range.end < visible.size()
         self.viewport = update.state.viewport_height
         if self.reveal_current {
-          self.reveal_current = false
-          let _ = self.list.current.map(fn(list) {
-            list.reveal(self.selection)
-          })
+          match self.list.current {
+            list => {
+              self.reveal_current = false
+              let _ = list.reveal(self.selection)
+            },
+            _ => (),
+          }
         }
       },
       on_page: fn(direction: Int) {
