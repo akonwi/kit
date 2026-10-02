@@ -1438,7 +1438,6 @@ impl Shell {
       ],
       styles: ui::style(
         flex_direction: ui::FlexDirection::column,
-        gap: ui::cells(1),
         padding: inset(),
         min_width: ui::cells(44),
       ),
@@ -1448,7 +1447,7 @@ impl Shell {
       modal::Dialog{
         placement: modal::Placement::centered,
         title: "Session details",
-        meta: format::session_name(session),
+        meta: "",
         header: [],
         body: body,
         footer: Maybe::new<cui::View>(),
