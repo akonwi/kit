@@ -37,6 +37,7 @@ struct Picker {
   hidden_above: Bool,
   hidden_below: Bool,
   viewport: Int,
+  reveal_current: Bool,
   list: mut cui::VirtualListRef,
 }
 
@@ -55,6 +56,7 @@ fn new(props: mut Props) mut Picker {
     hidden_above: false,
     hidden_below: false,
     viewport: 0,
+    reveal_current: true,
     list: cui::virtual_list_ref(),
   })
 }
@@ -111,7 +113,10 @@ impl Picker {
         if self.generation == generation {
           self.loading = false
           match result {
-            ok(catalog) => { self.models = catalog.Models },
+            ok(catalog) => {
+              self.models = catalog.Models
+              self.reveal_current = true
+            },
             err(failure) => { self.error = failure.error() },
           }
         }
@@ -214,6 +219,12 @@ impl Picker {
         self.hidden_above = update.state.visible_range.start > 0
         self.hidden_below = update.state.visible_range.end < visible.size()
         self.viewport = update.state.viewport_height
+        if self.reveal_current {
+          self.reveal_current = false
+          let _ = self.list.current.map(fn(list) {
+            list.reveal(self.selection)
+          })
+        }
       },
       on_page: fn(direction: Int) {
         let step = match self.viewport > 1 {
