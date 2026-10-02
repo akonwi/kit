@@ -340,13 +340,6 @@ private fn row(props: Props, item: Item) cui::View {
         ],
         styles: ui::style(width: ui::cells(columns.hint + 2), flex_shrink: 0.0),
       ),
-      cui::text(
-        description,
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-        text_style: ui::text_style(foreground: colors.muted),
-        wrap: ui::TextWrap::none,
-        overflow: ui::TextOverflow::ellipsis,
-      ),
       cui::box(
         [
           cui::text(
@@ -366,6 +359,13 @@ private fn row(props: Props, item: Item) cui::View {
             left: ui::cells(2),
           },
         ),
+      ),
+      cui::text(
+        description,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
       ),
     ],
     styles: ui::style(
