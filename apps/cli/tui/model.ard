@@ -92,7 +92,6 @@ impl Picker {
   private fn mut load(ctx: cui::Context) {
     self.loading = true
     self.error = ""
-    (ctx.invalidate_root)()
     self.generation =+ 1
     let generation = self.generation
     let transport = self.props.transport
@@ -113,7 +112,6 @@ impl Picker {
             ok(catalog) => { self.models = catalog.Models },
             err(failure) => { self.error = failure.error() },
           }
-          (ctx.invalidate_root)()
         }
       })
     })
@@ -123,16 +121,19 @@ impl Picker {
     if self.loading or self.pending or selected == "" {
       ()
     } else {
-      for model in self.models {
-        if model.ID == selected {
-          self.editing_context = true
-          self.edit_model = model.ID
-          self.edit_value = "{model.ContextWindow}"
-          self.error = ""
-        }
-      }
       match self.context {
-        context => (context.invalidate_root)(),
+        context => {
+          let _ = context.dispatch(fn() {
+            for model in self.models {
+              if model.ID == selected {
+                self.editing_context = true
+                self.edit_model = model.ID
+                self.edit_value = "{model.ContextWindow}"
+                self.error = ""
+              }
+            }
+          })
+        },
         _ => (),
       }
     }
