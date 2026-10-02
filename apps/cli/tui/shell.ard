@@ -72,6 +72,27 @@ private fn device_waiting_text(remaining: Int64) Str {
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
 // yet stay discoverable but cannot be activated.
+// command_word extracts the palette's command token; the remaining query is
+// literal command input rather than catalog-filter text.
+private fn command_word(query: Str) Str {
+  let trimmed = strings::TrimSpace(query)
+  let separator = strings::Index(trimmed, " ")
+  match separator < 0 {
+    true => trimmed,
+    false => trimmed.slice(0, separator).or(""),
+  }
+}
+
+// command_args removes one command token and one separator, preserving all
+// remaining whitespace for plugin argument fidelity.
+private fn command_args(query: Str) Str {
+  let separator = strings::Index(strings::TrimLeft(query, " \t"), " ")
+  match separator < 0 {
+    true => "",
+    false => query.slice(separator + 1, query.size()).or(""),
+  }
+}
+
 private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
   palette::Item{
     key: key,
@@ -193,16 +214,16 @@ private fn command_catalog(
       false => "",
     }
     // Instance-backed keys distinguish same-named contributions from separate
-    // plugins. The canonical command ID is the vaxis-visible label; its
-    // plugin identifier remains trailing metadata.
+    // plugins. The short command name is visible; plugin metadata disambiguates
+    // duplicate names while canonical ID remains the execution identity.
     catalog.push(
       palette::Item{
         key: "plugin:{command.Instance}:{command.ID}",
-        label: command.ID,
+        label: command.LocalID,
         hint: hint,
         description: command.Description,
         meta: command.PluginID,
-        search_terms: [command.LocalID, command.PluginID, command.Category],
+        search_terms: [command.ID, command.PluginID, command.Category],
         disabled_reason: "",
       },
     )
@@ -1663,6 +1684,7 @@ impl Shell {
       placeholder: "Search commands…",
       catalog: catalog,
       query: self.command_query,
+      filter_query: command_word(self.command_query),
       selection: self.command_selection,
       hovered: self.command_hover,
       hidden_above: self.command_hidden_above,
@@ -1677,6 +1699,7 @@ impl Shell {
               placeholder: "",
               catalog: catalog,
               query: query,
+              filter_query: command_word(query),
               selection: "",
               hovered: "",
               hidden_above: false,
@@ -1717,13 +1740,13 @@ impl Shell {
           for command in self.prompt_commands {
             if item.key == "prompt:{command.Name}" {
               self.active_modal = ActiveModal::none
-              self.submit_prompt_command(command.Name)
+              self.submit_prompt_command(command.Name, command_args(self.command_query))
             }
           }
           for command in self.plugin_commands {
             if item.key == "plugin:{command.Instance}:{command.ID}" {
               self.active_modal = ActiveModal::none
-              self.execute_plugin_command(command)
+              self.execute_plugin_command(command, command_args(self.command_query))
             }
           }
         }
@@ -1770,6 +1793,7 @@ impl Shell {
             placeholder: "",
             catalog: command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands, self.plugin_commands),
             query: self.command_query,
+            filter_query: command_word(self.command_query),
             selection: "",
             hovered: "",
             hidden_above: false,
@@ -1803,6 +1827,7 @@ impl Shell {
       placeholder: "Search providers…",
       catalog: catalog,
       query: self.picker_query,
+      filter_query: "",
       selection: self.picker_selection,
       hovered: self.picker_hover,
       hidden_above: self.picker_hidden_above,
@@ -1817,6 +1842,7 @@ impl Shell {
               placeholder: "",
               catalog: catalog,
               query: query,
+              filter_query: "",
               selection: "",
               hovered: "",
               hidden_above: false,
@@ -1897,6 +1923,7 @@ impl Shell {
             placeholder: "",
             catalog: provider_catalog(),
             query: self.picker_query,
+            filter_query: "",
             selection: "",
             hovered: "",
             hidden_above: false,
@@ -2213,7 +2240,7 @@ impl Shell {
 
   // Submits a discovered prompt command. The server queues it behind active
   // work and retains the /command invocation as the follow-up preview.
-  fn mut submit_prompt_command(name: Str) {
+  fn mut submit_prompt_command(name: Str, args: Str) {
     if self.phase == Phase::ready {
       match self.lifetime {
         lifetime => {
@@ -2221,7 +2248,11 @@ impl Shell {
             info => {
               match self.context {
                 context => {
-                  let display = "/{name}"
+                  let suffix = match args != "" {
+                    true => " {args}",
+                    false => "",
+                  }
+                  let display = "/{name}{suffix}"
                   let optimistic = self.live.activity == "" and not self.start_pending
                   if optimistic {
                     self.notice = ""
@@ -2239,7 +2270,7 @@ impl Shell {
                       transport,
                       httpapi::SubmitPromptCommand,
                       httpapi::SessionPath{SessionID: session_id},
-                      protocol::PromptCommandInput{Name: name, Args: ""},
+                      protocol::PromptCommandInput{Name: name, Args: args},
                     ) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
@@ -2288,7 +2319,7 @@ impl Shell {
   // Executes a plugin-owned command without creating an agent turn or
   // changing the composer draft. The server validates the generation-owned
   // instance so stale palette entries cannot run a replacement plugin.
-  fn mut execute_plugin_command(command: protocol::PluginCommand) {
+  fn mut execute_plugin_command(command: protocol::PluginCommand, args: Str) {
     match self.lifetime {
       lifetime => {
         match self.info {
@@ -2308,7 +2339,7 @@ impl Shell {
                     protocol::PluginCommandInput{
                       ID: command.ID,
                       Instance: command.Instance,
-                      Args: "",
+                      Args: args,
                     },
                   )
                   let _ = dispatch(fn() {
