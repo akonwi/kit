@@ -22,6 +22,7 @@ struct ButtonProps {
   autofocus: Bool,
   trailing_padding: Int?,
   styles: ui::Style?,
+  foreground: ui::Color?,
   control: mut cui::BoxRef,
 }
 
@@ -45,6 +46,7 @@ fn button(
   autofocus: Bool?,
   trailing_padding: Int?,
   styles: ui::Style?,
+  foreground: ui::Color?,
   ref: (mut cui::BoxRef)?,
 ) cui::View {
   cui::child(
@@ -59,6 +61,7 @@ fn button(
       autofocus: autofocus.or(false),
       trailing_padding: trailing_padding,
       styles: styles,
+      foreground: foreground,
       control: ref.or(cui::box_ref()),
     },
   )
@@ -123,7 +126,7 @@ impl Button {
   }
 
   private fn foreground() ui::Color {
-    self.props.themes.current().foreground
+    self.props.foreground.or(self.props.themes.current().foreground)
   }
 
   private fn mut mouse(received: mut event::MouseEvent) {
