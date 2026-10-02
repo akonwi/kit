@@ -118,8 +118,10 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     _ => (),
   }
   cui::box(
+    // Distinguish modal kinds so replacing a focused picker with a passive
+    // dialog remounts its focus owner and applies autofocus again.
     content.@,
-    key: "modal.panel",
+    key: "modal.panel.{spec.title}",
     autofocus: spec.autofocus,
     styles: panel_style(colors, spec.placement),
     commands: commands.@,
