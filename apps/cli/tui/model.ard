@@ -31,13 +31,6 @@ struct Picker {
   error: Str,
   generation: Int,
   context: cui::Context?,
-  query: Str,
-  selection: Str,
-  hover: Str,
-  hidden_above: Bool,
-  hidden_below: Bool,
-  viewport: Int,
-  list: mut cui::VirtualListRef,
 }
 
 fn new(props: mut Props) mut Picker {
@@ -49,13 +42,6 @@ fn new(props: mut Props) mut Picker {
     error: "",
     generation: 0,
     context: Maybe::new<cui::Context>(),
-    query: "",
-    selection: props.session.Model,
-    hover: "",
-    hidden_above: false,
-    hidden_below: false,
-    viewport: 0,
-    list: cui::virtual_list_ref(),
   })
 }
 
@@ -111,18 +97,7 @@ impl Picker {
         if self.generation == generation {
           self.loading = false
           match result {
-            ok(catalog) => {
-              self.models = catalog.Models
-              let selection = self.selection
-              let list = self.list
-              (ctx.internal_commit)(
-                fn() {
-                  let _ = list.current.map(fn(current) {
-                    current.reveal(selection)
-                  })
-                },
-              )
-            },
+            ok(catalog) => { self.models = catalog.Models },
             err(failure) => { self.error = failure.error() },
           }
         }
@@ -160,81 +135,6 @@ impl Picker {
           }
         })
       })
-    }
-  }
-
-  private fn mut picker(catalog: [palette::Item]) palette::Props {
-    palette::Props{
-      themes: self.props.themes,
-      placeholder: "Search models…",
-      catalog: catalog,
-      query: self.query,
-      filter_query: "",
-      selection: self.selection,
-      hovered: self.hover,
-      hidden_above: self.hidden_above,
-      hidden_below: self.hidden_below,
-      on_query_change: fn(query: Str) {
-        self.query = query
-        self.hover = ""
-        let next = palette::first_enabled(
-          palette::items(
-            palette::Props{
-              themes: self.props.themes,
-              placeholder: "",
-              catalog: catalog,
-              query: query,
-              filter_query: "",
-              selection: "",
-              hovered: "",
-              hidden_above: false,
-              hidden_below: false,
-              on_query_change: fn(value: Str) {},
-              on_selection_change: fn(value: Str) {},
-              on_hover_change: fn(value: Str) {},
-              on_activate: fn(item: palette::Item) {},
-            },
-          ),
-        )
-        if next != "" {
-          self.selection = next
-        }
-      },
-      on_selection_change: fn(selection: Str) {
-        self.selection = selection
-      },
-      on_hover_change: fn(hover: Str) {
-        self.hover = hover
-      },
-      on_activate: fn(item: palette::Item) {
-        if item.disabled_reason == "" {
-          match self.context {
-            context => self.apply(item.key, context),
-            _ => (),
-          }
-        }
-      },
-    }
-  }
-
-  private fn mut viewport(catalog: [palette::Item]) palette::Viewport {
-    palette::Viewport{
-      list: self.list,
-      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        let visible = palette::items(self.picker(catalog))
-        self.hidden_above = update.state.visible_range.start > 0
-        self.hidden_below = update.state.visible_range.end < visible.size()
-        self.viewport = update.state.viewport_height
-      },
-      on_page: fn(direction: Int) {
-        let step = match self.viewport > 1 {
-          true => self.viewport - 1,
-          false => 1,
-        }
-        let _ = self.list.current.map(fn(list) {
-          list.scroll_by(direction * step)
-        })
-      },
     }
   }
 }
@@ -300,44 +200,22 @@ impl cui::Component for Picker {
             )
           },
           false => {
-            let catalog = catalog(self.models, self.pending)
-            let picker = self.picker(catalog)
-            let navigation = palette::navigation(picker)
-            modal::dialog(
-              self.props.themes,
-              modal::Dialog{
-                placement: modal::Placement::picker,
+            cui::child(
+              palette::new_picker,
+              palette::PickerProps{
+                themes: self.props.themes,
+                catalog: catalog(self.models, self.pending),
+                placeholder: "Search models…",
+                initial_selection: self.props.session.Model,
                 title: "Select model",
-                meta: "",
-                header: palette::header(picker),
-                body: palette::body(picker, self.viewport(catalog)),
-                footer: Maybe::new(
-                  cui::box(
-                    [
-                      cui::text(
-                        "↑↓ move · enter apply · esc close",
-                        text_style: ui::text_style(foreground: self.props.themes.current().muted),
-                      ),
-                    ],
-                    styles: ui::style(
-                      padding: ui::Edges{
-                        top: ui::cells(0),
-                        right: ui::cells(1),
-                        bottom: ui::cells(0),
-                        left: ui::cells(1),
-                      },
-                    ),
-                  ),
-                ),
-                autofocus: false,
+                footer: "↑↓ move · enter apply · esc close",
                 dismiss: self.props.dismiss,
-                commands: Maybe::new([navigation.up, navigation.down]),
-                bindings: Maybe::new(
-                  [
-                    keymap::binding(keymap::key("up"), navigation.up.with()),
-                    keymap::binding(keymap::key("down"), navigation.down.with()),
-                  ],
-                ),
+                on_activate: fn(item: palette::Item) {
+                  match self.context {
+                    context => self.apply(item.key, context),
+                    _ => (),
+                  }
+                },
               },
             )
           },

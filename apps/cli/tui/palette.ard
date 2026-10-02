@@ -2,6 +2,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/modal
 use kit/tui/theme
 use go:strings
 
@@ -35,6 +36,58 @@ struct Props {
   on_selection_change: fn(Str),
   on_hover_change: fn(Str),
   on_activate: fn(Item),
+}
+
+// PickerProps configures the stateful, self-contained palette picker used by
+// ordinary selection dialogs. Command palette keeps the lower-level API when
+// its query has command-argument semantics.
+struct PickerProps {
+  themes: theme::Context,
+  catalog: [Item],
+  placeholder: Str,
+  initial_selection: Str,
+  title: Str,
+  footer: Str,
+  dismiss: keymap::SimpleCommand,
+  on_activate: fn(Item),
+}
+
+struct Picker {
+  props: Props,
+  title: Str,
+  footer: Str,
+  dismiss: keymap::SimpleCommand,
+  list: mut cui::VirtualListRef,
+  viewport: Int,
+  hidden_above: Bool,
+  hidden_below: Bool,
+}
+
+fn new_picker(props: mut PickerProps) mut Picker {
+  (mut Picker{
+    props: Props{
+      themes: props.themes,
+      placeholder: props.placeholder,
+      catalog: props.catalog,
+      query: "",
+      filter_query: "",
+      selection: props.initial_selection,
+      hovered: "",
+      hidden_above: false,
+      hidden_below: false,
+      on_query_change: fn(value: Str) {},
+      on_selection_change: fn(value: Str) {},
+      on_hover_change: fn(value: Str) {},
+      on_activate: props.on_activate,
+    },
+    title: props.title,
+    footer: props.footer,
+    dismiss: props.dismiss,
+    list: cui::virtual_list_ref(),
+    viewport: 0,
+    hidden_above: false,
+    hidden_below: false,
+  })
 }
 
 struct Viewport {
@@ -262,6 +315,122 @@ private fn overflow_slot(props: Props, key: Str, direction: Int, on_page: fn(Int
     )
   } else {
     overflow_row(props, key, direction, on_page)
+  }
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    let list = self.list
+    let selection = self.props.selection
+    (ctx.internal_commit)(
+      fn() {
+        let _ = list.current.map(fn(current) {
+          current.reveal(selection)
+        })
+      },
+    )
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Picker {
+  private fn mut view_props() Props {
+    let catalog = self.props.catalog
+    Props{
+      themes: self.props.themes,
+      placeholder: self.props.placeholder,
+      catalog: catalog,
+      query: self.props.query,
+      filter_query: "",
+      selection: self.props.selection,
+      hovered: self.props.hovered,
+      hidden_above: self.hidden_above,
+      hidden_below: self.hidden_below,
+      on_query_change: fn(query: Str) {
+        self.props.query = query
+        self.props.hovered = ""
+        let next = first_enabled(items(self.view_props()))
+        if next != "" {
+          self.props.selection = next
+        }
+      },
+      on_selection_change: fn(selection: Str) {
+        self.props.selection = selection
+      },
+      on_hover_change: fn(hover: Str) {
+        self.props.hovered = hover
+      },
+      on_activate: self.props.on_activate,
+    }
+  }
+
+  private fn mut viewport_props() Viewport {
+    Viewport{
+      list: self.list,
+      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+        let visible = items(self.view_props())
+        self.hidden_above = update.state.visible_range.start > 0
+        self.hidden_below = update.state.visible_range.end < visible.size()
+        self.viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match self.viewport > 1 {
+          true => self.viewport - 1,
+          false => 1,
+        }
+        let _ = self.list.current.map(fn(list) {
+          list.scroll_by(direction * step)
+        })
+      },
+    }
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    let props = self.view_props()
+    let navigation = navigation(props)
+    let footer = match self.footer == "" {
+      true => Maybe::new<cui::View>(),
+      false => {
+        Maybe::new(
+          cui::box(
+            [
+              cui::text(self.footer, text_style: ui::text_style(foreground: self.props.themes.current().muted)),
+            ],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+          ),
+        )
+      },
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: self.title,
+        meta: "",
+        header: header(props),
+        body: body(props, self.viewport_props()),
+        footer: footer,
+        autofocus: false,
+        dismiss: self.dismiss,
+        commands: Maybe::new([navigation.up, navigation.down]),
+        bindings: Maybe::new(
+          [
+            keymap::binding(keymap::key("up"), navigation.up.with()),
+            keymap::binding(keymap::key("down"), navigation.down.with()),
+          ],
+        ),
+      },
+    )
   }
 }
 
