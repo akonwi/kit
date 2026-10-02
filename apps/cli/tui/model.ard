@@ -71,7 +71,7 @@ private fn catalog(models: [protocol::ModelCapability], pending: Bool) [palette:
         key: model.ID,
         label: model.Name,
         hint: model.ID,
-        meta: "{format::usage_integer(model.ContextWindow)} context",
+        meta: "{format::context_window(model.ContextWindow)} context",
         description: "",
         search_terms: [model.Provider, model.API],
         disabled_reason: unavailable,
