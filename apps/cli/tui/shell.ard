@@ -1374,6 +1374,12 @@ impl Shell {
         }
       },
     }
+    // Palette commands mutate shell state outside an input callback. Request a
+    // render now rather than waiting for the next key event to invalidate it.
+    match self.context {
+      ctx => (ctx.invalidate_root)(),
+      _ => (),
+    }
     true
   }
 
