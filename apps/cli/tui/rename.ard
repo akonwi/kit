@@ -59,6 +59,7 @@ impl Dialog {
         context => {
           self.pending = true
           self.error = ""
+          (context.invalidate_root)()
           let transport = self.props.transport
           let lifetime = self.props.lifetime
           let session_id = self.props.session.ID
@@ -77,6 +78,7 @@ impl Dialog {
                 ok(session) => self.props.applied(session),
                 err(failure) => { self.error = failure.error() },
               }
+              (context.invalidate_root)()
             })
           })
         },
