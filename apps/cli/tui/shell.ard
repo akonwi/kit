@@ -169,14 +169,12 @@ private fn command_catalog(running: Bool, prompt_commands: [protocol::PromptComm
     if not shadows_builtin {
       catalog.push(
         palette::Item{
+          // Prompt commands submit as queued follow-ups while a turn is live.
           key: "prompt:{command.Name}",
           label: command.Name,
           description: command.Description,
           search_terms: [command.Source, command.Location],
-          disabled_reason: match running {
-            true => "idle only",
-            false => "",
-          },
+          disabled_reason: "",
         },
       )
     }
@@ -2051,10 +2049,10 @@ impl Shell {
     true
   }
 
-  // Submits one discovered prompt command and displays its invocation while
-  // the server expands the template authoritatively.
+  // Submits a discovered prompt command. The server queues it behind active
+  // work and retains the /command invocation as the follow-up preview.
   fn mut submit_prompt_command(name: Str) {
-    if self.phase == Phase::ready and self.live.activity == "" {
+    if self.phase == Phase::ready {
       match self.lifetime {
         lifetime => {
           match self.info {
@@ -2062,35 +2060,51 @@ impl Shell {
               match self.context {
                 context => {
                   let display = "/{name}"
-                  self.notice = ""
-                  self.live.submit(display)
-                  self.start_pending = true
-                  self.request_end()
+                  let optimistic = self.live.activity == "" and not self.start_pending
+                  if optimistic {
+                    self.notice = ""
+                    self.live.submit(display)
+                    self.start_pending = true
+                    self.request_end()
+                  }
                   let ctx = lifetime.Context
                   let session_id = info.ID
                   let transport = self.props.options.Transport
                   let dispatch = context.dispatch
                   async::start(fn() {
-                    match httpapi::Call<httpapi::SessionPath, protocol::PromptCommandInput, protocol::TurnReservation>(
+                    match httpapi::Call<httpapi::SessionPath, protocol::PromptCommandInput, protocol::PromptSubmission>(
                       ctx,
                       transport,
-                      httpapi::StartPromptCommand,
+                      httpapi::SubmitPromptCommand,
                       httpapi::SessionPath{SessionID: session_id},
                       protocol::PromptCommandInput{Name: name, Args: ""},
                     ) {
-                      ok(reservation) => {
-                        let run_id = reservation.TurnID
+                      ok(submission) => {
                         let _ = dispatch(fn() {
-                          self.start_pending = false
-                          self.follow_run(run_id)
+                          if submission.Queued {
+                            if optimistic {
+                              self.live.reset()
+                              self.start_pending = false
+                            }
+                            self.show_toast("Prompt queued", display, toast::Variant::info, false)
+                          } else if submission.Reservation.TurnID != "" {
+                            self.start_pending = false
+                            self.follow_run(submission.Reservation.TurnID)
+                          } else {
+                            self.live.reset()
+                            self.start_pending = false
+                            self.notice = "Prompt command did not start a turn"
+                          }
                         })
                       },
                       err(failure) => {
                         let message = failure.error()
                         let _ = dispatch(fn() {
-                          self.live.reset()
-                          self.start_pending = false
-                          self.abort_after_start = false
+                          if optimistic {
+                            self.live.reset()
+                            self.start_pending = false
+                            self.abort_after_start = false
+                          }
                           self.notice = message
                         })
                       },
