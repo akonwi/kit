@@ -170,9 +170,7 @@ impl cui::Component for Status {
         bindings: Maybe::new(
           [
             keymap::binding(keymap::key("up"), navigation.up.with()),
-            keymap::binding(keymap::key("k"), navigation.up.with()),
             keymap::binding(keymap::key("down"), navigation.down.with()),
-            keymap::binding(keymap::key("j"), navigation.down.with()),
           ],
         ),
       },
