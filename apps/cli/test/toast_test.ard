@@ -9,7 +9,7 @@ use kit/tui/toast
 use go:strings
 
 test fn toast_stack_uses_top_right_status_cards() Void!Str {
-  let terminal = headless::new(60, 12)
+  let terminal = headless::new(60, 20)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
@@ -30,7 +30,7 @@ test fn toast_stack_uses_top_right_status_cards() Void!Str {
             toast::Item{
               id: 2,
               title: "Login failed",
-              detail: "Try again.",
+              detail: "Try again. This detailed error explains what happened and wraps onto a second row.",
               variant: toast::Variant::error,
               persistent: false,
             },
@@ -75,5 +75,10 @@ test fn toast_stack_uses_top_right_status_cards() Void!Str {
     terminal.frame().text().contains("●") and terminal.frame().text().contains("×"),
     "toast variants expose their status glyphs",
   )
-  testing::assert(terminal.frame().text().contains("Try again."), "toast detail is visible")
+  let rendered = terminal.frame().text()
+  testing::assert(rendered.contains("Try again."), "toast detail is visible")
+  testing::assert(
+    rendered.contains("wraps onto a second row."),
+    "long toast detail wraps instead of clipping: {rendered}",
+  )
 }
