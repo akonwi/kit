@@ -245,6 +245,20 @@ fn key(name: Str, text: Str?) mut event::KeyEvent {
   )
 }
 
+fn modified_key(name: Str, ctrl: Bool, alt: Bool) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: ctrl,
+      alt: alt,
+      super: false,
+    },
+  )
+}
+
 // Sends one plain character as a keypress with its text payload.
 fn character(value: Str) mut event::KeyEvent {
   key(value, text: value)
@@ -301,6 +315,44 @@ test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
   try testing::assert(
     model.activated.size() == 1 and model.activated.at(0).or("") == "beta",
     "Enter activates the selected enabled item",
+  )
+  testing::pass()
+}
+
+test fn palette_input_edits_at_the_cursor_and_by_word() Void!Str {
+  let terminal = headless::new(40, 12)
+  defer terminal.destroy()
+  let model = mut Model{
+    activated: [],
+    query: "",
+    selection: "alpha",
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  }
+  let renderer = mount(terminal, model, 12)
+  defer renderer.destroy()
+  terminal.flush()
+  for value in ["a", "l", "p", "a"] {
+    terminal.key(character(value))
+  }
+  terminal.key(key("left"))
+  terminal.key(character("h"))
+  terminal.flush()
+  try testing::assert(model.query == "alpha", "Left inserts at the cursor: {model.query}")
+  terminal.key(key("home"))
+  terminal.key(key("delete"))
+  terminal.key(key("end"))
+  terminal.key(character(" "))
+  for value in ["b", "e", "t", "a"] {
+    terminal.key(character(value))
+  }
+  terminal.key(modified_key("w", true, false))
+  terminal.flush()
+  try testing::assert(
+    model.query == "lpha ",
+    "Home, Delete, End, and Ctrl+W edit the palette query conventionally: {model.query}",
   )
   testing::pass()
 }
