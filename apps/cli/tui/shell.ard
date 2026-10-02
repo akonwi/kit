@@ -388,6 +388,7 @@ struct Shell {
   composer_area: mut cui::TextAreaRef,
   connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
+  mcp_scroll: mut cui::ScrollBoxRef,
 }
 
 fn new(props: mut Props) mut Shell {
@@ -474,6 +475,7 @@ fn new(props: mut Props) mut Shell {
     composer_area: cui::text_area_ref(),
     connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
+    mcp_scroll: cui::scroll_box_ref(),
   })
 }
 
@@ -1493,6 +1495,18 @@ impl Shell {
       self.dismiss_modal()
     })
     let colors = self.props.themes.current()
+    let scroll_up = keymap::simple_command("mcp.scroll_up", "Scroll up", fn() Bool {
+      let _ = self.mcp_scroll.current.map(fn(scroll) {
+        scroll.scroll_by(-1)
+      })
+      true
+    })
+    let scroll_down = keymap::simple_command("mcp.scroll_down", "Scroll down", fn() Bool {
+      let _ = self.mcp_scroll.current.map(fn(scroll) {
+        scroll.scroll_by(1)
+      })
+      true
+    })
     let rows = mut List::new<cui::View>()
     if self.mcp_servers.size() == 0 {
       rows.push(line("No MCP servers are configured.", ui::text_style(foreground: colors.muted)))
@@ -1635,6 +1649,7 @@ impl Shell {
           key: "mcp.status.list",
           styles: ui::style(height: ui::cells(18), padding: inset()),
           scrollbar_options: ui::scrollbar_options(),
+          ref: self.mcp_scroll,
           key_bindings: keymap::rebind(
             keymap::rebind(
               ui::default_scroll_box_bindings(),
@@ -1648,8 +1663,15 @@ impl Shell {
         footer: Maybe::new<cui::View>(),
         autofocus: true,
         dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
+        commands: Maybe::new([scroll_up, scroll_down]),
+        bindings: Maybe::new(
+          [
+            keymap::binding(keymap::key("up"), scroll_up.with()),
+            keymap::binding(keymap::key("k"), scroll_up.with()),
+            keymap::binding(keymap::key("down"), scroll_down.with()),
+            keymap::binding(keymap::key("j"), scroll_down.with()),
+          ],
+        ),
       },
     )
   }
