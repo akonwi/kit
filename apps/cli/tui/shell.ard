@@ -1386,7 +1386,9 @@ impl Shell {
       self.dismiss_modal()
     })
     let context = match self.context_window > 0 {
-      true => "{self.context_tokens} / {self.context_window} tokens",
+      true => {
+        "{format::usage_integer(self.context_tokens)} / {format::usage_integer(self.context_window)} tokens"
+      },
       false => "Unavailable",
     }
     let session = self.info.or(protocol::SessionInfo{})
@@ -1428,13 +1430,13 @@ impl Shell {
         row("Parent", parent),
         blank(),
         heading("Cumulative usage"),
-        row("Input", "{self.usage.Input}"),
-        row("Output", "{self.usage.Output}"),
-        row("Cache read", "{self.usage.CacheRead}"),
-        row("Cache write", "{self.usage.CacheWrite}"),
-        row("Reasoning", "{self.usage.Reasoning}"),
-        row("Total", "{self.usage.TotalTokens}"),
-        row("Cost", "${self.usage.Cost.Total}"),
+        row("Input", format::usage_integer(self.usage.Input)),
+        row("Output", format::usage_integer(self.usage.Output)),
+        row("Cache read", format::usage_integer(self.usage.CacheRead)),
+        row("Cache write", format::usage_integer(self.usage.CacheWrite)),
+        row("Reasoning", format::usage_integer(self.usage.Reasoning)),
+        row("Total", format::usage_integer(self.usage.TotalTokens)),
+        row("Cost", format::usage_cost(self.usage.Cost.Total)),
       ],
       styles: ui::style(
         flex_direction: ui::FlexDirection::column,
