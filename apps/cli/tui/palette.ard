@@ -398,8 +398,16 @@ impl cui::Component for Picker {
     commands.push(navigation.up)
     commands.push(navigation.down)
     let bindings = mut List::new<keymap::Binding>()
-    bindings.push(keymap::binding(keymap::key("up"), navigation.up.with()))
-    bindings.push(keymap::binding(keymap::key("down"), navigation.down.with()))
+    bindings.push(
+      keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+    )
+    bindings.push(
+      keymap::binding(
+        keymap::key("down"),
+        navigation.down.with(),
+        keymap::Trigger::press_or_repeat,
+      ),
+    )
     match self.override {
       callback => {
         let command = keymap::simple_command("palette.override", "Override", fn() Bool {
@@ -607,8 +615,8 @@ fn commands(navigation: Navigation) [keymap::Command] {
 
 fn bindings(navigation: Navigation) [keymap::Binding] {
   [
-    keymap::binding(keymap::key("up"), navigation.up.with()),
-    keymap::binding(keymap::key("down"), navigation.down.with()),
+    keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+    keymap::binding(keymap::key("down"), navigation.down.with(), keymap::Trigger::press_or_repeat),
   ]
 }
 

@@ -2053,8 +2053,8 @@ impl Shell {
         bindings: Maybe::new(
           [
             keymap::binding(keymap::key("tab"), complete.with()),
-            keymap::binding(keymap::key("up"), navigation.up.with()),
-            keymap::binding(keymap::key("down"), navigation.down.with()),
+            keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+            keymap::binding(keymap::key("down"), navigation.down.with(), keymap::Trigger::press_or_repeat),
           ],
         ),
       },
