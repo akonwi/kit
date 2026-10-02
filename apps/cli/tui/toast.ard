@@ -115,16 +115,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
   let content = mut List::new<cui::View>()
   content.push(cui::text(icon, text_style: ui::text_style(foreground: color)))
   let text_box = match item.detail != "" {
-    true => {
-      cui::box(
-        text.@,
-        styles: ui::style(
-          flex_direction: ui::FlexDirection::column,
-          flex_grow: 1.0,
-          flex_basis: ui::cells(0),
-        ),
-      )
-    },
+    true => cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)),
     false => cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)),
   }
   content.push(text_box)
@@ -162,10 +153,7 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
         left: ui::cells(1),
       },
       background: colors.background,
-      width: match item.detail != "" {
-        true => ui::percent(100.0),
-        false => ui::undefined(),
-      },
+      width: ui::fit_content(),
       border: ui::Border::single,
       border_color: color,
     ),
