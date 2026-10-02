@@ -47,6 +47,7 @@ enum ActiveModal {
   api_key,
   device_login,
   browser_login,
+  session_debug,
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
@@ -190,7 +191,7 @@ private fn command_catalog(
         false => "",
       },
     ),
-    command_item("debug", "Show session diagnostics", "details usage", "not available yet"),
+    command_item("debug", "Show session diagnostics", "details usage", ""),
     command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
     command_item("files", "Open a workspace file", "file open browse", "not available yet"),
     command_item("fork", "Fork the current session into a linked child session", "branch", idle),
@@ -341,6 +342,7 @@ struct Shell {
   run_id: Str,
   context_tokens: Int,
   context_window: Int,
+  usage: protocol::SessionUsage,
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -411,6 +413,21 @@ fn new(props: mut Props) mut Shell {
     run_id: "",
     context_tokens: 0,
     context_window: 0,
+    usage: protocol::SessionUsage{
+      Input: 0,
+      Output: 0,
+      CacheRead: 0,
+      CacheWrite: 0,
+      Reasoning: 0,
+      TotalTokens: 0,
+      Cost: protocol::SessionUsageCost{
+        Input: 0.0,
+        Output: 0.0,
+        CacheRead: 0.0,
+        CacheWrite: 0.0,
+        Total: 0.0,
+      },
+    },
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -1181,6 +1198,7 @@ impl cui::Component for Shell {
       ActiveModal::api_key => layers.push(self.api_key_modal()),
       ActiveModal::device_login => layers.push(self.device_login_modal()),
       ActiveModal::browser_login => layers.push(self.browser_login_modal()),
+      ActiveModal::session_debug => layers.push(self.session_debug_modal()),
       _ => (),
     }
     if self.toasts.size() > 0 {
@@ -1359,6 +1377,87 @@ impl Shell {
       "opencode" => "opencode-go",
       _ => self.auth_provider,
     }
+  }
+
+  // session_debug_modal presents the server snapshot's configuration and
+  // cumulative provider usage without interrupting an active turn.
+  fn mut session_debug_modal() cui::View {
+    let dismiss = keymap::simple_command("debug.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let context = match self.context_window > 0 {
+      true => "{self.context_tokens} / {self.context_window} tokens",
+      false => "Unavailable",
+    }
+    let session = self.info.or(protocol::SessionInfo{})
+    let thinking = match strings::TrimSpace(session.ThinkingLevel) == "" {
+      true => "default",
+      false => session.ThinkingLevel,
+    }
+    let parent = match session.ParentSessionID == "" {
+      true => "None",
+      false => {
+        match session.ParentSessionName == "" {
+          true => session.ParentSessionID,
+          false => "{session.ParentSessionName} ({session.ParentSessionID})",
+        }
+      },
+    }
+    let colors = self.props.themes.current()
+    let row = fn(label: Str, value: Str) cui::View {
+      cui::box(
+        [
+          cui::box(
+            [line(label, ui::text_style(foreground: colors.muted))],
+            styles: ui::style(width: ui::cells(14), flex_shrink: 0.0),
+          ),
+          line(value, ui::text_style()),
+        ],
+        styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+      )
+    }
+    let heading = fn(value: Str) cui::View {
+      line(value, ui::text_style(bold: true))
+    }
+    let body = cui::box(
+      [
+        heading("Configuration"),
+        row("Model", session.Model),
+        row("Thinking", thinking),
+        row("Context", context),
+        row("Parent", parent),
+        blank(),
+        heading("Cumulative usage"),
+        row("Input", "{self.usage.Input}"),
+        row("Output", "{self.usage.Output}"),
+        row("Cache read", "{self.usage.CacheRead}"),
+        row("Cache write", "{self.usage.CacheWrite}"),
+        row("Reasoning", "{self.usage.Reasoning}"),
+        row("Total", "{self.usage.TotalTokens}"),
+        row("Cost", "${self.usage.Cost.Total}"),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        gap: ui::cells(1),
+        padding: inset(),
+        min_width: ui::cells(44),
+      ),
+    )
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Session details",
+        meta: format::session_name(session),
+        header: [],
+        body: body,
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
   }
 
   fn mut device_login_modal() cui::View {
@@ -1804,6 +1903,8 @@ impl Shell {
         } else if item.key == "compact" {
           self.active_modal = ActiveModal::none
           self.compact_session()
+        } else if item.key == "debug" {
+          self.active_modal = ActiveModal::session_debug
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
@@ -2136,6 +2237,7 @@ impl Shell {
       self.follow_ups = snapshot.FollowUps
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
+      self.usage = snapshot.Usage
       // Watch snapshots can lag the active turn. Keep its complete live tail
       // (including the optimistic user row) until turn settlement; a snapshot
       // that happens to include the user event can still omit later live
