@@ -618,8 +618,12 @@ func (w shellView) baseShell(theme ui.Theme) ui.Widget {
 				rows = append(rows, composerAnnotationOverflowRow(theme, hidden, w.Callbacks.OpenAnnotationPicker))
 				annotationRows++
 			}
+			rejectingModel := ""
+			if !sessionAcceptsImages(w.Snapshot.Session) {
+				rejectingModel = modelDisplayName(w.Snapshot.Session.Model)
+			}
 			for index, attachment := range w.Snapshot.ComposerAttachments {
-				rows = append(rows, composerAttachmentRow(theme, attachment, index, w.Callbacks.RemoveAttachment))
+				rows = append(rows, composerAttachmentRow(theme, attachment, index, rejectingModel, w.Callbacks.RemoveAttachment))
 			}
 			pending = ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: rows}
 			pendingHeight += annotationRows + len(w.Snapshot.ComposerAttachments)
@@ -1305,13 +1309,19 @@ func composerAnnotationRow(theme ui.Theme, annotation protocol.AnnotationSummary
 	})}
 }
 
-func composerAttachmentRow(theme ui.Theme, attachment stagedAttachment, index int, remove func(ui.EventContext, int)) ui.Widget {
+// composerAttachmentRow renders one staged attachment. A non-empty
+// rejectingModel names the session's model when it accepts no images, which
+// marks a staged image as unsupported.
+func composerAttachmentRow(theme ui.Theme, attachment stagedAttachment, index int, rejectingModel string, remove func(ui.EventContext, int)) ui.Widget {
 	label := attachment.Filename
 	meta := "uploading…"
 	style := ui.Style{Foreground: theme.MutedForeground}
 	if attachment.Error != "" {
 		meta = "upload failed"
 		style.Foreground = theme.DangerText
+	} else if rejectingModel != "" && attachment.isImage() {
+		meta = "not supported by " + rejectingModel
+		style.Foreground = theme.WarningText
 	} else if !attachment.Uploading && attachment.Info.Size > 0 {
 		meta = formatAttachmentBytes(attachment.Info.Size)
 		if attachment.Info.MediaType != "" {

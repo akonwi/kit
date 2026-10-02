@@ -6,6 +6,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -6528,6 +6529,10 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			s.showToast(toastInput{Title: "Remove failed attachments before sending", Variant: toastInfo})
 			return
 		}
+	}
+	if !sessionAcceptsImages(s.session) && slices.ContainsFunc(s.composerAttachments, stagedAttachment.isImage) {
+		s.showToast(toastInput{Title: "Remove images before sending", Subtitle: modelDisplayName(s.session.Model) + " doesn't accept images.", Variant: toastWarning})
+		return
 	}
 	attachmentIDs := s.composerPromptAttachmentIDs()
 	annotationIDs := s.annotationIDs()

@@ -102,12 +102,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   and use them for native Kitty/Sixel transcript rendering with clipping.
 - [ ] TUI-ATT-003 — Add bounded binary clipboard image ingestion when vaxis
   exposes a typed clipboard payload contract.
-- [ ] TUI-ATT-004 — Gate image attachments on the session's `inputs`. When `inputs` is
-  known and lacks `image`, refuse to stage an image and show an inline notice
-  naming the model. Images staged before a model change stay staged, marked
-  unsupported, and block submission until they are removed or the model changes
-  back. Absent `inputs` is unknown: stage normally and rely on the server's
-  submission check.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
