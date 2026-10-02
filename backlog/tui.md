@@ -7,10 +7,9 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 ### Composer, sessions, and commands
 
-- [~] TUI-FORK-001 — Add `/fork [message]`, switch only the invoking TUI to the
-  linked child returned by the server, optionally submit the message as its
-  first new prompt, and expose recoverable failures. Depends on
-  `CORE-FORK-001`.
+- [ ] TUI-FORK-001 — Tell the user why `/fork` did not start when the session is
+  not ready or already has active work, and when a completed fork is discarded
+  because the viewed session changed.
 - [ ] TUI-CMD-004 — Tab completes the selected command's name in the palette
   query followed by a space and keeps the palette open. The list stays pinned
   to that command while arguments are typed, until the command name is edited.
@@ -30,10 +29,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   name instead of the full canonical ID, keeping the owning plugin in the
   metadata column. Commands from different plugins that share a short name
   must both remain listed and runnable.
-- [x] TUI-PICK-001 — The palette picker widget
-  (`internal/tui/palette_picker.go`), its items (`internal/tui/picker.go`),
-  and the shared key model (`internal/tui/picker_keys.go`) are the contract
-  for all palette pickers, including the session explorer's hierarchy.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline
@@ -46,8 +41,6 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 
 - [ ] TUI-AUTH-001 — Present provider login, API-key replacement, logout, and
   actionable failures without exposing credentials. Depends on `CORE-AUTH-001`.
-- [~] TUI-TERM-001 — Complete clipboard, terminal title, notifications, image
-  capabilities, attention/progress state, and clean restoration on every exit.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
 
@@ -106,23 +99,9 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
   draft attachments, restoration, submission, and failure recovery.
-- [x] TUI-SCRATCH-001 — Add the retained singleton scratchpad workspace with
-  guarded autosave, silent clean reconciliation, and inline conflict review.
-  Depends on `CORE-SCRATCH-001`. See
-  [ADR 0025](../docs/adrs/0025-share-database-backed-scratchpads-across-session-families.md).
-- [x] TUI-ANN-001 — Add retained File-pane line/range selection and inline
-  workspace-file annotations with bounded editing, anchor navigation, stale
-  treatment, keyboard and gutter-mouse interaction, and server-authoritative
-  synchronization. Depends on `CORE-ANN-001`. See
-  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
-- [x] TUI-ANN-002 — Project each live annotation as a synchronized composer chip
-  on every tab, preserve explicit ordering, submit annotation IDs with prompts,
-  remove accepted drafts, and render immutable submitted snapshots. Depends on
-  `CORE-ANN-002`. See
-  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] TUI-REVIEW-001 — Extend File and Diff tabs with target-scoped annotations,
   plus modal review-target and changed-file navigation; do not add a separate
-  Review tab. Depends on `CORE-REVIEW-001`, `CORE-ANN-001`, and `CORE-ANN-002`.
+  Review tab. Depends on `CORE-REVIEW-001`.
   See [ADR 0020](../docs/adrs/0020-file-diff-review-workspace-surfaces.md) and
   [ADR 0024](../docs/adrs/0024-generalize-diff-review-targets.md).
 - [ ] TUI-WORK-002 — Add release-note and other approved retained workspace
@@ -138,23 +117,4 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   the [focused optimization note](hidden-workspace-pane-suspension.md).
 - [ ] TUI-CMD-003 — Add `/pager`, `/code-review`, `/tree`, and other commands
   when their owning deferred capabilities are implemented.
-- [x] TUI-GH-001 — Present cached GitHub pull-request metadata and a safe
-  click-through URL. The built-in location displays the server-cached PR number
-  and opens its validated URL; renderer, interaction, and stale-response tests
-  cover the behavior. Manual desktop/terminal verification remains. Depends on
-  `CORE-GH-001`.
-- [x] TUI-PLUGIN-001 — Present plugin contributions only in the bottom-right
-  footer, supporting composition and replacement of default cwd/Git content
-  through scoped hide claims. Preserve theme tokens, bounded layout,
-  failure, cleanup, and reload; keep header and bottom-left status
-  protected. Depends on `CORE-PLUGIN-004`, `CORE-PLUGIN-005`, and
-  `CORE-PLUGIN-006`. See
-  [ADR 0026](../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md).
-  Static set/update/clear, aggregate hide/show, generation revocation, semantic
-  text styling, and labeled bounded overflow are now projected through the
-  session snapshot. Host, protocol, daemon, and presentation tests cover this
-  slice. The user manually verified rendering, overflow, and lifecycle behavior.
-  Plugin click dispatch and URL
-  routing are outside native scope, not deferred work; built-in PR links remain.
-
 - [ ] TUI-SET-003 — Expose deferred pager defaults when that workflow exists.
