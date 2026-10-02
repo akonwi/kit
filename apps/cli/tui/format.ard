@@ -81,6 +81,19 @@ fn usage_integer(value: Int) Str {
   strings::Join(mut groups, ",")
 }
 
+// context_window abbreviates model capacity exactly as the vaxis model picker.
+fn context_window(tokens: Int) Str {
+  match tokens >= 1000000 {
+    true => fmt::Sprintf("%.1fM", Float64::fit(tokens) / 1000000.0),
+    false => {
+      match tokens >= 1000 {
+        true => "{tokens / 1000}k",
+        false => "{tokens}",
+      }
+    },
+  }
+}
+
 // usage_cost matches the established diagnostics precision for provider costs.
 fn usage_cost(value: Float64) Str {
   match value == 0.0 {
@@ -131,6 +144,12 @@ test fn context_percentage_rounds_and_clamps() Void!Str {
   try testing::assert(context_percentage(0, 272000).is_none(), "empty context is hidden")
   try testing::assert(context_percentage(110000, 272000).or(0) == 40, "110k of 272k is 40%")
   try testing::assert(context_percentage(300000, 272000).or(0) == 100, "overflow clamps to 100%")
+  testing::pass()
+}
+
+test fn context_windows_match_the_vaxis_model_picker() Void!Str {
+  try testing::assert(context_window(1000000) == "1.0M", context_window(1000000))
+  try testing::assert(context_window(272000) == "272k", context_window(272000))
   testing::pass()
 }
 
