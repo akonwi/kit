@@ -369,19 +369,8 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 
 // GetBashHistory returns one newest-first page of direct shell history.
 func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before uint64, limit int) (protocol.BashHistoryPage, error) {
-	values := url.Values{}
-	if limit > 0 {
-		values.Set("limit", strconv.Itoa(limit))
-	}
-	if before > 0 {
-		values.Set("before", strconv.FormatUint(before, 10))
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-history"
-	if encoded := values.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	var output protocol.BashHistoryPage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetBashHistory, httpapi.BashHistoryPath{SessionID: sessionID, Before: before, Limit: limit}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.BashHistoryPage{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -925,9 +914,8 @@ func (c *Client) PromptInput(ctx context.Context, sessionID string, input protoc
 
 // StartBash starts an idempotent daemon-owned direct shell execution.
 func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions"
-	var output protocol.BashExecution
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.StartBash, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -941,9 +929,8 @@ func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol
 
 // GetBash returns one durable direct shell execution.
 func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (protocol.BashExecution, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID)
-	var output protocol.BashExecution
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetBash, httpapi.BashExecutionPath{SessionID: sessionID, ExecutionID: executionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -957,8 +944,8 @@ func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (pr
 
 // AbortBash requests cancellation of one direct shell generation.
 func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID) + "/abort"
-	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+	_, err := httpapi.Call(ctx, c, httpapi.AbortBash, httpapi.BashExecutionPath{SessionID: sessionID, ExecutionID: executionID}, httpapi.NoBody{})
+	return err
 }
 
 // RespondInteraction atomically settles one pending model-user interaction.

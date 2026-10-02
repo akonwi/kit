@@ -1870,39 +1870,18 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return snapshot, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-history", func(writer http.ResponseWriter, request *http.Request) {
-		query := request.URL.Query()
-		limit := protocol.DefaultBashHistoryPageSize
-		if raw := query.Get("limit"); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed <= 0 || parsed > protocol.MaxBashHistoryPageSize {
-				writeSessionError(writer, fmt.Errorf("%w: bash history limit must be between 1 and %d", errInvalidSessionRequest, protocol.MaxBashHistoryPageSize))
-				return
-			}
-			limit = parsed
+	httpapi.Handle(mux, httpOptions, httpapi.GetBashHistory, func(ctx context.Context, params httpapi.BashHistoryPath, _ httpapi.NoBody) (protocol.BashHistoryPage, error) {
+		if params.Limit < 0 || params.Limit > protocol.MaxBashHistoryPageSize {
+			return protocol.BashHistoryPage{}, invalidAPIError()
 		}
-		var before uint64
-		if raw := query["before"]; len(raw) > 1 || (len(raw) == 1 && (raw[0] == "" || len(raw[0]) > 256 || strings.TrimSpace(raw[0]) != raw[0])) {
-			writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
-			return
-		} else if len(raw) == 1 {
-			parsed, err := strconv.ParseUint(raw[0], 10, 64)
-			if err != nil || parsed == 0 {
-				writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
-				return
-			}
-			before = parsed
+		if params.Limit == 0 {
+			params.Limit = protocol.DefaultBashHistoryPageSize
 		}
-		result, err := service.BashHistory(request.Context(), request.PathValue("sessionID"), before, limit)
+		result, err := service.BashHistory(ctx, params.SessionID, params.Before, params.Limit)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashHistoryPage{}, lifecycleAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid bash history page: %w", err))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/messages", func(writer http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()
@@ -2416,37 +2395,28 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.BashExecutionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.StartBash, func(ctx context.Context, params httpapi.SessionPath, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.BashExecution{}, invalidAPIError()
 		}
-		execution, err := service.StartBash(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.StartBash(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashExecution{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, execution)
+		return result, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-executions/{executionID}", func(writer http.ResponseWriter, request *http.Request) {
-		execution, err := service.Bash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID"))
+	httpapi.Handle(mux, httpOptions, httpapi.GetBash, func(ctx context.Context, params httpapi.BashExecutionPath, _ httpapi.NoBody) (protocol.BashExecution, error) {
+		result, err := service.Bash(ctx, params.SessionID, params.ExecutionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashExecution{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, execution)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.AbortBash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID")); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.AbortBash, func(ctx context.Context, params httpapi.BashExecutionPath, _ httpapi.NoBody) (httpapi.BashAbortResult, error) {
+		if err := service.AbortBash(ctx, params.SessionID, params.ExecutionID); err != nil {
+			return httpapi.BashAbortResult{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
+		return httpapi.BashAbortResult{Aborting: true}, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/turns/{turnID}", func(writer http.ResponseWriter, request *http.Request) {
 		turn, err := service.Turn(

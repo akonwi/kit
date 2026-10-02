@@ -8,6 +8,7 @@ filter:
     - sessions
     - diff
     - annotations
+    - bash
     - scratchpad
     - vcs
     - plugin

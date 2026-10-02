@@ -595,6 +595,392 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/BashAbortResult`.
+        internal struct BashAbortResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashAbortResult/aborting`.
+            internal var aborting: Swift.Bool
+            /// Creates a new `BashAbortResult`.
+            ///
+            /// - Parameters:
+            ///   - aborting:
+            internal init(aborting: Swift.Bool) {
+                self.aborting = aborting
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case aborting
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.aborting = try container.decode(
+                    Swift.Bool.self,
+                    forKey: .aborting
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "aborting"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashExecution`.
+        internal struct BashExecution: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashExecution/command`.
+            internal var command: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecution/completedAt`.
+            internal var completedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/errorMessage`.
+            internal var errorMessage: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/excludeFromContext`.
+            internal var excludeFromContext: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/exitCode`.
+            internal var exitCode: Swift.Int?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecution/output`.
+            internal var output: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/sequence`.
+            internal var sequence: Swift.Int64
+            /// - Remark: Generated from `#/components/schemas/BashExecution/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecution/startedAt`.
+            internal var startedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecution/status`.
+            internal var status: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecution/timedOut`.
+            internal var timedOut: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BashExecution/truncated`.
+            internal var truncated: Swift.Bool?
+            /// Creates a new `BashExecution`.
+            ///
+            /// - Parameters:
+            ///   - command:
+            ///   - completedAt:
+            ///   - errorMessage:
+            ///   - excludeFromContext:
+            ///   - exitCode:
+            ///   - id:
+            ///   - output:
+            ///   - sequence:
+            ///   - sessionId:
+            ///   - startedAt:
+            ///   - status:
+            ///   - timedOut:
+            ///   - truncated:
+            internal init(
+                command: Swift.String,
+                completedAt: Swift.String? = nil,
+                errorMessage: Swift.String? = nil,
+                excludeFromContext: Swift.Bool? = nil,
+                exitCode: Swift.Int? = nil,
+                id: Swift.String,
+                output: Swift.String? = nil,
+                sequence: Swift.Int64,
+                sessionId: Swift.String,
+                startedAt: Swift.String,
+                status: Swift.String,
+                timedOut: Swift.Bool? = nil,
+                truncated: Swift.Bool? = nil
+            ) {
+                self.command = command
+                self.completedAt = completedAt
+                self.errorMessage = errorMessage
+                self.excludeFromContext = excludeFromContext
+                self.exitCode = exitCode
+                self.id = id
+                self.output = output
+                self.sequence = sequence
+                self.sessionId = sessionId
+                self.startedAt = startedAt
+                self.status = status
+                self.timedOut = timedOut
+                self.truncated = truncated
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case command
+                case completedAt
+                case errorMessage
+                case excludeFromContext
+                case exitCode
+                case id
+                case output
+                case sequence
+                case sessionId
+                case startedAt
+                case status
+                case timedOut
+                case truncated
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.command = try container.decode(
+                    Swift.String.self,
+                    forKey: .command
+                )
+                self.completedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .completedAt
+                )
+                self.errorMessage = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .errorMessage
+                )
+                self.excludeFromContext = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .excludeFromContext
+                )
+                self.exitCode = try container.decodeIfPresent(
+                    Swift.Int.self,
+                    forKey: .exitCode
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.output = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .output
+                )
+                self.sequence = try container.decode(
+                    Swift.Int64.self,
+                    forKey: .sequence
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.startedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .startedAt
+                )
+                self.status = try container.decode(
+                    Swift.String.self,
+                    forKey: .status
+                )
+                self.timedOut = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .timedOut
+                )
+                self.truncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .truncated
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "command",
+                    "completedAt",
+                    "errorMessage",
+                    "excludeFromContext",
+                    "exitCode",
+                    "id",
+                    "output",
+                    "sequence",
+                    "sessionId",
+                    "startedAt",
+                    "status",
+                    "timedOut",
+                    "truncated"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashExecutionInput`.
+        internal struct BashExecutionInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashExecutionInput/command`.
+            internal var command: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashExecutionInput/excludeFromContext`.
+            internal var excludeFromContext: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BashExecutionInput/executionId`.
+            internal var executionId: Swift.String
+            /// Creates a new `BashExecutionInput`.
+            ///
+            /// - Parameters:
+            ///   - command:
+            ///   - excludeFromContext:
+            ///   - executionId:
+            internal init(
+                command: Swift.String,
+                excludeFromContext: Swift.Bool? = nil,
+                executionId: Swift.String
+            ) {
+                self.command = command
+                self.excludeFromContext = excludeFromContext
+                self.executionId = executionId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case command
+                case excludeFromContext
+                case executionId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.command = try container.decode(
+                    Swift.String.self,
+                    forKey: .command
+                )
+                self.excludeFromContext = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .excludeFromContext
+                )
+                self.executionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .executionId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "command",
+                    "excludeFromContext",
+                    "executionId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashHistoryEntry`.
+        internal struct BashHistoryEntry: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/command`.
+            internal var command: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/completedAt`.
+            internal var completedAt: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/excludeFromContext`.
+            internal var excludeFromContext: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/id`.
+            internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/sequence`.
+            internal var sequence: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/startedAt`.
+            internal var startedAt: Swift.String
+            /// - Remark: Generated from `#/components/schemas/BashHistoryEntry/status`.
+            internal var status: Swift.String
+            /// Creates a new `BashHistoryEntry`.
+            ///
+            /// - Parameters:
+            ///   - command:
+            ///   - completedAt:
+            ///   - excludeFromContext:
+            ///   - id:
+            ///   - sequence:
+            ///   - startedAt:
+            ///   - status:
+            internal init(
+                command: Swift.String,
+                completedAt: Swift.String? = nil,
+                excludeFromContext: Swift.Bool? = nil,
+                id: Swift.String,
+                sequence: Swift.Int,
+                startedAt: Swift.String,
+                status: Swift.String
+            ) {
+                self.command = command
+                self.completedAt = completedAt
+                self.excludeFromContext = excludeFromContext
+                self.id = id
+                self.sequence = sequence
+                self.startedAt = startedAt
+                self.status = status
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case command
+                case completedAt
+                case excludeFromContext
+                case id
+                case sequence
+                case startedAt
+                case status
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.command = try container.decode(
+                    Swift.String.self,
+                    forKey: .command
+                )
+                self.completedAt = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .completedAt
+                )
+                self.excludeFromContext = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .excludeFromContext
+                )
+                self.id = try container.decode(
+                    Swift.String.self,
+                    forKey: .id
+                )
+                self.sequence = try container.decode(
+                    Swift.Int.self,
+                    forKey: .sequence
+                )
+                self.startedAt = try container.decode(
+                    Swift.String.self,
+                    forKey: .startedAt
+                )
+                self.status = try container.decode(
+                    Swift.String.self,
+                    forKey: .status
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "command",
+                    "completedAt",
+                    "excludeFromContext",
+                    "id",
+                    "sequence",
+                    "startedAt",
+                    "status"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/BashHistoryPage`.
+        internal struct BashHistoryPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/BashHistoryPage/entries`.
+            internal var entries: [Components.Schemas.BashHistoryEntry]
+            /// - Remark: Generated from `#/components/schemas/BashHistoryPage/hasMore`.
+            internal var hasMore: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/BashHistoryPage/nextCursor`.
+            internal var nextCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/BashHistoryPage/sessionId`.
+            internal var sessionId: Swift.String?
+            /// Creates a new `BashHistoryPage`.
+            ///
+            /// - Parameters:
+            ///   - entries:
+            ///   - hasMore:
+            ///   - nextCursor:
+            ///   - sessionId:
+            internal init(
+                entries: [Components.Schemas.BashHistoryEntry],
+                hasMore: Swift.Bool? = nil,
+                nextCursor: Swift.String? = nil,
+                sessionId: Swift.String? = nil
+            ) {
+                self.entries = entries
+                self.hasMore = hasMore
+                self.nextCursor = nextCursor
+                self.sessionId = sessionId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case entries
+                case hasMore
+                case nextCursor
+                case sessionId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.entries = try container.decode(
+                    [Components.Schemas.BashHistoryEntry].self,
+                    forKey: .entries
+                )
+                self.hasMore = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .hasMore
+                )
+                self.nextCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .nextCursor
+                )
+                self.sessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "entries",
+                    "hasMore",
+                    "nextCursor",
+                    "sessionId"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CapacityExceededError`.
         internal struct CapacityExceededError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.

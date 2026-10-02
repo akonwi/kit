@@ -38,6 +38,18 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/annotations`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/delete(deleteAnnotation)`.
     func deleteAnnotation(_ input: Operations.DeleteAnnotation.Input) async throws -> Operations.DeleteAnnotation.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/post(startBash)`.
+    func startBash(_ input: Operations.StartBash.Input) async throws -> Operations.StartBash.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-executions/{executionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/get(getBash)`.
+    func getBash(_ input: Operations.GetBash.Input) async throws -> Operations.GetBash.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/abort/post(abortBash)`.
+    func abortBash(_ input: Operations.AbortBash.Input) async throws -> Operations.AbortBash.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-history`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)`.
+    func getBashHistory(_ input: Operations.GetBashHistory.Input) async throws -> Operations.GetBashHistory.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
     func compactSession(_ input: Operations.CompactSession.Input) async throws -> Operations.CompactSession.Output
@@ -104,6 +116,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt/post(prompt)`.
     func prompt(_ input: Operations.Prompt.Input) async throws -> Operations.Prompt.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-command`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-command/post(submitPromptCommand)`.
+    func submitPromptCommand(_ input: Operations.SubmitPromptCommand.Input) async throws -> Operations.SubmitPromptCommand.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-commands`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-commands/post(startPromptCommand)`.
     func startPromptCommand(_ input: Operations.StartPromptCommand.Input) async throws -> Operations.StartPromptCommand.Output
@@ -236,6 +251,54 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/post(startBash)`.
+    internal func startBash(
+        path: Operations.StartBash.Input.Path,
+        headers: Operations.StartBash.Input.Headers,
+        body: Operations.StartBash.Input.Body
+    ) async throws -> Operations.StartBash.Output {
+        try await startBash(Operations.StartBash.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-executions/{executionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/get(getBash)`.
+    internal func getBash(
+        path: Operations.GetBash.Input.Path,
+        headers: Operations.GetBash.Input.Headers
+    ) async throws -> Operations.GetBash.Output {
+        try await getBash(Operations.GetBash.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/abort/post(abortBash)`.
+    internal func abortBash(
+        path: Operations.AbortBash.Input.Path,
+        headers: Operations.AbortBash.Input.Headers
+    ) async throws -> Operations.AbortBash.Output {
+        try await abortBash(Operations.AbortBash.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-history`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)`.
+    internal func getBashHistory(
+        path: Operations.GetBashHistory.Input.Path,
+        query: Operations.GetBashHistory.Input.Query = .init(),
+        headers: Operations.GetBashHistory.Input.Headers
+    ) async throws -> Operations.GetBashHistory.Output {
+        try await getBashHistory(Operations.GetBashHistory.Input(
+            path: path,
+            query: query,
+            headers: headers
         ))
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
@@ -507,6 +570,19 @@ extension APIProtocol {
         body: Operations.Prompt.Input.Body
     ) async throws -> Operations.Prompt.Output {
         try await prompt(Operations.Prompt.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-command`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-command/post(submitPromptCommand)`.
+    internal func submitPromptCommand(
+        path: Operations.SubmitPromptCommand.Input.Path,
+        headers: Operations.SubmitPromptCommand.Input.Headers,
+        body: Operations.SubmitPromptCommand.Input.Body
+    ) async throws -> Operations.SubmitPromptCommand.Output {
+        try await submitPromptCommand(Operations.SubmitPromptCommand.Input(
             path: path,
             headers: headers,
             body: body

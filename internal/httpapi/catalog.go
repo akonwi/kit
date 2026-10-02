@@ -7,6 +7,7 @@ func Catalog() []Descriptor {
 		GetScratchpad.Describe(), UpdateScratchpad.Describe(),
 		ListDiffTargets.Describe(), ObserveDiff.Describe(), ObserveWorkingTree.Describe(), ReadFileDiff.Describe(),
 		ListAnnotations.Describe(), CreateAnnotation.Describe(), UpdateAnnotation.Describe(), DeleteAnnotation.Describe(),
+		GetBashHistory.Describe(), StartBash.Describe(), GetBash.Describe(), AbortBash.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),
 		SubmitPrompt.Describe(), StartPrompt.Describe(), StartPromptCommand.Describe(), SubmitPromptCommand.Describe(), Prompt.Describe(),

@@ -423,20 +423,26 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     func startBash(_ session: String, input: WireBashExecutionInput) async throws -> BashExecution {
         guard input.executionId.hasPrefix("bash_"), !input.command.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
               input.command.utf8.count <= 64 * 1024, !input.command.contains("\0") else { throw MutationNotSent(reason: "Invalid shell command.") }
-        let wire: WireBashExecution = try await post(bashPath(session), input: input, status: [202])
+        let body: Components.Schemas.BashExecutionInput = try generated(input, as: Components.Schemas.BashExecutionInput.self)
+        let output = try await api.startBash(path: .init(sessionID: session), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+        guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
+        let wire: WireBashExecution = try generated(try response.body.json, as: WireBashExecution.self)
         guard wire.id == input.executionId, wire.command == input.command,
               (wire.excludeFromContext == true) == (input.excludeFromContext == true) else { throw ClientError.invalidPayload }
         return try BashExecution(wire, session: session)
     }
     func bash(_ session: String, id: String) async throws -> BashExecution {
-        let wire: WireBashExecution = try await get(bashPath(session, id))
+        let output = try await api.getBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let wire: WireBashExecution = try generated(try response.body.json, as: WireBashExecution.self)
         guard wire.id == id else { throw ClientError.invalidPayload }
         return try BashExecution(wire, session: session)
     }
     func abortBash(_ session: String, id: String) async throws {
-        struct Reply: Decodable { let aborting: Bool }
-        let reply: Reply = try await post(bashPath(session, id) + "/abort", input: [String: String](), status: [202])
-        guard reply.aborting else { throw ClientError.invalidPayload }
+        let output = try await api.abortBash(path: .init(sessionID: session, executionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
+        let reply: [String: Bool] = try generated(try response.body.json, as: [String: Bool].self)
+        guard reply["aborting"] == true else { throw ClientError.invalidPayload }
     }
 
     /// Blocks on the server-pushed repository-status stream: latest snapshot
@@ -836,7 +842,9 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
               before == nil || (before.flatMap(UInt64.init) ?? 0) > 0 else { throw ClientError.invalidPayload }
         var query = [URLQueryItem(name: "limit", value: String(limit))]
         if let before { query.append(URLQueryItem(name: "before", value: before)) }
-        let page: WireBashHistoryPage = try await get("v1/sessions/" + id + "/bash-history", query: query)
+        let output = try await api.getBashHistory(path: .init(sessionID: id), query: .init(before: before.flatMap(Int.init), limit: limit), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let page: WireBashHistoryPage = try generated(try response.body.json, as: WireBashHistoryPage.self)
         return try ComposerBashHistoryPage(page, session: id, before: before)
     }
 
