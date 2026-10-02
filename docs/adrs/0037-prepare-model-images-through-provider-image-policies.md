@@ -103,8 +103,8 @@ after context selection and before provider translation. The same preparation
 runs for request dispatch and for replay validation, so a model switch is
 assessed against exactly what would be sent.
 
-Preparation produces request-scoped messages and a list of adjustments. It never
-mutates canonical history. For each image, in order, the outcome is one of:
+Preparation produces request-scoped messages. It never mutates canonical
+history. For each image, in order, the outcome is one of:
 
 - **Unchanged** — the image already conforms and its original bytes are sent.
 - **Prepared** — the image is downscaled to `Fit` and/or re-encoded to an
@@ -122,8 +122,9 @@ Provider translators receive only conforming images. A non-conforming image at
 translation is an internal invariant violation reported as an error, not a user
 condition.
 
-Adjustments are reported through runtime diagnostics so clients can surface,
-for example, that earlier screenshots were omitted for the active model.
+Adjustments are communicated to the model through these placeholders and
+notices and are not reported to clients. They are routine, request-scoped, and
+depend on the active model, so they are not user-actionable diagnostics.
 
 ### Request-level limits and retention
 

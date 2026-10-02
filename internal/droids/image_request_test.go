@@ -77,9 +77,9 @@ func toolResultWithImages(urls ...string) ToolResultMessage {
 
 func TestPrepareRequestImagesWithoutImagesReturnsMessages(t *testing.T) {
 	messages := []Message{UserMessage{Content: []InputContent{TextInput{Text: "hi"}}}}
-	prepared, adjustments := prepareRequestImages(ImagePolicy{}, messages)
-	if &prepared[0] != &messages[0] || adjustments != nil {
-		t.Fatalf("prepared = %#v, adjustments = %#v; want the original messages and no adjustments", prepared, adjustments)
+	prepared := prepareRequestImages(ImagePolicy{}, messages)
+	if &prepared[0] != &messages[0] {
+		t.Fatalf("prepared = %#v, want the original messages", prepared)
 	}
 }
 
@@ -130,12 +130,9 @@ func TestPrepareRequestImagesOmitsImagesTheModelCannotReceive(t *testing.T) {
 	}
 	for _, test := range tests {
 		t.Run(test.name, func(t *testing.T) {
-			prepared, adjustments := prepareRequestImages(test.policy, []Message{test.message})
+			prepared := prepareRequestImages(test.policy, []Message{test.message})
 			if !reflect.DeepEqual(prepared, []Message{test.want}) {
 				t.Fatalf("prepared = %#v\nwant %#v", prepared, []Message{test.want})
-			}
-			if len(adjustments) != 1 || adjustments[0].Outcome != imageOmitted {
-				t.Fatalf("adjustments = %#v, want one omission", adjustments)
 			}
 		})
 	}
@@ -145,9 +142,9 @@ func TestPrepareRequestImagesPassesAcceptedRemoteURLs(t *testing.T) {
 	policy := testImagePolicy()
 	policy.Sources = append(policy.Sources, ImageSourceHTTPS)
 	messages := []Message{UserMessage{Content: []InputContent{FileInput{MediaType: ImagePNG, URL: "https://example.com/a.png"}}}}
-	prepared, adjustments := prepareRequestImages(policy, messages)
-	if !reflect.DeepEqual(prepared, messages) || adjustments != nil {
-		t.Fatalf("prepared = %#v, adjustments = %#v; want unchanged", prepared, adjustments)
+	prepared := prepareRequestImages(policy, messages)
+	if !reflect.DeepEqual(prepared, messages) {
+		t.Fatalf("prepared = %#v, want unchanged", prepared)
 	}
 }
 
@@ -158,7 +155,7 @@ func TestPrepareRequestImagesResizesWithNoticeAndKeepsHistory(t *testing.T) {
 	original := toolResultWithImages(small, large)
 	messages := []Message{original}
 
-	prepared, adjustments := prepareRequestImages(policy, messages)
+	prepared := prepareRequestImages(policy, messages)
 	result := prepared[0].(ToolResultMessage)
 	if len(result.Content) != 4 {
 		t.Fatalf("content = %#v, want text, unchanged image, resized image, notice", result.Content)
@@ -173,13 +170,10 @@ func TestPrepareRequestImagesResizesWithNoticeAndKeepsHistory(t *testing.T) {
 	if want := (TextContent{Text: "[Image 2 of 2 was resized from 400×200 to 100×50 pixels.]"}); result.Content[3] != want {
 		t.Fatalf("notice = %#v, want %#v", result.Content[3], want)
 	}
-	if want := []imageAdjustment{{Placement: ImagePlacementToolResult, Outcome: imagePrepared, SourceWidth: 400, SourceHeight: 200, Width: 100, Height: 50}}; !reflect.DeepEqual(adjustments, want) {
-		t.Fatalf("adjustments = %#v, want %#v", adjustments, want)
-	}
 	if !reflect.DeepEqual(messages[0], original) || len(original.Content) != 3 || original.Content[2].(FileContent).URL != large {
 		t.Fatal("preparation mutated the source messages")
 	}
-	again, _ := prepareRequestImages(policy, messages)
+	again := prepareRequestImages(policy, messages)
 	if !reflect.DeepEqual(again, prepared) {
 		t.Fatal("preparation is not deterministic")
 	}
@@ -192,14 +186,14 @@ func TestPrepareRequestImagesConvertsUnacceptedFormatsWithoutNotice(t *testing.T
 		t.Fatal(err)
 	}
 	messages := []Message{UserMessage{Content: []InputContent{FileInput{Filename: "a.gif", MediaType: ImageGIF, URL: imageDataURL(ImageGIF, buf.Bytes())}}}}
-	prepared, adjustments := prepareRequestImages(testImagePolicy(), messages)
+	prepared := prepareRequestImages(testImagePolicy(), messages)
 	content := prepared[0].(UserMessage).Content
 	file, ok := content[0].(FileInput)
 	if len(content) != 1 || !ok || file.Filename != "a.gif" || file.MediaType != ImagePNG || !strings.HasPrefix(file.URL, "data:image/png;base64,") {
 		t.Fatalf("content = %#v, want one converted PNG and no notice", content)
 	}
-	if len(adjustments) != 1 || adjustments[0].Outcome != imagePrepared || adjustments[0].Width != 8 || adjustments[0].SourceWidth != 8 {
-		t.Fatalf("adjustments = %#v", adjustments)
+	if _, w, h := imageDimensions(t, file.URL); w != 8 || h != 8 {
+		t.Fatalf("converted image = %dx%d, want 8x8", w, h)
 	}
 }
 
@@ -223,19 +217,15 @@ func TestPrepareRequestImagesRetainsRecentImagesInBatches(t *testing.T) {
 		for range test.images {
 			messages = append(messages, toolResultWithImages(url))
 		}
-		prepared, adjustments := prepareRequestImages(policy, messages)
+		prepared := prepareRequestImages(policy, messages)
+		omitted := TextContent{Text: "[Image omitted: only the most recent images in the conversation are sent.]"}
 		for index, message := range prepared {
-			_, kept := message.(ToolResultMessage).Content[1].(FileContent)
-			if wantKept := index >= test.omitted; kept != wantKept {
-				t.Fatalf("%d images, max %d: message %d kept = %v, want %v", test.images, test.maxImages, index, kept, wantKept)
+			image := message.(ToolResultMessage).Content[1]
+			if index < test.omitted && image != omitted {
+				t.Fatalf("%d images, max %d: message %d = %#v, want %#v", test.images, test.maxImages, index, image, omitted)
 			}
-		}
-		if len(adjustments) != test.omitted {
-			t.Fatalf("%d images: adjustments = %d, want %d", test.images, len(adjustments), test.omitted)
-		}
-		for _, adjustment := range adjustments {
-			if adjustment.Reason != "only the most recent images in the conversation are sent" {
-				t.Fatalf("reason = %q", adjustment.Reason)
+			if _, kept := image.(FileContent); index >= test.omitted && !kept {
+				t.Fatalf("%d images, max %d: message %d = %#v, want the image", test.images, test.maxImages, index, image)
 			}
 		}
 	}
@@ -254,7 +244,7 @@ func TestPrepareRequestImagesAppliesManyImageRule(t *testing.T) {
 		for range test.images {
 			messages = append(messages, toolResultWithImages(url))
 		}
-		prepared, _ := prepareRequestImages(policy, messages)
+		prepared := prepareRequestImages(policy, messages)
 		for _, message := range prepared {
 			if _, w, _ := imageDimensions(t, message.(ToolResultMessage).Content[1].(FileContent).URL); w != test.width {
 				t.Fatalf("%d images: width = %d, want %d", test.images, w, test.width)
@@ -274,15 +264,12 @@ func TestPrepareRequestImagesOmitsOldestImagesOverRequestByteLimit(t *testing.T)
 	if int64(len(secondData)) >= policy.MaxRequestImageBytes {
 		t.Fatal("test limit must admit the second image")
 	}
-	prepared, adjustments := prepareRequestImages(policy, []Message{toolResultWithImages(first), toolResultWithImages(second)})
+	prepared := prepareRequestImages(policy, []Message{toolResultWithImages(first), toolResultWithImages(second)})
 	if got := prepared[0].(ToolResultMessage).Content[1]; got != (TextContent{Text: "[Image omitted: the request's total image size limit was reached.]"}) {
 		t.Fatalf("first image = %#v, want size-limit placeholder", got)
 	}
 	if got := prepared[1].(ToolResultMessage).Content[1]; got != (FileContent{MediaType: ImagePNG, URL: second}) {
 		t.Fatalf("second image = %#v, want unchanged", got)
-	}
-	if len(adjustments) != 1 || adjustments[0].Message != 0 {
-		t.Fatalf("adjustments = %#v", adjustments)
 	}
 }
 
@@ -445,7 +432,7 @@ func TestBuiltInPoliciesPrepareRetinaScreenshots(t *testing.T) {
 				t.Fatal(err)
 			}
 			policy := model.ImagePolicy()
-			prepared, _ := prepareRequestImages(policy, []Message{toolResultWithImages(screenshot)})
+			prepared := prepareRequestImages(policy, []Message{toolResultWithImages(screenshot)})
 			content := prepared[0].(ToolResultMessage).Content
 			image := content[1].(FileContent)
 			if _, w, h := imageDimensions(t, image.URL); w != test.w || h != test.h {

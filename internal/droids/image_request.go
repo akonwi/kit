@@ -33,27 +33,12 @@ const (
 	imageOmitted   imageOutcome = "omitted"
 )
 
-// imageAdjustment records preparation of one image that was not sent
-// unchanged.
-type imageAdjustment struct {
-	// Message is the index of the message containing the image.
-	Message   int
-	Placement ImagePlacement
-	Outcome   imageOutcome
-	// Reason explains an omission.
-	Reason string
-	// Source and prepared dimensions of a prepared image.
-	SourceWidth, SourceHeight int
-	Width, Height             int
-}
-
 // requestImage is one image located in request messages.
 type requestImage struct {
 	message   int
 	content   int
 	placement ImagePlacement
 	filename  string
-	mediaType string
 	url       string
 
 	outcome imageOutcome
@@ -91,10 +76,10 @@ func (m Model) CheckUserImage(data []byte) error {
 // conform are sent unchanged, others are fitted or re-encoded, and images that
 // cannot be sent are replaced by a text placeholder stating why. A resize
 // notice follows each downscaled image.
-func prepareRequestImages(policy ImagePolicy, messages []Message) ([]Message, []imageAdjustment) {
+func prepareRequestImages(policy ImagePolicy, messages []Message) []Message {
 	images := locateRequestImages(messages)
 	if len(images) == 0 {
-		return messages, nil
+		return messages
 	}
 
 	var eligible []*requestImage
@@ -158,7 +143,7 @@ func locateRequestImages(messages []Message) []requestImage {
 				if file, ok := block.(FileContent); ok && isImageMediaType(file.MediaType) {
 					images = append(images, requestImage{
 						message: messageIndex, content: contentIndex, placement: ImagePlacementToolResult,
-						filename: file.Filename, mediaType: file.MediaType, url: file.URL,
+						filename: file.Filename, url: file.URL,
 					})
 				}
 			}
@@ -172,7 +157,7 @@ func appendInputImages(images []requestImage, messageIndex int, placement ImageP
 		if file, ok := block.(FileInput); ok && isImageMediaType(file.MediaType) {
 			images = append(images, requestImage{
 				message: messageIndex, content: contentIndex, placement: placement,
-				filename: file.Filename, mediaType: file.MediaType, url: file.URL,
+				filename: file.Filename, url: file.URL,
 			})
 		}
 	}
@@ -284,26 +269,18 @@ func imageDataURL(mediaType string, data []byte) string {
 	return "data:" + mediaType + ";base64," + base64.StdEncoding.EncodeToString(data)
 }
 
-// rewriteRequestImages returns messages with each image's outcome applied and
-// reports every image that was not sent unchanged.
-func rewriteRequestImages(messages []Message, images []requestImage) ([]Message, []imageAdjustment) {
+// rewriteRequestImages returns messages with each image's outcome applied.
+func rewriteRequestImages(messages []Message, images []requestImage) []Message {
 	byMessage := map[int][]*requestImage{}
-	var adjustments []imageAdjustment
 	for index := range images {
 		image := &images[index]
 		if image.outcome == imageUnchanged && !image.result.Changed {
 			continue
 		}
 		byMessage[image.message] = append(byMessage[image.message], image)
-		adjustment := imageAdjustment{Message: image.message, Placement: image.placement, Outcome: image.outcome, Reason: image.reason}
-		if image.outcome == imagePrepared {
-			adjustment.SourceWidth, adjustment.SourceHeight = image.result.SourceWidth, image.result.SourceHeight
-			adjustment.Width, adjustment.Height = image.result.Width, image.result.Height
-		}
-		adjustments = append(adjustments, adjustment)
 	}
 	if len(byMessage) == 0 {
-		return messages, nil
+		return messages
 	}
 
 	out := append([]Message(nil), messages...)
@@ -321,7 +298,7 @@ func rewriteRequestImages(messages []Message, images []requestImage) ([]Message,
 			out[messageIndex] = value
 		}
 	}
-	return out, adjustments
+	return out
 }
 
 // imagePositions maps each image's content index in a message to its 1-based

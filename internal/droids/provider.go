@@ -84,7 +84,7 @@ func validateRequestReplay(ctx context.Context, provider Provider, model Model, 
 
 // prepareRequest applies the provider's image policy for model to request.
 func prepareRequest(provider Provider, model Model, request Request) Request {
-	request.Messages, _ = prepareRequestImages(provider.ImagePolicy(model), request.Messages)
+	request.Messages = prepareRequestImages(provider.ImagePolicy(model), request.Messages)
 	return request
 }
 
@@ -495,7 +495,7 @@ func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream 
 	}
 	// Direct callers receive the same image preparation as runtime dispatch,
 	// which prepares before calling the bound Provider.
-	req.Messages, _ = prepareRequestImages(e.imagePolicy(requested), req.Messages)
+	req.Messages = prepareRequestImages(e.imagePolicy(requested), req.Messages)
 	return e.stream(ctx, requested, req, e.call)
 }
 

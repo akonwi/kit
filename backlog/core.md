@@ -213,11 +213,6 @@ change in an ADR before implementing it. Wire changes bump
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
-- [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
-  validation. Retained for `CORE-IMG-008`.
-- [ ] CORE-IMG-008 — Report image preparation adjustments, such as omitted or
-  resized images, through runtime diagnostics that attached clients can surface.
-  Depends on `CORE-IMG-003`.
 - [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
   `WEB-INT-001`.
 - [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
