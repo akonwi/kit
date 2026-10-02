@@ -155,6 +155,90 @@
         ],
         "type": "object"
       },
+      "AnnotationsInvalidEvidenceError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "invalid_evidence"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AnnotationsStaleFileError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_file"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AnnotationsStaleTargetError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_target"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
+      "AnnotationsStaleWorkspaceError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "stale_workspace"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
+      },
       "CapacityExceededError": {
         "additionalProperties": false,
         "properties": {
@@ -5002,6 +5086,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "invalid_evidence": "#/components/schemas/AnnotationsInvalidEvidenceError",
                           "invalid_request": "#/components/schemas/InvalidRequestError"
                         },
                         "propertyName": "code"
@@ -5009,6 +5094,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsInvalidEvidenceError"
                         }
                       ]
                     }
@@ -5119,13 +5207,25 @@
                       "discriminator": {
                         "mapping": {
                           "conflict": "#/components/schemas/ConflictError",
-                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_file": "#/components/schemas/AnnotationsStaleFileError",
+                          "stale_target": "#/components/schemas/AnnotationsStaleTargetError",
+                          "stale_workspace": "#/components/schemas/AnnotationsStaleWorkspaceError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleFileError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -5243,6 +5343,9 @@
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        },
                         {
                           "$ref": "#/components/schemas/UnavailableError"
                         }
@@ -5335,6 +5438,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "invalid_evidence": "#/components/schemas/AnnotationsInvalidEvidenceError",
                           "invalid_request": "#/components/schemas/InvalidRequestError"
                         },
                         "propertyName": "code"
@@ -5342,6 +5446,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsInvalidEvidenceError"
                         }
                       ]
                     }
@@ -5572,6 +5679,9 @@
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        },
                         {
                           "$ref": "#/components/schemas/UnavailableError"
                         }
@@ -5658,6 +5768,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "invalid_evidence": "#/components/schemas/AnnotationsInvalidEvidenceError",
                           "invalid_request": "#/components/schemas/InvalidRequestError"
                         },
                         "propertyName": "code"
@@ -5665,6 +5776,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsInvalidEvidenceError"
                         }
                       ]
                     }
@@ -5775,13 +5889,25 @@
                       "discriminator": {
                         "mapping": {
                           "conflict": "#/components/schemas/ConflictError",
-                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_file": "#/components/schemas/AnnotationsStaleFileError",
+                          "stale_target": "#/components/schemas/AnnotationsStaleTargetError",
+                          "stale_workspace": "#/components/schemas/AnnotationsStaleWorkspaceError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleFileError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -5812,6 +5938,9 @@
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/LimitExceededError"
+                        },
                         {
                           "$ref": "#/components/schemas/LimitExceededError"
                         }
@@ -5930,6 +6059,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/UnavailableError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
                         }
                       ]
                     }
@@ -6014,6 +6146,7 @@
                     "error": {
                       "discriminator": {
                         "mapping": {
+                          "invalid_evidence": "#/components/schemas/AnnotationsInvalidEvidenceError",
                           "invalid_request": "#/components/schemas/InvalidRequestError"
                         },
                         "propertyName": "code"
@@ -6021,6 +6154,9 @@
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/InvalidRequestError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsInvalidEvidenceError"
                         }
                       ]
                     }
@@ -6131,13 +6267,25 @@
                       "discriminator": {
                         "mapping": {
                           "conflict": "#/components/schemas/ConflictError",
-                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "stale_file": "#/components/schemas/AnnotationsStaleFileError",
+                          "stale_target": "#/components/schemas/AnnotationsStaleTargetError",
+                          "stale_workspace": "#/components/schemas/AnnotationsStaleWorkspaceError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
                         {
                           "$ref": "#/components/schemas/ConflictError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleWorkspaceError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleTargetError"
+                        },
+                        {
+                          "$ref": "#/components/schemas/AnnotationsStaleFileError"
                         },
                         {
                           "$ref": "#/components/schemas/InstanceMismatchError"
@@ -6168,6 +6316,9 @@
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/LimitExceededError"
+                        },
                         {
                           "$ref": "#/components/schemas/LimitExceededError"
                         }
@@ -6284,6 +6435,9 @@
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/UnavailableError"
+                        },
                         {
                           "$ref": "#/components/schemas/UnavailableError"
                         }

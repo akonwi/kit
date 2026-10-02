@@ -2766,6 +2766,15 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 
 // annotationAPIError projects annotation operation failures into ADR-0034 envelopes.
 func annotationAPIError(err error) error {
+	var evidence *kitannotation.EvidenceError
+	if errors.As(err, &evidence) {
+		status := map[protocol.AnnotationEvidenceErrorCode]int{
+			protocol.AnnotationEvidenceErrorInvalid: http.StatusBadRequest, protocol.AnnotationEvidenceErrorPermission: http.StatusForbidden,
+			protocol.AnnotationEvidenceErrorStaleWorkspace: http.StatusConflict, protocol.AnnotationEvidenceErrorStaleTarget: http.StatusConflict, protocol.AnnotationEvidenceErrorStaleFile: http.StatusConflict,
+			protocol.AnnotationEvidenceErrorLimit: http.StatusRequestEntityTooLarge, protocol.AnnotationEvidenceErrorUnavailable: http.StatusServiceUnavailable,
+		}[evidence.Kind]
+		return httpapi.NewAPIError(status, httpapi.ErrorCode(evidence.Kind), evidence.Error(), nil)
+	}
 	if errors.Is(err, kitsession.ErrNotFound) {
 		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
 	}

@@ -16,22 +16,22 @@ type AnnotationListParams struct {
 func annotationErrors(statuses ...int) []ErrorResponse {
 	responses := make([]ErrorResponse, 0, len(statuses))
 	for _, status := range statuses {
-		code := ErrorCode("")
+		codes := []ErrorCode{ErrorInternal}
 		switch status {
 		case http.StatusBadRequest:
-			code = ErrorInvalidRequest
+			codes = []ErrorCode{ErrorInvalidRequest, ErrorCode(protocol.AnnotationEvidenceErrorInvalid)}
+		case http.StatusForbidden:
+			codes = []ErrorCode{ErrorCode(protocol.AnnotationEvidenceErrorPermission)}
 		case http.StatusNotFound:
-			code = ErrorNotFound
+			codes = []ErrorCode{ErrorNotFound}
 		case http.StatusConflict:
-			code = ErrorConflict
+			codes = []ErrorCode{ErrorConflict, ErrorCode(protocol.AnnotationEvidenceErrorStaleWorkspace), ErrorCode(protocol.AnnotationEvidenceErrorStaleTarget), ErrorCode(protocol.AnnotationEvidenceErrorStaleFile)}
 		case http.StatusRequestEntityTooLarge:
-			code = ErrorLimitExceeded
+			codes = []ErrorCode{ErrorLimitExceeded, ErrorCode(protocol.AnnotationEvidenceErrorLimit)}
 		case http.StatusServiceUnavailable:
-			code = ErrorUnavailable
-		case http.StatusInternalServerError:
-			code = ErrorInternal
+			codes = []ErrorCode{ErrorUnavailable, ErrorCode(protocol.AnnotationEvidenceErrorUnavailable)}
 		}
-		responses = append(responses, ErrorResponse{Status: status, Codes: []ErrorCode{code}})
+		responses = append(responses, ErrorResponse{Status: status, Codes: codes})
 	}
 	return responses
 }

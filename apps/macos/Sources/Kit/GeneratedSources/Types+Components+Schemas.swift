@@ -427,6 +427,174 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError`.
+        internal struct AnnotationsInvalidEvidenceError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case invalidEvidence = "invalid_evidence"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError/code`.
+            internal var code: Components.Schemas.AnnotationsInvalidEvidenceError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsInvalidEvidenceError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsInvalidEvidenceError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsInvalidEvidenceError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsStaleFileError`.
+        internal struct AnnotationsStaleFileError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleFileError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleFile = "stale_file"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleFileError/code`.
+            internal var code: Components.Schemas.AnnotationsStaleFileError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleFileError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsStaleFileError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsStaleFileError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsStaleFileError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsStaleTargetError`.
+        internal struct AnnotationsStaleTargetError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleTargetError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleTarget = "stale_target"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleTargetError/code`.
+            internal var code: Components.Schemas.AnnotationsStaleTargetError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleTargetError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsStaleTargetError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsStaleTargetError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsStaleTargetError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsStaleWorkspaceError`.
+        internal struct AnnotationsStaleWorkspaceError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleWorkspaceError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case staleWorkspace = "stale_workspace"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleWorkspaceError/code`.
+            internal var code: Components.Schemas.AnnotationsStaleWorkspaceError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/AnnotationsStaleWorkspaceError/message`.
+            internal var message: Swift.String
+            /// Creates a new `AnnotationsStaleWorkspaceError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.AnnotationsStaleWorkspaceError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.AnnotationsStaleWorkspaceError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CapacityExceededError`.
         internal struct CapacityExceededError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CapacityExceededError/code`.

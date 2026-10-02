@@ -5681,6 +5681,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/400/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/400/content/json/error/AnnotationsInvalidEvidenceError`.
+                            case invalidEvidence(Components.Schemas.AnnotationsInvalidEvidenceError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/GET/responses/400/content/json/error/InvalidRequestError`.
                             case invalidRequest(Components.Schemas.InvalidRequestError)
                             internal enum CodingKeys: String, CodingKey {
@@ -5693,6 +5695,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "invalid_evidence":
+                                    self = .invalidEvidence(try .init(from: decoder))
                                 case "invalid_request":
                                     self = .invalidRequest(try .init(from: decoder))
                                 default:
@@ -5705,6 +5709,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .invalidEvidence(value):
+                                    try value.encode(to: encoder)
                                 case let .invalidRequest(value):
                                     try value.encode(to: encoder)
                                 }
@@ -6795,6 +6801,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/400/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/400/content/json/error/AnnotationsInvalidEvidenceError`.
+                            case invalidEvidence(Components.Schemas.AnnotationsInvalidEvidenceError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/400/content/json/error/InvalidRequestError`.
                             case invalidRequest(Components.Schemas.InvalidRequestError)
                             internal enum CodingKeys: String, CodingKey {
@@ -6807,6 +6815,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "invalid_evidence":
+                                    self = .invalidEvidence(try .init(from: decoder))
                                 case "invalid_request":
                                     self = .invalidRequest(try .init(from: decoder))
                                 default:
@@ -6819,6 +6829,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .invalidEvidence(value):
+                                    try value.encode(to: encoder)
                                 case let .invalidRequest(value):
                                     try value.encode(to: encoder)
                                 }
@@ -7227,6 +7239,12 @@ internal enum Operations {
                             case conflict(Components.Schemas.ConflictError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/409/content/json/error/InstanceMismatchError`.
                             case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/409/content/json/error/AnnotationsStaleFileError`.
+                            case staleFile(Components.Schemas.AnnotationsStaleFileError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/409/content/json/error/AnnotationsStaleTargetError`.
+                            case staleTarget(Components.Schemas.AnnotationsStaleTargetError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/POST/responses/409/content/json/error/AnnotationsStaleWorkspaceError`.
+                            case staleWorkspace(Components.Schemas.AnnotationsStaleWorkspaceError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -7241,6 +7259,12 @@ internal enum Operations {
                                     self = .conflict(try .init(from: decoder))
                                 case "instance_mismatch":
                                     self = .instanceMismatch(try .init(from: decoder))
+                                case "stale_file":
+                                    self = .staleFile(try .init(from: decoder))
+                                case "stale_target":
+                                    self = .staleTarget(try .init(from: decoder))
+                                case "stale_workspace":
+                                    self = .staleWorkspace(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -7254,6 +7278,12 @@ internal enum Operations {
                                 case let .conflict(value):
                                     try value.encode(to: encoder)
                                 case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .staleFile(value):
+                                    try value.encode(to: encoder)
+                                case let .staleTarget(value):
+                                    try value.encode(to: encoder)
+                                case let .staleWorkspace(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -8022,6 +8052,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/400/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/400/content/json/error/AnnotationsInvalidEvidenceError`.
+                            case invalidEvidence(Components.Schemas.AnnotationsInvalidEvidenceError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/400/content/json/error/InvalidRequestError`.
                             case invalidRequest(Components.Schemas.InvalidRequestError)
                             internal enum CodingKeys: String, CodingKey {
@@ -8034,6 +8066,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "invalid_evidence":
+                                    self = .invalidEvidence(try .init(from: decoder))
                                 case "invalid_request":
                                     self = .invalidRequest(try .init(from: decoder))
                                 default:
@@ -8046,6 +8080,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .invalidEvidence(value):
+                                    try value.encode(to: encoder)
                                 case let .invalidRequest(value):
                                     try value.encode(to: encoder)
                                 }
@@ -8454,6 +8490,12 @@ internal enum Operations {
                             case conflict(Components.Schemas.ConflictError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/409/content/json/error/InstanceMismatchError`.
                             case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/409/content/json/error/AnnotationsStaleFileError`.
+                            case staleFile(Components.Schemas.AnnotationsStaleFileError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/409/content/json/error/AnnotationsStaleTargetError`.
+                            case staleTarget(Components.Schemas.AnnotationsStaleTargetError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/PATCH/responses/409/content/json/error/AnnotationsStaleWorkspaceError`.
+                            case staleWorkspace(Components.Schemas.AnnotationsStaleWorkspaceError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -8468,6 +8510,12 @@ internal enum Operations {
                                     self = .conflict(try .init(from: decoder))
                                 case "instance_mismatch":
                                     self = .instanceMismatch(try .init(from: decoder))
+                                case "stale_file":
+                                    self = .staleFile(try .init(from: decoder))
+                                case "stale_target":
+                                    self = .staleTarget(try .init(from: decoder))
+                                case "stale_workspace":
+                                    self = .staleWorkspace(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -8481,6 +8529,12 @@ internal enum Operations {
                                 case let .conflict(value):
                                     try value.encode(to: encoder)
                                 case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .staleFile(value):
+                                    try value.encode(to: encoder)
+                                case let .staleTarget(value):
+                                    try value.encode(to: encoder)
+                                case let .staleWorkspace(value):
                                     try value.encode(to: encoder)
                                 }
                             }
@@ -9233,6 +9287,8 @@ internal enum Operations {
                     internal struct JsonPayload: Codable, Hashable, Sendable {
                         /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/400/content/json/error`.
                         internal enum _ErrorPayload: Codable, Hashable, Sendable {
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/400/content/json/error/AnnotationsInvalidEvidenceError`.
+                            case invalidEvidence(Components.Schemas.AnnotationsInvalidEvidenceError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/400/content/json/error/InvalidRequestError`.
                             case invalidRequest(Components.Schemas.InvalidRequestError)
                             internal enum CodingKeys: String, CodingKey {
@@ -9245,6 +9301,8 @@ internal enum Operations {
                                     forKey: .code
                                 )
                                 switch discriminator {
+                                case "invalid_evidence":
+                                    self = .invalidEvidence(try .init(from: decoder))
                                 case "invalid_request":
                                     self = .invalidRequest(try .init(from: decoder))
                                 default:
@@ -9257,6 +9315,8 @@ internal enum Operations {
                             }
                             internal func encode(to encoder: any Swift.Encoder) throws {
                                 switch self {
+                                case let .invalidEvidence(value):
+                                    try value.encode(to: encoder)
                                 case let .invalidRequest(value):
                                     try value.encode(to: encoder)
                                 }
@@ -9665,6 +9725,12 @@ internal enum Operations {
                             case conflict(Components.Schemas.ConflictError)
                             /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/409/content/json/error/InstanceMismatchError`.
                             case instanceMismatch(Components.Schemas.InstanceMismatchError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/409/content/json/error/AnnotationsStaleFileError`.
+                            case staleFile(Components.Schemas.AnnotationsStaleFileError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/409/content/json/error/AnnotationsStaleTargetError`.
+                            case staleTarget(Components.Schemas.AnnotationsStaleTargetError)
+                            /// - Remark: Generated from `#/paths/v1/sessions/{sessionID}/annotations/DELETE/responses/409/content/json/error/AnnotationsStaleWorkspaceError`.
+                            case staleWorkspace(Components.Schemas.AnnotationsStaleWorkspaceError)
                             internal enum CodingKeys: String, CodingKey {
                                 case code
                             }
@@ -9679,6 +9745,12 @@ internal enum Operations {
                                     self = .conflict(try .init(from: decoder))
                                 case "instance_mismatch":
                                     self = .instanceMismatch(try .init(from: decoder))
+                                case "stale_file":
+                                    self = .staleFile(try .init(from: decoder))
+                                case "stale_target":
+                                    self = .staleTarget(try .init(from: decoder))
+                                case "stale_workspace":
+                                    self = .staleWorkspace(try .init(from: decoder))
                                 default:
                                     throw Swift.DecodingError.unknownOneOfDiscriminator(
                                         discriminatorKey: CodingKeys.code,
@@ -9692,6 +9764,12 @@ internal enum Operations {
                                 case let .conflict(value):
                                     try value.encode(to: encoder)
                                 case let .instanceMismatch(value):
+                                    try value.encode(to: encoder)
+                                case let .staleFile(value):
+                                    try value.encode(to: encoder)
+                                case let .staleTarget(value):
+                                    try value.encode(to: encoder)
+                                case let .staleWorkspace(value):
                                     try value.encode(to: encoder)
                                 }
                             }
