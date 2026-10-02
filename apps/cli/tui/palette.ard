@@ -10,7 +10,9 @@ use go:strings
 struct Item {
   key: Str,
   label: Str,
+  hint: Str,
   description: Str,
+  meta: Str,
   search_terms: [Str],
   disabled_reason: Str,
 }
@@ -86,20 +88,44 @@ fn selected(items: [Item], key: Str) Item? {
 // description column.
 struct Columns {
   label: Int,
-  description: Int,
+  hint: Int,
+  meta: Int,
 }
 
+// Catalog-wide fixed columns keep command arguments, descriptions, and sources
+// aligned while filtering. Bounds retain a useful description column on narrow
+// terminals.
 fn columns(catalog: [Item]) Columns {
-  let columns = mut Columns{label: 1, description: 1}
+  let columns = mut Columns{
+    label: 1,
+    hint: 0,
+    meta: 0,
+  }
   for item in catalog {
     columns.label = match item.label.size() > columns.label {
       true => item.label.size(),
       false => columns.label,
     }
-    columns.description = match item.description.size() > columns.description {
-      true => item.description.size(),
-      false => columns.description,
+    columns.hint = match item.hint.size() > columns.hint {
+      true => item.hint.size(),
+      false => columns.hint,
     }
+    columns.meta = match item.meta.size() > columns.meta {
+      true => item.meta.size(),
+      false => columns.meta,
+    }
+  }
+  columns.label = match columns.label > 32 {
+    true => 32,
+    false => columns.label,
+  }
+  columns.hint = match columns.hint > 24 {
+    true => 24,
+    false => columns.hint,
+  }
+  columns.meta = match columns.meta > 20 {
+    true => 20,
+    false => columns.meta,
   }
   columns.@
 }
@@ -296,11 +322,34 @@ private fn row(props: Props, item: Item) cui::View {
         ],
         styles: ui::style(width: ui::cells(columns.label + 1)),
       ),
+      cui::box(
+        [
+          cui::text(
+            item.hint,
+            text_style: ui::text_style(foreground: colors.muted),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        ],
+        styles: ui::style(width: ui::cells(columns.hint + 2), flex_shrink: 0.0),
+      ),
       cui::text(
         description,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
         text_style: ui::text_style(foreground: colors.muted),
         wrap: ui::TextWrap::none,
         overflow: ui::TextOverflow::ellipsis,
+      ),
+      cui::box(
+        [
+          cui::text(
+            item.meta,
+            text_style: ui::text_style(foreground: colors.muted),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        ],
+        styles: ui::style(width: ui::cells(columns.meta), flex_shrink: 0.0),
       ),
     ],
     styles: ui::style(
