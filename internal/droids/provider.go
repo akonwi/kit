@@ -75,8 +75,21 @@ func replayRequest(sessionID string, model Model, configuration *runtimeRequestC
 }
 
 // validateRequestReplay assesses a replay through the richest contract the
-// provider implements.
+// provider implements, after applying the model's image policy so it assesses
+// exactly what dispatch would send.
 func validateRequestReplay(ctx context.Context, provider Provider, model Model, request Request) error {
+	return validatePreparedRequestReplay(ctx, provider, model, prepareRequest(provider, model, request))
+}
+
+// prepareRequest applies the provider's image policy for model to request.
+func prepareRequest(provider Provider, model Model, request Request) Request {
+	request.Messages, _ = prepareRequestImages(provider.ImagePolicy(model), request.Messages)
+	return request
+}
+
+// validatePreparedRequestReplay assesses a request whose images were already
+// prepared by prepareRequest.
+func validatePreparedRequestReplay(ctx context.Context, provider Provider, model Model, request Request) error {
 	if validator, ok := provider.(RequestReplayValidator); ok {
 		return validator.ValidateRequestReplay(ctx, model, request)
 	}

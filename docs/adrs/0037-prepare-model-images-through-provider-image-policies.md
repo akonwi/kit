@@ -132,9 +132,11 @@ default retention window is 20 images, bounded further by the policy's
 `MaxImages`. Retention treats every image alike: user attachments, context
 images, and tool-result images share one window ordered by position in the
 request, with no source receiving priority. When the window is exceeded, the
-oldest images are omitted in a batch that reduces the count to half the
-window, so the request prefix changes rarely rather than on every new image.
-Omitted images become placeholders; the canonical history keeps them.
+oldest images are omitted in batches of half the window, so a request carries
+between half the window plus one and the full window, and the set of omitted
+images, with it the request prefix, changes once per batch rather than on
+every new image. Omitted images become placeholders; the canonical history
+keeps them.
 
 After retention, if the image count exceeds a policy's `ManyImages.Above`
 threshold, every image is fitted with the stricter rule. If the prepared images
@@ -168,8 +170,10 @@ release build stays CGO-free.
 - JPEG, PNG, GIF, and WebP are decoded. Animated GIFs use the first frame.
 - EXIF orientation is applied before resizing, because re-encoding discards
   the metadata providers would otherwise honor.
-- Unchanged images keep their original bytes. Resized images are re-encoded in
-  the source format when an encoder is available, otherwise as PNG. If the
+- Unchanged images keep their original bytes. An image with a non-default EXIF
+  orientation is re-encoded upright even when it otherwise conforms, because
+  not every provider documents honoring the tag. Resized images are re-encoded
+  in the source format when an encoder is available, otherwise as PNG. If the
   result exceeds `MaxEncodedBytes`, the image is re-encoded once as JPEG when it
   has no meaningful transparency; otherwise it is omitted.
 - Output is deterministic for a given source, policy, and Kit build.

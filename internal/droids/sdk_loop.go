@@ -529,7 +529,10 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	if reasoningHistory != nil {
 		request.Reasoning = reasoningHistory.Effective
 	}
-	if err := validateRequestReplay(ctx, rt.provider, rt.droid.model, request); err != nil {
+	// Validation and dispatch share one prepared request so they see identical
+	// messages.
+	request = prepareRequest(rt.provider, rt.droid.model, request)
+	if err := validatePreparedRequestReplay(ctx, rt.provider, rt.droid.model, request); err != nil {
 		return MessageEnvelope{}, err
 	}
 	messageID, err := newMessageID()

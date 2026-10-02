@@ -213,20 +213,8 @@ change in an ADR before implementing it. Wire changes bump
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
-- [x] CORE-IMG-001 — Per-model provider image policies, validated at
-  registration and model binding. Retained for `CORE-IMG-003`.
-- [x] CORE-IMG-002 — Pure-Go Droids image preparation. Retained for
-  `CORE-IMG-003`.
-- [ ] CORE-IMG-003 — Apply the active model's image policy to every request and
-  replay validation without mutating canonical history: prepare or omit each
-  image with a placeholder stating the reason, add resize notices, keep the 20
-  most recent images across all sources with batched omission to half the
-  window, apply many-image rules and request image-byte limits, and never fail
-  a request or model switch because of a history or tool-result image. Depends
-  on `CORE-IMG-001` and `CORE-IMG-002`. Verify that dispatch and replay
-  validation see identical prepared messages and that a session holding the
-  image that broke `session_82cd46c2dd20e09518485b52936faaa9` continues on every
-  provider.
+- [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
+  validation. Retained for `CORE-IMG-008`.
 - [ ] CORE-IMG-004 — Declare the Anthropic, OpenAI, and OpenAI Codex image
   policies from ADR 0037, including Anthropic's tiered reference fit, OpenAI
   family `high`-detail fits, and `"detail": "high"` on every OpenAI and Codex
