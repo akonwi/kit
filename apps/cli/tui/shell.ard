@@ -347,6 +347,7 @@ struct Shell {
   usage: protocol::SessionUsage,
   mcp_servers: [protocol::MCPServerStatus],
   mcp_warnings: [Str],
+  shown_mcp_warnings: [Str],
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -434,6 +435,7 @@ fn new(props: mut Props) mut Shell {
     },
     mcp_servers: [],
     mcp_warnings: [],
+    shown_mcp_warnings: [],
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -2290,6 +2292,18 @@ impl Shell {
       self.usage = snapshot.Usage
       self.mcp_servers = snapshot.MCPServers
       self.mcp_warnings = snapshot.MCPWarnings
+      for warning in snapshot.MCPWarnings {
+        mut already_shown = false
+        for shown in self.shown_mcp_warnings {
+          if shown == warning {
+            already_shown = true
+          }
+        }
+        if not already_shown {
+          self.shown_mcp_warnings.push(warning)
+          self.show_toast("MCP configuration warning", warning, toast::Variant::warning, true)
+        }
+      }
       // Watch snapshots can lag the active turn. Keep its complete live tail
       // (including the optimistic user row) until turn settlement; a snapshot
       // that happens to include the user event can still omit later live
