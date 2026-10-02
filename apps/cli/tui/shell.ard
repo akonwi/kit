@@ -340,6 +340,8 @@ struct Shell {
   selection_copy_base: ui::Color,
   latest_out_of_view: Bool,
   start_pending: Bool,
+  compact_pending: Bool,
+  compact_operation_id: Str,
   abort_pending: Bool,
   abort_after_start: Bool,
   active_modal: ActiveModal,
@@ -407,6 +409,8 @@ fn new(props: mut Props) mut Shell {
     selection_copy_base: ui::rgb(0, 0, 0),
     latest_out_of_view: false,
     start_pending: false,
+    compact_pending: false,
+    compact_operation_id: "",
     abort_pending: false,
     abort_after_start: false,
     active_modal: ActiveModal::none,
@@ -987,12 +991,21 @@ impl Shell {
     let content = match self.notice != "" {
       true => line(self.notice, ui::text_style(foreground: colors.danger_text)),
       false => {
-        match self.live.activity != "" {
+        let activity = match self.live.activity != "" {
+          true => self.live.activity,
+          false => {
+            match self.compact_pending {
+              true => "Compacting session…",
+              false => "",
+            }
+          },
+        }
+        match activity != "" {
           true => {
             cui::box(
               [
                 spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
-                line(self.live.activity, ui::text_style(foreground: colors.muted)),
+                line(activity, ui::text_style(foreground: colors.muted)),
               ],
               styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
             )
@@ -1252,7 +1265,7 @@ impl Shell {
       self.command_query = ""
       self.command_selection = palette::first_enabled(
         command_catalog(
-          self.run_id != "" or self.start_pending,
+          self.run_id != "" or self.start_pending or self.compact_pending,
           self.prompt_commands,
           self.plugin_commands,
         ),
@@ -1719,7 +1732,7 @@ impl Shell {
 
   fn mut command_palette_modal() cui::View {
     let catalog = command_catalog(
-      self.run_id != "" or self.start_pending,
+      self.run_id != "" or self.start_pending or self.compact_pending,
       self.prompt_commands,
       self.plugin_commands,
     )
@@ -1780,6 +1793,9 @@ impl Shell {
           self.open_provider_picker()
         } else if item.key == "quit" {
           self.props.quit()
+        } else if item.key == "compact" {
+          self.active_modal = ActiveModal::none
+          self.compact_session()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
@@ -1852,7 +1868,11 @@ impl Shell {
           palette::Props{
             themes: self.props.themes,
             placeholder: "",
-            catalog: command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands, self.plugin_commands),
+            catalog: command_catalog(
+              self.run_id != "" or self.start_pending or self.compact_pending,
+              self.prompt_commands,
+              self.plugin_commands,
+            ),
             query: self.command_query,
             filter_query: command_word(self.command_query),
             selection: "",
@@ -2297,6 +2317,97 @@ impl Shell {
       }
     }
     true
+  }
+
+  // Compacts the session through its idempotent API and then refreshes the
+  // snapshot. Its local activity is rendered in the reasoning slot, while only
+  // failures produce persistent feedback.
+  fn mut compact_session() {
+    if self.compact_pending {
+      ()
+    } else {
+      match identifier::New("compact_") {
+        ok(operation_id) => {
+          match self.lifetime {
+            lifetime => {
+              match self.info {
+                info => {
+                  match self.context {
+                    context => {
+                      match self.session {
+                        session => {
+                          let attempt = contextbridge::WithTimeout(
+                            lifetime.Context,
+                            Int64::from(120000),
+                          )
+                          let session_id = info.ID
+                          let transport = self.props.options.Transport
+                          let dispatch = context.dispatch
+                          self.compact_pending = true
+                          self.compact_operation_id = operation_id
+                          async::start(fn() {
+                            let result = httpapi::Call<httpapi::SessionPath, protocol::CompactSessionInput, protocol::CompactSessionResult>(
+                              attempt.Context,
+                              transport,
+                              httpapi::CompactSession,
+                              httpapi::SessionPath{SessionID: session_id},
+                              protocol::CompactSessionInput{OperationID: operation_id},
+                            )
+                            match result {
+                              ok(_) => {
+                                let snapshot = session.Snapshot(attempt.Context)
+                                attempt.Cancel()
+                                let _ = dispatch(fn() {
+                                  if self.compact_operation_id == operation_id {
+                                    self.compact_pending = false
+                                    self.compact_operation_id = ""
+                                    match snapshot {
+                                      ok(current) => self.apply_snapshot(current),
+                                      err(failure) => {
+                                        self.show_toast(
+                                          "Session compacted",
+                                          "Session context was compacted. {failure}",
+                                          toast::Variant::warning,
+                                          true,
+                                        )
+                                      },
+                                    }
+                                  }
+                                })
+                              },
+                              err(failure) => {
+                                attempt.Cancel()
+                                let _ = dispatch(fn() {
+                                  if self.compact_operation_id == operation_id {
+                                    self.compact_pending = false
+                                    self.compact_operation_id = ""
+                                    self.show_toast(
+                                      "Compaction failed",
+                                      failure.error(),
+                                      toast::Variant::error,
+                                      true,
+                                    )
+                                  }
+                                })
+                              },
+                            }
+                          })
+                        },
+                        _ => (),
+                      }
+                    },
+                    _ => (),
+                  }
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        err(failure) => self.show_toast("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
   }
 
   // Changes the attached session's directory through the canonical session
