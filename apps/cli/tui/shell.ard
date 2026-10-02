@@ -20,6 +20,7 @@ use kit/tui/copyable
 use kit/tui/format
 use kit/tui/mcp
 use kit/tui/modal
+use kit/tui/model
 use kit/tui/palette
 use kit/tui/spinner
 use kit/tui/theme
@@ -1594,70 +1595,19 @@ impl Shell {
     let dismiss = keymap::simple_command("model.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
-    let rows = mut List::new<cui::View>()
-    if self.model_loading {
-      rows.push(
-        cui::box(
-          [
-            spinner::spinner(),
-            line("Loading models…", ui::text_style(foreground: self.props.themes.current().muted)),
-          ],
-          styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
-        ),
-      )
-    } else if self.model_error != "" {
-      rows.push(
-        line(self.model_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
-      )
-    } else {
-      for model in self.model_catalog {
-        let unavailable = not model.Available
-        let label = match model.ID == self.info.or(protocol::SessionInfo{}).Model {
-          true => "{model.Name} (current)",
-          false => model.Name,
-        }
-        let choose = keymap::simple_command("model.choose.{model.ID}", "Choose model", fn() Bool {
-          self.apply_model(model.ID)
-          true
-        })
-        rows.push(
-          controls::button(
-            self.props.themes,
-            label,
-            choose,
-            variant: controls::ButtonVariant::secondary,
-            compact: true,
-            focusable: not unavailable and not self.model_pending,
-            styles: ui::style(width: ui::percent(100.0)),
-          ),
-        )
-        rows.push(
-          line(
-            "{model.Provider} · {format::usage_integer(model.ContextWindow)} token context",
-            ui::text_style(foreground: self.props.themes.current().muted),
-          ),
-        )
-        rows.push(blank())
-      }
-    }
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::picker,
-        title: "Models",
-        meta: "",
-        header: [],
-        body: cui::scroll_box(
-          [cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))],
-          key: "model.list",
-          styles: ui::style(height: ui::cells(18), padding: inset()),
-          scrollbar_options: ui::scrollbar_options(),
-        ),
-        footer: Maybe::new<cui::View>(),
-        autofocus: true,
+    cui::child(
+      model::new,
+      model::Props{
+        themes: self.props.themes,
+        models: self.model_catalog,
+        current_model: self.info.or(protocol::SessionInfo{}).Model,
+        loading: self.model_loading,
+        pending: self.model_pending,
+        error: self.model_error,
         dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
+        choose: fn(id: Str) {
+          self.apply_model(id)
+        },
       },
     )
   }
