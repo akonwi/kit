@@ -2229,7 +2229,6 @@ impl Shell {
                 let session_id = info.ID
                 let transport = self.props.options.Transport
                 let dispatch = context.dispatch
-                self.show_toast("Running plugin command", command.ID, toast::Variant::info, false)
                 async::start(fn() {
                   let result = httpapi::Call<httpapi::SessionPath, protocol::PluginCommandInput, httpapi::NoBody>(
                     ctx,
@@ -2244,7 +2243,10 @@ impl Shell {
                   )
                   let _ = dispatch(fn() {
                     match result {
-                      ok(_) => self.show_toast("Plugin command completed", command.ID, toast::Variant::info, false),
+                      // Plugins own successful user-facing feedback through
+                      // their server notification stream. Do not duplicate it
+                      // with a client-generated completion toast.
+                      ok(_) => (),
                       err(failure) => {
                         self.show_toast(
                           "Plugin command failed",
