@@ -1,0 +1,137 @@
+use ard/async
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:github.com/akonwi/kit/internal/httpapi
+use go:github.com/akonwi/kit/internal/protocol
+use go:kit/ffi/contextbridge
+use kit/tui/modal
+use kit/tui/theme
+use go:strings
+
+// Props provides the shell-owned session identity and completion callback.
+struct Props {
+  themes: theme::Context,
+  transport: httpapi::Transport,
+  lifetime: contextbridge::Cancellation,
+  session: protocol::SessionInfo,
+  initial_name: Str,
+  dismiss: keymap::SimpleCommand,
+  applied: fn(protocol::SessionInfo),
+}
+
+struct Dialog {
+  props: Props,
+  name: Str,
+  pending: Bool,
+  error: Str,
+  context: cui::Context?,
+}
+
+fn new(props: mut Props) mut Dialog {
+  (mut Dialog{
+    props: props.@,
+    name: props.initial_name,
+    pending: false,
+    error: "",
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+impl cui::Lifecycle for Dialog {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Dialog {
+  private fn mut submit() {
+    let name = strings::TrimSpace(self.name)
+    if self.pending {
+      ()
+    } else if name == "" {
+      self.error = "Enter a session name"
+    } else {
+      match self.context {
+        context => {
+          self.pending = true
+          self.error = ""
+          let transport = self.props.transport
+          let lifetime = self.props.lifetime
+          let session_id = self.props.session.ID
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = httpapi::Call<httpapi::SessionPath, protocol::RenameSessionInput, protocol::SessionInfo>(
+              lifetime.Context,
+              transport,
+              httpapi::RenameSession,
+              httpapi::SessionPath{SessionID: session_id},
+              protocol::RenameSessionInput{Name: name},
+            )
+            let _ = dispatch(fn() {
+              self.pending = false
+              match result {
+                ok(session) => self.props.applied(session),
+                err(failure) => { self.error = failure.error() },
+              }
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+}
+
+impl cui::Component for Dialog {
+  fn mut render() cui::View {
+    let dismiss = self.props.dismiss
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Rename session",
+        meta: "",
+        header: [],
+        body: cui::box(
+          [
+            cui::input(
+              self.name,
+              key: "rename.session",
+              placeholder: "Session name",
+              autofocus: true,
+              on_input: fn(value: Str, ctx: cui::Context) {
+                self.name = value
+                self.error = ""
+              },
+              on_submit: fn(value: Str, ctx: cui::Context) {
+                self.submit()
+              },
+            ),
+            cui::text(
+              self.error,
+              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+}
