@@ -104,7 +104,22 @@ func (p *reasoningSessionProviders) Resolve(id string) (droids.Model, error) {
 	if !ok {
 		return droids.Model{}, fmt.Errorf("unknown model %s", id)
 	}
-	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
+	return droids.BindModel(droids.AdaptProviderWithImagePolicy("test", p.Models(), p.Stream, catalogImagePolicy), model)
+}
+
+// catalogImagePolicy accepts images for catalog models that advertise image
+// input.
+func catalogImagePolicy(model droids.Model) droids.ImagePolicy {
+	for _, input := range model.Input {
+		if input == "image" {
+			return droids.ImagePolicy{
+				Placements: []droids.ImagePlacement{droids.ImagePlacementUser, droids.ImagePlacementContext, droids.ImagePlacementToolResult},
+				Formats:    []string{droids.ImageJPEG, droids.ImagePNG},
+				Sources:    []droids.ImageSourceKind{droids.ImageSourceData},
+			}
+		}
+	}
+	return droids.ImagePolicy{}
 }
 func (*reasoningSessionProviders) RefreshModels(context.Context) error { return nil }
 func (p *reasoningSessionProviders) Stream(_ context.Context, model droids.Model, request droids.Request) droids.Stream {

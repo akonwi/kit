@@ -72,7 +72,27 @@ func (c OpenCodeGo) build() (providerEntry, error) {
 		impl.client = http.DefaultClient
 	}
 	return providerEntry{id: "opencode-go", catalogID: "opencode-go", baseURL: baseURL, models: models,
-		stream: impl.stream, validateReplay: impl.validateReplay}, nil
+		stream: impl.stream, validateReplay: impl.validateReplay, imagePolicy: openCodeGoImagePolicy}, nil
+}
+
+// openCodeGoImagePolicy follows the wire API Kit uses for each model. Chat
+// Completions carries images only in user input; context and tool messages
+// are text-only.
+func openCodeGoImagePolicy(model Model) ImagePolicy {
+	switch model.API {
+	case ModelAPIOpenAIResponses:
+		return openAIImagePolicy(model)
+	case ModelAPIAnthropicMessages:
+		return anthropicImagePolicy(model)
+	}
+	if !containsString(model.Input, "image") {
+		return ImagePolicy{}
+	}
+	return ImagePolicy{
+		Placements: []ImagePlacement{ImagePlacementUser},
+		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+	}
 }
 
 type openCodeGoProvider struct {

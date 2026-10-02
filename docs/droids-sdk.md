@@ -1167,6 +1167,7 @@ type Provider interface {
         model Model,
         messages []MessageEnvelope,
     ) error
+    ImagePolicy(model Model) ImagePolicy
 }
 
 type ContextUsage struct {
@@ -1254,6 +1255,12 @@ metadata.
 
 `ValidateReplay` enforces provider/model/account constraints, including opaque
 response and credential scopes.
+
+`ImagePolicy` declares, for every model, where images may appear and which
+formats, sources, sizes, and limits the provider accepts, as defined by
+[ADR 0037](adrs/0037-prepare-model-images-through-provider-image-policies.md).
+Text-only models return the zero policy. Registration and model binding fail
+when a policy disagrees with the model's advertised image input.
 
 ## Events and subscriptions
 

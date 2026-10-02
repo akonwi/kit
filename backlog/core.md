@@ -213,17 +213,10 @@ change in an ADR before implementing it. Wire changes bump
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
-- [ ] CORE-IMG-001 — Every provider declares an image policy for every model, as
-  defined by ADR 0037. Provider registration fails when a model advertises image
-  input without a policy; text-only, `AdaptProvider`, and test providers declare
-  text-only behavior. Verify with registry tests.
-- [ ] CORE-IMG-002 — Prepare model images in a pure-Go Droids package: decode
-  JPEG, PNG, GIF (first frame), and WebP; apply EXIF orientation; downscale to
-  a policy's fitted dimensions; re-encode deterministically to an accepted
-  format within the policy's encoded-size limit; keep conforming images'
-  original bytes; and cache prepared output by content in a bounded LRU. Verify
-  with golden-dimension, orientation, format-conversion, size-fallback, and
-  determinism tests.
+- [x] CORE-IMG-001 — Per-model provider image policies, validated at
+  registration and model binding. Retained for `CORE-IMG-003`.
+- [x] CORE-IMG-002 — Pure-Go Droids image preparation. Retained for
+  `CORE-IMG-003`.
 - [ ] CORE-IMG-003 — Apply the active model's image policy to every request and
   replay validation without mutating canonical history: prepare or omit each
   image with a placeholder stating the reason, add resize notices, keep the 20

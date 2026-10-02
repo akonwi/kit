@@ -80,11 +80,12 @@ func (c OpenAI) build() (providerEntry, error) {
 
 	impl := &openAIProvider{client: &client, apiKeySource: c.APIKeySource, options: opts}
 	return providerEntry{
-		id:        id,
-		catalogID: "openai",
-		baseURL:   baseURL,
-		models:    models,
-		stream:    impl.stream,
+		id:          id,
+		catalogID:   "openai",
+		baseURL:     baseURL,
+		models:      models,
+		stream:      impl.stream,
+		imagePolicy: openAIImagePolicy,
 		validateReplay: func(_ context.Context, model Model, messages []Message) error {
 			_, err := toOpenAIInputForModel(messages, model)
 			return err
@@ -729,6 +730,21 @@ func toOpenAIInputWithReasoningHistory(messages []Message, target Model, history
 		}
 	}
 	return out, nil
+}
+
+// openAIImagePolicy declares where Responses API models accept images and in
+// which forms. Image-capable models accept images in user input, context
+// messages, and tool results, from inline data or HTTPS URLs. Sizing and
+// limits are not yet declared, so images are sent at source dimensions.
+func openAIImagePolicy(model Model) ImagePolicy {
+	if !containsString(model.Input, "image") {
+		return ImagePolicy{}
+	}
+	return ImagePolicy{
+		Placements: []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+	}
 }
 
 func openAIUserContent(content []InputContent) (responses.ResponseInputMessageContentListParam, error) {

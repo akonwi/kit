@@ -274,8 +274,9 @@ func newCompactionTestProvider(window int) *compactionTestProvider {
 	}}
 }
 
-func (*compactionTestProvider) ID() string        { return "test" }
-func (p *compactionTestProvider) Models() []Model { return []Model{p.model} }
+func (*compactionTestProvider) ID() string                    { return "test" }
+func (p *compactionTestProvider) Models() []Model             { return []Model{p.model} }
+func (*compactionTestProvider) ImagePolicy(Model) ImagePolicy { return ImagePolicy{} }
 func (*compactionTestProvider) ValidateReplay(_ context.Context, _ Model, messages []Message) error {
 	return validateMessageSequence(messages)
 }

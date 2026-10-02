@@ -149,8 +149,15 @@ func (c OpenAICodex) build() (providerEntry, error) {
 		canonicalModels: true,
 		stream:          impl.stream,
 		validateReplay:  impl.validateReplay,
+		imagePolicy:     openAICodexImagePolicy,
 		baseURL:         defaultOpenAICodexBaseURL,
 	}, nil
+}
+
+// openAICodexImagePolicy declares the Codex image contract. Codex requests use
+// the Responses input translation, so they accept images where OpenAI does.
+func openAICodexImagePolicy(model Model) ImagePolicy {
+	return openAIImagePolicy(model)
 }
 
 func openAICodexCredentialsConfigured(credentials OpenAICodexCredentials) bool {

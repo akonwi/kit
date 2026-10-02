@@ -150,7 +150,23 @@ func (c Anthropic) build() (providerEntry, error) {
 		validateReplay: func(_ context.Context, model Model, messages []Message) error {
 			return validateAnthropicContent(model, messages)
 		},
+		imagePolicy: anthropicImagePolicy,
 	}, nil
+}
+
+// anthropicImagePolicy declares where Messages API models accept images and in
+// which forms. Image-capable models accept images in user input, context
+// messages, and tool results, from inline data or HTTPS URLs. Sizing and
+// limits are not yet declared, so images are sent at source dimensions.
+func anthropicImagePolicy(model Model) ImagePolicy {
+	if !containsString(model.Input, "image") {
+		return ImagePolicy{}
+	}
+	return ImagePolicy{
+		Placements: []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+	}
 }
 
 type anthropicProvider struct {

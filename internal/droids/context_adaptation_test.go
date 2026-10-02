@@ -763,6 +763,8 @@ func (p *adaptationProvider) Models() []droids.Model { return p.owner.Models() }
 func (p *adaptationProvider) Stream(ctx context.Context, model droids.Model, request droids.Request) (droids.AssistantStream, error) {
 	return &adaptationAssistantStream{stream: p.owner.stream(ctx, model, request)}, nil
 }
+func (*adaptationProvider) ImagePolicy(droids.Model) droids.ImagePolicy { return droids.ImagePolicy{} }
+
 func (p *adaptationProvider) ValidateReplay(ctx context.Context, model droids.Model, messages []droids.Message) error {
 	if model.ID == "small" {
 		p.owner.mu.Lock()
