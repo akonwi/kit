@@ -59,13 +59,9 @@ fn new(props: mut Props) mut Picker {
   })
 }
 
-private fn catalog(models: [protocol::ModelCapability], current_model: Str, pending: Bool) [palette::Item] {
+private fn catalog(models: [protocol::ModelCapability], pending: Bool) [palette::Item] {
   let result = mut List::new<palette::Item>()
   for model in models {
-    let current = match model.ID == current_model {
-      true => "current",
-      false => "",
-    }
     let unavailable = match model.Available and not pending {
       true => "",
       false => "unavailable",
@@ -74,10 +70,10 @@ private fn catalog(models: [protocol::ModelCapability], current_model: Str, pend
       palette::Item{
         key: model.ID,
         label: model.Name,
-        hint: "",
-        meta: current,
-        description: "{model.Provider} · {format::usage_integer(model.ContextWindow)} token context",
-        search_terms: [model.ID, model.Provider, model.API],
+        hint: model.ID,
+        meta: "{format::usage_integer(model.ContextWindow)} context",
+        description: "",
+        search_terms: [model.Provider, model.API],
         disabled_reason: unavailable,
       },
     )
@@ -293,18 +289,35 @@ impl cui::Component for Picker {
             )
           },
           false => {
-            let catalog = catalog(self.models, self.props.session.Model, self.pending)
+            let catalog = catalog(self.models, self.pending)
             let picker = self.picker(catalog)
             let navigation = palette::navigation(picker)
             modal::dialog(
               self.props.themes,
               modal::Dialog{
                 placement: modal::Placement::picker,
-                title: "",
+                title: "Select model",
                 meta: "",
                 header: palette::header(picker),
                 body: palette::body(picker, self.viewport(catalog)),
-                footer: Maybe::new<cui::View>(),
+                footer: Maybe::new(
+                  cui::box(
+                    [
+                      cui::text(
+                        "↑↓ move · enter apply · esc close",
+                        text_style: ui::text_style(foreground: self.props.themes.current().muted),
+                      ),
+                    ],
+                    styles: ui::style(
+                      padding: ui::Edges{
+                        top: ui::cells(0),
+                        right: ui::cells(1),
+                        bottom: ui::cells(0),
+                        left: ui::cells(1),
+                      },
+                    ),
+                  ),
+                ),
                 autofocus: false,
                 dismiss: self.props.dismiss,
                 commands: Maybe::new([navigation.up, navigation.down]),

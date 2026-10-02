@@ -126,8 +126,8 @@ fn columns(catalog: [Item]) Columns {
     true => 32,
     false => columns.label,
   }
-  columns.hint = match columns.hint > 24 {
-    true => 24,
+  columns.hint = match columns.hint > 64 {
+    true => 64,
     false => columns.hint,
   }
   columns.meta = match columns.meta > 20 {
