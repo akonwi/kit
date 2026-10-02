@@ -181,7 +181,15 @@ private fn command_catalog(
       "cwd directory folder",
       cd_disabled,
     ),
-    command_item("compact", "Compact session context", "summarize shrink", idle),
+    command_item(
+      "compact",
+      "Compact session context",
+      "summarize shrink",
+      match running {
+        true => "idle only",
+        false => "",
+      },
+    ),
     command_item("debug", "Show session diagnostics", "details usage", "not available yet"),
     command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
     command_item("files", "Open a workspace file", "file open browse", "not available yet"),
