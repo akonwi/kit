@@ -46,7 +46,6 @@ fi
 if [[ -n "${KIT_MACOS_ARCH:-}" ]]; then build_args+=("ARCHS=$KIT_MACOS_ARCH" ONLY_ACTIVE_ARCH=NO); fi
 xcodebuild "${build_args[@]}" build
 BIN_DIR="$DERIVED_DATA/Build/Products/$CONFIGURATION"
-python3 "$APP_ROOT/script/generate_wire.py" --check
 mkdir -p "$APP_BUNDLE/Contents/MacOS" "$APP_BUNDLE/Contents/Resources"
 mkdir -p "$APP_BUNDLE/Contents/Resources/Fonts"
 cp "$APP_ROOT/../../assets/kit/fonts/"*.ttf "$APP_BUNDLE/Contents/Resources/Fonts/"

@@ -64,15 +64,6 @@ in this branch. Items marked **Server-ready** do not require new server function
   persist guarded edits with autosave, conflict, and retry feedback. Depends on
   `CORE-SCRATCH-001`.
 
-## Protocol client
-
-- [ ] MAC-PROTO-001 — Migrate each remaining domain to the generated OpenAPI
-  client (`apps/macos/script/generate_openapi.sh`, filtered by tag) as its
-  `CORE-PROTO-011`–`CORE-PROTO-021` slice completes, and retire
-  `script/generate_wire.py` after the last. Scratchpad, VCS, and plugins already use
-  the generated client through `OpenAPITransport`, including its streaming
-  path for server-push operations.
-
 ## Connections and daemon lifecycle
 
 - [ ] MAC-DAEMON-001 — Package a compatible local daemon with the app and
