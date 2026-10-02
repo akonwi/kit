@@ -1,7 +1,6 @@
 use cooper/cui
 use cooper/keymap
 use go:github.com/akonwi/kit/internal/protocol
-use kit/tui/modal
 use kit/tui/palette
 use kit/tui/theme
 use go:strings
@@ -152,27 +151,17 @@ impl Status {
 
 impl cui::Component for Status {
   fn mut render() cui::View {
-    let catalog = catalog(self.props.servers)
-    let picker = self.picker(catalog)
-    let navigation = palette::navigation(picker)
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::picker,
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: catalog(self.props.servers),
+        placeholder: "Search MCP servers…",
+        initial_selection: "",
         title: "",
-        meta: "",
-        header: palette::header(picker),
-        body: palette::body(picker, self.picker_viewport(catalog)),
-        footer: Maybe::new<cui::View>(),
-        autofocus: false,
+        footer: "",
         dismiss: self.props.dismiss,
-        commands: Maybe::new([navigation.up, navigation.down]),
-        bindings: Maybe::new(
-          [
-            keymap::binding(keymap::key("up"), navigation.up.with()),
-            keymap::binding(keymap::key("down"), navigation.down.with()),
-          ],
-        ),
+        on_activate: fn(item: palette::Item) {},
       },
     )
   }
