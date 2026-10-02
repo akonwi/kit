@@ -25,11 +25,18 @@ jobs:
           go-version-file: go.mod
           cache: true
 
-      - name: Reject breaking API changes
+      - name: Test compatibility gate
+        run: scripts/test-openapi-compatibility.sh
+
+      - name: Check compatibility with the latest release
         shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
-          git show "origin/${{ github.base_ref }}:api/kit-session.openapi.json" > "$RUNNER_TEMP/base.openapi.json"
-          go run github.com/oasdiff/oasdiff@v1.33.0 breaking "$RUNNER_TEMP/base.openapi.json" api/kit-session.openapi.json
+          release_tag=$(gh api "repos/${GITHUB_REPOSITORY}/releases/latest" --jq .tag_name)
+          git fetch --force origin "refs/tags/${release_tag}:refs/tags/${release_tag}"
+          go install github.com/oasdiff/oasdiff@v1.33.0
+          OASDIFF_BIN="$(go env GOPATH)/bin/oasdiff" scripts/check-openapi-compatibility.sh "$release_tag"
 
   test:
     name: ${{ matrix.os }}
