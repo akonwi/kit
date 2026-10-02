@@ -22,6 +22,7 @@ use kit/tui/mcp
 use kit/tui/modal
 use kit/tui/model
 use kit/tui/palette
+use kit/tui/rename
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/toast
@@ -52,6 +53,7 @@ enum ActiveModal {
   session_debug,
   mcp_status,
   model_picker,
+  rename_session,
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
@@ -202,7 +204,7 @@ private fn command_catalog(
     command_item("login", "Connect another provider", "auth connect provider", ""),
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
     command_item("model", "Change session model", "engine", ""),
-    command_item("name", "Rename session", "rename title", "not available yet"),
+    command_item("name", "Rename session", "rename title", ""),
     command_item("new", "Start a new session", "", "not available yet"),
     command_item("quit", "Exit Kit", "close exit", ""),
     command_item(
@@ -350,6 +352,7 @@ struct Shell {
   mcp_servers: [protocol::MCPServerStatus],
   mcp_warnings: [Str],
   shown_mcp_warnings: [Str],
+  rename_initial: Str,
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -438,6 +441,7 @@ fn new(props: mut Props) mut Shell {
     mcp_servers: [],
     mcp_warnings: [],
     shown_mcp_warnings: [],
+    rename_initial: "",
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -811,7 +815,22 @@ impl Shell {
     let right = mut List::new<cui::View>()
     match self.info {
       session => {
-        left.push(line(format::session_name(session), ui::text_style()))
+        let rename = keymap::simple_command("name.open", "Rename session", fn() Bool {
+          self.rename_initial = session.Name
+          self.active_modal = ActiveModal::rename_session
+          true
+        })
+        left.push(
+          controls::button(
+            self.props.themes,
+            format::session_name(session),
+            rename,
+            variant: controls::ButtonVariant::secondary,
+            compact: true,
+            focusable: false,
+            styles: ui::style(flex_shrink: 0.0),
+          ),
+        )
         let open_model = keymap::simple_command("model.open", "Change session model", fn() Bool {
           self.active_modal = ActiveModal::model_picker
           true
@@ -1244,6 +1263,7 @@ impl cui::Component for Shell {
       ActiveModal::session_debug => layers.push(self.session_debug_modal()),
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
       ActiveModal::model_picker => layers.push(self.model_picker_modal()),
+      ActiveModal::rename_session => layers.push(self.rename_session_modal()),
       _ => (),
     }
     if self.toasts.size() > 0 {
@@ -1508,6 +1528,27 @@ impl Shell {
         dismiss: dismiss,
         commands: Maybe::new<[keymap::Command]>(),
         bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  fn mut rename_session_modal() cui::View {
+    let dismiss = keymap::simple_command("name.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    cui::child(
+      rename::new,
+      rename::Props{
+        themes: self.props.themes,
+        transport: self.props.options.Transport,
+        lifetime: self.lifetime.expect("mounted rename dialog"),
+        session: self.info.or(protocol::SessionInfo{}),
+        initial_name: self.rename_initial,
+        dismiss: dismiss,
+        applied: fn(session: protocol::SessionInfo) {
+          self.info = Maybe::new(session)
+          self.active_modal = ActiveModal::none
+        },
       },
     )
   }
@@ -1997,6 +2038,13 @@ impl Shell {
           self.active_modal = ActiveModal::mcp_status
         } else if item.key == "model" {
           self.active_modal = ActiveModal::model_picker
+        } else if item.key == "name" {
+          let value = strings::TrimSpace(command_args(self.command_query))
+          self.rename_initial = match value == "" {
+            true => self.info.or(protocol::SessionInfo{}).Name,
+            false => value,
+          }
+          self.active_modal = ActiveModal::rename_session
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
