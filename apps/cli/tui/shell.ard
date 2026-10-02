@@ -13,7 +13,6 @@ use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
-use go:kit/ffi/toastbridge
 use kit/tui/bootstrap
 use kit/tui/controls
 use kit/tui/copyable
@@ -1958,37 +1957,41 @@ impl Shell {
                 async::start(fn() {
                   mut watching = true
                   while watching {
-                    let result = toastbridge::Watch(
+                    match httpapi::OpenStream<httpapi::SessionPath, protocol::PluginToast>(
                       ctx,
                       transport,
-                      session_id,
-                      fn(notification: protocol::PluginToast) {
-                        let _ = dispatch(fn() {
-                          let variant = match notification.Variant.to_str() {
-                            "warning" => toast::Variant::warning,
-                            "error" => toast::Variant::error,
-                            _ => toast::Variant::info,
-                          }
-                          let detail = match notification.Subtitle == "" {
-                            true => "",
-                            false => "{notification.PluginID} · {notification.Subtitle}",
-                          }
-                          self.show_toast(
-                            notification.Title,
-                            detail,
-                            variant,
-                            notification.Persistent,
-                          )
-                        })
+                      httpapi::StreamPluginToasts,
+                      httpapi::SessionPath{SessionID: session_id},
+                    ) {
+                      ok(body) => {
+                        let _ = httpapi::ReadStream<httpapi::SessionPath, protocol::PluginToast>(
+                          body,
+                          httpapi::StreamPluginToasts,
+                          fn(record: httpapi::StreamRecord<protocol::PluginToast>) Void!Error {
+                            let notification = record.Payload
+                            let _ = dispatch(fn() {
+                              let variant = match notification.Variant.to_str() {
+                                "warning" => toast::Variant::warning,
+                                "error" => toast::Variant::error,
+                                _ => toast::Variant::info,
+                              }
+                              let detail = match notification.Subtitle == "" {
+                                true => "",
+                                false => "{notification.PluginID} · {notification.Subtitle}",
+                              }
+                              self.show_toast(
+                                notification.Title,
+                                detail,
+                                variant,
+                                notification.Persistent,
+                              )
+                            })
+                            Result::ok(())
+                          },
+                        )
+                        let _ = body.Close()
                       },
-                    )
-                    match result {
-                      ok(_) => (),
-                      err(error) => {
-                        if toastbridge::IsTerminal(error) {
-                          watching = false
-                        }
-                      },
+                      err(_) => (),
                     }
                     select {
                       ctx.Done().recv() => { watching = false },
