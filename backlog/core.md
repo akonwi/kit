@@ -57,8 +57,9 @@ IDs but must not redefine server, persistence, or protocol semantics.
   cancellation, without allowing late cleanup to access closed shared storage.
 - [ ] CORE-SESSION-001 — Let multiple clients observe and control one
   authoritative session without lost updates or client-global active-session
-  state. Broadcast follow-up queue changes to attached clients and expose failed
-  automatic queue admission instead of leaving a silently blocked queue.
+  state. Broadcast follow-up queue changes and session mutations, including
+  compaction and its replacement event stream, to attached clients; expose
+  failed automatic queue admission instead of leaving a silently blocked queue.
 - [~] CORE-FORK-001 — Transactionally publish a settled session fork as a linked
   child through droids semantic forking, with client-visible lineage, attachment
   preservation, and an optional first child prompt, without changing the
