@@ -7,6 +7,11 @@ struct WirePluginCommandInput: Codable, Sendable {
     let `args`: String
 }
 
+enum WireModelInputKind: String, Codable, Sendable {
+    case value0 = "text"
+    case value1 = "image"
+}
+
 struct WireSessionInfo: Codable, Sendable {
     let `id`: String
     let `cwd`: String
@@ -16,6 +21,7 @@ struct WireSessionInfo: Codable, Sendable {
     let `temporary`: Bool?
     let `model`: String
     let `thinkingLevel`: String
+    let `inputs`: [WireModelInputKind]?
     let `configurationRevision`: UInt64
     let `createdAt`: String
     let `updatedAt`: String
@@ -786,11 +792,6 @@ enum WireThinkingLevel: String, Codable, Sendable {
     case value4 = "high"
     case value5 = "xhigh"
     case value6 = "max"
-}
-
-enum WireModelInputKind: String, Codable, Sendable {
-    case value0 = "text"
-    case value1 = "image"
 }
 
 struct WireModelCapability: Codable, Sendable {

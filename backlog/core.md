@@ -215,11 +215,6 @@ change in an ADR before implementing it. Wire changes bump
   restoration, transcript projection, and cleanup on session deletion.
 - [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
   validation. Retained for `CORE-IMG-008`.
-- [ ] CORE-IMG-006 — Derive image-attachment acceptance, `inspect_image`
-  enablement, and client-visible image input capability from the active model's
-  image policy, replacing provider- and API-specific checks in the session layer.
-  Image attachments work for Anthropic models; submission fails only when the
-  active model accepts no user images or an image cannot be prepared.
 - [ ] CORE-IMG-007 — Validate MCP and plugin tool-result images against the
   provider-neutral model-image limits (format, decodable header, encoded size,
   and pixel count) used for attachments and `inspect_image`.

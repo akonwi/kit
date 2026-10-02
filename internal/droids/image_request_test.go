@@ -3,6 +3,7 @@ package droids
 import (
 	"bytes"
 	"context"
+	"errors"
 	"fmt"
 	"image"
 	"image/color"
@@ -455,6 +456,55 @@ func TestBuiltInPoliciesPrepareRetinaScreenshots(t *testing.T) {
 			}
 			if want := fmt.Sprintf("[Image 1 of 1 was resized from 2880×1800 to %d×%d pixels.]", test.w, test.h); content[2] != (TextContent{Text: want}) {
 				t.Fatalf("notice = %#v, want %q", content[2], want)
+			}
+		})
+	}
+}
+
+func TestModelCheckUserImage(t *testing.T) {
+	bind := func(t *testing.T, input []string, policy ImagePolicy) Model {
+		t.Helper()
+		model := Model{Provider: "test", ID: "check", Input: input, ContextWindow: 200_000, MaxOutputTokens: 8_000}
+		bound, err := BindModel(AdaptProviderWithImagePolicy("test", []Model{model}, nil, func(Model) ImagePolicy { return policy }), model)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return bound
+	}
+	vision := []string{"text", "image"}
+	smallImages := testImagePolicy()
+	smallImages.MaxEncodedBytes = 64
+	smallRequests := testImagePolicy()
+	smallRequests.MaxRequestImageBytes = 64
+	resized := testImagePolicy()
+	resized.Fit = longEdgeFit(320)
+
+	screenshot := testPNG(t, 640, 480)
+	for _, test := range []struct {
+		name  string
+		model Model
+		data  []byte
+		want  string
+	}{
+		{"accepted", bind(t, vision, testImagePolicy()), screenshot, ""},
+		{"accepted after resizing", bind(t, vision, resized), screenshot, ""},
+		{"text-only model", bind(t, []string{"text"}, ImagePolicy{}), screenshot, "this model does not accept image input"},
+		{"unrecognized format", bind(t, vision, testImagePolicy()), []byte("not an image"), "the image format is not supported"},
+		{"truncated", bind(t, vision, testImagePolicy()), screenshot[:len(screenshot)/2], "the image could not be decoded"},
+		{"over per-image limit", bind(t, vision, smallImages), screenshot, "the image exceeds this model's size limit"},
+		{"over request image budget", bind(t, vision, smallRequests), screenshot, "the image exceeds this model's request size limit"},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			err := test.model.CheckUserImage(test.data)
+			if test.want == "" {
+				if err != nil {
+					t.Fatalf("CheckUserImage() = %v, want nil", err)
+				}
+				return
+			}
+			var rejected *ImageInputError
+			if !errors.As(err, &rejected) || rejected.Reason != test.want {
+				t.Fatalf("CheckUserImage() = %v, want an ImageInputError with reason %q", err, test.want)
 			}
 		})
 	}

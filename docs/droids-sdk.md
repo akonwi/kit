@@ -1259,8 +1259,9 @@ response and credential scopes.
 `ImagePolicy` declares, for every model, where images may appear and which
 formats, sources, sizes, and limits the provider accepts, as defined by
 [ADR 0037](adrs/0037-prepare-model-images-through-provider-image-policies.md).
-Text-only models return the zero policy. Registration and model binding fail
-when a policy disagrees with the model's advertised image input. Droids prepares
+Text-only models return the zero policy. A policy that accepts images accepts
+them in user messages. Registration and model binding fail when a policy
+disagrees with the model's advertised image input. Droids prepares
 request images through the policy before calling `Provider.Stream`, so a
 provider receives only images its policy accepts; images it cannot receive are
 replaced by a text placeholder.

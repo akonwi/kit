@@ -30,6 +30,7 @@ func TestImagePolicyValidation(t *testing.T) {
 		}, ""},
 		{"constraints without placements", ImagePolicy{Formats: []string{ImagePNG}}, "image constraints are declared without placements"},
 		{"unknown placement", ImagePolicy{Placements: []ImagePlacement{"system"}, Formats: []string{ImagePNG}, Sources: []ImageSourceKind{ImageSourceData}}, "unsupported placement system"},
+		{"tool results only", ImagePolicy{Placements: []ImagePlacement{ImagePlacementToolResult}, Formats: []string{ImagePNG}, Sources: []ImageSourceKind{ImageSourceData}}, `placements must include "user"`},
 		{"duplicate format", ImagePolicy{Placements: []ImagePlacement{ImagePlacementUser}, Formats: []string{ImagePNG, ImagePNG}, Sources: []ImageSourceKind{ImageSourceData}}, "duplicate format image/png"},
 		{"unknown format", ImagePolicy{Placements: []ImagePlacement{ImagePlacementUser}, Formats: []string{"image/bmp"}, Sources: []ImageSourceKind{ImageSourceData}}, "unsupported format image/bmp"},
 		{"no preparable format", ImagePolicy{Placements: []ImagePlacement{ImagePlacementUser}, Formats: []string{ImageWebP}, Sources: []ImageSourceKind{ImageSourceData}}, "formats must include image/jpeg or image/png"},

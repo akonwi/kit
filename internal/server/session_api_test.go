@@ -14,6 +14,8 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"reflect"
+	"slices"
 	"strconv"
 	"strings"
 	"sync"
@@ -252,7 +254,7 @@ func TestSessionEventCursorRejectsMalformedStreamIdentity(t *testing.T) {
 func TestProjectSessionSanitizesLegacyUnsafeName(t *testing.T) {
 	t.Parallel()
 
-	projected := projectSession(kitsession.SessionRecord{
+	projected := projectSessionRecord(kitsession.SessionRecord{
 		ID: "session_test", CWD: "/repo", Name: "bad\nname",
 		ModelProvider: "test", ModelID: "echo", ConfigurationRevision: 1,
 	})
@@ -531,6 +533,9 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	created, err := client.CreateSession(context.Background(), createInput)
 	if err != nil {
 		t.Fatalf("CreateSession() error = %v", err)
+	}
+	if !reflect.DeepEqual(created.Inputs, []protocol.ModelInputKind{protocol.ModelInputText}) {
+		t.Fatalf("created session inputs = %v, want [text]", created.Inputs)
 	}
 	scratch, err := client.GetScratchpad(context.Background(), created.ID)
 	if err != nil || scratch.OwnerSessionID != created.ID || scratch.Content != "" || scratch.Revision != 1 {
@@ -964,6 +969,10 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		configured.Session.ConfigurationRevision != bashSnapshot.Session.ConfigurationRevision+1 || configured.EventStreamID == bashSnapshot.EventStreamID {
 		t.Fatalf("configuration result = %+v", configured)
 	}
+	textAndImage := []protocol.ModelInputKind{protocol.ModelInputText, protocol.ModelInputImage}
+	if !reflect.DeepEqual(configured.Session.Inputs, textAndImage) {
+		t.Fatalf("configured session inputs = %v, want %v", configured.Session.Inputs, textAndImage)
+	}
 	if _, err := client.ConfigureSession(context.Background(), created.ID, protocol.ConfigureSessionInput{
 		ExpectedRevision: bashSnapshot.Session.ConfigurationRevision, Model: "test/echo",
 	}); err == nil {
@@ -1088,7 +1097,8 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if reopened.Session.Model != "test/echo-alt" || reopened.Session.ThinkingLevel != "off" || reopened.Session.ConfigurationRevision != configured.Session.ConfigurationRevision {
+	if reopened.Session.Model != "test/echo-alt" || reopened.Session.ThinkingLevel != "off" || reopened.Session.ConfigurationRevision != configured.Session.ConfigurationRevision ||
+		!reflect.DeepEqual(reopened.Session.Inputs, textAndImage) {
 		t.Fatalf("reopened protocol configuration = %+v", reopened.Session)
 	}
 	if _, err := client.Prompt(context.Background(), created.ID, "after daemon restart"); err != nil {
@@ -1148,7 +1158,7 @@ type daemonEchoProviders struct {
 func (p *daemonEchoProviders) ID() string { return "test" }
 func (p *daemonEchoProviders) Models() []droids.Model {
 	alternate := p.model()
-	alternate.ID, alternate.Name = "echo-alt", "Echo Alternate"
+	alternate.ID, alternate.Name, alternate.Input = "echo-alt", "Echo Alternate", []string{"text", "image"}
 	return []droids.Model{p.model(), alternate}
 }
 func (p *daemonEchoProviders) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
@@ -1159,7 +1169,18 @@ func (p *daemonEchoProviders) Resolve(id string) (droids.Model, error) {
 	if !ok {
 		return droids.Model{}, fmt.Errorf("unknown model %q", id)
 	}
-	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
+	return droids.BindModel(droids.AdaptProviderWithImagePolicy("test", p.Models(), p.Stream, daemonEchoImagePolicy), model)
+}
+
+// daemonEchoImagePolicy accepts user images for the image-capable echo-alt.
+func daemonEchoImagePolicy(model droids.Model) droids.ImagePolicy {
+	if !slices.Contains(model.Input, "image") {
+		return droids.ImagePolicy{}
+	}
+	return droids.ImagePolicy{
+		Placements: []droids.ImagePlacement{droids.ImagePlacementUser},
+		Formats:    []string{droids.ImagePNG}, Sources: []droids.ImageSourceKind{droids.ImageSourceData},
+	}
 }
 
 func (p *daemonEchoProviders) Model(id string) (droids.Model, bool) {

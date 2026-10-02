@@ -1725,9 +1725,9 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 		totalBytes += record.Size
 		if record.MediaType == "text/plain" {
 			textBytes += record.Size
-		} else if !ModelSupportsImageAttachment(model) {
+		} else if !model.ImagePolicy().Accepts(droids.ImagePlacementUser) {
 			_ = reader.Close()
-			return nil, fmt.Errorf("%w: model %q does not support image attachments", ErrInvalidInput, model.ID)
+			return nil, fmt.Errorf("%w: model %q does not accept image attachments", ErrInvalidInput, model.ID)
 		}
 		if totalBytes > maxPromptAttachmentBytes || textBytes > maxPromptTextAttachmentBytes {
 			_ = reader.Close()
@@ -1747,33 +1747,19 @@ func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, mo
 				AttachmentID: record.ID, Filename: record.Filename, MediaType: record.MediaType,
 			})
 		} else {
+			if err := model.CheckUserImage(data); err != nil {
+				var rejected *droids.ImageInputError
+				if !errors.As(err, &rejected) {
+					return nil, fmt.Errorf("check attachment %q: %w", id, err)
+				}
+				return nil, fmt.Errorf("%w: attachment %q cannot be sent to model %q: %s", ErrInvalidInput, record.Filename, model.ID, rejected.Reason)
+			}
 			file := droids.NewFileInputData(record.Filename, record.MediaType, data)
 			file.AttachmentID = record.ID
 			content = append(content, file)
 		}
 	}
 	return content, nil
-}
-
-// ModelSupportsImageAttachment reports whether Kit can send image content in a user message.
-func ModelSupportsImageAttachment(model droids.Model) bool {
-	if model.API == droids.ModelAPIAnthropicMessages {
-		return false
-	}
-	for _, supported := range model.Input {
-		if supported == "image" {
-			return true
-		}
-	}
-	return false
-}
-
-// ModelSupportsToolResultImage reports whether Kit can send image content in a tool result.
-func ModelSupportsToolResultImage(model droids.Model) bool {
-	if !ModelSupportsImageAttachment(model) {
-		return false
-	}
-	return model.API == droids.ModelAPIOpenAIResponses || model.API == droids.ModelAPIOpenAICodexResponses
 }
 
 func validatePromptText(prompt string) error {

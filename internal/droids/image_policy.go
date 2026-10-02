@@ -122,6 +122,10 @@ func (p ImagePolicy) validate() error {
 	}); err != nil {
 		return err
 	}
+	if !p.Accepts(ImagePlacementUser) {
+		// A model's advertised image input means users can attach images.
+		return fmt.Errorf("placements must include %q", ImagePlacementUser)
+	}
 	if err := validateImageSet("format", p.Formats, []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP}); err != nil {
 		return err
 	}

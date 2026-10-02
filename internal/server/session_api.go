@@ -179,7 +179,7 @@ func (s runtimeSessionService) Create(
 	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
-	return projectSession(record), nil
+	return s.projectSession(record), nil
 }
 
 func (s runtimeSessionService) Fork(
@@ -191,7 +191,7 @@ func (s runtimeSessionService) Fork(
 	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
-	return projectSession(result.Session), nil
+	return s.projectSession(result.Session), nil
 }
 
 func (s runtimeSessionService) workspaceService() (*kitworkspace.Service, error) {
@@ -214,7 +214,7 @@ func (s runtimeSessionService) ChangeCWD(
 	if err != nil {
 		return protocol.ChangeWorkspaceCWDResult{}, err
 	}
-	sessionInfo := projectSession(result.Session)
+	sessionInfo := s.projectSession(result.Session)
 	workspaceRef := workspaces.Ref(sessionID, result.Session.CWD)
 	return protocol.ChangeWorkspaceCWDResult{Session: sessionInfo, Workspace: workspaceRef}, nil
 }
@@ -228,7 +228,7 @@ func (s runtimeSessionService) Rename(
 	if err != nil {
 		return protocol.SessionInfo{}, err
 	}
-	return projectSession(record), nil
+	return s.projectSession(record), nil
 }
 
 func (s runtimeSessionService) Delete(ctx context.Context, sessionID string) error {
@@ -276,7 +276,7 @@ func (s runtimeSessionService) List(ctx context.Context, cwd string) ([]protocol
 	}
 	result := make([]protocol.SessionInfo, 0, len(records))
 	for _, record := range records {
-		result = append(result, projectSession(record))
+		result = append(result, s.projectSession(record))
 	}
 	return result, nil
 }
@@ -756,7 +756,7 @@ func (s runtimeSessionService) Snapshot(ctx context.Context, sessionID string) (
 		}
 	}
 	result := protocol.SessionSnapshot{
-		Session: projectSession(snapshot.Session), Workspace: workspaceRef, ActiveTurnID: snapshot.ActiveRunID,
+		Session: s.projectSession(snapshot.Session), Workspace: workspaceRef, ActiveTurnID: snapshot.ActiveRunID,
 		ActiveBashExecutionID: snapshot.ActiveBashExecutionID,
 		EventStreamID:         snapshot.EventStreamID, EventCursor: snapshot.EventCursor,
 		EventReplayFrom: snapshot.EventReplayFrom, EventReplayAvailable: snapshot.EventReplayAvailable,
@@ -1457,7 +1457,7 @@ func (s runtimeSessionService) Configure(ctx context.Context, sessionID string, 
 		return protocol.ConfigureSessionResult{}, err
 	}
 	return protocol.ConfigureSessionResult{
-		Session: projectSession(result.Session), EventStreamID: result.EventStreamID,
+		Session: s.projectSession(result.Session), EventStreamID: result.EventStreamID,
 		Compacted: result.Compacted, CheckpointID: result.CheckpointID,
 		Warnings: append([]string(nil), result.Warnings...),
 	}, nil
@@ -2441,7 +2441,19 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 	})
 }
 
-func projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
+// projectSession projects record with the inputs its model accepts in user
+// messages.
+func (s runtimeSessionService) projectSession(record kitsession.SessionRecord) protocol.SessionInfo {
+	session := projectSessionRecord(record)
+	if s.manager != nil {
+		for _, input := range s.manager.ModelInputs(session.Model) {
+			session.Inputs = append(session.Inputs, protocol.ModelInputKind(input))
+		}
+	}
+	return session
+}
+
+func projectSessionRecord(record kitsession.SessionRecord) protocol.SessionInfo {
 	name := record.Name
 	if !protocol.ValidSessionName(name) {
 		name = ""

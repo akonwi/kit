@@ -336,6 +336,10 @@ or served over another format, receive the envelope with user-only placement.
 
 - Every provider declares an image policy for every model; text-only behavior
   is declared, not defaulted.
+- A model advertises image input exactly when its policy accepts images, and
+  a policy that accepts images accepts them in user messages. Image-attachment
+  acceptance, `inspect_image`, and client-visible image input derive from the
+  active model's policy.
 - Request dispatch and replay validation prepare images identically.
 - Canonical history is never mutated by preparation.
 - Kit never rejects a request or model switch because of a history or

@@ -61,6 +61,32 @@ type requestImage struct {
 	result  imageprep.Result
 }
 
+// ImageInputError reports a user image that a model cannot receive.
+type ImageInputError struct {
+	// Reason states why, in a form suitable for showing to the user.
+	Reason string
+}
+
+func (e *ImageInputError) Error() string { return "droids: image input rejected: " + e.Reason }
+
+// CheckUserImage reports whether the model can receive the encoded image data
+// in a user message. It prepares the image as request dispatch does, which
+// also caches the result for dispatch. A non-nil error is an *ImageInputError.
+func (m Model) CheckUserImage(data []byte) error {
+	policy := m.ImagePolicy()
+	if !policy.AcceptsImages() {
+		return &ImageInputError{Reason: "this model does not accept image input"}
+	}
+	result, err := requestImagePreparer.Prepare(data, imageprep.Target{Formats: policy.Formats, Fit: policy.Fit, MaxEncodedBytes: policy.MaxEncodedBytes})
+	if err != nil {
+		return &ImageInputError{Reason: imagePreparationReason(err)}
+	}
+	if policy.MaxRequestImageBytes > 0 && imageprep.EncodedLen(len(result.Data)) > policy.MaxRequestImageBytes {
+		return &ImageInputError{Reason: "the image exceeds this model's request size limit"}
+	}
+	return nil
+}
+
 // prepareRequestImages applies policy to every image in messages. Images that
 // conform are sent unchanged, others are fitted or re-encoded, and images that
 // cannot be sent are replaced by a text placeholder stating why. A resize

@@ -7083,6 +7083,8 @@ extension Components {
             internal var cwd: Swift.String
             /// - Remark: Generated from `#/components/schemas/SessionInfo/id`.
             internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/inputs`.
+            internal var inputs: [Swift.String]?
             /// - Remark: Generated from `#/components/schemas/SessionInfo/model`.
             internal var model: Swift.String
             /// - Remark: Generated from `#/components/schemas/SessionInfo/name`.
@@ -7104,6 +7106,7 @@ extension Components {
             ///   - createdAt:
             ///   - cwd:
             ///   - id:
+            ///   - inputs:
             ///   - model:
             ///   - name:
             ///   - parentSessionId:
@@ -7116,6 +7119,7 @@ extension Components {
                 createdAt: Swift.String,
                 cwd: Swift.String,
                 id: Swift.String,
+                inputs: [Swift.String]? = nil,
                 model: Swift.String,
                 name: Swift.String? = nil,
                 parentSessionId: Swift.String? = nil,
@@ -7128,6 +7132,7 @@ extension Components {
                 self.createdAt = createdAt
                 self.cwd = cwd
                 self.id = id
+                self.inputs = inputs
                 self.model = model
                 self.name = name
                 self.parentSessionId = parentSessionId
@@ -7141,6 +7146,7 @@ extension Components {
                 case createdAt
                 case cwd
                 case id
+                case inputs
                 case model
                 case name
                 case parentSessionId
@@ -7166,6 +7172,10 @@ extension Components {
                 self.id = try container.decode(
                     Swift.String.self,
                     forKey: .id
+                )
+                self.inputs = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .inputs
                 )
                 self.model = try container.decode(
                     Swift.String.self,
@@ -7200,6 +7210,7 @@ extension Components {
                     "createdAt",
                     "cwd",
                     "id",
+                    "inputs",
                     "model",
                     "name",
                     "parentSessionId",

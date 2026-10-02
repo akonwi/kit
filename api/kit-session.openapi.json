@@ -2964,6 +2964,12 @@
           "id": {
             "type": "string"
           },
+          "inputs": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array"
+          },
           "model": {
             "type": "string"
           },

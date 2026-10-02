@@ -64,8 +64,8 @@ func (model ModelCapability) Validate() error {
 		model.MaxInputTokens > model.ContextWindow || model.MaxOutputTokens > model.ContextWindow {
 		return fmt.Errorf("model token limits are invalid")
 	}
-	if len(model.ThinkingLevels) == 0 || len(model.ThinkingLevels) > 7 || len(model.Inputs) == 0 || len(model.Inputs) > 2 {
-		return fmt.Errorf("model thinking or input capabilities are invalid")
+	if len(model.ThinkingLevels) == 0 || len(model.ThinkingLevels) > 7 {
+		return fmt.Errorf("model thinking capabilities are invalid")
 	}
 	seenThinking := map[ThinkingLevel]bool{}
 	for _, level := range model.ThinkingLevels {
@@ -74,8 +74,17 @@ func (model ModelCapability) Validate() error {
 		}
 		seenThinking[level] = true
 	}
+	return validateModelInputs(model.Inputs)
+}
+
+// validateModelInputs checks a non-empty set of model input kinds, which must
+// include text.
+func validateModelInputs(inputs []ModelInputKind) error {
+	if len(inputs) == 0 || len(inputs) > 2 {
+		return fmt.Errorf("model input capabilities are invalid")
+	}
 	seenInputs := map[ModelInputKind]bool{}
-	for _, input := range model.Inputs {
+	for _, input := range inputs {
 		if input != ModelInputText && input != ModelInputImage || seenInputs[input] {
 			return fmt.Errorf("model input capabilities are invalid")
 		}
@@ -417,6 +426,11 @@ func (session SessionInfo) Validate() error {
 	}
 	if session.ConfigurationRevision == 0 || session.ConfigurationRevision > math.MaxInt64 {
 		return fmt.Errorf("session configuration revision is invalid")
+	}
+	if session.Inputs != nil {
+		if err := validateModelInputs(session.Inputs); err != nil {
+			return fmt.Errorf("session %w", err)
+		}
 	}
 	if session.ThinkingLevel != "" {
 		if err := ThinkingLevel(session.ThinkingLevel).Validate(); err != nil {

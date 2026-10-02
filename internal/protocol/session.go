@@ -260,17 +260,21 @@ type SessionList struct {
 
 // SessionInfo is the client-facing projection of authoritative session metadata.
 type SessionInfo struct {
-	ID                    string `json:"id"`
-	CWD                   string `json:"cwd"`
-	Name                  string `json:"name,omitempty"`
-	ParentSessionID       string `json:"parentSessionId,omitempty"`
-	ParentSessionName     string `json:"parentSessionName,omitempty"`
-	Temporary             bool   `json:"temporary,omitempty"`
-	Model                 string `json:"model"`
-	ThinkingLevel         string `json:"thinkingLevel"`
-	ConfigurationRevision uint64 `json:"configurationRevision"`
-	CreatedAt             string `json:"createdAt"`
-	UpdatedAt             string `json:"updatedAt"`
+	ID                string `json:"id"`
+	CWD               string `json:"cwd"`
+	Name              string `json:"name,omitempty"`
+	ParentSessionID   string `json:"parentSessionId,omitempty"`
+	ParentSessionName string `json:"parentSessionName,omitempty"`
+	Temporary         bool   `json:"temporary,omitempty"`
+	Model             string `json:"model"`
+	ThinkingLevel     string `json:"thinkingLevel"`
+	// Inputs lists what the session's model accepts in user messages. It is
+	// absent when the server cannot resolve the model or predates the field;
+	// clients then allow attachments and rely on the submission check.
+	Inputs                []ModelInputKind `json:"inputs,omitempty"`
+	ConfigurationRevision uint64           `json:"configurationRevision"`
+	CreatedAt             string           `json:"createdAt"`
+	UpdatedAt             string           `json:"updatedAt"`
 }
 
 // VCSHeadKind identifies the checked-out repository head shape.

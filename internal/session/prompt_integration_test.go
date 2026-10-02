@@ -1,8 +1,12 @@
 package session_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
+	"image"
+	"image/png"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -158,6 +162,78 @@ func TestManagerResolvesOrderedPromptAttachments(t *testing.T) {
 		if !ok || !strings.Contains(text.Text, want) {
 			t.Fatalf("content[%d] = %#v, want %q", index, user.Content[index], want)
 		}
+	}
+}
+
+func TestManagerImageAttachmentsFollowModelImagePolicy(t *testing.T) {
+	t.Parallel()
+	var encoded bytes.Buffer
+	if err := png.Encode(&encoded, image.NewGray(image.Rect(0, 0, 64, 48))); err != nil {
+		t.Fatal(err)
+	}
+	screenshot := encoded.Bytes()
+	accepting := droids.ImagePolicy{
+		Placements: []droids.ImagePlacement{droids.ImagePlacementUser},
+		Formats:    []string{droids.ImagePNG}, Sources: []droids.ImageSourceKind{droids.ImageSourceData},
+	}
+	tooSmall := accepting
+	tooSmall.MaxEncodedBytes = 64
+	for _, test := range []struct {
+		name    string
+		policy  droids.ImagePolicy
+		wantErr string
+	}{
+		{name: "accepted", policy: accepting},
+		{name: "cannot be prepared", policy: tooSmall, wantErr: `invalid session input: attachment "screen.png" cannot be sent to model "echo": the image exceeds this model's size limit`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			base := t.TempDir()
+			store, err := storage.Open(t.Context(), filepath.Join(base, "kit.db"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(func() { _ = store.Close() })
+			attachments, err := attachment.NewFilesystem(filepath.Join(base, "attachments"))
+			if err != nil {
+				t.Fatal(err)
+			}
+			providers := &authorityProviders{imagePolicy: &test.policy}
+			manager, err := session.NewManager(store, providers, staticRuntimeBundleBuilder("system"), session.WithDroidStoreDirectory(filepath.Join(base, "droids")), session.WithAttachmentStore(attachments))
+			if err != nil {
+				t.Fatal(err)
+			}
+			t.Cleanup(manager.Close)
+			record, err := manager.Create(t.Context(), session.CreateInput{CWD: base, Model: "test/echo", Temporary: true})
+			if err != nil {
+				t.Fatal(err)
+			}
+			stored, err := attachments.Put(t.Context(), attachment.PutInput{SessionID: record.ID, Filename: "screen.png", MediaType: "image/png", Content: bytes.NewReader(screenshot), MaxBytes: int64(len(screenshot)), Width: 64, Height: 48})
+			if err != nil {
+				t.Fatal(err)
+			}
+			_, err = manager.RunPromptInput(t.Context(), record.ID, session.PromptInput{Text: "look", AttachmentIDs: []string{stored.ID}})
+			providers.mu.Lock()
+			requests := append([]droids.Request(nil), providers.requests...)
+			providers.mu.Unlock()
+			if test.wantErr != "" {
+				if !errors.Is(err, session.ErrInvalidInput) || err.Error() != test.wantErr || len(requests) != 0 {
+					t.Fatalf("RunPromptInput() error = %v with %d provider calls, want %q before any provider call", err, len(requests), test.wantErr)
+				}
+				return
+			}
+			if err != nil {
+				t.Fatal(err)
+			}
+			user := requests[len(requests)-1].Messages[0].(droids.UserMessage)
+			want := []droids.InputContent{
+				droids.TextInput{Text: "look"},
+				droids.FileInput{Filename: "screen.png", MediaType: "image/png", URL: "data:image/png;base64," + base64.StdEncoding.EncodeToString(screenshot), AttachmentID: stored.ID},
+			}
+			if !reflect.DeepEqual(user.Content, want) {
+				t.Fatalf("user content = %#v, want %#v", user.Content, want)
+			}
+		})
 	}
 }
 
