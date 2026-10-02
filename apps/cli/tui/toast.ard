@@ -104,11 +104,30 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
   let text = mut List::new<cui::View>()
   text.push(cui::text(item.title, text_style: ui::text_style(foreground: color)))
   if item.detail != "" {
-    text.push(cui::text(item.detail, text_style: ui::text_style(foreground: colors.muted)))
+    text.push(
+      cui::text(
+        item.detail,
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::word,
+      ),
+    )
   }
   let content = mut List::new<cui::View>()
   content.push(cui::text(icon, text_style: ui::text_style(foreground: color)))
-  content.push(cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)))
+  let text_box = match item.detail != "" {
+    true => {
+      cui::box(
+        text.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+        ),
+      )
+    },
+    false => cui::box(text.@, styles: ui::style(flex_direction: ui::FlexDirection::column)),
+  }
+  content.push(text_box)
   if item.persistent {
     content.push(
       cui::box(
@@ -143,6 +162,10 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
         left: ui::cells(1),
       },
       background: colors.background,
+      width: match item.detail != "" {
+        true => ui::percent(100.0),
+        false => ui::undefined(),
+      },
       border: ui::Border::single,
       border_color: color,
     ),
