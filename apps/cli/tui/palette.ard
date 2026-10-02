@@ -354,9 +354,9 @@ private fn row(props: Props, item: Item) cui::View {
           flex_shrink: 0.0,
           padding: ui::Edges{
             top: ui::cells(0),
-            right: ui::cells(0),
+            right: ui::cells(2),
             bottom: ui::cells(0),
-            left: ui::cells(2),
+            left: ui::cells(0),
           },
         ),
       ),
