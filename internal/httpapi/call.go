@@ -54,7 +54,11 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 	if len(encoded) > maxResponseBytes {
 		return zero, fmt.Errorf("daemon session response exceeds %d bytes", maxResponseBytes)
 	}
-	if response.StatusCode != op.Success {
+	success := response.StatusCode == op.Success
+	for _, status := range op.AdditionalSuccess {
+		success = success || response.StatusCode == status
+	}
+	if !success {
 		return zero, DecodeOperationError(op, response.StatusCode, encoded)
 	}
 	if typeOf[Out]() == typeOf[NoBody]() {

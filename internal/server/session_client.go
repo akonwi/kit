@@ -110,8 +110,8 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 
 // ListModels returns the selectable model catalog and authentication availability.
 func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) {
-	var output protocol.ModelCatalog
-	if err := c.sessionJSON(ctx, http.MethodGet, "/v1/models", nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ListModels, httpapi.ServerPath{}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.ModelCatalog{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -122,8 +122,8 @@ func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) 
 
 // RefreshModels fetches and returns the latest selectable model catalog.
 func (c *Client) RefreshModels(ctx context.Context) (protocol.ModelCatalog, error) {
-	var output protocol.ModelCatalog
-	if err := c.sessionJSON(ctx, http.MethodPost, "/v1/models/refresh", nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.RefreshModels, httpapi.ServerPath{}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.ModelCatalog{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -134,9 +134,8 @@ func (c *Client) RefreshModels(ctx context.Context) (protocol.ModelCatalog, erro
 
 // GetWorkspace returns the current logical workspace for a session.
 func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.WorkspaceRef, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace"
-	var output protocol.WorkspaceRef
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetWorkspace, httpapi.SessionPath{SessionID: sessionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.WorkspaceRef{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -150,9 +149,8 @@ func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.W
 
 // ListWorkspaceDirectory returns a bounded page of immediate workspace children.
 func (c *Client) ListWorkspaceDirectory(ctx context.Context, sessionID string, input protocol.ListDirectoryInput) (protocol.DirectoryPage, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace/directories"
-	var output protocol.DirectoryPage
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ListWorkspaceDirectory, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.DirectoryPage{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -166,9 +164,8 @@ func (c *Client) ListWorkspaceDirectory(ctx context.Context, sessionID string, i
 
 // ReadWorkspaceFile returns a bounded guarded UTF-8 workspace preview.
 func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/workspace/files/read"
-	var output protocol.WorkspaceFileRead
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ReadWorkspaceFile, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.WorkspaceFileRead{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -335,12 +332,8 @@ func (c *Client) RefreshSessionFileIndex(ctx context.Context, sessionID string) 
 }
 
 func (c *Client) getSessionFileIndex(ctx context.Context, sessionID string, refresh bool) (protocol.SessionFileIndex, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/files"
-	if refresh {
-		path += "?refresh=true"
-	}
-	var output protocol.SessionFileIndex
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSessionFileIndex, httpapi.FileIndexParams{SessionID: sessionID, Refresh: refresh}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SessionFileIndex{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -369,19 +362,8 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 
 // GetBashHistory returns one newest-first page of direct shell history.
 func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before uint64, limit int) (protocol.BashHistoryPage, error) {
-	values := url.Values{}
-	if limit > 0 {
-		values.Set("limit", strconv.Itoa(limit))
-	}
-	if before > 0 {
-		values.Set("before", strconv.FormatUint(before, 10))
-	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-history"
-	if encoded := values.Encode(); encoded != "" {
-		path += "?" + encoded
-	}
-	var output protocol.BashHistoryPage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetBashHistory, httpapi.BashHistoryPath{SessionID: sessionID, Before: before, Limit: limit}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.BashHistoryPage{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -582,14 +564,8 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 
 // GetSubagentEvents loads a bounded child event page.
 func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
-	values := url.Values{}
-	if streamID != "" {
-		values.Set("stream", streamID)
-	}
-	values.Set("after", strconv.FormatInt(after, 10))
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents/" + url.PathEscape(conversationID) + "/events?" + values.Encode()
-	var output protocol.SubagentLiveEventPage
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSubagentEvents, httpapi.SubagentEventsParams{SessionID: sessionID, ConversationID: conversationID, StreamID: streamID, After: after}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SubagentLiveEventPage{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -600,9 +576,8 @@ func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationI
 
 // GetSubagentTranscript loads durable child history by conversation identity.
 func (c *Client) GetSubagentTranscript(ctx context.Context, sessionID, conversationID string) (protocol.SubagentTranscript, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents/" + url.PathEscape(conversationID) + "/transcript"
-	var output protocol.SubagentTranscript
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSubagentTranscript, httpapi.SubagentPath{SessionID: sessionID, ConversationID: conversationID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.SubagentTranscript{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -619,13 +594,8 @@ func (c *Client) Subagent(ctx context.Context, sessionID string, input protocol.
 	if err := input.Validate(); err != nil {
 		return protocol.SubagentOperationResult{}, fmt.Errorf("validate subagent operation: %w", err)
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/subagents"
-	status := http.StatusOK
-	if input.Action == protocol.SubagentStart || input.Action == protocol.SubagentMessage || input.Action == protocol.SubagentCancel {
-		status = http.StatusAccepted
-	}
-	var output protocol.SubagentOperationResult
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, status, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.OperateSubagent, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.SubagentOperationResult{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -704,9 +674,8 @@ func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attac
 	if err := input.Validate(); err != nil {
 		return protocol.AttachmentResolution{}, err
 	}
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/attachments/resolve"
-	var output protocol.AttachmentResolution
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.ResolveAttachments, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.AttachmentResolution{}, err
 	}
 	if err := output.Validate(sessionID, attachmentIDs); err != nil {
@@ -925,9 +894,8 @@ func (c *Client) PromptInput(ctx context.Context, sessionID string, input protoc
 
 // StartBash starts an idempotent daemon-owned direct shell execution.
 func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions"
-	var output protocol.BashExecution
-	if err := c.sessionJSON(ctx, http.MethodPost, path, input, http.StatusAccepted, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.StartBash, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -941,9 +909,8 @@ func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol
 
 // GetBash returns one durable direct shell execution.
 func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (protocol.BashExecution, error) {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID)
-	var output protocol.BashExecution
-	if err := c.sessionJSON(ctx, http.MethodGet, path, nil, http.StatusOK, &output); err != nil {
+	output, err := httpapi.Call(ctx, c, httpapi.GetBash, httpapi.BashExecutionPath{SessionID: sessionID, ExecutionID: executionID}, httpapi.NoBody{})
+	if err != nil {
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
@@ -957,8 +924,8 @@ func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (pr
 
 // AbortBash requests cancellation of one direct shell generation.
 func (c *Client) AbortBash(ctx context.Context, sessionID, executionID string) error {
-	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/bash-executions/" + url.PathEscape(executionID) + "/abort"
-	return c.sessionJSON(ctx, http.MethodPost, path, nil, http.StatusAccepted, nil)
+	_, err := httpapi.Call(ctx, c, httpapi.AbortBash, httpapi.BashExecutionPath{SessionID: sessionID, ExecutionID: executionID}, httpapi.NoBody{})
+	return err
 }
 
 // RespondInteraction atomically settles one pending model-user interaction.

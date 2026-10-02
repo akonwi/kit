@@ -21,14 +21,7 @@ const (
 )
 
 // Health is returned by an authenticated local daemon health check.
-type Health struct {
-	InstanceID      string   `json:"instanceId"`
-	PID             int      `json:"pid"`
-	KitVersion      string   `json:"kitVersion"`
-	ProtocolVersion int      `json:"protocolVersion"`
-	DatabaseReady   bool     `json:"databaseReady"`
-	Providers       []string `json:"providers"`
-}
+type Health = httpapi.Health
 
 // Client performs authenticated local daemon lifecycle requests.
 type Client struct {

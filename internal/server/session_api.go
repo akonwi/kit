@@ -1784,29 +1784,25 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeSessionError(writer, err)
 	}}
-	mux.HandleFunc("POST /v1/models/refresh", func(writer http.ResponseWriter, request *http.Request) {
-		catalog, err := service.RefreshModels(request.Context())
+	httpapi.Handle(mux, httpOptions, httpapi.RefreshModels, func(ctx context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (protocol.ModelCatalog, error) {
+		catalog, err := service.RefreshModels(ctx)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.ModelCatalog{}, lifecycleAPIError(err)
 		}
 		if err := catalog.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid refreshed model catalog: %w", err))
-			return
+			return protocol.ModelCatalog{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, catalog)
+		return catalog, nil
 	})
-	mux.HandleFunc("GET /v1/models", func(writer http.ResponseWriter, request *http.Request) {
-		catalog, err := service.Models(request.Context())
+	httpapi.Handle(mux, httpOptions, httpapi.ListModels, func(ctx context.Context, _ httpapi.ServerPath, _ httpapi.NoBody) (protocol.ModelCatalog, error) {
+		catalog, err := service.Models(ctx)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.ModelCatalog{}, lifecycleAPIError(err)
 		}
 		if err := catalog.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid model catalog: %w", err))
-			return
+			return protocol.ModelCatalog{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, catalog)
+		return catalog, nil
 	})
 	httpapi.Handle(mux, httpOptions, httpapi.ListSessions, func(ctx context.Context, params httpapi.ListSessionsPath, _ httpapi.NoBody) (protocol.SessionList, error) {
 		records, err := service.List(ctx, params.CWD)
@@ -1870,41 +1866,20 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return snapshot, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-history", func(writer http.ResponseWriter, request *http.Request) {
-		query := request.URL.Query()
-		limit := protocol.DefaultBashHistoryPageSize
-		if raw := query.Get("limit"); raw != "" {
-			parsed, err := strconv.Atoi(raw)
-			if err != nil || parsed <= 0 || parsed > protocol.MaxBashHistoryPageSize {
-				writeSessionError(writer, fmt.Errorf("%w: bash history limit must be between 1 and %d", errInvalidSessionRequest, protocol.MaxBashHistoryPageSize))
-				return
-			}
-			limit = parsed
+	httpapi.Handle(mux, httpOptions, httpapi.GetBashHistory, func(ctx context.Context, params httpapi.BashHistoryPath, _ httpapi.NoBody) (protocol.BashHistoryPage, error) {
+		if params.Limit < 0 || params.Limit > protocol.MaxBashHistoryPageSize {
+			return protocol.BashHistoryPage{}, invalidAPIError()
 		}
-		var before uint64
-		if raw := query["before"]; len(raw) > 1 || (len(raw) == 1 && (raw[0] == "" || len(raw[0]) > 256 || strings.TrimSpace(raw[0]) != raw[0])) {
-			writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
-			return
-		} else if len(raw) == 1 {
-			parsed, err := strconv.ParseUint(raw[0], 10, 64)
-			if err != nil || parsed == 0 {
-				writeSessionError(writer, fmt.Errorf("%w: bash history cursor is invalid", errInvalidSessionRequest))
-				return
-			}
-			before = parsed
+		if params.Limit == 0 {
+			params.Limit = protocol.DefaultBashHistoryPageSize
 		}
-		result, err := service.BashHistory(request.Context(), request.PathValue("sessionID"), before, limit)
+		result, err := service.BashHistory(ctx, params.SessionID, params.Before, params.Limit)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashHistoryPage{}, lifecycleAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid bash history page: %w", err))
-			return
-		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/messages", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetMessagePage, func(writer http.ResponseWriter, request *http.Request) {
 		query := request.URL.Query()
 		limit := 50
 		if raw := query.Get("limit"); raw != "" {
@@ -1941,7 +1916,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/transcript", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetTranscriptPage, func(writer http.ResponseWriter, request *http.Request) {
 		before := request.URL.Query().Get("before")
 		if before == "" || len(before) > 256 || strings.TrimSpace(before) != before {
 			writeSessionError(writer, fmt.Errorf("%w: before cursor is required", errInvalidSessionRequest))
@@ -1958,7 +1933,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/workspace", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetWorkspace, func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.Workspace(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -1970,7 +1945,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/workspace/directories", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.ListWorkspaceDirectory, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ListDirectoryInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -1987,7 +1962,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/workspace/files/read", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.ReadWorkspaceFile, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.ReadWorkspaceFileInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2105,7 +2080,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return httpapi.NoBody{}, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetSessionFileIndex, func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"), request.URL.Query().Get("refresh") == "true")
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2118,7 +2093,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		writeJSON(writer, http.StatusOK, result)
 	})
 
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/events", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetSessionEventPage, func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)
 		if raw := request.URL.Query().Get("after"); raw != "" {
 			parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -2240,7 +2215,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return result, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/subagents/{conversationID}/events", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetSubagentEvents, func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)
 		if raw := request.URL.Query().Get("after"); raw != "" {
 			parsed, err := strconv.ParseInt(raw, 10, 64)
@@ -2261,7 +2236,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/subagents/{conversationID}/transcript", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetSubagentTranscript, func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.SubagentTranscript(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2273,7 +2248,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/subagents", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.OperateSubagent, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.SubagentOperationInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2298,7 +2273,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, status, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/submissions", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.SubmitPrompt, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2319,7 +2294,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/follow-ups/restore", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.RestoreTurnFollowUps, func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.RestoreFollowUps(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2331,7 +2306,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/follow-ups/promote", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.PromoteTurnFollowUps, func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.PromoteFollowUps(request.Context(), request.PathValue("sessionID"))
 		if err != nil {
 			writeSessionError(writer, err)
@@ -2343,7 +2318,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompts", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.StartPrompt, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2374,7 +2349,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.StartPromptCommand, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptCommandInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2395,7 +2370,7 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusAccepted, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompt", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.Prompt, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -2416,39 +2391,30 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.BashExecutionInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.StartBash, func(ctx context.Context, params httpapi.SessionPath, input protocol.BashExecutionInput) (protocol.BashExecution, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.BashExecution{}, invalidAPIError()
 		}
-		execution, err := service.StartBash(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.StartBash(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashExecution{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, execution)
+		return result, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/bash-executions/{executionID}", func(writer http.ResponseWriter, request *http.Request) {
-		execution, err := service.Bash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID"))
+	httpapi.Handle(mux, httpOptions, httpapi.GetBash, func(ctx context.Context, params httpapi.BashExecutionPath, _ httpapi.NoBody) (protocol.BashExecution, error) {
+		result, err := service.Bash(ctx, params.SessionID, params.ExecutionID)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.BashExecution{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, execution)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort", func(writer http.ResponseWriter, request *http.Request) {
-		if err := service.AbortBash(request.Context(), request.PathValue("sessionID"), request.PathValue("executionID")); err != nil {
-			writeSessionError(writer, err)
-			return
+	httpapi.Handle(mux, httpOptions, httpapi.AbortBash, func(ctx context.Context, params httpapi.BashExecutionPath, _ httpapi.NoBody) (httpapi.BashAbortResult, error) {
+		if err := service.AbortBash(ctx, params.SessionID, params.ExecutionID); err != nil {
+			return httpapi.BashAbortResult{}, lifecycleAPIError(err)
 		}
-		writeJSON(writer, http.StatusAccepted, map[string]bool{"aborting": true})
+		return httpapi.BashAbortResult{Aborting: true}, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/turns/{turnID}", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.GetTurn, func(writer http.ResponseWriter, request *http.Request) {
 		turn, err := service.Turn(
 			request.Context(), request.PathValue("sessionID"), request.PathValue("turnID"),
 		)

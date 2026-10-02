@@ -22,6 +22,24 @@ type trickySchema struct {
 	Kind  trickyEnum      `json:"kind"`
 }
 
+func TestNestedSubagentLiveEventIsDiscriminatedUnion(t *testing.T) {
+	encoded, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var document map[string]any
+	if err := json.Unmarshal(encoded, &document); err != nil {
+		t.Fatal(err)
+	}
+	components := document["components"].(map[string]any)["schemas"].(map[string]any)
+	schema := components["SubagentLiveEvent"].(map[string]any)
+	discriminator, _ := schema["discriminator"].(map[string]any)
+	variants, _ := schema["oneOf"].([]any)
+	if discriminator["propertyName"] != "kind" || len(variants) != 9 {
+		t.Fatalf("SubagentLiveEvent schema = %#v, want closed nine-variant kind union", schema)
+	}
+}
+
 func TestDocumentIsCurrent(t *testing.T) {
 	document, err := Emit()
 	if err != nil {

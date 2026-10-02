@@ -26,6 +26,20 @@ func (fn testTransport) DoSessionRequest(ctx context.Context, method, path strin
 	return fn(ctx, method, path, body, jsonBody)
 }
 
+func TestCatalogHasUniqueOperationsAndRoutes(t *testing.T) {
+	ids, routes := map[string]bool{}, map[string]bool{}
+	for _, operation := range Catalog() {
+		route := operation.Method + " " + operation.Path
+		if operation.ID == "" || ids[operation.ID] {
+			t.Fatalf("duplicate or empty operation id %q", operation.ID)
+		}
+		if routes[route] {
+			t.Fatalf("duplicate catalog route %q", route)
+		}
+		ids[operation.ID], routes[route] = true, true
+	}
+}
+
 func TestHandleBindsPathAndStrictlyDecodes(t *testing.T) {
 	op := Operation[SessionPath, testInput, testOutput]{ID: "test", Method: http.MethodPut, Path: "/items/{sessionID}", Success: http.StatusCreated}
 	mux := http.NewServeMux()

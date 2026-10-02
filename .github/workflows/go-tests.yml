@@ -11,6 +11,26 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  openapi-compatibility:
+    name: OpenAPI compatibility
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+          cache: true
+
+      - name: Reject breaking API changes
+        shell: bash
+        run: |
+          git show "origin/${{ github.base_ref }}:api/kit-session.openapi.json" > "$RUNNER_TEMP/base.openapi.json"
+          go run github.com/oasdiff/oasdiff@v1.33.0 breaking "$RUNNER_TEMP/base.openapi.json" api/kit-session.openapi.json
+
   test:
     name: ${{ matrix.os }}
     runs-on: ${{ matrix.os }}

@@ -11,6 +11,15 @@ import struct Foundation.Date
 #endif
 /// A type that performs HTTP operations defined by the OpenAPI document.
 internal protocol APIProtocol: Sendable {
+    /// - Remark: HTTP `GET /v1/health`.
+    /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
+    func getHealth(_ input: Operations.GetHealth.Input) async throws -> Operations.GetHealth.Output
+    /// - Remark: HTTP `GET /v1/models`.
+    /// - Remark: Generated from `#/paths//v1/models/get(listModels)`.
+    func listModels(_ input: Operations.ListModels.Input) async throws -> Operations.ListModels.Output
+    /// - Remark: HTTP `POST /v1/models/refresh`.
+    /// - Remark: Generated from `#/paths//v1/models/refresh/post(refreshModels)`.
+    func refreshModels(_ input: Operations.RefreshModels.Input) async throws -> Operations.RefreshModels.Output
     /// - Remark: HTTP `GET /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
     func listSessions(_ input: Operations.ListSessions.Input) async throws -> Operations.ListSessions.Output
@@ -38,6 +47,27 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/annotations`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/delete(deleteAnnotation)`.
     func deleteAnnotation(_ input: Operations.DeleteAnnotation.Input) async throws -> Operations.DeleteAnnotation.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/attachments`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/post(uploadAttachment)`.
+    func uploadAttachment(_ input: Operations.UploadAttachment.Input) async throws -> Operations.UploadAttachment.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/attachments/resolve`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/resolve/post(resolveAttachments)`.
+    func resolveAttachments(_ input: Operations.ResolveAttachments.Input) async throws -> Operations.ResolveAttachments.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/attachments/{attachmentID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/{attachmentID}/get(readAttachment)`.
+    func readAttachment(_ input: Operations.ReadAttachment.Input) async throws -> Operations.ReadAttachment.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/post(startBash)`.
+    func startBash(_ input: Operations.StartBash.Input) async throws -> Operations.StartBash.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-executions/{executionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/get(getBash)`.
+    func getBash(_ input: Operations.GetBash.Input) async throws -> Operations.GetBash.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/abort/post(abortBash)`.
+    func abortBash(_ input: Operations.AbortBash.Input) async throws -> Operations.AbortBash.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-history`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)`.
+    func getBashHistory(_ input: Operations.GetBashHistory.Input) async throws -> Operations.GetBashHistory.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
     func compactSession(_ input: Operations.CompactSession.Input) async throws -> Operations.CompactSession.Output
@@ -68,6 +98,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/events/stream`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/events/stream/get(streamSessionEvents)`.
     func streamSessionEvents(_ input: Operations.StreamSessionEvents.Input) async throws -> Operations.StreamSessionEvents.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/get(getSessionFileIndex)`.
+    func getSessionFileIndex(_ input: Operations.GetSessionFileIndex.Input) async throws -> Operations.GetSessionFileIndex.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     func forkSession(_ input: Operations.ForkSession.Input) async throws -> Operations.ForkSession.Output
@@ -92,6 +125,15 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `PUT /v1/sessions/{sessionID}/scratchpad`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/scratchpad/put(updateScratchpad)`.
     func updateScratchpad(_ input: Operations.UpdateScratchpad.Input) async throws -> Operations.UpdateScratchpad.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/subagents`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/post(operateSubagent)`.
+    func operateSubagent(_ input: Operations.OperateSubagent.Input) async throws -> Operations.OperateSubagent.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/subagents/{conversationID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/events/get(getSubagentEvents)`.
+    func getSubagentEvents(_ input: Operations.GetSubagentEvents.Input) async throws -> Operations.GetSubagentEvents.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/subagents/{conversationID}/transcript`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/transcript/get(getSubagentTranscript)`.
+    func getSubagentTranscript(_ input: Operations.GetSubagentTranscript.Input) async throws -> Operations.GetSubagentTranscript.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/transcript`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/transcript/get(getTranscriptPage)`.
     func getTranscriptPage(_ input: Operations.GetTranscriptPage.Input) async throws -> Operations.GetTranscriptPage.Output
@@ -104,6 +146,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt/post(prompt)`.
     func prompt(_ input: Operations.Prompt.Input) async throws -> Operations.Prompt.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-command`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-command/post(submitPromptCommand)`.
+    func submitPromptCommand(_ input: Operations.SubmitPromptCommand.Input) async throws -> Operations.SubmitPromptCommand.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-commands`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-commands/post(startPromptCommand)`.
     func startPromptCommand(_ input: Operations.StartPromptCommand.Input) async throws -> Operations.StartPromptCommand.Output
@@ -125,10 +170,37 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/vcs/events`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/vcs/events/get(streamSessionVCS)`.
     func streamSessionVCS(_ input: Operations.StreamSessionVCS.Input) async throws -> Operations.StreamSessionVCS.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/workspace`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/get(getWorkspace)`.
+    func getWorkspace(_ input: Operations.GetWorkspace.Input) async throws -> Operations.GetWorkspace.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/directories`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/directories/post(listWorkspaceDirectory)`.
+    func listWorkspaceDirectory(_ input: Operations.ListWorkspaceDirectory.Input) async throws -> Operations.ListWorkspaceDirectory.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
+    func readWorkspaceFile(_ input: Operations.ReadWorkspaceFile.Input) async throws -> Operations.ReadWorkspaceFile.Output
+    /// - Remark: HTTP `POST /v1/shutdown`.
+    /// - Remark: Generated from `#/paths//v1/shutdown/post(shutdown)`.
+    func shutdown(_ input: Operations.Shutdown.Input) async throws -> Operations.Shutdown.Output
 }
 
 /// Convenience overloads for operation inputs.
 extension APIProtocol {
+    /// - Remark: HTTP `GET /v1/health`.
+    /// - Remark: Generated from `#/paths//v1/health/get(getHealth)`.
+    internal func getHealth(headers: Operations.GetHealth.Input.Headers) async throws -> Operations.GetHealth.Output {
+        try await getHealth(Operations.GetHealth.Input(headers: headers))
+    }
+    /// - Remark: HTTP `GET /v1/models`.
+    /// - Remark: Generated from `#/paths//v1/models/get(listModels)`.
+    internal func listModels(headers: Operations.ListModels.Input.Headers) async throws -> Operations.ListModels.Output {
+        try await listModels(Operations.ListModels.Input(headers: headers))
+    }
+    /// - Remark: HTTP `POST /v1/models/refresh`.
+    /// - Remark: Generated from `#/paths//v1/models/refresh/post(refreshModels)`.
+    internal func refreshModels(headers: Operations.RefreshModels.Input.Headers) async throws -> Operations.RefreshModels.Output {
+        try await refreshModels(Operations.RefreshModels.Input(headers: headers))
+    }
     /// - Remark: HTTP `GET /v1/sessions`.
     /// - Remark: Generated from `#/paths//v1/sessions/get(listSessions)`.
     internal func listSessions(
@@ -236,6 +308,91 @@ extension APIProtocol {
             path: path,
             headers: headers,
             body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/attachments`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/post(uploadAttachment)`.
+    internal func uploadAttachment(
+        path: Operations.UploadAttachment.Input.Path,
+        headers: Operations.UploadAttachment.Input.Headers,
+        body: Operations.UploadAttachment.Input.Body
+    ) async throws -> Operations.UploadAttachment.Output {
+        try await uploadAttachment(Operations.UploadAttachment.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/attachments/resolve`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/resolve/post(resolveAttachments)`.
+    internal func resolveAttachments(
+        path: Operations.ResolveAttachments.Input.Path,
+        headers: Operations.ResolveAttachments.Input.Headers,
+        body: Operations.ResolveAttachments.Input.Body
+    ) async throws -> Operations.ResolveAttachments.Output {
+        try await resolveAttachments(Operations.ResolveAttachments.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/attachments/{attachmentID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/attachments/{attachmentID}/get(readAttachment)`.
+    internal func readAttachment(
+        path: Operations.ReadAttachment.Input.Path,
+        headers: Operations.ReadAttachment.Input.Headers
+    ) async throws -> Operations.ReadAttachment.Output {
+        try await readAttachment(Operations.ReadAttachment.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/post(startBash)`.
+    internal func startBash(
+        path: Operations.StartBash.Input.Path,
+        headers: Operations.StartBash.Input.Headers,
+        body: Operations.StartBash.Input.Body
+    ) async throws -> Operations.StartBash.Output {
+        try await startBash(Operations.StartBash.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-executions/{executionID}`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/get(getBash)`.
+    internal func getBash(
+        path: Operations.GetBash.Input.Path,
+        headers: Operations.GetBash.Input.Headers
+    ) async throws -> Operations.GetBash.Output {
+        try await getBash(Operations.GetBash.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/bash-executions/{executionID}/abort`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-executions/{executionID}/abort/post(abortBash)`.
+    internal func abortBash(
+        path: Operations.AbortBash.Input.Path,
+        headers: Operations.AbortBash.Input.Headers
+    ) async throws -> Operations.AbortBash.Output {
+        try await abortBash(Operations.AbortBash.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/bash-history`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/bash-history/get(getBashHistory)`.
+    internal func getBashHistory(
+        path: Operations.GetBashHistory.Input.Path,
+        query: Operations.GetBashHistory.Input.Query = .init(),
+        headers: Operations.GetBashHistory.Input.Headers
+    ) async throws -> Operations.GetBashHistory.Output {
+        try await getBashHistory(Operations.GetBashHistory.Input(
+            path: path,
+            query: query,
+            headers: headers
         ))
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
@@ -366,6 +523,19 @@ extension APIProtocol {
             headers: headers
         ))
     }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/files`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/files/get(getSessionFileIndex)`.
+    internal func getSessionFileIndex(
+        path: Operations.GetSessionFileIndex.Input.Path,
+        query: Operations.GetSessionFileIndex.Input.Query = .init(),
+        headers: Operations.GetSessionFileIndex.Input.Headers
+    ) async throws -> Operations.GetSessionFileIndex.Output {
+        try await getSessionFileIndex(Operations.GetSessionFileIndex.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/forks`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/forks/post(forkSession)`.
     internal func forkSession(
@@ -464,6 +634,43 @@ extension APIProtocol {
             body: body
         ))
     }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/subagents`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/post(operateSubagent)`.
+    internal func operateSubagent(
+        path: Operations.OperateSubagent.Input.Path,
+        headers: Operations.OperateSubagent.Input.Headers,
+        body: Operations.OperateSubagent.Input.Body
+    ) async throws -> Operations.OperateSubagent.Output {
+        try await operateSubagent(Operations.OperateSubagent.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/subagents/{conversationID}/events`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/events/get(getSubagentEvents)`.
+    internal func getSubagentEvents(
+        path: Operations.GetSubagentEvents.Input.Path,
+        query: Operations.GetSubagentEvents.Input.Query = .init(),
+        headers: Operations.GetSubagentEvents.Input.Headers
+    ) async throws -> Operations.GetSubagentEvents.Output {
+        try await getSubagentEvents(Operations.GetSubagentEvents.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/subagents/{conversationID}/transcript`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/transcript/get(getSubagentTranscript)`.
+    internal func getSubagentTranscript(
+        path: Operations.GetSubagentTranscript.Input.Path,
+        headers: Operations.GetSubagentTranscript.Input.Headers
+    ) async throws -> Operations.GetSubagentTranscript.Output {
+        try await getSubagentTranscript(Operations.GetSubagentTranscript.Input(
+            path: path,
+            headers: headers
+        ))
+    }
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/transcript`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/transcript/get(getTranscriptPage)`.
     internal func getTranscriptPage(
@@ -507,6 +714,19 @@ extension APIProtocol {
         body: Operations.Prompt.Input.Body
     ) async throws -> Operations.Prompt.Output {
         try await prompt(Operations.Prompt.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/turns/prompt-command`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/turns/prompt-command/post(submitPromptCommand)`.
+    internal func submitPromptCommand(
+        path: Operations.SubmitPromptCommand.Input.Path,
+        headers: Operations.SubmitPromptCommand.Input.Headers,
+        body: Operations.SubmitPromptCommand.Input.Body
+    ) async throws -> Operations.SubmitPromptCommand.Output {
+        try await submitPromptCommand(Operations.SubmitPromptCommand.Input(
             path: path,
             headers: headers,
             body: body
@@ -594,6 +814,48 @@ extension APIProtocol {
             path: path,
             headers: headers
         ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/workspace`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/get(getWorkspace)`.
+    internal func getWorkspace(
+        path: Operations.GetWorkspace.Input.Path,
+        headers: Operations.GetWorkspace.Input.Headers
+    ) async throws -> Operations.GetWorkspace.Output {
+        try await getWorkspace(Operations.GetWorkspace.Input(
+            path: path,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/directories`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/directories/post(listWorkspaceDirectory)`.
+    internal func listWorkspaceDirectory(
+        path: Operations.ListWorkspaceDirectory.Input.Path,
+        headers: Operations.ListWorkspaceDirectory.Input.Headers,
+        body: Operations.ListWorkspaceDirectory.Input.Body
+    ) async throws -> Operations.ListWorkspaceDirectory.Output {
+        try await listWorkspaceDirectory(Operations.ListWorkspaceDirectory.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/workspace/files/read`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/workspace/files/read/post(readWorkspaceFile)`.
+    internal func readWorkspaceFile(
+        path: Operations.ReadWorkspaceFile.Input.Path,
+        headers: Operations.ReadWorkspaceFile.Input.Headers,
+        body: Operations.ReadWorkspaceFile.Input.Body
+    ) async throws -> Operations.ReadWorkspaceFile.Output {
+        try await readWorkspaceFile(Operations.ReadWorkspaceFile.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/shutdown`.
+    /// - Remark: Generated from `#/paths//v1/shutdown/post(shutdown)`.
+    internal func shutdown(headers: Operations.Shutdown.Input.Headers) async throws -> Operations.Shutdown.Output {
+        try await shutdown(Operations.Shutdown.Input(headers: headers))
     }
 }
 

@@ -16,6 +16,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/modelimage"
 	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
@@ -107,7 +108,7 @@ func projectAttachment(record attachment.Record) protocol.AttachmentInfo {
 }
 
 func registerAttachmentRoutes(mux *http.ServeMux, service attachmentService) {
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/attachments/resolve", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.ResolveAttachments, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.AttachmentResolutionInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
 			writeSessionError(writer, err)
@@ -129,7 +130,7 @@ func registerAttachmentRoutes(mux *http.ServeMux, service attachmentService) {
 		writeJSON(writer, http.StatusOK, result)
 	})
 
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/attachments", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.UploadAttachment, func(writer http.ResponseWriter, request *http.Request) {
 		request.Body = http.MaxBytesReader(writer, request.Body, maxAttachmentRequestBytes)
 		mediaType, parameters, err := mime.ParseMediaType(request.Header.Get("Content-Type"))
 		if err != nil || mediaType != "multipart/form-data" || parameters["boundary"] == "" {
@@ -170,7 +171,7 @@ func registerAttachmentRoutes(mux *http.ServeMux, service attachmentService) {
 		writeJSON(writer, http.StatusCreated, result)
 	})
 
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/attachments/{attachmentID}", func(writer http.ResponseWriter, request *http.Request) {
+	httpapi.HandleRaw(mux, httpapi.ReadAttachment, func(writer http.ResponseWriter, request *http.Request) {
 		info, content, err := service.Open(request.Context(), request.PathValue("sessionID"), request.PathValue("attachmentID"))
 		if err != nil {
 			writeAttachmentError(writer, err)
@@ -232,11 +233,11 @@ func writeAttachmentError(writer http.ResponseWriter, err error) {
 	var maxBytesError *http.MaxBytesError
 	switch {
 	case errors.Is(err, attachment.ErrNotFound):
-		writeJSON(writer, http.StatusNotFound, map[string]string{"error": "attachment not found"})
+		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "attachment not found", nil))
 	case errors.As(err, &maxBytesError), errors.Is(err, attachment.ErrTooLarge):
-		writeJSON(writer, http.StatusRequestEntityTooLarge, map[string]string{"error": err.Error()})
+		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusRequestEntityTooLarge, httpapi.ErrorLimitExceeded, "attachment is too large", nil))
 	case errors.Is(err, attachment.ErrInvalidInput):
-		writeJSON(writer, http.StatusBadRequest, map[string]string{"error": err.Error()})
+		httpapi.WriteError(writer, httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid attachment", nil))
 	default:
 		writeSessionError(writer, err)
 	}
