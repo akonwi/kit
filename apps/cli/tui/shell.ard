@@ -812,7 +812,21 @@ impl Shell {
     match self.info {
       session => {
         left.push(line(format::session_name(session), ui::text_style()))
-        right.push(cui::text(format::model_name(session.Model), wrap: ui::TextWrap::none))
+        let open_model = keymap::simple_command("model.open", "Change session model", fn() Bool {
+          self.active_modal = ActiveModal::model_picker
+          true
+        })
+        right.push(
+          controls::button(
+            self.props.themes,
+            format::model_name(session.Model),
+            open_model,
+            variant: controls::ButtonVariant::secondary,
+            compact: true,
+            focusable: false,
+            styles: ui::style(flex_shrink: 0.0),
+          ),
+        )
         let thinking = strings::TrimSpace(session.ThinkingLevel)
         if thinking != "" {
           right.push(cui::text(" ({thinking})", wrap: ui::TextWrap::none))
