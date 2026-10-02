@@ -237,6 +237,7 @@ struct Shell {
   session: sessionclient::Session?,
   info: protocol::SessionInfo?,
   prompt_commands: [protocol::PromptCommand],
+  follow_ups: protocol::FollowUpQueue,
   location: Str,
   messages: [transcript::Message],
   live: transcript::Live,
@@ -299,6 +300,11 @@ fn new(props: mut Props) mut Shell {
     session: Maybe::new<sessionclient::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
     prompt_commands: [],
+    follow_ups: protocol::FollowUpQueue{
+      Count: 0,
+      Previews: [],
+      AnnotationIDs: [],
+    },
     location: props.options.Location,
     messages: [],
     live: transcript::live(),
@@ -905,7 +911,37 @@ impl Shell {
         }
       },
     }
-    cui::box([content], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0, padding: inset()))
+    let rows = mut List::new<cui::View>()
+    rows.push(content)
+    let maximum = match self.follow_ups.Count > 3 {
+      true => 2,
+      false => 3,
+    }
+    mut visible = 0
+    for preview, index in self.follow_ups.Previews {
+      if index < maximum {
+        rows.push(
+          line("Follow-up {index + 1}: {preview}", ui::text_style(foreground: colors.muted)),
+        )
+        visible = visible + 1
+      }
+    }
+    if self.follow_ups.Count > visible {
+      rows.push(
+        line(
+          "+{self.follow_ups.Count - visible} more follow-ups",
+          ui::text_style(foreground: colors.muted),
+        ),
+      )
+    }
+    cui::box(
+      rows.@,
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::column,
+        padding: inset(),
+      ),
+    )
   }
 
   fn mut composer_view() cui::View {
@@ -1856,6 +1892,7 @@ impl Shell {
     if not self.live.supersedes(snapshot) {
       self.info = Maybe::new(snapshot.Session)
       self.prompt_commands = snapshot.PromptCommands
+      self.follow_ups = snapshot.FollowUps
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
       // Watch snapshots can lag the active turn. Keep its complete live tail
@@ -2086,7 +2123,7 @@ impl Shell {
                               self.live.reset()
                               self.start_pending = false
                             }
-                            self.show_toast("Prompt queued", display, toast::Variant::info, false)
+                            ()
                           } else if submission.Reservation.TurnID != "" {
                             self.start_pending = false
                             self.follow_run(submission.Reservation.TurnID)
