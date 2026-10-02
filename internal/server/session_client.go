@@ -853,6 +853,24 @@ func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input p
 	return output, nil
 }
 
+// SubmitPromptCommand expands one discovered prompt command and either starts it or queues it.
+func (c *Client) SubmitPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.PromptSubmission, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.PromptSubmission{}, fmt.Errorf("validate prompt command request: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.SubmitPromptCommand, httpapi.SessionPath{SessionID: sessionID}, input)
+	if err != nil {
+		return protocol.PromptSubmission{}, err
+	}
+	if err := output.Validate(); err != nil {
+		return protocol.PromptSubmission{}, fmt.Errorf("validate daemon prompt command submission: %w", err)
+	}
+	if output.Reservation != nil && output.Reservation.SessionID != sessionID {
+		return protocol.PromptSubmission{}, fmt.Errorf("daemon prompt command submission identity mismatch")
+	}
+	return output, nil
+}
+
 // StartPromptCommand expands and admits one discovered prompt command.
 func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	if err := input.Validate(); err != nil {

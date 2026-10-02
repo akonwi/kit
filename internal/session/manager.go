@@ -256,6 +256,7 @@ func (r *runtime) signalEventChangedLocked() {
 // PromptInput is one ordered prompt with optional durable attachments.
 type PromptInput struct {
 	queuedAnnotations *kitannotation.QueuedSubmission
+	followUpPreview   string
 	fromQueue         bool
 	Text              string
 	AttachmentIDs     []string
@@ -1792,7 +1793,10 @@ func projectFollowUpQueue(messages []PromptInput) FollowUpQueue {
 				seenAnnotations[id] = true
 			}
 		}
-		preview := strings.Join(strings.Fields(message.Text), " ")
+		preview := message.followUpPreview
+		if preview == "" {
+			preview = strings.Join(strings.Fields(message.Text), " ")
+		}
 		if preview == "" && len(message.AttachmentIDs) > 0 {
 			preview = "Attachment"
 		}
@@ -1820,10 +1824,50 @@ func (m *Manager) StartPromptInput(ctx context.Context, sessionID string, prompt
 
 // StartPromptCommand expands and admits one command from the runtime's immutable snapshot.
 func (m *Manager) StartPromptCommand(ctx context.Context, sessionID, name, args string) (RunReservation, error) {
-	if strings.TrimSpace(name) != name || name == "" || len(name) > 128 || len(args) > maxPromptTextBytes || !utf8.ValidString(args) || strings.IndexByte(args, 0) >= 0 {
-		return RunReservation{}, fmt.Errorf("%w: prompt command name or arguments are invalid", ErrInvalidInput)
+	if err := validatePromptCommand(name, args); err != nil {
+		return RunReservation{}, err
 	}
 	return m.startPrompt(ctx, sessionID, PromptInput{}, name, args)
+}
+
+// SubmitPromptCommand expands one discovered command, then admits its expanded
+// text through the ordinary prompt-submission path. Active turns therefore
+// receive the command as a deterministic queued follow-up.
+func (m *Manager) SubmitPromptCommand(ctx context.Context, sessionID, name, args string) (PromptSubmission, error) {
+	if err := validatePromptCommand(name, args); err != nil {
+		return PromptSubmission{}, err
+	}
+	loaded, err := m.runtime(ctx, sessionID)
+	if err != nil {
+		return PromptSubmission{}, err
+	}
+	loaded.mu.Lock()
+	if loaded.bundle.PromptCommands == nil {
+		loaded.mu.Unlock()
+		return PromptSubmission{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
+	}
+	command, ok := loaded.bundle.PromptCommands.Lookup(name)
+	if !ok {
+		loaded.mu.Unlock()
+		return PromptSubmission{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
+	}
+	expanded, err := command.Expand(args)
+	loaded.mu.Unlock()
+	if err != nil {
+		return PromptSubmission{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, name, err)
+	}
+	preview := "/" + name
+	if trimmed := strings.TrimSpace(args); trimmed != "" {
+		preview += " " + trimmed
+	}
+	return m.SubmitPromptInput(ctx, sessionID, PromptInput{Text: expanded, followUpPreview: preview})
+}
+
+func validatePromptCommand(name, args string) error {
+	if strings.TrimSpace(name) != name || name == "" || len(name) > 128 || len(args) > maxPromptTextBytes || !utf8.ValidString(args) || strings.IndexByte(args, 0) >= 0 {
+		return fmt.Errorf("%w: prompt command name or arguments are invalid", ErrInvalidInput)
+	}
+	return nil
 }
 
 func (m *Manager) startPrompt(ctx context.Context, sessionID string, input PromptInput, commandName, commandArgs string) (RunReservation, error) {
