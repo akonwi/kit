@@ -14,7 +14,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-CMD-004 — Tab completes the selected command's name in the palette
   query followed by a space and keeps the palette open. The list stays pinned
   to that command while arguments are typed, until the command name is edited.
-- [ ] TUI-CMD-005 — Edit the palette query conventionally: move the cursor with
+- [x] TUI-CMD-005 — Edit the palette query conventionally: move the cursor with
   Left/Right/Home/End, insert and delete at the cursor, and delete by word.
   List navigation keeps its current keys; no additional bindings are added.
 - [ ] TUI-CMD-007 — Show argument hints for built-in commands that accept
