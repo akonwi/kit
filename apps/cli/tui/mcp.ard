@@ -45,6 +45,15 @@ private fn blank() cui::View {
   cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
 }
 
+// status_label translates internal lifecycle names into user-facing state.
+private fn status_label(state: Str) Str {
+  match state {
+    "configured" => "available",
+    "error" => "failed",
+    _ => state,
+  }
+}
+
 impl cui::Component for Status {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
@@ -86,7 +95,7 @@ impl cui::Component for Status {
               line(marker, ui::text_style(foreground: status_color)),
               line(server.Name, ui::text_style(bold: true)),
               cui::box(
-                [line(server.State, ui::text_style(foreground: status_color))],
+                [line(status_label(server.State), ui::text_style(foreground: status_color))],
                 styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), align_items: ui::Align::end),
               ),
             ],
@@ -193,14 +202,14 @@ impl cui::Component for Status {
     modal::dialog(
       self.props.themes,
       modal::Dialog{
-        placement: modal::Placement::centered,
+        placement: modal::Placement::picker,
         title: "MCP servers",
         meta: "",
         header: [],
         body: cui::scroll_box(
           [cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))],
           key: "mcp.status.list",
-          styles: ui::style(height: ui::cells(18), padding: inset()),
+          styles: ui::style(height: ui::cells(16), padding: inset()),
           scrollbar_options: ui::scrollbar_options(),
           ref: self.scroll,
           key_bindings: keymap::rebind(
