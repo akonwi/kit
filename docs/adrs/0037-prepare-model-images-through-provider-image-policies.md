@@ -242,9 +242,11 @@ Source: Claude API vision and vision-coordinates documentation.
   1568 px and 1568 patches; high-resolution tier: 2576 px and 4784 patches.
   Preparing to the native size loses no fidelity the model would have used and
   makes returned coordinates map exactly onto the prepared image.
-- Tier membership is a reviewed Kit table keyed by model ID: Claude Opus 4.7 and
-  later, Sonnet 5, and Fable models are high-resolution. Models absent from the
-  table use the standard tier, which is always accepted.
+- Tier membership applies the documented rule, Claude 4.7 and later, to the
+  version in the model ID (`claude-<family>-<major>[-<minor>]`). Today that
+  makes Opus 4.7 and later, Sonnet 5, and Fable models high-resolution. IDs
+  that carry no Claude version use the standard tier, which is always
+  accepted.
 - `MaxEncodedBytes`: 10 MB base64. `MaxImages`: 100 for models with a context
   window of 200k tokens or less, otherwise 600. `MaxRequestImageBytes`: below
   the 32 MB request limit with headroom for text.

@@ -154,18 +154,44 @@ func (c Anthropic) build() (providerEntry, error) {
 	}, nil
 }
 
-// anthropicImagePolicy declares where Messages API models accept images and in
-// which forms. Image-capable models accept images in user input, context
-// messages, and tool results, from inline data or HTTPS URLs. Sizing and
-// limits are not yet declared, so images are sent at source dimensions.
+// Anthropic image limits, from the Claude API vision documentation.
+const (
+	// anthropicMaxImageBytes is the per-image limit, base64-encoded.
+	anthropicMaxImageBytes = 10_000_000
+	// anthropicMaxRequestImageBytes leaves headroom for text below the 32 MB
+	// request limit.
+	anthropicMaxRequestImageBytes = 24_000_000
+	// anthropicManyImageThreshold is the image count above which every image
+	// in a request must fit anthropicManyImageEdge.
+	anthropicManyImageThreshold = 20
+	anthropicManyImageEdge      = 2000
+)
+
+// anthropicImagePolicy declares the Messages API image contract. Images are
+// prepared to the model tier's native size: Anthropic downscales anything
+// larger, so preparing loses no fidelity the model would use, and coordinates
+// the model returns map directly onto the image it received.
 func anthropicImagePolicy(model Model) ImagePolicy {
 	if !containsString(model.Input, "image") {
 		return ImagePolicy{}
 	}
+	edge, tokens := 1568, 1568
+	if anthropicHighResolution(model.ID) {
+		edge, tokens = 2576, 4784
+	}
+	maxImages := 600
+	if model.ContextWindow > 0 && model.ContextWindow <= 200_000 {
+		maxImages = 100
+	}
 	return ImagePolicy{
-		Placements: []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
-		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
-		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+		Placements:           []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Formats:              []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:              []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+		Fit:                  anthropicImageFit(edge, tokens),
+		MaxEncodedBytes:      anthropicMaxImageBytes,
+		MaxImages:            maxImages,
+		MaxRequestImageBytes: anthropicMaxRequestImageBytes,
+		ManyImages:           &ManyImageRule{Above: anthropicManyImageThreshold, Fit: longEdgeImageFit(anthropicManyImageEdge)},
 	}
 }
 

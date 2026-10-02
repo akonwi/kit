@@ -8,18 +8,12 @@ import (
 	"testing"
 )
 
-func fullImagePolicy() ImagePolicy {
+func userOnlyImagePolicy() ImagePolicy {
 	return ImagePolicy{
-		Placements: []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Placements: []ImagePlacement{ImagePlacementUser},
 		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
 		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
 	}
-}
-
-func userOnlyImagePolicy() ImagePolicy {
-	policy := fullImagePolicy()
-	policy.Placements = []ImagePlacement{ImagePlacementUser}
-	return policy
 }
 
 func TestImagePolicyValidation(t *testing.T) {
@@ -125,6 +119,38 @@ func TestNewProvidersRequiresImagePolicies(t *testing.T) {
 	}
 }
 
+// policySummary is the comparable form of an ImagePolicy: its declared values
+// plus the dimensions its fits produce for reference images.
+type policySummary struct {
+	Placements           []ImagePlacement
+	Formats              []string
+	Sources              []ImageSourceKind
+	MaxEncodedBytes      int64
+	MaxImages            int
+	MaxRequestImageBytes int64
+	// Fit4K is Fit applied to a 3840×2160 image.
+	Fit4K [2]int
+	// ManyAbove and ManyFit describe the many-image rule; ManyFit is its fit
+	// applied to a 2576×1449 image.
+	ManyAbove int
+	ManyFit   [2]int
+}
+
+func summarizePolicy(policy ImagePolicy) policySummary {
+	summary := policySummary{
+		Placements: policy.Placements, Formats: policy.Formats, Sources: policy.Sources,
+		MaxEncodedBytes: policy.MaxEncodedBytes, MaxImages: policy.MaxImages, MaxRequestImageBytes: policy.MaxRequestImageBytes,
+	}
+	if policy.Fit != nil {
+		summary.Fit4K[0], summary.Fit4K[1] = policy.Fit(3840, 2160)
+	}
+	if policy.ManyImages != nil {
+		summary.ManyAbove = policy.ManyImages.Above
+		summary.ManyFit[0], summary.ManyFit[1] = policy.ManyImages.Fit(2576, 1449)
+	}
+	return summary
+}
+
 func TestBuiltInProviderImagePolicies(t *testing.T) {
 	providers, err := NewProviders(
 		Anthropic{}, OpenAI{}, OpenAICodex{Credentials: staticCodexCredentials()}, OpenCodeGo{},
@@ -132,19 +158,39 @@ func TestBuiltInProviderImagePolicies(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	all := []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult}
+	formats := []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP}
+	inlineOrRemote := []ImageSourceKind{ImageSourceData, ImageSourceHTTPS}
+	anthropic := func(fit [2]int, maxImages int) policySummary {
+		return policySummary{
+			Placements: all, Formats: formats, Sources: inlineOrRemote,
+			MaxEncodedBytes: 10_000_000, MaxImages: maxImages, MaxRequestImageBytes: 24_000_000,
+			Fit4K: fit, ManyAbove: 20, ManyFit: [2]int{2000, 1125},
+		}
+	}
+	openAI := func(sources []ImageSourceKind, fit [2]int) policySummary {
+		return policySummary{
+			Placements: all, Formats: formats, Sources: sources,
+			MaxImages: 1500, MaxRequestImageBytes: 480_000_000, Fit4K: fit,
+		}
+	}
+	defaultHigh := [2]int{2048, 1152} // 2048 px leaves 64 × 36 = 2,304 patches
 	tests := []struct {
 		selector string
-		want     ImagePolicy
+		want     policySummary
 	}{
-		{"anthropic/claude-opus-5-5", fullImagePolicy()},
-		{"openai/gpt-5.4", fullImagePolicy()},
-		{"openai-codex/gpt-5.4", fullImagePolicy()},
-		{"openai-codex/gpt-5.3-codex-spark", ImagePolicy{}},
-		{"opencode-go/minimax-m3", fullImagePolicy()},    // Anthropic Messages
-		{"opencode-go/grok-4.7", fullImagePolicy()},      // OpenAI Responses
-		{"opencode-go/kimi-k2.6", userOnlyImagePolicy()}, // Chat Completions
-		{"opencode-go/minimax-m2.7", ImagePolicy{}},      // text-only
-		{"opencode-go/glm-5.3", ImagePolicy{}},           // text-only
+		{"anthropic/claude-opus-5-5", anthropic([2]int{2576, 1449}, 600)}, // high-resolution tier
+		{"anthropic/claude-haiku-4-5", anthropic([2]int{1456, 819}, 100)}, // standard tier, 200k context
+		{"openai/gpt-5.4", openAI(inlineOrRemote, defaultHigh)},
+		{"openai/gpt-6-astra", openAI(inlineOrRemote, [2]int{2104, 1184})}, // 66 × 37 = 2,442 patches
+		{"openai/gpt-4o", openAI(inlineOrRemote, [2]int{1365, 768})},       // tile-based
+		{"openai-codex/gpt-5.4", openAI([]ImageSourceKind{ImageSourceData}, defaultHigh)},
+		{"openai-codex/gpt-5.3-codex-spark", policySummary{}},
+		{"opencode-go/minimax-m3", anthropic([2]int{1456, 819}, 600)}, // Anthropic Messages
+		{"opencode-go/grok-4.7", openAI(inlineOrRemote, defaultHigh)}, // OpenAI Responses
+		{"opencode-go/kimi-k2.6", policySummary{Placements: []ImagePlacement{ImagePlacementUser}, Formats: formats, Sources: inlineOrRemote}},
+		{"opencode-go/minimax-m2.7", policySummary{}},
+		{"opencode-go/glm-5.3", policySummary{}},
 	}
 	for _, test := range tests {
 		t.Run(test.selector, func(t *testing.T) {
@@ -152,8 +198,8 @@ func TestBuiltInProviderImagePolicies(t *testing.T) {
 			if err != nil {
 				t.Fatal(err)
 			}
-			if got := model.ImagePolicy(); !reflect.DeepEqual(got, test.want) {
-				t.Fatalf("ImagePolicy() = %#v, want %#v", got, test.want)
+			if got := summarizePolicy(model.ImagePolicy()); !reflect.DeepEqual(got, test.want) {
+				t.Fatalf("ImagePolicy() = %+v\nwant %+v", got, test.want)
 			}
 		})
 	}
@@ -170,11 +216,23 @@ func TestModelImagePolicyIsACopy(t *testing.T) {
 	}
 	policy := model.ImagePolicy()
 	policy.Placements[0] = ImagePlacementToolResult
-	if got := model.ImagePolicy(); !reflect.DeepEqual(got, fullImagePolicy()) {
-		t.Fatalf("policy after caller mutation = %#v, want %#v", got, fullImagePolicy())
+	policy.ManyImages.Above = 1
+	again := model.ImagePolicy()
+	if again.Placements[0] != ImagePlacementUser || again.ManyImages.Above != 20 {
+		t.Fatalf("policy after caller mutation = %+v, want the provider's declaration", summarizePolicy(again))
 	}
 	if got := (Model{Provider: "anthropic", ID: "unbound"}).ImagePolicy(); !reflect.DeepEqual(got, ImagePolicy{}) {
 		t.Fatalf("unbound model policy = %#v, want zero", got)
+	}
+}
+
+func TestOpenAIToolResultImagesUseHighDetail(t *testing.T) {
+	output, err := openAIToolOutput([]ResultContent{NewImageData(ImagePNG, []byte("png"))})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(output) != 1 || output[0].OfInputImage == nil || output[0].OfInputImage.Detail != "high" {
+		t.Fatalf("tool output = %#v, want one high-detail image", output)
 	}
 }
 

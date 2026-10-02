@@ -3,6 +3,7 @@ package droids
 import (
 	"bytes"
 	"context"
+	"fmt"
 	"image"
 	"image/color"
 	"image/gif"
@@ -410,6 +411,43 @@ func TestReplayWithToolResultScreenshotSucceedsOnEveryProvider(t *testing.T) {
 			}}
 			if err := validateRequestReplay(t.Context(), model.boundProvider(), model, request); err != nil {
 				t.Fatalf("replay validation = %v", err)
+			}
+		})
+	}
+}
+
+func TestBuiltInPoliciesPrepareRetinaScreenshots(t *testing.T) {
+	providers, err := NewProviders(Anthropic{}, OpenAI{}, OpenAICodex{Credentials: staticCodexCredentials()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	screenshot := testPNGDataURL(t, 2880, 1800)
+	for _, test := range []struct {
+		selector string
+		w, h     int
+	}{
+		{"anthropic/claude-opus-5-5", 2420, 1512}, // high-resolution tier; Anthropic reference resize
+		{"anthropic/claude-haiku-4-5", 1389, 868}, // standard tier; Anthropic reference resize
+		{"openai/gpt-5.4", 1996, 1248},            // 2048 px and 2,500 patches
+		{"openai-codex/gpt-5.4", 1996, 1248},
+	} {
+		t.Run(test.selector, func(t *testing.T) {
+			model, err := providers.Resolve(test.selector)
+			if err != nil {
+				t.Fatal(err)
+			}
+			policy := model.ImagePolicy()
+			prepared, _ := prepareRequestImages(policy, []Message{toolResultWithImages(screenshot)})
+			content := prepared[0].(ToolResultMessage).Content
+			image := content[1].(FileContent)
+			if _, w, h := imageDimensions(t, image.URL); w != test.w || h != test.h {
+				t.Fatalf("prepared screenshot = %dx%d, want %dx%d", w, h, test.w, test.h)
+			}
+			if policy.MaxEncodedBytes > 0 && int64(len(image.URL)) > policy.MaxEncodedBytes+int64(len("data:image/png;base64,")) {
+				t.Fatalf("prepared screenshot exceeds %d encoded bytes", policy.MaxEncodedBytes)
+			}
+			if want := fmt.Sprintf("[Image 1 of 1 was resized from 2880×1800 to %d×%d pixels.]", test.w, test.h); content[2] != (TextContent{Text: want}) {
+				t.Fatalf("notice = %#v, want %q", content[2], want)
 			}
 		})
 	}

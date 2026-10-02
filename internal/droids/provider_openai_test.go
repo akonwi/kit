@@ -165,7 +165,7 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	if got := content[0].(map[string]any); got["type"] != "input_text" || got["text"] != "Say hello" {
 		t.Fatalf("text input = %#v", got)
 	}
-	if got := content[1].(map[string]any); got["type"] != "input_image" || got["image_url"] != "data:image/png;base64,aGVsbG8=" || got["detail"] != "auto" {
+	if got := content[1].(map[string]any); got["type"] != "input_image" || got["image_url"] != "data:image/png;base64,aGVsbG8=" || got["detail"] != "high" {
 		t.Fatalf("image input = %#v", got)
 	}
 	if got := content[2].(map[string]any); got["type"] != "input_file" || got["file_url"] != "https://files.example/report.pdf?signature=abc" || got["filename"] != nil {

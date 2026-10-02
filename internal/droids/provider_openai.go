@@ -732,19 +732,58 @@ func toOpenAIInputWithReasoningHistory(messages []Message, target Model, history
 	return out, nil
 }
 
-// openAIImagePolicy declares where Responses API models accept images and in
-// which forms. Image-capable models accept images in user input, context
-// messages, and tool results, from inline data or HTTPS URLs. Sizing and
-// limits are not yet declared, so images are sent at source dimensions.
+// OpenAI Responses request limits, from the images and vision guide.
+const (
+	openAIMaxRequestImages = 1500
+	// openAIMaxRequestImageBytes leaves headroom below the 512 MB request
+	// limit.
+	openAIMaxRequestImageBytes = 480_000_000
+)
+
+// openAIImagePolicy declares the Responses API image contract. Kit sends
+// "detail": "high" on every image, and Fit reproduces that detail level's
+// resize for the model family.
 func openAIImagePolicy(model Model) ImagePolicy {
 	if !containsString(model.Input, "image") {
 		return ImagePolicy{}
 	}
 	return ImagePolicy{
-		Placements: []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
-		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
-		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+		Placements:           []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Formats:              []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:              []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+		Fit:                  openAIHighDetailFit(model.ID),
+		MaxImages:            openAIMaxRequestImages,
+		MaxRequestImageBytes: openAIMaxRequestImageBytes,
 	}
+}
+
+// openAIHighDetailFamilies maps model families to their "high" detail resize.
+// A family matches its exact ID or the ID followed by "-"; the first match
+// wins, so more specific families come first.
+var openAIHighDetailFamilies = []struct {
+	family string
+	fit    ImageFit
+}{
+	{"gpt-6-astra", openAIPatchFit(65_535, 2_500)},
+	{"gpt-5.2", openAIPatchFit(2_048, 6_144)},
+	{"gpt-4.1-mini", openAIPatchFit(2_048, 6_144)},
+	{"gpt-5.1", openAITileFit},
+	{"gpt-5", openAITileFit},
+	{"gpt-4.1", openAITileFit},
+	{"gpt-4o", openAITileFit},
+	{"o1", openAITileFit},
+	{"o3", openAITileFit},
+}
+
+// openAIHighDetailFit returns the "high" detail resize for modelID. Families
+// the guide does not list use 2048 px and 2,500 patches.
+func openAIHighDetailFit(modelID string) ImageFit {
+	for _, entry := range openAIHighDetailFamilies {
+		if modelID == entry.family || strings.HasPrefix(modelID, entry.family+"-") {
+			return entry.fit
+		}
+	}
+	return openAIPatchFit(2_048, 2_500)
 }
 
 func openAIUserContent(content []InputContent) (responses.ResponseInputMessageContentListParam, error) {
@@ -858,7 +897,7 @@ func openAIImageParam(image FileContent) (responses.ResponseInputImageParam, err
 		return responses.ResponseInputImageParam{}, err
 	}
 	return responses.ResponseInputImageParam{
-		Detail:   responses.ResponseInputImageDetailAuto,
+		Detail:   responses.ResponseInputImageDetailHigh,
 		ImageURL: param.NewOpt(image.URL),
 	}, nil
 }
@@ -868,7 +907,7 @@ func openAIToolImageParam(image FileContent) (responses.ResponseInputImageConten
 		return responses.ResponseInputImageContentParam{}, err
 	}
 	return responses.ResponseInputImageContentParam{
-		Detail:   responses.ResponseInputImageContentDetailAuto,
+		Detail:   responses.ResponseInputImageContentDetailHigh,
 		ImageURL: param.NewOpt(image.URL),
 	}, nil
 }

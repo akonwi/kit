@@ -215,10 +215,6 @@ change in an ADR before implementing it. Wire changes bump
   restoration, transcript projection, and cleanup on session deletion.
 - [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
   validation. Retained for `CORE-IMG-008`.
-- [ ] CORE-IMG-004 — Declare the Anthropic, OpenAI, and OpenAI Codex image
-  policies from ADR 0037, including Anthropic's tiered reference fit, OpenAI
-  family `high`-detail fits, and `"detail": "high"` on every OpenAI and Codex
-  image. Pin values to provider documentation with table tests.
 - [ ] CORE-IMG-005 — Declare the OpenCode Go image envelope and per-model
   placement table from ADR 0037, and omit context and tool-result images with a
   placeholder for Chat Completions models instead of silently dropping them.
