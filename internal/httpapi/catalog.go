@@ -6,6 +6,7 @@ func Catalog() []Descriptor {
 		ListSessions.Describe(), CreateSession.Describe(), GetSession.Describe(), RenameSession.Describe(), DeleteSession.Describe(), DisposeTemporarySession.Describe(), ForkSession.Describe(), ChangeSessionCWD.Describe(), ConfigureSession.Describe(), CompactSession.Describe(), ReloadSession.Describe(),
 		GetScratchpad.Describe(), UpdateScratchpad.Describe(),
 		ListDiffTargets.Describe(), ObserveDiff.Describe(), ObserveWorkingTree.Describe(), ReadFileDiff.Describe(),
+		ListAnnotations.Describe(), CreateAnnotation.Describe(), UpdateAnnotation.Describe(), DeleteAnnotation.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),
 		SubmitPrompt.Describe(), StartPrompt.Describe(), StartPromptCommand.Describe(), Prompt.Describe(),

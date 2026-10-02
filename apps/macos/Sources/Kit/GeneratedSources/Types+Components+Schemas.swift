@@ -50,6 +50,121 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/Annotation`.
+        internal struct Annotation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/Annotation/anchor`.
+            internal var anchor: Components.Schemas.AnnotationAnchor
+            /// - Remark: Generated from `#/components/schemas/Annotation/body`.
+            internal var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Annotation/diffTarget`.
+            internal var diffTarget: Components.Schemas.PinnedDiffTarget?
+            /// - Remark: Generated from `#/components/schemas/Annotation/id`.
+            internal var id: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/Annotation/preview`.
+            internal var preview: Components.Schemas.AnnotationPreview
+            /// - Remark: Generated from `#/components/schemas/Annotation/sessionId`.
+            internal var sessionId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/Annotation/stale`.
+            internal var stale: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/Annotation/staleReason`.
+            internal var staleReason: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/Annotation/validationDeferred`.
+            internal var validationDeferred: Swift.Bool?
+            /// Creates a new `Annotation`.
+            ///
+            /// - Parameters:
+            ///   - anchor:
+            ///   - body:
+            ///   - diffTarget:
+            ///   - id:
+            ///   - preview:
+            ///   - sessionId:
+            ///   - stale:
+            ///   - staleReason:
+            ///   - validationDeferred:
+            internal init(
+                anchor: Components.Schemas.AnnotationAnchor,
+                body: Swift.String,
+                diffTarget: Components.Schemas.PinnedDiffTarget? = nil,
+                id: Swift.Int,
+                preview: Components.Schemas.AnnotationPreview,
+                sessionId: Swift.String,
+                stale: Swift.Bool? = nil,
+                staleReason: Swift.String? = nil,
+                validationDeferred: Swift.Bool? = nil
+            ) {
+                self.anchor = anchor
+                self.body = body
+                self.diffTarget = diffTarget
+                self.id = id
+                self.preview = preview
+                self.sessionId = sessionId
+                self.stale = stale
+                self.staleReason = staleReason
+                self.validationDeferred = validationDeferred
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case anchor
+                case body
+                case diffTarget
+                case id
+                case preview
+                case sessionId
+                case stale
+                case staleReason
+                case validationDeferred
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.anchor = try container.decode(
+                    Components.Schemas.AnnotationAnchor.self,
+                    forKey: .anchor
+                )
+                self.body = try container.decode(
+                    Swift.String.self,
+                    forKey: .body
+                )
+                self.diffTarget = try container.decodeIfPresent(
+                    Components.Schemas.PinnedDiffTarget.self,
+                    forKey: .diffTarget
+                )
+                self.id = try container.decode(
+                    Swift.Int.self,
+                    forKey: .id
+                )
+                self.preview = try container.decode(
+                    Components.Schemas.AnnotationPreview.self,
+                    forKey: .preview
+                )
+                self.sessionId = try container.decode(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                self.stale = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .stale
+                )
+                self.staleReason = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .staleReason
+                )
+                self.validationDeferred = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .validationDeferred
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "anchor",
+                    "body",
+                    "diffTarget",
+                    "id",
+                    "preview",
+                    "sessionId",
+                    "stale",
+                    "staleReason",
+                    "validationDeferred"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AnnotationAnchor`.
         internal struct AnnotationAnchor: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AnnotationAnchor/kind`.
@@ -96,6 +211,115 @@ extension Components {
                     "kind",
                     "workingTreeDiff",
                     "workspaceFile"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationPage`.
+        internal struct AnnotationPage: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationPage/entries`.
+            internal var entries: [Components.Schemas.Annotation]
+            /// - Remark: Generated from `#/components/schemas/AnnotationPage/nextCursor`.
+            internal var nextCursor: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/AnnotationPage/sessionId`.
+            internal var sessionId: Swift.String?
+            /// Creates a new `AnnotationPage`.
+            ///
+            /// - Parameters:
+            ///   - entries:
+            ///   - nextCursor:
+            ///   - sessionId:
+            internal init(
+                entries: [Components.Schemas.Annotation],
+                nextCursor: Swift.String? = nil,
+                sessionId: Swift.String? = nil
+            ) {
+                self.entries = entries
+                self.nextCursor = nextCursor
+                self.sessionId = sessionId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case entries
+                case nextCursor
+                case sessionId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.entries = try container.decode(
+                    [Components.Schemas.Annotation].self,
+                    forKey: .entries
+                )
+                self.nextCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .nextCursor
+                )
+                self.sessionId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .sessionId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "entries",
+                    "nextCursor",
+                    "sessionId"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/AnnotationPreview`.
+        internal struct AnnotationPreview: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationPreview/endLine`.
+            internal var endLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationPreview/startLine`.
+            internal var startLine: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/AnnotationPreview/text`.
+            internal var text: Swift.String
+            /// - Remark: Generated from `#/components/schemas/AnnotationPreview/truncated`.
+            internal var truncated: Swift.Bool?
+            /// Creates a new `AnnotationPreview`.
+            ///
+            /// - Parameters:
+            ///   - endLine:
+            ///   - startLine:
+            ///   - text:
+            ///   - truncated:
+            internal init(
+                endLine: Swift.Int,
+                startLine: Swift.Int,
+                text: Swift.String,
+                truncated: Swift.Bool? = nil
+            ) {
+                self.endLine = endLine
+                self.startLine = startLine
+                self.text = text
+                self.truncated = truncated
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case endLine
+                case startLine
+                case text
+                case truncated
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.endLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .endLine
+                )
+                self.startLine = try container.decode(
+                    Swift.Int.self,
+                    forKey: .startLine
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                self.truncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .truncated
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "endLine",
+                    "startLine",
+                    "text",
+                    "truncated"
                 ])
             }
         }
@@ -568,6 +792,44 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/CreateAnnotationInput`.
+        internal struct CreateAnnotationInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/CreateAnnotationInput/anchor`.
+            internal var anchor: Components.Schemas.AnnotationAnchor
+            /// - Remark: Generated from `#/components/schemas/CreateAnnotationInput/body`.
+            internal var body: Swift.String
+            /// Creates a new `CreateAnnotationInput`.
+            ///
+            /// - Parameters:
+            ///   - anchor:
+            ///   - body:
+            internal init(
+                anchor: Components.Schemas.AnnotationAnchor,
+                body: Swift.String
+            ) {
+                self.anchor = anchor
+                self.body = body
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case anchor
+                case body
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.anchor = try container.decode(
+                    Components.Schemas.AnnotationAnchor.self,
+                    forKey: .anchor
+                )
+                self.body = try container.decode(
+                    Swift.String.self,
+                    forKey: .body
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "anchor",
+                    "body"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/CreateSessionInput`.
         internal struct CreateSessionInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/CreateSessionInput/cwd`.
@@ -647,6 +909,31 @@ extension Components {
                     "name",
                     "temporary",
                     "thinkingLevel"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/DeleteAnnotationInput`.
+        internal struct DeleteAnnotationInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/DeleteAnnotationInput/annotationId`.
+            internal var annotationId: Swift.Int
+            /// Creates a new `DeleteAnnotationInput`.
+            ///
+            /// - Parameters:
+            ///   - annotationId:
+            internal init(annotationId: Swift.Int) {
+                self.annotationId = annotationId
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case annotationId
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotationId"
                 ])
             }
         }
@@ -7245,6 +7532,44 @@ extension Components {
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "code",
                     "message"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/UpdateAnnotationInput`.
+        internal struct UpdateAnnotationInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/UpdateAnnotationInput/annotationId`.
+            internal var annotationId: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/UpdateAnnotationInput/body`.
+            internal var body: Swift.String
+            /// Creates a new `UpdateAnnotationInput`.
+            ///
+            /// - Parameters:
+            ///   - annotationId:
+            ///   - body:
+            internal init(
+                annotationId: Swift.Int,
+                body: Swift.String
+            ) {
+                self.annotationId = annotationId
+                self.body = body
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case annotationId
+                case body
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .annotationId
+                )
+                self.body = try container.decode(
+                    Swift.String.self,
+                    forKey: .body
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotationId",
+                    "body"
                 ])
             }
         }

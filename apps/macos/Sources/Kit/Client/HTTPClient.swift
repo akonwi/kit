@@ -320,55 +320,41 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
     }
 
     func annotations(_ id: String) async throws -> [FileAnnotation] {
-        let path = try annotationPath(id)
-        var result: [FileAnnotation] = []
-        var cursor: String?
-        var seen = Set<String>()
+        guard Self.validScratchpadSession(id), let version = Operations.ListAnnotations.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        var result: [FileAnnotation] = []; var cursor: String?; var seen = Set<String>()
         repeat {
-            var query = [URLQueryItem(name: "pageSize", value: "100")]
-            if let cursor { query.append(.init(name: "cursor", value: cursor)) }
-            let page: WireAnnotationPage = try await get(path, query: query)
+            let output = try await api.listAnnotations(path: .init(sessionID: id), query: .init(cursor: cursor, pageSize: 100), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version))
+            guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+            let page: WireAnnotationPage = try generated(try response.body.json, as: WireAnnotationPage.self)
             guard page.sessionId == id, let entries = page.entries, entries.count <= 100 else { throw ClientError.invalidPayload }
-            for entry in entries {
-                let value = try FileAnnotation(entry, session: id)
-                guard value.id > (result.last?.id ?? 0), result.count < 128 else { throw ClientError.invalidPayload }
-                result.append(value)
-            }
+            for entry in entries { let value = try FileAnnotation(entry, session: id); guard value.id > (result.last?.id ?? 0), result.count < 128 else { throw ClientError.invalidPayload }; result.append(value) }
             cursor = page.nextCursor.flatMap { $0.isEmpty ? nil : $0 }
-            if let cursor {
-                guard !entries.isEmpty, cursor.utf8.count <= 256, seen.insert(cursor).inserted, seen.count <= 2 else { throw ClientError.invalidPayload }
-            }
+            if let cursor { guard !entries.isEmpty, seen.insert(cursor).inserted, seen.count <= 2 else { throw ClientError.invalidPayload } }
         } while cursor != nil
         return result
     }
 
     func createAnnotation(_ id: String, input: WireCreateAnnotationInput) async throws -> FileAnnotation {
-        guard FileAnnotation.validBody(input.body) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
-        let record: WireAnnotation = try await post(annotationPath(id), input: input, status: [201], annotationEvidence: true)
-        return try FileAnnotation(record, session: id)
+        guard Self.validScratchpadSession(id), FileAnnotation.validBody(input.body), let version = Operations.CreateAnnotation.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
+        let body: Components.Schemas.CreateAnnotationInput = try generated(input, as: Components.Schemas.CreateAnnotationInput.self)
+        let output = try await api.createAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .created(response) = output else { throw ClientError.invalidPayload }
+        return try FileAnnotation(try generated(try response.body.json, as: WireAnnotation.self), session: id)
     }
 
     func updateAnnotation(_ id: String, input: WireUpdateAnnotationInput) async throws -> FileAnnotation {
-        guard input.annotationId > 0, FileAnnotation.validBody(input.body) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
-        var request = try request(annotationPath(id))
-        request.httpMethod = "PATCH"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(input)
-        let record: WireAnnotation = try await send(request, status: [200])
-        guard record.id == input.annotationId else { throw ClientError.invalidPayload }
-        return try FileAnnotation(record, session: id)
+        guard Self.validScratchpadSession(id), input.annotationId > 0, FileAnnotation.validBody(input.body), let version = Operations.UpdateAnnotation.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw MutationNotSent(reason: "Enter a comment of at most 16 KiB.") }
+        let body: Components.Schemas.UpdateAnnotationInput = try generated(input, as: Components.Schemas.UpdateAnnotationInput.self)
+        let output = try await api.updateAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body))
+        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
+        let record: WireAnnotation = try generated(try response.body.json, as: WireAnnotation.self)
+        guard record.id == input.annotationId else { throw ClientError.invalidPayload }; return try FileAnnotation(record, session: id)
     }
 
     func deleteAnnotation(_ id: String, id annotationID: UInt64) async throws {
-        guard annotationID > 0 else { throw ClientError.invalidPayload }
-        var request = try request(annotationPath(id))
-        request.httpMethod = "DELETE"
-        request.setValue("application/json", forHTTPHeaderField: "Content-Type")
-        request.httpBody = try JSONEncoder().encode(WireDeleteAnnotationInput(annotationId: annotationID))
-        let (bytes, response) = try await session.bytes(for: request)
-        defer { bytes.task.cancel() }
-        guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
-        guard response.statusCode == 204 else { throw ClientError.http(response.statusCode) }
+        guard Self.validScratchpadSession(id), annotationID > 0, annotationID <= UInt64(Int.max), let version = Operations.DeleteAnnotation.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.invalidPayload }
+        let output = try await api.deleteAnnotation(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(.init(annotationId: Int(annotationID))))
+        guard case .noContent = output else { throw ClientError.invalidPayload }
     }
 
     func deleteSession(_ id: String) async throws {
