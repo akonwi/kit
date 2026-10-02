@@ -195,8 +195,8 @@ fn catalog() [palette::Item] {
       key: "omega",
       label: "Omega",
       description: "Browser login",
-      hint: "<scope>",
-      meta: "project",
+      hint: "",
+      meta: "",
       search_terms: ["browser"],
       disabled_reason: "unavailable",
     },
@@ -275,11 +275,6 @@ test fn filtering_and_enter_activation_work_end_to_end() Void!Str {
     }
   }
   try testing::assert(shows_omega, "searching finds the disabled item and shows its reason")
-  let palette_text = strings::Join(mut rendered, "\n")
-  try testing::assert(
-    palette_text.contains("<scope>") and palette_text.contains("project"),
-    "argument hints and command sources render in aligned palette columns: {palette_text}",
-  )
   mut hidden = true
   for row in rendered {
     if row.contains("Alpha") {

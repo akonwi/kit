@@ -120,7 +120,11 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
   result.@
 }
 
-private fn command_catalog(running: Bool, prompt_commands: [protocol::PromptCommand]) [palette::Item] {
+private fn command_catalog(
+  running: Bool,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+) [palette::Item] {
   let idle = match running {
     true => "idle only",
     false => "not available yet",
@@ -182,6 +186,26 @@ private fn command_catalog(running: Bool, prompt_commands: [protocol::PromptComm
         },
       )
     }
+  }
+  for command in plugin_commands {
+    let hint = match command.ArgName != "" {
+      true => "<{command.ArgName}>",
+      false => "",
+    }
+    // Instance-backed keys distinguish same-named contributions from separate
+    // plugins. The canonical command ID is the vaxis-visible label; its
+    // plugin identifier remains trailing metadata.
+    catalog.push(
+      palette::Item{
+        key: "plugin:{command.Instance}:{command.ID}",
+        label: command.ID,
+        hint: hint,
+        description: command.Description,
+        meta: command.PluginID,
+        search_terms: [command.LocalID, command.PluginID, command.Category],
+        disabled_reason: "",
+      },
+    )
   }
   sorted_catalog(catalog.@)
 }
@@ -251,6 +275,7 @@ struct Shell {
   session: sessionclient::Session?,
   info: protocol::SessionInfo?,
   prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
   follow_ups: protocol::FollowUpQueue,
   location: Str,
   messages: [transcript::Message],
@@ -314,6 +339,7 @@ fn new(props: mut Props) mut Shell {
     session: Maybe::new<sessionclient::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
     prompt_commands: [],
+    plugin_commands: [],
     follow_ups: protocol::FollowUpQueue{
       Count: 0,
       Previews: [],
@@ -1175,7 +1201,11 @@ impl Shell {
     if self.phase == Phase::ready and self.active_modal == ActiveModal::none {
       self.command_query = ""
       self.command_selection = palette::first_enabled(
-        command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands),
+        command_catalog(
+          self.run_id != "" or self.start_pending,
+          self.prompt_commands,
+          self.plugin_commands,
+        ),
       )
       self.command_hover = ""
       self.command_hidden_above = false
@@ -1623,7 +1653,11 @@ impl Shell {
   }
 
   fn mut command_palette_modal() cui::View {
-    let catalog = command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands)
+    let catalog = command_catalog(
+      self.run_id != "" or self.start_pending,
+      self.prompt_commands,
+      self.plugin_commands,
+    )
     let picker = palette::Props{
       themes: self.props.themes,
       placeholder: "Search commands…",
@@ -1686,6 +1720,12 @@ impl Shell {
               self.submit_prompt_command(command.Name)
             }
           }
+          for command in self.plugin_commands {
+            if item.key == "plugin:{command.Instance}:{command.ID}" {
+              self.active_modal = ActiveModal::none
+              self.execute_plugin_command(command)
+            }
+          }
         }
       },
     }
@@ -1728,7 +1768,7 @@ impl Shell {
           palette::Props{
             themes: self.props.themes,
             placeholder: "",
-            catalog: command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands),
+            catalog: command_catalog(self.run_id != "" or self.start_pending, self.prompt_commands, self.plugin_commands),
             query: self.command_query,
             selection: "",
             hovered: "",
@@ -1906,6 +1946,7 @@ impl Shell {
     if not self.live.supersedes(snapshot) {
       self.info = Maybe::new(snapshot.Session)
       self.prompt_commands = snapshot.PromptCommands
+      self.plugin_commands = snapshot.PluginCommands
       self.follow_ups = snapshot.FollowUps
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
@@ -2171,6 +2212,58 @@ impl Shell {
         },
         _ => (),
       }
+    }
+  }
+
+  // Executes a plugin-owned command without creating an agent turn or
+  // changing the composer draft. The server validates the generation-owned
+  // instance so stale palette entries cannot run a replacement plugin.
+  fn mut execute_plugin_command(command: protocol::PluginCommand) {
+    match self.lifetime {
+      lifetime => {
+        match self.info {
+          info => {
+            match self.context {
+              context => {
+                let ctx = lifetime.Context
+                let session_id = info.ID
+                let transport = self.props.options.Transport
+                let dispatch = context.dispatch
+                self.show_toast("Running plugin command", command.ID, toast::Variant::info, false)
+                async::start(fn() {
+                  let result = httpapi::Call<httpapi::SessionPath, protocol::PluginCommandInput, httpapi::NoBody>(
+                    ctx,
+                    transport,
+                    httpapi::ExecutePluginCommand,
+                    httpapi::SessionPath{SessionID: session_id},
+                    protocol::PluginCommandInput{
+                      ID: command.ID,
+                      Instance: command.Instance,
+                      Args: "",
+                    },
+                  )
+                  let _ = dispatch(fn() {
+                    match result {
+                      ok(_) => self.show_toast("Plugin command completed", command.ID, toast::Variant::info, false),
+                      err(failure) => {
+                        self.show_toast(
+                          "Plugin command failed",
+                          failure.error(),
+                          toast::Variant::error,
+                          false,
+                        )
+                      },
+                    }
+                  })
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
     }
   }
 
