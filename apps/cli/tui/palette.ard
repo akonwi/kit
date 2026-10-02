@@ -49,6 +49,7 @@ struct PickerProps {
   title: Str,
   footer: Str,
   dismiss: keymap::SimpleCommand,
+  override: fn(Str)?,
   on_activate: fn(Item),
 }
 
@@ -57,6 +58,7 @@ struct Picker {
   title: Str,
   footer: Str,
   dismiss: keymap::SimpleCommand,
+  override: fn(Str)?,
   list: mut cui::VirtualListRef,
   viewport: Int,
   hidden_above: Bool,
@@ -83,6 +85,7 @@ fn new_picker(props: mut PickerProps) mut Picker {
     title: props.title,
     footer: props.footer,
     dismiss: props.dismiss,
+    override: props.override,
     list: cui::virtual_list_ref(),
     viewport: 0,
     hidden_above: false,
@@ -391,6 +394,23 @@ impl cui::Component for Picker {
   fn mut render() cui::View {
     let props = self.view_props()
     let navigation = navigation(props)
+    let commands = mut List::new<keymap::Command>()
+    commands.push(navigation.up)
+    commands.push(navigation.down)
+    let bindings = mut List::new<keymap::Binding>()
+    bindings.push(keymap::binding(keymap::key("up"), navigation.up.with()))
+    bindings.push(keymap::binding(keymap::key("down"), navigation.down.with()))
+    match self.override {
+      callback => {
+        let command = keymap::simple_command("palette.override", "Override", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("o", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
     let footer = match self.footer == "" {
       true => Maybe::new<cui::View>(),
       false => {
@@ -422,13 +442,8 @@ impl cui::Component for Picker {
         footer: footer,
         autofocus: false,
         dismiss: self.dismiss,
-        commands: Maybe::new([navigation.up, navigation.down]),
-        bindings: Maybe::new(
-          [
-            keymap::binding(keymap::key("up"), navigation.up.with()),
-            keymap::binding(keymap::key("down"), navigation.down.with()),
-          ],
-        ),
+        commands: Maybe::new(commands.@),
+        bindings: Maybe::new(bindings.@),
       },
     )
   }

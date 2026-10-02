@@ -5,12 +5,15 @@ use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/httpapi
 use go:github.com/akonwi/kit/internal/protocol
+use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use kit/tui/format
 use kit/tui/modal
 use kit/tui/palette
 use kit/tui/spinner
 use kit/tui/theme
+use go:strconv
+use go:strings
 
 // Props contains the server-authoritative catalog and shell-owned transition
 // callbacks for the model picker.
@@ -19,6 +22,7 @@ struct Props {
   transport: httpapi::Transport,
   lifetime: contextbridge::Cancellation,
   session: protocol::SessionInfo,
+  override_service: cli::ModelOverrideService,
   dismiss: keymap::SimpleCommand,
   applied: fn(protocol::ConfigureSessionResult),
 }
@@ -29,6 +33,9 @@ struct Picker {
   loading: Bool,
   pending: Bool,
   error: Str,
+  editing_context: Bool,
+  edit_value: Str,
+  edit_model: Str,
   generation: Int,
   context: cui::Context?,
 }
@@ -40,6 +47,9 @@ fn new(props: mut Props) mut Picker {
     loading: true,
     pending: false,
     error: "",
+    editing_context: false,
+    edit_value: "",
+    edit_model: "",
     generation: 0,
     context: Maybe::new<cui::Context>(),
   })
@@ -105,6 +115,60 @@ impl Picker {
     })
   }
 
+  private fn mut begin_context_edit(selected: Str) {
+    if self.loading or self.pending or selected == "" {
+      ()
+    } else {
+      for model in self.models {
+        if model.ID == selected {
+          self.editing_context = true
+          self.edit_model = model.ID
+          self.edit_value = "{model.ContextWindow}"
+          self.error = ""
+        }
+      }
+    }
+  }
+
+  private fn mut save_context_edit() {
+    let value = strings::TrimSpace(self.edit_value)
+    match value == "" {
+      true => {
+        match self.props.override_service.SetContextWindow(self.edit_model, 0) {
+          ok(_) => {
+            self.editing_context = false
+            match self.context {
+              context => self.load(context),
+              _ => (),
+            }
+          },
+          err(failure) => { self.error = failure.error() },
+        }
+      },
+      false => {
+        match strconv::Atoi(value) {
+          ok(parsed) => {
+            if parsed <= 0 {
+              self.error = "Enter a positive integer, or leave blank to clear"
+            } else {
+              match self.props.override_service.SetContextWindow(self.edit_model, parsed) {
+                ok(_) => {
+                  self.editing_context = false
+                  match self.context {
+                    context => self.load(context),
+                    _ => (),
+                  }
+                },
+                err(failure) => { self.error = failure.error() },
+              }
+            }
+          },
+          err(_) => { self.error = "Enter a positive integer, or leave blank to clear" },
+        }
+      },
+    }
+  }
+
   private fn mut apply(model: Str, ctx: cui::Context) {
     if self.pending {
       ()
@@ -137,50 +201,76 @@ impl Picker {
       })
     }
   }
+
+  private fn mut context_editor() cui::View {
+    let dismiss = keymap::simple_command("model.override.back", "Back", fn() Bool {
+      self.editing_context = false
+      self.error = ""
+      true
+    })
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Context window",
+        meta: self.edit_model,
+        header: [],
+        body: cui::box(
+          [
+            cui::input(
+              self.edit_value,
+              key: "model.context-window",
+              placeholder: "Blank clears the override",
+              autofocus: true,
+              on_input: fn(value: Str, ctx: cui::Context) {
+                self.edit_value = value
+                self.error = ""
+              },
+              on_submit: fn(value: Str, ctx: cui::Context) {
+                self.save_context_edit()
+              },
+            ),
+            cui::text(
+              self.error,
+              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
 }
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    match self.loading {
-      true => {
-        modal::dialog(
-          self.props.themes,
-          modal::Dialog{
-            placement: modal::Placement::picker,
-            title: "",
-            meta: "",
-            header: [],
-            body: cui::box(
-              [spinner::spinner()],
-              styles: ui::style(
-                padding: ui::Edges{
-                  top: ui::cells(1),
-                  right: ui::cells(1),
-                  bottom: ui::cells(1),
-                  left: ui::cells(1),
-                },
-              ),
-            ),
-            footer: Maybe::new<cui::View>(),
-            autofocus: true,
-            dismiss: self.props.dismiss,
-            commands: Maybe::new<[keymap::Command]>(),
-            bindings: Maybe::new<[keymap::Binding]>(),
-          },
-        )
-      },
+    match self.editing_context {
+      true => self.context_editor(),
       false => {
-        match self.error != "" {
+        match self.loading {
           true => {
             modal::dialog(
               self.props.themes,
               modal::Dialog{
-                placement: modal::Placement::centered,
-                title: "Models",
+                placement: modal::Placement::picker,
+                title: "",
                 meta: "",
                 header: [],
-                body: cui::text(
-                  self.error,
+                body: cui::box(
+                  [spinner::spinner()],
                   styles: ui::style(
                     padding: ui::Edges{
                       top: ui::cells(1),
@@ -189,7 +279,6 @@ impl cui::Component for Picker {
                       left: ui::cells(1),
                     },
                   ),
-                  text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
                 ),
                 footer: Maybe::new<cui::View>(),
                 autofocus: true,
@@ -200,24 +289,59 @@ impl cui::Component for Picker {
             )
           },
           false => {
-            cui::child(
-              palette::new_picker,
-              palette::PickerProps{
-                themes: self.props.themes,
-                catalog: catalog(self.models, self.pending),
-                placeholder: "Search models…",
-                initial_selection: self.props.session.Model,
-                title: "Select model",
-                footer: "↑↓ move · enter apply · esc close",
-                dismiss: self.props.dismiss,
-                on_activate: fn(item: palette::Item) {
-                  match self.context {
-                    context => self.apply(item.key, context),
-                    _ => (),
-                  }
-                },
+            match self.error != "" {
+              true => {
+                modal::dialog(
+                  self.props.themes,
+                  modal::Dialog{
+                    placement: modal::Placement::centered,
+                    title: "Models",
+                    meta: "",
+                    header: [],
+                    body: cui::text(
+                      self.error,
+                      styles: ui::style(
+                        padding: ui::Edges{
+                          top: ui::cells(1),
+                          right: ui::cells(1),
+                          bottom: ui::cells(1),
+                          left: ui::cells(1),
+                        },
+                      ),
+                      text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+                    ),
+                    footer: Maybe::new<cui::View>(),
+                    autofocus: true,
+                    dismiss: self.props.dismiss,
+                    commands: Maybe::new<[keymap::Command]>(),
+                    bindings: Maybe::new<[keymap::Binding]>(),
+                  },
+                )
               },
-            )
+              false => {
+                cui::child(
+                  palette::new_picker,
+                  palette::PickerProps{
+                    themes: self.props.themes,
+                    catalog: catalog(self.models, self.pending),
+                    placeholder: "Search models…",
+                    initial_selection: self.props.session.Model,
+                    title: "Select model",
+                    footer: "↑↓ move · enter apply · ctrl+o overrides · esc close",
+                    dismiss: self.props.dismiss,
+                    override: Maybe::new(fn(selected: Str) {
+                      self.begin_context_edit(selected)
+                    }),
+                    on_activate: fn(item: palette::Item) {
+                      match self.context {
+                        context => self.apply(item.key, context),
+                        _ => (),
+                      }
+                    },
+                  },
+                )
+              },
+            }
           },
         }
       },
