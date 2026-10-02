@@ -1532,6 +1532,34 @@ impl Shell {
     )
   }
 
+  // apply_renamed_session schedules the shell-owned update through Shell's
+  // context, so child dialogs never need to invalidate the root.
+  fn mut apply_renamed_session(session: protocol::SessionInfo) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.info = Maybe::new(session)
+          self.active_modal = ActiveModal::none
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // apply_model_configuration settles the shell state after the model picker
+  // completes its owned request.
+  fn mut apply_model_configuration(applied: protocol::ConfigureSessionResult) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.info = Maybe::new(applied.Session)
+          self.active_modal = ActiveModal::none
+        })
+      },
+      _ => (),
+    }
+  }
+
   fn mut rename_session_modal() cui::View {
     let dismiss = keymap::simple_command("name.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
@@ -1546,8 +1574,7 @@ impl Shell {
         initial_name: self.rename_initial,
         dismiss: dismiss,
         applied: fn(session: protocol::SessionInfo) {
-          self.info = Maybe::new(session)
-          self.active_modal = ActiveModal::none
+          self.apply_renamed_session(session)
         },
       },
     )
@@ -1567,8 +1594,7 @@ impl Shell {
         override_service: self.props.options.ModelOverrideService,
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
-          self.info = Maybe::new(applied.Session)
-          self.active_modal = ActiveModal::none
+          self.apply_model_configuration(applied)
         },
       },
     )
