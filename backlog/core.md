@@ -213,6 +213,45 @@ change in an ADR before implementing it. Wire changes bump
 - [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
   capability and bounds enforcement, durable references, submission,
   restoration, transcript projection, and cleanup on session deletion.
+- [ ] CORE-IMG-001 — Every provider declares an image policy for every model, as
+  defined by ADR 0037. Provider registration fails when a model advertises image
+  input without a policy; text-only, `AdaptProvider`, and test providers declare
+  text-only behavior. Verify with registry tests.
+- [ ] CORE-IMG-002 — Prepare model images in a pure-Go Droids package: decode
+  JPEG, PNG, GIF (first frame), and WebP; apply EXIF orientation; downscale to
+  a policy's fitted dimensions; re-encode deterministically to an accepted
+  format within the policy's encoded-size limit; keep conforming images'
+  original bytes; and cache prepared output by content in a bounded LRU. Verify
+  with golden-dimension, orientation, format-conversion, size-fallback, and
+  determinism tests.
+- [ ] CORE-IMG-003 — Apply the active model's image policy to every request and
+  replay validation without mutating canonical history: prepare or omit each
+  image with a placeholder stating the reason, add resize notices, keep the 20
+  most recent images across all sources with batched omission to half the
+  window, apply many-image rules and request image-byte limits, and never fail
+  a request or model switch because of a history or tool-result image. Depends
+  on `CORE-IMG-001` and `CORE-IMG-002`. Verify that dispatch and replay
+  validation see identical prepared messages and that a session holding the
+  image that broke `session_82cd46c2dd20e09518485b52936faaa9` continues on every
+  provider.
+- [ ] CORE-IMG-004 — Declare the Anthropic, OpenAI, and OpenAI Codex image
+  policies from ADR 0037, including Anthropic's tiered reference fit, OpenAI
+  family `high`-detail fits, and `"detail": "high"` on every OpenAI and Codex
+  image. Pin values to provider documentation with table tests.
+- [ ] CORE-IMG-005 — Declare the OpenCode Go image envelope and per-model
+  placement table from ADR 0037, and omit context and tool-result images with a
+  placeholder for Chat Completions models instead of silently dropping them.
+- [ ] CORE-IMG-006 — Derive image-attachment acceptance, `inspect_image`
+  enablement, and client-visible image input capability from the active model's
+  image policy, replacing provider- and API-specific checks in the session layer.
+  Image attachments work for Anthropic models; submission fails only when the
+  active model accepts no user images or an image cannot be prepared.
+- [ ] CORE-IMG-007 — Validate MCP and plugin tool-result images against the
+  provider-neutral model-image limits (format, decodable header, encoded size,
+  and pixel count) used for attachments and `inspect_image`.
+- [ ] CORE-IMG-008 — Report image preparation adjustments, such as omitted or
+  resized images, through runtime diagnostics that attached clients can surface.
+  Depends on `CORE-IMG-003`.
 - [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
   `WEB-INT-001`.
 - [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
