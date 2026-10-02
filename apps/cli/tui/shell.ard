@@ -1635,6 +1635,15 @@ impl Shell {
           key: "mcp.status.list",
           styles: ui::style(height: ui::cells(18), padding: inset()),
           scrollbar_options: ui::scrollbar_options(),
+          key_bindings: keymap::rebind(
+            keymap::rebind(
+              ui::default_scroll_box_bindings(),
+              ui::ScrollBoxAction::up,
+              [keymap::key("up"), keymap::key("k")],
+            ),
+            ui::ScrollBoxAction::down,
+            [keymap::key("down"), keymap::key("j")],
+          ),
         ),
         footer: Maybe::new<cui::View>(),
         autofocus: true,
