@@ -7,6 +7,7 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/httpapi
+use go:github.com/akonwi/kit/internal/identifier
 use go:github.com/akonwi/kit/internal/protocol
 use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/authbridge
@@ -93,6 +94,24 @@ private fn command_args(query: Str) Str {
   }
 }
 
+private fn command_item_with_hint(
+  key: Str,
+  hint: Str,
+  description: Str,
+  terms: Str,
+  disabled_reason: Str,
+) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    hint: hint,
+    description: description,
+    meta: "",
+    search_terms: strings::Split(terms, " "),
+    disabled_reason: disabled_reason,
+  }
+}
+
 private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
   palette::Item{
     key: key,
@@ -150,8 +169,18 @@ private fn command_catalog(
     true => "idle only",
     false => "not available yet",
   }
+  let cd_disabled = match running {
+    true => "idle only",
+    false => "",
+  }
   let builtins = [
-    command_item("cd", "Change working directory", "cwd directory folder", idle),
+    command_item_with_hint(
+      "cd",
+      "[path]",
+      "Change working directory",
+      "cwd directory folder",
+      cd_disabled,
+    ),
     command_item("compact", "Compact session context", "summarize shrink", idle),
     command_item("debug", "Show session diagnostics", "details usage", "not available yet"),
     command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
@@ -1751,6 +1780,14 @@ impl Shell {
           self.open_provider_picker()
         } else if item.key == "quit" {
           self.props.quit()
+        } else if item.key == "cd" {
+          let target = strings::TrimSpace(command_args(self.command_query))
+          if target == "" {
+            self.show_toast("Usage: /cd <path>", "", toast::Variant::warning, false)
+          } else {
+            self.active_modal = ActiveModal::none
+            self.change_working_directory(target)
+          }
         } else {
           for command in self.prompt_commands {
             if item.key == "prompt:{command.Name}" {
@@ -2260,6 +2297,75 @@ impl Shell {
       }
     }
     true
+  }
+
+  // Changes the attached session's directory through the canonical session
+  // mutation endpoint. The server resolves relative paths from its current cwd.
+  fn mut change_working_directory(path: Str) {
+    match identifier::New("cwd_") {
+      ok(mutation_id) => {
+        match self.lifetime {
+          lifetime => {
+            match self.info {
+              info => {
+                match self.context {
+                  context => {
+                    let previous = info.CWD
+                    let session_id = info.ID
+                    let ctx = lifetime.Context
+                    let transport = self.props.options.Transport
+                    let resolve_location = self.props.options.ResolveLocation
+                    let dispatch = context.dispatch
+                    async::start(fn() {
+                      let result = httpapi::Call<httpapi::SessionPath, protocol::ChangeCWDInput, protocol::ChangeWorkspaceCWDResult>(
+                        ctx,
+                        transport,
+                        httpapi::ChangeSessionCWD,
+                        httpapi::SessionPath{SessionID: session_id},
+                        protocol::ChangeCWDInput{MutationID: mutation_id, Path: path},
+                      )
+                      let _ = dispatch(fn() {
+                        match result {
+                          ok(changed) => {
+                            self.info = Maybe::new(changed.Session)
+                            self.location = resolve_location(ctx, changed.Session.CWD)
+                            match changed.Session.CWD == previous {
+                              true => self.show_toast("Already in directory", changed.Session.CWD, toast::Variant::info, false),
+                              false => {
+                                self.show_toast(
+                                  "Working directory changed",
+                                  "Now {changed.Session.CWD} · run /reload to refresh agent context",
+                                  toast::Variant::warning,
+                                  false,
+                                )
+                              },
+                            }
+                          },
+                          err(failure) => {
+                            self.show_toast(
+                              "Failed to change directory",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          },
+                        }
+                      })
+                    })
+                  },
+                  _ => (),
+                }
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      err(failure) => {
+        self.show_toast("Failed to change directory", failure.error(), toast::Variant::error, true)
+      },
+    }
   }
 
   // Submits a discovered prompt command. The server queues it behind active
