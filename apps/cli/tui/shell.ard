@@ -50,6 +50,7 @@ enum ActiveModal {
   browser_login,
   session_debug,
   mcp_status,
+  model_picker,
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
@@ -199,7 +200,7 @@ private fn command_catalog(
     command_item("fork", "Fork the current session into a linked child session", "branch", idle),
     command_item("login", "Connect another provider", "auth connect provider", ""),
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
-    command_item("model", "Change session model", "engine", "not available yet"),
+    command_item("model", "Change session model", "engine", ""),
     command_item("name", "Rename session", "rename title", "not available yet"),
     command_item("new", "Start a new session", "", "not available yet"),
     command_item("quit", "Exit Kit", "close exit", ""),
@@ -348,6 +349,10 @@ struct Shell {
   mcp_servers: [protocol::MCPServerStatus],
   mcp_warnings: [Str],
   shown_mcp_warnings: [Str],
+  model_catalog: [protocol::ModelCapability],
+  model_loading: Bool,
+  model_pending: Bool,
+  model_error: Str,
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -436,6 +441,10 @@ fn new(props: mut Props) mut Shell {
     mcp_servers: [],
     mcp_warnings: [],
     shown_mcp_warnings: [],
+    model_catalog: [],
+    model_loading: false,
+    model_pending: false,
+    model_error: "",
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -1227,6 +1236,7 @@ impl cui::Component for Shell {
       ActiveModal::browser_login => layers.push(self.browser_login_modal()),
       ActiveModal::session_debug => layers.push(self.session_debug_modal()),
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
+      ActiveModal::model_picker => layers.push(self.model_picker_modal()),
       _ => (),
     }
     if self.toasts.size() > 0 {
@@ -1486,6 +1496,163 @@ impl Shell {
         meta: "",
         header: [],
         body: body,
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: dismiss,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  // open_model_picker fetches the server-authoritative catalog before showing
+  // model choices, so availability never relies on client-local provider state.
+  fn mut open_model_picker() {
+    self.active_modal = ActiveModal::model_picker
+    self.model_catalog = []
+    self.model_loading = true
+    self.model_pending = false
+    self.model_error = ""
+    match self.lifetime {
+      lifetime => {
+        match self.context {
+          context => {
+            let transport = self.props.options.Transport
+            let dispatch = context.dispatch
+            async::start(fn() {
+              let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
+                lifetime.Context,
+                transport,
+                httpapi::ListModels,
+                httpapi::ServerPath{},
+                httpapi::NoBody{},
+              )
+              let _ = dispatch(fn() {
+                if self.active_modal == ActiveModal::model_picker {
+                  self.model_loading = false
+                  match result {
+                    ok(catalog) => { self.model_catalog = catalog.Models },
+                    err(failure) => { self.model_error = failure.error() },
+                  }
+                }
+              })
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_model(model: Str) {
+    match self.info {
+      info => {
+        match self.lifetime {
+          lifetime => {
+            match self.context {
+              context => {
+                let transport = self.props.options.Transport
+                let dispatch = context.dispatch
+                let session_id = info.ID
+                let revision = info.ConfigurationRevision
+                self.model_pending = true
+                self.model_error = ""
+                async::start(fn() {
+                  let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
+                    lifetime.Context,
+                    transport,
+                    httpapi::ConfigureSession,
+                    httpapi::SessionPath{SessionID: session_id},
+                    protocol::ConfigureSessionInput{ExpectedRevision: revision, Model: model},
+                  )
+                  let _ = dispatch(fn() {
+                    if self.active_modal == ActiveModal::model_picker {
+                      self.model_pending = false
+                      match result {
+                        ok(applied) => {
+                          self.info = Maybe::new(applied.Session)
+                          self.active_modal = ActiveModal::none
+                        },
+                        err(failure) => { self.model_error = failure.error() },
+                      }
+                    }
+                  })
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  fn mut model_picker_modal() cui::View {
+    let dismiss = keymap::simple_command("model.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    let rows = mut List::new<cui::View>()
+    if self.model_loading {
+      rows.push(
+        cui::box(
+          [
+            spinner::spinner(),
+            line("Loading models…", ui::text_style(foreground: self.props.themes.current().muted)),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+        ),
+      )
+    } else if self.model_error != "" {
+      rows.push(
+        line(self.model_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+      )
+    } else {
+      for model in self.model_catalog {
+        let unavailable = not model.Available
+        let label = match model.ID == self.info.or(protocol::SessionInfo{}).Model {
+          true => "{model.Name} (current)",
+          false => model.Name,
+        }
+        let choose = keymap::simple_command("model.choose.{model.ID}", "Choose model", fn() Bool {
+          self.apply_model(model.ID)
+          true
+        })
+        rows.push(
+          controls::button(
+            self.props.themes,
+            label,
+            choose,
+            variant: controls::ButtonVariant::secondary,
+            compact: true,
+            focusable: not unavailable and not self.model_pending,
+            styles: ui::style(width: ui::percent(100.0)),
+          ),
+        )
+        rows.push(
+          line(
+            "{model.Provider} · {format::usage_integer(model.ContextWindow)} token context",
+            ui::text_style(foreground: self.props.themes.current().muted),
+          ),
+        )
+        rows.push(blank())
+      }
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Models",
+        meta: "",
+        header: [],
+        body: cui::scroll_box(
+          [cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))],
+          key: "model.list",
+          styles: ui::style(height: ui::cells(18), padding: inset()),
+          scrollbar_options: ui::scrollbar_options(),
+        ),
         footer: Maybe::new<cui::View>(),
         autofocus: true,
         dismiss: dismiss,
@@ -1957,6 +2124,8 @@ impl Shell {
           self.active_modal = ActiveModal::session_debug
         } else if item.key == "mcp" {
           self.active_modal = ActiveModal::mcp_status
+        } else if item.key == "model" {
+          self.open_model_picker()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
