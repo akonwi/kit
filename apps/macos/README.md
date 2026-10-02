@@ -121,14 +121,7 @@ a new-response jump. The same behavior applies to subagent conversations.
 
 ## Development and validation
 
-Unmigrated Swift wire types are generated from `internal/protocol`. After changes to those domains:
-
-```sh
-python3 apps/macos/script/generate_wire.py
-python3 apps/macos/script/generate_wire.py --check
-```
-
-Migrated OpenAPI domains use the committed, tag-filtered generated client. After changing `api/kit-session.openapi.json`:
+The macOS client uses the committed, tag-filtered generated OpenAPI client. After changing `api/kit-session.openapi.json`:
 
 ```sh
 apps/macos/script/generate_openapi.sh

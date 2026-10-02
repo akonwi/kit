@@ -25,6 +25,7 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
     static let streamOperations: [String: StreamBounds] = [
         "streamSessionVCS": StreamBounds(maxRecordBytes: 64 * 1024, idleTimeout: .seconds(45)),
         "streamPluginToasts": StreamBounds(maxRecordBytes: 32 * 1024, idleTimeout: .seconds(45)),
+        "streamSessionEvents": StreamBounds(maxRecordBytes: 540_672, idleTimeout: .seconds(45)),
     ]
 
     private let endpoint: URL
@@ -52,6 +53,12 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
         }
         let complete = HTTPRequest(method: request.method, url: url, headerFields: request.headerFields)
         guard var urlRequest = URLRequest(httpRequest: complete) else { throw ClientError.invalidEndpoint }
+        let legacyJSONContentType = [Operations.StartPromptCommand.id, Operations.RespondInteraction.id,
+                                     Operations.SubmitPrompt.id].contains(operationID)
+        if legacyJSONContentType,
+           urlRequest.value(forHTTPHeaderField: "Content-Type") == "application/json; charset=utf-8" {
+            urlRequest.setValue("application/json", forHTTPHeaderField: "Content-Type")
+        }
         urlRequest.setValue("Bearer " + token, forHTTPHeaderField: "Authorization")
         urlRequest.setValue(instance, forHTTPHeaderField: "X-Kit-Instance-ID")
         urlRequest.setValue(String(kitWireVersion), forHTTPHeaderField: "X-Kit-Protocol-Version")

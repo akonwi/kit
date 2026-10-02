@@ -4,13 +4,15 @@ import Foundation
 enum SessionProjection {
     static func summary(_ info: WireSessionInfo, messages: [TranscriptMessage] = []) throws -> SessionExcerpt {
         guard !info.id.isEmpty, info.cwd.hasPrefix("/"), !info.model.isEmpty,
-              ["off", "minimal", "low", "medium", "high", "xhigh", "max"].contains(info.thinkingLevel) else { throw ClientError.invalidPayload }
+              ["off", "minimal", "low", "medium", "high", "xhigh", "max"].contains(info.thinkingLevel),
+              let configurationRevision = UInt64(exactly: info.configurationRevision) else { throw ClientError.invalidPayload }
         var session = SessionExcerpt(id: info.id, title: info.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled session",
             parentSessionID: info.parentSessionId, parentSessionName: info.parentSessionName,
             sourceTitle: "Kit server", model: info.model, thinking: info.thinkingLevel,
             workspace: URL(fileURLWithPath: info.cwd).lastPathComponent, cwd: info.cwd,
-            date: info.createdAt, lastActivity: info.updatedAt, messages: messages, configurationRevision: info.configurationRevision)
-        session.inputs = info.inputs?.map(\.rawValue)
+            date: info.createdAt, lastActivity: info.updatedAt, messages: messages,
+            configurationRevision: configurationRevision)
+        session.inputs = info.inputs
         return session
     }
 

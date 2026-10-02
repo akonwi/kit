@@ -63,6 +63,12 @@ struct OpenAPITransportPolicyTests {
         HTTPRequest(method: .get, scheme: nil, authority: nil, path: path)
     }
 
+    @Test func sessionEventStreamUsesTheContractRecordBound() throws {
+        let bounds = try #require(OpenAPITransport.streamOperations[Operations.StreamSessionEvents.id])
+        #expect(bounds.maxRecordBytes == 540_672)
+        #expect(bounds.idleTimeout == .seconds(45))
+    }
+
     @Test func rejectsRequestsOutsideTheConfiguredEndpoint() async throws {
         let (transport, endpoint) = transport(19303)
         let before = TransportPolicyResponse.requests().count
