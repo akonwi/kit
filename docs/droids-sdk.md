@@ -385,15 +385,48 @@ type ContextMessage struct {
 type Usage struct {
     Input       int
     Output      int
-    CacheRead   int
-    CacheWrite  int
-    Reasoning   int
-    TotalTokens int
-    Cost        UsageCost
+    CacheRead    int
+    CacheWrite   int
+    CacheWrite1h int // subset of CacheWrite with a one-hour lifetime
+    Reasoning    int
+    TotalTokens  int
+    Cost         UsageCost
 }
 
 type SessionUsage = Usage
 ```
+
+`Input` counts input tokens that were neither read from nor written to a
+prompt cache when the provider reports them separately, as Anthropic does;
+`TotalTokens` then includes cache reads and writes. Cache-write cost uses the
+model's cache-write price, except one-hour writes, which cost twice the input
+price.
+
+### Prompt caching
+
+```go
+type PromptCacheRetention string
+
+const (
+    PromptCacheShort PromptCacheRetention = "short" // Anthropic: 5 minutes
+    PromptCacheLong  PromptCacheRetention = "long"  // Anthropic: 1 hour
+)
+```
+
+The `Anthropic` provider enables automatic prompt caching on requests sent to
+Anthropic's API (`https://api.anthropic.com`, which includes every subscription
+request), which places a breakpoint on the request's last cacheable block, and
+adds a breakpoint at the end of the system prompt. Requests to any other
+`BaseURL` carry no `cache_control`. Its optional
+`PromptCacheRetention func() PromptCacheRetention` is called for each request
+and defaults to `PromptCacheShort`. `DisablePromptCaching` omits `cache_control`
+entirely; OpenCode Go sets it. Raw `Options` must not add their own
+`cache_control` fields: the provider owns both breakpoints, and Anthropic
+rejects requests with more than four breakpoints or with a shorter lifetime
+before a longer one.
+
+`CacheWrite1h` is used for pricing only; Kit's session protocol reports total
+cache writes.
 
 `Usage` on an assistant message or settled turn describes that canonical unit.
 `SessionUsage` is the authoritative cumulative total for the conversation. It

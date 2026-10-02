@@ -475,6 +475,23 @@ func inspectImageEnabled(providers droids.Providers) func(kitsession.SessionReco
 	}
 }
 
+// promptCacheRetention reads the prompt cache retention setting for each
+// request, so a change applies to the next request. An unreadable settings
+// file selects the default.
+func promptCacheRetention(paths apphome.Paths) func() droids.PromptCacheRetention {
+	store, err := settings.NewStore(paths.Settings)
+	return func() droids.PromptCacheRetention {
+		if err != nil {
+			return droids.PromptCacheShort
+		}
+		current, _, loadErr := store.Load()
+		if loadErr == nil && current.PromptCacheRetention == settings.PromptCacheLong {
+			return droids.PromptCacheLong
+		}
+		return droids.PromptCacheShort
+	}
+}
+
 func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
 	store := auth.NewStore(paths.Auth)
 	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
@@ -487,6 +504,7 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 		anthropicSource = CredentialSourceEnvironment
 		anthropicConfig = droids.Anthropic{APIKey: key, BaseURL: os.Getenv("ANTHROPIC_BASE_URL")}
 	}
+	anthropicConfig.PromptCacheRetention = promptCacheRetention(paths)
 	openCodeGoKey, openCodeGoKeySource, openCodeGoSource := providerAPIKey(store, auth.OpenCodeGoProviderID, os.Getenv("OPENCODE_API_KEY"))
 	configs := []droids.ProviderConfig{
 		droids.OpenAI{APIKey: openAIKey, APIKeySource: openAIKeySource, BaseURL: os.Getenv("OPENAI_BASE_URL")},
