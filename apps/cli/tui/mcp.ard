@@ -1,0 +1,231 @@
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:github.com/akonwi/kit/internal/protocol
+use kit/tui/modal
+use kit/tui/theme
+use go:strings
+
+// Props is the snapshot-backed MCP status projection shown in the dialog.
+struct Props {
+  themes: theme::Context,
+  servers: [protocol::MCPServerStatus],
+  warnings: [Str],
+  dismiss: keymap::SimpleCommand,
+}
+
+struct Status {
+  props: Props,
+  scroll: mut cui::ScrollBoxRef,
+}
+
+fn new(props: mut Props) mut Status {
+  (mut Status{props: props.@, scroll: cui::scroll_box_ref()})
+}
+
+private fn inset() ui::Edges {
+  ui::Edges{
+    top: ui::cells(0),
+    right: ui::cells(1),
+    bottom: ui::cells(0),
+    left: ui::cells(1),
+  }
+}
+
+private fn line(value: Str, style: ui::TextStyle) cui::View {
+  cui::text(
+    value,
+    text_style: style,
+    wrap: ui::TextWrap::none,
+    overflow: ui::TextOverflow::ellipsis,
+  )
+}
+
+private fn blank() cui::View {
+  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
+}
+
+impl cui::Component for Status {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let scroll_up = keymap::simple_command("mcp.scroll_up", "Scroll up", fn() Bool {
+      let _ = self.scroll.current.map(fn(scroll) {
+        scroll.scroll_by(-1)
+      })
+      true
+    })
+    let scroll_down = keymap::simple_command("mcp.scroll_down", "Scroll down", fn() Bool {
+      let _ = self.scroll.current.map(fn(scroll) {
+        scroll.scroll_by(1)
+      })
+      true
+    })
+    let rows = mut List::new<cui::View>()
+    if self.props.servers.size() == 0 {
+      rows.push(line("No MCP servers are configured.", ui::text_style(foreground: colors.muted)))
+    } else {
+      for server in self.props.servers {
+        let status_color = match server.State {
+          "connected" => colors.success_text,
+          "connecting" => colors.warning_text,
+          "authorizing" => colors.warning_text,
+          "error" => colors.danger_text,
+          _ => colors.muted,
+        }
+        let marker = match server.State {
+          "connected" => "✓",
+          "connecting" => "◌",
+          "authorizing" => "◌",
+          "disabled" => "⊘",
+          "error" => "×",
+          _ => "○",
+        }
+        rows.push(
+          cui::box(
+            [
+              line(marker, ui::text_style(foreground: status_color)),
+              line(server.Name, ui::text_style(bold: true)),
+              cui::box(
+                [line(server.State, ui::text_style(foreground: status_color))],
+                styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), align_items: ui::Align::end),
+              ),
+            ],
+            styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+          ),
+        )
+        if server.Description != "" {
+          rows.push(
+            cui::text(
+              server.Description,
+              styles: ui::style(
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(0),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+              text_style: ui::text_style(foreground: colors.muted),
+              wrap: ui::TextWrap::word,
+            ),
+          )
+        }
+        let tools = match server.ToolCount == 1 {
+          true => "tool",
+          false => "tools",
+        }
+        let oauth = match server.OAuthSaved {
+          true => " · OAuth saved",
+          false => "",
+        }
+        rows.push(
+          cui::text(
+            "{strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}{oauth}",
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(0),
+                bottom: ui::cells(0),
+                left: ui::cells(2),
+              },
+            ),
+            text_style: ui::text_style(foreground: colors.muted),
+            wrap: ui::TextWrap::none,
+            overflow: ui::TextOverflow::ellipsis,
+          ),
+        )
+        if server.ConfigPath != "" {
+          let source = match server.Source {
+            "kit-user" => "User config",
+            "shared-project" => "Project",
+            "kit-project" => "Kit project",
+            _ => server.Source,
+          }
+          rows.push(
+            cui::text(
+              "{source} · {server.ConfigPath}",
+              styles: ui::style(
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(0),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+              text_style: ui::text_style(foreground: colors.muted),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+          )
+        }
+        if server.LastError != "" {
+          rows.push(
+            cui::text(
+              server.LastError,
+              styles: ui::style(
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(0),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+              text_style: ui::text_style(foreground: colors.danger_text),
+              wrap: ui::TextWrap::word,
+            ),
+          )
+        }
+        rows.push(blank())
+      }
+    }
+    if self.props.warnings.size() > 0 {
+      rows.push(line("Warnings", ui::text_style(bold: true)))
+      for warning in self.props.warnings {
+        rows.push(
+          cui::text(
+            "▲ {warning}",
+            text_style: ui::text_style(foreground: colors.warning_text),
+            wrap: ui::TextWrap::word,
+          ),
+        )
+      }
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "MCP servers",
+        meta: "",
+        header: [],
+        body: cui::scroll_box(
+          [cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))],
+          key: "mcp.status.list",
+          styles: ui::style(height: ui::cells(18), padding: inset()),
+          scrollbar_options: ui::scrollbar_options(),
+          ref: self.scroll,
+          key_bindings: keymap::rebind(
+            keymap::rebind(
+              ui::default_scroll_box_bindings(),
+              ui::ScrollBoxAction::up,
+              [keymap::key("up"), keymap::key("k")],
+            ),
+            ui::ScrollBoxAction::down,
+            [keymap::key("down"), keymap::key("j")],
+          ),
+        ),
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: self.props.dismiss,
+        commands: Maybe::new([scroll_up, scroll_down]),
+        bindings: Maybe::new(
+          [
+            keymap::binding(keymap::key("up"), scroll_up.with()),
+            keymap::binding(keymap::key("k"), scroll_up.with()),
+            keymap::binding(keymap::key("down"), scroll_down.with()),
+            keymap::binding(keymap::key("j"), scroll_down.with()),
+          ],
+        ),
+      },
+    )
+  }
+}
