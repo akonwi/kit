@@ -90,6 +90,9 @@ impl cui::Lifecycle for Picker {
 
 impl Picker {
   private fn mut load(ctx: cui::Context) {
+    self.loading = true
+    self.error = ""
+    (ctx.invalidate_root)()
     self.generation =+ 1
     let generation = self.generation
     let transport = self.props.transport
@@ -110,6 +113,7 @@ impl Picker {
             ok(catalog) => { self.models = catalog.Models },
             err(failure) => { self.error = failure.error() },
           }
+          (ctx.invalidate_root)()
         }
       })
     })
@@ -126,6 +130,10 @@ impl Picker {
           self.edit_value = "{model.ContextWindow}"
           self.error = ""
         }
+      }
+      match self.context {
+        context => (context.invalidate_root)(),
+        _ => (),
       }
     }
   }
@@ -327,7 +335,7 @@ impl cui::Component for Picker {
                     placeholder: "Search models…",
                     initial_selection: self.props.session.Model,
                     title: "Select model",
-                    footer: "↑↓ move · enter apply · ctrl+o overrides · esc close",
+                    footer: "ctrl+o overrides",
                     dismiss: self.props.dismiss,
                     override: Maybe::new(fn(selected: Str) {
                       self.begin_context_edit(selected)
