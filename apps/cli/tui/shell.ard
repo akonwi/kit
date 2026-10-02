@@ -1523,6 +1523,7 @@ impl Shell {
         transport: self.props.options.Transport,
         lifetime: self.lifetime.expect("mounted model picker"),
         session: self.info.or(protocol::SessionInfo{}),
+        override_service: self.props.options.ModelOverrideService,
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
           self.info = Maybe::new(applied.Session)
