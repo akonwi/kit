@@ -24,6 +24,9 @@ struct Props {
   placeholder: Str,
   catalog: [Item],
   query: Str,
+  // filter_query may project a command word while query remains the complete
+  // editable invocation, including literal arguments.
+  filter_query: Str,
   selection: Str,
   hovered: Str,
   hidden_above: Bool,
@@ -41,7 +44,11 @@ struct Viewport {
 }
 
 fn items(props: Props) [Item] {
-  let query = strings::ToLower(strings::TrimSpace(props.query))
+  let raw_query = match props.filter_query != "" {
+    true => props.filter_query,
+    false => props.query,
+  }
+  let query = strings::ToLower(strings::TrimSpace(raw_query))
   if query == "" {
     props.catalog
   } else {
