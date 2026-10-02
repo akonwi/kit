@@ -19,6 +19,10 @@ struct ComposerAttachmentStrip: View {
                                 Button { uploads.remove(item.id) } label: { Image(systemName: "xmark") }
                                     .accessibilityLabel("Remove \(item.filename)")
                             }
+                            if item.isImage, let model = state.imageRejectingModel {
+                                Text("Not supported by \(model)").foregroundStyle(theme.warning)
+                                    .fixedSize(horizontal: false, vertical: true)
+                            }
                             if let preview = item.preview {
                                 Image(nsImage: preview).resizable().scaledToFit().frame(width: 120, height: 76)
                                     .accessibilityLabel("Preview of \(item.filename)")

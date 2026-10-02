@@ -370,6 +370,16 @@ final class SessionStore {
         bashOperation.merge(into: demo?.messages ?? selected?.messages ?? [])
     }
     var model: String { demo?.model ?? selected?.model ?? "" }
+    /// The active model's label when its session inputs are known to exclude images.
+    var imageRejectingModel: String? {
+        Self.imageRejectingModel(inputs: selected?.inputs, model: model, models: configuration.models)
+    }
+    static func imageRejectingModel(inputs: [String]?, model: String, models: [WireModelCapability]) -> String? {
+        guard let inputs, !inputs.contains("image") else { return nil }
+        return ComposerView.activeModelLabel(id: model, models: models)
+    }
+    /// Staged images the active model cannot receive; they block sending until removed.
+    var hasRejectedImages: Bool { imageRejectingModel != nil && ui.uploads.items.contains(where: \.isImage) }
     var thinking: String { demo?.thinking ?? selected?.thinking ?? "" }
     var connectionState: SessionConnectionState { replica.connectionState }
     var connectionStatus: String { replica.connectionStatus }
@@ -562,6 +572,10 @@ final class SessionStore {
         guard let client = mutationClient, connectionState == .connected else { return }
         guard !operations.queuePending, !operations.sending, !operations.uncertain else { return }
         guard ui.uploads.ready, !configuration.changing, !directoryChange.pending, !reloadOperation.pending, !compactionOperation.pending else { return }
+        if hasRejectedImages, let model = imageRejectingModel {
+            operations.reject("Remove images before sending. \(model) doesn’t accept images.")
+            return
+        }
         guard ui.attachments.isEmpty else {
             operations.reject("Remove unavailable local attachments before sending.")
             return

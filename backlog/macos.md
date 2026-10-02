@@ -20,12 +20,6 @@ in this branch. Items marked **Server-ready** do not require new server function
   client between polling intervals. Requires server shell lifecycle events or an
   execution list/cursor endpoint; the current protocol exposes only the active
   ID and lookup by ID. Depends on `CORE-BASH-001`. See [direct shell notes](../docs/design/macos-client.md#direct-shell-execution).
-- [ ] MAC-ATT-001 — **Server-ready.** Gate image attachments on the session's
-  `inputs`. When `inputs` is known and lacks `image`, refuse to stage an image
-  and show an inline notice naming the model. Images staged before a model
-  change stay staged, marked unsupported, and block submission until they are
-  removed or the model changes back. Absent `inputs` is unknown: stage normally
-  and rely on the server's submission check.
 
 ## Plugin contributions
 

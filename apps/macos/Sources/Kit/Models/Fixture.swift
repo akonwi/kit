@@ -50,6 +50,8 @@ struct SessionExcerpt: Decodable, Identifiable, Sendable {
     var providerRetryCount: Int? = nil
     var terminalError: String? = nil
     var configurationRevision: UInt64? = nil
+    /// What the session's model accepts in user messages; nil when the server omits it.
+    var inputs: [String]? = nil
     var annotations: [FileAnnotation]? = nil
     var pendingInteractions: [WireInteractionRequest]? = nil
     var scratchpad: ScratchpadRecord? = nil

@@ -182,7 +182,7 @@ struct ComposerView: View {
         if state.shellMode?.command.isEmpty == true { return true }
         if state.running { return state.operations.abortingRun != nil || state.connectionState != .connected }
         if state.replaying { return false }
-        if !state.ui.uploads.ready || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
+        if !state.ui.uploads.ready || state.hasRejectedImages || state.configuration.changing || state.directoryChange.pending || (state.reloadOperation.pending || state.compactionOperation.pending) { return true }
         if !state.isDemo && (state.connectionState != .connected || state.operations.sending || state.operations.uncertain || state.operations.queuePending) { return true }
         return state.ui.draft.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty &&
             state.annotationState.records.isEmpty && state.ui.workspace.notes.isEmpty && state.ui.attachments.isEmpty && state.ui.serverAttachmentIDs.isEmpty && state.ui.uploads.items.isEmpty
@@ -201,6 +201,7 @@ struct ComposerView: View {
         if !state.isDemo {
             guard let client = state.composerClient else { return false }
             let uploads = state.ui.uploads, session = state.selectedID
+            let rejecting = imageRejectingModel(for: session)
             let accepted = providers.filter { $0.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier) || $0.hasItemConformingToTypeIdentifier(UTType.image.identifier) }
             for provider in accepted {
                 let fileURL = provider.hasItemConformingToTypeIdentifier(UTType.fileURL.identifier)
@@ -210,14 +211,14 @@ struct ComposerView: View {
                     provider.loadItem(forTypeIdentifier: UTType.fileURL.identifier, options: nil) { item, error in
                         let url = (item as? URL) ?? (item as? Data).flatMap { URL(dataRepresentation: $0, relativeTo: nil) }
                         Task { @MainActor in
-                            if let url, url.isFileURL { uploads.add(url: url, client: client, session: session, reserved: id) }
+                            if let url, url.isFileURL { uploads.add(url: url, client: client, session: session, reserved: id, imageRejectingModel: rejecting) }
                             else { uploads.failReserved(id, error: error ?? MutationNotSent(reason: "Couldn’t read the file.")) }
                         }
                     }
                 } else {
                     provider.loadDataRepresentation(forTypeIdentifier: UTType.image.identifier) { data, error in
                         Task { @MainActor in
-                            if let data { uploads.add(filename: name, data: data, client: client, session: session, reserved: id) }
+                            if let data { uploads.add(filename: name, data: data, client: client, session: session, reserved: id, imageRejectingModel: rejecting) }
                             else { uploads.failReserved(id, error: error ?? MutationNotSent(reason: "Couldn’t read the image.")) }
                         }
                     }
@@ -323,16 +324,22 @@ struct ComposerView: View {
         }
     }
 
+    /// Reads the rejecting model when preparation finishes, while `session` is still selected.
+    private func imageRejectingModel(for session: String) -> @MainActor () -> String? {
+        { [state] in state.selectedID == session ? state.imageRejectingModel : nil }
+    }
+
     private func chooseAttachment() {
         let panel = NSOpenPanel()
         panel.canChooseDirectories = false
         panel.allowsMultipleSelection = true
         panel.prompt = "Attach"
         let uploads = state.ui.uploads, session = state.selectedID, client = state.composerClient
+        let rejecting = imageRejectingModel(for: session)
         panel.begin { response in
             guard response == .OK else { return }
             if let client {
-                for url in panel.urls { uploads.add(url: url, client: client, session: session) }
+                for url in panel.urls { uploads.add(url: url, client: client, session: session, imageRejectingModel: rejecting) }
                 return
             }
             for url in panel.urls where !state.ui.attachments.contains(url.lastPathComponent) {

@@ -14,6 +14,17 @@ struct SessionProjectionTests {
     private func call(_ id: String) -> [String: Any] {
         ["kind": "toolCall", "toolCallId": id, "toolName": "read", "arguments": "{}"]
     }
+    @Test func sessionInputsProjectWhenPresent() throws {
+        func info(_ inputs: [String]?) throws -> WireSessionInfo {
+            var value: [String: Any] = ["id": "session_test", "cwd": "/repo", "model": "test/echo", "thinkingLevel": "off",
+                                        "configurationRevision": 1, "createdAt": "", "updatedAt": ""]
+            if let inputs { value["inputs"] = inputs }
+            return try JSONDecoder().decode(WireSessionInfo.self, from: JSONSerialization.data(withJSONObject: value))
+        }
+        #expect(try SessionProjection.summary(info(["text"])).inputs == ["text"])
+        #expect(try SessionProjection.summary(info(["text", "image"])).inputs == ["text", "image"])
+        #expect(try SessionProjection.summary(info(nil)).inputs == nil)
+    }
     @Test func consecutiveCallsShareSummaryInCallOrder() throws {
         let rows = try SessionProjection.transcript([
             message("a", content: [call("one"), call("two")]),
