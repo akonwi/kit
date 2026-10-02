@@ -156,9 +156,9 @@ private fn card(colors: theme::Theme, item: Item, offset: Int, dismiss: fn(Int))
       flex_direction: ui::FlexDirection::row,
       gap: ui::cells(1),
       padding: ui::Edges{
-        top: ui::cells(1),
+        top: ui::cells(0),
         right: ui::cells(1),
-        bottom: ui::cells(1),
+        bottom: ui::cells(0),
         left: ui::cells(1),
       },
       background: colors.background,
