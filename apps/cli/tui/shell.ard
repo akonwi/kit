@@ -13,6 +13,7 @@ use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
+use go:kit/ffi/toastbridge
 use kit/tui/bootstrap
 use kit/tui/controls
 use kit/tui/copyable
@@ -1937,7 +1938,73 @@ impl Shell {
     self.phase = Phase::ready
     self.apply_snapshot(attached.snapshot)
     self.watch()
+    self.watch_plugin_toasts()
     self.follow_run(attached.snapshot.ActiveTurnID)
+  }
+
+  // Streams server-owned plugin notifications. The HTTP stream is fresh-only,
+  // so reconnecting never replays a previously displayed toast.
+  fn mut watch_plugin_toasts() {
+    match self.lifetime {
+      lifetime => {
+        match self.info {
+          info => {
+            match self.context {
+              context => {
+                let ctx = lifetime.Context
+                let transport = self.props.options.Transport
+                let session_id = info.ID
+                let dispatch = context.dispatch
+                async::start(fn() {
+                  mut watching = true
+                  while watching {
+                    let result = toastbridge::Watch(
+                      ctx,
+                      transport,
+                      session_id,
+                      fn(notification: protocol::PluginToast) {
+                        let _ = dispatch(fn() {
+                          let variant = match notification.Variant.to_str() {
+                            "warning" => toast::Variant::warning,
+                            "error" => toast::Variant::error,
+                            _ => toast::Variant::info,
+                          }
+                          let detail = match notification.Subtitle == "" {
+                            true => "",
+                            false => "{notification.PluginID} · {notification.Subtitle}",
+                          }
+                          self.show_toast(
+                            notification.Title,
+                            detail,
+                            variant,
+                            notification.Persistent,
+                          )
+                        })
+                      },
+                    )
+                    match result {
+                      ok(_) => (),
+                      err(error) => {
+                        if toastbridge::IsTerminal(error) {
+                          watching = false
+                        }
+                      },
+                    }
+                    select {
+                      ctx.Done().recv() => { watching = false },
+                      time::After(time::Second).recv() => (),
+                    }
+                  }
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
   }
 
   // Replaces the transcript with a server snapshot unless live events have
