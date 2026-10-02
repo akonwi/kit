@@ -156,6 +156,28 @@
         ],
         "type": "object"
       },
+      "AnnotationsContent": {
+        "additionalProperties": false,
+        "properties": {
+          "annotations": {
+            "items": {
+              "$ref": "#/components/schemas/SubmittedAnnotation"
+            },
+            "type": "array"
+          },
+          "kind": {
+            "enum": [
+              "annotations"
+            ],
+            "type": "string"
+          }
+        },
+        "required": [
+          "annotations",
+          "kind"
+        ],
+        "type": "object"
+      },
       "AnnotationsInvalidEvidenceError": {
         "additionalProperties": false,
         "properties": {
@@ -1367,6 +1389,32 @@
         ],
         "type": "object"
       },
+      "FileContent": {
+        "additionalProperties": false,
+        "properties": {
+          "attachmentId": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "file"
+            ],
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "filename",
+          "mediaType",
+          "kind"
+        ],
+        "type": "object"
+      },
       "FileDiffPage": {
         "additionalProperties": false,
         "properties": {
@@ -1517,6 +1565,31 @@
           "protocolVersion",
           "databaseReady",
           "providers"
+        ],
+        "type": "object"
+      },
+      "ImageContent": {
+        "additionalProperties": false,
+        "properties": {
+          "attachmentId": {
+            "type": "string"
+          },
+          "filename": {
+            "type": "string"
+          },
+          "kind": {
+            "enum": [
+              "image"
+            ],
+            "type": "string"
+          },
+          "mediaType": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "mediaType",
+          "kind"
         ],
         "type": "object"
       },
@@ -3914,10 +3987,132 @@
         ],
         "type": "object"
       },
-      "TranscriptContent": {
+      "SubmittedAnnotation": {
         "additionalProperties": false,
-        "properties": {},
+        "properties": {
+          "anchor": {
+            "$ref": "#/components/schemas/AnnotationAnchor"
+          },
+          "body": {
+            "type": "string"
+          },
+          "diffTarget": {
+            "$ref": "#/components/schemas/PinnedDiffTarget"
+          },
+          "originalAnnotationId": {
+            "type": "integer"
+          },
+          "preview": {
+            "$ref": "#/components/schemas/AnnotationPreview"
+          }
+        },
+        "required": [
+          "originalAnnotationId",
+          "anchor",
+          "body",
+          "preview"
+        ],
         "type": "object"
+      },
+      "TextContent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "text"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ThinkingContent": {
+        "additionalProperties": false,
+        "properties": {
+          "kind": {
+            "enum": [
+              "thinking"
+            ],
+            "type": "string"
+          },
+          "text": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "text",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "ToolCallContent": {
+        "additionalProperties": false,
+        "properties": {
+          "arguments": {
+            "type": "string"
+          },
+          "argumentsTruncated": {
+            "type": "boolean"
+          },
+          "kind": {
+            "enum": [
+              "toolCall"
+            ],
+            "type": "string"
+          },
+          "toolCallId": {
+            "type": "string"
+          },
+          "toolName": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "toolCallId",
+          "toolName",
+          "kind"
+        ],
+        "type": "object"
+      },
+      "TranscriptContent": {
+        "discriminator": {
+          "mapping": {
+            "annotations": "#/components/schemas/AnnotationsContent",
+            "file": "#/components/schemas/FileContent",
+            "image": "#/components/schemas/ImageContent",
+            "text": "#/components/schemas/TextContent",
+            "thinking": "#/components/schemas/ThinkingContent",
+            "toolCall": "#/components/schemas/ToolCallContent"
+          },
+          "propertyName": "kind"
+        },
+        "oneOf": [
+          {
+            "$ref": "#/components/schemas/TextContent"
+          },
+          {
+            "$ref": "#/components/schemas/ThinkingContent"
+          },
+          {
+            "$ref": "#/components/schemas/ToolCallContent"
+          },
+          {
+            "$ref": "#/components/schemas/ImageContent"
+          },
+          {
+            "$ref": "#/components/schemas/FileContent"
+          },
+          {
+            "$ref": "#/components/schemas/AnnotationsContent"
+          }
+        ]
       },
       "TranscriptMessage": {
         "additionalProperties": false,

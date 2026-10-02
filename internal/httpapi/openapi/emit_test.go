@@ -288,6 +288,31 @@ func TestNullablePointerFieldsAreRejected(t *testing.T) {
 	}
 }
 
+func TestDocumentEmitsTranscriptContentUnion(t *testing.T) {
+	t.Parallel()
+	document, err := Emit()
+	if err != nil {
+		t.Fatal(err)
+	}
+	var decoded struct {
+		Components struct {
+			Schemas map[string]map[string]any `json:"schemas"`
+		} `json:"components"`
+	}
+	if err := json.Unmarshal(document, &decoded); err != nil {
+		t.Fatal(err)
+	}
+	schema := decoded.Components.Schemas["TranscriptContent"]
+	variants, ok := schema["oneOf"].([]any)
+	if !ok || len(variants) != 6 {
+		t.Fatalf("oneOf = %#v; want six variants", schema["oneOf"])
+	}
+	discriminator, _ := schema["discriminator"].(map[string]any)
+	if discriminator["propertyName"] != "kind" {
+		t.Fatalf("discriminator = %#v", discriminator)
+	}
+}
+
 func TestSchemaForTestingEmitsTranscriptContentUnion(t *testing.T) {
 	t.Parallel()
 	schema, err := SchemaForTesting(reflect.TypeFor[protocol.TranscriptContent]())
