@@ -1,7 +1,11 @@
+use ard/async
+
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:github.com/akonwi/kit/internal/httpapi
 use go:github.com/akonwi/kit/internal/protocol
+use go:kit/ffi/contextbridge
 use kit/tui/format
 use kit/tui/modal
 use kit/tui/palette
@@ -12,17 +16,21 @@ use kit/tui/theme
 // callbacks for the model picker.
 struct Props {
   themes: theme::Context,
-  models: [protocol::ModelCapability],
-  current_model: Str,
-  loading: Bool,
-  pending: Bool,
-  error: Str,
+  transport: httpapi::Transport,
+  lifetime: contextbridge::Cancellation,
+  session: protocol::SessionInfo,
   dismiss: keymap::SimpleCommand,
-  choose: fn(Str),
+  applied: fn(protocol::ConfigureSessionResult),
 }
 
 struct Picker {
   props: Props,
+  models: [protocol::ModelCapability],
+  loading: Bool,
+  pending: Bool,
+  error: Str,
+  generation: Int,
+  context: cui::Context?,
   query: Str,
   selection: Str,
   hover: Str,
@@ -35,8 +43,14 @@ struct Picker {
 fn new(props: mut Props) mut Picker {
   (mut Picker{
     props: props.@,
+    models: [],
+    loading: true,
+    pending: false,
+    error: "",
+    generation: 0,
+    context: Maybe::new<cui::Context>(),
     query: "",
-    selection: props.current_model,
+    selection: props.session.Model,
     hover: "",
     hidden_above: false,
     hidden_below: false,
@@ -45,14 +59,14 @@ fn new(props: mut Props) mut Picker {
   })
 }
 
-private fn catalog(props: Props) [palette::Item] {
+private fn catalog(models: [protocol::ModelCapability], current_model: Str, pending: Bool) [palette::Item] {
   let result = mut List::new<palette::Item>()
-  for model in props.models {
-    let current = match model.ID == props.current_model {
+  for model in models {
+    let current = match model.ID == current_model {
       true => "current",
       false => "",
     }
-    let unavailable = match model.Available and not props.pending {
+    let unavailable = match model.Available and not pending {
       true => "",
       false => "unavailable",
     }
@@ -71,7 +85,77 @@ private fn catalog(props: Props) [palette::Item] {
   result.@
 }
 
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.load(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
 impl Picker {
+  private fn mut load(ctx: cui::Context) {
+    self.generation =+ 1
+    let generation = self.generation
+    let transport = self.props.transport
+    let lifetime = self.props.lifetime
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
+        lifetime.Context,
+        transport,
+        httpapi::ListModels,
+        httpapi::ServerPath{},
+        httpapi::NoBody{},
+      )
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(catalog) => { self.models = catalog.Models },
+            err(failure) => { self.error = failure.error() },
+          }
+        }
+      })
+    })
+  }
+
+  private fn mut apply(model: Str, ctx: cui::Context) {
+    if self.pending {
+      ()
+    } else {
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let transport = self.props.transport
+      let lifetime = self.props.lifetime
+      let session = self.props.session
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
+          lifetime.Context,
+          transport,
+          httpapi::ConfigureSession,
+          httpapi::SessionPath{SessionID: session.ID},
+          protocol::ConfigureSessionInput{ExpectedRevision: session.ConfigurationRevision, Model: model},
+        )
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match result {
+              ok(applied) => self.props.applied(applied),
+              err(failure) => { self.error = failure.error() },
+            }
+          }
+        })
+      })
+    }
+  }
+
   private fn mut picker(catalog: [palette::Item]) palette::Props {
     palette::Props{
       themes: self.props.themes,
@@ -117,7 +201,10 @@ impl Picker {
       },
       on_activate: fn(item: palette::Item) {
         if item.disabled_reason == "" {
-          self.props.choose(item.key)
+          match self.context {
+            context => self.apply(item.key, context),
+            _ => (),
+          }
         }
       },
     }
@@ -147,7 +234,7 @@ impl Picker {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    match self.props.loading {
+    match self.loading {
       true => {
         modal::dialog(
           self.props.themes,
@@ -176,7 +263,7 @@ impl cui::Component for Picker {
         )
       },
       false => {
-        match self.props.error != "" {
+        match self.error != "" {
           true => {
             modal::dialog(
               self.props.themes,
@@ -186,7 +273,7 @@ impl cui::Component for Picker {
                 meta: "",
                 header: [],
                 body: cui::text(
-                  self.props.error,
+                  self.error,
                   styles: ui::style(
                     padding: ui::Edges{
                       top: ui::cells(1),
@@ -206,7 +293,7 @@ impl cui::Component for Picker {
             )
           },
           false => {
-            let catalog = catalog(self.props)
+            let catalog = catalog(self.models, self.props.session.Model, self.pending)
             let picker = self.picker(catalog)
             let navigation = palette::navigation(picker)
             modal::dialog(

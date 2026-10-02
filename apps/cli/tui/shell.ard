@@ -350,10 +350,6 @@ struct Shell {
   mcp_servers: [protocol::MCPServerStatus],
   mcp_warnings: [Str],
   shown_mcp_warnings: [Str],
-  model_catalog: [protocol::ModelCapability],
-  model_loading: Bool,
-  model_pending: Bool,
-  model_error: Str,
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -442,10 +438,6 @@ fn new(props: mut Props) mut Shell {
     mcp_servers: [],
     mcp_warnings: [],
     shown_mcp_warnings: [],
-    model_catalog: [],
-    model_loading: false,
-    model_pending: false,
-    model_error: "",
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -1506,91 +1498,6 @@ impl Shell {
     )
   }
 
-  // open_model_picker fetches the server-authoritative catalog before showing
-  // model choices, so availability never relies on client-local provider state.
-  fn mut open_model_picker() {
-    self.active_modal = ActiveModal::model_picker
-    self.model_catalog = []
-    self.model_loading = true
-    self.model_pending = false
-    self.model_error = ""
-    match self.lifetime {
-      lifetime => {
-        match self.context {
-          context => {
-            let transport = self.props.options.Transport
-            let dispatch = context.dispatch
-            async::start(fn() {
-              let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
-                lifetime.Context,
-                transport,
-                httpapi::ListModels,
-                httpapi::ServerPath{},
-                httpapi::NoBody{},
-              )
-              let _ = dispatch(fn() {
-                if self.active_modal == ActiveModal::model_picker {
-                  self.model_loading = false
-                  match result {
-                    ok(catalog) => { self.model_catalog = catalog.Models },
-                    err(failure) => { self.model_error = failure.error() },
-                  }
-                }
-              })
-            })
-          },
-          _ => (),
-        }
-      },
-      _ => (),
-    }
-  }
-
-  fn mut apply_model(model: Str) {
-    match self.info {
-      info => {
-        match self.lifetime {
-          lifetime => {
-            match self.context {
-              context => {
-                let transport = self.props.options.Transport
-                let dispatch = context.dispatch
-                let session_id = info.ID
-                let revision = info.ConfigurationRevision
-                self.model_pending = true
-                self.model_error = ""
-                async::start(fn() {
-                  let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
-                    lifetime.Context,
-                    transport,
-                    httpapi::ConfigureSession,
-                    httpapi::SessionPath{SessionID: session_id},
-                    protocol::ConfigureSessionInput{ExpectedRevision: revision, Model: model},
-                  )
-                  let _ = dispatch(fn() {
-                    if self.active_modal == ActiveModal::model_picker {
-                      self.model_pending = false
-                      match result {
-                        ok(applied) => {
-                          self.info = Maybe::new(applied.Session)
-                          self.active_modal = ActiveModal::none
-                        },
-                        err(failure) => { self.model_error = failure.error() },
-                      }
-                    }
-                  })
-                })
-              },
-              _ => (),
-            }
-          },
-          _ => (),
-        }
-      },
-      _ => (),
-    }
-  }
-
   fn mut model_picker_modal() cui::View {
     let dismiss = keymap::simple_command("model.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
@@ -1599,14 +1506,13 @@ impl Shell {
       model::new,
       model::Props{
         themes: self.props.themes,
-        models: self.model_catalog,
-        current_model: self.info.or(protocol::SessionInfo{}).Model,
-        loading: self.model_loading,
-        pending: self.model_pending,
-        error: self.model_error,
+        transport: self.props.options.Transport,
+        lifetime: self.lifetime.expect("mounted model picker"),
+        session: self.info.or(protocol::SessionInfo{}),
         dismiss: dismiss,
-        choose: fn(id: Str) {
-          self.apply_model(id)
+        applied: fn(applied: protocol::ConfigureSessionResult) {
+          self.info = Maybe::new(applied.Session)
+          self.active_modal = ActiveModal::none
         },
       },
     )
@@ -2075,7 +1981,7 @@ impl Shell {
         } else if item.key == "mcp" {
           self.active_modal = ActiveModal::mcp_status
         } else if item.key == "model" {
-          self.open_model_picker()
+          self.active_modal = ActiveModal::model_picker
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
