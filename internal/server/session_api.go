@@ -140,6 +140,7 @@ type sessionService interface {
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
 	ExecutePluginCommand(context.Context, string, protocol.PluginCommandInput) error
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.TurnReservation, error)
+	SubmitPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.PromptSubmission, error)
 	Turn(context.Context, string, string) (protocol.TurnInfo, error)
 	Prompt(context.Context, string, protocol.PromptInput) (protocol.PromptOutcome, error)
 	Abort(context.Context, string, string) error
@@ -1619,6 +1620,18 @@ func (s runtimeSessionService) ExecutePluginCommand(ctx context.Context, session
 	return s.manager.ExecutePluginCommand(ctx, sessionID, input.Instance, input.ID, input.Args)
 }
 
+func (s runtimeSessionService) SubmitPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.PromptSubmission, error) {
+	result, err := s.manager.SubmitPromptCommand(ctx, sessionID, input.Name, input.Args)
+	if err != nil {
+		return protocol.PromptSubmission{}, err
+	}
+	output := protocol.PromptSubmission{Queued: result.Queued, Queue: protocol.FollowUpQueue{Count: result.Queue.Count, Previews: result.Queue.Previews, AnnotationIDs: result.Queue.AnnotationIDs}}
+	if result.Reservation.TurnID != "" {
+		output.Reservation = &protocol.TurnReservation{SessionID: result.Reservation.SessionID, TurnID: result.Reservation.TurnID}
+	}
+	return output, nil
+}
+
 func (s runtimeSessionService) StartPromptCommand(ctx context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.TurnReservation, error) {
 	reservation, err := s.manager.StartPromptCommand(ctx, sessionID, input.Name, input.Args)
 	if err != nil {
@@ -2380,6 +2393,16 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 			return
 		}
 		writeJSON(writer, http.StatusAccepted, result)
+	})
+	httpapi.Handle(mux, httpOptions, httpapi.SubmitPromptCommand, func(ctx context.Context, params httpapi.SessionPath, input protocol.PromptCommandInput) (protocol.PromptSubmission, error) {
+		if err := input.Validate(); err != nil {
+			return protocol.PromptSubmission{}, httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, err.Error(), nil)
+		}
+		result, err := service.SubmitPromptCommand(ctx, params.SessionID, input)
+		if err != nil {
+			return protocol.PromptSubmission{}, turnAPIError(err)
+		}
+		return result, nil
 	})
 	mux.HandleFunc("POST /v1/sessions/{sessionID}/turns/prompt-commands", func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.PromptCommandInput

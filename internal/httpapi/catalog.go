@@ -8,7 +8,7 @@ func Catalog() []Descriptor {
 		ListDiffTargets.Describe(), ObserveDiff.Describe(), ObserveWorkingTree.Describe(), ReadFileDiff.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),
 		ExecutePluginCommand.Describe(), StreamPluginToasts.Describe(),
-		SubmitPrompt.Describe(), StartPrompt.Describe(), StartPromptCommand.Describe(), Prompt.Describe(),
+		SubmitPrompt.Describe(), StartPrompt.Describe(), StartPromptCommand.Describe(), SubmitPromptCommand.Describe(), Prompt.Describe(),
 		RestoreTurnFollowUps.Describe(), PromoteTurnFollowUps.Describe(),
 		GetTurn.Describe(), AbortTurn.Describe(), RespondInteraction.Describe(),
 		GetMessagePage.Describe(), GetTranscriptPage.Describe(), GetSessionEventPage.Describe(), StreamSessionEvents.Describe(),

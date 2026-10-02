@@ -77,9 +77,13 @@ var (
 	StartPrompt = Operation[SessionPath, protocol.PromptInput, protocol.TurnReservation]{
 		ID: "startPrompt", Tag: "turns", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/turns/prompts", Success: http.StatusAccepted, Errors: turnErrors,
 	}
-	// StartPromptCommand expands and admits one discovered prompt command.
+	// StartPromptCommand expands and admits one discovered prompt command immediately.
 	StartPromptCommand = Operation[SessionPath, protocol.PromptCommandInput, protocol.TurnReservation]{
 		ID: "startPromptCommand", Tag: "turns", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/turns/prompt-commands", Success: http.StatusAccepted, Errors: turnErrors,
+	}
+	// SubmitPromptCommand expands one discovered command and either starts it or queues it as a follow-up.
+	SubmitPromptCommand = Operation[SessionPath, protocol.PromptCommandInput, protocol.PromptSubmission]{
+		ID: "submitPromptCommand", Tag: "turns", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/turns/prompt-command", Success: http.StatusAccepted, Errors: turnErrors,
 	}
 	// Prompt admits and waits for one turn.
 	Prompt = Operation[SessionPath, protocol.PromptInput, protocol.PromptOutcome]{
