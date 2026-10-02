@@ -7,15 +7,16 @@ import (
 
 	"github.com/akonwi/kit/internal/attachmentmeta"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/modelimage"
 )
 
 const (
 	MaxAttachmentsPerPrompt  = 8
 	MaxPromptAttachmentBytes = 20 << 20
-	MaxImageAttachmentBytes  = modelimage.MaxBytes
-	MaxTextAttachmentBytes   = 1 << 20
-	MaxAttachmentResolution  = 512
+	// MaxImageAttachmentBytes matches the server's model-image limit,
+	// modelimage.MaxBytes, which the protocol does not import.
+	MaxImageAttachmentBytes = 10 << 20
+	MaxTextAttachmentBytes  = 1 << 20
+	MaxAttachmentResolution = 512
 )
 
 // AttachmentResolutionInput requests metadata for session-owned attachments.

@@ -112,21 +112,41 @@ func New(cacheBytes int) *Preparer {
 }
 
 // Prepare converts data into an image that satisfies target.
-func (p *Preparer) Prepare(data []byte, target Target) (Result, error) {
+// Header identifies a source image without decoding its pixels.
+type Header struct {
+	// MediaType is the detected format, one of JPEG, PNG, GIF, or WebP.
+	MediaType string
+	// Width and Height are the stored dimensions, before EXIF orientation.
+	Width, Height int
+}
+
+// Inspect reads the format and dimensions from data's header. It returns
+// ErrUnsupportedFormat or ErrUndecodable when data is not a supported image.
+func Inspect(data []byte) (Header, error) {
 	config, format, err := image.DecodeConfig(bytes.NewReader(data))
 	if err != nil {
 		if errors.Is(err, image.ErrFormat) {
-			return Result{}, ErrUnsupportedFormat
+			return Header{}, ErrUnsupportedFormat
 		}
-		return Result{}, fmt.Errorf("%w: %v", ErrUndecodable, err)
+		return Header{}, fmt.Errorf("%w: %v", ErrUndecodable, err)
 	}
 	mediaType := "image/" + format
 	if !slices.Contains([]string{JPEG, PNG, GIF, WebP}, mediaType) {
-		return Result{}, ErrUnsupportedFormat
+		return Header{}, ErrUnsupportedFormat
 	}
 	if config.Width <= 0 || config.Height <= 0 {
-		return Result{}, ErrUndecodable
+		return Header{}, ErrUndecodable
 	}
+	return Header{MediaType: mediaType, Width: config.Width, Height: config.Height}, nil
+}
+
+func (p *Preparer) Prepare(data []byte, target Target) (Result, error) {
+	header, err := Inspect(data)
+	if err != nil {
+		return Result{}, err
+	}
+	mediaType := header.MediaType
+	config := image.Config{Width: header.Width, Height: header.Height}
 	if int64(config.Width)*int64(config.Height) > MaxSourcePixels {
 		return Result{}, ErrSourceTooLarge
 	}

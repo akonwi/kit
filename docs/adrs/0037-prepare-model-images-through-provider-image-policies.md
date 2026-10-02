@@ -189,6 +189,13 @@ decodable header, and bounded encoded size and pixel count. These limits bound
 storage and decode cost; they are not provider limits and are not tightened to
 match any one provider.
 
+Droids owns these limits and applies them where every tool result enters
+canonical history, so built-in, MCP, plugin, and SDK tools share one check. An
+image within the limits is stored with the media type detected from its bytes;
+any other image is stored as a text placeholder stating why it was omitted, and
+the rest of the tool result is kept. Kit's attachment upload and
+`inspect_image` apply the same limits.
+
 Kit ingestion produces inline images. Droids never fetches remote images during
 preparation. An HTTPS image is passed through unchanged only to a policy that
 declares HTTPS sources and is otherwise omitted.

@@ -1053,6 +1053,12 @@ func EncodeDetails(value any) (json.RawMessage, error)
 returns. Updates are append-only and transient. The returned result is
 authoritative and durable.
 
+Inline images in a returned result are held to the provider-neutral limits
+`MaxImageBytes`, `MaxImageWidth`, `MaxImageHeight`, and `MaxImagePixels` before
+the result becomes durable. An image within them is stored with the media type
+detected from its bytes; any other image is replaced by a text placeholder
+stating why, and the rest of the result is kept.
+
 `IsError` reports an application-level tool failure to the model without
 failing the droid runtime. Returning a Go error is converted into an error tool
 result.

@@ -1656,7 +1656,11 @@ func (rt *sdkRuntime) invokeTool(ctx context.Context, toolContext ToolContext, c
 	return result
 }
 
+// validatedToolResultMessage prepares result for canonical history. Inline
+// images are held to the provider-neutral image limits, and a result that
+// still cannot be encoded loses its details or becomes an error result.
 func validatedToolResultMessage(call ToolCall, result ToolResult) (ToolResultMessage, wireMessage, bool, error) {
+	result.Content = ingestToolResultImages(result.Content)
 	message := toolResultMessage(call, result)
 	wire, err := messageToWire(message)
 	if err == nil {

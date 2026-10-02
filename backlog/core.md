@@ -215,9 +215,6 @@ change in an ADR before implementing it. Wire changes bump
   restoration, transcript projection, and cleanup on session deletion.
 - [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
   validation. Retained for `CORE-IMG-008`.
-- [ ] CORE-IMG-007 — Validate MCP and plugin tool-result images against the
-  provider-neutral model-image limits (format, decodable header, encoded size,
-  and pixel count) used for attachments and `inspect_image`.
 - [ ] CORE-IMG-008 — Report image preparation adjustments, such as omitted or
   resized images, through runtime diagnostics that attached clients can surface.
   Depends on `CORE-IMG-003`.
