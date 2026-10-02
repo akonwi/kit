@@ -2118,6 +2118,7 @@ impl Shell {
                     ) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
+                          self.follow_ups = submission.Queue
                           if submission.Queued {
                             if optimistic {
                               self.live.reset()
@@ -2159,10 +2160,10 @@ impl Shell {
     }
   }
 
-  // Submits the composer as a prompt when no turn is active.
+  // Submits the composer as a prompt, queuing it when another turn is active.
   fn mut submit() Bool {
     let text = strings::TrimSpace(self.composer)
-    if self.phase == Phase::ready and text != "" and self.live.activity == "" {
+    if self.phase == Phase::ready and text != "" {
       match self.lifetime {
         lifetime => {
           match self.info {
@@ -2171,26 +2172,40 @@ impl Shell {
                 context => {
                   self.composer = ""
                   self.notice = ""
-                  self.live.submit(text)
-                  self.start_pending = true
-                  self.request_end()
+                  let optimistic = self.live.activity == "" and not self.start_pending
+                  if optimistic {
+                    self.live.submit(text)
+                    self.start_pending = true
+                    self.request_end()
+                  }
                   let ctx = lifetime.Context
                   let session_id = info.ID
                   let transport = self.props.options.Transport
                   let dispatch = context.dispatch
                   async::start(fn() {
-                    match httpapi::Call<httpapi::SessionPath, protocol::PromptInput, protocol::TurnReservation>(
+                    match httpapi::Call<httpapi::SessionPath, protocol::PromptInput, protocol::PromptSubmission>(
                       ctx,
                       transport,
-                      httpapi::StartPrompt,
+                      httpapi::SubmitPrompt,
                       httpapi::SessionPath{SessionID: session_id},
                       protocol::PromptInput{Text: text},
                     ) {
-                      ok(reservation) => {
-                        let run_id = reservation.TurnID
+                      ok(submission) => {
                         let _ = dispatch(fn() {
-                          self.start_pending = false
-                          self.follow_run(run_id)
+                          self.follow_ups = submission.Queue
+                          if submission.Queued {
+                            if optimistic {
+                              self.live.reset()
+                              self.start_pending = false
+                            }
+                          } else if submission.Reservation.TurnID != "" {
+                            self.start_pending = false
+                            self.follow_run(submission.Reservation.TurnID)
+                          } else {
+                            self.live.reset()
+                            self.start_pending = false
+                            self.notice = "Prompt did not start a turn"
+                          }
                         })
                       },
                       err(failure) => {
@@ -2199,9 +2214,11 @@ impl Shell {
                           if self.composer == "" {
                             self.composer = text
                           }
-                          self.live.reset()
-                          self.start_pending = false
-                          self.abort_after_start = false
+                          if optimistic {
+                            self.live.reset()
+                            self.start_pending = false
+                            self.abort_after_start = false
+                          }
                           self.notice = message
                         })
                       },
