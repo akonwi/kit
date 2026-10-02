@@ -1673,6 +1673,21 @@ impl Shell {
     }
   }
 
+  // complete_palette_command turns the current selected catalog row into an
+  // invocation buffer. Filtering stays on its command word while arguments are
+  // typed, so the selection remains stable until that word is edited.
+  fn mut complete_palette_command(catalog: [palette::Item]) Bool {
+    mut completed = false
+    for item in catalog {
+      if item.key == self.command_selection and not completed {
+        self.command_query = "{item.label} "
+        self.command_hover = ""
+        completed = true
+      }
+    }
+    completed
+  }
+
   fn mut command_palette_modal() cui::View {
     let catalog = command_catalog(
       self.run_id != "" or self.start_pending,
@@ -1753,6 +1768,9 @@ impl Shell {
       },
     }
     let navigation = palette::navigation(picker)
+    let complete = keymap::simple_command("palette.complete", "Complete command", fn() Bool {
+      self.complete_palette_command(catalog)
+    })
     let dismiss = keymap::simple_command("palette.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
@@ -1777,8 +1795,14 @@ impl Shell {
         ),
         autofocus: false,
         dismiss: dismiss,
-        commands: Maybe::new([navigation.up, navigation.down]),
-        bindings: Maybe::new(palette::bindings(navigation)),
+        commands: Maybe::new([navigation.up, navigation.down, complete]),
+        bindings: Maybe::new(
+          [
+            keymap::binding(keymap::key("tab"), complete.with()),
+            keymap::binding(keymap::key("up"), navigation.up.with()),
+            keymap::binding(keymap::key("down"), navigation.down.with()),
+          ],
+        ),
       },
     )
   }
