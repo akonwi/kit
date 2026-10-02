@@ -113,7 +113,10 @@ func TestAnthropicMessageConversion(t *testing.T) {
 		ToolResultMessage{ToolCallID: "t1", ToolName: "get_weather", Content: []ResultContent{TextContent{Text: "sunny"}}},
 	}
 
-	params := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, msgs)
+	params, err := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, msgs)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if len(params) != 3 {
 		t.Fatalf("got %d messages, want 3", len(params))
 	}
@@ -141,7 +144,7 @@ func TestAnthropicMessageConversion(t *testing.T) {
 }
 
 func TestAnthropicDropsForeignThinkingSignatures(t *testing.T) {
-	params := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, []Message{
+	params, err := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5"}, []Message{
 		AssistantMessage{
 			Provider: "opencode-go", Model: "grok-4.7",
 			Content: []AssistantContent{
@@ -156,6 +159,9 @@ func TestAnthropicDropsForeignThinkingSignatures(t *testing.T) {
 		}},
 		AssistantMessage{Provider: "anthropic", Model: "claude-opus-5-5", StopReason: StopReasonError},
 	})
+	if err != nil {
+		t.Fatal(err)
+	}
 	raw, err := json.Marshal(params)
 	if err != nil {
 		t.Fatal(err)
@@ -511,5 +517,161 @@ func TestAnthropicCredentialManagerSerializesRefresh(t *testing.T) {
 	wait.Wait()
 	if refresher.calls != 1 || store.saves != 1 {
 		t.Fatalf("refresh calls = %d, saves = %d", refresher.calls, store.saves)
+	}
+}
+
+func TestAnthropicTranslatesImages(t *testing.T) {
+	screenshot := NewImageData("image/png", []byte("png-bytes"))
+	remote, err := NewImageURL("image/webp", "https://example.com/shot.webp")
+	if err != nil {
+		t.Fatal(err)
+	}
+	params, err := toAnthropicMessages(Model{Provider: "anthropic", ID: "claude-opus-5-5", Input: []string{"text", "image"}}, []Message{
+		UserMessage{Content: []InputContent{
+			TextInput{Text: "before"},
+			AnnotationInput{Text: "middle"},
+			NewFileInputData("", "image/png", []byte("png-bytes")),
+			TextInput{Text: "after"},
+		}},
+		ToolResultMessage{ToolCallID: "t1", ProviderCallID: "toolu_1", ToolName: "screenshot", Content: []ResultContent{
+			TextContent{Text: "captured"},
+			screenshot,
+		}},
+		ToolResultMessage{ToolCallID: "t2", ToolName: "show", Content: []ResultContent{remote}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertAnthropicWireJSON(t, params, `[
+		{"role":"user","content":[
+			{"type":"text","text":"before\nmiddle"},
+			{"type":"image","source":{"type":"base64","media_type":"image/png","data":"cG5nLWJ5dGVz"}},
+			{"type":"text","text":"after"}
+		]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_1","is_error":false,"content":[
+				{"type":"text","text":"captured"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"cG5nLWJ5dGVz"}}
+			]}
+		]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"t2","is_error":false,"content":[
+				{"type":"image","source":{"type":"url","url":"https://example.com/shot.webp"}}
+			]}
+		]}
+	]`)
+}
+
+func TestAnthropicSendsToolResultImages(t *testing.T) {
+	bodies := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		bodies <- body
+		http.Error(writer, "test response", http.StatusBadRequest)
+	}))
+	defer server.Close()
+
+	providers, err := NewProviders(Anthropic{APIKey: "test-key", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("claude-haiku-4-5")
+	if !ok {
+		t.Fatal("test model did not resolve")
+	}
+	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
+		UserMessage{Content: []InputContent{TextInput{Text: "look"}}},
+		AssistantMessage{Provider: "anthropic", Model: "claude-haiku-4-5", StopReason: StopReasonToolUse, Content: []AssistantContent{
+			ToolCall{ID: "t1", ProviderCallID: "toolu_1", Name: "screenshot", Arguments: []byte(`{}`)},
+		}},
+		ToolResultMessage{ToolCallID: "t1", ProviderCallID: "toolu_1", ToolName: "screenshot", Content: []ResultContent{
+			TextContent{Text: "captured"},
+			NewImageData("image/png", []byte("png-bytes")),
+		}},
+	}})
+	for range stream.Events() {
+	}
+
+	var request struct {
+		Messages json.RawMessage `json:"messages"`
+	}
+	if err := json.Unmarshal(<-bodies, &request); err != nil {
+		t.Fatal(err)
+	}
+	assertAnthropicWireJSON(t, request.Messages, `[
+		{"role":"user","content":[{"type":"text","text":"look"}]},
+		{"role":"assistant","content":[{"type":"tool_use","id":"toolu_1","name":"screenshot","input":{}}]},
+		{"role":"user","content":[
+			{"type":"tool_result","tool_use_id":"toolu_1","is_error":false,"content":[
+				{"type":"text","text":"captured"},
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"cG5nLWJ5dGVz"}}
+			]}
+		]}
+	]`)
+}
+
+func TestAnthropicRejectsUnsupportedFiles(t *testing.T) {
+	imageModel := Model{Provider: "anthropic", ID: "claude-opus-5-5", Input: []string{"text", "image"}}
+	tests := []struct {
+		name     string
+		model    Model
+		messages []Message
+		want     string
+	}{
+		{
+			name:  "unsupported image type",
+			model: imageModel,
+			messages: []Message{ToolResultMessage{ToolCallID: "t1", Content: []ResultContent{
+				NewImageData("image/bmp", []byte("bmp")),
+			}}},
+			want: `anthropic: unsupported tool result content at index 0 (droids.FileContent): image media type "image/bmp" is not supported; use JPEG, PNG, GIF, or WebP`,
+		},
+		{
+			name:  "non-image file",
+			model: imageModel,
+			messages: []Message{ToolResultMessage{ToolCallID: "t1", Content: []ResultContent{
+				TextContent{Text: "report"},
+				NewFileData("report.pdf", "application/pdf", []byte("pdf")),
+			}}},
+			want: `anthropic: unsupported tool result content at index 1 (droids.FileContent): media type "application/pdf" is not supported; only images are supported`,
+		},
+		{
+			name:  "model without image input",
+			model: Model{Provider: "anthropic", ID: "text-only", Input: []string{"text"}},
+			messages: []Message{UserMessage{Content: []InputContent{
+				NewFileInputData("", "image/png", []byte("png-bytes")),
+			}}},
+			want: `anthropic: model "text-only" does not support image input`,
+		},
+	}
+	for _, test := range tests {
+		t.Run(test.name, func(t *testing.T) {
+			err := validateAnthropicContent(test.model, test.messages)
+			if err == nil || err.Error() != test.want {
+				t.Fatalf("error = %v, want %q", err, test.want)
+			}
+		})
+	}
+}
+
+func assertAnthropicWireJSON(t *testing.T, got any, want string) {
+	t.Helper()
+	raw, ok := got.(json.RawMessage)
+	if !ok {
+		var err error
+		raw, err = json.Marshal(got)
+		if err != nil {
+			t.Fatal(err)
+		}
+	}
+	var gotValue, wantValue any
+	if err := json.Unmarshal(raw, &gotValue); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(want), &wantValue); err != nil {
+		t.Fatalf("invalid expected JSON: %v", err)
+	}
+	if !reflect.DeepEqual(gotValue, wantValue) {
+		t.Fatalf("wire JSON mismatch\n got: %s\nwant: %s", raw, want)
 	}
 }

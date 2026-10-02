@@ -89,7 +89,7 @@ func (p *openCodeGoProvider) validateReplay(ctx context.Context, model Model, me
 		_, err := toOpenAIInputForModel(messages, model)
 		return err
 	case ModelAPIAnthropicMessages:
-		return validateAnthropicContent(messages)
+		return validateAnthropicContent(model, messages)
 	case ModelAPIOpenAIChat:
 		_, err := openCodeChatMessages("", messages)
 		return err

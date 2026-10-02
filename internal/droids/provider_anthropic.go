@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"mime"
 	"net/http"
+	"slices"
 	"strings"
 	"time"
 
@@ -145,8 +147,8 @@ func (c Anthropic) build() (providerEntry, error) {
 		baseURL:   baseURL,
 		models:    models,
 		stream:    impl.stream,
-		validateReplay: func(_ context.Context, _ Model, messages []Message) error {
-			return validateAnthropicContent(messages)
+		validateReplay: func(_ context.Context, model Model, messages []Message) error {
+			return validateAnthropicContent(model, messages)
 		},
 	}, nil
 }
@@ -274,7 +276,8 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 		return
 	}
 
-	if err := validateAnthropicContent(req.Messages); err != nil {
+	messages, err := toAnthropicRequestMessages(model, req.Messages)
+	if err != nil {
 		final := AssistantMessage{
 			Provider:     model.Provider,
 			Model:        model.ID,
@@ -313,7 +316,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	params := anthropic.MessageNewParams{
 		Model:     anthropic.Model(model.ID),
 		MaxTokens: maxTokens,
-		Messages:  toAnthropicMessages(model, req.Messages),
+		Messages:  messages,
 	}
 	if oauth {
 		params.System = append(params.System, anthropic.TextBlockParam{Text: "You are Claude Code, Anthropic's official CLI for Claude."})
@@ -630,18 +633,41 @@ func assembleAnthropicMessage(model Model, acc anthropic.Message) AssistantMessa
 	return msg
 }
 
-func validateAnthropicContent(messages []Message) error {
+// validateAnthropicContent reports whether messages can be replayed to model
+// through the Messages API. It performs the same translation as a request so
+// replay validation and request construction cannot disagree.
+func validateAnthropicContent(model Model, messages []Message) error {
+	_, err := toAnthropicRequestMessages(model, messages)
+	return err
+}
+
+// toAnthropicRequestMessages translates messages for a request to model,
+// rejecting images when the model does not accept image input.
+func toAnthropicRequestMessages(model Model, messages []Message) ([]anthropic.MessageParam, error) {
+	if !containsString(model.Input, "image") {
+		if err := rejectAnthropicImages(model, messages); err != nil {
+			return nil, err
+		}
+	}
+	return toAnthropicMessages(model, messages)
+}
+
+func rejectAnthropicImages(model Model, messages []Message) error {
+	check := func(content []FileContent) error {
+		if slices.ContainsFunc(content, func(file FileContent) bool { return isImageMediaType(file.MediaType) }) {
+			return fmt.Errorf("anthropic: model %q does not support image input", model.ID)
+		}
+		return nil
+	}
 	for _, message := range messages {
 		var err error
 		switch msg := message.(type) {
 		case UserMessage:
-			err = validateAnthropicBlocks("user", msg.Content)
+			err = check(anthropicFiles(msg.Content))
 		case ContextMessage:
-			err = validateAnthropicBlocks("context", msg.Content)
+			err = check(anthropicFiles(msg.Content))
 		case ToolResultMessage:
-			err = validateAnthropicBlocks("tool result", msg.Content)
-		case AssistantMessage:
-			err = validateAnthropicBlocks("assistant", msg.Content)
+			err = check(anthropicFiles(msg.Content))
 		}
 		if err != nil {
 			return err
@@ -650,30 +676,54 @@ func validateAnthropicContent(messages []Message) error {
 	return nil
 }
 
-func validateAnthropicBlocks[T any](role string, content []T) error {
-	for i, block := range content {
-		switch any(block).(type) {
-		case FileInput, FileContent:
-			return fmt.Errorf("anthropic: unsupported %s content at index %d (%T): native attachment translation is not implemented", role, i, block)
+func anthropicFiles[T any](content []T) []FileContent {
+	var files []FileContent
+	for _, block := range content {
+		switch value := any(block).(type) {
+		case FileInput:
+			files = append(files, FileContent{Filename: value.Filename, MediaType: value.MediaType, URL: value.URL})
+		case FileContent:
+			files = append(files, value)
 		}
 	}
-	return nil
+	return files
 }
 
-func toAnthropicMessages(model Model, messages []Message) []anthropic.MessageParam {
+func toAnthropicMessages(model Model, messages []Message) ([]anthropic.MessageParam, error) {
 	var out []anthropic.MessageParam
 	for _, m := range messages {
 		switch msg := m.(type) {
 		case UserMessage:
-			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(textOfContent(msg.Content))))
+			blocks, err := anthropicUserBlocks("user", msg.Content)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, anthropic.NewUserMessage(blocks...))
 		case ContextMessage:
-			out = append(out, anthropic.NewUserMessage(anthropic.NewTextBlock(textOfContent(msg.Content))))
+			blocks, err := anthropicUserBlocks("context", msg.Content)
+			if err != nil {
+				return nil, err
+			}
+			out = append(out, anthropic.NewUserMessage(blocks...))
 		case ToolResultMessage:
+			parts, err := anthropicParts("tool result", msg.Content)
+			if err != nil {
+				return nil, err
+			}
+			result := anthropic.ToolResultBlockParam{
+				ToolUseID: providerCallID(msg.ToolCallID, msg.ProviderCallID),
+				IsError:   anthropic.Bool(msg.IsError),
+			}
+			for _, part := range parts {
+				if part.image != nil {
+					result.Content = append(result.Content, anthropic.ToolResultBlockParamContentUnion{OfImage: part.image})
+				} else {
+					result.Content = append(result.Content, anthropic.ToolResultBlockParamContentUnion{OfText: &anthropic.TextBlockParam{Text: part.text}})
+				}
+			}
 			// Tool results are carried in a user turn; consecutive user turns
 			// are combined by the API.
-			out = append(out, anthropic.NewUserMessage(
-				anthropic.NewToolResultBlock(providerCallID(msg.ToolCallID, msg.ProviderCallID), textOfContent(msg.Content), msg.IsError),
-			))
+			out = append(out, anthropic.NewUserMessage(anthropic.ContentBlockParamUnion{OfToolResult: &result}))
 		case AssistantMessage:
 			blocks := assistantBlocks(model, msg)
 			if len(blocks) == 0 {
@@ -682,7 +732,119 @@ func toAnthropicMessages(model Model, messages []Message) []anthropic.MessagePar
 			out = append(out, anthropic.NewAssistantMessage(blocks...))
 		}
 	}
-	return out
+	return out, nil
+}
+
+func anthropicUserBlocks[T any](role string, content []T) ([]anthropic.ContentBlockParamUnion, error) {
+	parts, err := anthropicParts(role, content)
+	if err != nil {
+		return nil, err
+	}
+	blocks := make([]anthropic.ContentBlockParamUnion, 0, len(parts))
+	for _, part := range parts {
+		if part.image != nil {
+			blocks = append(blocks, anthropic.ContentBlockParamUnion{OfImage: part.image})
+		} else {
+			blocks = append(blocks, anthropic.NewTextBlock(part.text))
+		}
+	}
+	return blocks, nil
+}
+
+// anthropicPart is one Messages API content block: either text or an image.
+type anthropicPart struct {
+	text  string
+	image *anthropic.ImageBlockParam
+}
+
+// anthropicParts translates neutral content into ordered text and image
+// parts. Adjacent non-empty text is joined with newlines; images split text
+// runs so their position relative to surrounding text is preserved. Content
+// without any parts yields a single empty text part.
+func anthropicParts[T any](role string, content []T) ([]anthropicPart, error) {
+	var parts []anthropicPart
+	var text strings.Builder
+	flush := func() {
+		if text.Len() > 0 {
+			parts = append(parts, anthropicPart{text: text.String()})
+			text.Reset()
+		}
+	}
+	for i, block := range content {
+		var value string
+		var file FileContent
+		isFile := false
+		switch item := any(block).(type) {
+		case TextContent:
+			value = item.Text
+		case TextInput:
+			value = item.Text
+		case AnnotationInput:
+			value = item.Text
+		case FileInput:
+			file, isFile = FileContent{Filename: item.Filename, MediaType: item.MediaType, URL: item.URL}, true
+		case FileContent:
+			file, isFile = item, true
+		}
+		if isFile {
+			image, err := anthropicImage(file)
+			if err != nil {
+				return nil, fmt.Errorf("anthropic: unsupported %s content at index %d (%T): %w", role, i, block, err)
+			}
+			flush()
+			parts = append(parts, anthropicPart{image: image})
+			continue
+		}
+		if value == "" {
+			continue
+		}
+		if text.Len() > 0 {
+			text.WriteByte('\n')
+		}
+		text.WriteString(value)
+	}
+	flush()
+	if len(parts) == 0 {
+		parts = append(parts, anthropicPart{})
+	}
+	return parts, nil
+}
+
+// anthropicImage converts image file content into an image block. The
+// Messages API accepts JPEG, PNG, GIF, and WebP from base64 data or HTTPS URLs;
+// other file types are rejected.
+func anthropicImage(file FileContent) (*anthropic.ImageBlockParam, error) {
+	if !isImageMediaType(file.MediaType) {
+		return nil, fmt.Errorf("media type %q is not supported; only images are supported", file.MediaType)
+	}
+	if err := validateImageContent(file); err != nil {
+		return nil, err
+	}
+	mediaType, _, _ := mime.ParseMediaType(file.MediaType)
+	mediaType = strings.ToLower(mediaType)
+	switch anthropic.Base64ImageSourceMediaType(mediaType) {
+	case anthropic.Base64ImageSourceMediaTypeImageJPEG,
+		anthropic.Base64ImageSourceMediaTypeImagePNG,
+		anthropic.Base64ImageSourceMediaTypeImageGIF,
+		anthropic.Base64ImageSourceMediaTypeImageWebP:
+	default:
+		return nil, fmt.Errorf("image media type %q is not supported; use JPEG, PNG, GIF, or WebP", file.MediaType)
+	}
+	scheme, err := contentSourceScheme(file.URL)
+	if err != nil {
+		return nil, err
+	}
+	image := &anthropic.ImageBlockParam{}
+	if scheme == "data" {
+		_, payload, _ := strings.Cut(file.URL, ",")
+		image.Source.OfBase64 = &anthropic.Base64ImageSourceParam{
+			Data:      payload,
+			MediaType: anthropic.Base64ImageSourceMediaType(mediaType),
+		}
+	} else {
+		image.Source.OfURL = &anthropic.URLImageSourceParam{URL: file.URL}
+	}
+	return image, nil
 }
 
 func assistantBlocks(model Model, msg AssistantMessage) []anthropic.ContentBlockParamUnion {
