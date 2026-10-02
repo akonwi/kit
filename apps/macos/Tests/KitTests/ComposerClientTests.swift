@@ -93,6 +93,61 @@ private actor ComposerMock: ComposerClient {
         #expect(cancellation.cancelled == true)
         #expect(cancellation.answers == nil)
     }
+    private func png() throws -> Data {
+        let context = try #require(CGContext(data: nil, width: 4, height: 3, bitsPerComponent: 8, bytesPerRow: 0,
+            space: CGColorSpaceCreateDeviceRGB(), bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue))
+        let image = try #require(context.makeImage())
+        let data = NSMutableData()
+        let destination = try #require(CGImageDestinationCreateWithData(data, "public.png" as CFString, 1, nil))
+        CGImageDestinationAddImage(destination, image, nil)
+        #expect(CGImageDestinationFinalize(destination))
+        return data as Data
+    }
+    @Test func imagesTheModelRejectsAreRemovedWithANotice() async throws {
+        let client = ComposerMock(), uploads = ComposerAttachments()
+        uploads.add(filename: "shot.png", data: try png(), client: client, session: "first", imageRejectingModel: { "Kimi K2.6" })
+        #expect(uploads.items.map(\.filename) == ["shot.png"])
+        try await wait { uploads.items.isEmpty }
+        #expect(uploads.error == "Kimi K2.6 doesn’t accept images, so shot.png wasn’t attached.")
+        #expect(await client.uploads == 0)
+    }
+    @Test func textFilesUploadWhenTheModelRejectsImages() async throws {
+        let client = ComposerMock(), uploads = ComposerAttachments()
+        uploads.add(filename: "note.txt", data: Data("hello".utf8), client: client, session: "first", imageRejectingModel: { "Kimi K2.6" })
+        try await wait { uploads.items.first?.busy == false }
+        #expect(uploads.items.map(\.filename) == ["note.txt"])
+        #expect(uploads.items.first?.isImage == false)
+        #expect(uploads.error == nil)
+        #expect(await client.uploads == 1)
+    }
+    @Test func imagesUploadWhenTheModelAcceptsThem() async throws {
+        let client = ComposerMock(), uploads = ComposerAttachments()
+        uploads.add(filename: "shot.png", data: try png(), client: client, session: "first", imageRejectingModel: { nil })
+        try await wait { uploads.items.first?.busy == false }
+        #expect(uploads.items.map(\.filename) == ["shot.png"])
+        #expect(uploads.items.first?.isImage == true)
+        #expect(uploads.error == nil)
+        #expect(await client.uploads == 1)
+    }
+    @Test func imageRejectionFollowsSessionInputs() throws {
+        let models = try JSONDecoder().decode([WireModelCapability].self, from: Data(#"""
+        [{"id":"opencode-go/kimi-k2.6","name":"Kimi K2.6","provider":"opencode-go","api":"openai-chat-completions","contextWindow":10000,"available":true}]
+        """#.utf8))
+        #expect(SessionStore.imageRejectingModel(inputs: ["text"], model: "opencode-go/kimi-k2.6", models: models) == "Kimi K2.6")
+        #expect(SessionStore.imageRejectingModel(inputs: ["text", "image"], model: "opencode-go/kimi-k2.6", models: models) == nil)
+        #expect(SessionStore.imageRejectingModel(inputs: nil, model: "opencode-go/kimi-k2.6", models: models) == nil)
+    }
+    @Test func stagedImagesBlockSendingWhileTheModelRejectsImages() {
+        var session = SessionExcerpt(id: "a", title: "Session", sourceTitle: "Test", model: "opencode-go/kimi-k2.6",
+            thinking: "off", workspace: "Test", date: "", messages: [])
+        session.inputs = ["text"]
+        let store = SessionStore(fixture: Fixture(sessions: [session]), client: ComposerMock())
+        store.ui.uploads.items = [.init(id: UUID(), filename: "note.txt", busy: false)]
+        #expect(store.imageRejectingModel == "kimi-k2.6")
+        #expect(!store.hasRejectedImages)
+        store.ui.uploads.items.append(.init(id: UUID(), filename: "shot.png", busy: false, isImage: true))
+        #expect(store.hasRejectedImages)
+    }
     @Test func attachmentIdentityDeduplicationPreservesPresentationOrder() {
         #expect(ComposerAttachments.uniqueIDs(["attachment_z", "attachment_a", "attachment_z", "attachment_b"]) ==
             ["attachment_z", "attachment_a", "attachment_b"])

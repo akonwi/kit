@@ -220,13 +220,10 @@ func Run(ctx context.Context, options RunOptions) error {
 		SubagentLoader: subagentLoader, SubagentToolFactory: subagentTools, PeerToolFactory: peerTools, SessionToolFactory: sessionTools,
 		AttachmentStore:     attachmentStore,
 		PresentImageEnabled: func(kitsession.SessionRecord) bool { return true },
-		InspectImageEnabled: func(record kitsession.SessionRecord) bool {
-			model, resolveErr := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
-			return resolveErr == nil && kitsession.ModelSupportsToolResultImage(model)
-		},
-		Context:     &systemprompt.ContextBuilderOptions{Paths: paths},
-		MCPLoader:   mcpLoader,
-		MCPLauncher: mcpLauncher,
+		InspectImageEnabled: inspectImageEnabled(providers),
+		Context:             &systemprompt.ContextBuilderOptions{Paths: paths},
+		MCPLoader:           mcpLoader,
+		MCPLauncher:         mcpLauncher,
 	})
 	if err != nil {
 		return fmt.Errorf("create runtime bundle builder: %w", err)
@@ -467,6 +464,15 @@ func newHandler(options localHandlerOptions) http.Handler {
 		}
 		mux.ServeHTTP(withRequestErrorReporting(writer, request, options.logger), request)
 	})
+}
+
+// inspectImageEnabled offers inspect_image to sessions whose model accepts
+// images in tool results, where the tool returns the image it inspects.
+func inspectImageEnabled(providers droids.Providers) func(kitsession.SessionRecord) bool {
+	return func(record kitsession.SessionRecord) bool {
+		model, err := providers.Resolve(record.ModelProvider + "/" + record.ModelID)
+		return err == nil && model.ImagePolicy().Accepts(droids.ImagePlacementToolResult)
+	}
 }
 
 func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {

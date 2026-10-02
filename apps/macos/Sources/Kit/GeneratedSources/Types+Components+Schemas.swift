@@ -427,6 +427,48 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/AnnotationsContent`.
+        internal struct AnnotationsContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/AnnotationsContent/annotations`.
+            internal var annotations: [Components.Schemas.SubmittedAnnotation]
+            /// - Remark: Generated from `#/components/schemas/AnnotationsContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case annotations = "annotations"
+            }
+            /// - Remark: Generated from `#/components/schemas/AnnotationsContent/kind`.
+            internal var kind: Components.Schemas.AnnotationsContent.KindPayload
+            /// Creates a new `AnnotationsContent`.
+            ///
+            /// - Parameters:
+            ///   - annotations:
+            ///   - kind:
+            internal init(
+                annotations: [Components.Schemas.SubmittedAnnotation],
+                kind: Components.Schemas.AnnotationsContent.KindPayload
+            ) {
+                self.annotations = annotations
+                self.kind = kind
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case annotations
+                case kind
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.annotations = try container.decode(
+                    [Components.Schemas.SubmittedAnnotation].self,
+                    forKey: .annotations
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.AnnotationsContent.KindPayload.self,
+                    forKey: .kind
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "annotations",
+                    "kind"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError`.
         internal struct AnnotationsInvalidEvidenceError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/AnnotationsInvalidEvidenceError/code`.
@@ -3262,6 +3304,70 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FileContent`.
+        internal struct FileContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FileContent/attachmentId`.
+            internal var attachmentId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/FileContent/filename`.
+            internal var filename: Swift.String
+            /// - Remark: Generated from `#/components/schemas/FileContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case file = "file"
+            }
+            /// - Remark: Generated from `#/components/schemas/FileContent/kind`.
+            internal var kind: Components.Schemas.FileContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/FileContent/mediaType`.
+            internal var mediaType: Swift.String
+            /// Creates a new `FileContent`.
+            ///
+            /// - Parameters:
+            ///   - attachmentId:
+            ///   - filename:
+            ///   - kind:
+            ///   - mediaType:
+            internal init(
+                attachmentId: Swift.String? = nil,
+                filename: Swift.String,
+                kind: Components.Schemas.FileContent.KindPayload,
+                mediaType: Swift.String
+            ) {
+                self.attachmentId = attachmentId
+                self.filename = filename
+                self.kind = kind
+                self.mediaType = mediaType
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case attachmentId
+                case filename
+                case kind
+                case mediaType
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.attachmentId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .attachmentId
+                )
+                self.filename = try container.decode(
+                    Swift.String.self,
+                    forKey: .filename
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.FileContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.mediaType = try container.decode(
+                    Swift.String.self,
+                    forKey: .mediaType
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "attachmentId",
+                    "filename",
+                    "kind",
+                    "mediaType"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/FileDiffPage`.
         internal struct FileDiffPage: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/FileDiffPage/computation`.
@@ -3617,6 +3723,70 @@ extension Components {
                     "pid",
                     "protocolVersion",
                     "providers"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ImageContent`.
+        internal struct ImageContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ImageContent/attachmentId`.
+            internal var attachmentId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ImageContent/filename`.
+            internal var filename: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ImageContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case image = "image"
+            }
+            /// - Remark: Generated from `#/components/schemas/ImageContent/kind`.
+            internal var kind: Components.Schemas.ImageContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ImageContent/mediaType`.
+            internal var mediaType: Swift.String
+            /// Creates a new `ImageContent`.
+            ///
+            /// - Parameters:
+            ///   - attachmentId:
+            ///   - filename:
+            ///   - kind:
+            ///   - mediaType:
+            internal init(
+                attachmentId: Swift.String? = nil,
+                filename: Swift.String? = nil,
+                kind: Components.Schemas.ImageContent.KindPayload,
+                mediaType: Swift.String
+            ) {
+                self.attachmentId = attachmentId
+                self.filename = filename
+                self.kind = kind
+                self.mediaType = mediaType
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case attachmentId
+                case filename
+                case kind
+                case mediaType
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.attachmentId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .attachmentId
+                )
+                self.filename = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .filename
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ImageContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.mediaType = try container.decode(
+                    Swift.String.self,
+                    forKey: .mediaType
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "attachmentId",
+                    "filename",
+                    "kind",
+                    "mediaType"
                 ])
             }
         }
@@ -7083,6 +7253,8 @@ extension Components {
             internal var cwd: Swift.String
             /// - Remark: Generated from `#/components/schemas/SessionInfo/id`.
             internal var id: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SessionInfo/inputs`.
+            internal var inputs: [Swift.String]?
             /// - Remark: Generated from `#/components/schemas/SessionInfo/model`.
             internal var model: Swift.String
             /// - Remark: Generated from `#/components/schemas/SessionInfo/name`.
@@ -7104,6 +7276,7 @@ extension Components {
             ///   - createdAt:
             ///   - cwd:
             ///   - id:
+            ///   - inputs:
             ///   - model:
             ///   - name:
             ///   - parentSessionId:
@@ -7116,6 +7289,7 @@ extension Components {
                 createdAt: Swift.String,
                 cwd: Swift.String,
                 id: Swift.String,
+                inputs: [Swift.String]? = nil,
                 model: Swift.String,
                 name: Swift.String? = nil,
                 parentSessionId: Swift.String? = nil,
@@ -7128,6 +7302,7 @@ extension Components {
                 self.createdAt = createdAt
                 self.cwd = cwd
                 self.id = id
+                self.inputs = inputs
                 self.model = model
                 self.name = name
                 self.parentSessionId = parentSessionId
@@ -7141,6 +7316,7 @@ extension Components {
                 case createdAt
                 case cwd
                 case id
+                case inputs
                 case model
                 case name
                 case parentSessionId
@@ -7166,6 +7342,10 @@ extension Components {
                 self.id = try container.decode(
                     Swift.String.self,
                     forKey: .id
+                )
+                self.inputs = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .inputs
                 )
                 self.model = try container.decode(
                     Swift.String.self,
@@ -7200,6 +7380,7 @@ extension Components {
                     "createdAt",
                     "cwd",
                     "id",
+                    "inputs",
                     "model",
                     "name",
                     "parentSessionId",
@@ -9459,12 +9640,295 @@ extension Components {
                 ])
             }
         }
-        /// - Remark: Generated from `#/components/schemas/TranscriptContent`.
-        internal struct TranscriptContent: Codable, Hashable, Sendable {
-            /// Creates a new `TranscriptContent`.
-            internal init() {}
+        /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation`.
+        internal struct SubmittedAnnotation: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/anchor`.
+            internal var anchor: Components.Schemas.AnnotationAnchor
+            /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/body`.
+            internal var body: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/diffTarget`.
+            internal var diffTarget: Components.Schemas.PinnedDiffTarget?
+            /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/originalAnnotationId`.
+            internal var originalAnnotationId: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/SubmittedAnnotation/preview`.
+            internal var preview: Components.Schemas.AnnotationPreview
+            /// Creates a new `SubmittedAnnotation`.
+            ///
+            /// - Parameters:
+            ///   - anchor:
+            ///   - body:
+            ///   - diffTarget:
+            ///   - originalAnnotationId:
+            ///   - preview:
+            internal init(
+                anchor: Components.Schemas.AnnotationAnchor,
+                body: Swift.String,
+                diffTarget: Components.Schemas.PinnedDiffTarget? = nil,
+                originalAnnotationId: Swift.Int,
+                preview: Components.Schemas.AnnotationPreview
+            ) {
+                self.anchor = anchor
+                self.body = body
+                self.diffTarget = diffTarget
+                self.originalAnnotationId = originalAnnotationId
+                self.preview = preview
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case anchor
+                case body
+                case diffTarget
+                case originalAnnotationId
+                case preview
+            }
             internal init(from decoder: any Swift.Decoder) throws {
-                try decoder.ensureNoAdditionalProperties(knownKeys: [])
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.anchor = try container.decode(
+                    Components.Schemas.AnnotationAnchor.self,
+                    forKey: .anchor
+                )
+                self.body = try container.decode(
+                    Swift.String.self,
+                    forKey: .body
+                )
+                self.diffTarget = try container.decodeIfPresent(
+                    Components.Schemas.PinnedDiffTarget.self,
+                    forKey: .diffTarget
+                )
+                self.originalAnnotationId = try container.decode(
+                    Swift.Int.self,
+                    forKey: .originalAnnotationId
+                )
+                self.preview = try container.decode(
+                    Components.Schemas.AnnotationPreview.self,
+                    forKey: .preview
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "anchor",
+                    "body",
+                    "diffTarget",
+                    "originalAnnotationId",
+                    "preview"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TextContent`.
+        internal struct TextContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TextContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case text = "text"
+            }
+            /// - Remark: Generated from `#/components/schemas/TextContent/kind`.
+            internal var kind: Components.Schemas.TextContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/TextContent/text`.
+            internal var text: Swift.String
+            /// Creates a new `TextContent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - text:
+            internal init(
+                kind: Components.Schemas.TextContent.KindPayload,
+                text: Swift.String
+            ) {
+                self.kind = kind
+                self.text = text
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case text
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.TextContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "text"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ThinkingContent`.
+        internal struct ThinkingContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ThinkingContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case thinking = "thinking"
+            }
+            /// - Remark: Generated from `#/components/schemas/ThinkingContent/kind`.
+            internal var kind: Components.Schemas.ThinkingContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ThinkingContent/text`.
+            internal var text: Swift.String
+            /// Creates a new `ThinkingContent`.
+            ///
+            /// - Parameters:
+            ///   - kind:
+            ///   - text:
+            internal init(
+                kind: Components.Schemas.ThinkingContent.KindPayload,
+                text: Swift.String
+            ) {
+                self.kind = kind
+                self.text = text
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+                case text
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.kind = try container.decode(
+                    Components.Schemas.ThinkingContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "kind",
+                    "text"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ToolCallContent`.
+        internal struct ToolCallContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/arguments`.
+            internal var arguments: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/argumentsTruncated`.
+            internal var argumentsTruncated: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case toolCall = "toolCall"
+            }
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/kind`.
+            internal var kind: Components.Schemas.ToolCallContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/toolCallId`.
+            internal var toolCallId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/ToolCallContent/toolName`.
+            internal var toolName: Swift.String
+            /// Creates a new `ToolCallContent`.
+            ///
+            /// - Parameters:
+            ///   - arguments:
+            ///   - argumentsTruncated:
+            ///   - kind:
+            ///   - toolCallId:
+            ///   - toolName:
+            internal init(
+                arguments: Swift.String? = nil,
+                argumentsTruncated: Swift.Bool? = nil,
+                kind: Components.Schemas.ToolCallContent.KindPayload,
+                toolCallId: Swift.String,
+                toolName: Swift.String
+            ) {
+                self.arguments = arguments
+                self.argumentsTruncated = argumentsTruncated
+                self.kind = kind
+                self.toolCallId = toolCallId
+                self.toolName = toolName
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case arguments
+                case argumentsTruncated
+                case kind
+                case toolCallId
+                case toolName
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.arguments = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .arguments
+                )
+                self.argumentsTruncated = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .argumentsTruncated
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.ToolCallContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.toolCallId = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolCallId
+                )
+                self.toolName = try container.decode(
+                    Swift.String.self,
+                    forKey: .toolName
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "arguments",
+                    "argumentsTruncated",
+                    "kind",
+                    "toolCallId",
+                    "toolName"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TranscriptContent`.
+        internal enum TranscriptContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/AnnotationsContent`.
+            case annotations(Components.Schemas.AnnotationsContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/FileContent`.
+            case file(Components.Schemas.FileContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/ImageContent`.
+            case image(Components.Schemas.ImageContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/TextContent`.
+            case text(Components.Schemas.TextContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/ThinkingContent`.
+            case thinking(Components.Schemas.ThinkingContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/ToolCallContent`.
+            case toolCall(Components.Schemas.ToolCallContent)
+            internal enum CodingKeys: String, CodingKey {
+                case kind
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                let discriminator = try container.decode(
+                    Swift.String.self,
+                    forKey: .kind
+                )
+                switch discriminator {
+                case "annotations":
+                    self = .annotations(try .init(from: decoder))
+                case "file":
+                    self = .file(try .init(from: decoder))
+                case "image":
+                    self = .image(try .init(from: decoder))
+                case "text":
+                    self = .text(try .init(from: decoder))
+                case "thinking":
+                    self = .thinking(try .init(from: decoder))
+                case "toolCall":
+                    self = .toolCall(try .init(from: decoder))
+                default:
+                    throw Swift.DecodingError.unknownOneOfDiscriminator(
+                        discriminatorKey: CodingKeys.kind,
+                        discriminatorValue: discriminator,
+                        codingPath: decoder.codingPath
+                    )
+                }
+            }
+            internal func encode(to encoder: any Swift.Encoder) throws {
+                switch self {
+                case let .annotations(value):
+                    try value.encode(to: encoder)
+                case let .file(value):
+                    try value.encode(to: encoder)
+                case let .image(value):
+                    try value.encode(to: encoder)
+                case let .text(value):
+                    try value.encode(to: encoder)
+                case let .thinking(value):
+                    try value.encode(to: encoder)
+                case let .toolCall(value):
+                    try value.encode(to: encoder)
+                }
             }
         }
         /// - Remark: Generated from `#/components/schemas/TranscriptMessage`.

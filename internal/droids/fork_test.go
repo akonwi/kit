@@ -323,6 +323,8 @@ func (p *forkTestProvider) Stream(context.Context, Model, Request) (AssistantStr
 	}
 	return newForkTestStream(message), nil
 }
+func (*forkTestProvider) ImagePolicy(Model) ImagePolicy { return ImagePolicy{} }
+
 func (p *forkTestProvider) ValidateReplay(context.Context, Model, []Message) error {
 	p.validations++
 	if p.rejectReplay {

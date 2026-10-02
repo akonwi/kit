@@ -32,7 +32,8 @@ type Providers interface {
 	// model metadata onto each built-in provider. Existing models remain usable
 	// when refresh fails.
 	RefreshModels(ctx context.Context) error
-	// Stream runs a request against the provider that owns model.
+	// Stream runs a request against the provider that owns model, after
+	// preparing its images through the model's image policy.
 	Stream(ctx context.Context, model Model, req Request) Stream
 }
 
@@ -47,6 +48,9 @@ type Provider interface {
 	Models() []Model
 	Stream(context.Context, Model, Request) (AssistantStream, error)
 	ValidateReplay(context.Context, Model, []Message) error
+	// ImagePolicy returns the model's image contract. Text-only models return
+	// the zero policy.
+	ImagePolicy(Model) ImagePolicy
 }
 
 // RequestReplayValidator optionally assesses replay safety against the exact
@@ -72,8 +76,21 @@ func replayRequest(sessionID string, model Model, configuration *runtimeRequestC
 }
 
 // validateRequestReplay assesses a replay through the richest contract the
-// provider implements.
+// provider implements, after applying the model's image policy so it assesses
+// exactly what dispatch would send.
 func validateRequestReplay(ctx context.Context, provider Provider, model Model, request Request) error {
+	return validatePreparedRequestReplay(ctx, provider, model, prepareRequest(provider, model, request))
+}
+
+// prepareRequest applies the provider's image policy for model to request.
+func prepareRequest(provider Provider, model Model, request Request) Request {
+	request.Messages = prepareRequestImages(provider.ImagePolicy(model), request.Messages)
+	return request
+}
+
+// validatePreparedRequestReplay assesses a request whose images were already
+// prepared by prepareRequest.
+func validatePreparedRequestReplay(ctx context.Context, provider Provider, model Model, request Request) error {
 	if validator, ok := provider.(RequestReplayValidator); ok {
 		return validator.ValidateRequestReplay(ctx, model, request)
 	}
@@ -86,19 +103,28 @@ type ContextMeasurer interface {
 }
 
 type adaptedProvider struct {
-	id     string
-	models []Model
-	stream func(context.Context, Model, Request) Stream
+	id          string
+	models      []Model
+	stream      func(context.Context, Model, Request) Stream
+	imagePolicy func(Model) ImagePolicy
 }
 
 // AdaptProvider adapts a provider-neutral Stream function to the full Provider
-// lifecycle. It is useful for local providers and tests.
+// lifecycle. It is useful for local providers and tests. The adapted provider
+// is text-only; binding a model that advertises image input fails. Use
+// AdaptProviderWithImagePolicy to declare image support.
 func AdaptProvider(id string, models []Model, stream func(context.Context, Model, Request) Stream) Provider {
+	return AdaptProviderWithImagePolicy(id, models, stream, nil)
+}
+
+// AdaptProviderWithImagePolicy is AdaptProvider with an explicit per-model
+// image policy. A nil policy declares every model text-only.
+func AdaptProviderWithImagePolicy(id string, models []Model, stream func(context.Context, Model, Request) Stream, policy func(Model) ImagePolicy) Provider {
 	cloned := make([]Model, len(models))
 	for index, model := range models {
 		cloned[index] = cloneModel(model)
 	}
-	return &adaptedProvider{id: id, models: cloned, stream: stream}
+	return &adaptedProvider{id: id, models: cloned, stream: stream, imagePolicy: policy}
 }
 
 func (p *adaptedProvider) ID() string { return p.id }
@@ -125,6 +151,13 @@ func (p *adaptedProvider) ValidateReplay(context.Context, Model, []Message) erro
 	return nil
 }
 
+func (p *adaptedProvider) ImagePolicy(model Model) ImagePolicy {
+	if p.imagePolicy == nil {
+		return ImagePolicy{}
+	}
+	return p.imagePolicy(model).clone()
+}
+
 // ProviderConfig constructs one provider capability for NewProviders.
 type ProviderConfig interface {
 	build() (providerEntry, error)
@@ -142,7 +175,24 @@ type providerEntry struct {
 	// validateRequestReplay optionally supersedes validateReplay with the exact
 	// request projection.
 	validateRequestReplay func(context.Context, Model, Request) error
-	call                  callOptions
+	// imagePolicy is required: every provider declares the image contract of
+	// each model it serves, including text-only models.
+	imagePolicy func(Model) ImagePolicy
+	call        callOptions
+}
+
+// validateEntryImagePolicies requires an image policy declaration and checks
+// it against every model the entry serves.
+func validateEntryImagePolicies(entry providerEntry) error {
+	if entry.imagePolicy == nil {
+		return fmt.Errorf("droids: provider %q does not declare an image policy", entry.id)
+	}
+	for _, model := range entry.models {
+		if err := validateModelImagePolicy(model, entry.imagePolicy(model)); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 type registry struct {
@@ -168,6 +218,9 @@ func NewProviders(configs ...ProviderConfig) (Providers, error) {
 	for _, cfg := range configs {
 		entry, err := cfg.build()
 		if err != nil {
+			return nil, err
+		}
+		if err := validateEntryImagePolicies(entry); err != nil {
 			return nil, err
 		}
 		if _, dup := r.entries[entry.id]; dup {
@@ -327,6 +380,11 @@ func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
 			continue
 		}
 		for _, model := range models {
+			// A refreshed model the provider cannot describe consistently is
+			// skipped; the previous catalog entry, if any, remains usable.
+			if validateModelImagePolicy(model, entry.imagePolicy(model)) != nil {
+				continue
+			}
 			entry.models[model.ID] = model
 		}
 		r.entries[providerID] = entry
@@ -382,6 +440,16 @@ func (p *resolvedProvider) Stream(ctx context.Context, model Model, req Request)
 	}
 	return &assistantStreamAdapter{stream: stream, cancel: cancel}, nil
 }
+func (p *resolvedProvider) ImagePolicy(model Model) ImagePolicy {
+	if model.Provider != p.entry.id {
+		return ImagePolicy{}
+	}
+	if canonical, ok := p.entry.models[model.ID]; ok {
+		model = canonical
+	}
+	return p.entry.imagePolicy(model).clone()
+}
+
 func (p *resolvedProvider) ValidateReplay(ctx context.Context, model Model, messages []Message) error {
 	if model.Provider != p.entry.id {
 		return fmt.Errorf("droids: provider %q does not own model %q", p.entry.id, model.ID)
@@ -425,6 +493,9 @@ func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream 
 	if _, err := resolveRequestMaxTokens(requested, req.MaxTokens, req.Reasoning); err != nil {
 		return erroredStream(requested, err.Error())
 	}
+	// Direct callers receive the same image preparation as runtime dispatch,
+	// which prepares before calling the bound Provider.
+	req.Messages = prepareRequestImages(e.imagePolicy(requested), req.Messages)
 	return e.stream(ctx, requested, req, e.call)
 }
 

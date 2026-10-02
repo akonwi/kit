@@ -3,8 +3,10 @@ package droids
 import (
 	"context"
 	"encoding/json"
+	"io"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -119,6 +121,74 @@ func TestOpenCodeGoStreamsChatCompletionsWithSessionHeaders(t *testing.T) {
 	}
 	if messages, _ := body["messages"].([]any); len(messages) != 1 || !strings.Contains(string(mustJSON(messages)), "hi") {
 		t.Fatalf("request messages = %#v", body["messages"])
+	}
+}
+
+func TestOpenCodeGoChatCompletionsSendsPlaceholdersForUnacceptedImages(t *testing.T) {
+	t.Parallel()
+	bodies := make(chan []byte, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
+		body, _ := io.ReadAll(request.Body)
+		bodies <- body
+		writer.Header().Set("Content-Type", "text/event-stream")
+		_, _ = writer.Write([]byte("data: {\"id\":\"chat_1\",\"choices\":[{\"delta\":{\"content\":\"ok\"},\"finish_reason\":\"stop\"}]}\n\n"))
+		_, _ = writer.Write([]byte("data: [DONE]\n\n"))
+	}))
+	defer server.Close()
+	providers, err := NewProviders(OpenCodeGo{APIKey: "test-key", BaseURL: server.URL})
+	if err != nil {
+		t.Fatal(err)
+	}
+	model, ok := providers.Model("opencode-go/kimi-k2.6")
+	if !ok || model.API != ModelAPIOpenAIChat {
+		t.Fatalf("model = %#v, %v", model, ok)
+	}
+	image := testPNGDataURL(t, 640, 480)
+	stream := providers.Stream(context.Background(), model, Request{Messages: []Message{
+		ContextMessage{Kind: "resume", Content: []InputContent{TextInput{Text: "Earlier screen:"}, FileInput{MediaType: ImagePNG, URL: image}}},
+		UserMessage{Content: []InputContent{TextInput{Text: "check the window"}}},
+		AssistantMessage{Provider: model.Provider, Model: model.ID, StopReason: StopReasonToolUse, Content: []AssistantContent{
+			ToolCall{ID: "call", ProviderCallID: "call", Name: "computer", Arguments: []byte(`{}`)},
+		}},
+		ToolResultMessage{ToolCallID: "call", ProviderCallID: "call", ToolName: "computer", Content: []ResultContent{
+			TextContent{Text: "Window: Kit"}, FileContent{MediaType: ImagePNG, URL: image},
+		}},
+	}})
+	for range stream.Events() {
+	}
+	if message := stream.Result(); message.StopReason != StopReasonStop {
+		t.Fatalf("result = %#v", message)
+	}
+	var body struct {
+		Messages []map[string]any `json:"messages"`
+	}
+	if err := json.Unmarshal(<-bodies, &body); err != nil {
+		t.Fatal(err)
+	}
+	want := []map[string]any{
+		{"role": "user", "content": "Earlier screen:\n[Image omitted: this model does not accept images in context messages.]"},
+		{"role": "user", "content": []any{map[string]any{"type": "text", "text": "check the window"}}},
+		{"role": "assistant", "content": "", "tool_calls": []any{map[string]any{
+			"id": "call", "type": "function", "function": map[string]any{"name": "computer", "arguments": "{}"},
+		}}},
+		{"role": "tool", "tool_call_id": "call", "content": "Window: Kit\n[Image omitted: this model does not accept images in tool results.]"},
+	}
+	if !reflect.DeepEqual(body.Messages, want) {
+		t.Fatalf("messages =\n%s\nwant\n%s", mustJSON(body.Messages), mustJSON(want))
+	}
+}
+
+func TestOpenCodeChatMessagesRejectsUnpreparedImages(t *testing.T) {
+	t.Parallel()
+	for name, message := range map[string]Message{
+		"context": ContextMessage{Content: []InputContent{FileInput{MediaType: ImagePNG, URL: "data:image/png;base64,AA=="}}},
+		"tool result": ToolResultMessage{ToolCallID: "call", ProviderCallID: "call", Content: []ResultContent{
+			FileContent{MediaType: ImagePNG, URL: "data:image/png;base64,AA=="},
+		}},
+	} {
+		if _, err := openCodeChatMessages("", []Message{message}); err == nil {
+			t.Errorf("%s image: error = nil, want an error", name)
+		}
 	}
 }
 

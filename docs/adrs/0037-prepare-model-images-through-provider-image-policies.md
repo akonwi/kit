@@ -103,8 +103,8 @@ after context selection and before provider translation. The same preparation
 runs for request dispatch and for replay validation, so a model switch is
 assessed against exactly what would be sent.
 
-Preparation produces request-scoped messages and a list of adjustments. It never
-mutates canonical history. For each image, in order, the outcome is one of:
+Preparation produces request-scoped messages. It never mutates canonical
+history. For each image, in order, the outcome is one of:
 
 - **Unchanged** — the image already conforms and its original bytes are sent.
 - **Prepared** — the image is downscaled to `Fit` and/or re-encoded to an
@@ -122,8 +122,9 @@ Provider translators receive only conforming images. A non-conforming image at
 translation is an internal invariant violation reported as an error, not a user
 condition.
 
-Adjustments are reported through runtime diagnostics so clients can surface,
-for example, that earlier screenshots were omitted for the active model.
+Adjustments are communicated to the model through these placeholders and
+notices and are not reported to clients. They are routine, request-scoped, and
+depend on the active model, so they are not user-actionable diagnostics.
 
 ### Request-level limits and retention
 
@@ -132,9 +133,11 @@ default retention window is 20 images, bounded further by the policy's
 `MaxImages`. Retention treats every image alike: user attachments, context
 images, and tool-result images share one window ordered by position in the
 request, with no source receiving priority. When the window is exceeded, the
-oldest images are omitted in a batch that reduces the count to half the
-window, so the request prefix changes rarely rather than on every new image.
-Omitted images become placeholders; the canonical history keeps them.
+oldest images are omitted in batches of half the window, so a request carries
+between half the window plus one and the full window, and the set of omitted
+images, with it the request prefix, changes once per batch rather than on
+every new image. Omitted images become placeholders; the canonical history
+keeps them.
 
 After retention, if the image count exceeds a policy's `ManyImages.Above`
 threshold, every image is fitted with the stricter rule. If the prepared images
@@ -168,8 +171,10 @@ release build stays CGO-free.
 - JPEG, PNG, GIF, and WebP are decoded. Animated GIFs use the first frame.
 - EXIF orientation is applied before resizing, because re-encoding discards
   the metadata providers would otherwise honor.
-- Unchanged images keep their original bytes. Resized images are re-encoded in
-  the source format when an encoder is available, otherwise as PNG. If the
+- Unchanged images keep their original bytes. An image with a non-default EXIF
+  orientation is re-encoded upright even when it otherwise conforms, because
+  not every provider documents honoring the tag. Resized images are re-encoded
+  in the source format when an encoder is available, otherwise as PNG. If the
   result exceeds `MaxEncodedBytes`, the image is re-encoded once as JPEG when it
   has no meaningful transparency; otherwise it is omitted.
 - Output is deterministic for a given source, policy, and Kit build.
@@ -184,6 +189,13 @@ against Kit's provider-neutral model-image limits: supported raster format,
 decodable header, and bounded encoded size and pixel count. These limits bound
 storage and decode cost; they are not provider limits and are not tightened to
 match any one provider.
+
+Droids owns these limits and applies them where every tool result enters
+canonical history, so built-in, MCP, plugin, and SDK tools share one check. An
+image within the limits is stored with the media type detected from its bytes;
+any other image is stored as a text placeholder stating why it was omitted, and
+the rest of the tool result is kept. Kit's attachment upload and
+`inspect_image` apply the same limits.
 
 Kit ingestion produces inline images. Droids never fetches remote images during
 preparation. An HTTPS image is passed through unchanged only to a policy that
@@ -238,9 +250,11 @@ Source: Claude API vision and vision-coordinates documentation.
   1568 px and 1568 patches; high-resolution tier: 2576 px and 4784 patches.
   Preparing to the native size loses no fidelity the model would have used and
   makes returned coordinates map exactly onto the prepared image.
-- Tier membership is a reviewed Kit table keyed by model ID: Claude Opus 4.7 and
-  later, Sonnet 5, and Fable models are high-resolution. Models absent from the
-  table use the standard tier, which is always accepted.
+- Tier membership applies the documented rule, Claude 4.7 and later, to the
+  version in the model ID (`claude-<family>-<major>[-<minor>]`). Today that
+  makes Opus 4.7 and later, Sonnet 5, and Fable models high-resolution. IDs
+  that carry no Claude version use the standard tier, which is always
+  accepted.
 - `MaxEncodedBytes`: 10 MB base64. `MaxImages`: 100 for models with a context
   window of 200k tokens or less, otherwise 600. `MaxRequestImageBytes`: below
   the 32 MB request limit with headroom for text.
@@ -321,13 +335,19 @@ The envelope:
 - OpenAI models use the OpenAI policy. Models whose catalog input excludes
   images declare an empty policy.
 
-Per-model exceptions live in a reviewed Kit table keyed by model ID. Models
-absent from the table receive the envelope with user-only placement.
+Per-model exceptions live in a reviewed Kit table keyed by model ID. Each
+exception records the wire format it was reviewed for and applies only while
+the catalog serves the model over that format. Models absent from the table,
+or served over another format, receive the envelope with user-only placement.
 
 ## Required properties
 
 - Every provider declares an image policy for every model; text-only behavior
   is declared, not defaulted.
+- A model advertises image input exactly when its policy accepts images, and
+  a policy that accepts images accepts them in user messages. Image-attachment
+  acceptance, `inspect_image`, and client-visible image input derive from the
+  active model's policy.
 - Request dispatch and replay validation prepare images identically.
 - Canonical history is never mutated by preparation.
 - Kit never rejects a request or model switch because of a history or

@@ -95,6 +95,15 @@ func (m Model) WithContextWindow(contextWindow int) Model {
 
 func (m Model) boundProvider() Provider { return m.provider }
 
+// ImagePolicy returns the image contract the bound provider declares for m.
+// An unbound model accepts no images.
+func (m Model) ImagePolicy() ImagePolicy {
+	if m.provider == nil {
+		return ImagePolicy{}
+	}
+	return m.provider.ImagePolicy(m.metadata())
+}
+
 // IsZero reports whether m is the zero model value.
 func (m Model) IsZero() bool { return m.ID == "" && m.Provider == "" && m.provider == nil }
 
@@ -108,13 +117,18 @@ func (m Model) metadata() Model {
 
 // BindModel returns model bound to its owning provider. It is intended for
 // custom Providers implementations; NewProviders binds resolved models
-// automatically. Binding validates identity only, not model capabilities.
+// automatically. Binding validates identity and that the provider's image
+// policy agrees with the model's advertised image input; it does not otherwise
+// validate model capabilities.
 func BindModel(provider Provider, model Model) (Model, error) {
 	if provider == nil || model.Provider == "" || model.ID == "" {
 		return Model{}, fmt.Errorf("droids: model binding requires provider and model identity")
 	}
 	if provider.ID() != model.Provider {
 		return Model{}, fmt.Errorf("droids: provider %q does not match model provider %q", provider.ID(), model.Provider)
+	}
+	if err := validateModelImagePolicy(model, provider.ImagePolicy(model)); err != nil {
+		return Model{}, err
 	}
 	model = cloneModel(model)
 	model.provider = provider

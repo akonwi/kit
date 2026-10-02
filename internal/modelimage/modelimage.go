@@ -1,17 +1,21 @@
-// Package modelimage owns the validation limits shared by model-visible image inputs.
+// Package modelimage applies the provider-neutral model-image limits, owned by
+// Droids, to Kit's image attachment and image inspection inputs.
 package modelimage
 
-import "github.com/akonwi/kit/internal/attachment"
+import (
+	"github.com/akonwi/kit/internal/attachment"
+	"github.com/akonwi/kit/internal/droids"
+)
 
 const (
 	// MaxBytes is the maximum encoded size of a model-visible image.
-	MaxBytes = 10 << 20
+	MaxBytes = droids.MaxImageBytes
 	// MaxWidth is the maximum decoded width of a model-visible image.
-	MaxWidth = 8192
+	MaxWidth = droids.MaxImageWidth
 	// MaxHeight is the maximum decoded height of a model-visible image.
-	MaxHeight = 8192
+	MaxHeight = droids.MaxImageHeight
 	// MaxPixels is the maximum decoded pixel count of a model-visible image.
-	MaxPixels = 12_000_000
+	MaxPixels = droids.MaxImagePixels
 )
 
 // Limits returns the validation limits shared by image attachments and image inspection.

@@ -5,11 +5,13 @@ enum SessionProjection {
     static func summary(_ info: WireSessionInfo, messages: [TranscriptMessage] = []) throws -> SessionExcerpt {
         guard !info.id.isEmpty, info.cwd.hasPrefix("/"), !info.model.isEmpty,
               ["off", "minimal", "low", "medium", "high", "xhigh", "max"].contains(info.thinkingLevel) else { throw ClientError.invalidPayload }
-        return SessionExcerpt(id: info.id, title: info.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled session",
+        var session = SessionExcerpt(id: info.id, title: info.name.flatMap { $0.isEmpty ? nil : $0 } ?? "Untitled session",
             parentSessionID: info.parentSessionId, parentSessionName: info.parentSessionName,
             sourceTitle: "Kit server", model: info.model, thinking: info.thinkingLevel,
             workspace: URL(fileURLWithPath: info.cwd).lastPathComponent, cwd: info.cwd,
             date: info.createdAt, lastActivity: info.updatedAt, messages: messages, configurationRevision: info.configurationRevision)
+        session.inputs = info.inputs?.map(\.rawValue)
+        return session
     }
 
     static func snapshot(_ snapshot: WireSessionSnapshot) throws -> SessionExcerpt {

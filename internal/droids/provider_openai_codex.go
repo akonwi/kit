@@ -149,8 +149,26 @@ func (c OpenAICodex) build() (providerEntry, error) {
 		canonicalModels: true,
 		stream:          impl.stream,
 		validateReplay:  impl.validateReplay,
+		imagePolicy:     openAICodexImagePolicy,
 		baseURL:         defaultOpenAICodexBaseURL,
 	}, nil
+}
+
+// openAICodexImagePolicy declares the Codex image contract. Codex uses the
+// Responses translation, including "detail": "high", and follows the reference
+// Codex client: inline images only, prepared to 2048 px and 2,500 patches.
+func openAICodexImagePolicy(model Model) ImagePolicy {
+	if !containsString(model.Input, "image") {
+		return ImagePolicy{}
+	}
+	return ImagePolicy{
+		Placements:           []ImagePlacement{ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult},
+		Formats:              []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
+		Sources:              []ImageSourceKind{ImageSourceData},
+		Fit:                  openAIPatchFit(2_048, 2_500),
+		MaxImages:            openAIMaxRequestImages,
+		MaxRequestImageBytes: openAIMaxRequestImageBytes,
+	}
 }
 
 func openAICodexCredentialsConfigured(credentials OpenAICodexCredentials) bool {

@@ -13,6 +13,8 @@ final class ComposerAttachments {
         var uploaded: WireAttachmentInfo?
         var error: String?
         var busy = true
+        /// Whether the prepared file is an image; false until preparation finishes.
+        var isImage = false
     }
     var items: [Item] = []
     var error: String?
@@ -42,8 +44,11 @@ final class ComposerAttachments {
     }
     func failReserved(_ id: UUID, error: Error) { fail(id, error: error) }
 
-    func add(url: URL, client: any ComposerClient, session: String, reserved id: UUID? = nil) {
-        add(filename: url.lastPathComponent, client: client, session: session, reserved: id) {
+    /// Adds a file. `imageRejectingModel` names the session's model when it accepts no
+    /// images; a prepared image is then removed with a notice instead of uploaded.
+    func add(url: URL, client: any ComposerClient, session: String, reserved id: UUID? = nil,
+             imageRejectingModel: @escaping @MainActor () -> String? = { nil }) {
+        add(filename: url.lastPathComponent, client: client, session: session, reserved: id, imageRejectingModel: imageRejectingModel) {
             let access = url.startAccessingSecurityScopedResource()
             defer { if access { url.stopAccessingSecurityScopedResource() } }
             guard try url.resourceValues(forKeys: [.isRegularFileKey]).isRegularFile == true else {
@@ -54,11 +59,12 @@ final class ComposerAttachments {
             return try file.read(upToCount: 10 * 1024 * 1024 + 1) ?? Data()
         }
     }
-    func add(filename: String, data: Data, client: any ComposerClient, session: String, reserved id: UUID? = nil) {
-        add(filename: filename, client: client, session: session, reserved: id) { data }
+    func add(filename: String, data: Data, client: any ComposerClient, session: String, reserved id: UUID? = nil,
+             imageRejectingModel: @escaping @MainActor () -> String? = { nil }) {
+        add(filename: filename, client: client, session: session, reserved: id, imageRejectingModel: imageRejectingModel) { data }
     }
     private func add(filename: String, client: any ComposerClient, session: String, reserved reservedID: UUID?,
-                     read: @escaping @Sendable () throws -> Data) {
+                     imageRejectingModel: @escaping @MainActor () -> String?, read: @escaping @Sendable () throws -> Data) {
         let id: UUID
         if let reservedID {
             guard items.contains(where: { $0.id == reservedID }) else { return }
@@ -72,12 +78,18 @@ final class ComposerAttachments {
                 let prepared = try await Task.detached { try Self.prepare(read(), filename: filename) }.value
                 try Task.checkCancellation()
                 guard let self, let index = self.items.firstIndex(where: { $0.id == id }) else { return }
+                if prepared.isImage, let model = imageRejectingModel() {
+                    self.remove(id)
+                    self.error = "\(model) doesn’t accept images, so \(prepared.filename) wasn’t attached."
+                    return
+                }
                 guard self.items.compactMap(\.data).reduce(prepared.data.count, { $0 + $1.count }) <= 20 * 1024 * 1024 else {
                     throw MutationNotSent(reason: "Attachments must total 20 MB or less.")
                 }
                 self.items[index].filename = prepared.filename
                 self.items[index].data = prepared.data
                 self.items[index].preview = prepared.preview.map { NSImage(cgImage: $0, size: .zero) }
+                self.items[index].isImage = prepared.isImage
                 await self.upload(id, client: client, session: session)
             } catch is CancellationError {} catch { self?.fail(id, error: error) }
         }
@@ -86,6 +98,7 @@ final class ComposerAttachments {
         let filename: String
         let data: Data
         let preview: CGImage?
+        let isImage: Bool
     }
     nonisolated private static func prepare(_ input: Data, filename: String) throws -> Prepared {
         guard !input.isEmpty, input.count <= 10 * 1024 * 1024 else {
@@ -96,7 +109,7 @@ final class ComposerAttachments {
             guard input.count <= 1024 * 1024, !input.contains(0), String(data: input, encoding: .utf8) != nil else {
                 throw MutationNotSent(reason: "Attach a PNG, JPEG, GIF, WebP, or UTF-8 text file up to 1 MB.")
             }
-            return Prepared(filename: filename, data: input, preview: nil)
+            return Prepared(filename: filename, data: input, preview: nil, isImage: false)
         }
         let width = properties[kCGImagePropertyPixelWidth] as? Int ?? 0
         let height = properties[kCGImagePropertyPixelHeight] as? Int ?? 0
@@ -119,7 +132,7 @@ final class ComposerAttachments {
         }
         let preview = CGImageSourceCreateThumbnailAtIndex(source, 0, [kCGImageSourceCreateThumbnailFromImageAlways: true,
             kCGImageSourceCreateThumbnailWithTransform: true, kCGImageSourceThumbnailMaxPixelSize: 320] as CFDictionary)
-        return Prepared(filename: name, data: data, preview: preview)
+        return Prepared(filename: name, data: data, preview: preview, isImage: true)
     }
     func retry(_ id: UUID, client: any ComposerClient, session: String) {
         guard items.first(where: { $0.id == id })?.data != nil else { return }

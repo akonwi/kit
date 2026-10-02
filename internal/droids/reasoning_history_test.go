@@ -234,13 +234,13 @@ func TestReasoningHistoryWaitsForUserAfterInflightToolContinuation(t *testing.T)
 	provider.toolName = "read"
 	model, _ := OpenAIModel("gpt-6-sol")
 	model.Provider = "test"
-	model, err := BindModel(AdaptProvider("test", []Model{model}, func(ctx context.Context, model Model, request Request) Stream {
+	model, err := BindModel(AdaptProviderWithImagePolicy("test", []Model{model}, func(ctx context.Context, model Model, request Request) Stream {
 		s := provider.Stream(ctx, model, request)
 		message := s.Result()
 		message.Provider = model.Provider
 		message.Model = model.ID
 		return reconfigureStream{message: message}
-	}), model)
+	}, openAIImagePolicy), model)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -476,7 +476,7 @@ func reasoningScriptModel(t *testing.T, callback func(context.Context, Model, Re
 	t.Helper()
 	model, _ := OpenAIModel("gpt-6-sol")
 	model.Provider = "test"
-	bound, err := BindModel(AdaptProvider("test", []Model{model}, callback), model)
+	bound, err := BindModel(AdaptProviderWithImagePolicy("test", []Model{model}, callback, openAIImagePolicy), model)
 	if err != nil {
 		t.Fatal(err)
 	}

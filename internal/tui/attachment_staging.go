@@ -7,6 +7,7 @@ import (
 	"net/url"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
@@ -135,11 +136,20 @@ func pastedAttachmentPath(value string) (string, bool) {
 		return "", false
 	}
 	value = filepath.Clean(value)
-	info, err := os.Stat(value)
+	if _, ok := attachmentFileMediaType(value); !ok {
+		return "", false
+	}
+	return value, true
+}
+
+// attachmentFileMediaType sniffs the media type of a regular file Kit can
+// attach. Structural validation remains authoritative at the daemon.
+func attachmentFileMediaType(path string) (string, bool) {
+	info, err := os.Stat(path)
 	if err != nil || !info.Mode().IsRegular() {
 		return "", false
 	}
-	file, err := os.Open(value)
+	file, err := os.Open(path)
 	if err != nil {
 		return "", false
 	}
@@ -153,7 +163,19 @@ func pastedAttachmentPath(value string) (string, bool) {
 	if mediaType != "text/plain" && mediaType != "image/png" && mediaType != "image/jpeg" && mediaType != "image/gif" && mediaType != "image/webp" {
 		return "", false
 	}
-	return value, true
+	return mediaType, true
+}
+
+// isImage reports whether the attachment is, or is being uploaded as, an image.
+func (a stagedAttachment) isImage() bool {
+	return strings.HasPrefix(a.Info.MediaType, "image/")
+}
+
+// sessionAcceptsImages reports whether the session's model may receive image
+// attachments. Unknown inputs, from a server that omits them, are accepted and
+// left to the server's submission check.
+func sessionAcceptsImages(session protocol.SessionInfo) bool {
+	return session.Inputs == nil || slices.Contains(session.Inputs, protocol.ModelInputImage)
 }
 
 func (s *appState) stageAttachments(paths []string, composer string) {
@@ -163,6 +185,26 @@ func (s *appState) stageAttachments(paths []string, composer string) {
 		s.showToast(toastInput{Title: "Attachments unavailable", Subtitle: fmt.Sprintf("Session client %T cannot upload files.", s.bound), Variant: toastError})
 		return
 	}
+	mediaTypes := make([]string, 0, len(paths))
+	accepted := make([]string, 0, len(paths))
+	var refused []string
+	for _, path := range paths {
+		mediaType, _ := attachmentFileMediaType(path)
+		if strings.HasPrefix(mediaType, "image/") && !sessionAcceptsImages(s.session) {
+			refused = append(refused, filepath.Base(path))
+			continue
+		}
+		accepted = append(accepted, path)
+		mediaTypes = append(mediaTypes, mediaType)
+	}
+	if len(refused) > 0 {
+		s.showToast(toastInput{
+			Title:    "Images not attached",
+			Subtitle: fmt.Sprintf("%s doesn't accept images: %s.", modelDisplayName(s.session.Model), strings.Join(refused, ", ")),
+			Variant:  toastWarning,
+		})
+	}
+	paths = accepted
 	pending := 0
 	for _, item := range s.composerAttachments {
 		if item.Info.ID == "" {
@@ -181,7 +223,10 @@ func (s *appState) stageAttachments(paths []string, composer string) {
 		for index, path := range paths {
 			s.attachmentUploadGeneration++
 			tokens[index] = s.attachmentUploadGeneration
-			s.composerAttachments = append(s.composerAttachments, stagedAttachment{Filename: filepath.Base(path), Uploading: true, Token: tokens[index]})
+			s.composerAttachments = append(s.composerAttachments, stagedAttachment{
+				Filename: filepath.Base(path), Uploading: true, Token: tokens[index],
+				Info: protocol.AttachmentInfo{MediaType: mediaTypes[index]},
+			})
 		}
 	})
 	ctx, runtime, sessionID := s.attachmentCtx, s.Context().Runtime(), s.session.ID

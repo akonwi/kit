@@ -280,6 +280,10 @@ type observedCancellationProvider struct {
 
 func (*observedCancellationProvider) ID() string                      { return "test" }
 func (provider *observedCancellationProvider) Models() []droids.Model { return provider.owner.Models() }
+func (*observedCancellationProvider) ImagePolicy(droids.Model) droids.ImagePolicy {
+	return droids.ImagePolicy{}
+}
+
 func (provider *observedCancellationProvider) ValidateReplay(context.Context, droids.Model, []droids.Message) error {
 	return nil
 }

@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"math"
+	"slices"
 	"sort"
 	"strings"
 	"time"
@@ -63,18 +64,34 @@ func (m *Manager) ModelCapabilities(ctx context.Context) ([]ModelCapability, err
 		if name == "" {
 			name = model.ID
 		}
-		inputs := append([]string(nil), model.Input...)
-		if len(inputs) == 0 {
-			inputs = []string{"text"}
-		}
 		result = append(result, ModelCapability{
 			ID: selector, Name: name, Provider: model.Provider, API: string(model.API),
 			ContextWindow: model.ContextWindow, MaxInputTokens: model.MaxInputTokens, MaxOutputTokens: model.MaxOutputTokens,
-			ThinkingLevels: append([]string(nil), supportedThinkingLevels(model)...), Inputs: inputs,
+			ThinkingLevels: append([]string(nil), supportedThinkingLevels(model)...), Inputs: modelInputs(model),
 		})
 	}
 	sort.Slice(result, func(i, j int) bool { return result[i].ID < result[j].ID })
 	return result, nil
+}
+
+// ModelInputs lists what the model selected by selector accepts in user
+// messages, or nil when the selector names no known model.
+func (m *Manager) ModelInputs(selector string) []string {
+	model, ok := m.providers.Model(selector)
+	if !ok {
+		return nil
+	}
+	return modelInputs(model)
+}
+
+// modelInputs lists what model accepts in user messages: text, and images when
+// it advertises image input. Droids requires a model that advertises image
+// input to have an image policy that accepts user images.
+func modelInputs(model droids.Model) []string {
+	if slices.Contains(model.Input, "image") {
+		return []string{"text", "image"}
+	}
+	return []string{"text"}
 }
 
 // ConfigureSessionInput requests one exact model/thinking transition from the

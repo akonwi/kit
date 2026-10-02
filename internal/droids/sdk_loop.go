@@ -529,7 +529,10 @@ func (rt *sdkRuntime) requestAssistant(ctx context.Context, turnID TurnID) (Mess
 	if reasoningHistory != nil {
 		request.Reasoning = reasoningHistory.Effective
 	}
-	if err := validateRequestReplay(ctx, rt.provider, rt.droid.model, request); err != nil {
+	// Validation and dispatch share one prepared request so they see identical
+	// messages.
+	request = prepareRequest(rt.provider, rt.droid.model, request)
+	if err := validatePreparedRequestReplay(ctx, rt.provider, rt.droid.model, request); err != nil {
 		return MessageEnvelope{}, err
 	}
 	messageID, err := newMessageID()
@@ -1653,7 +1656,11 @@ func (rt *sdkRuntime) invokeTool(ctx context.Context, toolContext ToolContext, c
 	return result
 }
 
+// validatedToolResultMessage prepares result for canonical history. Inline
+// images are held to the provider-neutral image limits, and a result that
+// still cannot be encoded loses its details or becomes an error result.
 func validatedToolResultMessage(call ToolCall, result ToolResult) (ToolResultMessage, wireMessage, bool, error) {
+	result.Content = ingestToolResultImages(result.Content)
 	message := toolResultMessage(call, result)
 	wire, err := messageToWire(message)
 	if err == nil {

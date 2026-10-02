@@ -106,7 +106,7 @@ func TestComposerAttachmentRemoveRemainsVisibleForLongNames(t *testing.T) {
 	application := uitest.New(composerAttachmentRow(ui.DefaultTheme(), stagedAttachment{
 		Filename: "a-very-long-attachment-name-that-must-truncate.png",
 		Info:     protocol.AttachmentInfo{Size: 2048, MediaType: "image/png"},
-	}, 0, func(ui.EventContext, int) {}))
+	}, 0, "", func(ui.EventContext, int) {}))
 	application.Pump(30, 1)
 	rows := paintedRows(application, 30, 1)
 	column, _ := findTextCell(t, rows, glyphTimes)

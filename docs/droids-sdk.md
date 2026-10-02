@@ -1053,6 +1053,12 @@ func EncodeDetails(value any) (json.RawMessage, error)
 returns. Updates are append-only and transient. The returned result is
 authoritative and durable.
 
+Inline images in a returned result are held to the provider-neutral limits
+`MaxImageBytes`, `MaxImageWidth`, `MaxImageHeight`, and `MaxImagePixels` before
+the result becomes durable. An image within them is stored with the media type
+detected from its bytes; any other image is replaced by a text placeholder
+stating why, and the rest of the result is kept.
+
 `IsError` reports an application-level tool failure to the model without
 failing the droid runtime. Returning a Go error is converted into an error tool
 result.
@@ -1167,6 +1173,7 @@ type Provider interface {
         model Model,
         messages []MessageEnvelope,
     ) error
+    ImagePolicy(model Model) ImagePolicy
 }
 
 type ContextUsage struct {
@@ -1254,6 +1261,16 @@ metadata.
 
 `ValidateReplay` enforces provider/model/account constraints, including opaque
 response and credential scopes.
+
+`ImagePolicy` declares, for every model, where images may appear and which
+formats, sources, sizes, and limits the provider accepts, as defined by
+[ADR 0037](adrs/0037-prepare-model-images-through-provider-image-policies.md).
+Text-only models return the zero policy. A policy that accepts images accepts
+them in user messages. Registration and model binding fail when a policy
+disagrees with the model's advertised image input. Droids prepares
+request images through the policy before calling `Provider.Stream`, so a
+provider receives only images its policy accepts; images it cannot receive are
+replaced by a text placeholder.
 
 ## Events and subscriptions
 

@@ -40,6 +40,11 @@ func Emit() ([]byte, error) {
 			}
 		}
 	}
+	// jsonschema discovers transcript content through parent structs and leaves
+	// an empty interface placeholder. Emit its declared discriminated union.
+	if _, err := addTypeSchema(components, reflect.TypeFor[protocol.TranscriptContent]()); err != nil {
+		return nil, err
+	}
 	for name, schema := range components {
 		components[name] = normalizeSchema(schema)
 	}
@@ -324,11 +329,14 @@ func addTypeSchema(components map[string]any, typ reflect.Type) (string, error) 
 		return "", err
 	}
 	name := schemaName(typ)
-	if _, exists := components[name]; exists {
-		return name, nil
-	}
+	// Reflection can add a placeholder definition for a union before it is
+	// encountered directly. Replace that placeholder with its declared union
+	// schema rather than returning the incomplete reflected object.
 	if union, ok := reflect.New(typ).Elem().Interface().(unionVariants); ok {
 		return addUnionSchema(components, name, union.UnionVariants())
+	}
+	if _, exists := components[name]; exists {
+		return name, nil
 	}
 	reflector := jsonschema.Reflector{}
 	reflected := reflector.ReflectFromType(typ)

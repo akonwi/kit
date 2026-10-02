@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -28,10 +29,10 @@ func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t
 	gate <- struct{}{}
 	session := &localSession{id: "session_test", mutations: transport, mutationGate: gate, snapshot: initial}
 	result, err := session.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 1, Model: "test/new"})
-	if err != nil || result.Session != configured.Session {
+	if err != nil || !reflect.DeepEqual(result.Session, configured.Session) {
 		t.Fatalf("Configure() = %+v, %v", result, err)
 	}
-	if session.snapshot.Session != configured.Session || session.snapshot.EventStreamID != "stream_new" || session.cacheGeneration != 1 {
+	if !reflect.DeepEqual(session.snapshot.Session, configured.Session) || session.snapshot.EventStreamID != "stream_new" || session.cacheGeneration != 1 {
 		t.Fatalf("configured cache = %+v generation=%d", session.snapshot, session.cacheGeneration)
 	}
 

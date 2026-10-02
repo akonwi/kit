@@ -1091,6 +1091,8 @@ type authorityProviders struct {
 	started  chan struct{}
 	requests []droids.Request
 	failure  bool
+	// imagePolicy, when set, makes the model accept images under the policy.
+	imagePolicy *droids.ImagePolicy
 }
 
 func (p *authorityProviders) ID() string             { return "test" }
@@ -1102,6 +1104,10 @@ func (p *authorityProviders) Resolve(id string) (droids.Model, error) {
 	model, ok := p.Model(id)
 	if !ok {
 		return droids.Model{}, fmt.Errorf("unknown model %q", id)
+	}
+	if p.imagePolicy != nil {
+		policy := *p.imagePolicy
+		return droids.BindModel(droids.AdaptProviderWithImagePolicy("test", p.Models(), p.Stream, func(droids.Model) droids.ImagePolicy { return policy }), model)
 	}
 	return droids.BindModel(droids.AdaptProvider("test", p.Models(), p.Stream), model)
 }
@@ -1138,8 +1144,12 @@ func (p *authorityProviders) Stream(ctx context.Context, _ droids.Model, request
 		Content: []droids.AssistantContent{droids.TextContent{Text: fmt.Sprintf("reply %d", call)}},
 	}}
 }
-func (*authorityProviders) model() droids.Model {
-	return droids.Model{ID: "echo", Provider: "test", API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192}
+func (p *authorityProviders) model() droids.Model {
+	model := droids.Model{ID: "echo", Provider: "test", API: droids.ModelAPIOpenAIResponses, ContextWindow: 128_000, MaxOutputTokens: 8_192}
+	if p.imagePolicy != nil {
+		model.Input = []string{"text", "image"}
+	}
+	return model
 }
 
 type authorityStream struct{ message droids.AssistantMessage }
