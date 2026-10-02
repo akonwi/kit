@@ -2043,84 +2043,54 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return result, nil
 	})
-	mux.HandleFunc("GET /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
-		input := protocol.ListAnnotationsInput{Cursor: request.URL.Query().Get("cursor")}
-		if raw := request.URL.Query().Get("pageSize"); raw != "" {
-			pageSize, err := strconv.Atoi(raw)
-			if err != nil {
-				writeSessionError(writer, fmt.Errorf("%w: annotation page size is invalid", errInvalidSessionRequest))
-				return
-			}
-			input.PageSize = pageSize
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.ListAnnotations, func(ctx context.Context, params httpapi.AnnotationListParams, _ httpapi.NoBody) (protocol.AnnotationPage, error) {
+		input := protocol.ListAnnotationsInput{Cursor: params.Cursor, PageSize: params.PageSize}
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.AnnotationPage{}, invalidAPIError()
 		}
-		result, err := service.ListAnnotations(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.ListAnnotations(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.AnnotationPage{}, annotationAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid annotation page: %w", err))
-			return
+		if err := result.Validate(); err != nil || result.SessionID != params.SessionID {
+			return protocol.AnnotationPage{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusOK, result)
+		return result, nil
 	})
-	mux.HandleFunc("POST /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.CreateAnnotationInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.CreateAnnotation, func(ctx context.Context, params httpapi.SessionPath, input protocol.CreateAnnotationInput) (protocol.Annotation, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.Annotation{}, invalidAPIError()
 		}
-		result, err := service.CreateAnnotation(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.CreateAnnotation(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Annotation{}, annotationAPIError(err)
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid annotation: %w", err))
-			return
+		if err := result.Validate(); err != nil || result.SessionID != params.SessionID {
+			return protocol.Annotation{}, internalAPIError()
 		}
-		writeJSON(writer, http.StatusCreated, result)
+		return result, nil
 	})
-	mux.HandleFunc("PATCH /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.UpdateAnnotationInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.UpdateAnnotation, func(ctx context.Context, params httpapi.SessionPath, input protocol.UpdateAnnotationInput) (protocol.Annotation, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return protocol.Annotation{}, invalidAPIError()
 		}
-		result, err := service.UpdateAnnotation(request.Context(), request.PathValue("sessionID"), input)
+		result, err := service.UpdateAnnotation(ctx, params.SessionID, input)
 		if err != nil {
-			writeSessionError(writer, err)
-			return
+			return protocol.Annotation{}, annotationAPIError(err)
 		}
-		writeJSON(writer, http.StatusOK, result)
+		if err := result.Validate(); err != nil || result.SessionID != params.SessionID || result.ID != input.AnnotationID {
+			return protocol.Annotation{}, internalAPIError()
+		}
+		return result, nil
 	})
-	mux.HandleFunc("DELETE /v1/sessions/{sessionID}/annotations", func(writer http.ResponseWriter, request *http.Request) {
-		var input protocol.DeleteAnnotationInput
-		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
-			return
-		}
+	httpapi.Handle(mux, httpOptions, httpapi.DeleteAnnotation, func(ctx context.Context, params httpapi.SessionPath, input protocol.DeleteAnnotationInput) (httpapi.NoBody, error) {
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
-			return
+			return httpapi.NoBody{}, invalidAPIError()
 		}
-		if err := service.DeleteAnnotation(request.Context(), request.PathValue("sessionID"), input); err != nil {
-			writeSessionError(writer, err)
-			return
+		if err := service.DeleteAnnotation(ctx, params.SessionID, input); err != nil {
+			return httpapi.NoBody{}, annotationAPIError(err)
 		}
-		writer.WriteHeader(http.StatusNoContent)
+		return httpapi.NoBody{}, nil
 	})
 	mux.HandleFunc("GET /v1/sessions/{sessionID}/files", func(writer http.ResponseWriter, request *http.Request) {
 		result, err := service.FileIndex(request.Context(), request.PathValue("sessionID"), request.URL.Query().Get("refresh") == "true")
@@ -2792,4 +2762,24 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 		reportRequestError(writer, status, err)
 	}
 	writeJSON(writer, status, map[string]string{"error": message})
+}
+
+// annotationAPIError projects annotation operation failures into ADR-0034 envelopes.
+func annotationAPIError(err error) error {
+	var evidence *kitannotation.EvidenceError
+	if errors.As(err, &evidence) {
+		status := map[protocol.AnnotationEvidenceErrorCode]int{
+			protocol.AnnotationEvidenceErrorInvalid: http.StatusBadRequest, protocol.AnnotationEvidenceErrorPermission: http.StatusForbidden,
+			protocol.AnnotationEvidenceErrorStaleWorkspace: http.StatusConflict, protocol.AnnotationEvidenceErrorStaleTarget: http.StatusConflict, protocol.AnnotationEvidenceErrorStaleFile: http.StatusConflict,
+			protocol.AnnotationEvidenceErrorLimit: http.StatusRequestEntityTooLarge, protocol.AnnotationEvidenceErrorUnavailable: http.StatusServiceUnavailable,
+		}[evidence.Kind]
+		return httpapi.NewAPIError(status, httpapi.ErrorCode(evidence.Kind), evidence.Error(), nil)
+	}
+	if errors.Is(err, kitsession.ErrNotFound) {
+		return httpapi.NewAPIError(http.StatusNotFound, httpapi.ErrorNotFound, "session not found", nil)
+	}
+	if errors.Is(err, kitsession.ErrInvalidInput) || errors.Is(err, errInvalidSessionRequest) {
+		return invalidAPIError()
+	}
+	return internalAPIError()
 }

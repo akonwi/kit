@@ -26,6 +26,18 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/delete(deleteSession)`.
     func deleteSession(_ input: Operations.DeleteSession.Input) async throws -> Operations.DeleteSession.Output
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/get(listAnnotations)`.
+    func listAnnotations(_ input: Operations.ListAnnotations.Input) async throws -> Operations.ListAnnotations.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/post(createAnnotation)`.
+    func createAnnotation(_ input: Operations.CreateAnnotation.Input) async throws -> Operations.CreateAnnotation.Output
+    /// - Remark: HTTP `PATCH /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/patch(updateAnnotation)`.
+    func updateAnnotation(_ input: Operations.UpdateAnnotation.Input) async throws -> Operations.UpdateAnnotation.Output
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/delete(deleteAnnotation)`.
+    func deleteAnnotation(_ input: Operations.DeleteAnnotation.Input) async throws -> Operations.DeleteAnnotation.Output
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/compact/post(compactSession)`.
     func compactSession(_ input: Operations.CompactSession.Input) async throws -> Operations.CompactSession.Output
@@ -172,6 +184,58 @@ extension APIProtocol {
         try await deleteSession(Operations.DeleteSession.Input(
             path: path,
             headers: headers
+        ))
+    }
+    /// - Remark: HTTP `GET /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/get(listAnnotations)`.
+    internal func listAnnotations(
+        path: Operations.ListAnnotations.Input.Path,
+        query: Operations.ListAnnotations.Input.Query = .init(),
+        headers: Operations.ListAnnotations.Input.Headers
+    ) async throws -> Operations.ListAnnotations.Output {
+        try await listAnnotations(Operations.ListAnnotations.Input(
+            path: path,
+            query: query,
+            headers: headers
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/post(createAnnotation)`.
+    internal func createAnnotation(
+        path: Operations.CreateAnnotation.Input.Path,
+        headers: Operations.CreateAnnotation.Input.Headers,
+        body: Operations.CreateAnnotation.Input.Body
+    ) async throws -> Operations.CreateAnnotation.Output {
+        try await createAnnotation(Operations.CreateAnnotation.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `PATCH /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/patch(updateAnnotation)`.
+    internal func updateAnnotation(
+        path: Operations.UpdateAnnotation.Input.Path,
+        headers: Operations.UpdateAnnotation.Input.Headers,
+        body: Operations.UpdateAnnotation.Input.Body
+    ) async throws -> Operations.UpdateAnnotation.Output {
+        try await updateAnnotation(Operations.UpdateAnnotation.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `DELETE /v1/sessions/{sessionID}/annotations`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/annotations/delete(deleteAnnotation)`.
+    internal func deleteAnnotation(
+        path: Operations.DeleteAnnotation.Input.Path,
+        headers: Operations.DeleteAnnotation.Input.Headers,
+        body: Operations.DeleteAnnotation.Input.Body
+    ) async throws -> Operations.DeleteAnnotation.Output {
+        try await deleteAnnotation(Operations.DeleteAnnotation.Input(
+            path: path,
+            headers: headers,
+            body: body
         ))
     }
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/compact`.
