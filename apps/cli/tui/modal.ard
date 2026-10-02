@@ -120,13 +120,16 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
   cui::box(
     // Distinguish modal kinds so replacing a focused picker with a passive
     // dialog remounts its focus owner and applies autofocus again.
+    // A modal owns Escape even while a descendant search input is focused.
+    // Application scope plus the elevated priority prevents the input's local
+    // key layer from delaying dismissal during reconciliation.
     content.@,
     key: "modal.panel.{spec.title}",
     autofocus: spec.autofocus,
     styles: panel_style(colors, spec.placement),
     commands: commands.@,
     bindings: panel_bindings.@,
-    binding_scope: keymap::ScopeMode::focus_within,
+    binding_scope: keymap::ScopeMode::application,
     binding_priority: 100,
   )
 }
