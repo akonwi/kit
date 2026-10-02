@@ -7,22 +7,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Production data and configuration
 
-- [-] CORE-MIG-001 — No migration command, automatic configuration conversion,
-  compatibility scanner, or migration-marker startup gate is required. Compatible
-  configuration is reused in place.
-- [-] CORE-MIG-002 — Legacy runtime-data import and session continuation are
-  intentionally excluded, not deferred. Native Kit starts with fresh sessions;
-  legacy sessions, turns, attachments, scratchpads, subagent records, and runtime
-  metadata are not imported.
-- [ ] CORE-MIG-003 — Leave legacy runtime data untouched and keep native storage
-  isolated from it when reusing `~/.kit`.
-- [~] CORE-MIG-004 — Publish a short migration guide and embedded, version-matched
-  skill covering actual configuration differences and user-directed adjustments.
-  Explain unchanged paths/formats, unsupported settings and plugin methods,
-  discovery/validation differences, fresh sessions, and provider/MCP reauthentication.
-  Do not require automated compatibility reporting or credential conversion.
-  The v0.36.0 guide is drafted in `docs/releases/v0.36.0-migration.md`;
-  the embedded migration skill and published-guide verification remain outstanding.
 - [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
   management and consistent private, locked, atomic, generation-checked storage
   for every supported provider. Credential import is not required; verify that
@@ -37,15 +21,13 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [~] CORE-PROTO-001 — Within each tagged protocol baseline (40 from v0.37.0,
-  41 from v0.38.0, 42 from v0.39.0), separately built client and daemon releases with the same session protocol
-  interoperate in both directions without replacing an active daemon. Verify
-  baseline session operations, transcript/context-boundary projections,
-  snapshots, errors, event replay and resynchronization, SSE, and mutation
-  admission against pinned source revisions. Bump the protocol for an
-  incompatible baseline change; keep release strings diagnostic and reject
-  unverified protocol skew non-destructively. Database schema, local registry
-  version, and explicit daemon replacement remain separate contracts.
+- [ ] CORE-PROTO-025 — Verify that separately built client and daemon releases
+  sharing the current session protocol interoperate in both directions against
+  pinned source revisions, without replacing an active daemon. Cover baseline
+  session operations, transcript and context-boundary projections, snapshots,
+  errors, event replay and resynchronization, SSE, and mutation admission.
+  Repeat that verification before allowing cross-release attachment on a future
+  protocol number.
 - [~] CORE-LIFE-002 — Enforce explicit resource and backpressure limits across
   HTTP, event replay and subscriptions, direct tools, MCP, and clients.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
@@ -63,10 +45,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   child through droids semantic forking, with client-visible lineage, attachment
   preservation, and an optional first child prompt, without changing the
   session viewed by unrelated clients.
-- [x] CORE-PEER-001 — Let persistent session droids discover eligible peers and
-  exchange bounded, durable, correlated queries through independently scheduled
-  recipient turns, with restart-safe delivery, terminal replies, cycle limits,
-  and no peer lifecycle authority, as defined by ADR 0014.
 - [~] CORE-RUN-001 — Complete streaming and recovery semantics for text,
   thinking, messages, tool activity, usage, provider errors, terminal state, and
   reconnecting clients.
@@ -74,8 +52,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   reconnect and restart, including rich ordered content and tool identity.
 - [~] CORE-RUN-003 — Propagate abort and cooperative cancellation through
   providers, tools, MCP, and subagents with deterministic terminal state.
-- [x] CORE-RUN-004 — Expose bounded provider retry countdowns and recovery state
-  to clients.
 - [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
   checkpoints and expose pending, completed, and failed lifecycle state. Include
   a bounded, actionable failure reason in the server's failed-compaction event
@@ -98,19 +74,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   tool-call tail, compaction trigger/replacement decisions, and manual-versus-
   automatic compaction with regression tests. Preserve safe limits without
   treating Base64 length as token count.
-- [x] CORE-RUN-007 — Separate image presentation from model inspection.
-  `show_image` currently returns persisted image bytes as a model-facing image
-  tool-result block as well as displaying them in the transcript. Change it to
-  return only bounded text/metadata to the model while retaining the validated
-  attachment and presentation marker for clients, live events, restored history,
-  and workspace previews. Provide a separate explicit image-inspection tool
-  that returns a standard model-visible image block, subject to normal image
-  context accounting, using the same bounded validation and attachment path as
-  user image inputs. Do not let a presentation-only tool silently add image
-  tokens to model context. Update ADR 0031 and test provider payloads, replay,
-  projection, compaction, and terminal/macOS/web presentation independently.
-- [x] CORE-SESSION-002 — Automatically assign useful session names without
-  overwriting explicit user names.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
 - [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
@@ -140,76 +103,11 @@ IDs but must not redefine server, persistence, or protocol semantics.
   keep up without blocking authoritative session work.
 - [~] CORE-PROTO-007 — Share conformance tests across server and session client
   implementations used by the production release.
-- [x] CORE-PROTO-008 — Go-defined OpenAPI 3.1 contract foundations per
-  [ADR 0031](../docs/adrs/0031-publish-go-defined-openapi-contract.md):
-  `internal/httpapi` operation catalog with `Handle`/`Call` bindings, the
-  `internal/httpapi/openapi` emitter and committed
-  `api/kit-session.openapi.json` with a staleness test, test-only conformance
-  middleware, protocol enum values with a coverage test, and tag-filtered Swift
-  generation. Retained for slice dependencies.
-- [x] CORE-PROTO-022 — Gate breaking contract changes in CI with `oasdiff`
-  against the document published by the most recent release, requiring a
-  `SessionProtocolVersion` greater than that release's.
-- [x] CORE-PROTO-024 — The emitter rejects pointer fields that are not
-  `omitempty` or `omitzero`; optional contract fields are omitted, never `null`
-  ([ADR 0031](../docs/adrs/0031-publish-go-defined-openapi-contract.md)).
-Contract slices migrate the API one domain at a time. A slice is complete when
-its operations and schemas are in the catalog under the domain's tag; the Go
-server and session client use the catalog; its wire shapes are tightened (one
-error body per ADR 0034, non-null collections, explicit required zero values,
-and ADR 0033 names where applicable); and the macOS client (`MAC-PROTO-001`)
-consumes the domain through generated code. Record any slice-specific wire
-change in an ADR before implementing it. Wire changes bump
-`SessionProtocolVersion` at most once per release. Every slice depends on
-`CORE-PROTO-008`.
-
-- [x] CORE-PROTO-011 — VCS slice, with the shared `internal/httpapi` SSE stream
-  operation, writer, and reader and the streaming macOS transport path.
-- [x] CORE-PROTO-012 — Turns, events, and transcript slice: submissions,
-  prompts, prompt commands, follow-ups, turn status and abort, interaction
-  responses, event pages and stream, message and transcript pages. Adopts the
-  ADR 0033 vocabulary and turn-only terminology across paths, records, and
-  fields (including interaction and snapshot run identity), removes `runId`,
-  and omits turn identity from session-scoped events. Depends on
-  `CORE-PROTO-009`.
-- [x] CORE-PROTO-013 — Sessions slice: list, create, read, rename, delete,
-  dispose, fork, cwd change, configure, compact, and reload. The server/OpenAPI
-  catalog phase is complete; migrate the macOS client to the generated sessions
-  operations and generated wire types.
-- [x] CORE-PROTO-014 — Workspace slice: workspace reference, directory pages,
-  file reads, and file index.
-- [x] CORE-PROTO-015 — Diff slice: targets, observations, working tree, and file
-  diffs.
-- [x] CORE-PROTO-016 — Annotations slice: list, create, update, and delete.
-- [x] CORE-PROTO-017 — Bash slice: start, read, abort, and history.
-- [x] CORE-PROTO-018 — Attachments slice: multipart upload, resolution, and
-  authenticated reads.
-- [x] CORE-PROTO-019 — Subagents slice: operations, transcript, and live events
-  with a closed ADR 0033 vocabulary so `SubagentLiveEvent` becomes a
-  discriminated union.
-- [x] CORE-PROTO-020 — Plugins slice: plugin command execution and the
-  live `plugin.toast` SSE stream (32 KiB records, not resumable).
-- [x] CORE-PROTO-021 — Server slice: health, shutdown, and model catalog. Then
-  require catalog completeness and remove non-catalog route registration.
 
 ### Workspace data, tools, attachments, and interactions
 
-- [x] CORE-WORK-001 — Expose bounded, client-safe directory listings and file
-  reads rooted in and unable to escape the session workspace, with canonical
-  paths, revisions, truncation, and explicit missing, binary, permission, and
-  stale-data errors, as defined by ADR 0019.
-- [x] CORE-DIFF-001 — Expose bounded, revision-aware file and hunk diff data for
-  working-tree changes, including agent edits, without requiring clients to
-  execute Git or parse presentation-oriented tool output.
 - [~] CORE-TOOL-001 — Route URL opening through validated client/platform ports
   and define safe behavior when no capable client is attached.
-- [x] CORE-ATT-001 — Validated local image and attachment inputs, provider
-  capability and bounds enforcement, durable references, submission,
-  restoration, transcript projection, and cleanup on session deletion.
-- [x] CORE-INT-001 — User-interaction request and result contracts. Retained for
-  `WEB-INT-001`.
-- [x] CORE-INT-002 — Session-owned, reconnect-safe pending interactions. Retained
-  for `WEB-INT-001`.
 - [~] CORE-TOOL-002 — Implement approval/interceptor behavior without allowing a
   client to bypass server-owned tool policy. Generation-owned plugin interception
   now gates session and session-owned child tools on the server. Automated
@@ -307,178 +205,6 @@ handling, effort history, and prompt-cache controls are documented in the featur
 Process ownership and plugin UI routing follow
 [ADR 0026](../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md).
 
-- [x] CORE-PLUGIN-001 — Discover and validate manifest-v1 user and project
-  plugins with deterministic precedence and automatic trusted-code loading.
-  Initialize in the background without blocking turns; isolate startup failures
-  and report persistent failures. Use the resolved v2 user home.
-  The daemon composes a lazy session host using resolved v2 paths and canonical
-  reserved command domains. Runtime publication starts background discovery;
-  rejected loads never launch processes. Bounded warning snapshots report
-  manifest, launch, initialization, runtime, and cleanup failures. Completed
-  instance failures additionally emit one persistent notification to attached
-  clients and log the bounded summary and stderr tail to the private server log.
-- [x] CORE-PLUGIN-002 — Launch plugin processes without a shell from the
-  installation working directory, reserve stdout for RPC, continuously drain
-  bounded stderr, and enforce startup/shutdown deadlines.
-  Low-level launch, bounded stderr, context-owned supervision, and process-group
-  TERM/KILL cleanup are implemented and subprocess-tested. Generation-bound
-  instances now perform background v1 initialization with a ten-second deadline,
-  synchronous result validation/admission gating, and bounded graceful shutdown
-  before group termination. Subprocess tests cover runtime behavior;
-  Linux-specific manual verification is not a native-scope completion gate.
-  Runtime-host composition and shutdown/disposal ownership are implemented.
-- [x] CORE-PLUGIN-003 — Implement full-duplex versioned RPC, request
-  correlation, cancellation, crash cleanup, and per-session process ownership.
-  Standalone JSON-RPC transport supports bounded framing/queues, nested and
-  out-of-order calls, batches, exact request IDs, bidirectional cancellation,
-  ordered notifications, and connection-failure cleanup; covered by race and
-  real-subprocess tests. Instance lifecycle now couples RPC/process failures,
-  verifies version negotiation before following work dispatches, revokes call
-  admission, and cancels both directions on stop. Instance identity fixes session,
-  plugin, and generation; bounded diagnostic snapshots retain failure and stderr.
-  Runtime hosts own cwd/name/reload/disposal transitions, retain user instances
-  across cwd changes, reconcile initialization to current context, and fence
-  handlers by host lifetime plus instance/transition generations. Method-specific
-  adapters implement the supported native profile and reject excluded methods.
-- [x] CORE-PLUGIN-004 — Support commands, tools, interception,
-  subagent definitions, lifecycle events, and UI requests through typed
-  contributions. Apply accepted contribution changes
-  live at the earliest applicable UI/model-request/dispatch boundary, without
-  waiting for turn completion or requiring reload. Give plugin interactions explicit
-  ownership independent of model tool calls, route responses through the shared
-  session broker. Plugin footer click callbacks, declarative URL actions, and
-  `kit/system/open-url` are outside native scope, not deferred work.
-  Present session-scoped notifications without replaying stale transient toasts.
-  Restrict chrome items and hide claims to the bottom-right footer, allowing
-  composition and replacement of default location content; reject protected
-  targets and unsupported placement explicitly.
-  The host now registers/unregisters bounded, namespaced command metadata and
-  executes literal arguments against the selected instance generation, with
-  context-ordered admission, cancellation, and strict null-result validation.
-  The real v1 Python plugin-demo fixture covers execution, cwd updates, and
-  validated toast callbacks. Separate session/protocol catalogs and cancellable
-  HTTP/bound-client execution now carry opaque instance selections, reject stale
-  or cross-session owners, and report bounded typed failures without starting a
-  model run. The native palette now presents namespaced commands and argument
-  hints, requires explicit reselection after owner replacement, and executes
-  literal arguments without disturbing composer drafts or model turns. One
-  attachment-owned invocation runs at a time with a two-minute deadline and
-  scoped progress/error feedback; switching sessions cancels its wait. Successful
-  execution clears progress without adding a completion toast.
-  Plugin-emitted toasts now use bounded live-only session fan-out, an authenticated
-  NDJSON stream, and attachment-owned native notification rendering. Detached
-  clients receive no transient backlog; persistent notices also retain the host
-  diagnostic projection. Real plugin-demo tests cover daemon and bound-client
-  delivery, and UI tests cover presentation and stale-callback suppression.
-  The user manually verified the available command/toast and session/cwd
-  workflows on macOS. Dialog and remaining contribution workflows were verified
-  as their native slices landed.
-  Host-side confirm/input/select adapters now validate bounded v1 payloads,
-  preserve opaque JSON choice values, distinguish unavailable UI from user
-  cancellation, and fence callbacks/results by instance lifetime. The real
-  ui-api-demo flow passes with a scripted host observer, including revocation
-  cancellation. The daemon now routes dialogs through the shared session broker
-  with explicit plugin-generation ownership and no fabricated model run or tool
-  identities. Choice values remain host-private; clients receive option metadata
-  and opaque response IDs. Native docks support custom confirmation labels/default
-  focus, initial/empty input, and plugin provenance. Select dialogs use plain
-  option lists in both clients, even when a plugin requests filtering. Runless metadata
-  delivery is separate from model-run interaction delivery to prevent stale replay.
-  Real ui-api-demo daemon tests cover the complete dialog sequence, concurrent
-  first-answer-wins responses, empty input, and reload revocation; broker tests
-  cover shutdown/admission cancellation under runtime authority. Native keyboard
-  and presentation tests cover labels, focus traversal, initial values, and
-  plain-list selection.
-  The user confirmed the ui-api-demo dialog flow works in the TUI on macOS.
-  Host-side footer set/update/clear and hide/show adapters now validate bounded
-  styled segments and public theme tokens, preserve first-registration order,
-  and fence items/claims by generation. Only the bottom-right region and
-  `kit.footer.location` built-in target are configurable; left/header operations,
-  click callbacks, and URL actions remain unsupported. Overlapping hide claims
-  compose, and revocation restores defaults when no active claim remains.
-  Real subprocess and race tests cover publication, crashes, reload/cwd cleanup,
-  invalid input, snapshot isolation, and capacity limits. Session/protocol footer
-  snapshots now reach both clients through metadata invalidation. TUI and macOS
-  render styled static items in the bounded bottom-right region with labeled
-  overflow; the footer-demo fixture covers set/replace/clear and reload. The user
-  manually verified footer rendering, overflow, and lifecycle behavior.
-  Tool registration/unregistration now validates the v1 schema profile and
-  publishes generation- and registration-owned model tools at the next request
-  boundary. Model inputs and text/image/details/terminate results are validated;
-  declared execution modes and tool-owned prompt guidance use the existing agent
-  loop. Captured callbacks and durable registration identities prevent stale
-  model responses or recovered calls from reaching replacement registrations.
-  Admitted batch scheduling is durable; a real SQLite close/reopen/resume test
-  covers stale plugin ownership and sequential hook/callback ordering.
-  A real tool-demo subprocess test covers daemon/model execution and durable
-  transcript results. A live-session echo smoke check returned `plugin tools work`;
-  the user also verified the broader lifecycle behavior.
-  Interceptors now register idempotently, run sequentially in registration order,
-  and fail closed on errors or replacement without automatically aborting the
-  whole turn. Policy identities are persisted per admitted tool and checked again
-  immediately before invoking tool code, including parallel batches. Registry
-  changes cancel pending interception; recovered work never reuses an old host's
-  approval. Core/plugin tools and session-owned child tools use the same policy.
-  Real subprocess-to-daemon tests exercise nested confirmation, explicit rejection,
-  approval, and cancellation. SQLite reopen and parallel-ready tests cover stale
-  policy admission; test fixtures remain outside automatic plugin discovery.
-  Live-session approval, rejection, and lifecycle behavior were manually verified.
-  Plugin subagent registration now publishes bounded, canonical generation-owned
-  definitions into the existing effective catalog, model prompt, dynamic parent
-  tool, and native snapshots. Filesystem conflicts fail synchronously or remove
-  a contribution when the base catalog changes. Revocation prevents new starts
-  without aborting durable children admitted under the prior definition. Host,
-  session, subprocess, prompt, metadata, and race tests cover registration,
-  removal, conflicts, reload/cwd cleanup, and live projection.
-  Turn-started/completed notifications now follow canonical durable admission and
-  terminal settlement, including failure/abort. Only ready generations that
-  received start may receive completion; late/replacement instances and recovered
-  turns receive no replay. Payloads contain ordered user/assistant text only.
-  Session-owned autonomous reactions retain session identity; child subagent turns
-  do not fabricate parent events. Completion frames are bounded to 256 KiB and
-  projection/settlement waits are bounded; omission produces diagnostics.
-  Real subprocess, queued-turn, cancellation, runtime-disposal, and SQLite-reopen
-  tests cover ordering and lifecycle ownership. Live-session start/completion,
-  failure/reload lifecycle, and text-only projection were manually verified,
-  including exclusion of tool arguments/output. Live Git notifications now use one session-owned
-  shared Git/PR observer independent of attached clients, with per-generation
-  projection
-  deduplication and cwd/reload/late-readiness fencing. Real Git/subprocess tests
-  cover branch, dirty, and detached HEAD transitions; lifecycle tests cover
-  initialization, cwd/null, replacement, and shutdown ownership. The user manually
-  verified the broader event lifecycle behavior.
-  Print follows ordinary session interaction
-  policy under [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-session-client.md).
-- [x] CORE-PLUGIN-005 — Remove contributions atomically after plugin failure,
-  cancel outstanding calls in both directions and owned interactions, and fail
-  affected operations with typed errors. Block calls awaiting failed interceptors
-  without automatically aborting the whole turn. Emit a persistent failure
-  notification, log bounded failure evidence, and communicate potentially partial
-  side effects; never automatically replay interrupted operations.
-  Command catalogs now filter revoked owners atomically and publish independently
-  of slow plugin initialization; reload/crash cancels calls without retargeting.
-  Shared dialogs now fence owner revocation and cancel on reload or session
-  deletion. Tool revocation removes future-request schemas and guidance, and
-  captured calls fail closed rather than executing a replacement. Commands carry
-  monotonic registration identities so same-generation re-registration cannot
-  retarget stale client selections. Subagent revocation removes future definitions
-  while preserving already-admitted durable children. Interceptor failures reject
-  the affected tool and permit normal model continuation; cancellation propagates
-  through the RPC request and conforming plugins cancel their nested dialog
-  requests.
-- [x] CORE-PLUGIN-006 — Implement explicit session reload using
-  cancel-and-replace semantics, bounded graceful shutdown, and process-group
-  termination. Fence ownership and late responses by instance generation; never
-  reassign an old instance's dispatched RPC to its replacement.
-  Runtime reload now revokes all generations and rediscovers asynchronously;
-  cwd changes revoke project generations without replacing user instances.
-  Commands, dialogs, tools, interceptors, subagents, footer state, notifications,
-  and events all have generation-fenced disposal. Configuration quarantine routes
-  orphaned runtimes through full ordinary cleanup instead of closing only the
-  droid and store. Per-plugin restart controls are outside native scope.
-CORE-PLUGIN-007 is retired, not deferred: a separate noninteractive plugin
-policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-session-client.md).
-
 - [~] CORE-PLUGIN-008 — Publish schemas, fixtures, examples, and
   language-neutral conformance tests while preserving the trusted-code,
   non-sandbox security model. Document the bottom-right-only chrome surface and
@@ -540,29 +266,13 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   detach and restart; expose new-message availability to clients; and enforce
   session eligibility, cycle, retention, and capacity limits. Verify delayed and
   out-of-order replies, duplicate suppression, restart recovery, and concurrent
-  conversations between the same peers. Depends on `CORE-PEER-001`.
-- [-] CORE-HANDOFF-001 — Superseded by the renamed production-release `/fork`
-  workflow tracked by `CORE-FORK-001`.
+  conversations between the same peers.
 - [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an
   independent fork, or extract selected changes after the rewrite stabilizes.
 - [ ] CORE-LIFE-007 — Add bounded idle session and daemon eviction policies.
 - [ ] CORE-INT-003 — Recover pending user interactions across server restarts.
 - [ ] CORE-THREAD-001 — Expand bounded `#thread` references with escaping and
   active-session exclusion.
-- [x] CORE-SCRATCH-001 — Provide database-backed family-owned scratchpads with
-  guarded human writes, transactional agent edits, snapshots, bounded events,
-  and explicit path-free model tools without implicit prompt inclusion. See
-  [ADR 0025](../docs/adrs/0025-share-database-backed-scratchpads-across-session-families.md).
-- [x] CORE-ANN-001 — Provide bounded, session-owned draft annotations with
-  server-allocated monotonic IDs, typed revision-pinned anchors, authoritative
-  previews, mutation, deletion, stale guards, persistence, snapshots, and events,
-  beginning with workspace-file line ranges. See
-  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
-- [x] CORE-ANN-002 — Accept ordered annotation IDs with structured prompts,
-  atomically validate and snapshot them into accepted messages, remove submitted
-  drafts, and project immutable submitted annotations through transcript
-  contracts. See
-  [ADR 0022](../docs/adrs/0022-model-draft-annotations-as-session-inputs.md).
 - [ ] CORE-REVIEW-001 — Provide revision-pinned working-tree, commit, and branch
   review data with staged, unstaged, representable untracked files, explicit
   skipped sections, and target-scoped annotation workflows. See
@@ -585,20 +295,6 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   live and generation-owned; compatibility definition locations remain.
 - [ ] CORE-CLI-001 — Add shell completion and noninteractive session list,
   rename, and delete commands.
-- [x] CORE-GH-001 — Fetch bounded, cached GitHub pull-request metadata through
-  `gh` with silent degradation. The daemon-owned native adapter enriches the
-  VCS projection asynchronously without delaying local Git status. Named-branch
-  lookups run from the captured repository root with explicit branch identity,
-  a 2.5-second deadline, bounded output, and validated PR number/HTTP(S) URL.
-  Positive and negative results are cached for 60 seconds by cwd/root/branch;
-  storage and concurrency are bounded, and daemon shutdown cancels/joins work.
-  PR completion invalidates the session observer immediately; authenticated native
-  VCS streams and plugin initialization/git.changed share the combined state.
-  Local Git observation runs every ten seconds; clients no longer poll. Streams
-  provide initial snapshots, deduplicated bounded latest-only updates, heartbeats,
-  and fresh-state reconnects. Cwd changes clear metadata and fence stale probes.
-  Unit/race and real Git/fake-gh daemon tests cover caching, failure, cancellation,
-  branch isolation, detached heads, and nonblocking first responses.
 - [ ] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
   footer status to keep the model informed when the current pull request's CI
   checks change, without requiring the user or model to explicitly fetch them.
@@ -607,4 +303,4 @@ policy is excluded by [ADR 0027](../docs/adrs/0027-treat-print-as-an-ordinary-se
   in-flight request; fence stale results across branch, repository, PR, and
   session changes, and degrade silently when GitHub status is unavailable.
   Verify pending, successful, and failed check transitions plus reconnect and
-  stale-update behavior. Depends on `CORE-GH-001`.
+  stale-update behavior.
