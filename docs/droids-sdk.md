@@ -413,13 +413,20 @@ const (
 )
 ```
 
-The `Anthropic` provider enables automatic prompt caching on every request,
-which places a breakpoint on the request's last cacheable block, and adds a
-breakpoint at the end of the system prompt. Its optional
+The `Anthropic` provider enables automatic prompt caching on requests sent to
+Anthropic's API (`https://api.anthropic.com`, which includes every subscription
+request), which places a breakpoint on the request's last cacheable block, and
+adds a breakpoint at the end of the system prompt. Requests to any other
+`BaseURL` carry no `cache_control`. Its optional
 `PromptCacheRetention func() PromptCacheRetention` is called for each request
 and defaults to `PromptCacheShort`. `DisablePromptCaching` omits `cache_control`
-for gateways that serve other vendors through the Messages API; OpenCode Go
-sets it.
+entirely; OpenCode Go sets it. Raw `Options` must not add their own
+`cache_control` fields: the provider owns both breakpoints, and Anthropic
+rejects requests with more than four breakpoints or with a shorter lifetime
+before a longer one.
+
+`CacheWrite1h` is used for pricing only; Kit's session protocol reports total
+cache writes.
 
 `Usage` on an assistant message or settled turn describes that canonical unit.
 `SessionUsage` is the authoritative cumulative total for the conversation. It

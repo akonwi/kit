@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"mime"
 	"net/http"
+	"net/url"
 	"slices"
 	"strings"
 	"time"
@@ -79,15 +80,18 @@ type Anthropic struct {
 	// ID overrides the provider id. Default: "anthropic".
 	ID string
 	// Options are extra SDK request options, applied after the built-ins.
+	// They must not set cache_control, which the provider owns when prompt
+	// caching is enabled.
 	Options []option.RequestOption
 	// PromptCacheRetention returns the cache lifetime for each request:
 	// PromptCacheShort (five minutes) or PromptCacheLong (one hour). Nil, or
 	// any other value, selects PromptCacheShort.
 	PromptCacheRetention func() PromptCacheRetention
 	// DisablePromptCaching omits cache_control from requests. By default,
-	// requests use Anthropic's automatic prompt caching plus a breakpoint at
-	// the end of the system prompt. Disable it for gateways that serve other
-	// vendors through the Messages API.
+	// requests sent to Anthropic's API (https://api.anthropic.com, including
+	// all subscription requests) use automatic prompt caching plus a
+	// breakpoint at the end of the system prompt. Requests to any other
+	// BaseURL never carry cache_control, because gateways may reject it.
 	DisablePromptCaching bool
 }
 
@@ -150,7 +154,8 @@ func (c Anthropic) build() (providerEntry, error) {
 		}
 	}
 	impl := &anthropicProvider{client: &client, apiKeySource: c.APIKeySource, credentials: credentials, options: opts,
-		promptCaching: !c.DisablePromptCaching, promptCacheRetention: c.PromptCacheRetention}
+		promptCaching: !c.DisablePromptCaching, firstPartyOrigin: isAnthropicAPIOrigin(baseURL),
+		promptCacheRetention: c.PromptCacheRetention}
 	return providerEntry{
 		id:        id,
 		catalogID: "anthropic",
@@ -210,8 +215,13 @@ type anthropicProvider struct {
 	apiKeySource APIKeySource
 	credentials  *anthropicCredentialManager
 	options      []option.RequestOption
-	// promptCaching enables cache_control breakpoints on requests.
+	// promptCaching enables cache_control breakpoints on requests sent to
+	// Anthropic's API: subscription requests, which are always sent there,
+	// and API-key requests when firstPartyOrigin is set.
 	promptCaching bool
+	// firstPartyOrigin reports whether the configured base URL is Anthropic's
+	// API rather than a gateway.
+	firstPartyOrigin bool
 	// promptCacheRetention optionally selects each request's cache lifetime.
 	promptCacheRetention func() PromptCacheRetention
 }
@@ -383,7 +393,7 @@ func (p *anthropicProvider) run(ctx context.Context, model Model, req Request, s
 	if len(req.Tools) > 0 {
 		params.Tools = toAnthropicTools(req.Tools)
 	}
-	if p.promptCaching {
+	if p.promptCaching && (oauth || p.firstPartyOrigin) {
 		applyAnthropicPromptCaching(&params, p.cacheRetention())
 	}
 	if req.Temperature != nil && !model.SupportsMidConversationEffort {
@@ -1005,4 +1015,11 @@ func toStringSlice(in []any) []string {
 		}
 	}
 	return out
+}
+
+// isAnthropicAPIOrigin reports whether baseURL addresses Anthropic's API.
+func isAnthropicAPIOrigin(baseURL string) bool {
+	parsed, err := url.Parse(baseURL)
+	return err == nil && parsed.Scheme == "https" && strings.EqualFold(parsed.Hostname(), "api.anthropic.com") &&
+		(parsed.Port() == "" || parsed.Port() == "443")
 }

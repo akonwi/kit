@@ -3,17 +3,38 @@ package droids
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"reflect"
 	"testing"
 
 	"github.com/anthropics/anthropic-sdk-go"
+	"github.com/anthropics/anthropic-sdk-go/option"
 )
+
+type roundTripFunc func(*http.Request) (*http.Response, error)
+
+func (f roundTripFunc) RoundTrip(request *http.Request) (*http.Response, error) { return f(request) }
 
 // captureMessagesRequest streams request to selector through providers built
 // by configure against a server that records the request body and fails it.
+// viaTestServer sends requests addressed to Anthropic's API origin to the
+// test server at baseURL, so the provider treats them as first-party.
+func viaTestServer(baseURL string) option.RequestOption {
+	target, _ := url.Parse(baseURL)
+	return option.WithHTTPClient(&http.Client{Transport: roundTripFunc(func(request *http.Request) (*http.Response, error) {
+		if request.URL.Host != "api.anthropic.com" {
+			return nil, fmt.Errorf("request to %s, want api.anthropic.com", request.URL)
+		}
+		request = request.Clone(request.Context())
+		request.URL.Scheme, request.URL.Host = target.Scheme, target.Host
+		return http.DefaultTransport.RoundTrip(request)
+	})})
+}
+
 func captureMessagesRequest(t *testing.T, configure func(baseURL string) ProviderConfig, selector string, request Request) map[string]any {
 	t.Helper()
 	captured := make(chan map[string]any, 1)
@@ -103,7 +124,7 @@ func TestAnthropicPromptCachingBreakpoints(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			body := captureMessagesRequest(t, func(baseURL string) ProviderConfig {
 				config := test.config
-				config.BaseURL = baseURL
+				config.Options = []option.RequestOption{viaTestServer(baseURL)}
 				return config
 			}, test.selector, Request{
 				SystemPrompt: test.system, Tools: tools, Reasoning: test.reasoning,
@@ -143,6 +164,23 @@ func TestAnthropicPromptCachingMarksOnlyTheLastSystemBlock(t *testing.T) {
 	}
 }
 
+func TestIsAnthropicAPIOrigin(t *testing.T) {
+	for baseURL, want := range map[string]bool{
+		"https://api.anthropic.com":          true,
+		"https://API.anthropic.com:443/":     true,
+		"https://api.anthropic.com/v1":       true,
+		"http://api.anthropic.com":           false,
+		"https://api.anthropic.com:8443":     false,
+		"https://gateway.example.com":        false,
+		"https://api.anthropic.com.evil.com": false,
+		"http://127.0.0.1:8080":              false,
+	} {
+		if got := isAnthropicAPIOrigin(baseURL); got != want {
+			t.Errorf("isAnthropicAPIOrigin(%q) = %v, want %v", baseURL, got, want)
+		}
+	}
+}
+
 func TestPromptCachingCanBeDisabled(t *testing.T) {
 	request := Request{SystemPrompt: "Be concise.", Messages: []Message{UserMessage{Content: []InputContent{TextInput{Text: "hello"}}}}}
 	for _, test := range []struct {
@@ -152,7 +190,10 @@ func TestPromptCachingCanBeDisabled(t *testing.T) {
 		configure func(baseURL string) ProviderConfig
 	}{
 		{"disabled", "anthropic", "claude-haiku-4-5", func(baseURL string) ProviderConfig {
-			return Anthropic{APIKey: "key", BaseURL: baseURL, DisablePromptCaching: true}
+			return Anthropic{APIKey: "key", DisablePromptCaching: true, Options: []option.RequestOption{viaTestServer(baseURL)}}
+		}},
+		{"custom base URL", "anthropic", "claude-haiku-4-5", func(baseURL string) ProviderConfig {
+			return Anthropic{APIKey: "key", BaseURL: baseURL, PromptCacheRetention: func() PromptCacheRetention { return PromptCacheLong }}
 		}},
 		{"OpenCode Go Messages API", "opencode-go", "minimax-m3", func(baseURL string) ProviderConfig {
 			return OpenCodeGo{APIKey: "key", BaseURL: baseURL + "/v1"}
