@@ -46,6 +46,16 @@ private fn status_label(state: Str) Str {
   }
 }
 
+// source_label keeps configuration provenance concise in the picker metadata column.
+private fn source_label(source: Str) Str {
+  match source {
+    "kit-user" => "global",
+    "shared-project" => "project",
+    "kit-project" => "project",
+    _ => source,
+  }
+}
+
 private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
   let result = mut List::new<palette::Item>()
   for server in servers {
@@ -58,8 +68,8 @@ private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
         key: server.Name,
         label: server.Name,
         hint: "",
-        meta: status_label(server.State),
-        description: "{strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}",
+        meta: source_label(server.Source),
+        description: "{status_label(server.State)} · {strings::ToUpper(server.Transport)} · {server.ToolCount} {tools}",
         search_terms: [server.Transport, server.Source, server.Description, server.State],
         disabled_reason: "",
       },
