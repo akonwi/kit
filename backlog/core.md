@@ -153,13 +153,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [x] CORE-PROTO-024 — The emitter rejects pointer fields that are not
   `omitempty` or `omitzero`; optional contract fields are omitted, never `null`
   ([ADR 0031](../docs/adrs/0031-publish-go-defined-openapi-contract.md)).
-- [ ] CORE-PROTO-009 — Model `SessionEvent` and `TranscriptContent` as
-  discriminated unions per
-  [ADR 0032](../docs/adrs/0032-model-protocol-variants-as-discriminated-unions.md)
-  without changing wire bytes, naming Go payload types after
-  [ADR 0033](../docs/adrs/0033-adopt-consistent-protocol-event-vocabulary.md)
-  concepts. Depends on `CORE-PROTO-008`.
-
 Contract slices migrate the API one domain at a time. A slice is complete when
 its operations and schemas are in the catalog under the domain's tag; the Go
 server and session client use the catalog; its wire shapes are tightened (one
