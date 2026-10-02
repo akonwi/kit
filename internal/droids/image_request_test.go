@@ -15,6 +15,13 @@ import (
 
 func testPNGDataURL(t *testing.T, w, h int) string {
 	t.Helper()
+	return imageDataURL(ImagePNG, testPNG(t, w, h))
+}
+
+// testPNG encodes an opaque white PNG, which preparation sends unchanged when
+// it fits the model's policy.
+func testPNG(t *testing.T, w, h int) []byte {
+	t.Helper()
 	img := image.NewNRGBA(image.Rect(0, 0, w, h))
 	for index := range img.Pix {
 		img.Pix[index] = 255
@@ -23,7 +30,7 @@ func testPNGDataURL(t *testing.T, w, h int) string {
 	if err := png.Encode(&buf, img); err != nil {
 		t.Fatal(err)
 	}
-	return imageDataURL(ImagePNG, buf.Bytes())
+	return buf.Bytes()
 }
 
 func imageDimensions(t *testing.T, rawURL string) (string, int, int) {

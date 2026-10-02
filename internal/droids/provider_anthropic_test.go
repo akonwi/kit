@@ -2,6 +2,7 @@ package droids
 
 import (
 	"context"
+	"encoding/base64"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -563,6 +564,7 @@ func TestAnthropicTranslatesImages(t *testing.T) {
 }
 
 func TestAnthropicSendsToolResultImages(t *testing.T) {
+	screenshot := testPNG(t, 4, 3)
 	bodies := make(chan []byte, 1)
 	server := httptest.NewServer(http.HandlerFunc(func(writer http.ResponseWriter, request *http.Request) {
 		body, _ := io.ReadAll(request.Body)
@@ -586,7 +588,7 @@ func TestAnthropicSendsToolResultImages(t *testing.T) {
 		}},
 		ToolResultMessage{ToolCallID: "t1", ProviderCallID: "toolu_1", ToolName: "screenshot", Content: []ResultContent{
 			TextContent{Text: "captured"},
-			NewImageData("image/png", []byte("png-bytes")),
+			NewImageData("image/png", screenshot),
 		}},
 	}})
 	for range stream.Events() {
@@ -604,7 +606,7 @@ func TestAnthropicSendsToolResultImages(t *testing.T) {
 		{"role":"user","content":[
 			{"type":"tool_result","tool_use_id":"toolu_1","is_error":false,"content":[
 				{"type":"text","text":"captured"},
-				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"cG5nLWJ5dGVz"}}
+				{"type":"image","source":{"type":"base64","media_type":"image/png","data":"`+base64.StdEncoding.EncodeToString(screenshot)+`"}}
 			]}
 		]}
 	]`)

@@ -175,6 +175,13 @@ func TestBuiltInProviderImagePolicies(t *testing.T) {
 		}
 	}
 	defaultHigh := [2]int{2048, 1152} // 2048 px leaves 64 × 36 = 2,304 patches
+	userOnly := []ImagePlacement{ImagePlacementUser}
+	openCodeGo := func(placements []ImagePlacement, requestBytes int64) policySummary {
+		return policySummary{
+			Placements: placements, Formats: []string{ImageJPEG, ImagePNG}, Sources: []ImageSourceKind{ImageSourceData},
+			MaxEncodedBytes: 5_000_000, MaxRequestImageBytes: requestBytes, Fit4K: [2]int{2048, 1152},
+		}
+	}
 	tests := []struct {
 		selector string
 		want     policySummary
@@ -186,9 +193,11 @@ func TestBuiltInProviderImagePolicies(t *testing.T) {
 		{"openai/gpt-4o", openAI(inlineOrRemote, [2]int{1365, 768})},       // tile-based
 		{"openai-codex/gpt-5.4", openAI([]ImageSourceKind{ImageSourceData}, defaultHigh)},
 		{"openai-codex/gpt-5.3-codex-spark", policySummary{}},
-		{"opencode-go/minimax-m3", anthropic([2]int{1456, 819}, 600)}, // Anthropic Messages
-		{"opencode-go/grok-4.7", openAI(inlineOrRemote, defaultHigh)}, // OpenAI Responses
-		{"opencode-go/kimi-k2.6", policySummary{Placements: []ImagePlacement{ImagePlacementUser}, Formats: formats, Sources: inlineOrRemote}},
+		{"opencode-go/minimax-m3", openCodeGo(all, 32_000_000)},         // tool results documented
+		{"opencode-go/qwen3.8-flash", openCodeGo(userOnly, 4_000_000)},  // 6 MB Anthropic-compatible body
+		{"opencode-go/grok-4.7", openCodeGo(userOnly, 32_000_000)},      // xAI over Responses
+		{"opencode-go/kimi-k2.6", openCodeGo(userOnly, 32_000_000)},     // Chat Completions
+		{"opencode-go/gpt-6-luna", openAI(inlineOrRemote, defaultHigh)}, // OpenAI over Responses
 		{"opencode-go/minimax-m2.7", policySummary{}},
 		{"opencode-go/glm-5.3", policySummary{}},
 	}
@@ -202,6 +211,26 @@ func TestBuiltInProviderImagePolicies(t *testing.T) {
 				t.Fatalf("ImagePolicy() = %+v\nwant %+v", got, test.want)
 			}
 		})
+	}
+}
+
+func TestOpenCodeGoImageExceptionsMatchCatalog(t *testing.T) {
+	providers, err := NewProviders(OpenCodeGo{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for id, exception := range openCodeGoImageExceptions {
+		model, ok := providers.Model("opencode-go/" + id)
+		if !ok || model.API != exception.api || !containsString(model.Input, "image") {
+			t.Errorf("exception %q reviewed for %s: catalog model = %+v (found %v)", id, exception.api, model, ok)
+		}
+	}
+}
+
+func TestOpenCodeGoImageExceptionRequiresReviewedAPI(t *testing.T) {
+	model := Model{ID: "minimax-m3", API: ModelAPIOpenAIChat, Input: []string{"text", "image"}}
+	if got := openCodeGoImagePolicy(model).Placements; !reflect.DeepEqual(got, []ImagePlacement{ImagePlacementUser}) {
+		t.Fatalf("placements over an unreviewed API = %v, want the user-only envelope", got)
 	}
 }
 

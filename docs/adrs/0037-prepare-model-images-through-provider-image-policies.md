@@ -327,8 +327,10 @@ The envelope:
 - OpenAI models use the OpenAI policy. Models whose catalog input excludes
   images declare an empty policy.
 
-Per-model exceptions live in a reviewed Kit table keyed by model ID. Models
-absent from the table receive the envelope with user-only placement.
+Per-model exceptions live in a reviewed Kit table keyed by model ID. Each
+exception records the wire format it was reviewed for and applies only while
+the catalog serves the model over that format. Models absent from the table,
+or served over another format, receive the envelope with user-only placement.
 
 ## Required properties
 

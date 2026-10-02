@@ -75,24 +75,70 @@ func (c OpenCodeGo) build() (providerEntry, error) {
 		stream: impl.stream, validateReplay: impl.validateReplay, imagePolicy: openCodeGoImagePolicy}, nil
 }
 
-// openCodeGoImagePolicy follows the wire API Kit uses for each model. Chat
-// Completions carries images only in user input; context and tool messages
-// are text-only.
+// OpenCode Go image envelope (ADR 0037). The gateway forwards requests to one
+// of several unpublished upstream providers per model and enforces no image
+// limits itself, so the envelope fits every upstream vendor's documented
+// limits: JPEG and PNG only (xAI, Z.ai), 5 MB per image (Z.ai), and a long
+// edge of 2048 px, which also satisfies DeepSeek's 4096 px many-image limit.
+const (
+	openCodeGoMaxImageEdge         = 2048
+	openCodeGoMaxImageBytes        = 5_000_000
+	openCodeGoMaxRequestImageBytes = 32_000_000
+)
+
+// openCodeGoImageException adjusts the envelope for one model. It applies only
+// while the model is served over the wire API it was reviewed for.
+type openCodeGoImageException struct {
+	api ModelAPI
+	// openAI selects the OpenAI policy for OpenAI models.
+	openAI bool
+	// placements replaces the envelope's user-only placement.
+	placements []ImagePlacement
+	// maxRequestImageBytes replaces the envelope's request image budget.
+	maxRequestImageBytes int64
+}
+
+// openCodeGoImageExceptions is reviewed against each vendor's documentation.
+// Models absent from it receive the envelope with user-only placement.
+var openCodeGoImageExceptions = map[string]openCodeGoImageException{
+	// MiniMax documents images in tool results over Anthropic Messages.
+	"minimax-m3": {api: ModelAPIAnthropicMessages, placements: []ImagePlacement{
+		ImagePlacementUser, ImagePlacementContext, ImagePlacementToolResult,
+	}},
+	// Alibaba limits Anthropic-compatible request bodies to 6 MB.
+	"qwen3.8-flash": {api: ModelAPIAnthropicMessages, maxRequestImageBytes: 4_000_000},
+	"gpt-6-luna":    {api: ModelAPIOpenAIResponses, openAI: true},
+	"gpt-5.6-luna":  {api: ModelAPIOpenAIResponses, openAI: true},
+}
+
+// openCodeGoImagePolicy returns the envelope, adjusted by any exception that
+// matches the model's wire API.
 func openCodeGoImagePolicy(model Model) ImagePolicy {
-	switch model.API {
-	case ModelAPIOpenAIResponses:
-		return openAIImagePolicy(model)
-	case ModelAPIAnthropicMessages:
-		return anthropicImagePolicy(model)
-	}
 	if !containsString(model.Input, "image") {
 		return ImagePolicy{}
 	}
-	return ImagePolicy{
-		Placements: []ImagePlacement{ImagePlacementUser},
-		Formats:    []string{ImageJPEG, ImagePNG, ImageGIF, ImageWebP},
-		Sources:    []ImageSourceKind{ImageSourceData, ImageSourceHTTPS},
+	policy := ImagePolicy{
+		Placements:           []ImagePlacement{ImagePlacementUser},
+		Formats:              []string{ImageJPEG, ImagePNG},
+		Sources:              []ImageSourceKind{ImageSourceData},
+		Fit:                  longEdgeImageFit(openCodeGoMaxImageEdge),
+		MaxEncodedBytes:      openCodeGoMaxImageBytes,
+		MaxRequestImageBytes: openCodeGoMaxRequestImageBytes,
 	}
+	exception, ok := openCodeGoImageExceptions[model.ID]
+	if !ok || exception.api != model.API {
+		return policy
+	}
+	if exception.openAI {
+		return openAIImagePolicy(model)
+	}
+	if exception.placements != nil {
+		policy.Placements = append([]ImagePlacement(nil), exception.placements...)
+	}
+	if exception.maxRequestImageBytes > 0 {
+		policy.MaxRequestImageBytes = exception.maxRequestImageBytes
+	}
+	return policy
 }
 
 type openCodeGoProvider struct {
@@ -393,8 +439,12 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 		case ContextMessage:
 			var text []string
 			for _, content := range value.Content {
-				if item, ok := content.(TextInput); ok {
+				switch item := content.(type) {
+				case TextInput:
 					text = append(text, item.Text)
+				case FileInput:
+					// Image preparation replaces context images with a placeholder.
+					return nil, fmt.Errorf("droids: OpenCode Go Chat Completions cannot send %s files in context messages", item.MediaType)
 				}
 			}
 			result = append(result, map[string]any{"role": "user", "content": strings.Join(text, "\n")})
@@ -418,8 +468,12 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 		case ToolResultMessage:
 			var text []string
 			for _, content := range value.Content {
-				if item, ok := content.(TextContent); ok {
+				switch item := content.(type) {
+				case TextContent:
 					text = append(text, item.Text)
+				case FileContent:
+					// Image preparation replaces tool-result images with a placeholder.
+					return nil, fmt.Errorf("droids: OpenCode Go Chat Completions cannot send %s files in tool results", item.MediaType)
 				}
 			}
 			result = append(result, map[string]any{"role": "tool", "tool_call_id": value.ProviderCallID, "content": strings.Join(text, "\n")})

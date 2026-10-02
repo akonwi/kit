@@ -32,7 +32,8 @@ type Providers interface {
 	// model metadata onto each built-in provider. Existing models remain usable
 	// when refresh fails.
 	RefreshModels(ctx context.Context) error
-	// Stream runs a request against the provider that owns model.
+	// Stream runs a request against the provider that owns model, after
+	// preparing its images through the model's image policy.
 	Stream(ctx context.Context, model Model, req Request) Stream
 }
 
@@ -492,6 +493,9 @@ func (r *registry) Stream(ctx context.Context, model Model, req Request) Stream 
 	if _, err := resolveRequestMaxTokens(requested, req.MaxTokens, req.Reasoning); err != nil {
 		return erroredStream(requested, err.Error())
 	}
+	// Direct callers receive the same image preparation as runtime dispatch,
+	// which prepares before calling the bound Provider.
+	req.Messages, _ = prepareRequestImages(e.imagePolicy(requested), req.Messages)
 	return e.stream(ctx, requested, req, e.call)
 }
 

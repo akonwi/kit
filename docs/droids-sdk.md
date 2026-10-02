@@ -1260,7 +1260,10 @@ response and credential scopes.
 formats, sources, sizes, and limits the provider accepts, as defined by
 [ADR 0037](adrs/0037-prepare-model-images-through-provider-image-policies.md).
 Text-only models return the zero policy. Registration and model binding fail
-when a policy disagrees with the model's advertised image input.
+when a policy disagrees with the model's advertised image input. Droids prepares
+request images through the policy before calling `Provider.Stream`, so a
+provider receives only images its policy accepts; images it cannot receive are
+replaced by a text placeholder.
 
 ## Events and subscriptions
 

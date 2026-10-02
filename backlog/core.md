@@ -215,9 +215,6 @@ change in an ADR before implementing it. Wire changes bump
   restoration, transcript projection, and cleanup on session deletion.
 - [x] CORE-IMG-003 — Request-scoped image preparation for dispatch and replay
   validation. Retained for `CORE-IMG-008`.
-- [ ] CORE-IMG-005 — Declare the OpenCode Go image envelope and per-model
-  placement table from ADR 0037, and omit context and tool-result images with a
-  placeholder for Chat Completions models instead of silently dropping them.
 - [ ] CORE-IMG-006 — Derive image-attachment acceptance, `inspect_image`
   enablement, and client-visible image input capability from the active model's
   image policy, replacing provider- and API-specific checks in the session layer.

@@ -94,7 +94,7 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 		SystemPrompt: "Be concise.",
 		Messages: []Message{UserMessage{Content: []InputContent{
 			TextInput{Text: "Say hello"},
-			NewFileInputData("", "image/png", []byte("hello")),
+			NewFileInputData("", "image/png", testPNG(t, 4, 3)),
 			report,
 			NewFileInputData("notes.txt", "text/plain", []byte("notes")),
 			namedImage,
@@ -165,7 +165,7 @@ func TestOpenAIResponsesStreamsTextAndBuildsRequest(t *testing.T) {
 	if got := content[0].(map[string]any); got["type"] != "input_text" || got["text"] != "Say hello" {
 		t.Fatalf("text input = %#v", got)
 	}
-	if got := content[1].(map[string]any); got["type"] != "input_image" || got["image_url"] != "data:image/png;base64,aGVsbG8=" || got["detail"] != "high" {
+	if got := content[1].(map[string]any); got["type"] != "input_image" || got["image_url"] != testPNGDataURL(t, 4, 3) || got["detail"] != "high" {
 		t.Fatalf("image input = %#v", got)
 	}
 	if got := content[2].(map[string]any); got["type"] != "input_file" || got["file_url"] != "https://files.example/report.pdf?signature=abc" || got["filename"] != nil {
