@@ -77,8 +77,8 @@ in this branch. Items marked **Server-ready** do not require new server function
   secrets. Depends on `CORE-REMOTE-001`.
 - [ ] MAC-REMOTE-002 — Negotiate remote capabilities and disable unsupported
   operations with clear reasons. Verify session, attachment, and workspace
-  requests target the selected server. Depends on `MAC-REMOTE-001`,
-  `CORE-PROTO-001`, and `CORE-REMOTE-003`.
+  requests target the selected server. Depends on `MAC-REMOTE-001` and
+  `CORE-REMOTE-003`.
 
 ## Packaging and distribution
 

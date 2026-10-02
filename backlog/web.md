@@ -15,7 +15,7 @@ interaction, security, and accessibility.
   on `CORE-REMOTE-001`, `CORE-REMOTE-002`, and `CORE-REMOTE-003`.
 - [ ] WEB-SYNC-001 — Implement explicit connection phases, ordered reduction,
   reconnect, replay, snapshot fallback, and stale asynchronous-result guards.
-  Depends on `CORE-PROTO-003` and `CORE-PROTO-006`.
+  Depends on `CORE-PROTO-006`.
 
 ### Product experience
 

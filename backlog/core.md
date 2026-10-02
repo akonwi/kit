@@ -7,11 +7,10 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Production data and configuration
 
-- [~] CORE-AUTH-001 — Complete headless API-key and Anthropic credential
-  management and consistent private, locked, atomic, generation-checked storage
-  for every supported provider. Credential import is not required; verify that
-  legacy provider and MCP auth files do not block reauthentication through the
-  supported login UX or require users to manually delete files.
+- [ ] CORE-AUTH-001 — Provide headless API-key and Anthropic credential login,
+  replacement, and logout. Verify that legacy provider and MCP auth files do not
+  block reauthentication through the supported login UX or require users to
+  manually delete files.
 - [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
   immediately where safe, and return actionable save errors.
 - [ ] CORE-SET-002 — Persist and resolve production defaults for model/thinking
@@ -28,8 +27,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
   errors, event replay and resynchronization, SSE, and mutation admission.
   Repeat that verification before allowing cross-release attachment on a future
   protocol number.
-- [~] CORE-LIFE-002 — Enforce explicit resource and backpressure limits across
-  HTTP, event replay and subscriptions, direct tools, MCP, and clients.
+- [ ] CORE-LIFE-002 — Bound MCP transport reads before result conversion so an
+  oversized server response fails closed instead of buffering without a limit.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
   leaking credentials or protocol output.
 - [ ] CORE-LIFE-004 — Meet documented cold-start and warm-attach acceptance
@@ -41,27 +40,14 @@ IDs but must not redefine server, persistence, or protocol semantics.
   authoritative session without lost updates or client-global active-session
   state. Broadcast follow-up queue changes to attached clients and expose failed
   automatic queue admission instead of leaving a silently blocked queue.
-- [~] CORE-FORK-001 — Transactionally publish a settled session fork as a linked
-  child through droids semantic forking, with client-visible lineage, attachment
-  preservation, and an optional first child prompt, without changing the
-  session viewed by unrelated clients.
-- [~] CORE-RUN-001 — Complete streaming and recovery semantics for text,
-  thinking, messages, tool activity, usage, provider errors, terminal state, and
-  reconnecting clients.
-- [~] CORE-RUN-002 — Reconstruct active and historical turns consistently after
-  reconnect and restart, including rich ordered content and tool identity.
-- [~] CORE-RUN-003 — Propagate abort and cooperative cancellation through
-  providers, tools, MCP, and subagents with deterministic terminal state.
-- [~] CORE-RUN-005 — Persist proactive and overflow-driven compaction
-  checkpoints and expose pending, completed, and failed lifecycle state. Include
-  a bounded, actionable failure reason in the server's failed-compaction event
-  and persisted state so clients can explain the failure in toasts and after
-  reconnect, without exposing credentials or sensitive prompt content.
-  Classify reviewed reasons (for example `summary_truncated`, `provider_error`,
-  `not_adaptable`, `canceled`) rather than persisting provider text; a
-  truncated 4K summary previously surfaced only as "Context compaction failed"
-  and required reading usage deltas to diagnose. Explicit compaction currently
-  returns a generic 422 and logs its cause in the daemon log only.
+- [ ] CORE-FORK-001 — Accept an optional first prompt when forking a settled
+  session, and admit that prompt only on the new child.
+- [ ] CORE-RUN-005 — Include a bounded, classified failure reason in
+  failed-compaction events, persisted compaction state, and the explicit
+  compaction error. Use reviewed reasons such as `summary_truncated`,
+  `provider_error`, `not_adaptable`, and `canceled` instead of provider text or
+  the generic "Context compaction failed" message. Clients must be able to
+  explain the failure after reconnect without credentials or prompt content.
 - [ ] CORE-RUN-006 — Fix multimodal context estimation for image/file content.
   The provider-neutral estimator counts inline `data:` URLs as text
   (approximately two encoded bytes per token), so a ~1.8 MB image returned by
@@ -88,43 +74,33 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Protocol and shared clients
 
-- [~] CORE-PROTO-001 — Negotiate protocol versions and capabilities with
-  canonical wire-safe records validated at every boundary.
-- [~] CORE-PROTO-002 — Keep server-scoped and immutable session-scoped APIs
-  separate and preserve revision/generation guards for mutable state.
-- [~] CORE-PROTO-003 — Complete snapshot/high-water synchronization, ordered
-  exactly-once reduction, replay, resync, and snapshot fallback across supported
-  local transports.
 - [ ] CORE-PROTO-004 — Paginate transcripts and mutable collections and recover
   records too large for an individual event or response.
-- [~] CORE-PROTO-005 — Correlate commands with preceding events and preserve
-  deterministic admission ordering.
+- [ ] CORE-PROTO-005 — Correlate mutating commands with the client's preceding
+  event cursor and keep admission ordering deterministic when that cursor is
+  stale.
 - [ ] CORE-PROTO-006 — Bound client queues and disconnect clients that cannot
   keep up without blocking authoritative session work.
-- [~] CORE-PROTO-007 — Share conformance tests across server and session client
-  implementations used by the production release.
+- [ ] CORE-PROTO-007 — Run the shared session API conformance tests against the
+  production session client, not only the server.
 
 ### Workspace data, tools, attachments, and interactions
 
-- [~] CORE-TOOL-001 — Route URL opening through validated client/platform ports
-  and define safe behavior when no capable client is attached.
-- [~] CORE-TOOL-002 — Implement approval/interceptor behavior without allowing a
-  client to bypass server-owned tool policy. Generation-owned plugin interception
-  now gates session and session-owned child tools on the server. Automated
-  allow/reject, nested-dialog cancellation, and recovery coverage is in place;
-  broader manual lifecycle verification remains.
+- [ ] CORE-TOOL-001 — Route URL opening, including MCP authorization URLs,
+  through a validated attached client or platform port instead of launching a
+  browser on the server host. Define safe behavior when no capable client is
+  attached.
+- [ ] CORE-TOOL-002 — Manually verify the approval and interceptor lifecycle
+  beyond automated allow, reject, nested-dialog cancellation, and recovery,
+  including that a client cannot bypass server-owned tool policy.
 
 ### Headless and release safety
 
 - [ ] CORE-HEAD-001 — Define headless-safe behavior for built-ins, MCP, and
   unavailable user interactions.
 - [ ] CORE-HEAD-002 — Verify SIGINT/SIGTERM cleanup and documented exit codes.
-- [~] CORE-TEST-001 — Pass the full Go build, vet, test, and race-detector gates
-  required by `AGENTS.md`. Native CI runs these gates on Linux and macOS, plus
-  the terminal-input smoke test. The plugin-tool fixture now isolates tool-free
-  naming requests from its tool-execution state, with regression coverage.
-  Local build, vet, full tests, and race tests pass, including 20 repeated
-  race-enabled plugin-tool tests. Confirm the corrected fixtures pass in CI.
+- [ ] CORE-TEST-001 — Confirm the plugin-tool fixture that isolates tool-free
+  naming requests passes the Linux and macOS CI build, vet, test, and race gates.
 - [ ] CORE-TEST-002 — Cover malformed and adversarial protocol records with fuzz
   or property tests.
 
@@ -205,29 +181,9 @@ handling, effort history, and prompt-cache controls are documented in the featur
 Process ownership and plugin UI routing follow
 [ADR 0026](../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md).
 
-- [~] CORE-PLUGIN-008 — Publish schemas, fixtures, examples, and
-  language-neutral conformance tests while preserving the trusted-code,
-  non-sandbox security model. Document the bottom-right-only chrome surface and
-  explicit rejection of unsupported header/left-footer operations. Include host
-  resource limits for outgoing calls, notification queues, batch element counts,
-  retained batch data, per-session plugin installations and command registrations,
-  command argument/metadata sizes, and toast payload restrictions in the published
-  transport profile. Document live-toast subscription limits (32 per session),
-  bounded queues (16 per subscriber), nonblocking overflow drops, 32 KiB NDJSON
-  frame limits, and the explicit absence of transient replay/offline storage.
-  Include the host's eight pending plugin interactions, 64 KiB encoded request
-  cap, bounded dialog text/option metadata and raw JSON values, and structured
-  interactivity-unavailable errors in the profile before claiming UI conformance.
-  The [native implementation profile](../apps/web/docs/plugin-protocol/native-v2.md)
-  now publishes implemented methods, resource bounds, ownership and cancellation,
-  live-only toast delivery, unsupported chrome, and explicit conformance gaps.
-  The UI fixture documents its native workflow; real daemon tests also cover
-  answering/cancelling from another client connection and session deletion.
-  Dedicated plugin diagnostics and dismissal surfaces are outside native scope;
-  persistent failure notifications plus the private server log provide evidence.
-  A standalone language-neutral conformance-vector artifact remains outstanding;
-  current executable conformance coverage lives in the Go host/daemon suites and
-  real subprocess fixtures.
+- [ ] CORE-PLUGIN-008 — Publish a standalone language-neutral conformance-vector
+  artifact for the native plugin transport profile. Go host, daemon, and
+  subprocess fixtures remain the executable coverage until that artifact exists.
 
 - [ ] CORE-PLUGIN-009 — Allow a plugin to inform its owning session without
   submitting a user message or autonomously starting or queuing a model turn.
@@ -290,9 +246,9 @@ Process ownership and plugin UI routing follow
   ownership and generations.
 - [ ] CORE-CONFIG-001 — Support Markdown template overrides with project/global
   precedence.
-- [~] CORE-SUB-001 — Add compatibility definition locations and
-  plugin-contributed subagent definitions. Native plugin register/unregister is
-  live and generation-owned; compatibility definition locations remain.
+- [ ] CORE-SUB-001 — Discover subagent definitions from the Pi compatibility
+  locations `~/.pi/agent/agents/*.md` and `<cwd>/.pi/agents/*.md`, after
+  Kit-native locations, with first-definition-wins precedence.
 - [ ] CORE-CLI-001 — Add shell completion and noninteractive session list,
   rename, and delete commands.
 - [ ] CORE-GH-002 — Use the daemon-owned GitHub observer that supplies built-in
