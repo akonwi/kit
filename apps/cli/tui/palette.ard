@@ -50,6 +50,8 @@ struct PickerProps {
   footer: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
+  // remove receives the selected key for feature-owned confirmation.
+  remove: fn(Str)?,
   // toggle receives the selected key and true for expand, false for collapse.
   toggle: fn(Str, Bool)?,
   on_query_change: fn(Str),
@@ -66,6 +68,7 @@ struct Picker {
   footer: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
+  remove: fn(Str)?,
   toggle: fn(Str, Bool)?,
   list: mut cui::VirtualListRef,
   context: cui::Context?,
@@ -96,6 +99,7 @@ fn new_picker(props: mut PickerProps) mut Picker {
     footer: props.footer,
     dismiss: props.dismiss,
     override: props.override,
+    remove: props.remove,
     toggle: props.toggle,
     list: cui::virtual_list_ref(),
     context: Maybe::new<cui::Context>(),
@@ -430,12 +434,22 @@ impl cui::Component for Picker {
     // selection, hover, viewport, and focus state.
     self.props.themes = self.source.themes
     self.props.catalog = self.source.catalog
+    mut selected_exists = false
+    for item in self.props.catalog {
+      if item.key == self.props.selection {
+        selected_exists = true
+      }
+    }
+    if not selected_exists {
+      self.props.selection = first_enabled(items(self.props))
+    }
     self.props.placeholder = self.source.placeholder
     self.props.on_activate = self.source.on_activate
     self.title = self.source.title
     self.footer = self.source.footer
     self.dismiss = self.source.dismiss
     self.override = self.source.override
+    self.remove = self.source.remove
     self.toggle = self.source.toggle
     let props = self.view_props()
     let navigation = navigation(props)
@@ -471,6 +485,17 @@ impl cui::Component for Picker {
         commands.push(expand)
         bindings.push(keymap::binding(keymap::key("left"), collapse.with()))
         bindings.push(keymap::binding(keymap::key("right"), expand.with()))
+      },
+      _ => (),
+    }
+    match self.remove {
+      callback => {
+        let command = keymap::simple_command("palette.remove", "Delete", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("d", ctrl: true), command.with()))
       },
       _ => (),
     }
