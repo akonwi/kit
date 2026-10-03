@@ -2,8 +2,13 @@ use ard/testing
 
 use go:fmt
 use go:github.com/akonwi/kit/internal/protocol
+use go:github.com/akonwi/vaxis
 use go:math
+use go:os
+use go:path/filepath
+use go:strconv
 use go:strings
+use go:time
 
 // Text shown in the shell chrome.
 
@@ -12,6 +17,90 @@ fn session_name(session: protocol::SessionInfo) Str {
   match strings::TrimSpace(session.Name) == "" {
     true => "Unnamed session",
     false => session.Name,
+  }
+}
+
+// session_display_cwd matches the vaxis session picker: paths under the home
+// directory use ~ and long paths preserve their most useful trailing cells.
+fn session_display_cwd(cwd: Str, width: Int) Str {
+  if strings::TrimSpace(cwd) == "" {
+    ""
+  } else {
+    mut display = filepath::Clean(cwd)
+    match os::UserHomeDir() {
+      ok(home) => {
+        match filepath::Rel(home, display) {
+          ok(relative) => {
+            if relative == "." {
+              display = "~"
+            } else if relative != ".." and not strings::HasPrefix(relative, "../") {
+              display = filepath::Join("~", relative)
+            }
+          },
+          err(_) => (),
+        }
+      },
+      err(_) => (),
+    }
+    truncate_start_cells(display, width)
+  }
+}
+
+// format_session_updated uses the compact relative labels from the vaxis
+// picker, falling back to an ISO date once a session is at least 30 days old.
+fn format_session_updated(raw: Str, now: time::Time) Str {
+  match time::Parse(time::RFC3339Nano, raw) {
+    err(_) => "unknown",
+    ok(updated) => {
+      mut age = now.Sub(updated)
+      if age < 0 {
+        age = 0
+      }
+      if age < time::Minute {
+        "just now"
+      } else if age < time::Hour {
+        "{strconv::Itoa(Int::fit(age / time::Minute))}m ago"
+      } else if age < time::Hour * 24 {
+        "{strconv::Itoa(Int::fit(age / time::Hour))}h ago"
+      } else if age < time::Hour * 24 * 30 {
+        "{strconv::Itoa(Int::fit(age / (time::Hour * 24)))}d ago"
+      } else {
+        updated.Format("2006-01-02")
+      }
+    },
+  }
+}
+
+private fn truncate_start_cells(value: Str, maximum: Int) Str {
+  if maximum <= 0 {
+    ""
+  } else {
+    let characters = vaxis::Characters(value)
+    mut width = 0
+    for character in characters {
+      width =+ character.Width
+    }
+    if width <= maximum {
+      value
+    } else {
+      mut remaining = maximum - 1
+      mut start = characters.size()
+      while start > 0 {
+        let character = characters.at(start - 1).expect("character index")
+        if character.Width > remaining {
+          break
+        }
+        start =- 1
+        remaining =- character.Width
+      }
+      mut suffix = ""
+      mut index = start
+      while index < characters.size() {
+        suffix = "{suffix}{characters.at(index).expect("character index").Grapheme}"
+        index =+ 1
+      }
+      "…{suffix}"
+    }
   }
 }
 
@@ -159,6 +248,43 @@ test fn diagnostic_numbers_are_grouped_and_precise() Void!Str {
   try testing::assert(usage_cost(0.001234) == "$0.001234", usage_cost(0.001234))
   try testing::assert(usage_cost(1.2) == "$1.20", usage_cost(1.2))
   testing::pass()
+}
+
+test fn session_paths_match_the_vaxis_picker() Void!Str {
+  try testing::assert(
+    truncate_start_cells("/one/two/three", 10) == "…two/three",
+    truncate_start_cells("/one/two/three", 10),
+  )
+  match os::UserHomeDir() {
+    ok(home) => testing::assert(session_display_cwd(home, 40) == "~", session_display_cwd(home, 40)),
+    err(_) => testing::pass(),
+  }
+}
+
+test fn session_times_match_the_vaxis_picker() Void!Str {
+  match time::Parse(time::RFC3339Nano, "2026-03-03T12:00:00Z") {
+    err(_) => testing::assert(false, "fixture timestamp did not parse"),
+    ok(now) => {
+      try testing::assert(format_session_updated("invalid", now) == "unknown", "invalid timestamp")
+      try testing::assert(
+        format_session_updated("2026-03-03T11:59:30Z", now) == "just now",
+        format_session_updated("2026-03-03T11:59:30Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-03-03T11:45:00Z", now) == "15m ago",
+        format_session_updated("2026-03-03T11:45:00Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-03-01T12:00:00Z", now) == "2d ago",
+        format_session_updated("2026-03-01T12:00:00Z", now),
+      )
+      try testing::assert(
+        format_session_updated("2026-01-01T00:00:00Z", now) == "2026-01-01",
+        format_session_updated("2026-01-01T00:00:00Z", now),
+      )
+      testing::pass()
+    },
+  }
 }
 
 test fn unnamed_sessions_have_a_placeholder_name() Void!Str {

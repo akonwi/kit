@@ -162,6 +162,7 @@ impl cui::Component for Status {
         footer: "",
         dismiss: self.props.dismiss,
         override: Maybe::new<fn(Str)>(),
+        toggle: Maybe::new<fn(Str, Bool)>(),
         on_activate: fn(item: palette::Item) {},
       },
     )
