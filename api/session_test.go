@@ -8,10 +8,80 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	kitserver "github.com/akonwi/kit/internal/server"
 )
+
+type concurrentSessionTransport struct {
+	sessionTransport
+	started chan string
+	release chan struct{}
+}
+
+func (t *concurrentSessionTransport) GetSessionSnapshot(_ context.Context, sessionID string) (protocol.SessionSnapshot, error) {
+	return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: sessionID, ConfigurationRevision: 1}}, nil
+}
+
+func (t *concurrentSessionTransport) ConfigureSession(ctx context.Context, sessionID string, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
+	select {
+	case t.started <- sessionID:
+	case <-ctx.Done():
+		return protocol.ConfigureSessionResult{}, ctx.Err()
+	}
+	select {
+	case <-t.release:
+	case <-ctx.Done():
+		return protocol.ConfigureSessionResult{}, ctx.Err()
+	}
+	return protocol.ConfigureSessionResult{Session: protocol.SessionInfo{ID: sessionID, ConfigurationRevision: input.ExpectedRevision + 1}}, nil
+}
+
+func TestBoundSessionsSerializeIndependently(t *testing.T) {
+	transport := &concurrentSessionTransport{started: make(chan string, 2), release: make(chan struct{})}
+	backend := &fakeClientBackend{list: func(context.Context, string) ([]protocol.SessionInfo, error) { return nil, nil }}
+	client := newClient(backend, nil)
+	client.sessions = transport
+	t.Cleanup(func() { _ = client.Close() })
+
+	first, err := client.Attach(t.Context(), "session_first")
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := client.Attach(t.Context(), "session_second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan error, 2)
+	go func() {
+		_, err := first.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 1})
+		done <- err
+	}()
+	go func() {
+		_, err := second.Configure(t.Context(), protocol.ConfigureSessionInput{ExpectedRevision: 1})
+		done <- err
+	}()
+
+	seen := map[string]bool{}
+	for range 2 {
+		select {
+		case id := <-transport.started:
+			seen[id] = true
+		case <-time.After(time.Second):
+			t.Fatal("sessions shared a mutation gate")
+		}
+	}
+	close(transport.release)
+	for range 2 {
+		if err := <-done; err != nil {
+			t.Fatal(err)
+		}
+	}
+	if !seen["session_first"] || !seen["session_second"] {
+		t.Fatalf("started sessions = %+v", seen)
+	}
+}
 
 func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t *testing.T) {
 	t.Parallel()

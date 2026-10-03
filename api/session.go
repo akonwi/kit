@@ -36,7 +36,7 @@ type sessionTransport interface {
 	OpenAttachment(context.Context, string, string) (protocol.AttachmentInfo, io.ReadCloser, error)
 	ResolveAttachments(context.Context, string, []string) (protocol.AttachmentResolution, error)
 	Subagent(context.Context, string, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
-	GetSubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error)
+	GetSubagentTranscript(context.Context, string, string, string) (protocol.SubagentTranscript, error)
 	GetSubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
 	GetSessionVCSStatus(context.Context, string) (protocol.SessionVCSStatus, error)
 	StreamSessionVCS(context.Context, string) (io.ReadCloser, error)
@@ -95,6 +95,7 @@ type Session struct {
 
 // Turn is a submitted conversation turn.
 type Turn struct {
+	client    *Client
 	transport sessionTransport
 	sessionID string
 	turnID    string
@@ -103,6 +104,7 @@ type Turn struct {
 
 // BashExecution is one stateful bash execution handle.
 type BashExecution struct {
+	client    *Client
 	transport sessionTransport
 	sessionID string
 	mu        sync.RWMutex
@@ -116,6 +118,17 @@ type EventStream struct {
 	cancel  context.CancelFunc
 	once    sync.Once
 	err     error
+}
+
+type sessionReadCloser struct {
+	io.ReadCloser
+	cancel context.CancelFunc
+	once   sync.Once
+}
+
+func (r *sessionReadCloser) Close() error {
+	r.once.Do(r.cancel)
+	return r.ReadCloser.Close()
 }
 
 // SessionUpdate is either an ordered event batch or an authoritative
@@ -197,6 +210,50 @@ func (c *Session) preflight(ctx context.Context) error {
 	return ctx.Err()
 }
 
+func handleOperationContext(client *Client, ctx context.Context) (context.Context, func(), error) {
+	if client != nil {
+		return client.operationContext(ctx)
+	}
+	if ctx == nil {
+		return nil, nil, errors.New("operation context is nil")
+	}
+	if err := ctx.Err(); err != nil {
+		return nil, nil, err
+	}
+	operation, cancel := context.WithCancel(ctx)
+	return operation, cancel, nil
+}
+
+func sessionResult[T any](c *Session, ctx context.Context, call func(context.Context) (T, error)) (T, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	defer cancel()
+	return projectResult(call(operation))
+}
+
+func sessionProjectedResult[T any](c *Session, ctx context.Context, project func(error) error, call func(context.Context) (T, error)) (T, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		var zero T
+		return zero, err
+	}
+	defer cancel()
+	value, err := call(operation)
+	return value, project(err)
+}
+
+func sessionError(c *Session, ctx context.Context, call func(context.Context) error) error {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	return projectError(call(operation))
+}
+
 func (c *Session) operationContext(ctx context.Context) (context.Context, func(), error) {
 	if err := c.preflight(ctx); err != nil {
 		return nil, nil, err
@@ -209,32 +266,60 @@ func (c *Session) operationContext(ctx context.Context) (context.Context, func()
 }
 
 func (c *Session) UploadAttachment(ctx context.Context, filename string, content io.Reader) (protocol.AttachmentInfo, error) {
-	return projectResult(c.transport.UploadAttachment(ctx, c.id, filename, content))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.AttachmentInfo, error) {
+		return c.transport.UploadAttachment(operation, c.id, filename, content)
+	})
 }
 
 func (c *Session) OpenAttachment(ctx context.Context, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
-	info, content, err := c.transport.OpenAttachment(ctx, c.id, attachmentID)
-	return info, content, projectError(err)
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.AttachmentInfo{}, nil, err
+	}
+	info, content, err := c.transport.OpenAttachment(operation, c.id, attachmentID)
+	if err != nil {
+		cancel()
+		return info, content, projectError(err)
+	}
+	return info, &sessionReadCloser{ReadCloser: content, cancel: cancel}, nil
 }
 
 func (c *Session) ResolveAttachments(ctx context.Context, attachmentIDs []string) (protocol.AttachmentResolution, error) {
-	return projectResult(c.transport.ResolveAttachments(ctx, c.id, attachmentIDs))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.AttachmentResolution, error) {
+		return c.transport.ResolveAttachments(operation, c.id, attachmentIDs)
+	})
 }
 
 func (c *Session) Subagent(ctx context.Context, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
-	return projectResult(c.transport.Subagent(ctx, c.id, input))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.SubagentOperationResult, error) {
+		return c.transport.Subagent(operation, c.id, input)
+	})
 }
 
-func (c *Session) SubagentTranscript(ctx context.Context, conversationID string) (protocol.SubagentTranscript, error) {
-	return projectResult(c.transport.GetSubagentTranscript(ctx, c.id, conversationID))
+func (c *Session) SubagentTranscript(ctx context.Context, conversationID, before string) (protocol.SubagentTranscript, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.SubagentTranscript{}, err
+	}
+	defer cancel()
+	page, err := c.transport.GetSubagentTranscript(operation, c.id, conversationID, before)
+	var apiErr *clienttransport.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == string(httpapi.ErrorTranscriptCursorUnavailable) {
+		return protocol.SubagentTranscript{}, ErrTranscriptCursorUnavailable
+	}
+	return page, projectError(err)
 }
 
 func (c *Session) SubagentEvents(ctx context.Context, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
-	return projectResult(c.transport.GetSubagentEvents(ctx, c.id, conversationID, streamID, after))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.SubagentLiveEventPage, error) {
+		return c.transport.GetSubagentEvents(operation, c.id, conversationID, streamID, after)
+	})
 }
 
 func (c *Session) VCSStatus(ctx context.Context) (protocol.SessionVCSStatus, error) {
-	return projectResult(c.transport.GetSessionVCSStatus(ctx, c.id))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.SessionVCSStatus, error) {
+		return c.transport.GetSessionVCSStatus(operation, c.id)
+	})
 }
 
 // vcsStreamIdleLimit allows three missed 15-second heartbeats.
@@ -294,6 +379,10 @@ func classifyStreamWatchError(err error) error {
 	if errors.As(err, &frame) {
 		return &StreamWatchTerminalError{Err: projectError(err)}
 	}
+	var protocolFailure *clienttransport.ProtocolError
+	if errors.As(err, &protocolFailure) {
+		return &StreamWatchTerminalError{Err: projectError(err)}
+	}
 	var apiError *clienttransport.APIError
 	if errors.As(err, &apiError) {
 		switch apiError.StatusCode {
@@ -305,11 +394,15 @@ func classifyStreamWatchError(err error) error {
 }
 
 func (c *Session) FileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
-	return projectResult(c.transport.GetSessionFileIndex(ctx, c.id))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.SessionFileIndex, error) {
+		return c.transport.GetSessionFileIndex(operation, c.id)
+	})
 }
 
 func (c *Session) RefreshFileIndex(ctx context.Context) (protocol.SessionFileIndex, error) {
-	return projectResult(c.transport.RefreshSessionFileIndex(ctx, c.id))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.SessionFileIndex, error) {
+		return c.transport.RefreshSessionFileIndex(operation, c.id)
+	})
 }
 
 func (c *Session) WorkspaceLimits() protocol.WorkspaceLimits {
@@ -317,35 +410,42 @@ func (c *Session) WorkspaceLimits() protocol.WorkspaceLimits {
 }
 
 func (c *Session) Workspace(ctx context.Context) (protocol.WorkspaceRef, error) {
-	result, err := c.transport.GetWorkspace(ctx, c.id)
-	return result, projectWorkspaceError(err)
+	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.WorkspaceRef, error) {
+		return c.transport.GetWorkspace(operation, c.id)
+	})
 }
 
 func (c *Session) ListDirectory(ctx context.Context, input protocol.ListDirectoryInput) (protocol.DirectoryPage, error) {
-	result, err := c.transport.ListWorkspaceDirectory(ctx, c.id, input)
-	return result, projectWorkspaceError(err)
+	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.DirectoryPage, error) {
+		return c.transport.ListWorkspaceDirectory(operation, c.id, input)
+	})
 }
 
 func (c *Session) ReadWorkspaceFile(ctx context.Context, input protocol.ReadWorkspaceFileInput) (protocol.WorkspaceFileRead, error) {
-	result, err := c.transport.ReadWorkspaceFile(ctx, c.id, input)
-	return result, projectWorkspaceError(err)
+	return sessionProjectedResult(c, ctx, projectWorkspaceError, func(operation context.Context) (protocol.WorkspaceFileRead, error) {
+		return c.transport.ReadWorkspaceFile(operation, c.id, input)
+	})
 }
 
 func (c *Session) ListDiffTargets(ctx context.Context, input protocol.ListDiffTargetsInput) (protocol.DiffTargetCatalog, error) {
-	result, err := c.transport.ListDiffTargets(ctx, c.id, input)
-	return result, projectDiffError(err)
+	return sessionProjectedResult(c, ctx, projectDiffError, func(operation context.Context) (protocol.DiffTargetCatalog, error) {
+		return c.transport.ListDiffTargets(operation, c.id, input)
+	})
 }
 func (c *Session) ObserveDiff(ctx context.Context, input protocol.ObserveDiffInput) (protocol.DiffPage, error) {
-	result, err := c.transport.ObserveDiff(ctx, c.id, input)
-	return result, projectDiffError(err)
+	return sessionProjectedResult(c, ctx, projectDiffError, func(operation context.Context) (protocol.DiffPage, error) {
+		return c.transport.ObserveDiff(operation, c.id, input)
+	})
 }
 func (c *Session) ObserveWorkingTree(ctx context.Context, input protocol.ObserveWorkingTreeInput) (protocol.WorkingTreePage, error) {
-	result, err := c.transport.ObserveWorkingTree(ctx, c.id, input)
-	return result, projectDiffError(err)
+	return sessionProjectedResult(c, ctx, projectDiffError, func(operation context.Context) (protocol.WorkingTreePage, error) {
+		return c.transport.ObserveWorkingTree(operation, c.id, input)
+	})
 }
 func (c *Session) ReadFileDiff(ctx context.Context, input protocol.ReadFileDiffInput) (protocol.FileDiffPage, error) {
-	result, err := c.transport.ReadFileDiff(ctx, c.id, input)
-	return result, projectDiffError(err)
+	return sessionProjectedResult(c, ctx, projectDiffError, func(operation context.Context) (protocol.FileDiffPage, error) {
+		return c.transport.ReadFileDiff(operation, c.id, input)
+	})
 }
 func projectDiffError(err error) error {
 	var apiError *clienttransport.APIError
@@ -360,19 +460,27 @@ func projectDiffError(err error) error {
 }
 
 func (c *Session) ListAnnotations(ctx context.Context, input protocol.ListAnnotationsInput) (protocol.AnnotationPage, error) {
-	return projectResult(c.transport.ListAnnotations(ctx, c.id, input))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.AnnotationPage, error) {
+		return c.transport.ListAnnotations(operation, c.id, input)
+	})
 }
 
 func (c *Session) CreateAnnotation(ctx context.Context, input protocol.CreateAnnotationInput) (protocol.Annotation, error) {
-	return projectResult(c.transport.CreateAnnotation(ctx, c.id, input))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.Annotation, error) {
+		return c.transport.CreateAnnotation(operation, c.id, input)
+	})
 }
 
 func (c *Session) UpdateAnnotation(ctx context.Context, input protocol.UpdateAnnotationInput) (protocol.Annotation, error) {
-	return projectResult(c.transport.UpdateAnnotation(ctx, c.id, input))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.Annotation, error) {
+		return c.transport.UpdateAnnotation(operation, c.id, input)
+	})
 }
 
 func (c *Session) DeleteAnnotation(ctx context.Context, input protocol.DeleteAnnotationInput) error {
-	return projectError(c.transport.DeleteAnnotation(ctx, c.id, input))
+	return sessionError(c, ctx, func(operation context.Context) error {
+		return c.transport.DeleteAnnotation(operation, c.id, input)
+	})
 }
 
 func projectWorkspaceError(err error) error {
@@ -388,11 +496,18 @@ func projectWorkspaceError(err error) error {
 }
 
 func (c *Session) MessagePage(ctx context.Context, query protocol.MessagePageQuery) (protocol.MessagePage, error) {
-	return projectResult(c.transport.GetMessagePage(ctx, c.id, query))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.MessagePage, error) {
+		return c.transport.GetMessagePage(operation, c.id, query)
+	})
 }
 
 func (c *Session) TranscriptPage(ctx context.Context, before string) (protocol.TranscriptPage, error) {
-	page, err := c.transport.GetTranscriptPage(ctx, c.id, before)
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.TranscriptPage{}, err
+	}
+	defer cancel()
+	page, err := c.transport.GetTranscriptPage(operation, c.id, before)
 	var apiErr *clienttransport.APIError
 	if errors.As(err, &apiErr) && apiErr.StatusCode == http.StatusConflict {
 		return protocol.TranscriptPage{}, ErrTranscriptCursorUnavailable
@@ -401,10 +516,15 @@ func (c *Session) TranscriptPage(ctx context.Context, before string) (protocol.T
 }
 
 func (c *Session) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error) {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.SessionSnapshot{}, err
+	}
+	defer cancel()
 	c.mu.Lock()
 	generation := c.cacheGeneration
 	c.mu.Unlock()
-	snapshot, err := c.transport.GetSessionSnapshot(ctx, c.id)
+	snapshot, err := c.transport.GetSessionSnapshot(operation, c.id)
 	if err != nil {
 		return protocol.SessionSnapshot{}, projectError(err)
 	}
@@ -440,9 +560,12 @@ func (c *Session) Snapshot(ctx context.Context) (protocol.SessionSnapshot, error
 }
 
 func (c *Session) ChangeCWD(ctx context.Context, target string) (protocol.SessionInfo, error) {
-	if err := c.preflight(ctx); err != nil {
-		return protocol.SessionInfo{}, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.SessionInfo{}, err
 	}
+	defer cleanup()
+	ctx = operation
 	select {
 	case <-c.mutationGate:
 		defer func() { c.mutationGate <- struct{}{} }()
@@ -519,9 +642,12 @@ func (c *Session) clearPendingCWD(mutationID string) {
 }
 
 func (c *Session) Reload(ctx context.Context) (protocol.ReloadSessionResult, error) {
-	if err := c.preflight(ctx); err != nil {
-		return protocol.ReloadSessionResult{}, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.ReloadSessionResult{}, err
 	}
+	defer cleanup()
+	ctx = operation
 	select {
 	case <-c.mutationGate:
 		defer func() { c.mutationGate <- struct{}{} }()
@@ -558,9 +684,12 @@ func (c *Session) Reload(ctx context.Context) (protocol.ReloadSessionResult, err
 }
 
 func (c *Session) Configure(ctx context.Context, input protocol.ConfigureSessionInput) (protocol.ConfigureSessionResult, error) {
-	if err := c.preflight(ctx); err != nil {
-		return protocol.ConfigureSessionResult{}, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.ConfigureSessionResult{}, err
 	}
+	defer cleanup()
+	ctx = operation
 	select {
 	case <-c.mutationGate:
 		defer func() { c.mutationGate <- struct{}{} }()
@@ -601,9 +730,11 @@ func (c *Session) Configure(ctx context.Context, input protocol.ConfigureSession
 }
 
 func (c *Session) Scratchpad(ctx context.Context) (protocol.Scratchpad, error) {
-	if err := c.preflight(ctx); err != nil {
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
 		return protocol.Scratchpad{}, err
 	}
+	defer cleanup()
 	if c.isTemporary() {
 		return protocol.Scratchpad{}, &UnsupportedError{Capability: "scratchpad"}
 	}
@@ -611,7 +742,7 @@ func (c *Session) Scratchpad(ctx context.Context) (protocol.Scratchpad, error) {
 	if transport == nil {
 		transport = c.transport
 	}
-	record, err := transport.GetScratchpad(ctx, c.id)
+	record, err := transport.GetScratchpad(operation, c.id)
 	if err != nil {
 		return protocol.Scratchpad{}, projectError(err)
 	}
@@ -619,9 +750,11 @@ func (c *Session) Scratchpad(ctx context.Context) (protocol.Scratchpad, error) {
 }
 
 func (c *Session) UpdateScratchpad(ctx context.Context, input protocol.UpdateScratchpadInput) (protocol.Scratchpad, error) {
-	if err := c.preflight(ctx); err != nil {
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
 		return protocol.Scratchpad{}, err
 	}
+	defer cleanup()
 	if c.isTemporary() {
 		return protocol.Scratchpad{}, &UnsupportedError{Capability: "scratchpad"}
 	}
@@ -629,7 +762,7 @@ func (c *Session) UpdateScratchpad(ctx context.Context, input protocol.UpdateScr
 	if transport == nil {
 		transport = c.transport
 	}
-	record, err := transport.UpdateScratchpad(ctx, c.id, input)
+	record, err := transport.UpdateScratchpad(operation, c.id, input)
 	if err != nil {
 		return protocol.Scratchpad{}, projectError(err)
 	}
@@ -710,9 +843,12 @@ func (c *Session) reduceScratchpadEvents(events []protocol.SessionEvent) ([]prot
 }
 
 func (c *Session) Compact(ctx context.Context, input protocol.CompactSessionInput) (protocol.CompactSessionResult, error) {
-	if err := c.preflight(ctx); err != nil {
-		return protocol.CompactSessionResult{}, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.CompactSessionResult{}, err
 	}
+	defer cleanup()
+	ctx = operation
 	select {
 	case <-c.mutationGate:
 		defer func() { c.mutationGate <- struct{}{} }()
@@ -739,25 +875,36 @@ func (c *Session) Compact(ctx context.Context, input protocol.CompactSessionInpu
 }
 
 func (c *Session) Turn(ctx context.Context, turnID string) (protocol.TurnInfo, error) {
-	return projectResult(c.transport.GetTurn(ctx, c.id, turnID))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.TurnInfo, error) {
+		return c.transport.GetTurn(operation, c.id, turnID)
+	})
 }
 
 func (c *Session) Abort(ctx context.Context, turnID string) error {
-	return projectError(c.transport.AbortSession(ctx, c.id, turnID))
+	return sessionError(c, ctx, func(operation context.Context) error {
+		return c.transport.AbortSession(operation, c.id, turnID)
+	})
 }
 
 func (c *Session) RespondInteraction(ctx context.Context, response protocol.InteractionResponse) error {
-	return projectError(c.transport.RespondInteraction(ctx, c.id, response))
+	return sessionError(c, ctx, func(operation context.Context) error {
+		return c.transport.RespondInteraction(operation, c.id, response)
+	})
 }
 
 func (c *Session) Bash(ctx context.Context, executionID string) (*BashExecution, error) {
-	requestContext, cancel := context.WithTimeout(ctx, 3*time.Second)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return nil, err
+	}
+	defer cleanup()
+	requestContext, cancel := context.WithTimeout(operation, 3*time.Second)
 	defer cancel()
 	state, err := c.transport.GetBash(requestContext, c.id, executionID)
 	if err != nil {
 		return nil, projectError(err)
 	}
-	return &BashExecution{transport: c.transport, sessionID: c.id, state: state}, nil
+	return &BashExecution{client: c.client, transport: c.transport, sessionID: c.id, state: state}, nil
 }
 
 // RunBash starts or resumes an idempotent direct shell execution.
@@ -766,9 +913,12 @@ func (c *Session) RunBash(ctx context.Context, input BashExecutionInput) (*BashE
 }
 
 func (c *Session) StartBash(ctx context.Context, executionID, command string, excludeFromContext bool) (*BashExecution, error) {
-	if err := c.preflight(ctx); err != nil {
-		return nil, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer cleanup()
+	ctx = operation
 	input := protocol.BashExecutionInput{
 		ExecutionID: executionID, Command: command, ExcludeFromContext: excludeFromContext,
 	}
@@ -782,15 +932,19 @@ func (c *Session) StartBash(ctx context.Context, executionID, command string, ex
 		}
 		state = resolved
 	}
-	return &BashExecution{transport: c.transport, sessionID: c.id, state: state}, nil
+	return &BashExecution{client: c.client, transport: c.transport, sessionID: c.id, state: state}, nil
 }
 
 func (c *Session) AbortBash(ctx context.Context, executionID string) error {
-	return projectError(c.transport.AbortBash(ctx, c.id, executionID))
+	return sessionError(c, ctx, func(operation context.Context) error {
+		return c.transport.AbortBash(operation, c.id, executionID)
+	})
 }
 
 func (c *Session) BashHistory(ctx context.Context, before uint64, limit int) (protocol.BashHistoryPage, error) {
-	return projectResult(c.transport.GetBashHistory(ctx, c.id, before, limit))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.BashHistoryPage, error) {
+		return c.transport.GetBashHistory(operation, c.id, before, limit)
+	})
 }
 
 // Watch returns a session update stream. Its first value is an authoritative
@@ -814,8 +968,8 @@ func (c *Session) Watch(ctx context.Context) (*SessionUpdateStream, error) {
 }
 
 func (s *SessionUpdateStream) run(ctx context.Context, session *Session, snapshot SessionSnapshot) {
-	defer close(s.updates)
 	defer close(s.done)
+	defer close(s.updates)
 	defer s.once.Do(s.cancel)
 
 	streamID, cursor := snapshot.EventStreamID, snapshot.EventCursor
@@ -852,6 +1006,8 @@ func (s *SessionUpdateStream) run(ctx context.Context, session *Session, snapsho
 					continue
 				}
 				if !s.deliver(ctx, SessionUpdate{Events: events}) {
+					s.once.Do(s.cancel)
+					_ = one.rawErr()
 					return
 				}
 				failure = 0
@@ -864,7 +1020,7 @@ func (s *SessionUpdateStream) run(ctx context.Context, session *Session, snapsho
 				session.recordDeliveredCursor(streamID, cursor)
 			}
 		}
-		err = one.Err()
+		err = one.rawErr()
 		if s.handleStreamFailure(ctx, session, &streamID, &cursor, err, &failure) {
 			continue
 		}
@@ -1008,9 +1164,12 @@ func (c *Session) StartPrompt(ctx context.Context, text string) (*Turn, error) {
 }
 
 func (c *Session) StartPromptInput(ctx context.Context, input protocol.PromptInput) (*Turn, error) {
-	if err := c.preflight(ctx); err != nil {
-		return nil, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer cleanup()
+	ctx = operation
 	if strings.TrimSpace(input.Text) == "" && len(input.AttachmentIDs) == 0 && len(input.AnnotationIDs) == 0 {
 		return nil, fmt.Errorf("prompt is empty")
 	}
@@ -1032,9 +1191,12 @@ func (c *Session) SubmitPrompt(ctx context.Context, text string) (PromptSubmissi
 }
 
 func (c *Session) SubmitPromptInput(ctx context.Context, input protocol.PromptInput) (PromptSubmission, error) {
-	if err := c.preflight(ctx); err != nil {
-		return PromptSubmission{}, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return PromptSubmission{}, err
 	}
+	defer cleanup()
+	ctx = operation
 	result, err := c.transport.SubmitPromptInput(ctx, c.id, input)
 	if err != nil {
 		return PromptSubmission{}, projectError(err)
@@ -1047,17 +1209,24 @@ func (c *Session) SubmitPromptInput(ctx context.Context, input protocol.PromptIn
 }
 
 func (c *Session) RestoreFollowUps(ctx context.Context) (protocol.RestoreFollowUpsResult, error) {
-	return projectResult(c.transport.RestoreFollowUps(ctx, c.id))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.RestoreFollowUpsResult, error) {
+		return c.transport.RestoreFollowUps(operation, c.id)
+	})
 }
 
 func (c *Session) PromoteFollowUps(ctx context.Context) (protocol.PromoteFollowUpsResult, error) {
-	return projectResult(c.transport.PromoteFollowUps(ctx, c.id))
+	return sessionResult(c, ctx, func(operation context.Context) (protocol.PromoteFollowUpsResult, error) {
+		return c.transport.PromoteFollowUps(operation, c.id)
+	})
 }
 
 func (c *Session) StartPromptCommand(ctx context.Context, name, args string) (*Turn, error) {
-	if err := c.preflight(ctx); err != nil {
-		return nil, projectError(err)
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return nil, err
 	}
+	defer cleanup()
+	ctx = operation
 	reservation, err := c.transport.StartPromptCommand(ctx, c.id, protocol.PromptCommandInput{Name: name, Args: args})
 	if err != nil {
 		return nil, projectError(err)
@@ -1067,14 +1236,28 @@ func (c *Session) StartPromptCommand(ctx context.Context, name, args string) (*T
 
 func (c *Session) turnFromReservation(reservation protocol.TurnReservation) *Turn {
 	return &Turn{
-		transport: c.transport, sessionID: c.id,
+		client: c.client, transport: c.transport, sessionID: c.id,
 		turnID: reservation.TurnID, id: reservation.TurnID,
 	}
 }
 
-func (r *Turn) ID() string { return r.id }
+func (r *Turn) ID() string {
+	if r == nil {
+		return ""
+	}
+	return r.id
+}
 
 func (r *Turn) Wait(ctx context.Context) (protocol.PromptOutcome, error) {
+	if r == nil {
+		return protocol.PromptOutcome{}, errors.New("turn handle is nil")
+	}
+	operation, cleanup, err := handleOperationContext(r.client, ctx)
+	if err != nil {
+		return protocol.PromptOutcome{}, err
+	}
+	defer cleanup()
+	ctx = operation
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	pollFailures := 0
@@ -1165,22 +1348,45 @@ func waitForPoll(ctx context.Context, tick <-chan time.Time) error {
 }
 
 func (r *Turn) Abort(ctx context.Context) error {
-	return projectError(r.transport.AbortSession(ctx, r.sessionID, r.id))
+	if r == nil {
+		return errors.New("turn handle is nil")
+	}
+	operation, cleanup, err := handleOperationContext(r.client, ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return projectError(r.transport.AbortSession(operation, r.sessionID, r.id))
 }
 
 func (b *BashExecution) ID() string {
+	if b == nil {
+		return ""
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.state.ID
 }
 
 func (b *BashExecution) State() protocol.BashExecution {
+	if b == nil {
+		return protocol.BashExecution{}
+	}
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 	return b.state
 }
 
 func (b *BashExecution) Wait(ctx context.Context) (protocol.BashExecution, error) {
+	if b == nil {
+		return protocol.BashExecution{}, errors.New("bash execution handle is nil")
+	}
+	operation, cleanup, err := handleOperationContext(b.client, ctx)
+	if err != nil {
+		return protocol.BashExecution{}, err
+	}
+	defer cleanup()
+	ctx = operation
 	ticker := time.NewTicker(100 * time.Millisecond)
 	defer ticker.Stop()
 	failures := 0
@@ -1212,17 +1418,27 @@ func (b *BashExecution) Wait(ctx context.Context) (protocol.BashExecution, error
 }
 
 func (b *BashExecution) Abort(ctx context.Context) error {
-	return projectError(b.transport.AbortBash(ctx, b.sessionID, b.ID()))
+	if b == nil {
+		return errors.New("bash execution handle is nil")
+	}
+	operation, cleanup, err := handleOperationContext(b.client, ctx)
+	if err != nil {
+		return err
+	}
+	defer cleanup()
+	return projectError(b.transport.AbortBash(operation, b.sessionID, b.ID()))
 }
 
 // Updates returns ordered event batches.
 func (s *EventStream) Updates() <-chan []protocol.SessionEvent { return s.updates }
 
-// Err waits for the stream to finish and returns its terminal error.
-func (s *EventStream) Err() error {
+func (s *EventStream) rawErr() error {
 	<-s.done
-	return projectError(s.err)
+	return s.err
 }
+
+// Err waits for the stream to finish and returns its terminal error.
+func (s *EventStream) Err() error { return projectError(s.rawErr()) }
 
 // Close detaches the stream without aborting its turn.
 func (s *EventStream) Close() error {
@@ -1255,9 +1471,9 @@ func (s *EventStream) readSSE(
 	reduceEvents func([]protocol.SessionEvent) ([]protocol.SessionEvent, error),
 	allRuns bool,
 ) {
-	defer body.Close()
-	defer close(s.updates)
 	defer close(s.done)
+	defer close(s.updates)
+	defer body.Close()
 	if s.cancel != nil {
 		defer s.once.Do(s.cancel)
 	}
@@ -1443,5 +1659,7 @@ func reduceAssistantMessageID(current string, event protocol.SessionEvent) (stri
 }
 
 func (c *Session) ExecutePluginCommand(ctx context.Context, input protocol.PluginCommandInput) error {
-	return projectError(c.transport.ExecutePluginCommand(ctx, c.id, input))
+	return sessionError(c, ctx, func(operation context.Context) error {
+		return c.transport.ExecutePluginCommand(operation, c.id, input)
+	})
 }

@@ -65,8 +65,8 @@ func (c *Session) WatchPluginToasts(ctx context.Context) (*PluginToastStream, er
 }
 
 func (s *PluginToastStream) run(ctx context.Context, session *Session, body io.ReadCloser, streamErr error) {
-	defer close(s.updates)
 	defer close(s.done)
+	defer close(s.updates)
 	defer s.once.Do(s.cancel)
 	failure := 0
 	for {

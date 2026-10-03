@@ -3,6 +3,7 @@ package kit
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"io"
 	"strings"
 	"sync"
@@ -129,6 +130,27 @@ func TestSessionWatchReconnectsAfterLastDeliveredCursor(t *testing.T) {
 		}
 	case <-time.After(time.Second):
 		t.Fatal("stream did not reconnect")
+	}
+}
+
+func TestSessionWatchStopsOnProtocolViolation(t *testing.T) {
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	transport := &cursorWatchTransport{
+		body:    "data: {not-json}\n\n",
+		queries: make(chan watchQuery, 2),
+	}
+	session := newSession(nil, transport, sessionID, validWatchSnapshot(sessionID, "stream_test", 0))
+	stream, err := session.Watch(t.Context())
+	if err != nil {
+		t.Fatal(err)
+	}
+	_ = receiveSessionUpdate(t, stream.Updates())
+	for range stream.Updates() {
+	}
+	var terminal *StreamWatchTerminalError
+	var protocolFailure *ProtocolError
+	if err := stream.Err(); !errors.As(err, &terminal) || !errors.As(err, &protocolFailure) {
+		t.Fatalf("stream error = %v", err)
 	}
 }
 

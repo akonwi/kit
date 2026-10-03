@@ -36,10 +36,10 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate daemon session response: %w", err)
+		return protocol.SessionInfo{}, protocolErrorf("validate daemon session response: %w", err)
 	}
 	if (input.ID != "" && output.ID != input.ID) || output.Temporary != input.Temporary {
-		return protocol.SessionInfo{}, fmt.Errorf("daemon session creation identity mismatch")
+		return protocol.SessionInfo{}, protocolErrorf("daemon session creation identity mismatch")
 	}
 	return output, nil
 }
@@ -54,10 +54,10 @@ func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input 
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate forked daemon session: %w", err)
+		return protocol.SessionInfo{}, protocolErrorf("validate forked daemon session: %w", err)
 	}
 	if output.Temporary || output.ParentSessionID != sourceSessionID || (input.ID != "" && output.ID != input.ID) {
-		return protocol.SessionInfo{}, fmt.Errorf("daemon session fork identity mismatch")
+		return protocol.SessionInfo{}, protocolErrorf("daemon session fork identity mismatch")
 	}
 	return output, nil
 }
@@ -73,13 +73,13 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (pro
 		return protocol.SessionInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate renamed daemon session: %w", err)
+		return protocol.SessionInfo{}, protocolErrorf("validate renamed daemon session: %w", err)
 	}
 	if output.ID != sessionID {
-		return protocol.SessionInfo{}, fmt.Errorf("daemon session rename identity mismatch")
+		return protocol.SessionInfo{}, protocolErrorf("daemon session rename identity mismatch")
 	}
 	if output.Name != strings.TrimSpace(name) {
-		return protocol.SessionInfo{}, fmt.Errorf("daemon session rename value mismatch")
+		return protocol.SessionInfo{}, protocolErrorf("daemon session rename value mismatch")
 	}
 	return output, nil
 }
@@ -103,7 +103,7 @@ func (c *Client) ListSessions(ctx context.Context, cwd string) ([]protocol.Sessi
 		return nil, err
 	}
 	if err := output.Validate(); err != nil {
-		return nil, fmt.Errorf("validate daemon session list: %w", err)
+		return nil, protocolErrorf("validate daemon session list: %w", err)
 	}
 	return output.Sessions, nil
 }
@@ -115,7 +115,7 @@ func (c *Client) ListModels(ctx context.Context) (protocol.ModelCatalog, error) 
 		return protocol.ModelCatalog{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.ModelCatalog{}, fmt.Errorf("validate daemon model catalog: %w", err)
+		return protocol.ModelCatalog{}, protocolErrorf("validate daemon model catalog: %w", err)
 	}
 	return output, nil
 }
@@ -127,7 +127,7 @@ func (c *Client) RefreshModels(ctx context.Context) (protocol.ModelCatalog, erro
 		return protocol.ModelCatalog{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.ModelCatalog{}, fmt.Errorf("validate refreshed daemon model catalog: %w", err)
+		return protocol.ModelCatalog{}, protocolErrorf("validate refreshed daemon model catalog: %w", err)
 	}
 	return output, nil
 }
@@ -139,10 +139,10 @@ func (c *Client) GetWorkspace(ctx context.Context, sessionID string) (protocol.W
 		return protocol.WorkspaceRef{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.WorkspaceRef{}, fmt.Errorf("validate daemon workspace: %w", err)
+		return protocol.WorkspaceRef{}, protocolErrorf("validate daemon workspace: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.WorkspaceRef{}, fmt.Errorf("daemon workspace identity mismatch")
+		return protocol.WorkspaceRef{}, protocolErrorf("daemon workspace identity mismatch")
 	}
 	return output, nil
 }
@@ -154,10 +154,10 @@ func (c *Client) ListWorkspaceDirectory(ctx context.Context, sessionID string, i
 		return protocol.DirectoryPage{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.DirectoryPage{}, fmt.Errorf("validate daemon directory page: %w", err)
+		return protocol.DirectoryPage{}, protocolErrorf("validate daemon directory page: %w", err)
 	}
 	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
-		return protocol.DirectoryPage{}, fmt.Errorf("daemon directory identity mismatch")
+		return protocol.DirectoryPage{}, protocolErrorf("daemon directory identity mismatch")
 	}
 	return output, nil
 }
@@ -169,10 +169,10 @@ func (c *Client) ReadWorkspaceFile(ctx context.Context, sessionID string, input 
 		return protocol.WorkspaceFileRead{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.WorkspaceFileRead{}, fmt.Errorf("validate daemon workspace file: %w", err)
+		return protocol.WorkspaceFileRead{}, protocolErrorf("validate daemon workspace file: %w", err)
 	}
 	if output.SessionID != sessionID || output.Workspace.WorkspaceID != input.WorkspaceID || output.Path != input.Path {
-		return protocol.WorkspaceFileRead{}, fmt.Errorf("daemon workspace file identity mismatch")
+		return protocol.WorkspaceFileRead{}, protocolErrorf("daemon workspace file identity mismatch")
 	}
 	return output, nil
 }
@@ -195,10 +195,10 @@ func (c *Client) ListDiffTargets(ctx context.Context, sessionID string, input pr
 // ValidateDiffTargetCatalogResponse cross-checks a catalog against its request.
 func ValidateDiffTargetCatalogResponse(sessionID string, input protocol.ListDiffTargetsInput, output protocol.DiffTargetCatalog) error {
 	if err := output.Validate(); err != nil {
-		return fmt.Errorf("validate daemon diff target catalog: %w", err)
+		return protocolErrorf("validate daemon diff target catalog: %w", err)
 	}
 	if output.SessionID != sessionID || output.WorkspaceID != input.WorkspaceID {
-		return fmt.Errorf("daemon diff target catalog identity does not match request")
+		return protocolErrorf("daemon diff target catalog identity does not match request")
 	}
 	return nil
 }
@@ -221,10 +221,10 @@ func (c *Client) ObserveDiff(ctx context.Context, sessionID string, input protoc
 // ValidateObserveDiffResponse cross-checks a diff page against its request.
 func ValidateObserveDiffResponse(sessionID string, input protocol.ObserveDiffInput, output protocol.DiffPage) error {
 	if err := output.Validate(); err != nil {
-		return fmt.Errorf("validate daemon diff observation page: %w", err)
+		return protocolErrorf("validate daemon diff observation page: %w", err)
 	}
 	if output.Observation.SessionID != sessionID || output.Observation.Target.WorkspaceID != input.WorkspaceID || output.Observation.Target.ID != input.ExpectedTargetID || input.ExpectedTargetRevision != "" && output.Observation.Revision != input.ExpectedTargetRevision {
-		return fmt.Errorf("daemon diff observation identity does not match request")
+		return protocolErrorf("daemon diff observation identity does not match request")
 	}
 	return nil
 }
@@ -238,8 +238,11 @@ func (c *Client) ObserveWorkingTree(ctx context.Context, sessionID string, input
 	if err != nil {
 		return protocol.WorkingTreePage{}, err
 	}
-	if err := output.Validate(); err != nil || output.Observation.SessionID != sessionID {
-		return protocol.WorkingTreePage{}, fmt.Errorf("validate daemon working-tree page: %w", err)
+	if err := output.Validate(); err != nil {
+		return protocol.WorkingTreePage{}, protocolErrorf("validate daemon working-tree page: %w", err)
+	}
+	if output.Observation.SessionID != sessionID {
+		return protocol.WorkingTreePage{}, protocolErrorf("daemon working-tree page identity mismatch")
 	}
 	return output, nil
 }
@@ -262,10 +265,10 @@ func (c *Client) ReadFileDiff(ctx context.Context, sessionID string, input proto
 // ValidateFileDiffResponse cross-checks a file diff page against its request.
 func ValidateFileDiffResponse(sessionID string, input protocol.ReadFileDiffInput, output protocol.FileDiffPage) error {
 	if err := output.Validate(); err != nil {
-		return fmt.Errorf("validate daemon file diff page: %w", err)
+		return protocolErrorf("validate daemon file diff page: %w", err)
 	}
 	if output.Observation.SessionID != sessionID || output.Observation.Target.ID != input.TargetID || output.Observation.Revision != input.TargetRevision || output.File.Path != input.Path || input.ExpectedFileRevision != "" && output.File.FileRevision != input.ExpectedFileRevision {
-		return fmt.Errorf("daemon file diff identity does not match request")
+		return protocolErrorf("daemon file diff identity does not match request")
 	}
 	return nil
 }
@@ -279,8 +282,11 @@ func (c *Client) ListAnnotations(ctx context.Context, sessionID string, input pr
 	if err != nil {
 		return protocol.AnnotationPage{}, err
 	}
-	if err := output.Validate(); err != nil || output.SessionID != sessionID {
-		return protocol.AnnotationPage{}, fmt.Errorf("validate daemon annotation page: %w", err)
+	if err := output.Validate(); err != nil {
+		return protocol.AnnotationPage{}, protocolErrorf("validate daemon annotation page: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.AnnotationPage{}, protocolErrorf("daemon annotation page identity mismatch")
 	}
 	return output, nil
 }
@@ -294,8 +300,11 @@ func (c *Client) CreateAnnotation(ctx context.Context, sessionID string, input p
 	if err != nil {
 		return protocol.Annotation{}, err
 	}
-	if err := output.Validate(); err != nil || output.SessionID != sessionID {
-		return protocol.Annotation{}, fmt.Errorf("validate daemon annotation: %w", err)
+	if err := output.Validate(); err != nil {
+		return protocol.Annotation{}, protocolErrorf("validate daemon annotation: %w", err)
+	}
+	if output.SessionID != sessionID {
+		return protocol.Annotation{}, protocolErrorf("daemon annotation identity mismatch")
 	}
 	return output, nil
 }
@@ -309,8 +318,11 @@ func (c *Client) UpdateAnnotation(ctx context.Context, sessionID string, input p
 	if err != nil {
 		return protocol.Annotation{}, err
 	}
-	if err := output.Validate(); err != nil || output.SessionID != sessionID || output.ID != input.AnnotationID {
-		return protocol.Annotation{}, fmt.Errorf("validate daemon annotation update: %w", err)
+	if err := output.Validate(); err != nil {
+		return protocol.Annotation{}, protocolErrorf("validate daemon annotation update: %w", err)
+	}
+	if output.SessionID != sessionID || output.ID != input.AnnotationID {
+		return protocol.Annotation{}, protocolErrorf("daemon annotation update identity mismatch")
 	}
 	return output, nil
 }
@@ -340,10 +352,10 @@ func (c *Client) getSessionFileIndex(ctx context.Context, sessionID string, refr
 		return protocol.SessionFileIndex{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionFileIndex{}, fmt.Errorf("validate daemon session file index: %w", err)
+		return protocol.SessionFileIndex{}, protocolErrorf("validate daemon session file index: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.SessionFileIndex{}, fmt.Errorf("daemon session file index identity mismatch")
+		return protocol.SessionFileIndex{}, protocolErrorf("daemon session file index identity mismatch")
 	}
 	return output, nil
 }
@@ -355,10 +367,10 @@ func (c *Client) GetSessionSnapshot(ctx context.Context, sessionID string) (prot
 		return protocol.SessionSnapshot{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionSnapshot{}, fmt.Errorf("validate daemon session snapshot: %w", err)
+		return protocol.SessionSnapshot{}, protocolErrorf("validate daemon session snapshot: %w", err)
 	}
 	if output.Session.ID != sessionID {
-		return protocol.SessionSnapshot{}, fmt.Errorf("daemon session snapshot identity mismatch")
+		return protocol.SessionSnapshot{}, protocolErrorf("daemon session snapshot identity mismatch")
 	}
 	return output, nil
 }
@@ -370,10 +382,10 @@ func (c *Client) GetBashHistory(ctx context.Context, sessionID string, before ui
 		return protocol.BashHistoryPage{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.BashHistoryPage{}, fmt.Errorf("validate daemon bash history page: %w", err)
+		return protocol.BashHistoryPage{}, protocolErrorf("validate daemon bash history page: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.BashHistoryPage{}, fmt.Errorf("daemon bash history page identity mismatch")
+		return protocol.BashHistoryPage{}, protocolErrorf("daemon bash history page identity mismatch")
 	}
 	return output, nil
 }
@@ -389,10 +401,10 @@ func (c *Client) GetMessagePage(ctx context.Context, sessionID string, query pro
 		before = strconv.FormatUint(query.Before, 10)
 	}
 	if err := output.ValidateBefore(before); err != nil {
-		return protocol.MessagePage{}, fmt.Errorf("validate daemon message page: %w", err)
+		return protocol.MessagePage{}, protocolErrorf("validate daemon message page: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.MessagePage{}, fmt.Errorf("daemon message page identity mismatch")
+		return protocol.MessagePage{}, protocolErrorf("daemon message page identity mismatch")
 	}
 	return output, nil
 }
@@ -404,10 +416,10 @@ func (c *Client) GetTranscriptPage(ctx context.Context, sessionID, before string
 		return protocol.TranscriptPage{}, err
 	}
 	if err := output.ValidateBefore(before); err != nil {
-		return protocol.TranscriptPage{}, fmt.Errorf("validate daemon transcript page: %w", err)
+		return protocol.TranscriptPage{}, protocolErrorf("validate daemon transcript page: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.TranscriptPage{}, fmt.Errorf("daemon transcript page identity mismatch")
+		return protocol.TranscriptPage{}, protocolErrorf("daemon transcript page identity mismatch")
 	}
 	return output, nil
 }
@@ -419,10 +431,10 @@ func (c *Client) GetSessionVCSStatus(ctx context.Context, sessionID string) (pro
 		return protocol.SessionVCSStatus{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionVCSStatus{}, fmt.Errorf("validate daemon session VCS status: %w", err)
+		return protocol.SessionVCSStatus{}, protocolErrorf("validate daemon session VCS status: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.SessionVCSStatus{}, fmt.Errorf("daemon session VCS identity mismatch")
+		return protocol.SessionVCSStatus{}, protocolErrorf("daemon session VCS identity mismatch")
 	}
 	return output, nil
 }
@@ -434,14 +446,14 @@ func (c *Client) GetSessionEvents(ctx context.Context, sessionID, streamID strin
 		return protocol.SessionEventBatch{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionEventBatch{}, fmt.Errorf("validate daemon session events: %w", err)
+		return protocol.SessionEventBatch{}, protocolErrorf("validate daemon session events: %w", err)
 	}
 	if !output.ResyncRequired && after > 0 && len(output.Events) > 0 && output.Events[0].Sequence != after+1 {
-		return protocol.SessionEventBatch{}, fmt.Errorf("daemon session event sequence gap after %d", after)
+		return protocol.SessionEventBatch{}, protocolErrorf("daemon session event sequence gap after %d", after)
 	}
 	for _, event := range output.Events {
 		if event.SessionID != sessionID {
-			return protocol.SessionEventBatch{}, fmt.Errorf("daemon session event identity mismatch")
+			return protocol.SessionEventBatch{}, protocolErrorf("daemon session event identity mismatch")
 		}
 	}
 	return output, nil
@@ -474,10 +486,10 @@ func (c *Client) ChangeSessionWorkspaceCWDWithID(ctx context.Context, sessionID,
 		return protocol.ChangeWorkspaceCWDResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("validate daemon session cwd result: %w", err)
+		return protocol.ChangeWorkspaceCWDResult{}, protocolErrorf("validate daemon session cwd result: %w", err)
 	}
 	if output.Session.ID != sessionID {
-		return protocol.ChangeWorkspaceCWDResult{}, fmt.Errorf("daemon session cwd identity mismatch")
+		return protocol.ChangeWorkspaceCWDResult{}, protocolErrorf("daemon session cwd identity mismatch")
 	}
 	return output, nil
 }
@@ -489,10 +501,10 @@ func (c *Client) ReloadSession(ctx context.Context, sessionID string) (protocol.
 		return protocol.ReloadSessionResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.ReloadSessionResult{}, fmt.Errorf("validate daemon session reload: %w", err)
+		return protocol.ReloadSessionResult{}, protocolErrorf("validate daemon session reload: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.ReloadSessionResult{}, fmt.Errorf("daemon session reload identity mismatch")
+		return protocol.ReloadSessionResult{}, protocolErrorf("daemon session reload identity mismatch")
 	}
 	return output, nil
 }
@@ -507,10 +519,10 @@ func (c *Client) ConfigureSession(ctx context.Context, sessionID string, input p
 		return protocol.ConfigureSessionResult{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {
-		return protocol.ConfigureSessionResult{}, fmt.Errorf("validate daemon session configuration: %w", err)
+		return protocol.ConfigureSessionResult{}, protocolErrorf("validate daemon session configuration: %w", err)
 	}
 	if output.Session.ID != sessionID {
-		return protocol.ConfigureSessionResult{}, fmt.Errorf("daemon session configuration identity mismatch")
+		return protocol.ConfigureSessionResult{}, protocolErrorf("daemon session configuration identity mismatch")
 	}
 	return output, nil
 }
@@ -522,7 +534,7 @@ func (c *Client) GetScratchpad(ctx context.Context, sessionID string) (protocol.
 		return protocol.Scratchpad{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.Scratchpad{}, fmt.Errorf("validate daemon scratchpad: %w", err)
+		return protocol.Scratchpad{}, protocolErrorf("validate daemon scratchpad: %w", err)
 	}
 	return output, nil
 }
@@ -545,7 +557,7 @@ func (c *Client) UpdateScratchpad(ctx context.Context, sessionID string, input p
 		return protocol.Scratchpad{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {
-		return protocol.Scratchpad{}, fmt.Errorf("validate daemon scratchpad update: %w", err)
+		return protocol.Scratchpad{}, protocolErrorf("validate daemon scratchpad update: %w", err)
 	}
 	return output, nil
 }
@@ -560,7 +572,7 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 		return protocol.CompactSessionResult{}, err
 	}
 	if err := output.ValidateApplied(input); err != nil {
-		return protocol.CompactSessionResult{}, fmt.Errorf("validate daemon session compaction: %w", err)
+		return protocol.CompactSessionResult{}, protocolErrorf("validate daemon session compaction: %w", err)
 	}
 	return output, nil
 }
@@ -572,7 +584,7 @@ func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationI
 		return protocol.SubagentLiveEventPage{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SubagentLiveEventPage{}, fmt.Errorf("validate daemon subagent events: %w", err)
+		return protocol.SubagentLiveEventPage{}, protocolErrorf("validate daemon subagent events: %w", err)
 	}
 	return output, nil
 }
@@ -586,10 +598,10 @@ func (c *Client) GetSubagentTranscript(ctx context.Context, sessionID, conversat
 		return protocol.SubagentTranscript{}, err
 	}
 	if err := output.ValidateBefore(before); err != nil {
-		return protocol.SubagentTranscript{}, fmt.Errorf("validate daemon subagent transcript: %w", err)
+		return protocol.SubagentTranscript{}, protocolErrorf("validate daemon subagent transcript: %w", err)
 	}
 	if output.ConversationID != conversationID {
-		return protocol.SubagentTranscript{}, fmt.Errorf("daemon subagent transcript identity mismatch")
+		return protocol.SubagentTranscript{}, protocolErrorf("daemon subagent transcript identity mismatch")
 	}
 	return output, nil
 }
@@ -604,7 +616,7 @@ func (c *Client) Subagent(ctx context.Context, sessionID string, input protocol.
 		return protocol.SubagentOperationResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SubagentOperationResult{}, fmt.Errorf("validate daemon subagent response: %w", err)
+		return protocol.SubagentOperationResult{}, protocolErrorf("validate daemon subagent response: %w", err)
 	}
 	return output, nil
 }
@@ -660,13 +672,13 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	}
 	var output protocol.AttachmentInfo
 	if err := json.NewDecoder(limited).Decode(&output); err != nil {
-		return protocol.AttachmentInfo{}, fmt.Errorf("decode attachment response: %w", err)
+		return protocol.AttachmentInfo{}, protocolErrorf("decode attachment response: %w", err)
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.AttachmentInfo{}, fmt.Errorf("validate daemon attachment: %w", err)
+		return protocol.AttachmentInfo{}, protocolErrorf("validate daemon attachment: %w", err)
 	}
 	if output.SessionID != sessionID {
-		return protocol.AttachmentInfo{}, fmt.Errorf("daemon attachment session identity mismatch")
+		return protocol.AttachmentInfo{}, protocolErrorf("daemon attachment session identity mismatch")
 	}
 	return output, nil
 }
@@ -682,7 +694,7 @@ func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attac
 		return protocol.AttachmentResolution{}, err
 	}
 	if err := output.Validate(sessionID, attachmentIDs); err != nil {
-		return protocol.AttachmentResolution{}, fmt.Errorf("validate daemon attachment resolution: %w", err)
+		return protocol.AttachmentResolution{}, protocolErrorf("validate daemon attachment resolution: %w", err)
 	}
 	return output, nil
 }
@@ -731,17 +743,18 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 	}
 	if dispositionErr != nil || disposition != "inline" || widthErr != nil || heightErr != nil {
 		response.Body.Close()
-		return protocol.AttachmentInfo{}, nil, fmt.Errorf("daemon attachment returned malformed metadata")
+		return protocol.AttachmentInfo{}, nil, protocolErrorf("daemon attachment returned malformed metadata")
 	}
-	if err := info.Validate(); err != nil || info.ID != attachmentID || info.SessionID != sessionID {
+	if err := info.Validate(); err != nil {
 		response.Body.Close()
-		if err == nil {
-			err = fmt.Errorf("attachment identity mismatch")
-		}
-		return protocol.AttachmentInfo{}, nil, fmt.Errorf("validate daemon attachment: %w", err)
+		return protocol.AttachmentInfo{}, nil, protocolErrorf("validate daemon attachment: %w", err)
+	}
+	if info.ID != attachmentID || info.SessionID != sessionID {
+		response.Body.Close()
+		return protocol.AttachmentInfo{}, nil, protocolErrorf("daemon attachment identity mismatch")
 	}
 	keepContext = true
-	return info, &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}, nil
+	return info, &lifetimeReadCloser{ReadCloser: response.Body, operation: "read attachment", cleanup: cleanup}, nil
 }
 
 // DecodeAPIError decodes one declared session API failure.
@@ -780,10 +793,10 @@ func (c *Client) SubmitPromptInput(ctx context.Context, sessionID string, input 
 		return protocol.PromptSubmission{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.PromptSubmission{}, fmt.Errorf("validate daemon prompt submission: %w", err)
+		return protocol.PromptSubmission{}, protocolErrorf("validate daemon prompt submission: %w", err)
 	}
 	if output.Reservation != nil && output.Reservation.SessionID != sessionID {
-		return protocol.PromptSubmission{}, fmt.Errorf("daemon prompt submission identity mismatch")
+		return protocol.PromptSubmission{}, protocolErrorf("daemon prompt submission identity mismatch")
 	}
 	return output, nil
 }
@@ -795,7 +808,7 @@ func (c *Client) RestoreFollowUps(ctx context.Context, sessionID string) (protoc
 		return protocol.RestoreFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.RestoreFollowUpsResult{}, fmt.Errorf("validate daemon follow-up restoration: %w", err)
+		return protocol.RestoreFollowUpsResult{}, protocolErrorf("validate daemon follow-up restoration: %w", err)
 	}
 	return output, nil
 }
@@ -807,7 +820,7 @@ func (c *Client) PromoteFollowUps(ctx context.Context, sessionID string) (protoc
 		return protocol.PromoteFollowUpsResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.PromoteFollowUpsResult{}, fmt.Errorf("validate daemon follow-up promotion: %w", err)
+		return protocol.PromoteFollowUpsResult{}, protocolErrorf("validate daemon follow-up promotion: %w", err)
 	}
 	return output, nil
 }
@@ -823,10 +836,10 @@ func (c *Client) StartPromptInput(ctx context.Context, sessionID string, input p
 		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt reservation: %w", err)
+		return protocol.TurnReservation{}, protocolErrorf("validate daemon prompt reservation: %w", err)
 	}
 	if output.SessionID != sessionID || output.TurnID == "" {
-		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt reservation identity mismatch")
+		return protocol.TurnReservation{}, protocolErrorf("daemon prompt reservation identity mismatch")
 	}
 	return output, nil
 }
@@ -841,10 +854,10 @@ func (c *Client) SubmitPromptCommand(ctx context.Context, sessionID string, inpu
 		return protocol.PromptSubmission{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.PromptSubmission{}, fmt.Errorf("validate daemon prompt command submission: %w", err)
+		return protocol.PromptSubmission{}, protocolErrorf("validate daemon prompt command submission: %w", err)
 	}
 	if output.Reservation != nil && output.Reservation.SessionID != sessionID {
-		return protocol.PromptSubmission{}, fmt.Errorf("daemon prompt command submission identity mismatch")
+		return protocol.PromptSubmission{}, protocolErrorf("daemon prompt command submission identity mismatch")
 	}
 	return output, nil
 }
@@ -859,10 +872,10 @@ func (c *Client) StartPromptCommand(ctx context.Context, sessionID string, input
 		return protocol.TurnReservation{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.TurnReservation{}, fmt.Errorf("validate daemon prompt command reservation: %w", err)
+		return protocol.TurnReservation{}, protocolErrorf("validate daemon prompt command reservation: %w", err)
 	}
 	if output.SessionID != sessionID || output.TurnID == "" {
-		return protocol.TurnReservation{}, fmt.Errorf("daemon prompt command reservation identity mismatch")
+		return protocol.TurnReservation{}, protocolErrorf("daemon prompt command reservation identity mismatch")
 	}
 	return output, nil
 }
@@ -874,10 +887,10 @@ func (c *Client) GetTurn(ctx context.Context, sessionID, turnID string) (protoco
 		return protocol.TurnInfo{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.TurnInfo{}, fmt.Errorf("validate daemon turn response: %w", err)
+		return protocol.TurnInfo{}, protocolErrorf("validate daemon turn response: %w", err)
 	}
 	if output.SessionID != sessionID || output.TurnID != turnID {
-		return protocol.TurnInfo{}, fmt.Errorf("daemon turn response identity mismatch")
+		return protocol.TurnInfo{}, protocolErrorf("daemon turn response identity mismatch")
 	}
 	return output, nil
 }
@@ -893,10 +906,10 @@ func (c *Client) PromptInput(ctx context.Context, sessionID string, input protoc
 		return protocol.PromptOutcome{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.PromptOutcome{}, fmt.Errorf("validate daemon prompt response: %w", err)
+		return protocol.PromptOutcome{}, protocolErrorf("validate daemon prompt response: %w", err)
 	}
 	if output.SessionID != sessionID || output.TurnID == "" {
-		return protocol.PromptOutcome{}, fmt.Errorf("daemon prompt response identity mismatch")
+		return protocol.PromptOutcome{}, protocolErrorf("daemon prompt response identity mismatch")
 	}
 	return output, nil
 }
@@ -908,10 +921,10 @@ func (c *Client) StartBash(ctx context.Context, sessionID string, input protocol
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.BashExecution{}, fmt.Errorf("validate daemon bash execution: %w", err)
+		return protocol.BashExecution{}, protocolErrorf("validate daemon bash execution: %w", err)
 	}
 	if output.SessionID != sessionID || output.ID != input.ExecutionID {
-		return protocol.BashExecution{}, fmt.Errorf("daemon bash execution identity mismatch")
+		return protocol.BashExecution{}, protocolErrorf("daemon bash execution identity mismatch")
 	}
 	return output, nil
 }
@@ -923,10 +936,10 @@ func (c *Client) GetBash(ctx context.Context, sessionID, executionID string) (pr
 		return protocol.BashExecution{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.BashExecution{}, fmt.Errorf("validate daemon bash execution: %w", err)
+		return protocol.BashExecution{}, protocolErrorf("validate daemon bash execution: %w", err)
 	}
 	if output.SessionID != sessionID || output.ID != executionID {
-		return protocol.BashExecution{}, fmt.Errorf("daemon bash execution identity mismatch")
+		return protocol.BashExecution{}, protocolErrorf("daemon bash execution identity mismatch")
 	}
 	return output, nil
 }
@@ -944,7 +957,7 @@ func (c *Client) RespondInteraction(ctx context.Context, sessionID string, respo
 		return err
 	}
 	if !result.Settled {
-		return fmt.Errorf("daemon did not settle interaction")
+		return protocolErrorf("daemon did not settle interaction")
 	}
 	return nil
 }
@@ -956,7 +969,7 @@ func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) err
 		return err
 	}
 	if !result.Aborting {
-		return fmt.Errorf("daemon did not acknowledge turn abort")
+		return protocolErrorf("daemon did not acknowledge turn abort")
 	}
 	return nil
 }
@@ -1002,10 +1015,10 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	}
 	if mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type")); err != nil || mediaType != "text/event-stream" {
 		response.Body.Close()
-		return nil, fmt.Errorf("daemon event stream returned content type %q", response.Header.Get("Content-Type"))
+		return nil, protocolErrorf("daemon event stream returned content type %q", response.Header.Get("Content-Type"))
 	}
 	keepContext = true
-	return &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}, nil
+	return &lifetimeReadCloser{ReadCloser: response.Body, operation: "read session event stream", cleanup: cleanup}, nil
 }
 
 // DoSessionRequest performs an authenticated, compatibility-checked session request.
@@ -1036,7 +1049,7 @@ func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body
 		cleanup()
 		return nil, transportError("call session API", err)
 	}
-	response.Body = &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}
+	response.Body = &lifetimeReadCloser{ReadCloser: response.Body, operation: "read session response", cleanup: cleanup}
 	return response, nil
 }
 

@@ -192,7 +192,7 @@ func (c *localSession) Subagent(ctx context.Context, input protocol.SubagentOper
 
 func (c *localSession) SubagentTranscript(ctx context.Context, conversationID, before string) (protocol.SubagentTranscript, error) {
 	page, err := c.transport.GetSubagentTranscript(ctx, c.id, conversationID, before)
-	var apiErr *kitserver.APIError
+	var apiErr *clienttransport.APIError
 	if errors.As(err, &apiErr) && apiErr.Code == string(httpapi.ErrorTranscriptCursorUnavailable) {
 		return protocol.SubagentTranscript{}, sessionclient.ErrTranscriptCursorUnavailable
 	}

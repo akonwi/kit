@@ -22,6 +22,13 @@ const (
 	protocolHeader = httpapi.ProtocolHeader
 )
 
+// ProtocolError reports a response that violates the declared wire contract.
+type ProtocolError = httpapi.ProtocolError
+
+func protocolErrorf(format string, args ...any) error {
+	return &ProtocolError{Err: fmt.Errorf(format, args...)}
+}
+
 // TransportError reports a failed request exchange with a Kit server.
 type TransportError struct {
 	Operation string
@@ -96,14 +103,22 @@ func (c *Client) WithLifetime(lifetime context.Context, lifetimeErr error) *Clie
 
 type lifetimeReadCloser struct {
 	io.ReadCloser
-	cleanup func()
-	once    sync.Once
+	operation string
+	cleanup   func()
+	once      sync.Once
+}
+
+func (r *lifetimeReadCloser) Read(buffer []byte) (int, error) {
+	count, err := r.ReadCloser.Read(buffer)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return count, transportError(r.operation, err)
+	}
+	return count, err
 }
 
 func (r *lifetimeReadCloser) Close() error {
-	err := r.ReadCloser.Close()
 	r.once.Do(r.cleanup)
-	return err
+	return r.ReadCloser.Close()
 }
 
 func (c *Client) operationContext(ctx context.Context) (context.Context, func()) {
@@ -201,7 +216,7 @@ func (c *Client) Probe(ctx context.Context, requireDatabase bool) (Connection, H
 	var health Health
 	decoder := json.NewDecoder(io.LimitReader(response.Body, 64<<10))
 	if err := decoder.Decode(&health); err != nil {
-		return Connection{}, Health{}, fmt.Errorf("decode server health: %w", err)
+		return Connection{}, Health{}, protocolErrorf("decode server health: %w", err)
 	}
 	if health.InstanceID != connection.InstanceID {
 		return Connection{}, Health{}, errors.New("server instance does not match connection")
@@ -227,10 +242,10 @@ func (c *Client) Probe(ctx context.Context, requireDatabase bool) (Connection, H
 	seenProviders := map[string]bool{}
 	for _, providerID := range health.Providers {
 		if providerID == "" || providerID != strings.TrimSpace(providerID) || len(providerID) > 128 || strings.ContainsAny(providerID, "/\\\r\n\t") {
-			return Connection{}, Health{}, fmt.Errorf("server returned invalid provider id %q", providerID)
+			return Connection{}, Health{}, protocolErrorf("server returned invalid provider id %q", providerID)
 		}
 		if seenProviders[providerID] {
-			return Connection{}, Health{}, fmt.Errorf("server returned duplicate provider id %q", providerID)
+			return Connection{}, Health{}, protocolErrorf("server returned duplicate provider id %q", providerID)
 		}
 		seenProviders[providerID] = true
 	}

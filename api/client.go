@@ -122,7 +122,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 
 	if _, err := transport.ProbeCompatible(ctx); err != nil {
 		transport.CloseIdleConnections()
-		return nil, err
+		return nil, projectError(err)
 	}
 	client := newClient(transport, transport.CloseIdleConnections)
 	client.sessions = transport

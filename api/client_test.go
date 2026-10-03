@@ -6,6 +6,7 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"strings"
 	"sync"
 	"sync/atomic"
 	"testing"
@@ -77,6 +78,20 @@ func TestResolveSessionSelectorUsesExactThenUniquePrefix(t *testing.T) {
 	}
 	if _, err := resolveSessionSelector(sessions, "0123"); !errors.Is(err, ErrSessionAmbiguous) {
 		t.Fatalf("ambiguous error = %v", err)
+	}
+}
+
+func TestClientProjectsProtocolErrors(t *testing.T) {
+	backend := &fakeClientBackend{list: func(context.Context, string) ([]protocol.SessionInfo, error) {
+		return nil, &clienttransport.ProtocolError{Err: errors.New("unknown response field")}
+	}}
+	client := newClient(backend, nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err := client.ListSessions(t.Context(), ListSessionsOptions{})
+	var failure *ProtocolError
+	if !errors.As(err, &failure) || !strings.Contains(failure.Error(), "unknown response field") {
+		t.Fatalf("error = %#v", err)
 	}
 }
 

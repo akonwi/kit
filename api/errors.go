@@ -113,6 +113,10 @@ func projectError(err error) error {
 	if errors.As(err, &streamFailure) {
 		return &ProtocolError{Err: streamFailure.Err}
 	}
+	var protocolFailure *clienttransport.ProtocolError
+	if errors.As(err, &protocolFailure) {
+		return &ProtocolError{Err: protocolFailure.Err}
+	}
 	var failure *clienttransport.APIError
 	if !errors.As(err, &failure) {
 		return err
