@@ -95,7 +95,7 @@ func (s *workspaceOffstageTranscriptState) InitState() {
 
 func (s *workspaceOffstageTranscriptState) Build(ctx ui.BuildContext) ui.Widget {
 	view := shellView{}
-	transcript := view.transcriptList(ui.MustDepend[ui.Theme](ctx), presentTranscript(s.messages), true, "session:test", &s.scroll, &s.list, true, nil)
+	transcript := view.transcriptList(ui.MustDepend[ui.Theme](ctx), presentTranscript(s.messages), true, "session:test", &s.scroll, &s.list, true, nil, nil)
 	activity := mouseActivator{Child: ui.Text{Value: "DIFF CONTENT"}, OnScroll: func(ui.EventContext, ui.Mouse) ui.EventResult {
 		s.SetState(func() { s.activityScrolls++ })
 		return ui.EventHandled

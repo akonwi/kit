@@ -579,17 +579,33 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 	}
 	messages := subagentPaneMessages(conversation, transcript, w.Snapshot.SubagentLive[conversationID])
 	presentation := presentTranscript(messages)
-	var body ui.Widget
-	if len(presentation.Items) > 0 {
-		transcriptView := w
-		transcriptView.Snapshot.Scroll = controller
-		transcriptView.Snapshot.AgentRunning = conversation.State == "running"
-		transcriptView.Callbacks.OpenActivity = func(ctx ui.EventContext, sourceID string) {
-			if w.Callbacks.OpenSubagentActivity != nil {
-				w.Callbacks.OpenSubagentActivity(ctx, conversationID, sourceID)
-			}
+	transcriptView := w
+	transcriptView.Snapshot.Scroll = controller
+	transcriptView.Snapshot.AgentRunning = conversation.State == "running"
+	transcriptView.Callbacks.OpenActivity = func(ctx ui.EventContext, sourceID string) {
+		if w.Callbacks.OpenSubagentActivity != nil {
+			w.Callbacks.OpenSubagentActivity(ctx, conversationID, sourceID)
 		}
-		var leading ui.Widget
+	}
+	var placeholder ui.Widget
+	var leading ui.Widget
+	if len(presentation.Items) == 0 {
+		var state ui.Widget
+		if !loaded && loadError != "" {
+			state = ui.Center(ui.Flex{
+				Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
+				Children: []ui.Widget{
+					ui.Text{Value: "Could not load transcript", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
+					ui.Text{Value: loadError, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
+				},
+			})
+		} else if !loaded {
+			state = ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))
+		} else {
+			state = ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})
+		}
+		placeholder = transcriptFillingScroll(controller, state)
+	} else {
 		var notes []string
 		if historyError := w.Snapshot.SubagentTranscriptHistoryErrors[conversationID]; historyError != "" {
 			notes = append(notes, "Could not load earlier messages. Scroll up to retry.")
@@ -606,27 +622,42 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 				Value: strings.Join(notes, "\n"), Style: style, SoftWrap: true,
 			})
 		}
-		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, w.Snapshot.SubagentTranscriptLists[conversationID], true, leading)
-	} else {
-		var state ui.Widget
-		if !loaded && loadError != "" {
-			state = ui.Center(ui.Flex{
-				Axis: ui.Vertical, MainAxisSize: ui.MainAxisSizeMin, CrossAxisAlignment: ui.CrossAxisCenter,
-				Children: []ui.Widget{
-					ui.Text{Value: "Could not load transcript", Style: ui.Style{Foreground: theme.DangerText, Attribute: ui.AttrBold}},
-					ui.Text{Value: loadError, Style: ui.Style{Foreground: theme.MutedForeground}, SoftWrap: true},
-				},
-			})
-		} else if !loaded {
-			state = ui.Center(spinnerWithLabel("Loading transcript…", ui.Style{Foreground: theme.MutedForeground}))
-		} else {
-			state = ui.Center(ui.Text{Value: "No transcript yet", Style: ui.Style{Foreground: theme.MutedForeground}})
-		}
-		body = ui.Scrollbar{Child: ui.CustomScrollView{
-			Controller: controller, FollowOutput: true,
-			Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), state)}},
-		}}
 	}
+	body := transcriptView.transcriptSurface(theme, transcriptSurfaceConfig{
+		Identity: "subagent:" + conversationID, Presentation: presentation,
+		Controller: controller, List: w.Snapshot.SubagentTranscriptLists[conversationID],
+		InteractiveWork: true, FollowOutput: true, Leading: leading, Content: placeholder,
+		LatestOutOfView: w.Snapshot.SubagentLatestOutOfView[conversationID],
+		OnResumeFollow: func(ctx ui.EventContext) {
+			if w.Callbacks.ResumeSubagentFollow != nil {
+				w.Callbacks.ResumeSubagentFollow(ctx, conversationID)
+			}
+		},
+		OnScrollUp: func(ctx ui.EventContext) {
+			if w.Callbacks.SubagentTranscriptScrollUp != nil {
+				w.Callbacks.SubagentTranscriptScrollUp(ctx, conversationID)
+			}
+		},
+		Reading:           w.Snapshot.SubagentReading[conversationID],
+		ReadingPickerOpen: w.Snapshot.SubagentReadingPickerID == conversationID,
+		ReadingSections:   w.Snapshot.SubagentReadingSections[conversationID],
+		ReadingSelected:   w.Snapshot.SubagentReadingPickerSelected,
+		OnOpenReading: func(ctx ui.EventContext) {
+			if w.Callbacks.OpenSubagentReading != nil {
+				w.Callbacks.OpenSubagentReading(ctx, conversationID)
+			}
+		},
+		OnMoveReading: func(ctx ui.EventContext, delta int) {
+			if w.Callbacks.MoveSubagentReading != nil {
+				w.Callbacks.MoveSubagentReading(ctx, conversationID, delta)
+			}
+		},
+		OnSelectReading: func(ctx ui.EventContext, section int) {
+			if w.Callbacks.SelectSubagentReading != nil {
+				w.Callbacks.SelectSubagentReading(ctx, conversationID, section)
+			}
+		},
+	})
 	thinking, activity := subagentPendingStatus(messages)
 	hint := "ctrl+d dismiss"
 	for _, conversation := range w.Snapshot.SubagentConversations {
@@ -636,36 +667,6 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 			}
 			break
 		}
-	}
-	overlays := []ui.Widget{body}
-	if w.Snapshot.SubagentLatestOutOfView[conversationID] {
-		overlays = append(overlays, ui.Align{Alignment: ui.BottomRight, Child: ui.Padding(ui.Insets{Right: 1, Bottom: 1}, transcriptLatestButton{OnPressed: func(ctx ui.EventContext) {
-			if w.Callbacks.ResumeSubagentFollow != nil {
-				w.Callbacks.ResumeSubagentFollow(ctx, conversationID)
-			}
-		}})})
-	}
-	reading := w.Snapshot.SubagentReading[conversationID]
-	overlays = append(overlays, transcriptReadingChrome(
-		reading, w.Snapshot.SubagentReadingPickerID == conversationID, w.Snapshot.SubagentReadingSections[conversationID], w.Snapshot.SubagentReadingPickerSelected,
-		func(ctx ui.EventContext) {
-			if w.Callbacks.OpenSubagentReading != nil {
-				w.Callbacks.OpenSubagentReading(ctx, conversationID)
-			}
-		},
-		func(ctx ui.EventContext, delta int) {
-			if w.Callbacks.MoveSubagentReading != nil {
-				w.Callbacks.MoveSubagentReading(ctx, conversationID, delta)
-			}
-		},
-		func(ctx ui.EventContext, section int) {
-			if w.Callbacks.SelectSubagentReading != nil {
-				w.Callbacks.SelectSubagentReading(ctx, conversationID, section)
-			}
-		},
-	)...)
-	if len(overlays) > 1 {
-		body = ui.Stack{Children: overlays}
 	}
 	children := []ui.Widget{ui.Expanded(body)}
 	if thinking != "" || activity != "" {
