@@ -88,8 +88,8 @@ final class SessionOperations {
                        draft: Draft, uncertain: @escaping @MainActor () -> Void,
                        acknowledged: @escaping @MainActor () -> Void) {
         performSubmission(draft: draft, uncertain: uncertain, acknowledged: acknowledged) {
-            let result = try await client.runPromptCommand(session, input: input)
-            return SubmissionReceipt(turn: result.turnId, queued: false, queue: nil)
+            let result = try await client.submitPromptCommand(session, input: input)
+            return SubmissionReceipt(turn: result.reservation?.turnId, queued: result.queued, queue: result.queue)
         }
     }
 

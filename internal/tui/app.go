@@ -7208,7 +7208,14 @@ func (s *appState) submitPromptCommand(name, args string) {
 	}
 	bound := s.bound
 	s.startPromptSubmission(display, func(ctx context.Context) (Turn, error) {
-		return startPromptCommand(ctx, bound, name, args)
+		result, err := submitPromptCommand(ctx, bound, name, args)
+		if err != nil {
+			return nil, err
+		}
+		if result.Queued {
+			return nil, promptQueuedError{queue: result.Queue}
+		}
+		return result.Turn, nil
 	})
 }
 

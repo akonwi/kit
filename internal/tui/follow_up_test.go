@@ -23,6 +23,17 @@ func (s *followUpTestSession) SubmitPromptInput(_ context.Context, input protoco
 	return PromptSubmission{Queued: true, Queue: protocol.FollowUpQueue{Count: 1, Previews: []string{"Annotation"}, AnnotationIDs: input.AnnotationIDs}}, nil
 }
 
+type promptCommandQueueSession struct {
+	Session
+	name string
+	args string
+}
+
+func (s *promptCommandQueueSession) SubmitPromptCommand(_ context.Context, name, args string) (PromptSubmission, error) {
+	s.name, s.args = name, args
+	return PromptSubmission{Queued: true, Queue: protocol.FollowUpQueue{Count: 1, Previews: []string{"/review"}}}, nil
+}
+
 type followUpTestRuntime struct{ callbacks chan func() }
 
 func (r followUpTestRuntime) Dispatch(fn func()) { r.callbacks <- fn }
@@ -36,6 +47,17 @@ type followUpState struct{ appState }
 func (*followUpState) InitState()                        {}
 func (*followUpState) Dispose()                          {}
 func (s *followUpState) Build(ui.BuildContext) ui.Widget { return ui.Text{Value: s.composer} }
+
+func TestSubmitPromptCommandPreservesQueuedAdmission(t *testing.T) {
+	bound := &promptCommandQueueSession{}
+	result, err := submitPromptCommand(t.Context(), bound, "review", "--staged")
+	if err != nil || !result.Queued || result.Turn != nil || result.Queue.Count != 1 {
+		t.Fatalf("submission = %+v, err = %v", result, err)
+	}
+	if bound.name != "review" || bound.args != "--staged" {
+		t.Fatalf("command = %q %q", bound.name, bound.args)
+	}
+}
 
 func TestQueueFollowUpRetainsAnnotationsAndAttachments(t *testing.T) {
 	for _, text := range []string{"", "queued text"} {

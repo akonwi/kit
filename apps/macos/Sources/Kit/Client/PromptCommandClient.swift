@@ -1,15 +1,15 @@
 import Foundation
 
 protocol PromptCommandClient: SessionClient {
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation
+    func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission
 }
 
 extension LocalClient: PromptCommandClient {
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
+    func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission {
         let transport: HTTPClient
         do { transport = try await HTTPClient.local() }
         catch { throw MutationNotSent(reason: error.localizedDescription) }
-        return try await transport.runPromptCommand(id, input: input)
+        return try await transport.submitPromptCommand(id, input: input)
     }
 }
 

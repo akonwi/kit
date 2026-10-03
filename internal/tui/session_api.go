@@ -165,13 +165,20 @@ func promoteFollowUps(ctx context.Context, bound boundSession) (protocol.Promote
 	return bound.(FollowUpSession).PromoteFollowUps(ctx)
 }
 
-func startPromptCommand(ctx context.Context, bound boundSession, name, args string) (Turn, error) {
+func submitPromptCommand(ctx context.Context, bound boundSession, name, args string) (PromptSubmission, error) {
 	if public, ok := bound.(*kit.Session); ok {
-		return public.StartPromptCommand(ctx, name, args)
+		result, err := public.SubmitPromptCommand(ctx, name, args)
+		return PromptSubmission{Turn: result.Turn, Queued: result.Queued, Queue: result.Queue}, err
 	}
-	return bound.(interface {
+	if submitter, ok := bound.(interface {
+		SubmitPromptCommand(context.Context, string, string) (PromptSubmission, error)
+	}); ok {
+		return submitter.SubmitPromptCommand(ctx, name, args)
+	}
+	turn, err := bound.(interface {
 		StartPromptCommand(context.Context, string, string) (Turn, error)
 	}).StartPromptCommand(ctx, name, args)
+	return PromptSubmission{Turn: turn}, err
 }
 
 func lookupBash(ctx context.Context, bound boundSession, executionID string) (BashExecution, error) {

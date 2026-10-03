@@ -608,16 +608,18 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         }
     }
 
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
+    func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission {
         guard !id.isEmpty, id.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" }),
               PromptCommand.validName(input.name), (input.args?.utf8.count ?? 0) <= 128 * 1024,
               !(input.args ?? "").contains("\0") else { throw MutationNotSent(reason: "Invalid prompt command or arguments.") }
-        guard let version = Operations.StartPromptCommand.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
+        guard let version = Operations.SubmitPromptCommand.Input.Headers.XKitProtocolVersionPayload(rawValue: kitWireVersion) else { throw ClientError.incompatible }
         let body: Components.Schemas.PromptCommandInput = try generated(input, as: Components.Schemas.PromptCommandInput.self)
-        let output = try await generatedOperation { try await api.startPromptCommand(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body)) }
+        let output = try await generatedOperation { try await api.submitPromptCommand(path: .init(sessionID: id), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: version), body: .json(body)) }
         guard case let .accepted(response) = output else { throw ClientError.invalidPayload }
-        let result: WireTurnReservation = try generated(try response.body.json, as: WireTurnReservation.self)
-        guard result.sessionId == id, !result.turnId.isEmpty else { throw ClientError.invalidPayload }
+        let result: WirePromptSubmission = try generated(try response.body.json, as: WirePromptSubmission.self)
+        _ = try FollowUpState(result.queue)
+        guard result.queued ? (result.reservation == nil && result.queue.count > 0) : result.reservation?.sessionId == id,
+              result.queued || !(result.reservation?.turnId ?? "").isEmpty else { throw ClientError.invalidPayload }
         return result
     }
 

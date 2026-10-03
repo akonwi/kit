@@ -6,15 +6,17 @@ private actor CommandClient: PromptCommandClient {
     nonisolated let serverID = "test"
     nonisolated let isDemo = false
     let fails: Bool
+    let queued: Bool
     var requests: [WirePromptCommandInput] = []
-    init(fails: Bool = false) { self.fails = fails }
+    init(fails: Bool = false, queued: Bool = false) { self.fails = fails; self.queued = queued }
     func sessions() async throws -> [SessionExcerpt] { [] }
     func snapshot(_ id: String) async throws -> SessionExcerpt { throw ClientError.disconnected }
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {}
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
+    func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission {
         requests.append(input)
         if fails { throw ClientError.disconnected }
-        return .init(sessionId: id, turnId: "turn_a")
+        let queue = WireFollowUpQueue(count: queued ? 1 : 0, previews: queued ? ["/review"] : [], annotationIds: nil)
+        return .init(reservation: queued ? nil : .init(sessionId: id, turnId: "turn_a"), queued: queued, queue: queue)
     }
 }
 
@@ -34,10 +36,11 @@ private actor PalettePromptClient: PromptCommandClient {
         await receive(try await snapshot(id))
         while !Task.isCancelled { try await Task.sleep(for: .seconds(1)) }
     }
-    func runPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WireTurnReservation {
+    func submitPromptCommand(_ id: String, input: WirePromptCommandInput) async throws -> WirePromptSubmission {
         requests.append(input)
         if paused { await withCheckedContinuation { waiting = $0 } }
-        return .init(sessionId: id, turnId: "turn_a")
+        return .init(reservation: .init(sessionId: id, turnId: "turn_a"), queued: false,
+                     queue: .init(count: 0, previews: [], annotationIds: nil))
     }
 }
 
@@ -128,6 +131,18 @@ private actor PalettePromptClient: PromptCommandClient {
         }
     }
 
+    @Test func commandCanJoinFollowUpQueue() async throws {
+        let client = CommandClient(queued: true)
+        let operation = SessionOperations()
+        operation.submitCommand(client: client, session: "s", input: .init(name: "review", args: nil),
+            draft: .init(text: "/review", notes: [:], attachmentIDs: []),
+            uncertain: {}, acknowledged: {})
+        for _ in 0..<100 where operation.sending { try await Task.sleep(for: .milliseconds(5)) }
+        #expect(operation.submission == .acknowledged("Queued"))
+        #expect(operation.queue?.count == 1)
+        #expect(operation.receiptTurn == nil)
+    }
+
     @Test(.enabled(if: ProcessInfo.processInfo.environment["KIT_COMMAND_LIVE_TEST"] == "1"))
     func liveDiscoveryAndArgumentExpansion() async throws {
         let root = FileManager.default.temporaryDirectory.appendingPathComponent("kit-command-" + UUID().uuidString)
@@ -142,8 +157,8 @@ private actor PalettePromptClient: PromptCommandClient {
                 model: "openai-codex/gpt-5.6-sol", thinkingLevel: "off", temporary: true))
             let initial = try await client.snapshot(id)
             #expect(initial.promptCommands?.first(where: { $0.name == "verify-command" })?.description == "Verify command arguments")
-            let receipt = try await client.runPromptCommand(id, input: .init(name: "verify-command", args: "\"blue sky\" CHECK"))
-            #expect(receipt.turnId == receipt.turnId)
+            let receipt = try await client.submitPromptCommand(id, input: .init(name: "verify-command", args: "\"blue sky\" CHECK"))
+            #expect(receipt.reservation?.turnId.isEmpty == false)
             var final = try await client.snapshot(id)
             let deadline = Date().addingTimeInterval(60)
             while final.activeRunID != nil && Date() < deadline {
