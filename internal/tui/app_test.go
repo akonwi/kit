@@ -1649,7 +1649,7 @@ func (fakeSession) Subagent(context.Context, protocol.SubagentOperationInput) (p
 	panic("unexpected Subagent")
 }
 
-func (fakeSession) SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error) {
+func (fakeSession) SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error) {
 	panic("unexpected SubagentTranscript")
 }
 

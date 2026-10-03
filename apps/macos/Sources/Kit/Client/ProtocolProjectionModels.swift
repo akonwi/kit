@@ -510,6 +510,8 @@ struct WireTranscriptPage: Codable, Sendable {
 struct WireSubagentTranscript: Codable, Sendable {
     let `conversationId`: String
     let `messages`: [WireTranscriptMessage]?
+    let `previousMessageCursor`: String?
+    let `hasMoreMessages`: Bool?
 }
 
 enum WireSubagentAction: String, Codable, Sendable {

@@ -9500,23 +9500,35 @@ extension Components {
         internal struct SubagentTranscript: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/SubagentTranscript/conversationId`.
             internal var conversationId: Swift.String
+            /// - Remark: Generated from `#/components/schemas/SubagentTranscript/hasMoreMessages`.
+            internal var hasMoreMessages: Swift.Bool?
             /// - Remark: Generated from `#/components/schemas/SubagentTranscript/messages`.
             internal var messages: [Components.Schemas.TranscriptMessage]
+            /// - Remark: Generated from `#/components/schemas/SubagentTranscript/previousMessageCursor`.
+            internal var previousMessageCursor: Swift.String?
             /// Creates a new `SubagentTranscript`.
             ///
             /// - Parameters:
             ///   - conversationId:
+            ///   - hasMoreMessages:
             ///   - messages:
+            ///   - previousMessageCursor:
             internal init(
                 conversationId: Swift.String,
-                messages: [Components.Schemas.TranscriptMessage]
+                hasMoreMessages: Swift.Bool? = nil,
+                messages: [Components.Schemas.TranscriptMessage],
+                previousMessageCursor: Swift.String? = nil
             ) {
                 self.conversationId = conversationId
+                self.hasMoreMessages = hasMoreMessages
                 self.messages = messages
+                self.previousMessageCursor = previousMessageCursor
             }
             internal enum CodingKeys: String, CodingKey {
                 case conversationId
+                case hasMoreMessages
                 case messages
+                case previousMessageCursor
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
@@ -9524,13 +9536,23 @@ extension Components {
                     Swift.String.self,
                     forKey: .conversationId
                 )
+                self.hasMoreMessages = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .hasMoreMessages
+                )
                 self.messages = try container.decode(
                     [Components.Schemas.TranscriptMessage].self,
                     forKey: .messages
                 )
+                self.previousMessageCursor = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .previousMessageCursor
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
                     "conversationId",
-                    "messages"
+                    "hasMoreMessages",
+                    "messages",
+                    "previousMessageCursor"
                 ])
             }
         }
@@ -9929,6 +9951,48 @@ extension Components {
                 case let .toolCall(value):
                     try value.encode(to: encoder)
                 }
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError`.
+        internal struct TranscriptCursorUnavailableError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case transcriptCursorUnavailable = "transcript_cursor_unavailable"
+            }
+            /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError/code`.
+            internal var code: Components.Schemas.TranscriptCursorUnavailableError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/TranscriptCursorUnavailableError/message`.
+            internal var message: Swift.String
+            /// Creates a new `TranscriptCursorUnavailableError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.TranscriptCursorUnavailableError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.TranscriptCursorUnavailableError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
             }
         }
         /// - Remark: Generated from `#/components/schemas/TranscriptMessage`.

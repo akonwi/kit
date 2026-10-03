@@ -115,7 +115,9 @@ type ChildRuntime interface {
 	Run(context.Context, Task, func(childTurnID string) error, func(LiveEvent)) (ChildOutcome, error)
 	Steer(context.Context, string) error
 	Abort(context.Context) error
-	Transcript(context.Context) (Transcript, error)
+	// Transcript returns one complete-turn page. A zero before cursor selects
+	// the newest page; a non-zero cursor is an exclusive durable sequence.
+	Transcript(context.Context, uint64) (Transcript, error)
 	Close(context.Context) error
 }
 

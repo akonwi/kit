@@ -386,34 +386,140 @@ func (r *childRuntime) Abort(ctx context.Context) error {
 	return r.droid.Abort(ctx)
 }
 
-func (r *childRuntime) Transcript(ctx context.Context) (subagent.Transcript, error) {
-	result := subagent.Transcript{}
-	var cursor uint64
-	var sequence int64
-	var totalBytes int
+const (
+	maxChildTranscriptMessages = 1000
+	maxChildTranscriptBytes    = 8 << 20
+)
+
+func (r *childRuntime) Transcript(ctx context.Context, before uint64) (subagent.Transcript, error) {
+	if before != 0 {
+		if err := validateChildTranscriptCursor(ctx, r.droid.History, before); err != nil {
+			return subagent.Transcript{}, err
+		}
+	}
+	return collectChildTranscript(ctx, r.droid.History, before)
+}
+
+func validateChildTranscriptCursor(ctx context.Context, history func(context.Context, droids.HistoryQuery) (droids.MessagePage, error), before uint64) error {
+	anchor, err := history(ctx, droids.HistoryQuery{After: before - 1, Limit: 1})
+	if err != nil {
+		return err
+	}
+	if len(anchor.Messages) != 1 || anchor.Messages[0].Sequence != before {
+		return subagent.ErrTranscriptCursorUnavailable
+	}
+	preceding, err := history(ctx, droids.HistoryQuery{Before: before, Limit: 1, Descending: true})
+	if err != nil {
+		return err
+	}
+	if len(preceding.Messages) == 1 && anchor.Messages[0].TurnID != "" && preceding.Messages[0].TurnID == anchor.Messages[0].TurnID {
+		return subagent.ErrTranscriptCursorUnavailable
+	}
+	return nil
+}
+
+// collectChildTranscript returns one complete-turn page preceding before.
+// A zero before selects the newest page. Sequences stay durable so the oldest
+// included sequence can request the preceding page. A message that cannot fit
+// in one response is an error.
+func collectChildTranscript(ctx context.Context, history func(context.Context, droids.HistoryQuery) (droids.MessagePage, error), before uint64) (subagent.Transcript, error) {
+	var selected []droids.MessageEnvelope
+	var candidate []droids.MessageEnvelope
+	var candidateTurn string
+	var conversationID subagent.ConversationID
+	cursor := before
+	turns := 0
+	selectedBytes := 0
+
+	includeCandidate := func() (bool, error) {
+		if len(candidate) == 0 {
+			return true, nil
+		}
+		size := 0
+		for _, envelope := range candidate {
+			message, err := projectChildTranscriptMessage(envelope, int64(envelope.Sequence))
+			if err != nil {
+				return false, err
+			}
+			messageBytes := childTranscriptMessageBytes(message)
+			if messageBytes > maxChildTranscriptBytes {
+				if len(selected) == 0 {
+					return false, errors.New("child transcript exceeds synchronization bounds")
+				}
+				return false, nil
+			}
+			size += messageBytes
+		}
+		exceeds := len(selected)+len(candidate) > maxChildTranscriptMessages || selectedBytes+size > maxChildTranscriptBytes
+		if exceeds {
+			if len(selected) == 0 {
+				return false, errors.New("child transcript exceeds synchronization bounds")
+			}
+			return false, nil
+		}
+		if turns >= transcriptPageMinimumTurns && len(selected)+len(candidate) > transcriptPageMessageTarget {
+			return false, nil
+		}
+		selected = append(selected, candidate...)
+		selectedBytes += size
+		candidate = nil
+		candidateTurn = ""
+		turns++
+		return true, nil
+	}
+
 	for {
-		page, err := r.droid.History(ctx, droids.HistoryQuery{After: cursor, Limit: 1000})
+		page, err := history(ctx, droids.HistoryQuery{Before: cursor, Limit: transcriptHistoryReadLimit, Descending: true})
 		if err != nil {
 			return subagent.Transcript{}, err
 		}
 		for _, envelope := range page.Messages {
-			message, err := projectChildTranscriptMessage(envelope, sequence)
+			if conversationID == "" {
+				conversationID = subagent.ConversationID(envelope.ConversationID)
+			}
+			turnID := string(envelope.TurnID)
+			if turnID == "" {
+				turnID = string(envelope.ID)
+			}
+			if len(candidate) > 0 && turnID != candidateTurn {
+				ok, err := includeCandidate()
+				if err != nil {
+					return subagent.Transcript{}, err
+				}
+				if !ok {
+					return projectChildTranscriptPage(conversationID, selected, true)
+				}
+			}
+			if len(candidate) == 0 {
+				candidateTurn = turnID
+			}
+			candidate = append(candidate, envelope)
+		}
+		if !page.HasMore || page.Next == 0 {
+			ok, err := includeCandidate()
 			if err != nil {
 				return subagent.Transcript{}, err
 			}
-			result.ConversationID = subagent.ConversationID(envelope.ConversationID)
-			result.Messages = append(result.Messages, message)
-			totalBytes += childTranscriptMessageBytes(message)
-			sequence++
-			if len(result.Messages) > 1000 || totalBytes > 8<<20 {
-				return subagent.Transcript{}, errors.New("child transcript exceeds synchronization bounds")
-			}
+			return projectChildTranscriptPage(conversationID, selected, !ok)
 		}
 		cursor = page.Next
-		if !page.HasMore {
-			return result, nil
-		}
 	}
+}
+
+func projectChildTranscriptPage(conversationID subagent.ConversationID, descending []droids.MessageEnvelope, hasMore bool) (subagent.Transcript, error) {
+	result := subagent.Transcript{ConversationID: conversationID, HasMoreMessages: hasMore}
+	if hasMore && len(descending) > 0 {
+		result.PreviousMessageCursor = descending[len(descending)-1].Sequence
+	}
+	for index := len(descending) - 1; index >= 0; index-- {
+		envelope := descending[index]
+		message, err := projectChildTranscriptMessage(envelope, int64(envelope.Sequence))
+		if err != nil {
+			return subagent.Transcript{}, err
+		}
+		result.Messages = append(result.Messages, message)
+	}
+	return result, nil
 }
 
 func childTranscriptMessageBytes(message subagent.TranscriptMessage) int {

@@ -29,6 +29,7 @@ import (
 	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
+	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -134,6 +135,31 @@ func TestNormalizeScratchpadErrorPreservesCancellation(t *testing.T) {
 	for _, err := range []error{context.Canceled, context.DeadlineExceeded} {
 		if normalized := normalizeScratchpadError(err); !errors.Is(normalized, err) {
 			t.Fatalf("normalizeScratchpadError(%v) = %v", err, normalized)
+		}
+	}
+}
+
+func TestSubagentAPIErrorUsesDeclaredEnvelope(t *testing.T) {
+	t.Parallel()
+	for _, test := range []struct {
+		err    error
+		status int
+		code   string
+	}{
+		{subagent.ErrNotFound, http.StatusNotFound, string(httpapi.ErrorNotFound)},
+		{subagent.ErrTranscriptCursorUnavailable, http.StatusConflict, string(httpapi.ErrorTranscriptCursorUnavailable)},
+		{subagent.ErrQueueFull, http.StatusTooManyRequests, string(httpapi.ErrorCapacityExceeded)},
+		{fmt.Errorf("child transcript exceeds synchronization bounds"), http.StatusInternalServerError, string(httpapi.ErrorInternal)},
+		{fmt.Errorf("%w: child event cursor must be non-negative", errInvalidSessionRequest), http.StatusBadRequest, string(httpapi.ErrorInvalidRequest)},
+	} {
+		recorder := httptest.NewRecorder()
+		writeSessionError(recorder, subagentAPIError(test.err))
+		if recorder.Code != test.status {
+			t.Fatalf("status = %d, want %d", recorder.Code, test.status)
+		}
+		var apiError *APIError
+		if err := httpapi.DecodeOperationError(httpapi.GetSubagentTranscript, recorder.Code, recorder.Body.Bytes()); !errors.As(err, &apiError) || apiError.Code != test.code {
+			t.Fatalf("decoded %v = %#v", test.err, err)
 		}
 	}
 }
@@ -430,7 +456,7 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	if err != nil || childEvents.StreamID == "" || len(childEvents.Events) == 0 {
 		t.Fatalf("child live events = %#v, %v", childEvents, err)
 	}
-	transcript, err := observer.GetSubagentTranscript(t.Context(), sessionID, observed.Conversations[0].ID)
+	transcript, err := observer.GetSubagentTranscript(t.Context(), sessionID, observed.Conversations[0].ID, "")
 	if err != nil || len(transcript.Messages) != 2 || transcript.Messages[0].Role != "user" || transcript.Messages[1].Role != "assistant" {
 		t.Fatalf("child transcript = %#v, %v", transcript, err)
 	}

@@ -150,7 +150,7 @@ type sessionService interface {
 	AbortBash(context.Context, string, string) error
 	BashHistory(context.Context, string, uint64, int) (protocol.BashHistoryPage, error)
 	Subagent(context.Context, string, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
-	SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error)
+	SubagentTranscript(context.Context, string, string, string) (protocol.SubagentTranscript, error)
 	SubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
 }
 
@@ -984,7 +984,15 @@ func (s runtimeSessionService) SubagentEvents(ctx context.Context, sessionID, co
 	return result, nil
 }
 
-func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID, conversationID string) (protocol.SubagentTranscript, error) {
+func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID, conversationID, before string) (protocol.SubagentTranscript, error) {
+	var cursor uint64
+	if before != "" {
+		parsed, err := strconv.ParseUint(before, 10, 64)
+		if err != nil || parsed == 0 {
+			return protocol.SubagentTranscript{}, fmt.Errorf("%w: transcript cursor is invalid", errInvalidSessionRequest)
+		}
+		cursor = parsed
+	}
 	conversation, err := s.subagents.Conversation(ctx, subagent.ConversationID(conversationID))
 	if err != nil || conversation.OwnerSessionID != sessionID {
 		if err == nil {
@@ -992,11 +1000,14 @@ func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID
 		}
 		return protocol.SubagentTranscript{}, err
 	}
-	transcript, err := s.subagents.Transcript(ctx, conversation.ID)
+	transcript, err := s.subagents.Transcript(ctx, conversation.ID, cursor)
 	if err != nil {
 		return protocol.SubagentTranscript{}, err
 	}
-	result := protocol.SubagentTranscript{ConversationID: conversationID, Messages: make([]protocol.TranscriptMessage, 0, len(transcript.Messages))}
+	result := protocol.SubagentTranscript{ConversationID: conversationID, HasMoreMessages: transcript.HasMoreMessages, Messages: make([]protocol.TranscriptMessage, 0, len(transcript.Messages))}
+	if transcript.HasMoreMessages {
+		result.PreviousMessageCursor = strconv.FormatUint(transcript.PreviousMessageCursor, 10)
+	}
 	for _, message := range transcript.Messages {
 		projected := protocol.TranscriptMessage{
 			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence, Role: message.Role,
@@ -2220,30 +2231,35 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		if raw := request.URL.Query().Get("after"); raw != "" {
 			parsed, err := strconv.ParseInt(raw, 10, 64)
 			if err != nil || parsed < 0 {
-				writeSessionError(writer, fmt.Errorf("%w: child event cursor must be non-negative", errInvalidSessionRequest))
+				writeSessionError(writer, subagentAPIError(fmt.Errorf("%w: child event cursor must be non-negative", errInvalidSessionRequest)))
 				return
 			}
 			after = parsed
 		}
 		result, err := service.SubagentEvents(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"), request.URL.Query().Get("stream"), after)
 		if err != nil {
-			writeSessionError(writer, err)
+			writeSessionError(writer, subagentAPIError(err))
 			return
 		}
 		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid subagent events: %w", err))
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("invalid subagent events: %w", err)))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
 	})
 	httpapi.HandleRaw(mux, httpapi.GetSubagentTranscript, func(writer http.ResponseWriter, request *http.Request) {
-		result, err := service.SubagentTranscript(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"))
-		if err != nil {
-			writeSessionError(writer, err)
+		before := request.URL.Query().Get("before")
+		if before != "" && (len(before) > 256 || strings.TrimSpace(before) != before) {
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("%w: transcript cursor is invalid", errInvalidSessionRequest)))
 			return
 		}
-		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid subagent transcript: %w", err))
+		result, err := service.SubagentTranscript(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"), before)
+		if err != nil {
+			writeSessionError(writer, subagentAPIError(err))
+			return
+		}
+		if err := result.ValidateBefore(before); err != nil {
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("invalid subagent transcript: %w", err)))
 			return
 		}
 		writeJSON(writer, http.StatusOK, result)
@@ -2251,20 +2267,20 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 	httpapi.HandleRaw(mux, httpapi.OperateSubagent, func(writer http.ResponseWriter, request *http.Request) {
 		var input protocol.SubagentOperationInput
 		if err := decodeSessionJSON(writer, request, &input); err != nil {
-			writeSessionError(writer, err)
+			writeSessionError(writer, subagentAPIError(err))
 			return
 		}
 		if err := input.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("%w: %v", errInvalidSessionRequest, err))
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("%w: %v", errInvalidSessionRequest, err)))
 			return
 		}
 		result, err := service.Subagent(request.Context(), request.PathValue("sessionID"), input)
 		if err != nil {
-			writeSessionError(writer, err)
+			writeSessionError(writer, subagentAPIError(err))
 			return
 		}
 		if err := result.Validate(); err != nil {
-			writeSessionError(writer, fmt.Errorf("invalid subagent operation result: %w", err))
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("invalid subagent operation result: %w", err)))
 			return
 		}
 		status := http.StatusOK
@@ -2659,6 +2675,33 @@ func scratchpadAPIError(err error) error {
 		return httpapi.NewAPIError(http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request", nil)
 	}
 	return httpapi.NewAPIError(http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error", nil)
+}
+
+// subagentAPIError projects child-session failures into the codes declared
+// by the subagent operation catalog. The cause stays available for logs.
+func subagentAPIError(err error) error {
+	var apiErr *httpapi.APIError
+	if errors.As(err, &apiErr) {
+		return apiErr
+	}
+	status, code, message := http.StatusInternalServerError, httpapi.ErrorInternal, "internal server error"
+	switch {
+	case errors.Is(err, kitsession.ErrNotFound), errors.Is(err, subagent.ErrNotFound):
+		status, code, message = http.StatusNotFound, httpapi.ErrorNotFound, "subagent not found"
+	case errors.Is(err, subagent.ErrQueueFull):
+		status, code, message = http.StatusTooManyRequests, httpapi.ErrorCapacityExceeded, "subagent queue is full"
+	case errors.Is(err, subagent.ErrTranscriptCursorUnavailable):
+		status, code, message = http.StatusConflict, httpapi.ErrorTranscriptCursorUnavailable, "transcript cursor is unavailable"
+	case errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed), errors.Is(err, kitsession.ErrBusy):
+		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with subagent state"
+	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):
+		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "subagent is unavailable"
+	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, subagent.ErrInvalidInput), errors.Is(err, subagent.ErrTemporaryUnavailable), errors.Is(err, errInvalidSessionRequest):
+		status, code, message = http.StatusBadRequest, httpapi.ErrorInvalidRequest, "invalid request"
+	}
+	apiErr = httpapi.NewAPIError(status, code, message, nil)
+	apiErr.Cause = err
+	return apiErr
 }
 
 func writeSessionError(writer http.ResponseWriter, err error) {

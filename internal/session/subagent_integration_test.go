@@ -165,7 +165,7 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 	if err := os.Remove(childStorePath); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := supervisor.Transcript(t.Context(), conversation.ID); err == nil || !strings.Contains(err.Error(), "initialized child droid store is missing") {
+	if _, err := supervisor.Transcript(t.Context(), conversation.ID, 0); err == nil || !strings.Contains(err.Error(), "initialized child droid store is missing") {
 		t.Fatalf("missing initialized child store error = %v", err)
 	}
 	if _, err := supervisor.Dismiss(t.Context(), conversation.ID, conversation.Generation, "test cleanup"); err != nil {

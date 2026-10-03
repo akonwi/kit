@@ -467,6 +467,71 @@ func subagentLiveTranscript(messages []protocol.TranscriptMessage, events []prot
 	return live
 }
 
+func mergeSubagentTranscriptRefresh(current, page protocol.SubagentTranscript, extended bool) (protocol.SubagentTranscript, bool) {
+	if !extended || len(current.Messages) == 0 || len(page.Messages) == 0 || page.Messages[0].Sequence <= 0 {
+		return page, false
+	}
+	pageMin := page.Messages[0].Sequence
+	prefix := make([]protocol.TranscriptMessage, 0, len(current.Messages))
+	seen := make(map[string]struct{}, len(current.Messages))
+	for _, message := range current.Messages {
+		if message.Sequence <= 0 || message.Sequence >= pageMin {
+			continue
+		}
+		prefix = append(prefix, message)
+		if message.ID != "" {
+			seen[message.ID] = struct{}{}
+		}
+	}
+	// History sequences are shared with turn and attempt records, so a
+	// complete-turn boundary is not an adjacent message sequence.
+	if len(prefix) == 0 {
+		return page, false
+	}
+	for _, message := range page.Messages {
+		if _, ok := seen[message.ID]; ok {
+			return page, false
+		}
+	}
+	merged := page
+	merged.Messages = append(prefix, page.Messages...)
+	merged.PreviousMessageCursor = current.PreviousMessageCursor
+	merged.HasMoreMessages = current.HasMoreMessages
+	return merged, true
+}
+
+func prependSubagentTranscript(current, page protocol.SubagentTranscript) (protocol.SubagentTranscript, error) {
+	if len(page.Messages) == 0 {
+		current.PreviousMessageCursor = page.PreviousMessageCursor
+		current.HasMoreMessages = page.HasMoreMessages
+		return current, nil
+	}
+	seen := make(map[string]int64, len(current.Messages))
+	sequences := make(map[int64]string, len(current.Messages))
+	for _, message := range current.Messages {
+		if message.ID != "" {
+			seen[message.ID] = message.Sequence
+		}
+		if message.Sequence > 0 {
+			sequences[message.Sequence] = message.ID
+		}
+	}
+	merged := make([]protocol.TranscriptMessage, 0, len(page.Messages)+len(current.Messages))
+	for _, message := range page.Messages {
+		if sequence, duplicate := seen[message.ID]; duplicate {
+			return protocol.SubagentTranscript{}, fmt.Errorf("earlier subagent transcript overlaps message %q at sequence %d", message.ID, sequence)
+		}
+		if id, duplicate := sequences[message.Sequence]; duplicate && id != message.ID {
+			return protocol.SubagentTranscript{}, fmt.Errorf("earlier subagent transcript overlaps conflicting sequence %d", message.Sequence)
+		}
+		merged = append(merged, message)
+	}
+	current.Messages = append(merged, current.Messages...)
+	current.PreviousMessageCursor = page.PreviousMessageCursor
+	current.HasMoreMessages = page.HasMoreMessages
+	return current, nil
+}
+
 func subagentPaneMessages(conversation protocol.SubagentConversation, transcript protocol.SubagentTranscript, live protocol.SubagentLiveEventPage) []transcriptMessage {
 	messages := projectTranscript(transcript.Messages)
 	if conversation.State == "running" {
@@ -525,10 +590,20 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 			}
 		}
 		var leading ui.Widget
+		var notes []string
+		if historyError := w.Snapshot.SubagentTranscriptHistoryErrors[conversationID]; historyError != "" {
+			notes = append(notes, "Could not load earlier messages. Scroll up to retry.")
+		}
 		if loaded && loadError != "" {
+			notes = append(notes, "Transcript refresh failed: "+loadError)
+		}
+		if len(notes) > 0 {
+			style := ui.Style{Foreground: theme.MutedForeground}
+			if loaded && loadError != "" {
+				style = ui.Style{Foreground: theme.DangerText}
+			}
 			leading = ui.Padding(ui.Insets{Top: 1, Left: 1, Right: 1}, ui.Text{
-				Value: "Transcript refresh failed: " + loadError,
-				Style: ui.Style{Foreground: theme.DangerText}, SoftWrap: true,
+				Value: strings.Join(notes, "\n"), Style: style, SoftWrap: true,
 			})
 		}
 		body = transcriptView.transcriptList(theme, presentation, true, "subagent:"+conversationID, controller, w.Snapshot.SubagentTranscriptLists[conversationID], true, leading)

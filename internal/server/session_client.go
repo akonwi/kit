@@ -574,13 +574,15 @@ func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationI
 	return output, nil
 }
 
-// GetSubagentTranscript loads durable child history by conversation identity.
-func (c *Client) GetSubagentTranscript(ctx context.Context, sessionID, conversationID string) (protocol.SubagentTranscript, error) {
-	output, err := httpapi.Call(ctx, c, httpapi.GetSubagentTranscript, httpapi.SubagentPath{SessionID: sessionID, ConversationID: conversationID}, httpapi.NoBody{})
+// GetSubagentTranscript loads one complete-turn child history page.
+// An empty before selects the newest page; otherwise before is an exclusive
+// durable sequence.
+func (c *Client) GetSubagentTranscript(ctx context.Context, sessionID, conversationID, before string) (protocol.SubagentTranscript, error) {
+	output, err := httpapi.Call(ctx, c, httpapi.GetSubagentTranscript, httpapi.SubagentTranscriptParams{SessionID: sessionID, ConversationID: conversationID, Before: before}, httpapi.NoBody{})
 	if err != nil {
 		return protocol.SubagentTranscript{}, err
 	}
-	if err := output.Validate(); err != nil {
+	if err := output.ValidateBefore(before); err != nil {
 		return protocol.SubagentTranscript{}, fmt.Errorf("validate daemon subagent transcript: %w", err)
 	}
 	if output.ConversationID != conversationID {

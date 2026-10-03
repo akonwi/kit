@@ -179,11 +179,14 @@ type TranscriptMessage struct {
 	CreatedAt      time.Time
 }
 
-// Transcript is one bounded/paginated child transcript snapshot. The first
-// delivery returns all current messages within droids' bounded page contract.
+// Transcript is one complete-turn page of durable child history.
+// PreviousMessageCursor is the durable sequence of the oldest included
+// message when HasMoreMessages is set. A zero cursor requests the newest page.
 type Transcript struct {
-	ConversationID ConversationID
-	Messages       []TranscriptMessage
+	ConversationID        ConversationID
+	Messages              []TranscriptMessage
+	PreviousMessageCursor uint64
+	HasMoreMessages       bool
 }
 
 // ParentDeliveryKind identifies the source of a parent-directed result.
