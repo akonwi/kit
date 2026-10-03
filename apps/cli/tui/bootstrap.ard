@@ -1,6 +1,6 @@
+use go:api
+use go:api/contract as protocol
 use go:context
-use go:github.com/akonwi/kit/internal/protocol
-use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/cli
 use go:strings
 
@@ -10,23 +10,23 @@ use go:strings
 // A session this client is attached to, with the snapshot read at attach time.
 struct Attached {
   info: protocol::SessionInfo,
-  session: sessionclient::Session,
+  session: mut api::Session,
   snapshot: protocol::SessionSnapshot,
 }
 
 // Selects the session named by `options`, resuming the most recent eligible
 // session in the working directory or creating one when none qualifies.
 fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
-  let server = options.Server
+  let client = options.Client
   let new_session = options.NewSessionID != ""
   mut selected = protocol::SessionInfo{}
   if options.SessionID != "" {
-    selected = try sessionclient::ResolveSession(ctx, server, options.SessionID) -> err {
-      failure("resolve session", err)
-    }
+    selected = try client.ResolveSession(ctx, options.SessionID) -> err { failure("resolve session", err) }
   }
   if selected.ID == "" and not new_session {
-    let sessions = try server.ListSessions(ctx, options.CWD) -> err { failure("list sessions", err) }
+    let sessions = try client.ListSessions(ctx, api::ListSessionsOptions{CWD: options.CWD}) -> err {
+      failure("list sessions", err)
+    }
     for candidate in sessions {
       if selected.ID == "" and resumable(options, candidate) {
         selected = candidate
@@ -34,11 +34,11 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
     }
   }
   if selected.ID == "" {
-    let catalog = try server.Models(ctx) -> err { failure("list models", err) }
-    let model = try sessionclient::ResolveAvailableModel(catalog, options.DefaultModel, options.ResumeModelFilter != "") -> err {
-      failed(err)
+    let catalog = try client.Models(ctx) -> err { failure("list models", err) }
+    let model = try resolve_model(catalog, options.DefaultModel, options.ResumeModelFilter != "") -> err {
+      Result::err(err)
     }
-    selected = try server.CreateSession(
+    selected = try client.CreateSession(
       ctx,
       protocol::CreateSessionInput{
         ID: options.NewSessionID,
@@ -56,7 +56,7 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
       "create session returned a different session id",
     )
   }
-  let session = try server.Attach(ctx, selected.ID) -> err { failure("attach session", err) }
+  let session = try client.Attach(ctx, selected.ID) -> err { failure("attach session", err) }
   let snapshot = try session.Snapshot(ctx) -> err { failure("snapshot session", err) }
   Result::ok(
     Attached{
@@ -89,8 +89,31 @@ private fn failure(action: Str, err: Error) Attached!Str {
   Result::err("{action}: {err.error()}")
 }
 
-private fn failed(err: Error) Attached!Str {
-  Result::err(err.error())
+private fn resolve_model(catalog: protocol::ModelCatalog, preferred: Str, explicit: Bool) Str!Str {
+  mut selected = ""
+  for model in catalog.Models {
+    if selected == "" and model.ID == preferred and model.Available {
+      selected = model.ID
+    }
+  }
+  if selected == "" and not explicit {
+    let provider = provider_of(preferred)
+    for model in catalog.Models {
+      if selected == "" and model.Provider == provider and model.Available {
+        selected = model.ID
+      }
+    }
+    for model in catalog.Models {
+      if selected == "" and model.Available {
+        selected = model.ID
+      }
+    }
+  }
+  match {
+    selected != "" => Result::ok(selected),
+    explicit => Result::err("model {preferred} is not available"),
+    _ => Result::err("no authenticated model is available"),
+  }
 }
 
 private fn expect(condition: Bool, message: Str) Void!Str {

@@ -1,9 +1,9 @@
 use ard/testing
 
+use go:api/contract as protocol
 use cooper
 use cooper/cui
 use cooper/testing as headless
-use go:github.com/akonwi/kit/internal/protocol
 use kit/tui/shell
 use kit/tui/theme
 use kit/tui/transcript

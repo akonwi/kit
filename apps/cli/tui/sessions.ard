@@ -1,10 +1,10 @@
 use ard/async
 
+use go:api
+use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:github.com/akonwi/kit/internal/protocol
-use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/contextbridge
 use kit/tui/format
 use kit/tui/modal
@@ -18,11 +18,11 @@ use go:time
 // attached replacement session after the user selects it.
 struct Props {
   themes: theme::Context,
-  server: sessionclient::Server,
+  client: mut api::Client,
   lifetime: contextbridge::Cancellation,
   current_session_id: Str,
   dismiss: keymap::SimpleCommand,
-  applied: fn(sessionclient::Session, protocol::SessionSnapshot),
+  applied: fn(mut api::Session, protocol::SessionSnapshot),
 }
 
 struct Row {
@@ -191,10 +191,10 @@ impl cui::Lifecycle for Picker {
   fn mut mounted(context: cui::Context) {
     self.context = Maybe::new(context)
     let lifetime = self.props.lifetime
-    let server = self.props.server
+    let client = self.props.client
     let dispatch = context.dispatch
     async::start(fn() {
-      let result = server.ListSessions(lifetime.Context, "")
+      let result = client.ListSessions(lifetime.Context, api::ListSessionsOptions{CWD: ""})
       let _ = dispatch(fn() {
         match result {
           ok(sessions) => {
@@ -248,10 +248,10 @@ impl Picker {
     } else {
       self.pending = true
       let lifetime = self.props.lifetime
-      let server = self.props.server
+      let client = self.props.client
       let dispatch = context.dispatch
       async::start(fn() {
-        match server.Attach(lifetime.Context, session_id) {
+        match client.Attach(lifetime.Context, session_id) {
           ok(bound) => {
             match bound.Snapshot(lifetime.Context) {
               ok(snapshot) => {

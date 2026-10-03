@@ -15,11 +15,12 @@ import (
 	"strings"
 	"time"
 
+	kit "github.com/akonwi/kit/api"
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/settings"
@@ -70,11 +71,17 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		fmt.Fprintf(stderr, "kit: start local server: %v\n", err)
 		return 1
 	}
-	server := kitclient.NewLocalServer(paths)
-	transport := kitserver.NewClient(paths)
+	connectContext, connectCancel := context.WithTimeout(ctx, 3*time.Second)
+	client, err := kit.Connect(connectContext, kit.Local())
+	connectCancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: connect local client: %v\n", err)
+		return 1
+	}
+	defer client.Close()
 	if options.SessionID != "" {
 		resolveContext, resolveCancel := context.WithTimeout(ctx, 3*time.Second)
-		selected, resolveErr := sessionclient.ResolveSession(resolveContext, server, options.SessionID)
+		selected, resolveErr := client.ResolveSession(resolveContext, options.SessionID)
 		resolveCancel()
 		if resolveErr != nil {
 			fmt.Fprintf(stderr, "kit: resolve session: %v\n", resolveErr)
@@ -85,7 +92,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
-	_, health, err := transport.Probe(probeContext)
+	_, health, err := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: inspect daemon providers: %v\n", err)
@@ -160,8 +167,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 	runErr := runTUI(TUIOptions{
 		Context:               ctx,
-		Server:                server,
-		Transport:             transport,
+		Client:                client,
 		CWD:                   cwd,
 		Location:              interactiveLocation(ctx, cwd),
 		ResolveLocation:       interactiveLocation,
@@ -187,7 +193,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	})
 	if options.Temporary {
 		cleanupContext, cleanupCancel := context.WithTimeout(context.Background(), 10*time.Second)
-		cleanupErr := cleanupTemporarySession(cleanupContext, server, options.NewSessionID)
+		cleanupErr := client.DisposeTemporarySession(cleanupContext, options.NewSessionID)
 		cleanupCancel()
 		if cleanupErr != nil {
 			fmt.Fprintf(stderr, "kit: dispose temporary session: %v\n", cleanupErr)
@@ -287,9 +293,17 @@ func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr
 		fmt.Fprintf(stderr, "kit: start local server: %v\n", err)
 		return 1
 	}
+	connectContext, connectCancel := context.WithTimeout(ctx, 3*time.Second)
+	client, err := kit.Connect(connectContext, kit.Local())
+	connectCancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "kit: connect local client: %v\n", err)
+		return 1
+	}
+	defer client.Close()
 	selected, err := deps.PickSession(SessionPickerOptions{
 		Context: ctx,
-		Server:  kitclient.NewLocalServer(paths),
+		Client:  client,
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {

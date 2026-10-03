@@ -3,9 +3,8 @@ package cli
 import (
 	"context"
 
+	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
 
@@ -27,8 +26,7 @@ type PickSessionFunc func(SessionPickerOptions) (string, error)
 // TUIOptions configures one terminal client attached to one session.
 type TUIOptions struct {
 	Context               context.Context
-	Server                sessionclient.Server
-	Transport             httpapi.Transport
+	Client                *kit.Client
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string
@@ -56,7 +54,7 @@ type TUIOptions struct {
 // SessionPickerOptions configures the saved-session picker.
 type SessionPickerOptions struct {
 	Context context.Context
-	Server  sessionclient.Server
+	Client  *kit.Client
 }
 
 // DeviceLogin performs OpenAI Codex device-code login.

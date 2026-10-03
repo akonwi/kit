@@ -1,10 +1,10 @@
 use ard/async
 
+use go:api
+use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:github.com/akonwi/kit/internal/httpapi
-use go:github.com/akonwi/kit/internal/protocol
 use go:kit/ffi/contextbridge
 use kit/tui/modal
 use kit/tui/theme
@@ -13,7 +13,7 @@ use go:strings
 // Props provides the shell-owned session identity and completion callback.
 struct Props {
   themes: theme::Context,
-  transport: httpapi::Transport,
+  client: mut api::Client,
   lifetime: contextbridge::Cancellation,
   session: protocol::SessionInfo,
   initial_name: Str,
@@ -63,18 +63,12 @@ impl Dialog {
         context => {
           self.pending = true
           self.error = ""
-          let transport = self.props.transport
+          let client = self.props.client
           let lifetime = self.props.lifetime
           let session_id = self.props.session.ID
           let dispatch = context.dispatch
           async::start(fn() {
-            let result = httpapi::Call<httpapi::SessionPath, protocol::RenameSessionInput, protocol::SessionInfo>(
-              lifetime.Context,
-              transport,
-              httpapi::RenameSession,
-              httpapi::SessionPath{SessionID: session_id},
-              protocol::RenameSessionInput{Name: name},
-            )
+            let result = client.RenameSession(lifetime.Context, session_id, name)
             let _ = dispatch(fn() {
               self.pending = false
               match result {

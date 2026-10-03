@@ -8,8 +8,8 @@ import (
 	"os"
 	"strings"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/spf13/cobra"
 )

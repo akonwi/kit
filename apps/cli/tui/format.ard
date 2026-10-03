@@ -1,7 +1,7 @@
 use ard/testing
 
+use go:api/contract as protocol
 use go:fmt
-use go:github.com/akonwi/kit/internal/protocol
 use go:github.com/akonwi/vaxis
 use go:math
 use go:os

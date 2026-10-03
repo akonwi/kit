@@ -1,10 +1,10 @@
 use ard/async
 
+use go:api
+use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:github.com/akonwi/kit/internal/httpapi
-use go:github.com/akonwi/kit/internal/protocol
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use kit/tui/format
@@ -19,8 +19,9 @@ use go:strings
 // callbacks for the model picker.
 struct Props {
   themes: theme::Context,
-  transport: httpapi::Transport,
+  client: mut api::Client,
   lifetime: contextbridge::Cancellation,
+  bound: mut api::Session,
   session: protocol::SessionInfo,
   override_service: cli::ModelOverrideService,
   dismiss: keymap::SimpleCommand,
@@ -94,17 +95,11 @@ impl Picker {
     self.error = ""
     self.generation =+ 1
     let generation = self.generation
-    let transport = self.props.transport
+    let client = self.props.client
     let lifetime = self.props.lifetime
     let dispatch = ctx.dispatch
     async::start(fn() {
-      let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
-        lifetime.Context,
-        transport,
-        httpapi::ListModels,
-        httpapi::ServerPath{},
-        httpapi::NoBody{},
-      )
+      let result = client.Models(lifetime.Context)
       let _ = dispatch(fn() {
         if self.generation == generation {
           self.loading = false
@@ -186,16 +181,13 @@ impl Picker {
       self.error = ""
       self.generation =+ 1
       let generation = self.generation
-      let transport = self.props.transport
       let lifetime = self.props.lifetime
+      let bound = self.props.bound
       let session = self.props.session
       let dispatch = ctx.dispatch
       async::start(fn() {
-        let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
+        let result = bound.Configure(
           lifetime.Context,
-          transport,
-          httpapi::ConfigureSession,
-          httpapi::SessionPath{SessionID: session.ID},
           protocol::ConfigureSessionInput{ExpectedRevision: session.ConfigurationRevision, Model: model},
         )
         let _ = dispatch(fn() {
