@@ -94,6 +94,64 @@ test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
   testing::assert(live.activity == "", "finished run clears activity")
 }
 
+test fn a_watched_turn_from_another_client_shows_its_prompt_and_thinking() Void!Str {
+  let live = mut transcript::live()
+  let batch = sequenced(
+    [
+      event("turn.started"),
+      sessionbridge::Event{
+        Kind: "user.message.added",
+        TurnID: "turn-1",
+        Text: "commit",
+      },
+      sessionbridge::Event{
+        Kind: "assistant.thinking.delta",
+        TurnID: "turn-1",
+        MessageID: "assistant-1",
+        ContentIndex: 0,
+        Delta: "Reviewing changes\nCreating the commit",
+      },
+    ],
+  )
+  let _ = live.apply(batch)
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 commit][assistant assistant-1 ]",
+    describe(live.messages),
+  )
+  testing::assert(
+    live.activity == "Creating the commit",
+    "remote thinking updates the shared working UX",
+  )
+}
+
+test fn watched_batches_reconcile_the_user_of_a_queued_successor() Void!Str {
+  let live = mut transcript::live()
+  let _ = live.apply(
+    sequenced(
+      [
+        event("turn.started"),
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "first",
+        },
+        event("turn.completed"),
+        sessionbridge::Event{Kind: "turn.started", TurnID: "turn-2"},
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-2",
+          Text: "next",
+        },
+      ],
+    ),
+  )
+  try testing::assert(
+    describe(live.messages) == "[user live-user:turn-1 first][user live-user:turn-2 next]",
+    describe(live.messages),
+  )
+  testing::assert(live.activity == "Working…", "the queued successor remains active")
+}
+
 test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Void!Str {
   let live = mut transcript::live()
   live.submit("hi")

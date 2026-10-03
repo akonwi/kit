@@ -428,22 +428,39 @@ impl Live {
   fn mut apply(events: [sessionbridge::Event]) Bool {
     mut changed = false
     for event in events {
-      if event.Sequence > self.sequence {
-        self.sequence = event.Sequence
-        if event.StreamID != "" {
-          self.stream_id = event.StreamID
-        }
-        if self.apply_one(event) {
-          changed = true
-        }
+      if self.apply_event(event) {
+        changed = true
       }
     }
     changed
   }
 
+  // Applies one ordered event. Session-watch consumers use this boundary so
+  // turn lifecycle bookkeeping and transcript reduction stay in wire order.
+  fn mut apply_event(event: sessionbridge::Event) Bool {
+    if event.Sequence <= self.sequence {
+      false
+    } else {
+      self.sequence = event.Sequence
+      if event.StreamID != "" {
+        self.stream_id = event.StreamID
+      }
+      self.apply_one(event)
+    }
+  }
+
   private fn mut apply_one(event: sessionbridge::Event) Bool {
     match classify(event.Kind) {
       Event::run_started => {
+        // A queued successor can start in the same session batch that settled
+        // its predecessor. Preserve accumulated rows while resetting state
+        // used to reconcile this turn's user, assistant, and tool events.
+        if self.activity == "" {
+          self.assistant = -1
+          self.has_user = false
+          self.tools = [:]
+          self.content = [:]
+        }
         self.thinking = ""
         self.activity = "Working…"
         false
