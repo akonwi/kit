@@ -1,6 +1,6 @@
 package sessionbridge
 
-import "github.com/akonwi/kit/internal/protocol"
+import protocol "github.com/akonwi/kit/api/contract"
 
 // Event is the client-owned flat projection of one canonical session event.
 // It keeps Ard rendering code independent of protocol union representation.

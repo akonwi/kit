@@ -1,12 +1,11 @@
 use ard/async
 use ard/testing
 
+use go:api
+use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
 use cooper/ui
-use go:github.com/akonwi/kit/internal/httpapi
-use go:github.com/akonwi/kit/internal/protocol
-use go:github.com/akonwi/kit/internal/sessionclient
 use go:kit/ffi/contextbridge
 use kit/tui/modal
 use kit/tui/palette
@@ -17,9 +16,9 @@ use kit/tui/theme
 // applies one through the server-authoritative session configuration endpoint.
 struct Props {
   themes: theme::Context,
-  transport: httpapi::Transport,
+  client: mut api::Client,
   lifetime: contextbridge::Cancellation,
-  session_client: sessionclient::Session,
+  session_client: mut api::Session,
   session: protocol::SessionInfo,
   dismiss: fn(),
   refreshed: fn(protocol::SessionInfo),
@@ -117,19 +116,13 @@ impl Picker {
     self.error = ""
     self.generation =+ 1
     let generation = self.generation
-    let transport = self.props.transport
+    let client = self.props.client
     let lifetime = self.props.lifetime
     let model = self.props.session.Model
     let dispatch = ctx.dispatch
     async::start(fn() {
       let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(10000))
-      let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
-        attempt.Context,
-        transport,
-        httpapi::ListModels,
-        httpapi::ServerPath{},
-        httpapi::NoBody{},
-      )
+      let result = client.Models(attempt.Context)
       attempt.Cancel()
       let _ = dispatch(fn() {
         if self.generation == generation {
@@ -163,7 +156,6 @@ impl Picker {
       self.error = ""
       self.generation =+ 1
       let generation = self.generation
-      let transport = self.props.transport
       let lifetime = self.props.lifetime
       let session = self.props.session
       let session_client = self.props.session_client
@@ -171,11 +163,8 @@ impl Picker {
       let dispatch = ctx.dispatch
       async::start(fn() {
         let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(120000))
-        let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
+        let result = session_client.Configure(
           attempt.Context,
-          transport,
-          httpapi::ConfigureSession,
-          httpapi::SessionPath{SessionID: session.ID},
           protocol::ConfigureSessionInput{
             ExpectedRevision: session.ConfigurationRevision,
             Model: session.Model,

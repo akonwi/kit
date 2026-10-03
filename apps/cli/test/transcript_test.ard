@@ -1,6 +1,6 @@
 use ard/testing
 
-use go:github.com/akonwi/kit/internal/protocol
+use go:api/contract as protocol
 use go:kit/ffi/sessionbridge
 use kit/tui/transcript
 

@@ -1,6 +1,8 @@
 use ard/async
 use ard/unsafe
 
+use go:api
+use go:api/contract as protocol
 use cooper
 use cooper/animation
 use cooper/cui
@@ -8,10 +10,7 @@ use cooper/event
 use cooper/keymap
 use cooper/theme as ctheme
 use cooper/ui
-use go:github.com/akonwi/kit/internal/httpapi
 use go:github.com/akonwi/kit/internal/identifier
-use go:github.com/akonwi/kit/internal/protocol
-use go:github.com/akonwi/kit/internal/sessionclient
 use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/authbridge
 use go:kit/ffi/cli
@@ -357,7 +356,9 @@ struct Shell {
   error: Str,
   context: cui::Context?,
   lifetime: contextbridge::Cancellation?,
-  session: sessionclient::Session?,
+  attachment_lifetime: contextbridge::Cancellation?,
+  attachment_generation: Int,
+  session: (mut api::Session)?,
   info: protocol::SessionInfo?,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
@@ -445,7 +446,9 @@ fn new(props: mut Props) mut Shell {
     error: "",
     context: Maybe::new<cui::Context>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
-    session: Maybe::new<sessionclient::Session>(),
+    attachment_lifetime: Maybe::new<contextbridge::Cancellation>(),
+    attachment_generation: 0,
+    session: Maybe::new<mut api::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
     prompt_commands: [],
     plugin_commands: [],
@@ -556,6 +559,10 @@ impl cui::Lifecycle for Shell {
   }
 
   fn mut unmounting(ctx: cui::Context) {
+    match self.attachment_lifetime {
+      attachment => attachment.Cancel(),
+      _ => (),
+    }
     match self.lifetime {
       lifetime => lifetime.Cancel(),
       _ => (),
@@ -1775,7 +1782,7 @@ impl Shell {
       rename::new,
       rename::Props{
         themes: self.props.themes,
-        transport: self.props.options.Transport,
+        client: self.props.options.Client,
         lifetime: self.lifetime.expect("mounted rename dialog"),
         session: self.info.or(protocol::SessionInfo{}),
         initial_name: self.rename_initial,
@@ -1796,8 +1803,9 @@ impl Shell {
       model::new,
       model::Props{
         themes: self.props.themes,
-        transport: self.props.options.Transport,
+        client: self.props.options.Client,
         lifetime: self.lifetime.expect("mounted model picker"),
+        bound: self.session.expect("attached model picker"),
         session: self.info.or(protocol::SessionInfo{}),
         override_service: self.props.options.ModelOverrideService,
         dismiss: dismiss,
@@ -1816,7 +1824,7 @@ impl Shell {
       thinking::new,
       thinking::Props{
         themes: self.props.themes,
-        transport: self.props.options.Transport,
+        client: self.props.options.Client,
         lifetime: self.lifetime.expect("mounted thinking picker"),
         session_client: self.session.expect("attached thinking picker"),
         session: self.info.or(protocol::SessionInfo{}),
@@ -1880,11 +1888,11 @@ impl Shell {
       sessions::new,
       sessions::Props{
         themes: self.props.themes,
-        server: self.props.options.Server,
+        client: self.props.options.Client,
         lifetime: self.lifetime.expect("mounted session picker"),
         current_session_id: self.info.or(protocol::SessionInfo{}).ID,
         dismiss: dismiss,
-        applied: fn(session: sessionclient::Session, snapshot: protocol::SessionSnapshot) {
+        applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {
           match self.context {
             context => {
               let _ = context.dispatch(fn() {
@@ -2643,6 +2651,13 @@ impl Shell {
 // the UI thread.
 impl Shell {
   fn mut attach(attached: bootstrap::Attached, location: Str) {
+    match self.attachment_lifetime {
+      current => current.Cancel(),
+      _ => (),
+    }
+    let attachment = contextbridge::WithCancel(self.lifetime.expect("mounted shell").Context)
+    self.attachment_lifetime = Maybe::new(attachment)
+    self.attachment_generation = self.attachment_generation + 1
     self.scratchpad_session_generation = self.scratchpad_session_generation + 1
     self.workspace = WorkspacePane::agent
     self.scratchpad_open = false
@@ -2661,62 +2676,77 @@ impl Shell {
     self.follow_run(attached.snapshot.ActiveTurnID)
   }
 
-  // Streams server-owned plugin notifications. The HTTP stream is fresh-only,
-  // so reconnecting never replays a previously displayed toast.
+  // Streams server-owned plugin notifications through the reconnecting public
+  // session handle. The stream remains fresh-only across reconnects.
   fn mut watch_plugin_toasts() {
-    match self.lifetime {
+    match self.attachment_lifetime {
       lifetime => {
-        match self.info {
-          info => {
+        match self.session {
+          session => {
             match self.context {
               context => {
                 let ctx = lifetime.Context
-                let transport = self.props.options.Transport
-                let session_id = info.ID
+                let generation = self.attachment_generation
                 let dispatch = context.dispatch
                 async::start(fn() {
-                  mut watching = true
-                  while watching {
-                    match httpapi::OpenStream<httpapi::SessionPath, protocol::PluginToast>(
-                      ctx,
-                      transport,
-                      httpapi::StreamPluginToasts,
-                      httpapi::SessionPath{SessionID: session_id},
-                    ) {
-                      ok(body) => {
-                        let _ = httpapi::ReadStream<httpapi::SessionPath, protocol::PluginToast>(
-                          body,
-                          httpapi::StreamPluginToasts,
-                          fn(record: httpapi::StreamRecord<protocol::PluginToast>) Void!Error {
-                            let notification = record.Payload
+                  match session.WatchPluginToasts(ctx) {
+                    ok(stream) => {
+                      let updates = stream.Updates()
+                      mut open = true
+                      while open {
+                        match updates.recv() {
+                          notification => {
                             let _ = dispatch(fn() {
-                              let variant = match notification.Variant.to_str() {
-                                "warning" => toast::Variant::warning,
-                                "error" => toast::Variant::error,
-                                _ => toast::Variant::info,
+                              if self.attachment_generation == generation {
+                                let variant = match notification.Variant.to_str() {
+                                  "warning" => toast::Variant::warning,
+                                  "error" => toast::Variant::error,
+                                  _ => toast::Variant::info,
+                                }
+                                let detail = match notification.Subtitle == "" {
+                                  true => "",
+                                  false => "{notification.PluginID} · {notification.Subtitle}",
+                                }
+                                self.show_toast(
+                                  notification.Title,
+                                  detail,
+                                  variant,
+                                  notification.Persistent,
+                                )
                               }
-                              let detail = match notification.Subtitle == "" {
-                                true => "",
-                                false => "{notification.PluginID} · {notification.Subtitle}",
-                              }
-                              self.show_toast(
-                                notification.Title,
-                                detail,
-                                variant,
-                                notification.Persistent,
-                              )
                             })
-                            Result::ok(())
                           },
-                        )
-                        let _ = body.Close()
-                      },
-                      err(_) => (),
-                    }
-                    select {
-                      ctx.Done().recv() => { watching = false },
-                      time::After(time::Second).recv() => (),
-                    }
+                          _ => { open = false },
+                        }
+                      }
+                      match stream.Err() {
+                        err(failure) => {
+                          let _ = dispatch(fn() {
+                            if self.attachment_generation == generation {
+                              self.show_toast(
+                                "Plugin notifications unavailable",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
+                          })
+                        },
+                        ok(_) => (),
+                      }
+                    },
+                    err(failure) => {
+                      let _ = dispatch(fn() {
+                        if self.attachment_generation == generation {
+                          self.show_toast(
+                            "Plugin notifications unavailable",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
+                      })
+                    },
                   }
                 })
               },
@@ -2773,61 +2803,90 @@ impl Shell {
     }
   }
 
-  // Watches the attached session: run starts open the run stream, and run
-  // completions reconcile the transcript from a fresh snapshot. The watch
-  // reconnects until the client detaches.
+  // Watches the attached session through the public client's reconnecting
+  // stream. Initial and replay-gap updates carry authoritative snapshots.
   fn mut watch() {
-    match self.lifetime {
+    match self.attachment_lifetime {
       lifetime => {
         match self.session {
           session => {
             match self.context {
               context => {
                 let ctx = lifetime.Context
+                let generation = self.attachment_generation
                 let dispatch = context.dispatch
                 async::start(fn() {
-                  mut attached = true
-                  while attached {
-                    match sessionbridge::WatchSession(ctx, session) {
-                      ok(watching) => {
-                        let baseline = watching.Snapshot
-                        let _ = dispatch(fn() {
-                          self.apply_snapshot(baseline)
-                        })
-                        let updates = watching.Stream.Updates()
-                        mut open = true
-                        while open {
-                          match updates.recv() {
-                            batch => {
-                              for event in batch {
+                  match session.Watch(ctx) {
+                    ok(stream) => {
+                      let updates = stream.Updates()
+                      mut open = true
+                      while open {
+                        match updates.recv() {
+                          update => {
+                            if unsafe::is_nil(update.Snapshot) {
+                              for event in update.Events {
                                 let kind = transcript::classify(event.Kind().to_str())
                                 if kind == transcript::Event::run_started {
                                   let run_id = event.TurnID
                                   let _ = dispatch(fn() {
-                                    self.follow_run(run_id)
+                                    if self.attachment_generation == generation {
+                                      self.follow_run(run_id)
+                                    }
                                   })
                                 }
                                 if kind == transcript::Event::run_finished {
                                   match session.Snapshot(ctx) {
                                     ok(settled) => {
                                       let _ = dispatch(fn() {
-                                        self.apply_snapshot(settled)
+                                        if self.attachment_generation == generation {
+                                          self.apply_snapshot(settled)
+                                        }
                                       })
                                     },
                                     err(_) => (),
                                   }
                                 }
                               }
-                            },
-                            _ => { open = false },
-                          }
+                            } else {
+                              let snapshot = update.Snapshot.@
+                              let _ = dispatch(fn() {
+                                if self.attachment_generation == generation {
+                                  self.apply_snapshot(snapshot)
+                                }
+                              })
+                            }
+                          },
+                          _ => { open = false },
                         }
-                      },
-                      err(_) => (),
-                    }
-                    if ctx.Err().is_ok() {
-                      time::Sleep(time::Millisecond * 250)
-                    }
+                      }
+                      match stream.Err() {
+                        err(failure) => {
+                          let _ = dispatch(fn() {
+                            if self.attachment_generation == generation {
+                              self.show_toast(
+                                "Session connection lost",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
+                          })
+                        },
+                        ok(_) => (),
+                      }
+                    },
+                    err(failure) => {
+                      let _ = dispatch(fn() {
+                        if self.attachment_generation == generation {
+                          self.show_toast(
+                            "Session connection failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
+                      })
+                    },
                   }
                 })
               },
@@ -2849,13 +2908,14 @@ impl Shell {
         self.abort_after_start = false
         self.abort_run()
       }
-      match self.lifetime {
+      match self.attachment_lifetime {
         lifetime => {
           match self.session {
             session => {
               match self.context {
                 context => {
                   let ctx = lifetime.Context
+                  let generation = self.attachment_generation
                   let dispatch = context.dispatch
                   async::start(fn() {
                     match session.Stream(ctx, run_id) {
@@ -2866,14 +2926,56 @@ impl Shell {
                           match updates.recv() {
                             batch => {
                               let _ = dispatch(fn() {
-                                self.apply_events(run_id, batch)
+                                if self.attachment_generation == generation {
+                                  self.apply_events(run_id, batch)
+                                }
                               })
                             },
                             _ => { open = false },
                           }
                         }
+                        match stream.Err() {
+                          err(failure) => {
+                            let snapshot = session.Snapshot(ctx)
+                            let _ = dispatch(fn() {
+                              if self.attachment_generation == generation {
+                                self.live.reset()
+                                self.run_id = ""
+                                match snapshot {
+                                  ok(current) => self.apply_snapshot(current),
+                                  err(_) => (),
+                                }
+                                self.show_toast(
+                                  "Turn stream lost",
+                                  failure.error(),
+                                  toast::Variant::error,
+                                  true,
+                                )
+                              }
+                            })
+                          },
+                          ok(_) => (),
+                        }
                       },
-                      err(_) => (),
+                      err(failure) => {
+                        let snapshot = session.Snapshot(ctx)
+                        let _ = dispatch(fn() {
+                          if self.attachment_generation == generation {
+                            self.live.reset()
+                            self.run_id = ""
+                            match snapshot {
+                              ok(current) => self.apply_snapshot(current),
+                              err(_) => (),
+                            }
+                            self.show_toast(
+                              "Turn stream failed",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          }
+                        })
+                      },
                     }
                   })
                 },
@@ -2924,25 +3026,17 @@ impl Shell {
       if self.run_id == "" {
         self.abort_after_start = true
       } else {
-        match self.lifetime {
+        match self.attachment_lifetime {
           lifetime => {
-            match self.info {
-              info => {
+            match self.session {
+              session => {
                 match self.context {
                   context => {
                     let run_id = self.run_id
-                    let session_id = info.ID
-                    let transport = self.props.options.Transport
                     let dispatch = context.dispatch
                     self.abort_pending = true
                     async::start(fn() {
-                      let _ = httpapi::Call<httpapi::TurnPath, httpapi::NoBody, protocol::TurnAbortResult>(
-                        lifetime.Context,
-                        transport,
-                        httpapi::AbortTurn,
-                        httpapi::TurnPath{SessionID: session_id, TurnID: run_id},
-                        httpapi::NoBody{},
-                      )
+                      let _ = session.Abort(lifetime.Context, run_id)
                       let _ = dispatch(fn() {
                         if self.run_id == run_id {
                           self.abort_pending = false
@@ -2972,7 +3066,7 @@ impl Shell {
     } else {
       match identifier::New("compact_") {
         ok(operation_id) => {
-          match self.lifetime {
+          match self.attachment_lifetime {
             lifetime => {
               match self.info {
                 info => {
@@ -2984,17 +3078,12 @@ impl Shell {
                             lifetime.Context,
                             Int64::from(120000),
                           )
-                          let session_id = info.ID
-                          let transport = self.props.options.Transport
                           let dispatch = context.dispatch
                           self.compact_pending = true
                           self.compact_operation_id = operation_id
                           async::start(fn() {
-                            let result = httpapi::Call<httpapi::SessionPath, protocol::CompactSessionInput, protocol::CompactSessionResult>(
+                            let result = session.Compact(
                               attempt.Context,
-                              transport,
-                              httpapi::CompactSession,
-                              httpapi::SessionPath{SessionID: session_id},
                               protocol::CompactSessionInput{OperationID: operation_id},
                             )
                             match result {
@@ -3066,23 +3155,15 @@ impl Shell {
     } else {
       match self.context {
         context => {
-          match self.lifetime {
+          match self.attachment_lifetime {
             lifetime => {
-              match self.info {
-                info => {
-                  let transport = self.props.options.Transport
-                  let session_id = info.ID
+              match self.session {
+                session => {
                   let dispatch = context.dispatch
                   let session_generation = self.scratchpad_session_generation
                   self.scratchpad_loading = true
                   async::start(fn() {
-                    let result = httpapi::Call<httpapi::SessionPath, httpapi::NoBody, protocol::Scratchpad>(
-                      lifetime.Context,
-                      transport,
-                      httpapi::GetScratchpad,
-                      httpapi::SessionPath{SessionID: session_id},
-                      httpapi::NoBody{},
-                    )
+                    let result = session.Scratchpad(lifetime.Context)
                     let _ = dispatch(fn() {
                       if session_generation == self.scratchpad_session_generation {
                         self.scratchpad_loading = false
@@ -3138,7 +3219,7 @@ impl Shell {
       let generation = self.scratchpad_generation
       match self.context {
         context => {
-          match self.lifetime {
+          match self.attachment_lifetime {
             lifetime => {
               let dispatch = context.dispatch
               async::start(fn() {
@@ -3172,23 +3253,18 @@ impl Shell {
         record => {
           match self.context {
             context => {
-              match self.lifetime {
+              match self.attachment_lifetime {
                 lifetime => {
-                  match self.info {
-                    info => {
+                  match self.session {
+                    session => {
                       let content = self.scratchpad_draft
                       if content != record.Content {
-                        let transport = self.props.options.Transport
-                        let session_id = info.ID
                         let dispatch = context.dispatch
                         let session_generation = self.scratchpad_session_generation
                         self.scratchpad_saving = true
                         async::start(fn() {
-                          let result = httpapi::Call<httpapi::SessionPath, protocol::UpdateScratchpadInput, protocol::Scratchpad>(
+                          let result = session.UpdateScratchpad(
                             lifetime.Context,
-                            transport,
-                            httpapi::UpdateScratchpad,
-                            httpapi::SessionPath{SessionID: session_id},
                             protocol::UpdateScratchpadInput{ExpectedRevision: record.Revision, Content: content},
                           )
                           let _ = dispatch(fn() {
@@ -3203,21 +3279,26 @@ impl Shell {
                                   }
                                 },
                                 err(failure) => {
-                                  match unsafe::cast<mut httpapi::APIError>(failure) {
-                                    api_error => {
-                                      if api_error.Code == "scratchpad_revision_conflict" and not unsafe::is_nil(api_error.CurrentScratchpad) {
-                                        self.scratchpad_record = Maybe::new(
-                                          api_error.CurrentScratchpad.@,
-                                        )
-                                        self.scratchpad_failure = "Scratchpad changed elsewhere. Retry to replace it with your local notes."
-                                      } else {
-                                        self.scratchpad_failure = failure.error()
-                                        self.show_toast(
-                                          "Scratchpad save failed",
-                                          failure.error(),
-                                          toast::Variant::error,
-                                          true,
-                                        )
+                                  match unsafe::cast<mut api::ServerError>(failure) {
+                                    server_error => {
+                                      match unsafe::cast<protocol::ScratchpadErrorDetails>(server_error.Details) {
+                                        details => {
+                                          if not unsafe::is_nil(details.Scratchpad) {
+                                            self.scratchpad_record = Maybe::new(
+                                              details.Scratchpad.@,
+                                            )
+                                            self.scratchpad_failure = "Scratchpad changed elsewhere. Retry to replace it with your local notes."
+                                          }
+                                        },
+                                        _ => {
+                                          self.scratchpad_failure = failure.error()
+                                          self.show_toast(
+                                            "Scratchpad save failed",
+                                            failure.error(),
+                                            toast::Variant::error,
+                                            true,
+                                          )
+                                        },
                                       }
                                     },
                                     _ => {
@@ -3262,7 +3343,7 @@ impl Shell {
         false,
       )
     } else {
-      match self.lifetime {
+      match self.attachment_lifetime {
         lifetime => {
           match self.context {
             context => {
@@ -3271,18 +3352,10 @@ impl Shell {
                   match self.info {
                     info => {
                       let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(15000))
-                      let transport = self.props.options.Transport
                       let dispatch = context.dispatch
-                      let session_id = info.ID
                       self.reload_pending = true
                       async::start(fn() {
-                        let result = httpapi::Call<httpapi::SessionPath, httpapi::NoBody, protocol::ReloadSessionResult>(
-                          attempt.Context,
-                          transport,
-                          httpapi::ReloadSession,
-                          httpapi::SessionPath{SessionID: session_id},
-                          httpapi::NoBody{},
-                        )
+                        let result = session.Reload(attempt.Context)
                         match result {
                           ok(reloaded) => {
                             let snapshot = session.Snapshot(attempt.Context)
@@ -3355,22 +3428,16 @@ impl Shell {
         false,
       )
     } else {
-      match self.lifetime {
+      match self.attachment_lifetime {
         lifetime => {
           match self.context {
             context => {
               let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
-              let transport = self.props.options.Transport
+              let client = self.props.options.Client
               let dispatch = context.dispatch
               self.model_refresh_pending = true
               async::start(fn() {
-                let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
-                  attempt.Context,
-                  transport,
-                  httpapi::RefreshModels,
-                  httpapi::ServerPath{},
-                  httpapi::NoBody{},
-                )
+                let result = client.RefreshModels(attempt.Context)
                 attempt.Cancel()
                 let _ = dispatch(fn() {
                   self.model_refresh_pending = false
@@ -3418,13 +3485,12 @@ impl Shell {
     } else {
       match self.info {
         info => {
-          match self.lifetime {
+          match self.attachment_lifetime {
             lifetime => {
               match self.context {
                 context => {
                   let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(8000))
-                  let transport = self.props.options.Transport
-                  let server = self.props.options.Server
+                  let client = self.props.options.Client
                   let resolve_location = self.props.options.ResolveLocation
                   let dispatch = context.dispatch
                   let input = protocol::CreateSessionInput{
@@ -3435,16 +3501,10 @@ impl Shell {
                   }
                   self.new_session_pending = true
                   async::start(fn() {
-                    let created = httpapi::Call<httpapi::NoBody, protocol::CreateSessionInput, protocol::SessionInfo>(
-                      attempt.Context,
-                      transport,
-                      httpapi::CreateSession,
-                      httpapi::NoBody{},
-                      input,
-                    )
+                    let created = client.CreateSession(attempt.Context, input)
                     match created {
                       ok(info) => {
-                        let attached = match server.Attach(attempt.Context, info.ID) {
+                        let attached = match client.Attach(attempt.Context, info.ID) {
                           ok(session) => {
                             match session.Snapshot(attempt.Context) {
                               ok(snapshot) => {
@@ -3499,59 +3559,50 @@ impl Shell {
   // Changes the attached session's directory through the canonical session
   // mutation endpoint. The server resolves relative paths from its current cwd.
   fn mut change_working_directory(path: Str) {
-    match identifier::New("cwd_") {
-      ok(mutation_id) => {
-        match self.lifetime {
-          lifetime => {
-            match self.info {
-              info => {
-                match self.context {
-                  context => {
-                    let previous = info.CWD
-                    let session_id = info.ID
-                    let ctx = lifetime.Context
-                    let transport = self.props.options.Transport
-                    let resolve_location = self.props.options.ResolveLocation
-                    let dispatch = context.dispatch
-                    async::start(fn() {
-                      let result = httpapi::Call<httpapi::SessionPath, protocol::ChangeCWDInput, protocol::ChangeWorkspaceCWDResult>(
-                        ctx,
-                        transport,
-                        httpapi::ChangeSessionCWD,
-                        httpapi::SessionPath{SessionID: session_id},
-                        protocol::ChangeCWDInput{MutationID: mutation_id, Path: path},
-                      )
-                      let _ = dispatch(fn() {
-                        match result {
-                          ok(changed) => {
-                            self.info = Maybe::new(changed.Session)
-                            self.location = resolve_location(ctx, changed.Session.CWD)
-                            match changed.Session.CWD == previous {
-                              true => self.show_toast("Already in directory", changed.Session.CWD, toast::Variant::info, false),
-                              false => {
-                                self.show_toast(
-                                  "Working directory changed",
-                                  "Now {changed.Session.CWD} · run /reload to refresh agent context",
-                                  toast::Variant::warning,
-                                  false,
-                                )
-                              },
-                            }
-                          },
-                          err(failure) => {
-                            self.show_toast(
-                              "Failed to change directory",
-                              failure.error(),
-                              toast::Variant::error,
-                              true,
-                            )
-                          },
-                        }
-                      })
-                    })
-                  },
-                  _ => (),
-                }
+    match self.attachment_lifetime {
+      lifetime => {
+        match self.info {
+          info => {
+            match self.context {
+              context => {
+                let previous = info.CWD
+                let ctx = lifetime.Context
+                let session = self.session.expect("attached cwd change")
+                let resolve_location = self.props.options.ResolveLocation
+                let generation = self.attachment_generation
+                let dispatch = context.dispatch
+                async::start(fn() {
+                  let result = session.ChangeCWD(ctx, path)
+                  let _ = dispatch(fn() {
+                    if self.attachment_generation == generation {
+                      match result {
+                        ok(changed) => {
+                          self.info = Maybe::new(changed)
+                          self.location = resolve_location(ctx, changed.CWD)
+                          match changed.CWD == previous {
+                            true => self.show_toast("Already in directory", changed.CWD, toast::Variant::info, false),
+                            false => {
+                              self.show_toast(
+                                "Working directory changed",
+                                "Now {changed.CWD} · run /reload to refresh agent context",
+                                toast::Variant::warning,
+                                false,
+                              )
+                            },
+                          }
+                        },
+                        err(failure) => {
+                          self.show_toast(
+                            "Failed to change directory",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        },
+                      }
+                    }
+                  })
+                })
               },
               _ => (),
             }
@@ -3559,9 +3610,7 @@ impl Shell {
           _ => (),
         }
       },
-      err(failure) => {
-        self.show_toast("Failed to change directory", failure.error(), toast::Variant::error, true)
-      },
+      _ => (),
     }
   }
 
@@ -3569,10 +3618,10 @@ impl Shell {
   // work and retains the /command invocation as the follow-up preview.
   fn mut submit_prompt_command(name: Str, args: Str) {
     if self.phase == Phase::ready {
-      match self.lifetime {
+      match self.attachment_lifetime {
         lifetime => {
-          match self.info {
-            info => {
+          match self.session {
+            session => {
               match self.context {
                 context => {
                   let suffix = match args != "" {
@@ -3588,45 +3637,41 @@ impl Shell {
                     self.request_end()
                   }
                   let ctx = lifetime.Context
-                  let session_id = info.ID
-                  let transport = self.props.options.Transport
+                  let generation = self.attachment_generation
                   let dispatch = context.dispatch
                   async::start(fn() {
-                    match httpapi::Call<httpapi::SessionPath, protocol::PromptCommandInput, protocol::PromptSubmission>(
-                      ctx,
-                      transport,
-                      httpapi::SubmitPromptCommand,
-                      httpapi::SessionPath{SessionID: session_id},
-                      protocol::PromptCommandInput{Name: name, Args: args},
-                    ) {
+                    match session.SubmitPromptCommand(ctx, name, args) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
-                          self.follow_ups = submission.Queue
-                          if submission.Queued {
-                            if optimistic {
+                          if self.attachment_generation == generation {
+                            self.follow_ups = submission.Queue
+                            if submission.Queued {
+                              if optimistic {
+                                self.live.reset()
+                                self.start_pending = false
+                              }
+                            } else if not unsafe::is_nil(submission.Turn) {
+                              self.start_pending = false
+                              self.follow_run(submission.Turn.ID())
+                            } else {
                               self.live.reset()
                               self.start_pending = false
+                              self.notice = "Prompt command did not start a turn"
                             }
-                            ()
-                          } else if submission.Reservation.TurnID != "" {
-                            self.start_pending = false
-                            self.follow_run(submission.Reservation.TurnID)
-                          } else {
-                            self.live.reset()
-                            self.start_pending = false
-                            self.notice = "Prompt command did not start a turn"
                           }
                         })
                       },
                       err(failure) => {
                         let message = failure.error()
                         let _ = dispatch(fn() {
-                          if optimistic {
-                            self.live.reset()
-                            self.start_pending = false
-                            self.abort_after_start = false
+                          if self.attachment_generation == generation {
+                            if optimistic {
+                              self.live.reset()
+                              self.start_pending = false
+                              self.abort_after_start = false
+                            }
+                            self.notice = message
                           }
-                          self.notice = message
                         })
                       },
                     }
@@ -3647,22 +3692,17 @@ impl Shell {
   // changing the composer draft. The server validates the generation-owned
   // instance so stale palette entries cannot run a replacement plugin.
   fn mut execute_plugin_command(command: protocol::PluginCommand, args: Str) {
-    match self.lifetime {
+    match self.attachment_lifetime {
       lifetime => {
-        match self.info {
-          info => {
+        match self.session {
+          session => {
             match self.context {
               context => {
                 let ctx = lifetime.Context
-                let session_id = info.ID
-                let transport = self.props.options.Transport
                 let dispatch = context.dispatch
                 async::start(fn() {
-                  let result = httpapi::Call<httpapi::SessionPath, protocol::PluginCommandInput, httpapi::NoBody>(
+                  let result = session.ExecutePluginCommand(
                     ctx,
-                    transport,
-                    httpapi::ExecutePluginCommand,
-                    httpapi::SessionPath{SessionID: session_id},
                     protocol::PluginCommandInput{
                       ID: command.ID,
                       Instance: command.Instance,
@@ -3701,10 +3741,10 @@ impl Shell {
   fn mut submit() Bool {
     let text = strings::TrimSpace(self.composer)
     if self.phase == Phase::ready and text != "" {
-      match self.lifetime {
+      match self.attachment_lifetime {
         lifetime => {
-          match self.info {
-            info => {
+          match self.session {
+            session => {
               match self.context {
                 context => {
                   self.composer = ""
@@ -3716,47 +3756,44 @@ impl Shell {
                     self.request_end()
                   }
                   let ctx = lifetime.Context
-                  let session_id = info.ID
-                  let transport = self.props.options.Transport
+                  let generation = self.attachment_generation
                   let dispatch = context.dispatch
                   async::start(fn() {
-                    match httpapi::Call<httpapi::SessionPath, protocol::PromptInput, protocol::PromptSubmission>(
-                      ctx,
-                      transport,
-                      httpapi::SubmitPrompt,
-                      httpapi::SessionPath{SessionID: session_id},
-                      protocol::PromptInput{Text: text},
-                    ) {
+                    match session.SubmitPromptInput(ctx, protocol::PromptInput{Text: text}) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
-                          self.follow_ups = submission.Queue
-                          if submission.Queued {
-                            if optimistic {
+                          if self.attachment_generation == generation {
+                            self.follow_ups = submission.Queue
+                            if submission.Queued {
+                              if optimistic {
+                                self.live.reset()
+                                self.start_pending = false
+                              }
+                            } else if not unsafe::is_nil(submission.Turn) {
+                              self.start_pending = false
+                              self.follow_run(submission.Turn.ID())
+                            } else {
                               self.live.reset()
                               self.start_pending = false
+                              self.notice = "Prompt did not start a turn"
                             }
-                          } else if submission.Reservation.TurnID != "" {
-                            self.start_pending = false
-                            self.follow_run(submission.Reservation.TurnID)
-                          } else {
-                            self.live.reset()
-                            self.start_pending = false
-                            self.notice = "Prompt did not start a turn"
                           }
                         })
                       },
                       err(failure) => {
                         let message = failure.error()
                         let _ = dispatch(fn() {
-                          if self.composer == "" {
-                            self.composer = text
+                          if self.attachment_generation == generation {
+                            if self.composer == "" {
+                              self.composer = text
+                            }
+                            if optimistic {
+                              self.live.reset()
+                              self.start_pending = false
+                              self.abort_after_start = false
+                            }
+                            self.notice = message
                           }
-                          if optimistic {
-                            self.live.reset()
-                            self.start_pending = false
-                            self.abort_after_start = false
-                          }
-                          self.notice = message
                         })
                       },
                     }

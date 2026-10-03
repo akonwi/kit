@@ -6,7 +6,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -271,7 +271,7 @@ func (c *fakeBoundSession) Subagent(context.Context, protocol.SubagentOperationI
 	panic("unexpected Subagent")
 }
 
-func (c *fakeBoundSession) SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error) {
+func (c *fakeBoundSession) SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error) {
 	panic("unexpected SubagentTranscript")
 }
 

@@ -8,3 +8,6 @@ commit = { type = "Str", default = "unknown", release = true }
 
 [dependencies]
 cooper = { path = "../../../cooper" }
+
+[go.imports]
+api = "github.com/akonwi/kit/api"

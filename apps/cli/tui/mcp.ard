@@ -1,6 +1,6 @@
+use go:api/contract as protocol
 use cooper/cui
 use cooper/keymap
-use go:github.com/akonwi/kit/internal/protocol
 use kit/tui/palette
 use kit/tui/theme
 use go:strings

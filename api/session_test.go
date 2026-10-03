@@ -16,6 +16,35 @@ import (
 	kitserver "github.com/akonwi/kit/internal/server"
 )
 
+type promptCommandSubmissionTestTransport struct {
+	sessionTransport
+	input protocol.PromptCommandInput
+}
+
+func (t *promptCommandSubmissionTestTransport) SubmitPromptCommand(_ context.Context, sessionID string, input protocol.PromptCommandInput) (protocol.PromptSubmission, error) {
+	t.input = input
+	return protocol.PromptSubmission{
+		Queued: true,
+		Queue:  protocol.FollowUpQueue{Count: 1, Previews: []string{"/review staged"}},
+	}, nil
+}
+
+func TestSessionSubmitPromptCommandPreservesQueueResult(t *testing.T) {
+	transport := &promptCommandSubmissionTestTransport{}
+	session := &Session{transport: transport, id: "session_test"}
+
+	submission, err := session.SubmitPromptCommand(t.Context(), "review", "staged")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if transport.input.Name != "review" || transport.input.Args != "staged" {
+		t.Fatalf("input = %+v", transport.input)
+	}
+	if !submission.Queued || submission.Queue.Count != 1 || submission.Turn != nil {
+		t.Fatalf("submission = %+v", submission)
+	}
+}
+
 type concurrentSessionTransport struct {
 	sessionTransport
 	started chan string
