@@ -61,6 +61,24 @@ fn replies(count: Int) [transcript::Message] {
   transcript::project(messages.@)
 }
 
+fn message(role: transcript::Role, text: Str, pending: Bool) transcript::Message {
+  transcript::Message{
+    id: "message:{text}",
+    turn_id: "turn-1",
+    role: role,
+    text: text,
+    thinking: "",
+    tool_call_id: "",
+    tool_name: "",
+    tool_calls: [],
+    tool_state: transcript::ToolState::none,
+    error_message: "",
+    is_error: false,
+    aborted: false,
+    pending: pending,
+  }
+}
+
 fn rows(terminal: headless::TestApp) [Str] {
   let trimmed = mut List::new<Str>()
   for row in strings::Split(terminal.frame().text(), "\n") {
@@ -144,6 +162,49 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
   testing::assert(
     terminal.frame().text().contains("test message"),
     "optimistic user message renders before server reconciliation",
+  )
+}
+
+test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [
+      message(transcript::Role::user, "Explain this", false),
+      message(transcript::Role::assistant, "**partial", true),
+    ],
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(
+    terminal.frame().text().contains("Explain this"),
+    "the submitted prompt remains visible while assistant prose is pending",
+  )
+  try testing::assert(
+    not terminal.frame().text().contains("**partial"),
+    "pending assistant prose must stay out of the transcript",
+  )
+
+  renderer.update(fn() {
+    model.messages = [
+      message(transcript::Role::user, "Explain this", false),
+      message(transcript::Role::assistant, "Complete answer", false),
+    ]
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.frame().text().contains("Complete answer"),
+    "the completed assistant prose is revealed atomically",
   )
 }
 
