@@ -2810,7 +2810,7 @@ impl Shell {
       // (including the optimistic user row) until turn settlement; a snapshot
       // that happens to include the user event can still omit later live
       // content and must not replace it.
-      if not self.live.blocks_snapshot_replacement() {
+      if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
         self.messages = transcript::project(snapshot.Messages)
         self.live.reset()
       }
@@ -2838,27 +2838,28 @@ impl Shell {
                         match updates.recv() {
                           update => {
                             if unsafe::is_nil(update.Snapshot) {
+                              mut finished = false
                               for event in update.Events {
-                                let kind = transcript::classify(event.Kind().to_str())
-                                if kind == transcript::Event::run_started {
-                                  let run_id = event.TurnID
-                                  let _ = dispatch(fn() {
-                                    if self.attachment_generation == generation {
-                                      self.follow_run(run_id)
-                                    }
-                                  })
+                                if transcript::classify(event.Kind().to_str()) == transcript::Event::run_finished {
+                                  finished = true
                                 }
-                                if kind == transcript::Event::run_finished {
-                                  match session.Snapshot(ctx) {
-                                    ok(settled) => {
-                                      let _ = dispatch(fn() {
-                                        if self.attachment_generation == generation {
-                                          self.apply_snapshot(settled)
-                                        }
-                                      })
-                                    },
-                                    err(_) => (),
-                                  }
+                              }
+                              let batch = update.Events
+                              let _ = dispatch(fn() {
+                                if self.attachment_generation == generation {
+                                  self.apply_watched_events(batch)
+                                }
+                              })
+                              if finished {
+                                match session.Snapshot(ctx) {
+                                  ok(settled) => {
+                                    let _ = dispatch(fn() {
+                                      if self.attachment_generation == generation {
+                                        self.apply_snapshot(settled)
+                                      }
+                                    })
+                                  },
+                                  err(_) => (),
                                 }
                               }
                             } else {
@@ -2914,117 +2915,138 @@ impl Shell {
     }
   }
 
-  // Streams the events of `run_id` into the live transcript.
-  fn mut follow_run(run_id: Str) {
-    if run_id != "" and run_id != self.run_id {
+  // Records a turn discovered by the session-wide watch without opening a
+  // competing stream or consuming an abort queued for a local submission.
+  fn mut claim_run(run_id: Str) {
+    if run_id != "" {
       self.run_id = run_id
-      if self.abort_after_start {
-        self.abort_after_start = false
-        self.abort_run()
-      }
-      match self.attachment_lifetime {
-        lifetime => {
-          match self.session {
-            session => {
-              match self.context {
-                context => {
-                  let ctx = lifetime.Context
-                  let generation = self.attachment_generation
-                  let dispatch = context.dispatch
-                  async::start(fn() {
-                    match session.Stream(ctx, run_id) {
-                      ok(stream) => {
-                        let updates = stream.Updates()
-                        mut open = true
-                        while open {
-                          match updates.recv() {
-                            batch => {
+    }
+  }
+
+  // Follows turns initiated locally or found in the attachment snapshot. The
+  // session-wide watch also applies every live batch, while this turn stream
+  // supplies replay needed when attaching in the middle of an active turn.
+  fn mut follow_run(run_id: Str) {
+    if run_id != "" {
+      if run_id == self.run_id {
+        if self.abort_after_start {
+          self.abort_after_start = false
+          self.abort_run()
+        }
+      } else {
+        self.run_id = run_id
+        if self.abort_after_start {
+          self.abort_after_start = false
+          self.abort_run()
+        }
+        match self.attachment_lifetime {
+          lifetime => {
+            match self.session {
+              session => {
+                match self.context {
+                  context => {
+                    let ctx = lifetime.Context
+                    let generation = self.attachment_generation
+                    let dispatch = context.dispatch
+                    async::start(fn() {
+                      match session.Stream(ctx, run_id) {
+                        ok(stream) => {
+                          let updates = stream.Updates()
+                          mut open = true
+                          while open {
+                            match updates.recv() {
+                              batch => {
+                                let _ = dispatch(fn() {
+                                  if self.attachment_generation == generation and self.run_id == run_id {
+                                    self.apply_watched_events(batch)
+                                  }
+                                })
+                              },
+                              _ => { open = false },
+                            }
+                          }
+                          match stream.Err() {
+                            err(failure) => {
+                              let snapshot = session.Snapshot(ctx)
                               let _ = dispatch(fn() {
-                                if self.attachment_generation == generation {
-                                  self.apply_events(run_id, batch)
+                                if self.attachment_generation == generation and self.run_id == run_id {
+                                  self.live.reset()
+                                  self.run_id = ""
+                                  match snapshot {
+                                    ok(current) => self.apply_snapshot(current),
+                                    err(_) => (),
+                                  }
+                                  self.show_toast(
+                                    "Turn stream lost",
+                                    failure.error(),
+                                    toast::Variant::error,
+                                    true,
+                                  )
                                 }
                               })
                             },
-                            _ => { open = false },
+                            ok(_) => (),
                           }
-                        }
-                        match stream.Err() {
-                          err(failure) => {
-                            let snapshot = session.Snapshot(ctx)
-                            let _ = dispatch(fn() {
-                              if self.attachment_generation == generation {
-                                self.live.reset()
-                                self.run_id = ""
-                                match snapshot {
-                                  ok(current) => self.apply_snapshot(current),
-                                  err(_) => (),
-                                }
-                                self.show_toast(
-                                  "Turn stream lost",
-                                  failure.error(),
-                                  toast::Variant::error,
-                                  true,
-                                )
+                        },
+                        err(failure) => {
+                          let snapshot = session.Snapshot(ctx)
+                          let _ = dispatch(fn() {
+                            if self.attachment_generation == generation and self.run_id == run_id {
+                              self.live.reset()
+                              self.run_id = ""
+                              match snapshot {
+                                ok(current) => self.apply_snapshot(current),
+                                err(_) => (),
                               }
-                            })
-                          },
-                          ok(_) => (),
-                        }
-                      },
-                      err(failure) => {
-                        let snapshot = session.Snapshot(ctx)
-                        let _ = dispatch(fn() {
-                          if self.attachment_generation == generation {
-                            self.live.reset()
-                            self.run_id = ""
-                            match snapshot {
-                              ok(current) => self.apply_snapshot(current),
-                              err(_) => (),
+                              self.show_toast(
+                                "Turn stream failed",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
                             }
-                            self.show_toast(
-                              "Turn stream failed",
-                              failure.error(),
-                              toast::Variant::error,
-                              true,
-                            )
-                          }
-                        })
-                      },
-                    }
-                  })
-                },
-                _ => (),
-              }
-            },
-            _ => (),
-          }
-        },
-        _ => (),
+                          })
+                        },
+                      }
+                    })
+                  },
+                  _ => (),
+                }
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
       }
     }
   }
 
-  fn mut apply_events(run_id: Str, batch: [protocol::SessionEvent]) {
-    if run_id == self.run_id {
-      mut finished = false
-      for event in batch {
-        if transcript::classify(event.Kind().to_str()) == transcript::Event::run_finished {
-          finished = true
-        }
+  // Applies the authoritative batch already delivered by Session.Watch. A
+  // remote client can start the turn, and one session batch can finish a turn
+  // before starting its queued successor, so lifecycle and transcript updates
+  // are reduced together in wire order.
+  fn mut apply_watched_events(batch: [protocol::SessionEvent]) {
+    let events = sessionbridge::Events(mut batch)
+    for event in events {
+      let kind = transcript::classify(event.Kind)
+      if kind == transcript::Event::run_started {
+        self.claim_run(event.TurnID)
       }
       // A transcript pinned to its end follows new content on its own.
-      let _ = self.live.apply(sessionbridge::Events(mut batch))
-      if self.live.context_window > 0 {
-        self.context_tokens = self.live.context_tokens
-        self.context_window = self.live.context_window
-      }
-      if self.live.activity == "" {
-        self.abort_pending = false
-      }
-      if finished {
+      let _ = self.live.apply_event(event)
+      if kind == transcript::Event::run_finished and event.TurnID == self.run_id {
         self.run_id = ""
+        self.abort_pending = false
         self.abort_after_start = false
       }
+    }
+    if self.live.context_window > 0 {
+      self.context_tokens = self.live.context_tokens
+      self.context_window = self.live.context_window
+    }
+    if self.live.activity == "" {
+      self.abort_pending = false
     }
   }
 
