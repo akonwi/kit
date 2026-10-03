@@ -183,6 +183,9 @@ func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 		t.Fatal(err)
 	}
 	defer client.Close()
+	if err := client.ProbeCompatibility(t.Context()); err != nil {
+		t.Fatal(err)
+	}
 	if sessions, err := client.ListSessions(t.Context(), ListSessionsOptions{}); err != nil || len(sessions) != 0 {
 		t.Fatalf("sessions = %+v, err = %v", sessions, err)
 	}

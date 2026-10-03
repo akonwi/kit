@@ -60,6 +60,10 @@ type Option interface{ apply(*clientOptions) error }
 
 type clientOptions struct{}
 
+type compatibilityTransport interface {
+	ProbeCompatible(context.Context) (clienttransport.Connection, error)
+}
+
 type operationTransport interface {
 	CreateSession(context.Context, CreateSessionInput) (SessionInfo, error)
 	ForkSession(context.Context, string, ForkSessionInput) (SessionInfo, error)
@@ -75,6 +79,7 @@ type operationTransport interface {
 type Client struct {
 	mu             sync.RWMutex
 	transport      operationTransport
+	compatibility  compatibilityTransport
 	sessions       sessionTransport
 	lifetime       context.Context
 	cancel         context.CancelFunc
@@ -125,6 +130,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		return nil, projectError(err)
 	}
 	client := newClient(transport, transport.CloseIdleConnections)
+	client.compatibility = transport
 	client.sessions = transport
 	return client, nil
 }
@@ -265,6 +271,21 @@ func (c *Client) DisposeTemporarySession(ctx context.Context, sessionID string) 
 	}
 	defer cancel()
 	return projectError(c.transport.DisposeTemporarySession(operation, sessionID))
+}
+
+// ProbeCompatibility verifies that the connected server remains ready and
+// compatible without managing its lifecycle.
+func (c *Client) ProbeCompatibility(ctx context.Context) error {
+	operation, cancel, err := c.operationContext(ctx)
+	if err != nil {
+		return err
+	}
+	defer cancel()
+	if c.compatibility == nil {
+		return errors.New("compatibility transport is unavailable")
+	}
+	_, err = c.compatibility.ProbeCompatible(operation)
+	return projectError(err)
 }
 
 // Models returns the server's model catalog.
