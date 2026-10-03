@@ -342,6 +342,8 @@ impl cui::Component for Picker {
                     override: Maybe::new(fn(selected: Str) {
                       self.begin_context_edit(selected)
                     }),
+                    on_query_change: fn(query: Str) {},
+                    on_selection_change: fn(selected: Str) {},
                     on_activate: fn(item: palette::Item) {
                       match self.context {
                         context => self.apply(item.key, context),

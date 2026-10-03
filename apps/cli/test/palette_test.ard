@@ -121,6 +121,22 @@ impl cui::Component for TreeHost {
             self.collapsed = not expand
           })
         }),
+        on_query_change: fn(query: Str) {
+          let actions = mut List::new<Str>()
+          for action in model.actions {
+            actions.push(action)
+          }
+          actions.push("query:{query}")
+          model.actions = actions.@
+        },
+        on_selection_change: fn(selected: Str) {
+          let actions = mut List::new<Str>()
+          for action in model.actions {
+            actions.push(action)
+          }
+          actions.push("select:{selected}")
+          model.actions = actions.@
+        },
         on_activate: fn(item: palette::Item) {},
       },
     )
@@ -353,6 +369,8 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
         }),
         override: Maybe::new<fn(Str)>(),
         toggle: Maybe::new<fn(Str, Bool)>(),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selected: Str) {},
         on_activate: fn(item: palette::Item) {},
       },
     ),
@@ -418,6 +436,23 @@ test fn stateful_picker_routes_tree_keys_without_moving_selection() Void!Str {
     model.actions.at(1).or("") == "parent:true",
     "Right expands the same selected parent: {model.actions.at(1).or("")}",
   )
+  testing::pass()
+}
+
+test fn stateful_picker_reports_queries_with_no_selection() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let model = mut TreeModel{actions: []}
+  let renderer = mount_tree(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("z"))
+  terminal.flush()
+
+  try testing::assert(model.actions.size() == 2, "query and empty selection are reported")
+  try testing::assert(model.actions.at(0).or("") == "query:z", "query change is reported")
+  try testing::assert(model.actions.at(1).or("") == "select:", "no result clears selection")
   testing::pass()
 }
 

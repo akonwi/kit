@@ -52,6 +52,8 @@ struct PickerProps {
   override: fn(Str)?,
   // toggle receives the selected key and true for expand, false for collapse.
   toggle: fn(Str, Bool)?,
+  on_query_change: fn(Str),
+  on_selection_change: fn(Str),
   on_activate: fn(Item),
 }
 
@@ -363,15 +365,18 @@ impl Picker {
       hidden_below: self.hidden_below,
       on_query_change: fn(query: Str) {
         self.props.query = query
+        self.source.on_query_change(query)
         self.props.hovered = ""
         let next = first_enabled(items(self.view_props()))
+        self.props.selection = next
+        self.source.on_selection_change(next)
         if next != "" {
-          self.props.selection = next
           self.reveal(next)
         }
       },
       on_selection_change: fn(selection: Str) {
         self.props.selection = selection
+        self.source.on_selection_change(selection)
         self.reveal(selection)
       },
       on_hover_change: fn(hover: Str) {
