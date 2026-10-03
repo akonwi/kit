@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"strings"
 	"testing"
 )
@@ -27,5 +28,22 @@ func TestPluginFooterValidation(t *testing.T) {
 	}
 	if err := (PluginFooter{Items: []PluginFooterItem{valid.Items[0], valid.Items[0]}}).Validate(); err == nil {
 		t.Fatal("duplicate footer ids accepted")
+	}
+}
+
+func TestPluginFooterJSONOmitsNullCollections(t *testing.T) {
+	encoded, err := json.Marshal(PluginFooter{Items: []PluginFooterItem{{ID: "demo.status"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(encoded), `"items":[{`) || !strings.Contains(string(encoded), `"content":[]`) {
+		t.Fatalf("empty content encoded as null: %s", encoded)
+	}
+	empty, err := json.Marshal(PluginFooter{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(empty), `"items":[]`) {
+		t.Fatalf("empty footer encoded as null: %s", empty)
 	}
 }

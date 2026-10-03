@@ -1,6 +1,7 @@
 package protocol
 
 import (
+	"encoding/json"
 	"errors"
 	"github.com/akonwi/kit/internal/theme"
 	"strings"
@@ -35,6 +36,26 @@ type PluginFooterItem struct {
 type PluginFooter struct {
 	Items          []PluginFooterItem `json:"items"`
 	LocationHidden bool               `json:"locationHidden"`
+}
+
+// MarshalJSON emits required collections as arrays, never null.
+func (item PluginFooterItem) MarshalJSON() ([]byte, error) {
+	type wire PluginFooterItem
+	value := wire(item)
+	if value.Content == nil {
+		value.Content = []PluginFooterSegment{}
+	}
+	return json.Marshal(value)
+}
+
+// MarshalJSON emits required collections as arrays, never null.
+func (footer PluginFooter) MarshalJSON() ([]byte, error) {
+	type wire PluginFooter
+	value := wire(footer)
+	if value.Items == nil {
+		value.Items = []PluginFooterItem{}
+	}
+	return json.Marshal(value)
 }
 
 // Validate enforces contribution bounds independently at the client boundary.
