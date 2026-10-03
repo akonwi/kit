@@ -66,7 +66,7 @@ for line in sys.stdin:
 		}
 	}()
 	client := NewClient(paths)
-	defer client.CloseIdleConnections()
+	defer client.transport.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
 	cwd := t.TempDir()
 	git := func(args ...string) {
@@ -82,17 +82,17 @@ for line in sys.stdin:
 	if err != nil {
 		t.Fatal(err)
 	}
-	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
+	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool {
-		snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 		return err == nil && len(snapshot.PluginCommands) == 1 && snapshot.PluginCommands[0].ID == "git-events.ready"
 	})
 
 	// After readiness, observation uses neither an attached client nor VCS HTTP polling.
-	client.CloseIdleConnections()
+	client.transport.CloseIdleConnections()
 	// Allow one ten-second poll plus scheduling/probe headroom.
 	waitForGit := func(condition func() bool) {
 		t.Helper()

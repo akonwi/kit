@@ -57,7 +57,7 @@ func TestClientStreamsAuthenticatedSessionEvents(t *testing.T) {
 	}); err != nil {
 		t.Fatal(err)
 	}
-	body, err := NewClient(paths).StreamSessionEvents(t.Context(), "session_test", "stream_test", 7)
+	body, err := NewClient(paths).transport.StreamSessionEvents(t.Context(), "session_test", "stream_test", 7)
 	if err != nil {
 		t.Fatal(err)
 	}
