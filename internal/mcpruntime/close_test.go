@@ -76,8 +76,8 @@ func TestCloseWithinDeadlineReturnsWhenConnectedServerStopsAnswering(t *testing.
 	}
 
 	deadline := 25 * time.Millisecond
-	ctx, cancel := context.WithTimeout(t.Context(), deadline)
 	before := time.Now()
+	ctx, cancel := context.WithTimeout(t.Context(), deadline)
 	err = closeWithinDeadline(ctx, manager)
 	elapsed := time.Since(before)
 	cancel()
