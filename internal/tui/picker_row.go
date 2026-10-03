@@ -306,8 +306,10 @@ type renderPickerRowLayout struct {
 }
 
 // pickerColumnEdges resolves column widths for a row width. Hint and metadata
-// keep their widths up to a quarter of the row each; the label keeps its width
-// unless that would leave the description less than a third of the remainder.
+// keep their widths up to a quarter of the row each. Without a hint or
+// description, the label fills the space before trailing metadata; otherwise
+// it keeps its measured width unless that would leave the description less
+// than a third of the remainder.
 type pickerColumnEdges struct {
 	LabelX, LabelW, HintX, HintW, DescriptionX, DescriptionW, MetaX, MetaW int
 }
@@ -327,7 +329,7 @@ func resolvePickerColumnEdges(columns pickerColumns, width int) pickerColumnEdge
 		edges.DescriptionW = max(0, available-edges.LabelW-pickerColumnGap)
 	} else {
 		edges.LabelW = min(columns.Label, available)
-		if edges.HintW == 0 && edges.MetaW == 0 {
+		if edges.HintW == 0 {
 			edges.LabelW = available
 		}
 	}

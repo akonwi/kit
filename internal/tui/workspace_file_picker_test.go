@@ -21,6 +21,7 @@ func presentedFilePickerSource() indexedFileSource {
 		protocol.FileIndexEntry{Path: "docs/", IsDir: true},
 		protocol.FileIndexEntry{Path: "main.go"},
 		protocol.FileIndexEntry{Path: "internal/tui/app.go"},
+		protocol.FileIndexEntry{Path: "internal/childproc/exit_darwin_test.go"},
 	)
 }
 
@@ -39,7 +40,7 @@ func TestWorkspaceFilePickerPresentationUsesIndexedFlatDialog(t *testing.T) {
 	text := strings.Join(rows, "\n")
 	for _, expected := range []string{
 		"Open file", "Search indexed project paths…", "docs/", "directory", "main.go", "internal/tui/app.go",
-		"↑↓ move · enter open · ctrl+r refresh · esc close",
+		"internal/childproc/exit_darwin_test.go", "↑↓ move · enter open · ctrl+r refresh · esc close",
 	} {
 		if !strings.Contains(text, expected) {
 			t.Fatalf("file picker missing %q:\n%s", expected, text)
