@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/akonwi/kit/internal/protocol"
+	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
@@ -115,6 +116,30 @@ func TestScratchpadPaneRebuildsFromLoadingToEditor(t *testing.T) {
 	application.Pump(60, 8)
 	if !application.Contains("working notes") {
 		t.Fatal("scratchpad editor was not painted after loading")
+	}
+}
+
+func TestScratchpadEditorSupportsMouseWheelScrolling(t *testing.T) {
+	t.Parallel()
+	content := strings.Join([]string{
+		"line 01", "line 02", "line 03", "line 04", "line 05", "line 06",
+		"line 07", "line 08", "line 09", "line 10", "line 11", "line 12",
+	}, "\n")
+	record := testScratchpad(1, content)
+	editor := scratchpadEditorState{}
+	editor.reset(&record)
+	application := uitest.New(ui.Provider[ui.Theme]{Value: ui.DefaultTheme(), Child: workspaceScratchpadPane{
+		Presentation: workspacePanePresentation{Active: true, Focused: true}, Editor: editor,
+	}})
+	application.Pump(40, 8)
+
+	for range 6 {
+		application.Send(vaxis.Mouse{Col: 4, Row: 2, Button: vaxis.MouseWheelDown, EventType: vaxis.EventPress})
+	}
+	application.Pump(40, 8)
+	visible := strings.Join(paintedRows(application, 40, 8), "\n")
+	if !strings.Contains(visible, "line 10") {
+		t.Fatalf("mouse wheel did not reveal later scratchpad content:\n%s", visible)
 	}
 }
 

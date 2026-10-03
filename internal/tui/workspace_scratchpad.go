@@ -142,7 +142,7 @@ func scratchpadEditor(theme ui.Theme, w workspaceScratchpadPane) ui.Widget {
 	if w.OnFocus != nil {
 		editor = mouseActivator{OnPressed: w.OnFocus, Child: editor}
 	}
-	children := []ui.Widget{ui.Expanded(editor)}
+	children := []ui.Widget{ui.Expanded(ui.Scrollbar{Child: ui.ScrollView{Child: editor}})}
 	if w.Editor.State == scratchpadConflict {
 		children = append([]ui.Widget{ui.Padding(ui.Symmetric(1, 0), ui.Flex{Axis: ui.Horizontal, Children: []ui.Widget{
 			ui.Expanded(ui.Text{Value: "Shared scratchpad changed. Autosave is paused.", Style: ui.Style{Foreground: theme.WarningText}, MaxLines: 1, Overflow: ui.TextOverflowEllipsis}),
