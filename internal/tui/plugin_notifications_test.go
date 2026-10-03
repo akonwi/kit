@@ -9,7 +9,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
@@ -24,7 +23,7 @@ type testPluginToastSession struct {
 	closed chan struct{}
 }
 
-func (s *testPluginToastSession) WatchPluginToasts(ctx context.Context) (sessionclient.PluginToastStream, error) {
+func (s *testPluginToastSession) WatchPluginToasts(ctx context.Context) (PluginToastStream, error) {
 	stream := &testPluginToastStream{updates: make(chan protocol.PluginToast, 1)}
 	select {
 	case s.opened <- stream:
@@ -124,12 +123,12 @@ func (s *scriptedPluginToastStream) Err() error                           { retu
 // scriptedPluginToastWatcher answers each open with the next scripted outcome:
 // an open error, or a stream that delivers toasts and then ends with err.
 type scriptedPluginToastWatcher struct {
-	opens   []func() (sessionclient.PluginToastStream, error)
+	opens   []func() (PluginToastStream, error)
 	opened  int
 	onEmpty func()
 }
 
-func (w *scriptedPluginToastWatcher) WatchPluginToasts(context.Context) (sessionclient.PluginToastStream, error) {
+func (w *scriptedPluginToastWatcher) WatchPluginToasts(context.Context) (PluginToastStream, error) {
 	w.opened++
 	if w.opened > len(w.opens) {
 		w.onEmpty()
@@ -138,8 +137,8 @@ func (w *scriptedPluginToastWatcher) WatchPluginToasts(context.Context) (session
 	return w.opens[w.opened-1]()
 }
 
-func endedPluginToastStream(err error, toasts ...protocol.PluginToast) func() (sessionclient.PluginToastStream, error) {
-	return func() (sessionclient.PluginToastStream, error) {
+func endedPluginToastStream(err error, toasts ...protocol.PluginToast) func() (PluginToastStream, error) {
+	return func() (PluginToastStream, error) {
 		updates := make(chan protocol.PluginToast, len(toasts))
 		for _, toast := range toasts {
 			updates <- toast
@@ -149,8 +148,8 @@ func endedPluginToastStream(err error, toasts ...protocol.PluginToast) func() (s
 	}
 }
 
-func failedPluginToastOpen(err error) func() (sessionclient.PluginToastStream, error) {
-	return func() (sessionclient.PluginToastStream, error) { return nil, err }
+func failedPluginToastOpen(err error) func() (PluginToastStream, error) {
+	return func() (PluginToastStream, error) { return nil, err }
 }
 
 func runScriptedPluginToastWatch(t *testing.T, watcher *scriptedPluginToastWatcher) []string {
@@ -177,15 +176,15 @@ func runScriptedPluginToastWatch(t *testing.T, watcher *scriptedPluginToastWatch
 
 func TestPluginToastWatchStopsOnTerminalFailures(t *testing.T) {
 	t.Parallel()
-	terminal := &sessionclient.StreamWatchTerminalError{Err: errors.New("oversized record")}
+	terminal := &StreamWatchTerminalError{Err: errors.New("oversized record")}
 	toast := protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: "Before violation", Variant: protocol.PluginToastInfo}
-	for name, open := range map[string]func() (sessionclient.PluginToastStream, error){
+	for name, open := range map[string]func() (PluginToastStream, error){
 		"open":   failedPluginToastOpen(terminal),
 		"stream": endedPluginToastStream(terminal, toast),
 	} {
 		t.Run(name, func(t *testing.T) {
 			t.Parallel()
-			watcher := &scriptedPluginToastWatcher{opens: []func() (sessionclient.PluginToastStream, error){open, endedPluginToastStream(nil)}}
+			watcher := &scriptedPluginToastWatcher{opens: []func() (PluginToastStream, error){open, endedPluginToastStream(nil)}}
 			delivered := runScriptedPluginToastWatch(t, watcher)
 			if watcher.opened != 1 {
 				t.Fatalf("opened = %d, want 1", watcher.opened)
@@ -202,7 +201,7 @@ func TestPluginToastWatchReconnectsAfterTransientEndings(t *testing.T) {
 	toast := func(title string) protocol.PluginToast {
 		return protocol.PluginToast{PluginID: "demo", Instance: "owner:1", Title: title, Variant: protocol.PluginToastInfo}
 	}
-	watcher := &scriptedPluginToastWatcher{opens: []func() (sessionclient.PluginToastStream, error){
+	watcher := &scriptedPluginToastWatcher{opens: []func() (PluginToastStream, error){
 		failedPluginToastOpen(errors.New("connection refused")),
 		endedPluginToastStream(nil, toast("After refused")),
 		endedPluginToastStream(errors.New("idle timeout"), toast("After clean end")),

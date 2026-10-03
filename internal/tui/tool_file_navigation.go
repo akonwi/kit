@@ -9,7 +9,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 const toolFileNavigationTimeout = 5 * time.Second
@@ -57,7 +56,7 @@ func (s *appState) openToolFileWithDispatchTimeout(target toolFileTarget, dispat
 		s.toolFileNavigationUnavailable("The tool reported an invalid source range.")
 		return
 	}
-	files, ok := s.bound.(sessionclient.WorkspaceFilesSession)
+	files, ok := s.bound.(WorkspaceFilesSession)
 	if !ok {
 		s.toolFileNavigationUnavailable("This session does not expose workspace files.")
 		return

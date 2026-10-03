@@ -3,7 +3,6 @@ package tui
 import (
 	"strings"
 
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -13,7 +12,7 @@ func (s *appState) recallMessageHistory() {
 	}
 	// Nothing opens until history loads, and typing meanwhile belongs to the
 	// composer, so admission waits for the load.
-	pager, ok := s.bound.(sessionclient.MessagePager)
+	pager, ok := s.bound.(MessagePager)
 	if !ok || !s.canOpenRootModal() {
 		return
 	}

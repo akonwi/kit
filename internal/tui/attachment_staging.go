@@ -12,7 +12,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 const attachmentUploadTimeout = 45 * time.Second
@@ -180,7 +179,7 @@ func sessionAcceptsImages(session protocol.SessionInfo) bool {
 
 func (s *appState) stageAttachments(paths []string, composer string) {
 	s.SetState(s.closeSessionMention)
-	attachments, ok := s.bound.(sessionclient.AttachmentSession)
+	attachments, ok := s.bound.(AttachmentSession)
 	if !ok {
 		s.showToast(toastInput{Title: "Attachments unavailable", Subtitle: fmt.Sprintf("Session client %T cannot upload files.", s.bound), Variant: toastError})
 		return
@@ -315,7 +314,7 @@ func resolveRestoredAttachments(ctx context.Context, bound any, messages []proto
 		return nil
 	}
 	rows := make(map[string]stagedAttachment, len(ids))
-	resolver, ok := bound.(sessionclient.AttachmentMetadataSession)
+	resolver, ok := bound.(AttachmentMetadataSession)
 	if !ok {
 		for _, id := range ids {
 			rows[id] = stagedAttachment{Info: protocol.AttachmentInfo{ID: id}, Filename: "attachment", Error: "Attachment metadata is unavailable", PreserveID: true}

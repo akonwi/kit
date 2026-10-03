@@ -10,7 +10,6 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"golang.org/x/term"
@@ -25,7 +24,7 @@ const (
 type SessionPickerOptions struct {
 	Context context.Context
 	Client  *kit.Client
-	Server  sessionclient.Server // Test seam; production callers use Client.
+	Server  Server // Test seam; production callers use Client.
 }
 
 type sessionPickerResult struct {

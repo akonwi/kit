@@ -19,7 +19,6 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
@@ -54,7 +53,7 @@ type DiffPreferenceService interface {
 type Options struct {
 	Context               context.Context
 	Client                *kit.Client
-	Server                sessionclient.Server // Test seam; production callers use Client.
+	Server                Server // Test seam; production callers use Client.
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string
@@ -436,7 +435,7 @@ type appState struct {
 	scrollPendingLayout               bool
 	transcriptVisible                 bool
 	transcriptPinnedOnHide            bool
-	activeTurn                        sessionclient.Turn
+	activeTurn                        Turn
 	activeTurnID                      string
 	turnPending                       bool
 	terminalTurnActive                bool
@@ -447,7 +446,7 @@ type appState struct {
 	modelRefreshPending               bool
 	cwdPending                        bool
 	prompt                            *promptAdmission
-	activeBash                        sessionclient.BashExecution
+	activeBash                        BashExecution
 	activeBashID                      string
 	bashStarting                      bool
 	bashAdmission                     *bashAdmission
@@ -789,7 +788,7 @@ func (s *appState) maybeLoadTranscriptHistory() bool {
 }
 
 func (s *appState) loadTranscriptHistory() {
-	pager, ok := s.bound.(sessionclient.TranscriptPager)
+	pager, ok := s.bound.(TranscriptPager)
 	if !ok || s.transcriptHistoryLoading || !s.transcriptHistoryHasMore || s.transcriptHistoryCursor == "" {
 		return
 	}
@@ -811,7 +810,7 @@ func (s *appState) loadTranscriptHistory() {
 		defer cancel()
 		page, err := pager.TranscriptPage(requestContext, cursor)
 		var refreshed *protocol.SessionSnapshot
-		if errors.Is(err, sessionclient.ErrTranscriptCursorUnavailable) {
+		if errors.Is(err, ErrTranscriptCursorUnavailable) {
 			snapshot, snapshotErr := bound.Snapshot(requestContext)
 			if snapshotErr == nil {
 				refreshed = &snapshot
@@ -1204,12 +1203,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 	presentedMessages := make([]transcriptMessage, 0, len(s.messages)+len(s.liveMessages))
 	presentedMessages = append(presentedMessages, s.messages...)
 	presentedMessages = append(presentedMessages, s.liveMessages...)
-	var attachments sessionclient.AttachmentSession
-	if capable, ok := s.bound.(sessionclient.AttachmentSession); ok {
+	var attachments AttachmentSession
+	if capable, ok := s.bound.(AttachmentSession); ok {
 		attachments = capable
 	}
-	var scratchpad sessionclient.ScratchpadSession
-	if capable, ok := s.bound.(sessionclient.ScratchpadSession); ok {
+	var scratchpad ScratchpadSession
+	if capable, ok := s.bound.(ScratchpadSession); ok {
 		scratchpad = capable
 	}
 	snapshot := shellSnapshot{
@@ -1671,7 +1670,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 			})
 		},
 		RespondInteraction: func(_ ui.EventContext, response protocol.InteractionResponse, complete func(error)) {
-			interactionSession, ok := s.bound.(sessionclient.InteractionSession)
+			interactionSession, ok := s.bound.(InteractionSession)
 			if !ok {
 				complete(fmt.Errorf("interaction session is unavailable"))
 				return
@@ -1844,8 +1843,8 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		Dismiss: s.dismiss,
 	}
-	files, _ := s.bound.(sessionclient.WorkspaceFilesSession)
-	diffs, _ := s.bound.(sessionclient.DiffSession)
+	files, _ := s.bound.(WorkspaceFilesSession)
+	diffs, _ := s.bound.(DiffSession)
 	return shellView{Snapshot: snapshot, Callbacks: callbacks, WorkspaceFiles: files, Diff: diffs, Scratchpad: scratchpad}
 }
 
@@ -2336,7 +2335,7 @@ func resolveSessionLocation(ctx context.Context, cwd, fallback string, resolve f
 
 func bootstrapSession(
 	ctx context.Context,
-	server sessionclient.Server,
+	server Server,
 	cwd, defaultModel, defaultThinking string,
 	resumeModelFilter, resumeThinkingFilter string,
 	sessionSelector string,
@@ -2357,7 +2356,7 @@ func bootstrapSession(
 func bootstrapSessionWithClient(
 	ctx context.Context,
 	client *kit.Client,
-	server sessionclient.Server,
+	server Server,
 	cwd, defaultModel, defaultThinking string,
 	resumeModelFilter, resumeThinkingFilter string,
 	sessionSelector string,
@@ -2381,7 +2380,7 @@ func bootstrapSessionWithClient(
 		if client != nil {
 			return client.ResolveSession(ctx, selector)
 		}
-		return sessionclient.ResolveSession(ctx, server, selector)
+		return ResolveSession(ctx, server, selector)
 	}
 	createSession := func(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 		if client != nil {
@@ -2448,7 +2447,7 @@ func bootstrapSessionWithClient(
 	return selected, bound, snapshot, nil
 }
 
-func resolveBootstrapModel(ctx context.Context, client *kit.Client, server sessionclient.Server, preferred string, explicit bool) (string, error) {
+func resolveBootstrapModel(ctx context.Context, client *kit.Client, server Server, preferred string, explicit bool) (string, error) {
 	var catalog protocol.ModelCatalog
 	var err error
 	if client != nil {
@@ -2459,7 +2458,7 @@ func resolveBootstrapModel(ctx context.Context, client *kit.Client, server sessi
 	if err != nil {
 		return "", fmt.Errorf("list models: %w", err)
 	}
-	return sessionclient.ResolveAvailableModel(catalog, preferred, explicit)
+	return ResolveAvailableModel(catalog, preferred, explicit)
 }
 
 func (s *appState) snapshotMetadataStale(snapshot protocol.SessionSnapshot) bool {
@@ -2711,7 +2710,7 @@ func (s *appState) resetTranscriptHistoryFromSnapshot(snapshot protocol.SessionS
 		s.transcriptHistoryUserScroll = false
 	}
 
-	_, paginationAvailable := s.bound.(sessionclient.TranscriptPager)
+	_, paginationAvailable := s.bound.(TranscriptPager)
 	s.transcriptHistoryInitialized = paginationAvailable
 	s.transcriptHistoryCursor = snapshot.PreviousMessageCursor
 	s.transcriptHistoryHasMore = paginationAvailable && snapshot.HasMoreMessages
@@ -3573,7 +3572,7 @@ func (s *appState) dismissDaemonMismatchToast() {
 // reportDaemonMismatch freezes this attachment without discarding its draft or
 // transcript. Rechecking is always user initiated; admissions are never replayed.
 func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound boundSession, operation uint64, err error) bool {
-	if !sessionclient.IsIncompatibleDaemon(err) && !errors.Is(err, kit.ErrIncompatibleServer) {
+	if !IsIncompatibleDaemon(err) && !errors.Is(err, kit.ErrIncompatibleServer) {
 		return false
 	}
 	runtime.Dispatch(func() {
@@ -3606,8 +3605,8 @@ func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound boundSession, 
 
 // probeAndReattach never starts or replaces a daemon. Failed recovery must
 // leave the previously attached session and its local drafts untouched.
-func probeAndReattach(ctx context.Context, server sessionclient.Server, sessionID string, resolveLocation func(context.Context, string) string) (boundSession, protocol.SessionSnapshot, string, error) {
-	probe, ok := server.(sessionclient.CompatibilityProber)
+func probeAndReattach(ctx context.Context, server Server, sessionID string, resolveLocation func(context.Context, string) string) (boundSession, protocol.SessionSnapshot, string, error) {
+	probe, ok := server.(CompatibilityProber)
 	if !ok {
 		return nil, protocol.SessionSnapshot{}, "", errors.New("server compatibility probe is unavailable; session was not reattached")
 	}
@@ -3632,7 +3631,7 @@ func (s *appState) recheckDaemonWithOptions(options Options) {
 	})
 }
 
-func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocation func(context.Context, string) string) {
+func (s *appState) recheckDaemonWith(server Server, resolveLocation func(context.Context, string) string) {
 	s.recheckDaemonUsing(func(ctx context.Context, sessionID string) (boundSession, protocol.SessionSnapshot, string, error) {
 		return probeAndReattach(ctx, server, sessionID, resolveLocation)
 	})
@@ -3688,7 +3687,7 @@ func (s *appState) watchAttachedSession(bound boundSession, operation uint64) {
 		s.watchPublicAttachedSession(public, operation)
 		return
 	}
-	watcher, ok := bound.(sessionclient.SessionEventWatcher)
+	watcher, ok := bound.(SessionEventWatcher)
 	if !ok {
 		return
 	}
@@ -3909,7 +3908,7 @@ func (s *appState) watchSession(bound boundSession, operation uint64, turnID str
 	go func() {
 		ticker := time.NewTicker(100 * time.Millisecond)
 		defer ticker.Stop()
-		var stream sessionclient.EventStream
+		var stream EventStream
 		var streamCancel context.CancelFunc
 		var updates <-chan []protocol.SessionEvent
 		streamFailures := 0
@@ -4611,7 +4610,7 @@ func (s *appState) closeMCPStatus() {
 }
 
 func (s *appState) openWorkingTreeDiff() {
-	if _, ok := s.bound.(sessionclient.DiffSession); !ok {
+	if _, ok := s.bound.(DiffSession); !ok {
 		s.showToast(toastInput{Title: "Diff unavailable", Subtitle: "This session does not expose repository changes.", Variant: toastWarning})
 		return
 	}
@@ -4825,7 +4824,7 @@ func (s *appState) openSubagents() {
 	runtime := s.Context().Runtime()
 	bound := s.bound
 	watchGeneration := s.subagentRequestGeneration
-	if watcher, ok := bound.(sessionclient.SessionEventWatcher); ok {
+	if watcher, ok := bound.(SessionEventWatcher); ok {
 		go func() {
 			for watchContext.Err() == nil {
 				_, stream, err := watcher.Watch(watchContext)
@@ -5183,7 +5182,7 @@ func (s *appState) refreshSubagentTranscript(conversationID string) {
 	attachmentContext := s.attachmentCtx
 	sessionID := s.session.ID
 	runtime := s.Context().Runtime()
-	if reader, ok := bound.(sessionclient.SubagentEventReader); ok && !s.subagentLiveLoading[conversationID] {
+	if reader, ok := bound.(SubagentEventReader); ok && !s.subagentLiveLoading[conversationID] {
 		s.subagentLiveLoading[conversationID] = true
 		liveGeneration := s.advanceSubagentLiveLoad(conversationID)
 		current := s.subagentLive[conversationID]
@@ -5328,7 +5327,7 @@ func (s *appState) loadSubagentTranscriptHistory(conversationID string) {
 			} else {
 				err = page.ValidateBefore(cursor)
 			}
-		} else if errors.Is(err, sessionclient.ErrTranscriptCursorUnavailable) {
+		} else if errors.Is(err, ErrTranscriptCursorUnavailable) {
 			newest, newestErr := bound.SubagentTranscript(requestContext, conversationID, "")
 			if newestErr == nil && newest.ConversationID != conversationID {
 				newestErr = fmt.Errorf("subagent transcript belongs to another conversation")
@@ -5550,7 +5549,7 @@ func (s *appState) openWorkspacePicker() {
 }
 
 func (s *appState) workspacePickerCatalog() []workspacePickerItem {
-	_, scratchpadAvailable := s.bound.(sessionclient.ScratchpadSession)
+	_, scratchpadAvailable := s.bound.(ScratchpadSession)
 	return workspacePickerCatalog(shellSnapshot{
 		Workspace: s.workspace.Snapshot(), ScratchpadAvailable: scratchpadAvailable,
 		SubagentConversations: s.subagentConversations,
@@ -5974,7 +5973,7 @@ func (s *appState) saveModelContextWindow() {
 	s.saveModelContextWindowWithOptions(options.ModelOverrideService, options, s.Context().Runtime().Dispatch)
 }
 
-func (s *appState) saveModelContextWindowWith(service ModelOverrideService, server sessionclient.Server, dispatch func(func())) {
+func (s *appState) saveModelContextWindowWith(service ModelOverrideService, server Server, dispatch func(func())) {
 	s.saveModelContextWindowWithOptions(service, Options{Server: server}, dispatch)
 }
 
@@ -6436,7 +6435,7 @@ func (s *appState) openSessionExplorer() {
 	}()
 }
 
-func listSessionExplorerSessions(ctx context.Context, server sessionclient.Server) ([]protocol.SessionInfo, error) {
+func listSessionExplorerSessions(ctx context.Context, server Server) ([]protocol.SessionInfo, error) {
 	return server.ListSessions(ctx, "")
 }
 
@@ -6619,7 +6618,7 @@ func (s *appState) forkCurrentSession(message string) {
 			s.startVCSMonitoring()
 			s.watchAttachedSession(bound, operation)
 			if prompt := strings.TrimSpace(message); prompt != "" {
-				s.startPromptSubmission(prompt, func(ctx context.Context) (sessionclient.Turn, error) {
+				s.startPromptSubmission(prompt, func(ctx context.Context) (Turn, error) {
 					if supportsStructuredPrompts(bound) {
 						result, submitErr := submitPromptInput(ctx, bound, protocol.PromptInput{Text: prompt})
 						return result.Turn, submitErr
@@ -6644,7 +6643,7 @@ func createSessionForSwitchOptions(ctx context.Context, options Options, input p
 
 func createSessionForSwitch(
 	ctx context.Context,
-	server sessionclient.Server,
+	server Server,
 	input protocol.CreateSessionInput,
 	resolveLocation func(context.Context, string) string,
 ) (boundSession, protocol.SessionSnapshot, string, error) {
@@ -6737,7 +6736,7 @@ func attachSessionForSwitchOptions(ctx context.Context, options Options, session
 
 func attachSessionForSwitch(
 	ctx context.Context,
-	server sessionclient.Server,
+	server Server,
 	sessionID string,
 	resolveLocation func(context.Context, string) string,
 ) (boundSession, protocol.SessionSnapshot, string, error) {
@@ -6997,7 +6996,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	}
 	bound := s.bound
 	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs, AnnotationIDs: annotationIDs}
-	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Turn, error) {
+	s.startPromptSubmission(text, func(ctx context.Context) (Turn, error) {
 		if supportsStructuredPrompts(bound) {
 			result, err := submitPromptInput(ctx, bound, input)
 			if err != nil {
@@ -7034,7 +7033,7 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 	ctx := s.ctx
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
-		var result sessionclient.PromptSubmission
+		var result PromptSubmission
 		var err error
 		if supportsStructuredPrompts(bound) {
 			result, err = submitPromptInput(ctx, bound, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
@@ -7208,7 +7207,7 @@ func (s *appState) submitPromptCommand(name, args string) {
 		display += " " + trimmed
 	}
 	bound := s.bound
-	s.startPromptSubmission(display, func(ctx context.Context) (sessionclient.Turn, error) {
+	s.startPromptSubmission(display, func(ctx context.Context) (Turn, error) {
 		return startPromptCommand(ctx, bound, name, args)
 	})
 }
@@ -7217,7 +7216,7 @@ type promptQueuedError struct{ queue protocol.FollowUpQueue }
 
 func (err promptQueuedError) Error() string { return "prompt queued behind active work" }
 
-func (s *appState) startPromptSubmission(display string, start func(context.Context) (sessionclient.Turn, error)) {
+func (s *appState) startPromptSubmission(display string, start func(context.Context) (Turn, error)) {
 	if s.daemonIncompatible {
 		s.showToast(toastInput{Title: "Submissions paused", Subtitle: "Press Ctrl+r to recheck server compatibility.", Variant: toastInfo})
 		return
@@ -7323,7 +7322,7 @@ func (s *appState) startPromptSubmission(display string, start func(context.Cont
 	}()
 }
 
-func (s *appState) acceptPromptAdmission(operation uint64, run sessionclient.Turn) bool {
+func (s *appState) acceptPromptAdmission(operation uint64, run Turn) bool {
 	if operation != s.operation {
 		return false
 	}

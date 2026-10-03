@@ -8,7 +8,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 )
@@ -57,7 +56,7 @@ type abortTestSession struct {
 	abort    func(context.Context, string) error
 	snapshot func(context.Context) (protocol.SessionSnapshot, error)
 	streams  chan string
-	stream   func(string) (sessionclient.EventStream, error)
+	stream   func(string) (EventStream, error)
 }
 
 func (s *abortTestSession) Abort(ctx context.Context, id string) error { return s.abort(ctx, id) }
@@ -69,7 +68,7 @@ type abortTestStream struct{ updates chan []protocol.SessionEvent }
 
 func (s abortTestStream) Updates() <-chan []protocol.SessionEvent { return s.updates }
 func (abortTestStream) Err() error                                { return nil }
-func (s *abortTestSession) Stream(_ context.Context, id string) (sessionclient.EventStream, error) {
+func (s *abortTestSession) Stream(_ context.Context, id string) (EventStream, error) {
 	s.streams <- id
 	if s.stream != nil {
 		return s.stream(id)
@@ -82,7 +81,7 @@ type reconnectLookupSession struct {
 	lookup chan string
 }
 
-func (s *reconnectLookupSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
+func (s *reconnectLookupSession) Stream(context.Context, string) (EventStream, error) {
 	updates := make(chan []protocol.SessionEvent)
 	close(updates)
 	return abortTestStream{updates: updates}, nil
@@ -378,7 +377,7 @@ func TestRunAbortDuringAdmissionIsSentOnceAfterAcceptance(t *testing.T) {
 	session.abort = func(context.Context, string) error { calls <- struct{}{}; return errors.New("abort rejected") }
 	run := abortTestRun{appTestRun: appTestRun{id: "run_abort"}, abort: func(ctx context.Context) error { return session.Abort(ctx, "run_abort") }}
 	release := make(chan struct{})
-	state.startPromptSubmission("Current prompt", func(ctx context.Context) (sessionclient.Turn, error) {
+	state.startPromptSubmission("Current prompt", func(ctx context.Context) (Turn, error) {
 		select {
 		case <-release:
 			return run, nil

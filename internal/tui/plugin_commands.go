@@ -6,15 +6,14 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 func (s *appState) sessionPaletteCommands(snapshot protocol.SessionSnapshot) []paletteCommand {
 	var commands []paletteCommand
-	if _, ok := s.bound.(sessionclient.ScratchpadSession); ok {
+	if _, ok := s.bound.(ScratchpadSession); ok {
 		commands = append(commands, scratchpadPaletteCommand())
 	}
-	if _, ok := s.bound.(sessionclient.PluginCommandSession); ok {
+	if _, ok := s.bound.(PluginCommandSession); ok {
 		commands = append(commands, pluginPaletteCommands(snapshot.PluginCommands)...)
 	}
 	if s.pluginCommandID != "" {
@@ -36,7 +35,7 @@ func (s *appState) runPluginPaletteCommand(command protocol.PluginCommand, args 
 }
 
 func (s *appState) runPluginCommandWithDispatch(command protocol.PluginCommand, args string, dispatch func(func())) {
-	executor, ok := s.bound.(sessionclient.PluginCommandSession)
+	executor, ok := s.bound.(PluginCommandSession)
 	if !ok {
 		return
 	}

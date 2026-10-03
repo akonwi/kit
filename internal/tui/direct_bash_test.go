@@ -11,7 +11,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
@@ -178,7 +177,7 @@ func TestBashHistoryRecallStopsLoadingBeyondBoundedDepth(t *testing.T) {
 }
 
 type stubBashHistorySession struct {
-	sessionclient.Session
+	Session
 	mu        sync.Mutex
 	pages     []protocol.BashHistoryPage
 	calls     int
@@ -358,7 +357,7 @@ func TestBashHistoryPickerShowsLoadingUntilDurableAnswer(t *testing.T) {
 
 // latencyBashHistory models a durable read slower than the call that starts it.
 type latencyBashHistory struct {
-	sessionclient.Session
+	Session
 	delay time.Duration
 }
 

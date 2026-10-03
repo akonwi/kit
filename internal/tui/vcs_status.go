@@ -10,7 +10,6 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -123,7 +122,7 @@ func watchVCSStream(monitor *vcsMonitor, bound boundSession, minDelay time.Durat
 		if monitor.ctx.Err() != nil {
 			return
 		}
-		var legacyTerminal *sessionclient.StreamWatchTerminalError
+		var legacyTerminal *StreamWatchTerminalError
 		var publicTerminal *kit.StreamWatchTerminalError
 		if errors.As(err, &legacyTerminal) || errors.As(err, &publicTerminal) {
 			return

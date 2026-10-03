@@ -4,7 +4,6 @@ import (
 	"strings"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -105,7 +104,7 @@ func scratchpadWorkspacePane() workspacePaneDescriptor {
 
 type workspaceScratchpadPane struct {
 	Presentation workspacePanePresentation
-	Scratchpad   sessionclient.ScratchpadSession
+	Scratchpad   ScratchpadSession
 	Editor       scratchpadEditorState
 	OnChanged    ui.TextChangedCallback
 	OnRetry      ui.VoidCallback

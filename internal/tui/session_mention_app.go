@@ -5,7 +5,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -14,7 +13,7 @@ func (s *appState) loadSessionMentions(runtime ui.Runtime) {
 	s.requestSessionMentionsWith(runtime, options.listSessions)
 }
 
-func (s *appState) requestSessionMentions(runtime ui.Runtime, server sessionclient.Server) {
+func (s *appState) requestSessionMentions(runtime ui.Runtime, server Server) {
 	s.requestSessionMentionsWith(runtime, server.ListSessions)
 }
 

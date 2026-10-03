@@ -6,7 +6,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 const scratchpadAutosaveDelay = 250 * time.Millisecond
@@ -44,7 +43,7 @@ func (s *appState) restoreScratchpadDraft(sessionID string, record *protocol.Scr
 }
 
 func (s *appState) openScratchpad() {
-	if _, ok := s.bound.(sessionclient.ScratchpadSession); !ok {
+	if _, ok := s.bound.(ScratchpadSession); !ok {
 		return
 	}
 	var err error
@@ -115,7 +114,7 @@ func (s *appState) scheduleScratchpadSave() {
 // saveScratchpad starts one serialized compare-and-swap. An explicit expected
 // record is used by conflict replacement so the reviewed revision is guarded.
 func (s *appState) saveScratchpad(closeAfter bool, expected *protocol.Scratchpad) {
-	service, ok := s.bound.(sessionclient.ScratchpadSession)
+	service, ok := s.bound.(ScratchpadSession)
 	if !ok || !s.scratchpad.Initialized {
 		return
 	}
@@ -262,7 +261,7 @@ func (s *appState) replaceSharedScratchpad() {
 }
 
 func (s *appState) bestEffortSaveScratchpad(timeout time.Duration) {
-	service, ok := s.bound.(sessionclient.ScratchpadSession)
+	service, ok := s.bound.(ScratchpadSession)
 	if !ok || !s.scratchpad.Initialized || s.scratchpad.Conflict != nil || s.scratchpad.Draft == s.scratchpad.Authoritative.Content {
 		return
 	}

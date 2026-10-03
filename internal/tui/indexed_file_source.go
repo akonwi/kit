@@ -6,7 +6,6 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -111,7 +110,7 @@ func (s *appState) ensureIndexedFiles(runtime ui.Runtime, force bool) {
 }
 
 func requestSessionFileIndex(ctx context.Context, bound boundSession, force bool) (protocol.SessionFileIndex, error) {
-	if refresher, ok := bound.(sessionclient.FileIndexRefreshSession); force && ok {
+	if refresher, ok := bound.(FileIndexRefreshSession); force && ok {
 		return refresher.RefreshFileIndex(ctx)
 	}
 	return bound.FileIndex(ctx)

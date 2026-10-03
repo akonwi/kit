@@ -6,7 +6,6 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 func (o Options) listSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
@@ -55,7 +54,7 @@ func (o Options) refreshModels(ctx context.Context) (protocol.ModelCatalog, erro
 	if o.Client != nil {
 		return o.Client.RefreshModels(ctx)
 	}
-	refresher, ok := o.Server.(sessionclient.ModelCatalogRefresher)
+	refresher, ok := o.Server.(ModelCatalogRefresher)
 	if !ok {
 		return protocol.ModelCatalog{}, errors.New("model catalog refresh is unavailable")
 	}
@@ -73,7 +72,7 @@ func (o Options) probeCompatibility(ctx context.Context) error {
 	if o.Client != nil {
 		return o.Client.ProbeCompatibility(ctx)
 	}
-	probe, ok := o.Server.(sessionclient.CompatibilityProber)
+	probe, ok := o.Server.(CompatibilityProber)
 	if !ok {
 		return errors.New("server compatibility probe is unavailable")
 	}
@@ -102,21 +101,21 @@ type boundSession interface {
 
 var _ boundSession = (*kit.Session)(nil)
 
-func streamTurn(ctx context.Context, bound boundSession, turnID string) (sessionclient.EventStream, error) {
+func streamTurn(ctx context.Context, bound boundSession, turnID string) (EventStream, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.Stream(ctx, turnID)
 	}
 	return bound.(interface {
-		Stream(context.Context, string) (sessionclient.EventStream, error)
+		Stream(context.Context, string) (EventStream, error)
 	}).Stream(ctx, turnID)
 }
 
-func startPrompt(ctx context.Context, bound boundSession, text string) (sessionclient.Turn, error) {
+func startPrompt(ctx context.Context, bound boundSession, text string) (Turn, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.StartPrompt(ctx, text)
 	}
 	return bound.(interface {
-		StartPrompt(context.Context, string) (sessionclient.Turn, error)
+		StartPrompt(context.Context, string) (Turn, error)
 	}).StartPrompt(ctx, text)
 }
 
@@ -124,71 +123,71 @@ func supportsStructuredPrompts(bound boundSession) bool {
 	if _, ok := bound.(*kit.Session); ok {
 		return true
 	}
-	_, ok := bound.(sessionclient.StructuredPromptSession)
+	_, ok := bound.(StructuredPromptSession)
 	return ok
 }
 
-func submitPromptInput(ctx context.Context, bound boundSession, input protocol.PromptInput) (sessionclient.PromptSubmission, error) {
+func submitPromptInput(ctx context.Context, bound boundSession, input protocol.PromptInput) (PromptSubmission, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		result, err := public.SubmitPromptInput(ctx, input)
-		return sessionclient.PromptSubmission{Turn: result.Turn, Queued: result.Queued, Queue: result.Queue}, err
+		return PromptSubmission{Turn: result.Turn, Queued: result.Queued, Queue: result.Queue}, err
 	}
-	return bound.(sessionclient.StructuredPromptSession).SubmitPromptInput(ctx, input)
+	return bound.(StructuredPromptSession).SubmitPromptInput(ctx, input)
 }
 
 func supportsFollowUps(bound boundSession) bool {
 	if _, ok := bound.(*kit.Session); ok {
 		return true
 	}
-	_, ok := bound.(sessionclient.FollowUpSession)
+	_, ok := bound.(FollowUpSession)
 	return ok
 }
 
-func submitFollowUp(ctx context.Context, bound boundSession, text string) (sessionclient.PromptSubmission, error) {
+func submitFollowUp(ctx context.Context, bound boundSession, text string) (PromptSubmission, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		result, err := public.SubmitPrompt(ctx, text)
-		return sessionclient.PromptSubmission{Turn: result.Turn, Queued: result.Queued, Queue: result.Queue}, err
+		return PromptSubmission{Turn: result.Turn, Queued: result.Queued, Queue: result.Queue}, err
 	}
-	return bound.(sessionclient.FollowUpSession).SubmitPrompt(ctx, text)
+	return bound.(FollowUpSession).SubmitPrompt(ctx, text)
 }
 
 func restoreFollowUps(ctx context.Context, bound boundSession) (protocol.RestoreFollowUpsResult, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.RestoreFollowUps(ctx)
 	}
-	return bound.(sessionclient.FollowUpSession).RestoreFollowUps(ctx)
+	return bound.(FollowUpSession).RestoreFollowUps(ctx)
 }
 
 func promoteFollowUps(ctx context.Context, bound boundSession) (protocol.PromoteFollowUpsResult, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.PromoteFollowUps(ctx)
 	}
-	return bound.(sessionclient.FollowUpSession).PromoteFollowUps(ctx)
+	return bound.(FollowUpSession).PromoteFollowUps(ctx)
 }
 
-func startPromptCommand(ctx context.Context, bound boundSession, name, args string) (sessionclient.Turn, error) {
+func startPromptCommand(ctx context.Context, bound boundSession, name, args string) (Turn, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.StartPromptCommand(ctx, name, args)
 	}
 	return bound.(interface {
-		StartPromptCommand(context.Context, string, string) (sessionclient.Turn, error)
+		StartPromptCommand(context.Context, string, string) (Turn, error)
 	}).StartPromptCommand(ctx, name, args)
 }
 
-func lookupBash(ctx context.Context, bound boundSession, executionID string) (sessionclient.BashExecution, error) {
+func lookupBash(ctx context.Context, bound boundSession, executionID string) (BashExecution, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.Bash(ctx, executionID)
 	}
 	return bound.(interface {
-		Bash(context.Context, string) (sessionclient.BashExecution, error)
+		Bash(context.Context, string) (BashExecution, error)
 	}).Bash(ctx, executionID)
 }
 
-func startBash(ctx context.Context, bound boundSession, executionID, command string, exclude bool) (sessionclient.BashExecution, error) {
+func startBash(ctx context.Context, bound boundSession, executionID, command string, exclude bool) (BashExecution, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		return public.StartBash(ctx, executionID, command, exclude)
 	}
 	return bound.(interface {
-		StartBash(context.Context, string, string, bool) (sessionclient.BashExecution, error)
+		StartBash(context.Context, string, string, bool) (BashExecution, error)
 	}).StartBash(ctx, executionID, command, exclude)
 }
