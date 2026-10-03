@@ -23,6 +23,7 @@ struct ButtonProps {
   trailing_padding: Int?,
   styles: ui::Style?,
   foreground: ui::Color?,
+  hover_label: Str?,
   control: mut cui::BoxRef,
 }
 
@@ -47,6 +48,7 @@ fn button(
   trailing_padding: Int?,
   styles: ui::Style?,
   foreground: ui::Color?,
+  hover_label: Str?,
   ref: (mut cui::BoxRef)?,
 ) cui::View {
   cui::child(
@@ -62,6 +64,7 @@ fn button(
       trailing_padding: trailing_padding,
       styles: styles,
       foreground: foreground,
+      hover_label: hover_label,
       control: ref.or(cui::box_ref()),
     },
   )
@@ -169,10 +172,14 @@ impl cui::Component for Button {
       bindings.push(keymap::binding(keymap::key("return"), self.props.command.with()))
       bindings.push(keymap::binding(keymap::key("space"), self.props.command.with()))
     }
+    let label = match self.hovered {
+      true => self.props.hover_label.or(self.props.label),
+      false => self.props.label,
+    }
     cui::box(
       [
         cui::box(
-          [cui::text(self.props.label, text_style: ui::text_style(foreground: self.foreground()))],
+          [cui::text(label, text_style: ui::text_style(foreground: self.foreground()))],
           styles: ui::style(
             background: self.fill(),
             padding: ui::Edges{
