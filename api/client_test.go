@@ -191,6 +191,45 @@ func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 	}
 }
 
+func TestConnectedClientsHaveIndependentLifetimes(t *testing.T) {
+	const instanceID = "instance_test"
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/health":
+			_ = json.NewEncoder(response).Encode(httpapi.Health{
+				InstanceID: instanceID, PID: 42, KitVersion: version.Version,
+				ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
+			})
+		case "/v1/sessions":
+			_ = json.NewEncoder(response).Encode(protocol.SessionList{Sessions: []protocol.SessionInfo{}})
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	target := Endpoint(server.URL, AccessToken("secret", instanceID))
+	first, err := Connect(t.Context(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	second, err := Connect(t.Context(), target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer second.Close()
+	if err := first.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := first.ListSessions(t.Context(), ListSessionsOptions{}); !errors.Is(err, ErrClientClosed) {
+		t.Fatalf("closed first client error = %v", err)
+	}
+	if _, err := second.ListSessions(t.Context(), ListSessionsOptions{}); err != nil {
+		t.Fatalf("second client after first close: %v", err)
+	}
+}
+
 func TestAttachedSessionOperationsReturnClientClosedAfterClose(t *testing.T) {
 	const instanceID = "instance_test"
 	const sessionID = "session_0123456789abcdef0123456789abcdef"
