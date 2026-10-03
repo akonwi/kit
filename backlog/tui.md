@@ -36,6 +36,11 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
 - [ ] TUI-SET-002 — Expose production settings for default model/thinking,
   retry behavior, guided questions, preferred diff layout, and prompt cache
   retention. Depends on `CORE-SET-002`.
+- [ ] TUI-SUB-001 — Let users inspect and change an active subagent's model and
+  thinking settings with the same interaction and validation feedback as the
+  main session, while clearly identifying the affected subagent. Reflect
+  server-authoritative updates across reconnects and attached clients. Depends
+  on `CORE-SUB-002`.
 
 ### User interaction and integrations
 

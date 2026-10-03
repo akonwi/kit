@@ -16,6 +16,11 @@ in this branch. Items marked **Server-ready** do not require new server function
 
 ## Composer commands and shell execution
 
+- [ ] MAC-SUB-001 — Let users inspect and change an active subagent's model and
+  thinking settings with the same interaction and validation feedback as the
+  main session, while clearly identifying the affected subagent. Reflect
+  server-authoritative updates across reconnects and attached clients. Depends
+  on `CORE-SUB-002`.
 - [~] MAC-BASH-001 — Discover excluded shell executions that finish in another
   client between polling intervals. Requires server shell lifecycle events or an
   execution list/cursor endpoint; the current protocol exposes only the active
