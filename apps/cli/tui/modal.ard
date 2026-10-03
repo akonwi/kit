@@ -67,6 +67,10 @@ fn dialog(themes: theme::Context, spec: Dialog) cui::View {
 }
 
 private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
+  let focus_owner = match spec.autofocus {
+    true => "panel",
+    false => "descendant",
+  }
   let commands = mut List::new<keymap::Command>()
   commands.push(spec.dismiss)
   for command in spec.commands.or([]) {
@@ -124,7 +128,7 @@ private fn panel(colors: theme::Theme, spec: Dialog) cui::View {
     // Application scope plus the elevated priority prevents the input's local
     // key layer from delaying dismissal during reconciliation.
     content.@,
-    key: "modal.panel.{spec.title}",
+    key: "modal.panel.{spec.title}.{focus_owner}",
     autofocus: spec.autofocus,
     styles: panel_style(colors, spec.placement),
     commands: commands.@,

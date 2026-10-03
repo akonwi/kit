@@ -305,6 +305,7 @@ impl cui::Component for Picker {
             footer: status,
             dismiss: self.dismiss_command(),
             override: Maybe::new<fn(Str)>(),
+            remove: Maybe::new<fn(Str)>(),
             toggle: Maybe::new<fn(Str, Bool)>(),
             on_query_change: fn(query: Str) {
               self.query_changed()

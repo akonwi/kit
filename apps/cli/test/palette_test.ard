@@ -109,6 +109,7 @@ impl cui::Component for TreeHost {
           true
         }),
         override: Maybe::new<fn(Str)>(),
+        remove: Maybe::new<fn(Str)>(),
         toggle: Maybe::new(fn(selection: Str, expand: Bool) {
           let actions = mut List::new<Str>()
           for action in model.actions {
@@ -368,6 +369,7 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
           true
         }),
         override: Maybe::new<fn(Str)>(),
+        remove: Maybe::new<fn(Str)>(),
         toggle: Maybe::new<fn(Str, Bool)>(),
         on_query_change: fn(query: Str) {},
         on_selection_change: fn(selected: Str) {},

@@ -37,6 +37,9 @@ struct Picker {
   pending: Bool,
   error: Str,
   collapsed: [Str],
+  selection: Str,
+  delete_session_id: Str,
+  delete_pending: Bool,
   context: cui::Context?,
 }
 
@@ -48,6 +51,9 @@ fn new(props: mut Props) mut Picker {
     pending: false,
     error: "",
     collapsed: [],
+    selection: props.current_session_id,
+    delete_session_id: "",
+    delete_pending: false,
     context: Maybe::new<cui::Context>(),
   })
 }
@@ -242,6 +248,64 @@ impl Picker {
     }
   }
 
+  fn mut begin_delete(session_id: Str) {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      if self.pending or self.delete_pending {
+        ()
+      } else if session_id == self.props.current_session_id {
+        self.error = "Cannot delete the attached session"
+      } else {
+        self.delete_session_id = session_id
+        self.error = ""
+      }
+    })
+  }
+
+  fn mut cancel_delete() Bool {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      if not self.delete_pending {
+        self.delete_session_id = ""
+        self.error = ""
+      }
+    })
+    true
+  }
+
+  fn mut confirm_delete() Bool {
+    if self.delete_session_id != "" and not self.delete_pending {
+      let id = self.delete_session_id
+      let client = self.props.client
+      let lifetime = self.props.lifetime
+      let context = self.context.expect("mounted session picker")
+      let dispatch = context.dispatch
+      let _ = dispatch(fn() {
+        self.delete_pending = true
+      })
+      async::start(fn() {
+        let result = client.DeleteSession(lifetime.Context, id)
+        let _ = dispatch(fn() {
+          self.delete_pending = false
+          match result {
+            ok(_) => {
+              let retained = mut List::new<protocol::SessionInfo>()
+              for session in self.sessions {
+                if session.ID != id {
+                  retained.push(session)
+                }
+              }
+              self.sessions = retained.@
+              self.delete_session_id = ""
+            },
+            err(failure) => { self.error = "Could not delete session: {failure}" },
+          }
+        })
+      })
+    }
+    true
+  }
+
   fn mut select(session_id: Str, context: cui::Context) {
     if self.pending or session_id == self.props.current_session_id {
       self.props.dismiss.invoke()
@@ -282,89 +346,167 @@ impl Picker {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    match self.loading {
-      true => {
-        modal::dialog(
-          self.props.themes,
-          modal::Dialog{
-            placement: modal::Placement::centered,
-            title: "Sessions",
-            meta: "",
-            header: [],
-            body: cui::box(
-              [spinner::spinner()],
-              styles: ui::style(
-                padding: ui::Edges{
-                  top: ui::cells(1),
-                  right: ui::cells(1),
-                  bottom: ui::cells(1),
-                  left: ui::cells(1),
-                },
-              ),
-            ),
-            footer: Maybe::new<cui::View>(),
-            autofocus: true,
-            dismiss: self.props.dismiss,
-            commands: Maybe::new<[keymap::Command]>(),
-            bindings: Maybe::new<[keymap::Binding]>(),
-          },
-        )
-      },
-      false => {
-        match self.error != "" {
-          true => {
-            modal::dialog(
-              self.props.themes,
-              modal::Dialog{
-                placement: modal::Placement::centered,
-                title: "Sessions",
-                meta: "",
-                header: [],
-                body: cui::text(
-                  self.error,
-                  styles: ui::style(
-                    padding: ui::Edges{
-                      top: ui::cells(1),
-                      right: ui::cells(1),
-                      bottom: ui::cells(1),
-                      left: ui::cells(1),
-                    },
-                  ),
-                  text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+    if self.delete_session_id != "" {
+      self.delete_modal()
+    } else {
+      match self.loading {
+        true => {
+          modal::dialog(
+            self.props.themes,
+            modal::Dialog{
+              placement: modal::Placement::centered,
+              title: "Sessions",
+              meta: "",
+              header: [],
+              body: cui::box(
+                [spinner::spinner()],
+                styles: ui::style(
+                  padding: ui::Edges{
+                    top: ui::cells(1),
+                    right: ui::cells(1),
+                    bottom: ui::cells(1),
+                    left: ui::cells(1),
+                  },
                 ),
-                footer: Maybe::new<cui::View>(),
-                autofocus: true,
-                dismiss: self.props.dismiss,
-                commands: Maybe::new<[keymap::Command]>(),
-                bindings: Maybe::new<[keymap::Binding]>(),
-              },
-            )
-          },
-          false => {
-            cui::child(
-              palette::new_picker,
-              palette::PickerProps{
-                themes: self.props.themes,
-                catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed),
-                placeholder: "Search sessions…",
-                initial_selection: self.props.current_session_id,
-                title: "Sessions",
-                footer: "",
-                dismiss: self.props.dismiss,
-                override: Maybe::new<fn(Str)>(),
-                toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
-                  self.toggle(session_id, expand)
-                }),
-                on_query_change: fn(query: Str) {},
-                on_selection_change: fn(selected: Str) {},
-                on_activate: fn(item: palette::Item) {
-                  self.select(item.key, context: self.context.expect("mounted session picker"))
+              ),
+              footer: Maybe::new<cui::View>(),
+              autofocus: true,
+              dismiss: self.props.dismiss,
+              commands: Maybe::new<[keymap::Command]>(),
+              bindings: Maybe::new<[keymap::Binding]>(),
+            },
+          )
+        },
+        false => {
+          match self.error != "" {
+            true => {
+              modal::dialog(
+                self.props.themes,
+                modal::Dialog{
+                  placement: modal::Placement::centered,
+                  title: "Sessions",
+                  meta: "",
+                  header: [],
+                  body: cui::text(
+                    self.error,
+                    styles: ui::style(
+                      padding: ui::Edges{
+                        top: ui::cells(1),
+                        right: ui::cells(1),
+                        bottom: ui::cells(1),
+                        left: ui::cells(1),
+                      },
+                    ),
+                    text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+                  ),
+                  footer: Maybe::new<cui::View>(),
+                  autofocus: true,
+                  dismiss: self.props.dismiss,
+                  commands: Maybe::new<[keymap::Command]>(),
+                  bindings: Maybe::new<[keymap::Binding]>(),
                 },
-              },
-            )
-          },
-        }
-      },
+              )
+            },
+            false => {
+              cui::child(
+                palette::new_picker,
+                palette::PickerProps{
+                  themes: self.props.themes,
+                  catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed),
+                  placeholder: "Search sessions…",
+                  initial_selection: self.props.current_session_id,
+                  title: "Sessions",
+                  footer: "ctrl+d delete",
+                  dismiss: self.props.dismiss,
+                  override: Maybe::new<fn(Str)>(),
+                  remove: Maybe::new(fn(session_id: Str) {
+                    self.begin_delete(session_id)
+                  }),
+                  toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
+                    self.toggle(session_id, expand)
+                  }),
+                  on_query_change: fn(query: Str) {},
+                  on_selection_change: fn(selected: Str) {
+                    self.selection = selected
+                  },
+                  on_activate: fn(item: palette::Item) {
+                    self.select(item.key, context: self.context.expect("mounted session picker"))
+                  },
+                },
+              )
+            },
+          }
+        },
+      }
     }
+  }
+}
+
+impl Picker {
+  private fn mut delete_modal() cui::View {
+    mut target = self.delete_session_id
+    for session in self.sessions {
+      if session.ID == self.delete_session_id {
+        target = format::session_name(session)
+      }
+    }
+    let cancel = keymap::simple_command("sessions.delete.cancel", "Cancel delete", fn() Bool {
+      self.cancel_delete()
+    })
+    let confirm = keymap::simple_command("sessions.delete.confirm", "Delete session", fn() Bool {
+      self.confirm_delete()
+    })
+    let detail = match self.delete_pending {
+      true => "Deleting \"{target}\"…",
+      false => "Delete \"{target}\"? This cannot be undone.",
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Sessions",
+        meta: "",
+        header: [],
+        body: cui::box(
+          [
+            cui::text(detail, text_style: ui::text_style(foreground: self.props.themes.current().danger_text)),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
+            },
+          ),
+        ),
+        footer: Maybe::new(
+          cui::box(
+            [
+              cui::text(
+                match self.delete_pending {
+                  true => "",
+                  false => "enter confirm · esc cancel",
+                },
+                text_style: ui::text_style(foreground: self.props.themes.current().muted),
+              ),
+            ],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+          ),
+        ),
+        autofocus: true,
+        dismiss: cancel,
+        commands: Maybe::new([confirm]),
+        bindings: Maybe::new([keymap::binding(keymap::key("return"), confirm.with())]),
+      },
+    )
   }
 }
