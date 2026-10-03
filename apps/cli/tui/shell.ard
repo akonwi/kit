@@ -216,7 +216,7 @@ private fn command_catalog(
         false => "",
       },
     ),
-    command_item("reload", "Reload session context", "agents context refresh", "not available yet"),
+    command_item("reload", "Reload session context", "agents context refresh", ""),
     command_item("scratchpad", "Open shared working notes", "notes memory", "not available yet"),
     command_item("sessions", "Browse sessions", "list resume switch threads", "not available yet"),
     command_item(
@@ -366,6 +366,7 @@ struct Shell {
   start_pending: Bool,
   new_session_pending: Bool,
   model_refresh_pending: Bool,
+  reload_pending: Bool,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -457,6 +458,7 @@ fn new(props: mut Props) mut Shell {
     start_pending: false,
     new_session_pending: false,
     model_refresh_pending: false,
+    reload_pending: false,
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -2090,6 +2092,9 @@ impl Shell {
         } else if item.key == "refresh-models" {
           self.active_modal = ActiveModal::none
           self.refresh_models()
+        } else if item.key == "reload" {
+          self.active_modal = ActiveModal::none
+          self.reload_session()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
@@ -2732,6 +2737,99 @@ impl Shell {
           }
         },
         err(failure) => self.show_toast("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
+  }
+
+  // Reloads the session's prompt and tool context, then adopts its fresh snapshot.
+  fn mut reload_session() {
+    if self.reload_pending {
+      self.show_toast(
+        "Session reload unavailable",
+        "Session reload is already in progress.",
+        toast::Variant::warning,
+        false,
+      )
+    } else {
+      match self.lifetime {
+        lifetime => {
+          match self.context {
+            context => {
+              match self.session {
+                session => {
+                  match self.info {
+                    info => {
+                      let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(15000))
+                      let transport = self.props.options.Transport
+                      let dispatch = context.dispatch
+                      let session_id = info.ID
+                      self.reload_pending = true
+                      async::start(fn() {
+                        let result = httpapi::Call<httpapi::SessionPath, httpapi::NoBody, protocol::ReloadSessionResult>(
+                          attempt.Context,
+                          transport,
+                          httpapi::ReloadSession,
+                          httpapi::SessionPath{SessionID: session_id},
+                          httpapi::NoBody{},
+                        )
+                        match result {
+                          ok(reloaded) => {
+                            let snapshot = session.Snapshot(attempt.Context)
+                            attempt.Cancel()
+                            let _ = dispatch(fn() {
+                              self.reload_pending = false
+                              match snapshot {
+                                ok(current) => {
+                                  self.apply_snapshot(current)
+                                  let detail = match reloaded.Warnings.size() > 0 {
+                                    true => reloaded.Warnings.at(0).or(""),
+                                    false => "",
+                                  }
+                                  self.show_toast(
+                                    "Session context reloaded",
+                                    detail,
+                                    toast::Variant::info,
+                                    false,
+                                  )
+                                },
+                                err(failure) => {
+                                  self.show_toast(
+                                    "Session reload failed",
+                                    "Session reloaded, but refresh failed: {failure}",
+                                    toast::Variant::error,
+                                    true,
+                                  )
+                                },
+                              }
+                              (context.invalidate_root)()
+                            })
+                          },
+                          err(failure) => {
+                            attempt.Cancel()
+                            let _ = dispatch(fn() {
+                              self.reload_pending = false
+                              self.show_toast(
+                                "Session reload failed",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                              (context.invalidate_root)()
+                            })
+                          },
+                        }
+                      })
+                    },
+                    _ => (),
+                  }
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
       }
     }
   }
