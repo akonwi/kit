@@ -5,6 +5,19 @@ import (
 	kittheme "github.com/akonwi/kit/internal/theme"
 )
 
+// ThemeLoad projects ThemeService.Load's three Go return values into the
+// single value-plus-error shape supported by Ard's direct Go interop.
+type ThemeLoad struct {
+	Definition  kittheme.Definition
+	Diagnostics []kittheme.Diagnostic
+}
+
+// LoadTheme loads one user theme through the CLI service boundary.
+func LoadTheme(service ThemeService, name string) (ThemeLoad, error) {
+	definition, diagnostics, err := service.Load(name)
+	return ThemeLoad{Definition: definition, Diagnostics: diagnostics}, err
+}
+
 type interactiveThemeService struct {
 	directory string
 	settings  *settings.Store

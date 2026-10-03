@@ -1,0 +1,323 @@
+use ard/async
+
+use cooper/cui
+use cooper/keymap
+use go:github.com/akonwi/kit/internal/theme as kittheme
+use go:kit/ffi/cli
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+
+// Theme picker owns discovery, live-preview loading, and persistence. The shell
+// owns the active resolved theme and receives preview/commit callbacks.
+struct Props {
+  themes: theme::Context,
+  service: cli::ThemeService,
+  committed_name: Str,
+  committed_definition: kittheme::Definition,
+  dismiss: fn(),
+  preview: fn(kittheme::Definition),
+  applied: fn(Str, kittheme::Definition),
+}
+
+struct Picker {
+  props: Props,
+  names: [Str],
+  loading: Bool,
+  preview_loading: Bool,
+  pending: Bool,
+  error: Str,
+  diagnostics: Int,
+  selected: Str,
+  preview_name: Str,
+  preview_definition: kittheme::Definition,
+  commit_on_preview: Str,
+  generation: Int,
+  context: cui::Context?,
+}
+
+fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props.@,
+    names: [],
+    loading: true,
+    preview_loading: false,
+    pending: false,
+    error: "",
+    diagnostics: 0,
+    selected: props.committed_name,
+    preview_name: props.committed_name,
+    preview_definition: props.committed_definition,
+    commit_on_preview: "",
+    generation: 0,
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+private fn catalog(names: [Str], current: Str, pending: Bool) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  let system_marker = match current == kittheme::SystemName {
+    true => "__palette_current__",
+    false => "",
+  }
+  items.push(
+    palette::Item{
+      key: kittheme::SystemName,
+      label: kittheme::SystemName,
+      hint: "",
+      description: "Terminal colors",
+      meta: "",
+      search_terms: ["terminal", "default", system_marker],
+      disabled_reason: match pending {
+        true => "saving",
+        false => "",
+      },
+    },
+  )
+  for name in names {
+    if name != kittheme::SystemName {
+      let current_marker = match current == name {
+        true => "__palette_current__",
+        false => "",
+      }
+      items.push(
+        palette::Item{
+          key: name,
+          label: name,
+          hint: "",
+          description: "",
+          meta: "",
+          search_terms: [current_marker],
+          disabled_reason: match pending {
+            true => "saving",
+            false => "",
+          },
+        },
+      )
+    }
+  }
+  items.@
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.discover(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
+impl Picker {
+  private fn mut discover(ctx: cui::Context) {
+    self.loading = true
+    self.generation =+ 1
+    let generation = self.generation
+    let service = self.props.service
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let result = service.Discover()
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(names) => {
+              self.names = names
+              mut found = self.props.committed_name == kittheme::SystemName
+              for name in names {
+                if name == self.props.committed_name {
+                  found = true
+                }
+              }
+              if not found {
+                let retained = mut List::new<Str>()
+                for name in names {
+                  retained.push(name)
+                }
+                retained.push(self.props.committed_name)
+                self.names = retained.@
+              }
+            },
+            err(failure) => { self.error = "Discover themes: {failure}" },
+          }
+        }
+      })
+    })
+  }
+
+  private fn mut query_changed() {
+    self.commit_on_preview = ""
+  }
+
+  private fn mut select(name: Str) {
+    if name == "" {
+      self.generation =+ 1
+      self.selected = ""
+      self.preview_loading = false
+      self.commit_on_preview = ""
+    } else if self.loading or self.pending or name == self.selected and (self.preview_loading or self.preview_name == name) {
+      ()
+    } else {
+      self.selected = name
+      self.error = ""
+      self.diagnostics = 0
+      self.commit_on_preview = ""
+      self.generation =+ 1
+      let generation = self.generation
+      if name == kittheme::SystemName {
+        self.preview_loading = false
+        self.preview_name = name
+        self.preview_definition = kittheme::Definition{}
+        (self.props.preview)(self.preview_definition)
+      } else {
+        self.preview_loading = true
+        let service = self.props.service
+        match self.context {
+          context => {
+            let dispatch = context.dispatch
+            async::start(fn() {
+              let result = cli::LoadTheme(service, name)
+              let _ = dispatch(fn() {
+                if self.generation == generation and self.selected == name {
+                  self.preview_loading = false
+                  match result {
+                    ok(loaded) => {
+                      self.preview_name = name
+                      self.preview_definition = loaded.Definition
+                      self.diagnostics = loaded.Diagnostics.size()
+                      (self.props.preview)(loaded.Definition)
+                      if self.commit_on_preview == name {
+                        self.commit_on_preview = ""
+                        self.commit()
+                      }
+                    },
+                    err(failure) => {
+                      self.error = failure.error()
+                      self.commit_on_preview = ""
+                    },
+                  }
+                }
+              })
+            })
+          },
+          _ => (),
+        }
+      }
+    }
+  }
+
+  private fn mut activate(name: Str) {
+    if self.pending or self.loading {
+      ()
+    } else if self.preview_loading or self.preview_name != name {
+      self.commit_on_preview = name
+      self.select(name)
+      self.commit_on_preview = name
+    } else {
+      self.commit()
+    }
+  }
+
+  private fn mut dismiss_command() keymap::SimpleCommand {
+    keymap::simple_command("theme.dismiss", "Close", fn() Bool {
+      if not self.pending {
+        (self.props.dismiss)()
+      }
+      true
+    })
+  }
+
+  private fn mut commit() {
+    if self.pending or self.preview_loading or self.preview_name == "" {
+      ()
+    } else {
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let name = self.preview_name
+      let definition = self.preview_definition
+      let service = self.props.service
+      match self.context {
+        context => {
+          let dispatch = context.dispatch
+          async::start(fn() {
+            let result = service.Save(name)
+            let _ = dispatch(fn() {
+              if self.generation == generation {
+                self.pending = false
+                match result {
+                  ok(_) => (self.props.applied)(name, definition),
+                  err(failure) => {
+                    self.error = failure.error()
+                    (self.props.preview)(self.props.committed_definition)
+                  },
+                }
+              }
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    match self.loading {
+      true => {
+        modal::dialog(
+          self.props.themes,
+          modal::Dialog{
+            placement: modal::Placement::picker,
+            title: "",
+            meta: "",
+            header: [],
+            body: cui::box([spinner::spinner()]),
+            footer: Maybe::new<cui::View>(),
+            autofocus: true,
+            dismiss: self.dismiss_command(),
+            commands: Maybe::new<[keymap::Command]>(),
+            bindings: Maybe::new<[keymap::Binding]>(),
+          },
+        )
+      },
+      false => {
+        let status = match {
+          self.pending => "Saving…",
+          self.preview_loading => "Loading preview…",
+          self.error != "" => self.error,
+          self.diagnostics > 0 => "{self.diagnostics} theme value(s) were ignored",
+          _ => "",
+        }
+        cui::child(
+          palette::new_picker,
+          palette::PickerProps{
+            themes: self.props.themes,
+            catalog: catalog(self.names, self.props.committed_name, self.pending),
+            placeholder: "Search themes…",
+            initial_selection: self.props.committed_name,
+            title: "Theme",
+            footer: status,
+            dismiss: self.dismiss_command(),
+            override: Maybe::new<fn(Str)>(),
+            toggle: Maybe::new<fn(Str, Bool)>(),
+            on_query_change: fn(query: Str) {
+              self.query_changed()
+            },
+            on_selection_change: fn(selected: Str) {
+              self.select(selected)
+            },
+            on_activate: fn(item: palette::Item) {
+              self.activate(item.key)
+            },
+          },
+        )
+      },
+    }
+  }
+}

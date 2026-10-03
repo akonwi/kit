@@ -355,6 +355,8 @@ impl cui::Component for Picker {
                 toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
                   self.toggle(session_id, expand)
                 }),
+                on_query_change: fn(query: Str) {},
+                on_selection_change: fn(selected: Str) {},
                 on_activate: fn(item: palette::Item) {
                   self.select(item.key, context: self.context.expect("mounted session picker"))
                 },
