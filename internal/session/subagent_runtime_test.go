@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/subagent"
 )
 

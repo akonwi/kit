@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // Health is the authenticated daemon lifecycle status.

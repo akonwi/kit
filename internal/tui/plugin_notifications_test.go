@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )

@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // SubagentTranscriptParams describes one child transcript page. Before is an

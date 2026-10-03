@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func pluginDialogClient(t *testing.T) (*Client, string, protocol.PluginCommand) {

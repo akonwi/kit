@@ -13,11 +13,11 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
 	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/settings"

@@ -14,10 +14,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/scratchpad"
 )
 

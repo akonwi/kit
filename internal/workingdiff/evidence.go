@@ -5,7 +5,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // LineRangeInput identifies one source-side range in a retained diff observation.

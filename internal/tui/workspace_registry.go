@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"path"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 )
 

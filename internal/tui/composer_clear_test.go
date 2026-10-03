@@ -4,7 +4,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"

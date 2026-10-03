@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func TestPluginGitEventsObserveExternalChangesWithoutAttachedClient(t *testing.T) {

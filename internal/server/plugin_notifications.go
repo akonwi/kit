@@ -6,8 +6,8 @@ import (
 	"io"
 	"net/http"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
 )
 

@@ -15,10 +15,10 @@ import (
 	"time"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/modelimage"
-	"github.com/akonwi/kit/internal/protocol"
 	kitsession "github.com/akonwi/kit/internal/session"
 )
 

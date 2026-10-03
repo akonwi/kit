@@ -15,7 +15,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/version"

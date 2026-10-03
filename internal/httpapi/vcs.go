@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // VCSStatusRecord is the only record of the repository-status stream.

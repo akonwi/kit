@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // PluginToastRecord is the only record of the live plugin-notification stream.

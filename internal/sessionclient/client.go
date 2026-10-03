@@ -6,7 +6,7 @@ import (
 	"errors"
 	"io"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // IsIncompatibleDaemon reports a terminal compatibility failure across the

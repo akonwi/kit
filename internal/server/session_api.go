@@ -15,12 +15,12 @@ import (
 	"time"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/fileindex"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	kitscratchpad "github.com/akonwi/kit/internal/scratchpad"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/subagent"

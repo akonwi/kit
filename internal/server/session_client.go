@@ -14,9 +14,9 @@ import (
 	"strconv"
 	"strings"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/version"
 )

@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func vcsRecord(data string) string { return "event: vcs.status\ndata: " + data + "\n\n" }

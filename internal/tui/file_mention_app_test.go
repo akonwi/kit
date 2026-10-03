@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestAcceptsIndexedFilesRejectsStaleSessionCWDAndGeneration(t *testing.T) {

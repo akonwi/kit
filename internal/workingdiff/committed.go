@@ -11,7 +11,7 @@ import (
 	"sort"
 	"unicode/utf8"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func (s *Service) observeCommitted(ctx context.Context, session, cwd, workspaceID string, ref targetReference, requestedPageSize int) (protocol.DiffPage, error) {

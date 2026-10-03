@@ -10,7 +10,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/vcs"
 	"github.com/getkin/kin-openapi/openapi3"

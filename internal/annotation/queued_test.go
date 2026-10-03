@@ -3,7 +3,7 @@ package annotation
 import (
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestQueuedSubmissionRetainsOwnershipAfterFailedAcceptance(t *testing.T) {

@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"testing"
 	"time"
 )

@@ -4,8 +4,8 @@ import (
 	"context"
 	"io"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )

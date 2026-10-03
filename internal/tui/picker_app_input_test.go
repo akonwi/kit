@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"

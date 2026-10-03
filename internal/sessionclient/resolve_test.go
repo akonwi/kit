@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestResolveSessionPrefersExactAndAcceptsUniqueShortID(t *testing.T) {

@@ -10,8 +10,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/highlight"
-	"github.com/akonwi/kit/internal/protocol"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"

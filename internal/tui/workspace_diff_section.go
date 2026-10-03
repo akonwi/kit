@@ -7,8 +7,8 @@ import (
 	"strings"
 	"sync"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/highlight"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/rockorager/go-uucode"
 	"go.rockorager.dev/vaxis/ui"
 )

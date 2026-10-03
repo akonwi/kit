@@ -9,8 +9,8 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/highlight"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"go.rockorager.dev/vaxis/ui"

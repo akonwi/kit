@@ -7,7 +7,7 @@ import (
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestPasteCoalescerBuffersOnePasteBetweenMarkers(t *testing.T) {
