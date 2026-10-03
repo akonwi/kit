@@ -12,7 +12,23 @@ var (
 	ErrSessionNotFound = errors.New("session not found")
 	// ErrSessionAmbiguous indicates that a selector matches several sessions.
 	ErrSessionAmbiguous = errors.New("session selector is ambiguous")
+	// ErrUnsupported indicates that a capability is unavailable for this session.
+	ErrUnsupported = errors.New("session capability is unsupported")
 )
+
+// UnsupportedError identifies a direct session method unavailable for the
+// bound session kind.
+type UnsupportedError struct{ Capability string }
+
+func (e *UnsupportedError) Error() string {
+	if e == nil || e.Capability == "" {
+		return ErrUnsupported.Error()
+	}
+	return fmt.Sprintf("%s: %s", ErrUnsupported, e.Capability)
+}
+
+// Is allows errors.Is(err, ErrUnsupported).
+func (e *UnsupportedError) Is(target error) bool { return target == ErrUnsupported }
 
 // ErrorCode identifies one server-declared failure independently of transport.
 type ErrorCode string
@@ -67,6 +83,24 @@ func (e *ServerError) Is(target error) bool {
 // TransportError reports failure to exchange a request or stream with a server.
 type TransportError = clienttransport.TransportError
 
+// ProtocolError reports a malformed or undeclared server response or stream.
+type ProtocolError struct{ Err error }
+
+func (e *ProtocolError) Error() string {
+	if e == nil || e.Err == nil {
+		return "Kit server protocol violation"
+	}
+	return fmt.Sprintf("Kit server protocol violation: %v", e.Err)
+}
+
+// Unwrap returns the underlying framing or validation failure.
+func (e *ProtocolError) Unwrap() error {
+	if e == nil {
+		return nil
+	}
+	return e.Err
+}
+
 func projectResult[T any](value T, err error) (T, error) {
 	return value, projectError(err)
 }
@@ -74,6 +108,10 @@ func projectResult[T any](value T, err error) (T, error) {
 func projectError(err error) error {
 	if err == nil {
 		return nil
+	}
+	var streamFailure *clienttransport.StreamError
+	if errors.As(err, &streamFailure) {
+		return &ProtocolError{Err: streamFailure.Err}
 	}
 	var failure *clienttransport.APIError
 	if !errors.As(err, &failure) {

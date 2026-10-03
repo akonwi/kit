@@ -9,10 +9,8 @@ import (
 	"sync"
 
 	"github.com/akonwi/kit/internal/apphome"
-	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/localdiscovery"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
 // ErrClientClosed indicates an operation attempted after Client.Close.
@@ -73,15 +71,11 @@ type operationTransport interface {
 	RefreshModels(context.Context) (ModelCatalog, error)
 }
 
-type sessionAttacher interface {
-	Attach(context.Context, string) (sessionclient.Session, error)
-}
-
 // Client is a concurrent, stateful client for one Kit server.
 type Client struct {
 	mu             sync.RWMutex
 	transport      operationTransport
-	attacher       sessionAttacher
+	sessions       sessionTransport
 	lifetime       context.Context
 	cancel         context.CancelFunc
 	closed         bool
@@ -130,12 +124,14 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		transport.CloseIdleConnections()
 		return nil, err
 	}
-	return newClient(transport, kitclient.NewServer(transport), transport.CloseIdleConnections), nil
+	client := newClient(transport, transport.CloseIdleConnections)
+	client.sessions = transport
+	return client, nil
 }
 
-func newClient(transport operationTransport, attacher sessionAttacher, closeTransport func()) *Client {
+func newClient(transport operationTransport, closeTransport func()) *Client {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Client{transport: transport, attacher: attacher, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
+	return &Client{transport: transport, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
 }
 
 func validateEndpoint(address string) (string, error) {
@@ -172,15 +168,24 @@ func (c *Client) Close() error {
 	return nil
 }
 
-func (c *Client) operationContext(ctx context.Context) (context.Context, func(), error) {
+func (c *Client) preflight(ctx context.Context) error {
 	if ctx == nil {
-		return nil, nil, errors.New("operation context is nil")
+		return errors.New("operation context is nil")
 	}
 	c.mu.RLock()
-	if c.closed {
-		c.mu.RUnlock()
-		return nil, nil, ErrClientClosed
+	closed := c.closed
+	c.mu.RUnlock()
+	if closed {
+		return ErrClientClosed
 	}
+	return ctx.Err()
+}
+
+func (c *Client) operationContext(ctx context.Context) (context.Context, func(), error) {
+	if err := c.preflight(ctx); err != nil {
+		return nil, nil, err
+	}
+	c.mu.RLock()
 	lifetime := c.lifetime
 	c.mu.RUnlock()
 
@@ -335,37 +340,15 @@ func (c *Client) Attach(ctx context.Context, sessionID string) (*Session, error)
 		return nil, err
 	}
 	defer cancel()
-	bound, err := c.attacher.Attach(operation, sessionID)
+	if c.sessions == nil {
+		return nil, errors.New("session transport is unavailable")
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		return nil, errors.New("session id is empty")
+	}
+	snapshot, err := c.sessions.GetSessionSnapshot(operation, sessionID)
 	if err != nil {
 		return nil, projectError(err)
 	}
-	return &Session{client: c, bound: bound, id: bound.ID()}, nil
-}
-
-// Session is a stateful handle bound to one immutable session identity.
-type Session struct {
-	client *Client
-	bound  sessionclient.Session
-	id     string
-}
-
-// ID returns the bound session identity.
-func (s *Session) ID() string {
-	if s == nil {
-		return ""
-	}
-	return s.id
-}
-
-// Snapshot refreshes and returns the authoritative session snapshot.
-func (s *Session) Snapshot(ctx context.Context) (SessionSnapshot, error) {
-	if s == nil || s.client == nil || s.bound == nil {
-		return SessionSnapshot{}, errors.New("session handle is nil")
-	}
-	operation, cancel, err := s.client.operationContext(ctx)
-	if err != nil {
-		return SessionSnapshot{}, err
-	}
-	defer cancel()
-	return projectResult(s.bound.Snapshot(operation))
+	return newSession(c, c.sessions, sessionID, snapshot), nil
 }

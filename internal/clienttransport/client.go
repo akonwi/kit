@@ -10,6 +10,7 @@ import (
 	"net"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/akonwi/kit/internal/httpapi"
@@ -65,6 +66,8 @@ type Client struct {
 	resolve     Resolver
 	http        *http.Client
 	sessionHTTP *http.Client
+	lifetime    context.Context
+	lifetimeErr error
 }
 
 // New creates a transport using resolve for every request.
@@ -79,6 +82,42 @@ func New(resolve Resolver) *Client {
 		// Model calls can legitimately run for minutes. Their caller-provided
 		// context owns the deadline; dial timeout remains bounded by transport.
 		sessionHTTP: &http.Client{Transport: transport, CheckRedirect: noRedirect},
+	}
+}
+
+// WithLifetime returns a shallow transport view whose requests are canceled
+// when lifetime ends. HTTP connection pools remain shared with the source.
+func (c *Client) WithLifetime(lifetime context.Context, lifetimeErr error) *Client {
+	clone := *c
+	clone.lifetime = lifetime
+	clone.lifetimeErr = lifetimeErr
+	return &clone
+}
+
+type lifetimeReadCloser struct {
+	io.ReadCloser
+	cleanup func()
+	once    sync.Once
+}
+
+func (r *lifetimeReadCloser) Close() error {
+	err := r.ReadCloser.Close()
+	r.once.Do(r.cleanup)
+	return err
+}
+
+func (c *Client) operationContext(ctx context.Context) (context.Context, func()) {
+	if c.lifetime == nil {
+		return ctx, func() {}
+	}
+	operation, cancel := context.WithCancelCause(ctx)
+	stop := context.AfterFunc(c.lifetime, func() { cancel(c.lifetimeErr) })
+	if c.lifetime.Err() != nil {
+		cancel(c.lifetimeErr)
+	}
+	return operation, func() {
+		stop()
+		cancel(context.Canceled)
 	}
 }
 

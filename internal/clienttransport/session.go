@@ -614,6 +614,8 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	if content == nil || filename == "" {
 		return protocol.AttachmentInfo{}, fmt.Errorf("attachment filename and content are required")
 	}
+	ctx, cleanup := c.operationContext(ctx)
+	defer cleanup()
 	connection, err := c.connection()
 	if err != nil {
 		return protocol.AttachmentInfo{}, err
@@ -687,6 +689,13 @@ func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attac
 
 // OpenAttachment opens verified session-owned attachment bytes from the daemon.
 func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
+	ctx, cleanup := c.operationContext(ctx)
+	keepContext := false
+	defer func() {
+		if !keepContext {
+			cleanup()
+		}
+	}()
 	connection, err := c.connection()
 	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
@@ -731,7 +740,8 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 		}
 		return protocol.AttachmentInfo{}, nil, fmt.Errorf("validate daemon attachment: %w", err)
 	}
-	return info, response.Body, nil
+	keepContext = true
+	return info, &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}, nil
 }
 
 // DecodeAPIError decodes one declared session API failure.
@@ -953,6 +963,13 @@ func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) err
 
 // StreamSessionEvents opens the session's authenticated SSE event response.
 func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
+	ctx, cleanup := c.operationContext(ctx)
+	keepContext := false
+	defer func() {
+		if !keepContext {
+			cleanup()
+		}
+	}()
 	connection, err := c.connection()
 	if err != nil {
 		return nil, err
@@ -987,20 +1004,25 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 		response.Body.Close()
 		return nil, fmt.Errorf("daemon event stream returned content type %q", response.Header.Get("Content-Type"))
 	}
-	return response.Body, nil
+	keepContext = true
+	return &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}, nil
 }
 
 // DoSessionRequest performs an authenticated, compatibility-checked session request.
 func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body io.Reader, hasJSONBody bool) (*http.Response, error) {
+	ctx, cleanup := c.operationContext(ctx)
 	connection, err := c.connection()
 	if err != nil {
+		cleanup()
 		return nil, err
 	}
 	if err := compatible(connection); err != nil {
+		cleanup()
 		return nil, err
 	}
 	request, err := http.NewRequestWithContext(ctx, method, connection.URL+path, body)
 	if err != nil {
+		cleanup()
 		return nil, fmt.Errorf("create daemon session request: %w", err)
 	}
 	request.Header.Set("Authorization", "Bearer "+connection.Token)
@@ -1011,8 +1033,10 @@ func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body
 	}
 	response, err := c.sessionHTTP.Do(request)
 	if err != nil {
+		cleanup()
 		return nil, transportError("call session API", err)
 	}
+	response.Body = &lifetimeReadCloser{ReadCloser: response.Body, cleanup: cleanup}
 	return response, nil
 }
 

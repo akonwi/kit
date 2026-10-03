@@ -7,13 +7,13 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/version"
 )
 
@@ -45,9 +45,6 @@ func (f *fakeClientBackend) ListModels(context.Context) (protocol.ModelCatalog, 
 func (f *fakeClientBackend) RefreshModels(context.Context) (protocol.ModelCatalog, error) {
 	return protocol.ModelCatalog{}, errors.New("unexpected RefreshModels")
 }
-func (f *fakeClientBackend) Attach(context.Context, string) (sessionclient.Session, error) {
-	return nil, errors.New("unexpected Attach")
-}
 
 func TestClientListSessionsProjectsOptions(t *testing.T) {
 	backend := &fakeClientBackend{list: func(_ context.Context, cwd string) ([]protocol.SessionInfo, error) {
@@ -56,7 +53,7 @@ func TestClientListSessionsProjectsOptions(t *testing.T) {
 		}
 		return []protocol.SessionInfo{{ID: "session_test"}}, nil
 	}}
-	client := newClient(backend, backend, nil)
+	client := newClient(backend, nil)
 	t.Cleanup(func() { _ = client.Close() })
 
 	sessions, err := client.ListSessions(t.Context(), ListSessionsOptions{CWD: "/workspace"})
@@ -87,7 +84,7 @@ func TestClientProjectsDeclaredServerErrors(t *testing.T) {
 	backend := &fakeClientBackend{list: func(context.Context, string) ([]protocol.SessionInfo, error) {
 		return nil, &clienttransport.APIError{Code: "not_found", Message: "session not found"}
 	}}
-	client := newClient(backend, backend, nil)
+	client := newClient(backend, nil)
 	t.Cleanup(func() { _ = client.Close() })
 
 	_, err := client.ListSessions(t.Context(), ListSessionsOptions{})
@@ -106,7 +103,7 @@ func TestClientCloseCancelsOwnedOperationsAndIsIdempotent(t *testing.T) {
 		return nil, ctx.Err()
 	}}
 	closedTransport := 0
-	client := newClient(backend, backend, func() { closedTransport++ })
+	client := newClient(backend, func() { closedTransport++ })
 
 	result := make(chan error, 1)
 	go func() {
@@ -173,6 +170,46 @@ func TestConnectEndpointAuthenticatesAndChecksCompatibility(t *testing.T) {
 	defer client.Close()
 	if sessions, err := client.ListSessions(t.Context(), ListSessionsOptions{}); err != nil || len(sessions) != 0 {
 		t.Fatalf("sessions = %+v, err = %v", sessions, err)
+	}
+}
+
+func TestAttachedSessionOperationsReturnClientClosedAfterClose(t *testing.T) {
+	const instanceID = "instance_test"
+	const sessionID = "session_0123456789abcdef0123456789abcdef"
+	var snapshotRequests atomic.Int32
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		switch request.URL.Path {
+		case "/v1/health":
+			_ = json.NewEncoder(response).Encode(httpapi.Health{
+				InstanceID: instanceID, PID: 42, KitVersion: version.Version,
+				ProtocolVersion: version.SessionProtocolVersion, DatabaseReady: true,
+			})
+		case "/v1/sessions/" + sessionID:
+			snapshotRequests.Add(1)
+			_ = json.NewEncoder(response).Encode(validWatchSnapshot(sessionID, "stream_test", 0))
+		default:
+			http.NotFound(response, request)
+		}
+	}))
+	defer server.Close()
+
+	client, err := Connect(t.Context(), Endpoint(server.URL, AccessToken("secret", instanceID)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	session, err := client.Attach(t.Context(), sessionID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := client.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := session.Snapshot(t.Context()); !errors.Is(err, ErrClientClosed) {
+		t.Fatalf("Snapshot() error = %v", err)
+	}
+	if snapshotRequests.Load() != 1 {
+		t.Fatalf("snapshot requests = %d, want attach only", snapshotRequests.Load())
 	}
 }
 
