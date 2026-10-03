@@ -66,7 +66,7 @@ func (s *publicSessionServer) Attach(ctx context.Context, sessionID string) (ses
 	return s.bound.Attach(ctx, sessionID)
 }
 
-func bootstrapLocalClient(ctx context.Context, paths apphome.Paths) (*kit.Client, sessionclient.Server, error) {
+func bootstrapLocalClient(ctx context.Context, paths apphome.Paths) (*kit.Client, error) {
 	client, err := bootstrapLocalClientWith(ctx,
 		func(startContext context.Context) error {
 			_, err := kitserver.NewManager(paths).Ensure(startContext)
@@ -77,9 +77,9 @@ func bootstrapLocalClient(ctx context.Context, paths apphome.Paths) (*kit.Client
 		},
 	)
 	if err != nil {
-		return nil, nil, err
+		return nil, err
 	}
-	return client, &publicSessionServer{client: client, bound: kitclient.NewLocalServer(paths)}, nil
+	return client, nil
 }
 
 func bootstrapLocalClientWith(
@@ -134,7 +134,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 		}
 	}
 	manager := kitserver.NewManager(paths)
-	client, server, err := bootstrapLocalClient(ctx, paths)
+	client, err := bootstrapLocalClient(ctx, paths)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
@@ -228,7 +228,7 @@ func runInteractive(ctx context.Context, options interactiveOptions, _ io.Writer
 	}
 	runErr := tui.Run(tui.Options{
 		Context:               ctx,
-		Server:                server,
+		Client:                client,
 		CWD:                   cwd,
 		Location:              interactiveLocation(ctx, cwd),
 		ResolveLocation:       interactiveLocation,
@@ -351,7 +351,7 @@ func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	client, server, err := bootstrapLocalClient(ctx, paths)
+	client, err := bootstrapLocalClient(ctx, paths)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
@@ -359,7 +359,7 @@ func runSessions(ctx context.Context, options interactiveOptions, stdout, stderr
 	defer client.Close()
 	selected, err := tui.RunSessionPicker(tui.SessionPickerOptions{
 		Context: ctx,
-		Server:  server,
+		Client:  client,
 	})
 	if err != nil {
 		if errors.Is(err, context.Canceled) {
@@ -389,12 +389,13 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
-	client, server, err := bootstrapLocalClient(ctx, paths)
+	client, err := bootstrapLocalClient(ctx, paths)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: %v\n", err)
 		return 1
 	}
 	defer client.Close()
+	server := &publicSessionServer{client: client, bound: kitclient.NewLocalServer(paths)}
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
 	_, health, probeErr := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()

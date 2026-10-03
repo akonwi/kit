@@ -110,7 +110,7 @@ func (s *appState) ensureIndexedFiles(runtime ui.Runtime, force bool) {
 	}()
 }
 
-func requestSessionFileIndex(ctx context.Context, bound sessionclient.Session, force bool) (protocol.SessionFileIndex, error) {
+func requestSessionFileIndex(ctx context.Context, bound boundSession, force bool) (protocol.SessionFileIndex, error) {
 	if refresher, ok := bound.(sessionclient.FileIndexRefreshSession); force && ok {
 		return refresher.RefreshFileIndex(ctx)
 	}

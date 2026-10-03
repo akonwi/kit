@@ -5,13 +5,15 @@ import (
 	"errors"
 	"time"
 
+	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
-func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint64) {
-	watcher, ok := bound.(sessionclient.PluginToastSession)
-	if !ok {
+func (s *appState) watchPluginToasts(bound boundSession, operation uint64) {
+	public, isPublic := bound.(*kit.Session)
+	watcher, legacy := bound.(sessionclient.PluginToastSession)
+	if !isPublic && !legacy {
 		return
 	}
 	if s.pluginToastWatchCancel != nil {
@@ -39,7 +41,25 @@ func (s *appState) watchPluginToasts(bound sessionclient.Session, operation uint
 			return true
 		}
 	}
+	if isPublic {
+		go runPublicPluginToastWatch(ctx, public, stop, deliver)
+		return
+	}
 	go runPluginToastWatch(ctx, watcher, time.Second, stop, deliver)
+}
+
+func runPublicPluginToastWatch(ctx context.Context, session *kit.Session, stop func(error) bool, deliver func(protocol.PluginToast) bool) {
+	stream, err := session.WatchPluginToasts(ctx)
+	if stop(err) || err != nil {
+		return
+	}
+	defer stream.Close()
+	for toast := range stream.Updates() {
+		if ctx.Err() != nil || !deliver(toast) {
+			return
+		}
+	}
+	stop(stream.Err())
 }
 
 // runPluginToastWatch consumes fresh live streams until ctx ends or stop
@@ -74,8 +94,9 @@ func runPluginToastWatch(ctx context.Context, watcher sessionclient.PluginToastS
 // pluginToastWatchTerminal reports failures that must stop reconnection
 // (ADR 0035); clean endings and transient failures reconnect.
 func pluginToastWatchTerminal(err error) bool {
-	var terminal *sessionclient.StreamWatchTerminalError
-	return errors.As(err, &terminal)
+	var legacyTerminal *sessionclient.StreamWatchTerminalError
+	var publicTerminal *kit.StreamWatchTerminalError
+	return errors.As(err, &legacyTerminal) || errors.As(err, &publicTerminal)
 }
 
 func (s *appState) showPluginToast(toast protocol.PluginToast) {

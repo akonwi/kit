@@ -15,6 +15,7 @@ import (
 	"time"
 	"unicode/utf8"
 
+	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
 	"github.com/akonwi/kit/internal/identifier"
@@ -52,7 +53,8 @@ type DiffPreferenceService interface {
 // Options configures one native TUI client attached to one session.
 type Options struct {
 	Context               context.Context
-	Server                sessionclient.Server
+	Client                *kit.Client
+	Server                sessionclient.Server // Test seam; production callers use Client.
 	CWD                   string
 	Location              string
 	ResolveLocation       func(context.Context, string) string
@@ -82,8 +84,8 @@ type Options struct {
 
 // Run starts the native terminal client and blocks until it exits.
 func Run(options Options) error {
-	if options.Server == nil {
-		return errors.New("tui: session server is required")
+	if options.Client == nil && options.Server == nil {
+		return errors.New("tui: API client is required")
 	}
 	if strings.TrimSpace(options.CWD) == "" {
 		return errors.New("tui: working directory is required")
@@ -271,7 +273,7 @@ type appState struct {
 	authAPIKey                        string
 	authPending                       bool
 	session                           protocol.SessionInfo
-	bound                             sessionclient.Session
+	bound                             boundSession
 	location                          string
 	pluginFooter                      *protocol.PluginFooter
 	locationBase                      string
@@ -2266,8 +2268,8 @@ func (s *appState) startBootstrap(defaultModel, defaultThinking string) {
 	s.operation++
 	operation := s.operation
 	go func() {
-		info, bound, snapshot, err := bootstrapSession(
-			s.ctx, options.Server, options.CWD, defaultModel, defaultThinking,
+		info, bound, snapshot, err := bootstrapSessionWithClient(
+			s.ctx, options.Client, options.Server, options.CWD, defaultModel, defaultThinking,
 			options.ResumeModelFilter, options.ResumeThinkingFilter,
 			options.SessionID, newSession, newSessionID, options.NewSessionName,
 			options.TemporarySession, target, s.providerAvailable,
@@ -2344,20 +2346,59 @@ func bootstrapSession(
 	temporary bool,
 	target protocol.SessionInfo,
 	providerAvailable func(string) bool,
-) (protocol.SessionInfo, sessionclient.Session, protocol.SessionSnapshot, error) {
+) (protocol.SessionInfo, boundSession, protocol.SessionSnapshot, error) {
+	return bootstrapSessionWithClient(
+		ctx, nil, server, cwd, defaultModel, defaultThinking,
+		resumeModelFilter, resumeThinkingFilter, sessionSelector, newSession,
+		newSessionID, newSessionName, temporary, target, providerAvailable,
+	)
+}
+
+func bootstrapSessionWithClient(
+	ctx context.Context,
+	client *kit.Client,
+	server sessionclient.Server,
+	cwd, defaultModel, defaultThinking string,
+	resumeModelFilter, resumeThinkingFilter string,
+	sessionSelector string,
+	newSession bool,
+	newSessionID string,
+	newSessionName string,
+	temporary bool,
+	target protocol.SessionInfo,
+	providerAvailable func(string) bool,
+) (protocol.SessionInfo, boundSession, protocol.SessionSnapshot, error) {
 	if newSession && newSessionID == "" {
 		return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("new session id is required")
+	}
+	listSessions := func(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
+		if client != nil {
+			return client.ListSessions(ctx, kit.ListSessionsOptions{CWD: cwd})
+		}
+		return server.ListSessions(ctx, cwd)
+	}
+	resolveSession := func(ctx context.Context, selector string) (protocol.SessionInfo, error) {
+		if client != nil {
+			return client.ResolveSession(ctx, selector)
+		}
+		return sessionclient.ResolveSession(ctx, server, selector)
+	}
+	createSession := func(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
+		if client != nil {
+			return client.CreateSession(ctx, input)
+		}
+		return server.CreateSession(ctx, input)
 	}
 	selected := target
 	if selected.ID == "" && sessionSelector != "" {
 		var err error
-		selected, err = sessionclient.ResolveSession(ctx, server, sessionSelector)
+		selected, err = resolveSession(ctx, sessionSelector)
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("resolve session: %w", err)
 		}
 	}
 	if selected.ID == "" && !newSession {
-		sessions, err := server.ListSessions(ctx, cwd)
+		sessions, err := listSessions(ctx, cwd)
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, fmt.Errorf("list sessions: %w", err)
 		}
@@ -2372,11 +2413,11 @@ func bootstrapSession(
 	}
 	var err error
 	if selected.ID == "" {
-		defaultModel, err = resolveBootstrapModel(ctx, server, defaultModel, resumeModelFilter != "")
+		defaultModel, err = resolveBootstrapModel(ctx, client, server, defaultModel, resumeModelFilter != "")
 		if err != nil {
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, err
 		}
-		selected, err = server.CreateSession(ctx, protocol.CreateSessionInput{
+		selected, err = createSession(ctx, protocol.CreateSessionInput{
 			ID:            newSessionID,
 			CWD:           cwd,
 			Name:          newSessionName,
@@ -2391,7 +2432,12 @@ func bootstrapSession(
 			return protocol.SessionInfo{}, nil, protocol.SessionSnapshot{}, errors.New("create session returned a different session id")
 		}
 	}
-	bound, err := server.Attach(ctx, selected.ID)
+	var bound boundSession
+	if client != nil {
+		bound, err = client.Attach(ctx, selected.ID)
+	} else {
+		bound, err = server.Attach(ctx, selected.ID)
+	}
 	if err != nil {
 		return selected, nil, protocol.SessionSnapshot{}, fmt.Errorf("attach session: %w", err)
 	}
@@ -2402,8 +2448,14 @@ func bootstrapSession(
 	return selected, bound, snapshot, nil
 }
 
-func resolveBootstrapModel(ctx context.Context, server sessionclient.Server, preferred string, explicit bool) (string, error) {
-	catalog, err := server.Models(ctx)
+func resolveBootstrapModel(ctx context.Context, client *kit.Client, server sessionclient.Server, preferred string, explicit bool) (string, error) {
+	var catalog protocol.ModelCatalog
+	var err error
+	if client != nil {
+		catalog, err = client.Models(ctx)
+	} else {
+		catalog, err = server.Models(ctx)
+	}
 	if err != nil {
 		return "", fmt.Errorf("list models: %w", err)
 	}
@@ -3520,8 +3572,8 @@ func (s *appState) dismissDaemonMismatchToast() {
 
 // reportDaemonMismatch freezes this attachment without discarding its draft or
 // transcript. Rechecking is always user initiated; admissions are never replayed.
-func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound sessionclient.Session, operation uint64, err error) bool {
-	if !sessionclient.IsIncompatibleDaemon(err) {
+func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound boundSession, operation uint64, err error) bool {
+	if !sessionclient.IsIncompatibleDaemon(err) && !errors.Is(err, kit.ErrIncompatibleServer) {
 		return false
 	}
 	runtime.Dispatch(func() {
@@ -3554,7 +3606,7 @@ func (s *appState) reportDaemonMismatch(runtime ui.Runtime, bound sessionclient.
 
 // probeAndReattach never starts or replaces a daemon. Failed recovery must
 // leave the previously attached session and its local drafts untouched.
-func probeAndReattach(ctx context.Context, server sessionclient.Server, sessionID string, resolveLocation func(context.Context, string) string) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
+func probeAndReattach(ctx context.Context, server sessionclient.Server, sessionID string, resolveLocation func(context.Context, string) string) (boundSession, protocol.SessionSnapshot, string, error) {
 	probe, ok := server.(sessionclient.CompatibilityProber)
 	if !ok {
 		return nil, protocol.SessionSnapshot{}, "", errors.New("server compatibility probe is unavailable; session was not reattached")
@@ -3568,13 +3620,27 @@ func probeAndReattach(ctx context.Context, server sessionclient.Server, sessionI
 // recheckDaemon probes the current daemon and binds a new session client before
 // allowing work. It never replays a pending or ambiguous submission.
 func (s *appState) recheckDaemon() {
-	options := s.Widget().(app).Options
-	s.recheckDaemonWith(options.Server, options.ResolveLocation)
+	s.recheckDaemonWithOptions(s.Widget().(app).Options)
+}
+
+func (s *appState) recheckDaemonWithOptions(options Options) {
+	s.recheckDaemonUsing(func(ctx context.Context, sessionID string) (boundSession, protocol.SessionSnapshot, string, error) {
+		if err := options.probeCompatibility(ctx); err != nil {
+			return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("check server compatibility: %w", err)
+		}
+		return attachSessionForSwitchOptions(ctx, options, sessionID)
+	})
 }
 
 func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocation func(context.Context, string) string) {
+	s.recheckDaemonUsing(func(ctx context.Context, sessionID string) (boundSession, protocol.SessionSnapshot, string, error) {
+		return probeAndReattach(ctx, server, sessionID, resolveLocation)
+	})
+}
+
+func (s *appState) recheckDaemonUsing(reattach func(context.Context, string) (boundSession, protocol.SessionSnapshot, string, error)) {
 	bound, operation, runtime := s.bound, s.operation, s.Context().Runtime()
-	if bound == nil || server == nil || s.daemonRechecking {
+	if bound == nil || s.daemonRechecking {
 		return
 	}
 	s.SetState(func() {
@@ -3585,7 +3651,7 @@ func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocatio
 	go func() {
 		checkContext, cancel := context.WithTimeout(s.ctx, 8*time.Second)
 		defer cancel()
-		next, snapshot, location, err := probeAndReattach(checkContext, server, sessionID, resolveLocation)
+		next, snapshot, location, err := reattach(checkContext, sessionID)
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -3616,8 +3682,12 @@ func (s *appState) recheckDaemonWith(server sessionclient.Server, resolveLocatio
 	}()
 }
 
-func (s *appState) watchAttachedSession(bound sessionclient.Session, operation uint64) {
+func (s *appState) watchAttachedSession(bound boundSession, operation uint64) {
 	s.watchPluginToasts(bound, operation)
+	if public, ok := bound.(*kit.Session); ok {
+		s.watchPublicAttachedSession(public, operation)
+		return
+	}
 	watcher, ok := bound.(sessionclient.SessionEventWatcher)
 	if !ok {
 		return
@@ -3737,7 +3807,84 @@ func (s *appState) watchAttachedSession(bound sessionclient.Session, operation u
 	}()
 }
 
-func (s *appState) watchSession(bound sessionclient.Session, operation uint64, turnID string) {
+func (s *appState) watchPublicAttachedSession(bound *kit.Session, operation uint64) {
+	if s.sessionWatchCancel != nil {
+		s.sessionWatchCancel()
+	}
+	watchContext, cancel := context.WithCancel(s.attachmentCtx)
+	s.sessionWatchCancel = cancel
+	runtime := s.Context().Runtime()
+	applySnapshot := func(snapshot protocol.SessionSnapshot) {
+		runtime.Dispatch(func() {
+			if operation != s.operation || s.bound != bound || watchContext.Err() != nil || s.daemonIncompatible {
+				return
+			}
+			if !shouldApplyAttachedSnapshot(s.turnPending, s.activeTurnID, snapshot.ActiveTurnID) {
+				copy := snapshot
+				s.SetState(func() {
+					s.applySessionMetadataBaseline(snapshot)
+					s.deferredSessionSnapshot = &copy
+				})
+				return
+			}
+			nextTurnID := snapshot.ActiveTurnID
+			s.SetState(func() {
+				s.deferredSessionSnapshot = nil
+				s.applySessionMetadataBaseline(snapshot)
+				s.applySnapshot(snapshot)
+				s.activeTurn = nil
+				s.prompt = nil
+			})
+			if nextTurnID != "" && s.turnWatchID != nextTurnID {
+				s.watchSession(bound, operation, nextTurnID)
+			}
+		})
+	}
+	go func() {
+		stream, err := bound.Watch(watchContext)
+		if s.reportDaemonMismatch(runtime, bound, operation, err) || err != nil {
+			return
+		}
+		defer stream.Close()
+		for update := range stream.Updates() {
+			if update.Snapshot != nil {
+				applySnapshot(*update.Snapshot)
+				continue
+			}
+			events := update.Events
+			hasMetadata := false
+			for _, event := range events {
+				hasMetadata = hasMetadata || sessionMetadataEvent(event.Kind())
+			}
+			if hasMetadata {
+				copy := append([]protocol.SessionEvent(nil), events...)
+				runtime.Dispatch(func() {
+					if operation == s.operation && s.bound == bound && watchContext.Err() == nil && !s.daemonIncompatible {
+						changedCWD := ""
+						s.SetState(func() { changedCWD = s.applySessionMetadataEvents(copy) })
+						if changedCWD != "" {
+							s.refreshLocation(changedCWD)
+							s.startVCSMonitoring()
+							s.refreshFileIndex(runtime)
+						}
+					}
+				})
+			}
+			startedTurnID, finishedTurnID, _ := attachedTurnLifecycle(events)
+			if startedTurnID == "" && finishedTurnID == "" {
+				continue
+			}
+			snapshot, snapshotErr := bound.Snapshot(watchContext)
+			if s.reportDaemonMismatch(runtime, bound, operation, snapshotErr) || snapshotErr != nil {
+				return
+			}
+			applySnapshot(snapshot)
+		}
+		_ = s.reportDaemonMismatch(runtime, bound, operation, stream.Err())
+	}()
+}
+
+func (s *appState) watchSession(bound boundSession, operation uint64, turnID string) {
 	if s.daemonIncompatible {
 		return
 	}
@@ -3772,7 +3919,7 @@ func (s *appState) watchSession(bound sessionclient.Session, operation uint64, t
 				streamCancel()
 			}
 			streamContext, cancel := context.WithCancel(attachmentCtx)
-			connected, err := bound.Stream(streamContext, turnID)
+			connected, err := streamTurn(streamContext, bound, turnID)
 			if err != nil {
 				cancel()
 				streamCancel = nil
@@ -5798,15 +5945,15 @@ func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 	s.SetState(func() {
 		generation = s.configurationPicker.Begin(mode, s.session.Model, s.session.ThinkingLevel)
 	})
-	s.loadConfigurationCatalog(s.Widget().(app).Options.Server, s.Context().Runtime().Dispatch, generation, false)
+	s.loadConfigurationCatalogOptions(s.Widget().(app).Options, s.Context().Runtime().Dispatch, generation, false)
 }
 
-func (s *appState) loadConfigurationCatalog(server sessionclient.Server, dispatch func(func()), generation uint64, afterSave bool) {
+func (s *appState) loadConfigurationCatalogOptions(options Options, dispatch func(func()), generation uint64, afterSave bool) {
 	ctx := s.ctx
 	go func() {
 		request, cancel := context.WithTimeout(ctx, 10*time.Second)
 		defer cancel()
-		catalog, err := server.Models(request)
+		catalog, err := options.models(request)
 		if ctx.Err() != nil {
 			return
 		}
@@ -5824,10 +5971,14 @@ func (s *appState) loadConfigurationCatalog(server sessionclient.Server, dispatc
 
 func (s *appState) saveModelContextWindow() {
 	options := s.Widget().(app).Options
-	s.saveModelContextWindowWith(options.ModelOverrideService, options.Server, s.Context().Runtime().Dispatch)
+	s.saveModelContextWindowWithOptions(options.ModelOverrideService, options, s.Context().Runtime().Dispatch)
 }
 
 func (s *appState) saveModelContextWindowWith(service ModelOverrideService, server sessionclient.Server, dispatch func(func())) {
+	s.saveModelContextWindowWithOptions(service, Options{Server: server}, dispatch)
+}
+
+func (s *appState) saveModelContextWindowWithOptions(service ModelOverrideService, options Options, dispatch func(func())) {
 	if !s.configurationPicker.EditingContext || s.configurationPicker.Loading || s.configurationPicker.Pending {
 		return
 	}
@@ -5851,7 +6002,7 @@ func (s *appState) saveModelContextWindowWith(service ModelOverrideService, serv
 	}
 	var generation uint64
 	s.SetState(func() { generation = s.configurationPicker.BeginRefresh() })
-	s.loadConfigurationCatalog(server, dispatch, generation, true)
+	s.loadConfigurationCatalogOptions(options, dispatch, generation, true)
 }
 
 func (s *appState) applyConfigurationSelection() {
@@ -6105,11 +6256,7 @@ func (s *appState) refreshModels() {
 	if s.phase != phaseReady || s.hasActiveWork() {
 		return
 	}
-	server, ok := s.Widget().(app).Options.Server.(sessionclient.ModelCatalogRefresher)
-	if !ok {
-		s.showToast(toastInput{Title: "Model refresh unavailable", Subtitle: "This server does not support catalog refresh.", Variant: toastWarning})
-		return
-	}
+	options := s.Widget().(app).Options
 	operation := s.operation
 	runtime := s.Context().Runtime()
 	s.SetState(func() {
@@ -6117,7 +6264,7 @@ func (s *appState) refreshModels() {
 	})
 	go func() {
 		refreshContext, cancel := context.WithTimeout(s.ctx, 30*time.Second)
-		catalog, err := server.RefreshModels(refreshContext)
+		catalog, err := options.refreshModels(refreshContext)
 		cancel()
 		if s.ctx.Err() != nil {
 			return
@@ -6238,11 +6385,11 @@ func (s *appState) renameCurrentSession(value string) {
 	if !started {
 		return
 	}
-	server := s.Widget().(app).Options.Server
+	options := s.Widget().(app).Options
 	runtime := s.Context().Runtime()
 	go func() {
 		renameContext, cancel := context.WithTimeout(s.attachmentCtx, 5*time.Second)
-		renamed, err := server.RenameSession(renameContext, sessionID, name)
+		renamed, err := options.renameSession(renameContext, sessionID, name)
 		cancel()
 		if err == nil && renamed.ID != sessionID {
 			err = errors.New("renamed session identity mismatch")
@@ -6270,7 +6417,7 @@ func (s *appState) openSessionExplorer() {
 	if s.phase != phaseReady || s.sessionExplorer.Open {
 		return
 	}
-	server := s.Widget().(app).Options.Server
+	options := s.Widget().(app).Options
 	currentSessionID := s.session.ID
 	runtime := s.Context().Runtime()
 	var generation uint64
@@ -6278,7 +6425,7 @@ func (s *appState) openSessionExplorer() {
 	go func() {
 		listContext, cancel := context.WithTimeout(s.ctx, 5*time.Second)
 		defer cancel()
-		sessions, err := listSessionExplorerSessions(listContext, server)
+		sessions, err := options.listSessions(listContext, "")
 		items := projectSessionExplorerItems(sessions)
 		if s.ctx.Err() != nil {
 			return
@@ -6304,11 +6451,11 @@ func (s *appState) renameSelectedSession(value string) {
 	if !started {
 		return
 	}
-	server := s.Widget().(app).Options.Server
+	options := s.Widget().(app).Options
 	runtime := s.Context().Runtime()
 	go func() {
 		renameContext, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-		renamed, err := server.RenameSession(renameContext, sessionID, name)
+		renamed, err := options.renameSession(renameContext, sessionID, name)
 		cancel()
 		if err == nil && renamed.ID != sessionID {
 			err = errors.New("renamed session identity mismatch")
@@ -6341,11 +6488,11 @@ func (s *appState) deleteSelectedSession() {
 	if !started {
 		return
 	}
-	server := s.Widget().(app).Options.Server
+	options := s.Widget().(app).Options
 	runtime := s.Context().Runtime()
 	go func() {
 		deleteContext, cancel := context.WithTimeout(s.ctx, 5*time.Second)
-		err := server.DeleteSession(deleteContext, sessionID)
+		err := options.deleteSession(deleteContext, sessionID)
 		cancel()
 		if s.ctx.Err() != nil {
 			return
@@ -6378,9 +6525,7 @@ func (s *appState) createNewSession() {
 	})
 	runtime := s.Context().Runtime()
 	go func() {
-		bound, snapshot, location, err := createSessionForSwitch(
-			createContext, options.Server, input, options.ResolveLocation,
-		)
+		bound, snapshot, location, err := createSessionForSwitchOptions(createContext, options, input)
 		cancel()
 		if s.ctx.Err() != nil {
 			return
@@ -6442,12 +6587,12 @@ func (s *appState) forkCurrentSession(message string) {
 	})
 	runtime := s.Context().Runtime()
 	go func() {
-		created, err := options.Server.ForkSession(forkContext, sourceSessionID, protocol.ForkSessionInput{ID: childID})
-		var bound sessionclient.Session
+		created, err := options.forkSession(forkContext, sourceSessionID, protocol.ForkSessionInput{ID: childID})
+		var bound boundSession
 		var snapshot protocol.SessionSnapshot
 		var location string
 		if err == nil {
-			bound, snapshot, location, err = attachSessionForSwitch(forkContext, options.Server, created.ID, options.ResolveLocation)
+			bound, snapshot, location, err = attachSessionForSwitchOptions(forkContext, options, created.ID)
 		}
 		cancel()
 		if s.ctx.Err() != nil {
@@ -6475,15 +6620,26 @@ func (s *appState) forkCurrentSession(message string) {
 			s.watchAttachedSession(bound, operation)
 			if prompt := strings.TrimSpace(message); prompt != "" {
 				s.startPromptSubmission(prompt, func(ctx context.Context) (sessionclient.Turn, error) {
-					if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
-						result, submitErr := structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: prompt})
+					if supportsStructuredPrompts(bound) {
+						result, submitErr := submitPromptInput(ctx, bound, protocol.PromptInput{Text: prompt})
 						return result.Turn, submitErr
 					}
-					return bound.StartPrompt(ctx, prompt)
+					return startPrompt(ctx, bound, prompt)
 				})
 			}
 		})
 	}()
+}
+
+func createSessionForSwitchOptions(ctx context.Context, options Options, input protocol.CreateSessionInput) (boundSession, protocol.SessionSnapshot, string, error) {
+	created, err := options.createSession(ctx, input)
+	if err != nil {
+		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("create session: %w", err)
+	}
+	if created.ID == "" {
+		return nil, protocol.SessionSnapshot{}, "", errors.New("create session returned an empty session id")
+	}
+	return attachSessionForSwitchOptions(ctx, options, created.ID)
 }
 
 func createSessionForSwitch(
@@ -6491,7 +6647,7 @@ func createSessionForSwitch(
 	server sessionclient.Server,
 	input protocol.CreateSessionInput,
 	resolveLocation func(context.Context, string) string,
-) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
+) (boundSession, protocol.SessionSnapshot, string, error) {
 	created, err := server.CreateSession(ctx, input)
 	if err != nil {
 		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("create session: %w", err)
@@ -6532,9 +6688,7 @@ func (s *appState) switchSelectedSession() {
 	options := s.Widget().(app).Options
 	runtime := s.Context().Runtime()
 	go func() {
-		bound, snapshot, location, err := attachSessionForSwitch(
-			switchContext, options.Server, targetSessionID, options.ResolveLocation,
-		)
+		bound, snapshot, location, err := attachSessionForSwitchOptions(switchContext, options, targetSessionID)
 		cancel()
 		if s.ctx.Err() != nil {
 			return
@@ -6577,13 +6731,28 @@ func (s *appState) switchSelectedSession() {
 	}()
 }
 
+func attachSessionForSwitchOptions(ctx context.Context, options Options, sessionID string) (boundSession, protocol.SessionSnapshot, string, error) {
+	return attachSessionForSwitchWith(ctx, options.attach, sessionID, options.ResolveLocation)
+}
+
 func attachSessionForSwitch(
 	ctx context.Context,
 	server sessionclient.Server,
 	sessionID string,
 	resolveLocation func(context.Context, string) string,
-) (sessionclient.Session, protocol.SessionSnapshot, string, error) {
-	bound, err := server.Attach(ctx, sessionID)
+) (boundSession, protocol.SessionSnapshot, string, error) {
+	return attachSessionForSwitchWith(ctx, func(ctx context.Context, sessionID string) (boundSession, error) {
+		return server.Attach(ctx, sessionID)
+	}, sessionID, resolveLocation)
+}
+
+func attachSessionForSwitchWith(
+	ctx context.Context,
+	attach func(context.Context, string) (boundSession, error),
+	sessionID string,
+	resolveLocation func(context.Context, string) string,
+) (boundSession, protocol.SessionSnapshot, string, error) {
+	bound, err := attach(ctx, sessionID)
 	if err != nil {
 		return nil, protocol.SessionSnapshot{}, "", fmt.Errorf("attach session: %w", err)
 	}
@@ -6607,7 +6776,7 @@ func attachSessionForSwitch(
 	return bound, snapshot, location, nil
 }
 
-func (s *appState) installSession(bound sessionclient.Session, snapshot protocol.SessionSnapshot, location string) {
+func (s *appState) installSession(bound boundSession, snapshot protocol.SessionSnapshot, location string) {
 	if s.sessionDrafts == nil {
 		s.sessionDrafts = make(map[string]string)
 	}
@@ -6829,8 +6998,8 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 	bound := s.bound
 	input := protocol.PromptInput{Text: text, AttachmentIDs: attachmentIDs, AnnotationIDs: annotationIDs}
 	s.startPromptSubmission(text, func(ctx context.Context) (sessionclient.Turn, error) {
-		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
-			result, err := structured.SubmitPromptInput(ctx, input)
+		if supportsStructuredPrompts(bound) {
+			result, err := submitPromptInput(ctx, bound, input)
 			if err != nil {
 				return nil, err
 			}
@@ -6839,8 +7008,8 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			}
 			return result.Turn, nil
 		}
-		if queueAware, ok := bound.(sessionclient.FollowUpSession); ok {
-			result, err := queueAware.SubmitPrompt(ctx, text)
+		if supportsFollowUps(bound) {
+			result, err := submitFollowUp(ctx, bound, text)
 			if err != nil {
 				return nil, err
 			}
@@ -6849,13 +7018,12 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			}
 			return result.Turn, nil
 		}
-		return bound.StartPrompt(ctx, text)
+		return startPrompt(ctx, bound, text)
 	})
 }
 
 func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
-	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
-	if s.followUpMutationPending || !ok {
+	if s.followUpMutationPending || !supportsFollowUps(s.bound) {
 		return
 	}
 	bound, operation, submittedDraft := s.bound, s.operation, s.composer
@@ -6868,10 +7036,10 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 	go func() {
 		var result sessionclient.PromptSubmission
 		var err error
-		if structured, ok := bound.(sessionclient.StructuredPromptSession); ok {
-			result, err = structured.SubmitPromptInput(ctx, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
+		if supportsStructuredPrompts(bound) {
+			result, err = submitPromptInput(ctx, bound, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
 		} else {
-			result, err = followUpSession.SubmitPrompt(ctx, text)
+			result, err = submitFollowUp(ctx, bound, text)
 		}
 		var snapshot protocol.SessionSnapshot
 		var snapshotErr error
@@ -6935,15 +7103,14 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 }
 
 func (s *appState) restoreFollowUps(_ ui.EventContext) {
-	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
-	if s.followUpMutationPending || !ok || s.followUps.Count == 0 {
+	if s.followUpMutationPending || !supportsFollowUps(s.bound) || s.followUps.Count == 0 {
 		return
 	}
 	bound, operation := s.bound, s.operation
 	ctx, runtime := s.ctx, s.Context().Runtime()
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
-		result, err := followUpSession.RestoreFollowUps(ctx)
+		result, err := restoreFollowUps(ctx, bound)
 		var restoredAttachments map[string]stagedAttachment
 		if err == nil {
 			restoredAttachments = resolveRestoredAttachments(ctx, bound, result.Messages)
@@ -6996,15 +7163,14 @@ func (s *appState) restoreFollowUpDraft(result protocol.RestoreFollowUpsResult, 
 }
 
 func (s *appState) promoteFollowUps() {
-	followUpSession, ok := s.bound.(sessionclient.FollowUpSession)
-	if s.followUpMutationPending || !ok || s.followUps.Count == 0 {
+	if s.followUpMutationPending || !supportsFollowUps(s.bound) || s.followUps.Count == 0 {
 		return
 	}
 	bound, operation := s.bound, s.operation
 	ctx, runtime := s.ctx, s.Context().Runtime()
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
-		result, err := followUpSession.PromoteFollowUps(ctx)
+		result, err := promoteFollowUps(ctx, bound)
 		var snapshot protocol.SessionSnapshot
 		var snapshotErr error
 		if err != nil {
@@ -7043,7 +7209,7 @@ func (s *appState) submitPromptCommand(name, args string) {
 	}
 	bound := s.bound
 	s.startPromptSubmission(display, func(ctx context.Context) (sessionclient.Turn, error) {
-		return bound.StartPromptCommand(ctx, name, args)
+		return startPromptCommand(ctx, bound, name, args)
 	})
 }
 

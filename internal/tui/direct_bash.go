@@ -66,7 +66,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		s.bashHistory.Close()
 	})
 	go func() {
-		execution, err := bound.StartBash(s.ctx, executionID, command, excludeFromContext)
+		execution, err := startBash(s.ctx, bound, executionID, command, excludeFromContext)
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -135,7 +135,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 	}()
 }
 
-func (s *appState) abortBashAdmission(bound sessionclient.Session, executionID string) {
+func (s *appState) abortBashAdmission(bound boundSession, executionID string) {
 	go func() {
 		for attempt := 0; attempt < 6; attempt++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -149,7 +149,7 @@ func (s *appState) abortBashAdmission(bound sessionclient.Session, executionID s
 	}()
 }
 
-func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, executionID string) {
+func (s *appState) resumeBash(bound boundSession, operation uint64, executionID string) {
 	if executionID == "" {
 		return
 	}
@@ -159,7 +159,7 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 		attachmentCtx = s.ctx
 	}
 	go func() {
-		execution, err := bound.Bash(attachmentCtx, executionID)
+		execution, err := lookupBash(attachmentCtx, bound, executionID)
 		if attachmentCtx.Err() != nil || s.reportDaemonMismatch(runtime, bound, operation, err) {
 			return
 		}
