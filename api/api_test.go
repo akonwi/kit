@@ -51,6 +51,7 @@ func ExampleClient() {
 func compilePublicSessionSurface(ctx context.Context, session *kit.Session) {
 	_, _ = session.Snapshot(ctx)
 	submission, _ := session.SendMessage(ctx, kit.Message{Text: "hello"})
+	_, _ = session.SubmitPromptCommand(ctx, "review", "--staged")
 	if submission.Turn != nil {
 		_, _ = submission.Turn.Wait(ctx)
 		_ = submission.Turn.Abort(ctx)

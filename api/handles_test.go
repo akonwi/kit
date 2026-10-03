@@ -9,14 +9,21 @@ import (
 
 type handleTransport struct {
 	sessionTransport
-	message     protocol.PromptInput
-	abortedTurn string
-	bashAborted string
+	message             protocol.PromptInput
+	promptCommand       protocol.PromptCommandInput
+	promptCommandResult protocol.PromptSubmission
+	abortedTurn         string
+	bashAborted         string
 }
 
 func (t *handleTransport) SubmitPromptInput(_ context.Context, _ string, input protocol.PromptInput) (protocol.PromptSubmission, error) {
 	t.message = input
 	return protocol.PromptSubmission{Reservation: &protocol.TurnReservation{TurnID: "turn_test"}}, nil
+}
+
+func (t *handleTransport) SubmitPromptCommand(_ context.Context, _ string, input protocol.PromptCommandInput) (protocol.PromptSubmission, error) {
+	t.promptCommand = input
+	return t.promptCommandResult, nil
 }
 
 func (t *handleTransport) GetTurn(context.Context, string, string) (protocol.TurnInfo, error) {
@@ -58,6 +65,21 @@ func TestSessionMessageAndExecutionHandles(t *testing.T) {
 	if transport.message.Text != "hello" {
 		t.Fatalf("message = %+v", transport.message)
 	}
+
+	transport.promptCommandResult = protocol.PromptSubmission{Queued: true, Queue: protocol.FollowUpQueue{Count: 1, Previews: []string{"queued"}}}
+	commandSubmission, err := session.SubmitPromptCommand(t.Context(), "review", "--staged")
+	if err != nil || !commandSubmission.Queued || commandSubmission.Turn != nil || commandSubmission.Queue.Count != 1 {
+		t.Fatalf("command submission = %+v, err = %v", commandSubmission, err)
+	}
+	if transport.promptCommand.Name != "review" || transport.promptCommand.Args != "--staged" {
+		t.Fatalf("prompt command = %+v", transport.promptCommand)
+	}
+	transport.promptCommandResult = protocol.PromptSubmission{Reservation: &protocol.TurnReservation{TurnID: "turn_command"}}
+	commandSubmission, err = session.SubmitPromptCommand(t.Context(), "review", "")
+	if err != nil || commandSubmission.Queued || commandSubmission.Turn == nil || commandSubmission.Turn.ID() != "turn_command" {
+		t.Fatalf("started command submission = %+v, err = %v", commandSubmission, err)
+	}
+
 	outcome, err := submission.Turn.Wait(t.Context())
 	if err != nil || outcome.Status != protocol.TurnStatusCompleted || outcome.Text != "done" {
 		t.Fatalf("turn outcome = %+v, err = %v", outcome, err)

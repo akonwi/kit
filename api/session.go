@@ -68,6 +68,7 @@ type sessionTransport interface {
 	SubmitPromptInput(context.Context, string, protocol.PromptInput) (protocol.PromptSubmission, error)
 	RestoreFollowUps(context.Context, string) (protocol.RestoreFollowUpsResult, error)
 	PromoteFollowUps(context.Context, string) (protocol.PromoteFollowUpsResult, error)
+	SubmitPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.PromptSubmission, error)
 	StartPromptCommand(context.Context, string, protocol.PromptCommandInput) (protocol.TurnReservation, error)
 	StreamPluginToasts(context.Context, string) (io.ReadCloser, error)
 	ExecutePluginCommand(context.Context, string, protocol.PluginCommandInput) error
@@ -1206,11 +1207,7 @@ func (c *Session) SubmitPromptInput(ctx context.Context, input protocol.PromptIn
 	if err != nil {
 		return PromptSubmission{}, projectError(err)
 	}
-	output := PromptSubmission{Queued: result.Queued, Queue: result.Queue}
-	if result.Reservation != nil {
-		output.Turn = c.turnFromReservation(*result.Reservation)
-	}
-	return output, nil
+	return c.promptSubmission(result), nil
 }
 
 func (c *Session) RestoreFollowUps(ctx context.Context) (protocol.RestoreFollowUpsResult, error) {
@@ -1225,6 +1222,30 @@ func (c *Session) PromoteFollowUps(ctx context.Context) (protocol.PromoteFollowU
 	})
 }
 
+// SubmitPromptCommand submits a prompt command, either starting a turn or
+// joining the follow-up queue.
+func (c *Session) SubmitPromptCommand(ctx context.Context, name, args string) (PromptSubmission, error) {
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return PromptSubmission{}, err
+	}
+	defer cleanup()
+	result, err := c.transport.SubmitPromptCommand(operation, c.id, protocol.PromptCommandInput{Name: name, Args: args})
+	if err != nil {
+		return PromptSubmission{}, projectError(err)
+	}
+	return c.promptSubmission(result), nil
+}
+
+func (c *Session) promptSubmission(result protocol.PromptSubmission) PromptSubmission {
+	output := PromptSubmission{Queued: result.Queued, Queue: result.Queue}
+	if result.Reservation != nil {
+		output.Turn = c.turnFromReservation(*result.Reservation)
+	}
+	return output
+}
+
+// StartPromptCommand starts a prompt command immediately and returns its turn.
 func (c *Session) StartPromptCommand(ctx context.Context, name, args string) (*Turn, error) {
 	operation, cleanup, err := c.operationContext(ctx)
 	if err != nil {
