@@ -31,6 +31,7 @@ use kit/tui/sessions
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/theme_picker
+use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript
 use go:strings
@@ -67,6 +68,7 @@ enum ActiveModal {
   mcp_status,
   model_picker,
   theme_picker,
+  thinking_picker,
   rename_session,
   sessions,
 }
@@ -242,7 +244,7 @@ private fn command_catalog(
     ),
     command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
     command_item("theme", "Choose UI colors", "appearance colors", ""),
-    command_item("thinking", "Change reasoning effort", "reasoning effort", "not available yet"),
+    command_item("thinking", "Change reasoning effort", "reasoning effort", ""),
   ]
   let catalog = mut List::new<palette::Item>()
   for item in builtins {
@@ -900,9 +902,28 @@ impl Shell {
             styles: ui::style(flex_shrink: 0.0),
           ),
         )
-        let thinking = strings::TrimSpace(session.ThinkingLevel)
-        if thinking != "" {
-          right.push(cui::text(" ({thinking})", wrap: ui::TextWrap::none))
+        let thinking_level = strings::TrimSpace(session.ThinkingLevel)
+        if thinking_level != "" {
+          right.push(cui::text(" ", wrap: ui::TextWrap::none))
+          let open_thinking = keymap::simple_command(
+            "thinking.open",
+            "Change thinking level",
+            fn() Bool {
+              self.active_modal = ActiveModal::thinking_picker
+              true
+            },
+          )
+          right.push(
+            controls::button(
+              self.props.themes,
+              "({thinking_level})",
+              open_thinking,
+              variant: controls::ButtonVariant::secondary,
+              compact: true,
+              focusable: false,
+              styles: ui::style(flex_shrink: 0.0),
+            ),
+          )
         }
         match format::context_percentage(self.context_tokens, self.context_window) {
           percentage => {
@@ -1423,6 +1444,7 @@ impl cui::Component for Shell {
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
       ActiveModal::model_picker => layers.push(self.model_picker_modal()),
       ActiveModal::theme_picker => layers.push(self.theme_picker_modal()),
+      ActiveModal::thinking_picker => layers.push(self.thinking_picker_modal()),
       ActiveModal::rename_session => layers.push(self.rename_session_modal()),
       ActiveModal::sessions => layers.push(self.sessions_modal()),
       _ => (),
@@ -1708,8 +1730,31 @@ impl Shell {
     }
   }
 
-  // apply_model_configuration settles the shell state after the model picker
-  // completes its owned request.
+  fn mut refresh_session_configuration(session: protocol::SessionInfo) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.info = Maybe::new(session)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_thinking_configuration(session: protocol::SessionInfo) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.info = Maybe::new(session)
+          self.active_modal = ActiveModal::none
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // apply_model_configuration settles the shell state after a configuration
+  // picker completes its owned request.
   fn mut apply_model_configuration(applied: protocol::ConfigureSessionResult) {
     match self.context {
       context => {
@@ -1758,6 +1803,29 @@ impl Shell {
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
           self.apply_model_configuration(applied)
+        },
+      },
+    )
+  }
+
+  fn mut thinking_picker_modal() cui::View {
+    let dismiss = fn() {
+      let _ = self.dismiss_modal()
+    }
+    cui::child(
+      thinking::new,
+      thinking::Props{
+        themes: self.props.themes,
+        transport: self.props.options.Transport,
+        lifetime: self.lifetime.expect("mounted thinking picker"),
+        session_client: self.session.expect("attached thinking picker"),
+        session: self.info.or(protocol::SessionInfo{}),
+        dismiss: dismiss,
+        refreshed: fn(session: protocol::SessionInfo) {
+          self.refresh_session_configuration(session)
+        },
+        applied: fn(session: protocol::SessionInfo) {
+          self.apply_thinking_configuration(session)
         },
       },
     )
@@ -2307,6 +2375,8 @@ impl Shell {
           self.active_modal = ActiveModal::model_picker
         } else if item.key == "theme" {
           self.active_modal = ActiveModal::theme_picker
+        } else if item.key == "thinking" {
+          self.active_modal = ActiveModal::thinking_picker
         } else if item.key == "name" {
           let value = strings::TrimSpace(command_args(self.command_query))
           self.rename_initial = match value == "" {

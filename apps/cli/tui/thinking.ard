@@ -1,0 +1,320 @@
+use ard/async
+use ard/testing
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:github.com/akonwi/kit/internal/httpapi
+use go:github.com/akonwi/kit/internal/protocol
+use go:github.com/akonwi/kit/internal/sessionclient
+use go:kit/ffi/contextbridge
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+
+// Thinking picker loads the active model's supported reasoning levels and
+// applies one through the server-authoritative session configuration endpoint.
+struct Props {
+  themes: theme::Context,
+  transport: httpapi::Transport,
+  lifetime: contextbridge::Cancellation,
+  session_client: sessionclient::Session,
+  session: protocol::SessionInfo,
+  dismiss: fn(),
+  refreshed: fn(protocol::SessionInfo),
+  applied: fn(protocol::SessionInfo),
+}
+
+struct Picker {
+  props: Props,
+  models: [protocol::ModelCapability],
+  levels: [Str],
+  selection: Str,
+  loading: Bool,
+  pending: Bool,
+  error: Str,
+  generation: Int,
+  context: cui::Context?,
+}
+
+fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props.@,
+    models: [],
+    levels: [],
+    selection: props.session.ThinkingLevel,
+    loading: true,
+    pending: false,
+    error: "",
+    generation: 0,
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+private fn catalog(levels: [Str], current: Str, pending: Bool) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  for level in levels {
+    let current_marker = match level == current {
+      true => "__palette_current__",
+      false => "",
+    }
+    result.push(
+      palette::Item{
+        key: level,
+        label: level,
+        hint: "",
+        description: "",
+        meta: "",
+        search_terms: [current_marker],
+        disabled_reason: match pending {
+          true => "applying",
+          false => "",
+        },
+      },
+    )
+  }
+  result.@
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.load(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.generation =+ 1
+  }
+}
+
+impl Picker {
+  private fn mut set_levels(model: Str) {
+    self.levels = []
+    self.selection = self.props.session.ThinkingLevel
+    for capability in self.models {
+      if capability.ID == model and capability.Available {
+        let levels = mut List::new<Str>()
+        for level in capability.ThinkingLevels {
+          levels.push("{level}")
+        }
+        self.levels = levels.@
+      }
+    }
+    mut current_supported = false
+    for level in self.levels {
+      if level == self.props.session.ThinkingLevel {
+        current_supported = true
+      }
+    }
+    if not current_supported and self.levels.size() > 0 {
+      self.selection = self.levels.at(0).or("")
+    }
+  }
+
+  private fn mut load(ctx: cui::Context) {
+    self.loading = true
+    self.error = ""
+    self.generation =+ 1
+    let generation = self.generation
+    let transport = self.props.transport
+    let lifetime = self.props.lifetime
+    let model = self.props.session.Model
+    let dispatch = ctx.dispatch
+    async::start(fn() {
+      let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(10000))
+      let result = httpapi::Call<httpapi::ServerPath, httpapi::NoBody, protocol::ModelCatalog>(
+        attempt.Context,
+        transport,
+        httpapi::ListModels,
+        httpapi::ServerPath{},
+        httpapi::NoBody{},
+      )
+      attempt.Cancel()
+      let _ = dispatch(fn() {
+        if self.generation == generation {
+          self.loading = false
+          match result {
+            ok(catalog) => {
+              self.models = catalog.Models
+              self.set_levels(model)
+            },
+            err(failure) => { self.error = failure.error() },
+          }
+        }
+      })
+    })
+  }
+
+  private fn mut dismiss_command() keymap::SimpleCommand {
+    keymap::simple_command("thinking.dismiss", "Close", fn() Bool {
+      if not self.pending {
+        (self.props.dismiss)()
+      }
+      true
+    })
+  }
+
+  private fn mut apply(selected: Str, ctx: cui::Context) {
+    if self.pending or selected == "" {
+      ()
+    } else {
+      self.pending = true
+      self.error = ""
+      self.generation =+ 1
+      let generation = self.generation
+      let transport = self.props.transport
+      let lifetime = self.props.lifetime
+      let session = self.props.session
+      let session_client = self.props.session_client
+      let level = protocol::ThinkingLevel(selected)
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(120000))
+        let result = httpapi::Call<httpapi::SessionPath, protocol::ConfigureSessionInput, protocol::ConfigureSessionResult>(
+          attempt.Context,
+          transport,
+          httpapi::ConfigureSession,
+          httpapi::SessionPath{SessionID: session.ID},
+          protocol::ConfigureSessionInput{
+            ExpectedRevision: session.ConfigurationRevision,
+            Model: session.Model,
+            ThinkingLevel: mut level,
+          },
+        )
+        attempt.Cancel()
+        let refresh_attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(10000))
+        let snapshot = session_client.Snapshot(refresh_attempt.Context)
+        refresh_attempt.Cancel()
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.pending = false
+            match snapshot {
+              ok(current) => {
+                self.props.session = current.Session
+                self.set_levels(current.Session.Model)
+                match result {
+                  ok(_) => (self.props.applied)(current.Session),
+                  err(failure) => {
+                    (self.props.refreshed)(current.Session)
+                    self.error = failure.error()
+                  },
+                }
+              },
+              err(refresh_failure) => {
+                match result {
+                  ok(applied) => {
+                    self.props.session = applied.Session
+                    (self.props.refreshed)(applied.Session)
+                    self.error = "Configuration applied but snapshot refresh failed: {refresh_failure}"
+                  },
+                  err(failure) => { self.error = "{failure.error()} · session refresh failed: {refresh_failure}" },
+                }
+              },
+            }
+          }
+        })
+      })
+    }
+  }
+}
+
+test fn thinking_catalog_marks_the_current_level_and_pending_rows() Void!Str {
+  let items = catalog(["off", "high"], "high", true)
+  try testing::assert(items.size() == 2, "all supported levels are shown")
+  try testing::assert(
+    items.at(0).expect("off level").disabled_reason == "applying",
+    "pending rows are disabled",
+  )
+  let current = items.at(1).expect("high level")
+  try testing::assert(current.key == "high", "current level keeps its raw label")
+  try testing::assert(
+    current.search_terms.at(0).or("") == "__palette_current__",
+    "current level receives shared picker styling",
+  )
+  testing::pass()
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    match self.loading {
+      true => {
+        modal::dialog(
+          self.props.themes,
+          modal::Dialog{
+            placement: modal::Placement::picker,
+            title: "",
+            meta: "",
+            header: [],
+            body: cui::box([spinner::spinner()]),
+            footer: Maybe::new<cui::View>(),
+            autofocus: true,
+            dismiss: self.dismiss_command(),
+            commands: Maybe::new<[keymap::Command]>(),
+            bindings: Maybe::new<[keymap::Binding]>(),
+          },
+        )
+      },
+      false => {
+        match self.error != "" and self.levels.size() == 0 {
+          true => {
+            modal::dialog(
+              self.props.themes,
+              modal::Dialog{
+                placement: modal::Placement::centered,
+                title: "Thinking level",
+                meta: "",
+                header: [],
+                body: cui::text(
+                  self.error,
+                  styles: ui::style(
+                    padding: ui::Edges{
+                      top: ui::cells(1),
+                      right: ui::cells(1),
+                      bottom: ui::cells(1),
+                      left: ui::cells(1),
+                    },
+                  ),
+                  text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+                ),
+                footer: Maybe::new<cui::View>(),
+                autofocus: true,
+                dismiss: self.dismiss_command(),
+                commands: Maybe::new<[keymap::Command]>(),
+                bindings: Maybe::new<[keymap::Binding]>(),
+              },
+            )
+          },
+          false => {
+            cui::child(
+              palette::new_picker,
+              palette::PickerProps{
+                themes: self.props.themes,
+                catalog: catalog(self.levels, self.props.session.ThinkingLevel, self.pending),
+                placeholder: "Search effort levels…",
+                initial_selection: self.selection,
+                title: "Thinking level",
+                footer: match {
+                  self.pending => "Applying configuration…",
+                  self.error != "" => self.error,
+                  _ => "",
+                },
+                dismiss: self.dismiss_command(),
+                override: Maybe::new<fn(Str)>(),
+                toggle: Maybe::new<fn(Str, Bool)>(),
+                on_query_change: fn(query: Str) {},
+                on_selection_change: fn(selected: Str) {},
+                on_activate: fn(item: palette::Item) {
+                  match self.context {
+                    context => self.apply(item.key, context),
+                    _ => (),
+                  }
+                },
+              },
+            )
+          },
+        }
+      },
+    }
+  }
+}
