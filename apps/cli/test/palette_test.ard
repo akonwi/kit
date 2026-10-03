@@ -34,6 +34,99 @@ struct Host {
   list: mut cui::VirtualListRef,
 }
 
+struct TreeModel {
+  actions: [Str],
+}
+
+struct TreeProps {
+  model: mut TreeModel,
+  themes: theme::Context,
+}
+
+struct TreeHost {
+  props: mut TreeProps,
+  collapsed: Bool,
+  context: cui::Context?,
+}
+
+fn tree_host(props: mut TreeProps) mut TreeHost {
+  (mut TreeHost{
+    props: props,
+    collapsed: false,
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+impl cui::Lifecycle for TreeHost {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl cui::Component for TreeHost {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let catalog = mut List::new<palette::Item>()
+    catalog.push(
+      palette::Item{
+        key: "parent",
+        label: match self.collapsed {
+          true => "▸ 1 Parent",
+          false => "▾ 1 Parent",
+        },
+        hint: "",
+        description: "/parent",
+        meta: "",
+        search_terms: [],
+        disabled_reason: "",
+      },
+    )
+    if not self.collapsed {
+      catalog.push(
+        palette::Item{
+          key: "child",
+          label: "    Child",
+          hint: "↳",
+          description: "/child",
+          meta: "",
+          search_terms: [],
+          disabled_reason: "",
+        },
+      )
+    }
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: catalog.@,
+        placeholder: "Search sessions…",
+        initial_selection: "parent",
+        title: "Sessions",
+        footer: "",
+        dismiss: keymap::simple_command("test.dismiss", "Dismiss", fn() Bool {
+          true
+        }),
+        override: Maybe::new<fn(Str)>(),
+        toggle: Maybe::new(fn(selection: Str, expand: Bool) {
+          let actions = mut List::new<Str>()
+          for action in model.actions {
+            actions.push(action)
+          }
+          actions.push("{selection}:{expand}")
+          model.actions = actions.@
+          let context = self.context.expect("mounted tree host")
+          let _ = context.dispatch(fn() {
+            self.collapsed = not expand
+          })
+        }),
+        on_activate: fn(item: palette::Item) {},
+      },
+    )
+  }
+}
+
 fn host(props: mut Props) mut Host {
   (mut Host{props: props, list: cui::virtual_list_ref()})
 }
@@ -215,6 +308,57 @@ fn rows(terminal: headless::TestApp) [Str] {
   trimmed.@
 }
 
+fn mount_tree(terminal: headless::TestApp, model: mut TreeModel) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      tree_host,
+      TreeProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+}
+
+fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let items = mut List::new<palette::Item>()
+  mut index = 0
+  while index < 30 {
+    items.push(
+      palette::Item{
+        key: "item-{index}",
+        label: "Item {index}",
+        hint: "",
+        description: "",
+        meta: "",
+        search_terms: [],
+        disabled_reason: "",
+      },
+    )
+    index =+ 1
+  }
+  cui::mount(
+    app,
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: theme::context(theme::store(theme::system())),
+        catalog: items.@,
+        placeholder: "Search items…",
+        initial_selection: "item-0",
+        title: "Items",
+        footer: "",
+        dismiss: keymap::simple_command("test.items.dismiss", "Dismiss", fn() Bool {
+          true
+        }),
+        override: Maybe::new<fn(Str)>(),
+        toggle: Maybe::new<fn(Str, Bool)>(),
+        on_activate: fn(item: palette::Item) {},
+      },
+    ),
+  )
+}
+
 fn mount(terminal: headless::TestApp, model: mut Model, height: Int) cui::Renderer {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(
@@ -248,6 +392,52 @@ fn key(name: Str, text: Str?) mut event::KeyEvent {
 // Sends one plain character as a keypress with its text payload.
 fn character(value: Str) mut event::KeyEvent {
   key(value, text: value)
+}
+
+test fn stateful_picker_routes_tree_keys_without_moving_selection() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let model = mut TreeModel{actions: []}
+  let renderer = mount_tree(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(key("left"))
+  terminal.flush()
+  try testing::assert(not terminal.frame().text().contains("Child"), "Left hides the child row")
+  terminal.key(key("right"))
+  terminal.flush()
+  try testing::assert(terminal.frame().text().contains("Child"), "Right restores the child row")
+
+  try testing::assert(model.actions.size() == 2, "tree bindings invoke twice: {model.actions.size()}")
+  try testing::assert(
+    model.actions.at(0).or("") == "parent:false",
+    "Left collapses the selected parent: {model.actions.at(0).or("")}",
+  )
+  try testing::assert(
+    model.actions.at(1).or("") == "parent:true",
+    "Right expands the same selected parent: {model.actions.at(1).or("")}",
+  )
+  testing::pass()
+}
+
+test fn stateful_picker_navigation_reveals_each_selected_row() Void!Str {
+  let terminal = headless::new(60, 30)
+  defer terminal.destroy()
+  let renderer = mount_stateful(terminal)
+  defer renderer.destroy()
+  terminal.flush()
+
+  mut presses = 0
+  while presses < 25 {
+    terminal.key(key("down"))
+    terminal.flush()
+    presses =+ 1
+  }
+
+  let rendered = terminal.frame().text()
+  try testing::assert(rendered.contains("Item 25"), "line navigation reveals Item 25")
+  testing::assert(not rendered.contains("Item 0"), "the initial row scrolls out of view")
 }
 
 test fn filtering_and_enter_activation_work_end_to_end() Void!Str {

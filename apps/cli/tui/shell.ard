@@ -25,6 +25,7 @@ use kit/tui/model
 use kit/tui/palette
 use kit/tui/rename
 use kit/tui/scratchpad
+use kit/tui/sessions
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/toast
@@ -63,6 +64,7 @@ enum ActiveModal {
   mcp_status,
   model_picker,
   rename_session,
+  sessions,
 }
 
 private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
@@ -227,7 +229,7 @@ private fn command_catalog(
     ),
     command_item("reload", "Reload session context", "agents context refresh", ""),
     command_item("scratchpad", "Open shared working notes", "notes memory", ""),
-    command_item("sessions", "Browse sessions", "list resume switch threads", "not available yet"),
+    command_item("sessions", "Browse sessions", "list resume switch threads", ""),
     command_item(
       "subagents",
       "Inspect delegated work",
@@ -1408,6 +1410,7 @@ impl cui::Component for Shell {
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
       ActiveModal::model_picker => layers.push(self.model_picker_modal()),
       ActiveModal::rename_session => layers.push(self.rename_session_modal()),
+      ActiveModal::sessions => layers.push(self.sessions_modal()),
       _ => (),
     }
     if self.toasts.size() > 0 {
@@ -1741,6 +1744,43 @@ impl Shell {
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
           self.apply_model_configuration(applied)
+        },
+      },
+    )
+  }
+
+  fn mut sessions_modal() cui::View {
+    let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
+      self.dismiss_modal()
+    })
+    cui::child(
+      sessions::new,
+      sessions::Props{
+        themes: self.props.themes,
+        server: self.props.options.Server,
+        lifetime: self.lifetime.expect("mounted session picker"),
+        current_session_id: self.info.or(protocol::SessionInfo{}).ID,
+        dismiss: dismiss,
+        applied: fn(session: sessionclient::Session, snapshot: protocol::SessionSnapshot) {
+          match self.context {
+            context => {
+              let _ = context.dispatch(fn() {
+                self.active_modal = ActiveModal::none
+                self.attach(
+                  bootstrap::Attached{
+                    info: snapshot.Session,
+                    session: session,
+                    snapshot: snapshot,
+                  },
+                  self.props.options.ResolveLocation(
+                    self.lifetime.expect("session lifetime").Context,
+                    snapshot.Session.CWD,
+                  ),
+                )
+              })
+            },
+            _ => (),
+          }
         },
       },
     )
@@ -2227,6 +2267,8 @@ impl Shell {
         } else if item.key == "reload" {
           self.active_modal = ActiveModal::none
           self.reload_session()
+        } else if item.key == "sessions" {
+          self.active_modal = ActiveModal::sessions
         } else if item.key == "scratchpad" {
           self.active_modal = ActiveModal::none
           self.open_scratchpad()

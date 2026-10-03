@@ -50,16 +50,23 @@ struct PickerProps {
   footer: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
+  // toggle receives the selected key and true for expand, false for collapse.
+  toggle: fn(Str, Bool)?,
   on_activate: fn(Item),
 }
 
 struct Picker {
+  // source remains linked to cui::child's mutable props slot so parent
+  // rerenders can replace the catalog without remounting picker-owned state.
+  source: mut PickerProps,
   props: Props,
   title: Str,
   footer: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
+  toggle: fn(Str, Bool)?,
   list: mut cui::VirtualListRef,
+  context: cui::Context?,
   viewport: Int,
   hidden_above: Bool,
   hidden_below: Bool,
@@ -67,6 +74,7 @@ struct Picker {
 
 fn new_picker(props: mut PickerProps) mut Picker {
   (mut Picker{
+    source: props,
     props: Props{
       themes: props.themes,
       placeholder: props.placeholder,
@@ -86,7 +94,9 @@ fn new_picker(props: mut PickerProps) mut Picker {
     footer: props.footer,
     dismiss: props.dismiss,
     override: props.override,
+    toggle: props.toggle,
     list: cui::virtual_list_ref(),
+    context: Maybe::new<cui::Context>(),
     viewport: 0,
     hidden_above: false,
     hidden_below: false,
@@ -323,6 +333,7 @@ private fn overflow_slot(props: Props, key: Str, direction: Int, on_page: fn(Int
 
 impl cui::Lifecycle for Picker {
   fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
     let list = self.list
     let selection = self.props.selection
     (ctx.internal_commit)(
@@ -356,15 +367,33 @@ impl Picker {
         let next = first_enabled(items(self.view_props()))
         if next != "" {
           self.props.selection = next
+          self.reveal(next)
         }
       },
       on_selection_change: fn(selection: Str) {
         self.props.selection = selection
+        self.reveal(selection)
       },
       on_hover_change: fn(hover: Str) {
         self.props.hovered = hover
       },
       on_activate: self.props.on_activate,
+    }
+  }
+
+  private fn mut reveal(selection: Str) {
+    match self.context {
+      context => {
+        let list = self.list
+        (context.internal_commit)(
+          fn() {
+            let _ = list.current.map(fn(current) {
+              current.reveal(selection)
+            })
+          },
+        )
+      },
+      _ => (),
     }
   }
 
@@ -392,6 +421,17 @@ impl Picker {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
+    // Refresh parent-owned inputs while retaining picker-owned query,
+    // selection, hover, viewport, and focus state.
+    self.props.themes = self.source.themes
+    self.props.catalog = self.source.catalog
+    self.props.placeholder = self.source.placeholder
+    self.props.on_activate = self.source.on_activate
+    self.title = self.source.title
+    self.footer = self.source.footer
+    self.dismiss = self.source.dismiss
+    self.override = self.source.override
+    self.toggle = self.source.toggle
     let props = self.view_props()
     let navigation = navigation(props)
     let commands = mut List::new<keymap::Command>()
@@ -408,6 +448,27 @@ impl cui::Component for Picker {
         keymap::Trigger::press_or_repeat,
       ),
     )
+    match self.toggle {
+      callback => {
+        let collapse = keymap::simple_command("palette.collapse", "Collapse", fn() Bool {
+          if strings::TrimSpace(self.props.query) == "" {
+            callback(self.props.selection, false)
+          }
+          true
+        })
+        let expand = keymap::simple_command("palette.expand", "Expand", fn() Bool {
+          if strings::TrimSpace(self.props.query) == "" {
+            callback(self.props.selection, true)
+          }
+          true
+        })
+        commands.push(collapse)
+        commands.push(expand)
+        bindings.push(keymap::binding(keymap::key("left"), collapse.with()))
+        bindings.push(keymap::binding(keymap::key("right"), expand.with()))
+      },
+      _ => (),
+    }
     match self.override {
       callback => {
         let command = keymap::simple_command("palette.override", "Override", fn() Bool {
@@ -482,6 +543,16 @@ private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)
   )
 }
 
+private fn is_current(item: Item) Bool {
+  mut current = false
+  for term in item.search_terms {
+    if term == "__palette_current__" {
+      current = true
+    }
+  }
+  current
+}
+
 private fn row(props: Props, item: Item) cui::View {
   let active = item.key == props.selection
   let hovered = item.key == props.hovered
@@ -492,9 +563,16 @@ private fn row(props: Props, item: Item) cui::View {
     hovered and item.disabled_reason == "" => colors.picker_hovered,
     _ => colors.background,
   }
+  // Explorer rows identify the attached session with the primary text token;
+  // selection still controls only the row fill and gutter.
   let label_color = match item.disabled_reason != "" {
     true => colors.disabled,
-    false => colors.foreground,
+    false => {
+      match is_current(item) {
+        true => colors.primary,
+        false => colors.foreground,
+      }
+    },
   }
   let description = match item.disabled_reason == "" {
     true => item.description,
@@ -532,6 +610,13 @@ private fn row(props: Props, item: Item) cui::View {
         ],
         styles: ui::style(width: ui::cells(columns.hint + 2), flex_shrink: 0.0),
       ),
+      cui::text(
+        description,
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
       cui::box(
         [
           cui::text(
@@ -544,6 +629,8 @@ private fn row(props: Props, item: Item) cui::View {
         styles: ui::style(
           width: ui::cells(columns.meta + 2),
           flex_shrink: 0.0,
+          flex_direction: ui::FlexDirection::row,
+          justify_content: ui::Justify::end,
           padding: ui::Edges{
             top: ui::cells(0),
             right: ui::cells(2),
@@ -551,13 +638,6 @@ private fn row(props: Props, item: Item) cui::View {
             left: ui::cells(0),
           },
         ),
-      ),
-      cui::text(
-        description,
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-        text_style: ui::text_style(foreground: colors.muted),
-        wrap: ui::TextWrap::none,
-        overflow: ui::TextOverflow::ellipsis,
       ),
     ],
     styles: ui::style(

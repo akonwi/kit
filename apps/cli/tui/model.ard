@@ -338,6 +338,7 @@ impl cui::Component for Picker {
                     title: "Select model",
                     footer: "ctrl+o overrides",
                     dismiss: self.props.dismiss,
+                    toggle: Maybe::new<fn(Str, Bool)>(),
                     override: Maybe::new(fn(selected: Str) {
                       self.begin_context_edit(selected)
                     }),

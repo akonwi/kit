@@ -1,0 +1,368 @@
+use ard/async
+
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:github.com/akonwi/kit/internal/protocol
+use go:github.com/akonwi/kit/internal/sessionclient
+use go:kit/ffi/contextbridge
+use kit/tui/format
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+use go:strings
+use go:time
+
+// Props supplies the saved-session catalog service and receives a fully
+// attached replacement session after the user selects it.
+struct Props {
+  themes: theme::Context,
+  server: sessionclient::Server,
+  lifetime: contextbridge::Cancellation,
+  current_session_id: Str,
+  dismiss: keymap::SimpleCommand,
+  applied: fn(sessionclient::Session, protocol::SessionSnapshot),
+}
+
+struct Row {
+  session: protocol::SessionInfo,
+  depth: Int,
+}
+
+struct Picker {
+  props: Props,
+  sessions: [protocol::SessionInfo],
+  loading: Bool,
+  pending: Bool,
+  error: Str,
+  collapsed: [Str],
+  context: cui::Context?,
+}
+
+fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props.@,
+    sessions: [],
+    loading: true,
+    pending: false,
+    error: "",
+    collapsed: [],
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+// hierarchy retains server ordering among siblings while placing each child
+// directly after its parent, as the vaxis explorer does.
+private fn hierarchy(sessions: [protocol::SessionInfo]) [Row] {
+  let rows = mut List::new<Row>()
+  for session in sessions {
+    if session.ParentSessionID == "" {
+      for row in branch(sessions, session, 0) {
+        rows.push(row)
+      }
+    }
+  }
+  // Preserve sessions with an unavailable parent instead of dropping them.
+  for session in sessions {
+    mut present = false
+    for row in rows {
+      if row.session.ID == session.ID {
+        present = true
+      }
+    }
+    if not present {
+      for row in branch(sessions, session, 0) {
+        rows.push(row)
+      }
+    }
+  }
+  rows.@
+}
+
+private fn branch(sessions: [protocol::SessionInfo], session: protocol::SessionInfo, depth: Int) [Row] {
+  let rows = mut List::new<Row>()
+  rows.push(Row{session: session, depth: depth})
+  for child in sessions {
+    if child.ParentSessionID == session.ID {
+      for row in branch(sessions, child, depth + 1) {
+        rows.push(row)
+      }
+    }
+  }
+  rows.@
+}
+
+private fn child_count(sessions: [protocol::SessionInfo], id: Str) Int {
+  mut count = 0
+  for session in sessions {
+    if session.ParentSessionID == id {
+      count = count + 1
+    }
+  }
+  count
+}
+
+private fn is_collapsed(collapsed: [Str], id: Str) Bool {
+  mut found = false
+  for value in collapsed {
+    if value == id {
+      found = true
+    }
+  }
+  found
+}
+
+private fn hidden_by_collapsed(
+  sessions: [protocol::SessionInfo],
+  session: protocol::SessionInfo,
+  collapsed: [Str],
+) Bool {
+  mut parent = session.ParentSessionID
+  mut hidden = false
+  for _ in sessions {
+    if parent != "" {
+      if is_collapsed(collapsed, parent) {
+        hidden = true
+      }
+      for candidate in sessions {
+        if candidate.ID == parent {
+          parent = candidate.ParentSessionID
+        }
+      }
+    }
+  }
+  hidden
+}
+
+private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Bool, collapsed: [Str]) [palette::Item] {
+  let items = mut List::new<palette::Item>()
+  let now = time::Now()
+  for row in hierarchy(sessions) {
+    let session = row.session
+    if not hidden_by_collapsed(sessions, session, collapsed) {
+      let name = format::session_name(session)
+      // The branch joint occupies the current depth's indent. Only reserve
+      // space for preceding ancestor levels so nested rows do not double-indent.
+      let ancestor_depth = match row.depth > 0 {
+        true => row.depth - 1,
+        false => 0,
+      }
+      let prefix = strings::Repeat("  ", ancestor_depth)
+      let children = child_count(sessions, session.ID)
+      let disclosure = match children > 0 {
+        true => {
+          match is_collapsed(collapsed, session.ID) {
+            // Match vaxis's canonical disclosure glyphs and child count.
+            true => "▸ {children}",
+            false => "▾ {children}",
+          }
+        },
+        false => "",
+      }
+      let lineage = match session.ParentSessionID == "" {
+        true => "",
+        false => "└ ",
+      }
+      let current_marker = match session.ID == current {
+        true => "__palette_current__",
+        false => "",
+      }
+      items.push(
+        palette::Item{
+          key: session.ID,
+          label: "{prefix}{lineage}{name}",
+          hint: disclosure,
+          description: format::session_display_cwd(session.CWD, 40),
+          meta: format::format_session_updated(session.UpdatedAt, now),
+          search_terms: [session.CWD, session.ID, session.ParentSessionName, current_marker],
+          disabled_reason: match pending {
+            true => "switching…",
+            false => "",
+          },
+        },
+      )
+    }
+  }
+  items.@
+}
+
+impl cui::Lifecycle for Picker {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    let lifetime = self.props.lifetime
+    let server = self.props.server
+    let dispatch = context.dispatch
+    async::start(fn() {
+      let result = server.ListSessions(lifetime.Context, "")
+      let _ = dispatch(fn() {
+        match result {
+          ok(sessions) => {
+            self.sessions = sessions
+            self.loading = false
+          },
+          err(failure) => {
+            self.error = failure.error()
+            self.loading = false
+          },
+        }
+      })
+    })
+  }
+
+  fn mut unmounting(ctx: cui::Context) {}
+}
+
+impl Picker {
+  // Left and Right only change disclosure state. Selection remains under the
+  // Up and Down bindings instead of making horizontal keys duplicate them.
+  fn mut toggle(session_id: Str, expand: Bool) {
+    if child_count(self.sessions, session_id) > 0 {
+      self.set_collapsed(session_id, not expand)
+    }
+  }
+
+  private fn mut set_collapsed(session_id: Str, value: Bool) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          let collapsed = mut List::new<Str>()
+          for existing in self.collapsed {
+            if existing != session_id {
+              collapsed.push(existing)
+            }
+          }
+          if value {
+            collapsed.push(session_id)
+          }
+          self.collapsed = collapsed.@
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut select(session_id: Str, context: cui::Context) {
+    if self.pending or session_id == self.props.current_session_id {
+      self.props.dismiss.invoke()
+    } else {
+      self.pending = true
+      let lifetime = self.props.lifetime
+      let server = self.props.server
+      let dispatch = context.dispatch
+      async::start(fn() {
+        match server.Attach(lifetime.Context, session_id) {
+          ok(bound) => {
+            match bound.Snapshot(lifetime.Context) {
+              ok(snapshot) => {
+                let _ = dispatch(fn() {
+                  self.pending = false
+                  self.props.applied(bound, snapshot)
+                })
+              },
+              err(failure) => {
+                let _ = dispatch(fn() {
+                  self.pending = false
+                  self.error = "Could not switch sessions: {failure}"
+                })
+              },
+            }
+          },
+          err(failure) => {
+            let _ = dispatch(fn() {
+              self.pending = false
+              self.error = "Could not switch sessions: {failure}"
+            })
+          },
+        }
+      })
+    }
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    match self.loading {
+      true => {
+        modal::dialog(
+          self.props.themes,
+          modal::Dialog{
+            placement: modal::Placement::centered,
+            title: "Sessions",
+            meta: "",
+            header: [],
+            body: cui::box(
+              [spinner::spinner()],
+              styles: ui::style(
+                padding: ui::Edges{
+                  top: ui::cells(1),
+                  right: ui::cells(1),
+                  bottom: ui::cells(1),
+                  left: ui::cells(1),
+                },
+              ),
+            ),
+            footer: Maybe::new<cui::View>(),
+            autofocus: true,
+            dismiss: self.props.dismiss,
+            commands: Maybe::new<[keymap::Command]>(),
+            bindings: Maybe::new<[keymap::Binding]>(),
+          },
+        )
+      },
+      false => {
+        match self.error != "" {
+          true => {
+            modal::dialog(
+              self.props.themes,
+              modal::Dialog{
+                placement: modal::Placement::centered,
+                title: "Sessions",
+                meta: "",
+                header: [],
+                body: cui::text(
+                  self.error,
+                  styles: ui::style(
+                    padding: ui::Edges{
+                      top: ui::cells(1),
+                      right: ui::cells(1),
+                      bottom: ui::cells(1),
+                      left: ui::cells(1),
+                    },
+                  ),
+                  text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+                ),
+                footer: Maybe::new<cui::View>(),
+                autofocus: true,
+                dismiss: self.props.dismiss,
+                commands: Maybe::new<[keymap::Command]>(),
+                bindings: Maybe::new<[keymap::Binding]>(),
+              },
+            )
+          },
+          false => {
+            cui::child(
+              palette::new_picker,
+              palette::PickerProps{
+                themes: self.props.themes,
+                catalog: catalog(self.sessions, self.props.current_session_id, self.pending, self.collapsed),
+                placeholder: "Search sessions…",
+                initial_selection: self.props.current_session_id,
+                title: "Sessions",
+                footer: "",
+                dismiss: self.props.dismiss,
+                override: Maybe::new<fn(Str)>(),
+                toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
+                  self.toggle(session_id, expand)
+                }),
+                on_activate: fn(item: palette::Item) {
+                  self.select(item.key, context: self.context.expect("mounted session picker"))
+                },
+              },
+            )
+          },
+        }
+      },
+    }
+  }
+}
