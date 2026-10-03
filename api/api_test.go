@@ -2,10 +2,51 @@ package kit_test
 
 import (
 	"context"
+	"fmt"
 	"testing"
 
 	kit "github.com/akonwi/kit/api"
 )
+
+func ExampleClient() {
+	ctx := context.Background()
+	client, err := kit.Connect(ctx, kit.Local())
+	if err != nil {
+		return
+	}
+	defer client.Close()
+
+	sessions, err := client.ListSessions(ctx, kit.ListSessionsOptions{})
+	if err != nil || len(sessions) == 0 {
+		return
+	}
+	session, err := client.Attach(ctx, sessions[0].ID)
+	if err != nil {
+		return
+	}
+	submission, err := session.SendMessage(ctx, kit.Message{Text: "Summarize this repository"})
+	if err != nil || submission.Turn == nil {
+		return
+	}
+
+	updates, err := session.Watch(ctx)
+	if err != nil {
+		return
+	}
+	select {
+	case update := <-updates.Updates():
+		if update.Snapshot != nil {
+			fmt.Printf("attached to %s\n", update.Snapshot.Session.ID)
+		}
+	case <-ctx.Done():
+	}
+	_ = updates.Close()
+
+	outcome, err := submission.Turn.Wait(ctx)
+	if err == nil {
+		fmt.Println(outcome.Text)
+	}
+}
 
 func compilePublicSessionSurface(ctx context.Context, session *kit.Session) {
 	_, _ = session.Snapshot(ctx)
