@@ -611,15 +611,11 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 	if content == nil || filename == "" {
 		return protocol.AttachmentInfo{}, fmt.Errorf("attachment filename and content are required")
 	}
-	registry, err := LoadRegistry(c.paths)
+	registry, token, err := c.connection()
 	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
 	if err := compatible(registry); err != nil {
-		return protocol.AttachmentInfo{}, err
-	}
-	token, err := loadToken(c.paths)
-	if err != nil {
 		return protocol.AttachmentInfo{}, err
 	}
 
@@ -688,15 +684,11 @@ func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attac
 
 // OpenAttachment opens verified session-owned attachment bytes from the daemon.
 func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
-	registry, err := LoadRegistry(c.paths)
+	registry, token, err := c.connection()
 	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
 	if err := compatible(registry); err != nil {
-		return protocol.AttachmentInfo{}, nil, err
-	}
-	token, err := loadToken(c.paths)
-	if err != nil {
 		return protocol.AttachmentInfo{}, nil, err
 	}
 	path := "/v1/sessions/" + url.PathEscape(sessionID) + "/attachments/" + url.PathEscape(attachmentID)
@@ -956,15 +948,11 @@ func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) err
 
 // StreamSessionEvents opens the session's authenticated SSE event response.
 func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID string, after int64) (io.ReadCloser, error) {
-	registry, err := LoadRegistry(c.paths)
+	registry, token, err := c.connection()
 	if err != nil {
 		return nil, err
 	}
 	if err := compatible(registry); err != nil {
-		return nil, err
-	}
-	token, err := loadToken(c.paths)
-	if err != nil {
 		return nil, err
 	}
 	values := url.Values{}
@@ -999,15 +987,11 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 
 // DoSessionRequest performs an authenticated, compatibility-checked session request.
 func (c *Client) DoSessionRequest(ctx context.Context, method, path string, body io.Reader, hasJSONBody bool) (*http.Response, error) {
-	registry, err := LoadRegistry(c.paths)
+	registry, token, err := c.connection()
 	if err != nil {
 		return nil, err
 	}
 	if err := compatible(registry); err != nil {
-		return nil, err
-	}
-	token, err := loadToken(c.paths)
-	if err != nil {
 		return nil, err
 	}
 	request, err := http.NewRequestWithContext(ctx, method, registry.URL+path, body)

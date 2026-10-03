@@ -98,7 +98,12 @@ var _ sessionclient.BashExecution = (*localBashExecution)(nil)
 
 // NewLocalServer creates an authenticated loopback server client.
 func NewLocalServer(paths apphome.Paths) sessionclient.Server {
-	return &localServer{transport: kitserver.NewClient(paths)}
+	return NewServer(kitserver.NewClient(paths))
+}
+
+// NewServer binds stateful session behavior to an authenticated transport.
+func NewServer(transport *kitserver.Client) sessionclient.Server {
+	return &localServer{transport: transport}
 }
 
 func (c *localServer) ProbeCompatibility(ctx context.Context) error {
