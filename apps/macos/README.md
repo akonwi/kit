@@ -151,6 +151,7 @@ inputs used by `ThemeTests`, not app resources.
 
 ## References
 
+- [Session API and SDK development](../../docs/api-development.md)
 - [Client architecture](../../docs/adrs/0013-native-macos-client.md)
 - [Source editing and highlighting decision](../../docs/adrs/0013-native-source-editing-and-highlighting.md)
 - [Native design language](../../docs/design/macos-design-language.md)

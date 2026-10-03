@@ -109,6 +109,9 @@ contract.
 - Breaking changes are detected mechanically and tied to protocol versioning.
 - Contract changes are reviewable as diffs to one committed document.
 
+Contributor workflow and SDK parity checks are documented in
+[Developing the Kit session API and client SDKs](../api-development.md).
+
 ### Negative
 
 - The emitter and operation catalog are Kit-owned code that must be maintained.
