@@ -71,6 +71,11 @@ fn mut apply_result(result: Result) {
   activation behavior; they should not duplicate component lifecycle logic.
 - Document a shared component's ownership, props, focus behavior, async
   boundary, and any lower-level escape hatch in its module comments.
+- Stateful children must retain the mutable props slot supplied by `cui::child`
+  when parent-owned inputs can change. Do not snapshot catalogs, callbacks, or
+  presentation inputs only at construction. Refresh those parent-owned values
+  during render while preserving child-owned query, selection, hover, and
+  scrolling state.
 
 ### `palette::Picker`
 
@@ -79,6 +84,9 @@ fn mut apply_result(result: Result) {
   and standard navigation.
 - `initial_selection` means both selected **and revealed** after the virtual
   list mounts. Do not assume a list ref exists during initial render.
+- Reveal keyboard- or query-driven selection changes through
+  `Context.internal_commit`. Calling `VirtualListRef.reveal` before the updated
+  tree is reconciled can use stale list geometry and leave selection offscreen.
 - Keep command palette on its lower-level API when it needs command-argument
   query semantics.
 
@@ -95,10 +103,15 @@ Follow `.agents/skills/design/SKILL.md`:
 ## Validation checklist
 
 For a changed component, add or update a focused presentation/interaction test
-when practical. Verify the behavior that caused the change, especially:
+when practical. Assert visible rows, geometry, or focus after dispatch—not only
+that a callback fired. Mount the real state owner with its shared child when a
+parent update must flow back through child props. Size headless terminals so a
+fixed-height modal is not physically clipped unless clipping is the behavior
+under test. Verify the behavior that caused the change, especially:
 
 - first custom keypress renders its intended surface;
 - initial picker selection is visible;
+- line-level navigation keeps the selected virtual-list row visible;
 - Escape closes a newly opened dialog immediately;
 - async success updates the owning shell and closes the dialog;
 - async failure remains visible in the initiating component;
