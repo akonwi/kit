@@ -1,4 +1,5 @@
 use ard/async
+use ard/unsafe
 
 use cooper
 use cooper/animation
@@ -23,6 +24,7 @@ use kit/tui/modal
 use kit/tui/model
 use kit/tui/palette
 use kit/tui/rename
+use kit/tui/scratchpad
 use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/toast
@@ -41,6 +43,13 @@ enum Phase {
   auth,
   ready,
   failed,
+}
+
+// WorkspacePane identifies a retained shell workspace surface. Agent remains
+// permanent; secondary panes append here without changing composer ownership.
+enum WorkspacePane {
+  agent,
+  scratchpad,
 }
 
 enum ActiveModal {
@@ -217,7 +226,7 @@ private fn command_catalog(
       },
     ),
     command_item("reload", "Reload session context", "agents context refresh", ""),
-    command_item("scratchpad", "Open shared working notes", "notes memory", "not available yet"),
+    command_item("scratchpad", "Open shared working notes", "notes memory", ""),
     command_item("sessions", "Browse sessions", "list resume switch threads", "not available yet"),
     command_item(
       "subagents",
@@ -367,6 +376,15 @@ struct Shell {
   new_session_pending: Bool,
   model_refresh_pending: Bool,
   reload_pending: Bool,
+  workspace: WorkspacePane,
+  scratchpad_open: Bool,
+  scratchpad_session_generation: Int,
+  scratchpad_record: protocol::Scratchpad?,
+  scratchpad_draft: Str,
+  scratchpad_loading: Bool,
+  scratchpad_saving: Bool,
+  scratchpad_failure: Str,
+  scratchpad_generation: Int,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -459,6 +477,15 @@ fn new(props: mut Props) mut Shell {
     new_session_pending: false,
     model_refresh_pending: false,
     reload_pending: false,
+    workspace: WorkspacePane::agent,
+    scratchpad_open: false,
+    scratchpad_session_generation: 0,
+    scratchpad_record: Maybe::new<protocol::Scratchpad>(),
+    scratchpad_draft: "",
+    scratchpad_loading: false,
+    scratchpad_saving: false,
+    scratchpad_failure: "",
+    scratchpad_generation: 0,
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -1015,9 +1042,114 @@ impl Shell {
 
   fn mut conversation() cui::View {
     let colors = self.props.themes.current()
+    let workspace = match self.workspace {
+      WorkspacePane::agent => self.transcript_region(),
+      WorkspacePane::scratchpad => {
+        scratchpad::pane(
+          scratchpad::Props{
+            themes: self.props.themes,
+            content: self.scratchpad_draft,
+            loading: self.scratchpad_loading,
+            saving: self.scratchpad_saving,
+            failure: self.scratchpad_failure,
+            active: true,
+            on_change: fn(value: Str) {
+              self.change_scratchpad(value)
+            },
+            retry: fn() Bool {
+              self.retry_scratchpad()
+            },
+          },
+        )
+      },
+    }
+    let children = mut List::new<cui::View>()
+    if self.scratchpad_open {
+      children.push(self.workspace_tabs())
+      children.push(divider(colors.border))
+    }
+    children.push(workspace)
+    children.push(self.pending_row())
+    children.push(divider(colors.border))
+    children.push(self.composer_view())
     cui::box(
-      [self.transcript_region(), self.pending_row(), divider(colors.border), self.composer_view()],
+      children.@,
       styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
+    )
+  }
+
+  // The tab strip is host chrome. Pane bodies never repeat their title or
+  // close affordance, so future retained panes can share this layout.
+  fn mut workspace_tabs() cui::View {
+    let agent = keymap::simple_command("workspace.agent", "Show Agent", fn() Bool {
+      self.workspace = WorkspacePane::agent
+      true
+    })
+    let scratchpad_tab = keymap::simple_command(
+      "workspace.scratchpad",
+      "Show Scratchpad",
+      fn() Bool {
+        self.workspace = WorkspacePane::scratchpad
+        true
+      },
+    )
+    let close = keymap::simple_command("workspace.scratchpad.close", "Close Scratchpad", fn() Bool {
+      self.close_scratchpad()
+      true
+    })
+    let scratchpad_active = self.workspace == WorkspacePane::scratchpad
+    let scratchpad_variant = match scratchpad_active {
+      true => controls::ButtonVariant::primary,
+      false => controls::ButtonVariant::secondary,
+    }
+    cui::box(
+      [
+        controls::button(
+          self.props.themes,
+          "Agent",
+          agent,
+          variant: match self.workspace == WorkspacePane::agent {
+            true => controls::ButtonVariant::primary,
+            false => controls::ButtonVariant::secondary,
+          },
+          compact: true,
+        ),
+        cui::box(
+          [
+            controls::button(
+              self.props.themes,
+              "Scratchpad",
+              scratchpad_tab,
+              variant: scratchpad_variant,
+              compact: true,
+              trailing_padding: 0,
+            ),
+            controls::button(
+              self.props.themes,
+              match scratchpad_active {
+                true => "×",
+                false => " ",
+              },
+              close,
+              variant: scratchpad_variant,
+              compact: true,
+              hover_label: "×",
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row),
+        ),
+      ],
+      styles: ui::style(
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        gap: ui::cells(1),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
     )
   }
 
@@ -2095,6 +2227,9 @@ impl Shell {
         } else if item.key == "reload" {
           self.active_modal = ActiveModal::none
           self.reload_session()
+        } else if item.key == "scratchpad" {
+          self.active_modal = ActiveModal::none
+          self.open_scratchpad()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
@@ -2339,6 +2474,15 @@ impl Shell {
 // the UI thread.
 impl Shell {
   fn mut attach(attached: bootstrap::Attached, location: Str) {
+    self.scratchpad_session_generation = self.scratchpad_session_generation + 1
+    self.workspace = WorkspacePane::agent
+    self.scratchpad_open = false
+    self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+    self.scratchpad_draft = ""
+    self.scratchpad_loading = false
+    self.scratchpad_saving = false
+    self.scratchpad_failure = ""
+    self.scratchpad_generation = self.scratchpad_generation + 1
     self.session = Maybe::new(attached.session)
     self.location = location
     self.phase = Phase::ready
@@ -2737,6 +2881,204 @@ impl Shell {
           }
         },
         err(failure) => self.show_toast("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
+  }
+
+  // Opens the singleton, shared session scratchpad and loads its authoritative
+  // revision before allowing an edit.
+  fn mut open_scratchpad() {
+    self.workspace = WorkspacePane::scratchpad
+    self.scratchpad_open = true
+    if self.scratchpad_loading {
+      ()
+    } else if self.scratchpad_record.is_some() {
+      ()
+    } else {
+      match self.context {
+        context => {
+          match self.lifetime {
+            lifetime => {
+              match self.info {
+                info => {
+                  let transport = self.props.options.Transport
+                  let session_id = info.ID
+                  let dispatch = context.dispatch
+                  let session_generation = self.scratchpad_session_generation
+                  self.scratchpad_loading = true
+                  async::start(fn() {
+                    let result = httpapi::Call<httpapi::SessionPath, httpapi::NoBody, protocol::Scratchpad>(
+                      lifetime.Context,
+                      transport,
+                      httpapi::GetScratchpad,
+                      httpapi::SessionPath{SessionID: session_id},
+                      httpapi::NoBody{},
+                    )
+                    let _ = dispatch(fn() {
+                      if session_generation == self.scratchpad_session_generation {
+                        self.scratchpad_loading = false
+                        match result {
+                          ok(record) => {
+                            self.scratchpad_record = Maybe::new(record)
+                            self.scratchpad_draft = record.Content
+                            self.scratchpad_failure = ""
+                          },
+                          err(failure) => {
+                            self.scratchpad_failure = failure.error()
+                            self.show_toast(
+                              "Could not open scratchpad",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          },
+                        }
+                        (context.invalidate_root)()
+                      }
+                    })
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut close_scratchpad() {
+    self.save_scratchpad()
+    self.workspace = WorkspacePane::agent
+    self.scratchpad_open = false
+  }
+
+  // Debounces local edits so the revision-guarded server document is not
+  // rewritten for every keystroke. A newer edit invalidates queued saves.
+  fn mut change_scratchpad(value: Str) {
+    if self.scratchpad_loading {
+      ()
+    } else if self.scratchpad_draft == value {
+      ()
+    } else {
+      self.scratchpad_draft = value
+      self.scratchpad_failure = ""
+      self.scratchpad_generation = self.scratchpad_generation + 1
+      let generation = self.scratchpad_generation
+      match self.context {
+        context => {
+          match self.lifetime {
+            lifetime => {
+              let dispatch = context.dispatch
+              async::start(fn() {
+                time::Sleep(time::Millisecond * 250)
+                let _ = dispatch(fn() {
+                  if generation == self.scratchpad_generation {
+                    self.save_scratchpad()
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut retry_scratchpad() Bool {
+    self.scratchpad_failure = ""
+    self.save_scratchpad()
+    true
+  }
+
+  fn mut save_scratchpad() {
+    if self.scratchpad_saving or self.scratchpad_loading {
+      ()
+    } else {
+      match self.scratchpad_record {
+        record => {
+          match self.context {
+            context => {
+              match self.lifetime {
+                lifetime => {
+                  match self.info {
+                    info => {
+                      let content = self.scratchpad_draft
+                      if content != record.Content {
+                        let transport = self.props.options.Transport
+                        let session_id = info.ID
+                        let dispatch = context.dispatch
+                        let session_generation = self.scratchpad_session_generation
+                        self.scratchpad_saving = true
+                        async::start(fn() {
+                          let result = httpapi::Call<httpapi::SessionPath, protocol::UpdateScratchpadInput, protocol::Scratchpad>(
+                            lifetime.Context,
+                            transport,
+                            httpapi::UpdateScratchpad,
+                            httpapi::SessionPath{SessionID: session_id},
+                            protocol::UpdateScratchpadInput{ExpectedRevision: record.Revision, Content: content},
+                          )
+                          let _ = dispatch(fn() {
+                            if session_generation == self.scratchpad_session_generation {
+                              self.scratchpad_saving = false
+                              match result {
+                                ok(saved) => {
+                                  self.scratchpad_record = Maybe::new(saved)
+                                  self.scratchpad_failure = ""
+                                  if self.scratchpad_draft != content {
+                                    self.save_scratchpad()
+                                  }
+                                },
+                                err(failure) => {
+                                  match unsafe::cast<mut httpapi::APIError>(failure) {
+                                    api_error => {
+                                      if api_error.Code == "scratchpad_revision_conflict" and not unsafe::is_nil(api_error.CurrentScratchpad) {
+                                        self.scratchpad_record = Maybe::new(
+                                          api_error.CurrentScratchpad.@,
+                                        )
+                                        self.scratchpad_failure = "Scratchpad changed elsewhere. Retry to replace it with your local notes."
+                                      } else {
+                                        self.scratchpad_failure = failure.error()
+                                        self.show_toast(
+                                          "Scratchpad save failed",
+                                          failure.error(),
+                                          toast::Variant::error,
+                                          true,
+                                        )
+                                      }
+                                    },
+                                    _ => {
+                                      self.scratchpad_failure = failure.error()
+                                      self.show_toast(
+                                        "Scratchpad save failed",
+                                        failure.error(),
+                                        toast::Variant::error,
+                                        true,
+                                      )
+                                    },
+                                  }
+                                },
+                              }
+                              (context.invalidate_root)()
+                            }
+                          })
+                        })
+                      }
+                    },
+                    _ => (),
+                  }
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
       }
     }
   }

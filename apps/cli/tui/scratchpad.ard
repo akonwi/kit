@@ -1,0 +1,109 @@
+use cooper/cui
+use cooper/event
+use cooper/ui
+use kit/tui/theme
+
+// Props projects shell-owned shared scratchpad state into the pane.
+struct Props {
+  themes: theme::Context,
+  content: Str,
+  loading: Bool,
+  saving: Bool,
+  failure: Str,
+  active: Bool,
+  on_change: fn(Str),
+  retry: fn() Bool,
+}
+
+// pane presents the shared, session-scoped working notes editor.
+fn pane(props: Props) cui::View {
+  let colors = props.themes.current()
+  match props.loading {
+    true => {
+      cui::box(
+        [cui::text("Loading scratchpad…", text_style: ui::text_style(foreground: colors.muted))],
+        styles: ui::style(
+          flex_grow: 1.0,
+          padding: ui::Edges{
+            top: ui::cells(1),
+            right: ui::cells(1),
+            bottom: ui::cells(1),
+            left: ui::cells(1),
+          },
+        ),
+      )
+    },
+    false => {
+      let status = match props.failure != "" {
+        true => "Save failed: {props.failure}",
+        false => {
+          match props.saving {
+            true => "Saving…",
+            false => "",
+          }
+        },
+      }
+      let status_color = match props.failure != "" {
+        true => colors.danger_text,
+        false => colors.muted,
+      }
+      let retry = match props.failure != "" {
+        true => cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
+        false => cui::box([], styles: ui::style()),
+      }
+      cui::box(
+        [
+          cui::text_area(
+            props.content,
+            key: "scratchpad-editor",
+            focused: props.active,
+            placeholder: "Shared working notes…",
+            styles: ui::style(
+              width: ui::percent(100.0),
+              flex_grow: 1.0,
+              flex_basis: ui::cells(0),
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+            on_input: fn(value: Str, ctx: cui::Context) {
+              props.on_change(value)
+            },
+          ),
+          cui::box(
+            [
+              cui::text(status, text_style: ui::text_style(foreground: status_color)),
+              cui::box([], styles: ui::style(flex_grow: 1.0)),
+              retry,
+            ],
+            styles: ui::style(
+              flex_shrink: 0.0,
+              flex_direction: ui::FlexDirection::row,
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+            ),
+            on_mouse: fn(mouse: mut event::MouseEvent, ctx: cui::Context) {
+              if props.failure != "" and mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
+                let _ = props.retry()
+                mouse.prevent_default()
+              }
+            },
+          ),
+        ],
+        styles: ui::style(
+          width: ui::percent(100.0),
+          flex_grow: 1.0,
+          flex_direction: ui::FlexDirection::column,
+          overflow: ui::Overflow::hidden,
+        ),
+      )
+    },
+  }
+}
