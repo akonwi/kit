@@ -1892,6 +1892,18 @@ impl Shell {
         lifetime: self.lifetime.expect("mounted session picker"),
         current_session_id: self.info.or(protocol::SessionInfo{}).ID,
         dismiss: dismiss,
+        renamed: fn(session: protocol::SessionInfo) {
+          match self.context {
+            context => {
+              let _ = context.dispatch(fn() {
+                if session.ID == self.info.or(protocol::SessionInfo{}).ID {
+                  self.info = Maybe::new(session)
+                }
+              })
+            },
+            _ => (),
+          }
+        },
         applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {
           match self.context {
             context => {

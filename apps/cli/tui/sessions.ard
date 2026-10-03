@@ -22,6 +22,7 @@ struct Props {
   lifetime: contextbridge::Cancellation,
   current_session_id: Str,
   dismiss: keymap::SimpleCommand,
+  renamed: fn(protocol::SessionInfo),
   applied: fn(mut api::Session, protocol::SessionSnapshot),
 }
 
@@ -38,6 +39,10 @@ struct Picker {
   error: Str,
   collapsed: [Str],
   selection: Str,
+  rename_session_id: Str,
+  rename_name: Str,
+  rename_pending: Bool,
+  rename_error: Str,
   delete_session_id: Str,
   delete_pending: Bool,
   context: cui::Context?,
@@ -52,6 +57,10 @@ fn new(props: mut Props) mut Picker {
     error: "",
     collapsed: [],
     selection: props.current_session_id,
+    rename_session_id: "",
+    rename_name: "",
+    rename_pending: false,
+    rename_error: "",
     delete_session_id: "",
     delete_pending: false,
     context: Maybe::new<cui::Context>(),
@@ -248,6 +257,90 @@ impl Picker {
     }
   }
 
+  fn mut begin_rename(session_id: Str) {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      if not self.pending and not self.delete_pending {
+        for session in self.sessions {
+          if session.ID == session_id {
+            self.rename_session_id = session_id
+            self.rename_name = session.Name
+            self.rename_pending = false
+            self.rename_error = ""
+          }
+        }
+      }
+    })
+  }
+
+  fn mut rename_changed(name: Str) {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      if not self.rename_pending {
+        self.rename_name = name
+        self.rename_error = ""
+      }
+    })
+  }
+
+  fn mut cancel_rename() Bool {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      if not self.rename_pending {
+        self.rename_session_id = ""
+        self.rename_name = ""
+        self.rename_error = ""
+      }
+    })
+    true
+  }
+
+  fn mut confirm_rename() {
+    let name = strings::TrimSpace(self.rename_name)
+    if self.rename_session_id != "" and not self.rename_pending {
+      if name == "" {
+        let context = self.context.expect("mounted session picker")
+        let _ = context.dispatch(fn() {
+          self.rename_error = "Enter a session name"
+        })
+      } else {
+        let id = self.rename_session_id
+        let client = self.props.client
+        let lifetime = self.props.lifetime
+        let context = self.context.expect("mounted session picker")
+        let dispatch = context.dispatch
+        let _ = dispatch(fn() {
+          self.rename_pending = true
+          self.rename_error = ""
+        })
+        async::start(fn() {
+          let result = client.RenameSession(lifetime.Context, id, name)
+          let _ = dispatch(fn() {
+            self.rename_pending = false
+            match result {
+              ok(renamed) => {
+                let updated = mut List::new<protocol::SessionInfo>()
+                for session in self.sessions {
+                  if session.ID == renamed.ID {
+                    updated.push(renamed)
+                  } else {
+                    updated.push(session)
+                  }
+                }
+                self.sessions = updated.@
+                self.rename_session_id = ""
+                self.rename_name = ""
+                self.rename_error = ""
+                self.props.renamed(renamed)
+              },
+              err(failure) => { self.rename_error = "Could not rename session: {failure}" },
+            }
+          })
+        })
+      }
+    }
+  }
+
   fn mut begin_delete(session_id: Str) {
     let context = self.context.expect("mounted session picker")
     let _ = context.dispatch(fn() {
@@ -346,7 +439,9 @@ impl Picker {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
-    if self.delete_session_id != "" {
+    if self.rename_session_id != "" {
+      self.rename_modal()
+    } else if self.delete_session_id != "" {
       self.delete_modal()
     } else {
       match self.loading {
@@ -416,9 +511,12 @@ impl cui::Component for Picker {
                   placeholder: "Search sessions…",
                   initial_selection: self.props.current_session_id,
                   title: "Sessions",
-                  footer: "ctrl+d delete",
+                  footer: "ctrl+r rename · ctrl+d delete",
                   dismiss: self.props.dismiss,
                   override: Maybe::new<fn(Str)>(),
+                  rename: Maybe::new(fn(session_id: Str) {
+                    self.begin_rename(session_id)
+                  }),
                   remove: Maybe::new(fn(session_id: Str) {
                     self.begin_delete(session_id)
                   }),
@@ -443,6 +541,71 @@ impl cui::Component for Picker {
 }
 
 impl Picker {
+  private fn mut rename_modal() cui::View {
+    mut target = self.rename_session_id
+    for session in self.sessions {
+      if session.ID == self.rename_session_id {
+        target = format::session_name(session)
+      }
+    }
+    let cancel = keymap::simple_command("sessions.rename.cancel", "Cancel rename", fn() Bool {
+      self.cancel_rename()
+    })
+    let body = match self.rename_pending {
+      true => {
+        cui::box(
+          [spinner::spinner()],
+          styles: ui::style(flex_grow: 1.0, padding: ui::edges(ui::cells(1))),
+        )
+      },
+      false => {
+        cui::box(
+          [
+            cui::input(
+              self.rename_name,
+              key: "sessions.rename.input",
+              placeholder: "Session name",
+              autofocus: true,
+              on_input: fn(value: Str, ctx: cui::Context) {
+                self.rename_changed(value)
+              },
+              on_submit: fn(value: Str, ctx: cui::Context) {
+                self.confirm_rename()
+              },
+            ),
+            cui::text(
+              self.rename_error,
+              text_style: ui::text_style(foreground: self.props.themes.current().danger_text),
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::column,
+            flex_grow: 1.0,
+            padding: ui::edges(ui::cells(1)),
+          ),
+        )
+      },
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::picker,
+        title: "Rename session",
+        meta: match self.rename_pending {
+          true => "saving…",
+          false => target,
+        },
+        header: [],
+        body: body,
+        footer: Maybe::new<cui::View>(),
+        autofocus: self.rename_pending,
+        dismiss: cancel,
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
   private fn mut delete_modal() cui::View {
     mut target = self.delete_session_id
     for session in self.sessions {
