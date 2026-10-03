@@ -50,8 +50,9 @@ struct PickerProps {
   footer: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
-  // remove receives the selected key for feature-owned confirmation.
+  // remove and rename receive the selected key for feature-owned dialogs.
   remove: fn(Str)?,
+  rename: fn(Str)?,
   // toggle receives the selected key and true for expand, false for collapse.
   toggle: fn(Str, Bool)?,
   on_query_change: fn(Str),
@@ -69,6 +70,7 @@ struct Picker {
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
   remove: fn(Str)?,
+  rename: fn(Str)?,
   toggle: fn(Str, Bool)?,
   list: mut cui::VirtualListRef,
   context: cui::Context?,
@@ -100,6 +102,7 @@ fn new_picker(props: mut PickerProps) mut Picker {
     dismiss: props.dismiss,
     override: props.override,
     remove: props.remove,
+    rename: props.rename,
     toggle: props.toggle,
     list: cui::virtual_list_ref(),
     context: Maybe::new<cui::Context>(),
@@ -450,6 +453,7 @@ impl cui::Component for Picker {
     self.dismiss = self.source.dismiss
     self.override = self.source.override
     self.remove = self.source.remove
+    self.rename = self.source.rename
     self.toggle = self.source.toggle
     let props = self.view_props()
     let navigation = navigation(props)
@@ -496,6 +500,17 @@ impl cui::Component for Picker {
         })
         commands.push(command)
         bindings.push(keymap::binding(keymap::key("d", ctrl: true), command.with()))
+      },
+      _ => (),
+    }
+    match self.rename {
+      callback => {
+        let command = keymap::simple_command("palette.rename", "Rename", fn() Bool {
+          callback(self.props.selection)
+          true
+        })
+        commands.push(command)
+        bindings.push(keymap::binding(keymap::key("r", ctrl: true), command.with()))
       },
       _ => (),
     }
