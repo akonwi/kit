@@ -3,9 +3,12 @@ package clienttransport
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"hash"
 	"io"
 	"mime"
 	"mime/multipart"
@@ -699,6 +702,45 @@ func (c *Client) ResolveAttachments(ctx context.Context, sessionID string, attac
 	return output, nil
 }
 
+type attachmentReadCloser struct {
+	io.ReadCloser
+	expectedSize   int64
+	expectedSHA256 string
+	read           int64
+	digest         hash.Hash
+	terminalErr    error
+}
+
+func (r *attachmentReadCloser) Read(buffer []byte) (int, error) {
+	if r.terminalErr != nil {
+		return 0, r.terminalErr
+	}
+	count, err := r.ReadCloser.Read(buffer)
+	if count > 0 {
+		r.read += int64(count)
+		_, _ = r.digest.Write(buffer[:count])
+		if r.read > r.expectedSize {
+			r.terminalErr = protocolErrorf("attachment body exceeds declared size %d", r.expectedSize)
+			return count, r.terminalErr
+		}
+	}
+	if err == nil {
+		return count, nil
+	}
+	if errors.Is(err, io.EOF) || errors.Is(err, io.ErrUnexpectedEOF) {
+		if r.read != r.expectedSize {
+			r.terminalErr = protocolErrorf("attachment body size %d does not match declared size %d", r.read, r.expectedSize)
+			return count, r.terminalErr
+		}
+		actual := hex.EncodeToString(r.digest.Sum(nil))
+		if actual != r.expectedSHA256 {
+			r.terminalErr = protocolErrorf("attachment body checksum does not match metadata")
+			return count, r.terminalErr
+		}
+	}
+	return count, err
+}
+
 // OpenAttachment opens verified session-owned attachment bytes from the daemon.
 func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID string) (protocol.AttachmentInfo, io.ReadCloser, error) {
 	ctx, cleanup := c.operationContext(ctx)
@@ -754,7 +796,10 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 		return protocol.AttachmentInfo{}, nil, protocolErrorf("daemon attachment identity mismatch")
 	}
 	keepContext = true
-	return info, &lifetimeReadCloser{ReadCloser: response.Body, operation: "read attachment", cleanup: cleanup}, nil
+	owned := &lifetimeReadCloser{ReadCloser: response.Body, operation: "read attachment", cleanup: cleanup}
+	return info, &attachmentReadCloser{
+		ReadCloser: owned, expectedSize: info.Size, expectedSHA256: info.SHA256, digest: sha256.New(),
+	}, nil
 }
 
 // DecodeAPIError decodes one declared session API failure.
@@ -972,6 +1017,13 @@ func (c *Client) AbortSession(ctx context.Context, sessionID, turnID string) err
 		return protocolErrorf("daemon did not acknowledge turn abort")
 	}
 	return nil
+}
+
+// ReadSessionEvents validates bounded session-event SSE records in wire order.
+func ReadSessionEvents(body io.Reader, receive func(name, id string, batch protocol.SessionEventBatch) error) error {
+	return httpapi.ReadStream(body, httpapi.StreamSessionEvents, func(record httpapi.StreamRecord[protocol.SessionEventBatch]) error {
+		return receive(record.Name, record.ID, record.Payload)
+	})
 }
 
 // StreamSessionEvents opens the session's authenticated SSE event response.

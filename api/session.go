@@ -1,13 +1,12 @@
 package kit
 
 import (
-	"bufio"
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
 	"net/http"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -126,6 +125,11 @@ type sessionReadCloser struct {
 	once   sync.Once
 }
 
+func (r *sessionReadCloser) Read(buffer []byte) (int, error) {
+	count, err := r.ReadCloser.Read(buffer)
+	return count, projectError(err)
+}
+
 func (r *sessionReadCloser) Close() error {
 	r.once.Do(r.cancel)
 	return r.ReadCloser.Close()
@@ -172,6 +176,7 @@ func (e *StreamWatchTerminalError) Unwrap() error {
 
 var (
 	errEventResyncRequired  = errors.New("session event replay requires snapshot resynchronization")
+	errEventStreamFinished  = errors.New("session event stream reached its terminal event")
 	errTerminalEventMissing = errors.New("session event stream ended without a terminal event")
 	// ErrTranscriptCursorUnavailable indicates that the requested transcript cursor is no longer available.
 	ErrTranscriptCursorUnavailable = errors.New("transcript cursor unavailable")
@@ -1478,53 +1483,43 @@ func (s *EventStream) readSSE(
 		defer s.once.Do(s.cancel)
 	}
 
-	scanner := bufio.NewScanner(body)
-	scanner.Buffer(make([]byte, 64<<10), 8<<20)
-	var data strings.Builder
 	finished := false
 	resumedFromSnapshot := seenTurnStart
-	consume := func() bool {
-		if data.Len() == 0 {
-			return true
-		}
-		var batch protocol.SessionEventBatch
-		if err := json.Unmarshal([]byte(data.String()), &batch); err != nil {
-			s.err = &clienttransport.StreamError{Err: fmt.Errorf("decode session event stream: %w", err)}
-			return false
-		}
-		data.Reset()
-		if err := batch.Validate(); err != nil {
-			s.err = &clienttransport.StreamError{Err: fmt.Errorf("validate session event stream: %w", err)}
-			return false
-		}
+	err := clienttransport.ReadSessionEvents(body, func(name, id string, batch protocol.SessionEventBatch) error {
 		if batch.ResyncRequired {
-			s.err = errEventResyncRequired
-			return false
+			if name != httpapi.SessionResyncRecord || id != "" {
+				return &clienttransport.StreamError{Err: errors.New("session resync record has invalid framing")}
+			}
+			return errEventResyncRequired
+		}
+		if name != httpapi.SessionEventsRecord {
+			return &clienttransport.StreamError{Err: errors.New("session event batch has invalid record name")}
 		}
 		if expectedStreamID != "" && batch.StreamID != expectedStreamID {
-			s.err = errEventResyncRequired
-			return false
+			return errEventResyncRequired
 		}
 		if expectedStreamID == "" {
 			expectedStreamID = batch.StreamID
 		}
 		if len(batch.Events) > 0 && batch.Events[0].Sequence != after+1 {
-			s.err = errEventResyncRequired
-			return false
+			return errEventResyncRequired
 		}
 		receivedEvents := batch.Events
-		cursor := int64(0)
+		cursor := after
 		for _, event := range receivedEvents {
 			if event.Sequence > cursor {
 				cursor = event.Sequence
 			}
 		}
+		expectedID := batch.StreamID + ":" + strconv.FormatInt(cursor, 10)
+		if id != expectedID {
+			return &clienttransport.StreamError{Err: fmt.Errorf("session event record id %q does not match %q", id, expectedID)}
+		}
 		if reduceEvents != nil {
 			var reduceErr error
 			batch.Events, reduceErr = reduceEvents(receivedEvents)
 			if reduceErr != nil {
-				s.err = fmt.Errorf("%w: %v", errEventResyncRequired, reduceErr)
-				return false
+				return fmt.Errorf("%w: %v", errEventResyncRequired, reduceErr)
 			}
 		}
 		matching := make([]protocol.SessionEvent, 0, len(batch.Events))
@@ -1541,8 +1536,7 @@ func (s *EventStream) readSSE(
 			}
 			if !seenTurnStart {
 				if event.Kind() != protocol.SessionEventTurnStarted {
-					s.err = errEventResyncRequired
-					return false
+					return errEventResyncRequired
 				}
 				seenTurnStart = true
 			}
@@ -1555,11 +1549,10 @@ func (s *EventStream) readSSE(
 					continue
 				}
 			}
-			var err error
-			activeAssistantMessageID, err = reduceAssistantMessageID(activeAssistantMessageID, event)
-			if err != nil {
-				s.err = fmt.Errorf("%w: %v", errEventResyncRequired, err)
-				return false
+			var reduceErr error
+			activeAssistantMessageID, reduceErr = reduceAssistantMessageID(activeAssistantMessageID, event)
+			if reduceErr != nil {
+				return fmt.Errorf("%w: %v", errEventResyncRequired, reduceErr)
 			}
 			matching = append(matching, event)
 			if event.Kind() == protocol.SessionEventTurnStarted || event.Kind() == protocol.SessionEventAssistantStarted {
@@ -1571,46 +1564,30 @@ func (s *EventStream) readSSE(
 			select {
 			case s.updates <- matching:
 			case <-ctx.Done():
-				s.err = ctx.Err()
-				return false
+				return ctx.Err()
 			}
 		}
-		if cursor > 0 {
+		if cursor > after {
 			after = cursor
 			if recordCursor != nil {
 				recordCursor(batch.StreamID, cursor, seenTurnStart)
 			}
 		}
-		return !finished
-	}
-	for scanner.Scan() {
-		line := scanner.Text()
-		if line == "" {
-			if !consume() {
-				return
-			}
-			continue
+		if finished {
+			return errEventStreamFinished
 		}
-		if strings.HasPrefix(line, "data:") {
-			value := strings.TrimPrefix(line, "data:")
-			if strings.HasPrefix(value, " ") {
-				value = value[1:]
-			}
-			if data.Len() > 0 {
-				data.WriteByte('\n')
-			}
-			data.WriteString(value)
-		}
-	}
-	if err := scanner.Err(); err != nil && ctx.Err() == nil {
-		s.err = fmt.Errorf("read session event stream: %w", err)
+		return nil
+	})
+	switch {
+	case errors.Is(err, errEventStreamFinished):
 		return
-	}
-	if ctx.Err() != nil {
+	case err != nil:
+		s.err = err
+		return
+	case ctx.Err() != nil:
 		s.err = ctx.Err()
 		return
-	}
-	if !finished {
+	case !finished:
 		s.err = errTerminalEventMissing
 	}
 }

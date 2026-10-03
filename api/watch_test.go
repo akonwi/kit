@@ -38,7 +38,7 @@ func (t *scriptedWatchTransport) GetSessionSnapshot(context.Context, string) (Se
 func (t *scriptedWatchTransport) StreamSessionEvents(_ context.Context, _ string, streamID string, after int64) (io.ReadCloser, error) {
 	t.queries <- watchQuery{streamID: streamID, after: after}
 	if streamID == "stream_old" {
-		return io.NopCloser(strings.NewReader("data: {\"streamId\":\"stream_old\",\"firstSequence\":1,\"lastSequence\":1,\"resyncRequired\":true,\"events\":[]}\n\n")), nil
+		return io.NopCloser(strings.NewReader("event: session.resync\ndata: {\"streamId\":\"stream_old\",\"firstSequence\":1,\"lastSequence\":1,\"resyncRequired\":true,\"events\":[]}\n\n")), nil
 	}
 	return io.NopCloser(strings.NewReader("")), nil
 }
@@ -106,7 +106,7 @@ func TestSessionWatchReconnectsAfterLastDeliveredCursor(t *testing.T) {
 		t.Fatal(err)
 	}
 	transport := &cursorWatchTransport{
-		body:    "data: " + string(encoded) + "\n\n",
+		body:    "event: session.events\nid: stream_test:2\ndata: " + string(encoded) + "\n\n",
 		queries: make(chan watchQuery, 4),
 	}
 	session := newSession(nil, transport, sessionID, validWatchSnapshot(sessionID, "stream_test", 0))

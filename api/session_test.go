@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"reflect"
 	"strings"
@@ -11,6 +12,7 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/httpapi"
 	kitserver "github.com/akonwi/kit/internal/server"
 )
 
@@ -391,7 +393,7 @@ func TestLocalEventStreamDoesNotAdvanceCursorBeforeDelivery(t *testing.T) {
 	ctx, cancel := context.WithCancel(t.Context())
 	stream := &EventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
 	advanced := make(chan struct{}, 1)
-	body := io.NopCloser(strings.NewReader("data: " + string(encoded) + "\n\n"))
+	body := io.NopCloser(strings.NewReader("event: session.events\nid: stream_test:1\ndata: " + string(encoded) + "\n\n"))
 	go stream.readSSE(ctx, body, "run_test", false, "", "", 0, func(string, int64, bool) { advanced <- struct{}{} }, nil, false)
 	cancel()
 	<-stream.done
@@ -399,6 +401,37 @@ func TestLocalEventStreamDoesNotAdvanceCursorBeforeDelivery(t *testing.T) {
 	case <-advanced:
 		t.Fatal("cursor advanced for an undelivered batch")
 	default:
+	}
+}
+
+func TestEventStreamRejectsFramingAndBoundViolations(t *testing.T) {
+	t.Parallel()
+	batch := protocol.SessionEventBatch{
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 1,
+		Events: []protocol.SessionEvent{{
+			StreamID: "stream_test", Sequence: 1, SessionID: "session_test", TurnID: "run_test",
+			Payload: protocol.TurnStartedEvent{Status: protocol.TurnStatusRunning},
+		}},
+	}
+	encoded, err := json.Marshal(batch)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for name, body := range map[string]string{
+		"undeclared record": "event: session.other\nid: stream_test:1\ndata: " + string(encoded) + "\n\n",
+		"mismatched id":     "event: session.events\nid: stream_test:2\ndata: " + string(encoded) + "\n\n",
+		"oversized record":  ":" + strings.Repeat("x", httpapi.MaxSessionEventRecordBytes) + "\n\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			stream := &EventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
+			go stream.readSSE(t.Context(), io.NopCloser(strings.NewReader(body)), "run_test", false, "", "stream_test", 0, nil, nil, false)
+			for range stream.Updates() {
+			}
+			var protocolFailure *ProtocolError
+			if err := stream.Err(); !errors.As(err, &protocolFailure) {
+				t.Fatalf("stream error = %v, want *ProtocolError", err)
+			}
+		})
 	}
 }
 
@@ -415,7 +448,7 @@ func TestLocalEventStreamRejectsSequenceGapAcrossRecords(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		payload.WriteString("data: " + string(encoded) + "\n\n")
+		payload.WriteString(fmt.Sprintf("event: session.events\nid: stream_test:%d\ndata: %s\n\n", batch.LastSequence, encoded))
 	}
 	stream := &EventStream{updates: make(chan []protocol.SessionEvent), done: make(chan struct{})}
 	go stream.readSSE(t.Context(), io.NopCloser(strings.NewReader(payload.String())), "run_test", false, "", "stream_test", 0, nil, nil, false)
