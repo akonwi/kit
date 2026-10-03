@@ -205,7 +205,7 @@ private fn command_catalog(
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
     command_item("model", "Change session model", "engine", ""),
     command_item("name", "Rename session", "rename title", ""),
-    command_item("new", "Start a new session", "", "not available yet"),
+    command_item("new", "Start a new session", "", ""),
     command_item("quit", "Exit Kit", "close exit", ""),
     command_item(
       "refresh-models",
@@ -360,6 +360,7 @@ struct Shell {
   selection_copy_base: ui::Color,
   latest_out_of_view: Bool,
   start_pending: Bool,
+  new_session_pending: Bool,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -448,6 +449,7 @@ fn new(props: mut Props) mut Shell {
     selection_copy_base: ui::rgb(0, 0, 0),
     latest_out_of_view: false,
     start_pending: false,
+    new_session_pending: false,
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -2071,6 +2073,9 @@ impl Shell {
             false => value,
           }
           self.active_modal = ActiveModal::rename_session
+        } else if item.key == "new" {
+          self.active_modal = ActiveModal::none
+          self.create_new_session()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
@@ -2696,6 +2701,98 @@ impl Shell {
           }
         },
         err(failure) => self.show_toast("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
+  }
+
+  // Creates and attaches a sibling session using the current session's
+  // workspace and configuration. Creation is serialized locally to avoid
+  // replacing the attached session with a stale completion.
+  fn mut create_new_session() {
+    if self.new_session_pending {
+      self.show_toast(
+        "New session unavailable",
+        "Session creation is already in progress.",
+        toast::Variant::warning,
+        false,
+      )
+    } else {
+      match self.info {
+        info => {
+          match self.lifetime {
+            lifetime => {
+              match self.context {
+                context => {
+                  let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(8000))
+                  let transport = self.props.options.Transport
+                  let server = self.props.options.Server
+                  let resolve_location = self.props.options.ResolveLocation
+                  let dispatch = context.dispatch
+                  let input = protocol::CreateSessionInput{
+                    CWD: info.CWD,
+                    Model: info.Model,
+                    ThinkingLevel: info.ThinkingLevel,
+                    Temporary: false,
+                  }
+                  self.new_session_pending = true
+                  async::start(fn() {
+                    let created = httpapi::Call<httpapi::NoBody, protocol::CreateSessionInput, protocol::SessionInfo>(
+                      attempt.Context,
+                      transport,
+                      httpapi::CreateSession,
+                      httpapi::NoBody{},
+                      input,
+                    )
+                    match created {
+                      ok(info) => {
+                        let attached = match server.Attach(attempt.Context, info.ID) {
+                          ok(session) => {
+                            match session.Snapshot(attempt.Context) {
+                              ok(snapshot) => {
+                                Result::ok(
+                                  bootstrap::Attached{
+                                    info: info,
+                                    session: session,
+                                    snapshot: snapshot,
+                                  },
+                                )
+                              },
+                              err(failure) => Result::err(failure.error()),
+                            }
+                          },
+                          err(failure) => Result::err(failure.error()),
+                        }
+                        attempt.Cancel()
+                        let _ = dispatch(fn() {
+                          self.new_session_pending = false
+                          match attached {
+                            ok(next) => self.attach(next, resolve_location(lifetime.Context, next.info.CWD)),
+                            err(failure) => self.show_toast("New session failed", failure, toast::Variant::error, true),
+                          }
+                        })
+                      },
+                      err(failure) => {
+                        attempt.Cancel()
+                        let _ = dispatch(fn() {
+                          self.new_session_pending = false
+                          self.show_toast(
+                            "New session failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        })
+                      },
+                    }
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
       }
     }
   }
