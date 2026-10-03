@@ -20,13 +20,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [ ] CORE-PROTO-025 — Verify that separately built client and daemon releases
-  sharing the current session protocol interoperate in both directions against
-  pinned source revisions, without replacing an active daemon. Cover baseline
-  session operations, transcript and context-boundary projections, snapshots,
-  errors, event replay and resynchronization, SSE, and mutation admission.
-  Repeat that verification before allowing cross-release attachment on a future
-  protocol number.
 - [ ] CORE-LIFE-002 — Bound MCP transport reads before result conversion so an
   oversized server response fails closed instead of buffering without a limit.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
