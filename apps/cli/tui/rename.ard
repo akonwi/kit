@@ -17,6 +17,7 @@ struct Props {
   lifetime: contextbridge::Cancellation,
   session: protocol::SessionInfo,
   initial_name: Str,
+  submit_immediately: Bool,
   dismiss: keymap::SimpleCommand,
   applied: fn(protocol::SessionInfo),
 }
@@ -42,6 +43,9 @@ fn new(props: mut Props) mut Dialog {
 impl cui::Lifecycle for Dialog {
   fn mut mounted(ctx: cui::Context) {
     self.context = Maybe::new(ctx)
+    if self.props.submit_immediately {
+      self.submit()
+    }
   }
 
   fn mut unmounting(ctx: cui::Context) {}
