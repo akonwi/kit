@@ -6,7 +6,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func transcriptMessageWithContent(id, turnID, role string, content ...protocol.TranscriptContent) protocol.TranscriptMessage {

@@ -4,16 +4,20 @@ import (
 	"context"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 )
 
 func (s *appState) loadSessionMentions(runtime ui.Runtime) {
-	s.requestSessionMentions(runtime, s.Widget().(app).Options.Server)
+	options := s.Widget().(app).Options
+	s.requestSessionMentionsWith(runtime, options.listSessions)
 }
 
-func (s *appState) requestSessionMentions(runtime ui.Runtime, server sessionclient.Server) {
+func (s *appState) requestSessionMentions(runtime ui.Runtime, server Server) {
+	s.requestSessionMentionsWith(runtime, server.ListSessions)
+}
+
+func (s *appState) requestSessionMentionsWith(runtime ui.Runtime, list func(context.Context, string) ([]protocol.SessionInfo, error)) {
 	if s.sessionMentionCancel != nil {
 		s.sessionMentionCancel()
 	}
@@ -30,7 +34,7 @@ func (s *appState) requestSessionMentions(runtime ui.Runtime, server sessionclie
 	s.sessionMentionCancel = cancel
 	go func() {
 		defer cancel()
-		entries, err := server.ListSessions(ctx, "")
+		entries, err := list(ctx, "")
 		if attachmentContext.Err() != nil {
 			return
 		}

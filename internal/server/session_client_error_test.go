@@ -5,7 +5,7 @@ import (
 	"net/http"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestDecodeAnnotationEvidenceErrorPreservesUserMessage(t *testing.T) {

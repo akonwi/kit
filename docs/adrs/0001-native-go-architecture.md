@@ -382,8 +382,8 @@ internal/session/        parent runtime orchestration
 internal/subagent/       supervised child execution
 internal/plugin/         manifests, RPC, process supervision
 internal/storage/        SQLite and migrations
-internal/protocol/       canonical Go wire records and validation
-internal/client/         shared Go server/session clients
+api/contract/            canonical Go wire records and validation
+api/                     public stateful Go server/session client
 internal/tui/            vaxis presentation
 web/                     Solid/Mica browser source
 docs/adrs/               current architecture decisions

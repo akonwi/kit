@@ -9,7 +9,7 @@ Accepted
 Kit's session server is consumed by the native TUI and the native macOS
 client. Each client must agree with the server on routes, methods, path and
 query parameters, request and response bodies, status codes, typed error
-bodies, and SSE payloads. The canonical record types live in `internal/protocol`
+bodies, and SSE payloads. The canonical record types live in `api/contract`
 and carry `Validate` methods that enforce semantic invariants at every process
 or network boundary.
 
@@ -27,8 +27,8 @@ contract.
 
 ### Ownership
 
-- `internal/protocol` owns wire record types, enum values, and semantic
-  validation. It does not depend on OpenAPI tooling. Each enum type declares
+- `api/contract` owns wire record types, enum values, and semantic validation.
+  It does not depend on OpenAPI tooling. Each enum type declares
   its permitted values beside its constants with a plain Go method; validation
   and the emitter both use that list, and a test verifies it against the
   declared constants.
@@ -108,6 +108,9 @@ contract.
   definitions, so route and type drift in Go is a build error.
 - Breaking changes are detected mechanically and tied to protocol versioning.
 - Contract changes are reviewable as diffs to one committed document.
+
+Contributor workflow and SDK parity checks are documented in
+[Developing the Kit session API and client SDKs](../api-development.md).
 
 ### Negative
 

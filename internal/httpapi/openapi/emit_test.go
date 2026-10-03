@@ -7,8 +7,8 @@ import (
 	"sort"
 	"testing"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 type trickyEnum string

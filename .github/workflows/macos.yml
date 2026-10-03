@@ -1,7 +1,7 @@
 name: macOS
 on:
   pull_request:
-    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'internal/protocol/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
+    paths: ['apps/macos/**', 'api/kit-session.openapi.json', 'api/contract/**', 'internal/version/**', 'assets/kit/**', '.github/workflows/macos.yml']
 jobs:
   test:
     runs-on: macos-latest

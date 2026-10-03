@@ -6,22 +6,21 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
 )
 
 type followUpTestSession struct {
-	sessionclient.Session
-	sessionclient.FollowUpSession
-	sessionclient.StructuredPromptSession
+	Session
+	FollowUpSession
+	StructuredPromptSession
 	input protocol.PromptInput
 }
 
-func (s *followUpTestSession) SubmitPromptInput(_ context.Context, input protocol.PromptInput) (sessionclient.PromptSubmission, error) {
+func (s *followUpTestSession) SubmitPromptInput(_ context.Context, input protocol.PromptInput) (PromptSubmission, error) {
 	s.input = input
-	return sessionclient.PromptSubmission{Queued: true, Queue: protocol.FollowUpQueue{Count: 1, Previews: []string{"Annotation"}, AnnotationIDs: input.AnnotationIDs}}, nil
+	return PromptSubmission{Queued: true, Queue: protocol.FollowUpQueue{Count: 1, Previews: []string{"Annotation"}, AnnotationIDs: input.AnnotationIDs}}, nil
 }
 
 type followUpTestRuntime struct{ callbacks chan func() }

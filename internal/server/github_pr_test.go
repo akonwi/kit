@@ -11,8 +11,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func TestGitHubFooterLookupIsNonblockingCachedAndBranchScoped(t *testing.T) {
@@ -64,16 +64,16 @@ fi
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.transport.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
-	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
+	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// The held gh command cannot block the local Git/status response.
 	requestCtx, requestCancel := context.WithTimeout(t.Context(), time.Second)
 	defer requestCancel()
-	first, err := client.GetSessionVCSStatus(requestCtx, created.ID)
+	first, err := client.transport.GetSessionVCSStatus(requestCtx, created.ID)
 	if err != nil || first.Status == nil || first.Status.Head.Name != "main" || first.Status.PullRequest != nil {
 		t.Fatalf("initial VCS=%+v err=%v", first, err)
 	}
@@ -83,14 +83,14 @@ fi
 		t.Fatal(err)
 	}
 	eventuallyObservedVCS(t, func() bool {
-		status, err := client.GetSessionVCSStatus(t.Context(), created.ID)
+		status, err := client.transport.GetSessionVCSStatus(t.Context(), created.ID)
 		return err == nil && status.Status != nil && status.Status.PullRequest != nil && status.Status.PullRequest.Number == 7
 	})
 	if err := os.WriteFile(filepath.Join(fixture, "release"), nil, 0600); err != nil {
 		t.Fatal(err)
 	}
 	for range 4 {
-		status, err := client.GetSessionVCSStatus(t.Context(), created.ID)
+		status, err := client.transport.GetSessionVCSStatus(t.Context(), created.ID)
 		if err != nil || status.Status == nil || status.Status.Head.Name != "other" || status.Status.PullRequest == nil || status.Status.PullRequest.Number != 7 || status.Status.PullRequest.URL != "https://github.com/a/b/pull/7" {
 			t.Fatalf("current PR changed: %+v %v", status, err)
 		}
@@ -104,13 +104,13 @@ fi
 	}
 	git("checkout", "--detach")
 	eventuallyObservedVCS(t, func() bool {
-		detached, err := client.GetSessionVCSStatus(t.Context(), created.ID)
+		detached, err := client.transport.GetSessionVCSStatus(t.Context(), created.ID)
 		return err == nil && detached.Status != nil && detached.Status.Head.Kind == protocol.VCSHeadDetached && detached.Status.PullRequest == nil
 	})
 	// A return to the original branch may use its own completed cache, never the other branch's.
 	git("checkout", "main")
 	eventuallyObservedVCS(t, func() bool {
-		status, err := client.GetSessionVCSStatus(t.Context(), created.ID)
+		status, err := client.transport.GetSessionVCSStatus(t.Context(), created.ID)
 		return err == nil && status.Status != nil && status.Status.PullRequest != nil && status.Status.PullRequest.Number == 42
 	})
 	calls, err = os.ReadFile(filepath.Join(fixture, "calls"))

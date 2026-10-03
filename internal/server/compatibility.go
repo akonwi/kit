@@ -1,20 +1,20 @@
 package server
 
 import (
-	"errors"
 	"fmt"
 	"strconv"
 	"strings"
 
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/version"
 )
 
 // ErrIncompatibleDaemon indicates an authenticated daemon that this client must not use.
-var ErrIncompatibleDaemon = errors.New("local daemon is incompatible")
+var ErrIncompatibleDaemon = clienttransport.ErrIncompatibleServer
 
 // ErrDaemonNotReady indicates an authenticated daemon whose database is not ready.
 // Startup must not replace it or assume its database is safe for another process.
-var ErrDaemonNotReady = errors.New("local daemon database is not ready")
+var ErrDaemonNotReady = clienttransport.ErrServerNotReady
 
 // CompatibilityReason identifies why a verified daemon cannot serve this client.
 type CompatibilityReason string

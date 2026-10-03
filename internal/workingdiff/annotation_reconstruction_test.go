@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/workspace"
 )
 

@@ -3,7 +3,7 @@ package httpapi
 import (
 	"net/http"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 // ListSessionsPath binds the optional working-directory session filter.

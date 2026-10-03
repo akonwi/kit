@@ -8,8 +8,8 @@ import (
 	"strings"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 // CreateAnnotation allocates and inserts one session annotation atomically.

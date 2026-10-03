@@ -9,9 +9,8 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -51,7 +50,7 @@ type shellSnapshot struct {
 	AuthPending                     bool
 	Session                         protocol.SessionInfo
 	Messages                        []transcriptMessage
-	Attachments                     sessionclient.AttachmentSession
+	Attachments                     AttachmentSession
 	Running                         bool
 	AgentRunning                    bool
 	TurnActivity                    string
@@ -244,9 +243,9 @@ type shellView struct {
 	restoreComposer bool
 	Snapshot        shellSnapshot
 	Callbacks       shellCallbacks
-	WorkspaceFiles  sessionclient.WorkspaceFilesSession
-	Diff            sessionclient.DiffSession
-	Scratchpad      sessionclient.ScratchpadSession
+	WorkspaceFiles  WorkspaceFilesSession
+	Diff            DiffSession
+	Scratchpad      ScratchpadSession
 	presentation    transcriptPresentation
 	// WorkspaceDispatch optionally supplies the host's UI event-loop dispatcher.
 	WorkspaceDispatch func(func())
@@ -914,7 +913,7 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStart, MainAxisSize: ui.MainAxisSizeMin, Children: children}
 }
 
-func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments sessionclient.AttachmentSession, annotationsExpanded bool, toggleAnnotations ui.VoidCallback) ui.Widget {
+func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments AttachmentSession, annotationsExpanded bool, toggleAnnotations ui.VoidCallback) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
 	fill := userMessageBackground(theme)
 	if text := message.TextContent(); text != "" {

@@ -14,8 +14,7 @@ import (
 	"runtime"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 	_ "golang.org/x/image/webp"
 )
@@ -27,7 +26,7 @@ const (
 
 type attachmentPreview struct {
 	Attachment protocol.TranscriptContent
-	Loader     sessionclient.AttachmentSession
+	Loader     AttachmentSession
 }
 
 func (attachmentPreview) CreateState() ui.State { return &attachmentPreviewState{} }

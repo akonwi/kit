@@ -53,6 +53,10 @@ asked.
   the public RPC protocol.
 - Preserve canonical wire values and validate both sides of every process or
   network boundary.
+- When adding or changing session API capabilities, follow
+  [`docs/api-development.md`](docs/api-development.md) so the contract, public
+  Go client, generated OpenAPI, Swift client, compatibility decision, and
+  validation remain aligned.
 - Create packages to enforce meaningful ownership/dependency boundaries, not
   merely to hold shared types.
 - Once an interface is accepted, implement through it rather than bypassing it

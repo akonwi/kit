@@ -9,10 +9,9 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/protocol"
 	kitserver "github.com/akonwi/kit/internal/server"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"
@@ -46,7 +45,7 @@ func TestTerminalMismatchPausesSubmissionsWithoutDroppingDraft(t *testing.T) {
 	}
 	receiveAbortCompletion(t, state)()
 	application.Pump(120, 36)
-	state.startPromptSubmission("keep my draft", func(context.Context) (sessionclient.Turn, error) {
+	state.startPromptSubmission("keep my draft", func(context.Context) (Turn, error) {
 		t.Fatal("started a prompt while daemon is incompatible")
 		return nil, nil
 	})
@@ -65,7 +64,7 @@ func TestTerminalMismatchPausesSubmissionsWithoutDroppingDraft(t *testing.T) {
 	next.snapshot = func(context.Context) (protocol.SessionSnapshot, error) {
 		return protocol.SessionSnapshot{Session: protocol.SessionInfo{ID: "session_abort"}}, nil
 	}
-	server := &fakeServer{attach: func(string) (sessionclient.Session, error) { return next, nil }}
+	server := &fakeServer{attach: func(string) (Session, error) { return next, nil }}
 	state.recheckDaemonWith(server, nil)
 	if state.recovery != footerCheckingDaemon {
 		t.Fatalf("recheck footer = %v, want checking", state.recovery)
@@ -104,7 +103,7 @@ func TestActiveRunAdmissionGuardPreservesDraftAndShowsInformationalToast(t *test
 	_, state, _ := mountRunAbort(t)
 	state.recovery = footerReconnectingActivity
 	state.composer = "another prompt"
-	state.startPromptSubmission("another prompt", func(context.Context) (sessionclient.Turn, error) {
+	state.startPromptSubmission("another prompt", func(context.Context) (Turn, error) {
 		t.Fatal("submitted a prompt during an active run")
 		return nil, nil
 	})
@@ -1007,7 +1006,7 @@ func TestCreateSessionForSwitchUsesConfiguredDefaultsAndExactBinding(t *testing.
 	}}
 	server := &fakeServer{
 		createdResult: target.Session,
-		attach: func(sessionID string) (sessionclient.Session, error) {
+		attach: func(sessionID string) (Session, error) {
 			return fakeSession{id: sessionID, snapshot: target}, nil
 		},
 	}
@@ -1065,7 +1064,7 @@ func TestAttachSessionForSwitchUsesExactBindingSnapshotAndLocation(t *testing.T)
 	target := protocol.SessionSnapshot{Session: protocol.SessionInfo{
 		ID: "session_target", CWD: "/other/repo", Model: codexDefaultModel,
 	}}
-	server := &fakeServer{attach: func(sessionID string) (sessionclient.Session, error) {
+	server := &fakeServer{attach: func(sessionID string) (Session, error) {
 		return fakeSession{id: sessionID, snapshot: target}, nil
 	}}
 	resolvedCWD := ""
@@ -1561,7 +1560,7 @@ type fakeServer struct {
 	createCalls   int
 	createErr     error
 	attachErr     error
-	attach        func(string) (sessionclient.Session, error)
+	attach        func(string) (Session, error)
 	rename        func(string, string) (protocol.SessionInfo, error)
 	deleteSession func(string) error
 	list          func(string) ([]protocol.SessionInfo, error)
@@ -1622,7 +1621,7 @@ func (s *fakeServer) ProbeCompatibility(ctx context.Context) error {
 	return nil
 }
 
-func (s *fakeServer) Attach(_ context.Context, sessionID string) (sessionclient.Session, error) {
+func (s *fakeServer) Attach(_ context.Context, sessionID string) (Session, error) {
 	if s.attachErr != nil {
 		return nil, s.attachErr
 	}
@@ -1707,7 +1706,7 @@ func (fakeSession) Turn(context.Context, string) (protocol.TurnInfo, error) {
 	return protocol.TurnInfo{}, nil
 }
 
-func (fakeSession) Stream(context.Context, string) (sessionclient.EventStream, error) {
+func (fakeSession) Stream(context.Context, string) (EventStream, error) {
 	panic("unexpected Stream")
 }
 
@@ -1715,18 +1714,18 @@ func (fakeSession) Abort(context.Context, string) error { return nil }
 
 func (fakeSession) AbortBash(context.Context, string) error { return nil }
 
-func (fakeSession) Bash(context.Context, string) (sessionclient.BashExecution, error) {
+func (fakeSession) Bash(context.Context, string) (BashExecution, error) {
 	panic("unexpected Bash")
 }
 
-func (fakeSession) StartBash(context.Context, string, string, bool) (sessionclient.BashExecution, error) {
+func (fakeSession) StartBash(context.Context, string, string, bool) (BashExecution, error) {
 	panic("unexpected StartBash")
 }
 
-func (fakeSession) StartPrompt(context.Context, string) (sessionclient.Turn, error) {
+func (fakeSession) StartPrompt(context.Context, string) (Turn, error) {
 	panic("unexpected StartPrompt")
 }
 
-func (fakeSession) StartPromptCommand(context.Context, string, string) (sessionclient.Turn, error) {
+func (fakeSession) StartPromptCommand(context.Context, string, string) (Turn, error) {
 	panic("unexpected StartPromptCommand")
 }

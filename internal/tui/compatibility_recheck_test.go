@@ -6,12 +6,11 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	kitserver "github.com/akonwi/kit/internal/server"
-	"github.com/akonwi/kit/internal/sessionclient"
 )
 
-type serverWithoutCompatibilityProbe struct{ sessionclient.Server }
+type serverWithoutCompatibilityProbe struct{ Server }
 
 func TestProbeAndReattachChecksCompatibilityBeforeBinding(t *testing.T) {
 	t.Parallel()
@@ -22,7 +21,7 @@ func TestProbeAndReattachChecksCompatibilityBeforeBinding(t *testing.T) {
 			probes++
 			return &kitserver.DaemonCompatibilityError{Reason: kitserver.ClientProtocolOlder}
 		},
-		attach: func(string) (sessionclient.Session, error) {
+		attach: func(string) (Session, error) {
 			attachments++
 			return session, nil
 		},
@@ -50,7 +49,7 @@ func TestQueuedRunUpdateCannotChangeFrozenTranscript(t *testing.T) {
 	application, state, session := mountRunAbort(t)
 	state.attachmentCtx, state.attachmentCancel = context.WithCancel(state.ctx)
 	updates := make(chan []protocol.SessionEvent, 1)
-	session.stream = func(string) (sessionclient.EventStream, error) { return abortTestStream{updates: updates}, nil }
+	session.stream = func(string) (EventStream, error) { return abortTestStream{updates: updates}, nil }
 	state.watchSession(session, state.operation, "run_abort")
 	select {
 	case <-session.streams:
@@ -85,7 +84,7 @@ func TestDaemonRecheckFailureKeepsTranscriptAndDraft(t *testing.T) {
 	}{
 		{"still incompatible", &fakeServer{probe: func(context.Context) error {
 			return &kitserver.DaemonCompatibilityError{Reason: kitserver.ClientProtocolOlder}
-		}, attach: func(string) (sessionclient.Session, error) { t.Fatal("attached incompatible daemon"); return nil, nil }}},
+		}, attach: func(string) (Session, error) { t.Fatal("attached incompatible daemon"); return nil, nil }}},
 		{"session unavailable", &fakeServer{attachErr: errors.New("session not found")}},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

@@ -1,7 +1,7 @@
 package server
 
 import (
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"testing"
 	"time"
 )
@@ -11,13 +11,13 @@ func TestPluginFooterFixtureProjectsAndRevokesSharedChrome(t *testing.T) {
 	invoke := func(local, args string) {
 		t.Helper()
 		commandID := "footer-demo." + local
-		snapshot, err := client.GetSessionSnapshot(t.Context(), id)
+		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
 		for _, candidate := range snapshot.PluginCommands {
 			if candidate.ID == commandID {
-				if err := client.ExecutePluginCommand(t.Context(), id, protocol.PluginCommandInput{ID: commandID, Instance: candidate.Instance, Args: args}); err != nil {
+				if err := client.transport.ExecutePluginCommand(t.Context(), id, protocol.PluginCommandInput{ID: commandID, Instance: candidate.Instance, Args: args}); err != nil {
 					t.Fatal(err)
 				}
 				return
@@ -29,7 +29,7 @@ func TestPluginFooterFixtureProjectsAndRevokesSharedChrome(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			snapshot, err := client.GetSessionSnapshot(t.Context(), id)
+			snapshot, err := client.transport.GetSessionSnapshot(t.Context(), id)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -66,7 +66,7 @@ func TestPluginFooterFixtureProjectsAndRevokesSharedChrome(t *testing.T) {
 		}
 		time.Sleep(5 * time.Millisecond)
 		var err error
-		visible, err = client.GetSessionSnapshot(t.Context(), id)
+		visible, err = client.transport.GetSessionSnapshot(t.Context(), id)
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -77,7 +77,7 @@ func TestPluginFooterFixtureProjectsAndRevokesSharedChrome(t *testing.T) {
 	wait("", false)
 	invoke("replace", "Before reload")
 	wait("Before reload", true)
-	if _, err := client.ReloadSession(t.Context(), id); err != nil {
+	if _, err := client.transport.ReloadSession(t.Context(), id); err != nil {
 		t.Fatal(err)
 	}
 	wait("", false)

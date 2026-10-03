@@ -3,15 +3,14 @@ package tui
 import (
 	"context"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func (s *appState) openWorkspaceFilePicker() {
 	if !s.admitRootModal() {
 		return
 	}
-	files, ok := s.bound.(sessionclient.WorkspaceFilesSession)
+	files, ok := s.bound.(WorkspaceFilesSession)
 	if !ok {
 		s.showToast(toastInput{Title: "Workspace files unavailable", Subtitle: "This session does not expose workspace files.", Variant: toastWarning})
 		return
@@ -42,7 +41,7 @@ func (s *appState) refreshWorkspaceFilePicker() {
 	}
 	s.ensureIndexedFiles(s.Context().Runtime(), true)
 	if s.workspaceFilePicker.Workspace.WorkspaceID == "" || s.workspaceFilePicker.WorkspaceError != "" {
-		files, ok := s.bound.(sessionclient.WorkspaceFilesSession)
+		files, ok := s.bound.(WorkspaceFilesSession)
 		if !ok {
 			return
 		}
@@ -85,7 +84,7 @@ func (s *appState) reconcileWorkspaceIdentity(workspace *protocol.WorkspaceRef) 
 	}
 }
 
-func (s *appState) loadWorkspaceFilePickerRef(ctx context.Context, files sessionclient.WorkspaceFilesSession, generation uint64) {
+func (s *appState) loadWorkspaceFilePickerRef(ctx context.Context, files WorkspaceFilesSession, generation uint64) {
 	runtime := s.Context().Runtime()
 	sessionID, cwd := s.session.ID, s.session.CWD
 	go func() {

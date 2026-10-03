@@ -6,8 +6,8 @@ import (
 	"strings"
 	"testing"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func pluginToastRecord(data string) string { return "event: plugin.toast\ndata: " + data + "\n\n" }

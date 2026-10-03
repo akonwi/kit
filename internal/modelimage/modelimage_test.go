@@ -3,8 +3,8 @@ package modelimage_test
 import (
 	"testing"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/modelimage"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 // The protocol declares its attachment bound without depending on Droids; it

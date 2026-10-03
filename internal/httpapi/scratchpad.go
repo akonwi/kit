@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"reflect"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func scratchpadCode(code protocol.ScratchpadErrorCode) ErrorCode { return ErrorCode(code) }

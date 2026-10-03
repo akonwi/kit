@@ -5,8 +5,8 @@ import (
 	"strings"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	kitmarkdown "github.com/akonwi/kit/internal/markdown"
-	"github.com/akonwi/kit/internal/protocol"
 
 	"go.rockorager.dev/vaxis/ui"
 )

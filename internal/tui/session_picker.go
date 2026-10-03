@@ -8,8 +8,8 @@ import (
 	"os"
 	"sync"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	kit "github.com/akonwi/kit/api"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"golang.org/x/term"
@@ -23,7 +23,8 @@ const (
 // SessionPickerOptions configures the standalone saved-session picker.
 type SessionPickerOptions struct {
 	Context context.Context
-	Server  sessionclient.Server
+	Client  *kit.Client
+	Server  Server // Test seam; production callers use Client.
 }
 
 type sessionPickerResult struct {
@@ -59,8 +60,8 @@ func (r *sessionPickerResult) visibleRegionHeight(maxRows int) int {
 // RunSessionPicker runs a bounded primary-screen session manager. It returns an
 // exact session ID when the user opens one, or an empty ID when they cancel.
 func RunSessionPicker(options SessionPickerOptions) (string, error) {
-	if options.Server == nil {
-		return "", errors.New("tui: session picker server is required")
+	if options.Client == nil && options.Server == nil {
+		return "", errors.New("tui: session picker API client is required")
 	}
 	if options.Context == nil {
 		options.Context = context.Background()
@@ -112,7 +113,7 @@ func (s *sessionPickerState) InitState() {
 		s.controller.Resolve(generation, projectSessionExplorerItems(widget.initialSessions), widget.initialError)
 	} else {
 		go func() {
-			sessions, err := listSessionPickerSessions(s.ctx, options.Server)
+			sessions, err := listSessionPickerSessions(s.ctx, options)
 			if s.ctx.Err() != nil {
 				return
 			}
@@ -160,7 +161,7 @@ func (s *sessionPickerState) Build(ctx ui.BuildContext) ui.Widget {
 				s.SetState(func() { s.controller.SetRenameText(value) })
 			},
 			RenameSubmitted: func(_ ui.EventContext, value string) {
-				s.rename(value, widget.Options.Server)
+				s.rename(value, widget.Options)
 			},
 		},
 	}
@@ -222,8 +223,11 @@ func sessionPickerHeight(snapshot sessionExplorerSnapshot) int {
 	return max(sessionPickerMinHeight, min(sessionPickerMaxHeight, rows))
 }
 
-func listSessionPickerSessions(ctx context.Context, server sessionclient.Server) ([]protocol.SessionInfo, error) {
-	return server.ListSessions(ctx, "")
+func listSessionPickerSessions(ctx context.Context, options SessionPickerOptions) ([]protocol.SessionInfo, error) {
+	if options.Client != nil {
+		return options.Client.ListSessions(ctx, kit.ListSessionsOptions{})
+	}
+	return options.Server.ListSessions(ctx, "")
 }
 
 func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui.EventResult {
@@ -249,7 +253,7 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 			return ui.EventHandled
 		}
 		if key.EventType != vaxis.EventPaste && key.MatchString("Enter") {
-			s.deleteSelected(s.Widget().(sessionPicker).Options.Server)
+			s.deleteSelected(s.Widget().(sessionPicker).Options)
 		}
 		return ui.EventHandled
 	}
@@ -268,7 +272,7 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 			return ui.EventHandled
 		}
 		if key.MatchString("Enter") {
-			s.rename(s.controller.RenameText, s.Widget().(sessionPicker).Options.Server)
+			s.rename(s.controller.RenameText, s.Widget().(sessionPicker).Options)
 			return ui.EventHandled
 		}
 		if s.controller.RenamePending {
@@ -291,7 +295,7 @@ func (s *sessionPickerState) HandleEvent(ctx ui.EventContext, event ui.Event) ui
 	return ui.EventHandled
 }
 
-func (s *sessionPickerState) rename(value string, server sessionclient.Server) {
+func (s *sessionPickerState) rename(value string, options SessionPickerOptions) {
 	s.SetState(func() { s.controller.SetRenameText(value) })
 	var generation uint64
 	var sessionID, name string
@@ -304,7 +308,13 @@ func (s *sessionPickerState) rename(value string, server sessionclient.Server) {
 	}
 	runtime := s.Context().Runtime()
 	go func() {
-		renamed, err := server.RenameSession(s.ctx, sessionID, name)
+		var renamed protocol.SessionInfo
+		var err error
+		if options.Client != nil {
+			renamed, err = options.Client.RenameSession(s.ctx, sessionID, name)
+		} else {
+			renamed, err = options.Server.RenameSession(s.ctx, sessionID, name)
+		}
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -314,7 +324,7 @@ func (s *sessionPickerState) rename(value string, server sessionclient.Server) {
 	}()
 }
 
-func (s *sessionPickerState) deleteSelected(server sessionclient.Server) {
+func (s *sessionPickerState) deleteSelected(options SessionPickerOptions) {
 	var generation uint64
 	var sessionID string
 	var started bool
@@ -326,7 +336,12 @@ func (s *sessionPickerState) deleteSelected(server sessionclient.Server) {
 	}
 	runtime := s.Context().Runtime()
 	go func() {
-		err := server.DeleteSession(s.ctx, sessionID)
+		var err error
+		if options.Client != nil {
+			err = options.Client.DeleteSession(s.ctx, sessionID)
+		} else {
+			err = options.Server.DeleteSession(s.ctx, sessionID)
+		}
 		if s.ctx.Err() != nil {
 			return
 		}

@@ -74,8 +74,9 @@ IDs but must not redefine server, persistence, or protocol semantics.
   stale.
 - [ ] CORE-PROTO-006 — Bound client queues and disconnect clients that cannot
   keep up without blocking authoritative session work.
-- [ ] CORE-PROTO-007 — Run the shared session API conformance tests against the
-  production session client, not only the server.
+- [x] CORE-PROTO-007 — Implement the public typed Go client accepted in ADR
+  0038, migrate the TUI, print mode, and RPC bridge to it, and retire the
+  existing internal client stacks.
 
 ### Workspace data, tools, attachments, and interactions
 

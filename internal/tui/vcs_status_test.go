@@ -7,8 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestFormatVCSLocation(t *testing.T) {
@@ -310,7 +309,7 @@ func TestWatchVCSStreamStopsOnTerminalErrorsWithoutFallback(t *testing.T) {
 		id: "session_current",
 		watchVCS: func(context.Context, func(protocol.SessionVCSStatus)) error {
 			connections++
-			return &sessionclient.StreamWatchTerminalError{Err: errors.New("session not found")}
+			return &StreamWatchTerminalError{Err: errors.New("session not found")}
 		},
 		vcsStatus: func(context.Context) (protocol.SessionVCSStatus, error) {
 			snapshots++

@@ -12,8 +12,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func TestPluginTurnEventsFlowFromDaemonModelLifecycle(t *testing.T) {
@@ -64,17 +64,17 @@ for line in sys.stdin:
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.transport.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
-	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, func() bool {
-		snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+		snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 		return err == nil && len(snapshot.PluginCommands) == 1 && snapshot.PluginCommands[0].ID == "turn-events.ready"
 	})
-	result, err := client.Prompt(t.Context(), created.ID, "one prompt")
+	result, err := client.transport.Prompt(t.Context(), created.ID, "one prompt")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -98,8 +98,8 @@ for line in sys.stdin:
 	}
 
 	reconnected := NewClient(paths)
-	defer reconnected.http.CloseIdleConnections()
-	if _, err := reconnected.GetSessionSnapshot(t.Context(), created.ID); err != nil {
+	defer reconnected.transport.CloseIdleConnections()
+	if _, err := reconnected.transport.GetSessionSnapshot(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
 	time.Sleep(100 * time.Millisecond)

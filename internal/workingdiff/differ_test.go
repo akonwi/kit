@@ -8,7 +8,7 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func TestDifferReconstructsAndPreservesLF(t *testing.T) {

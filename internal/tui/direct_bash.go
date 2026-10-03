@@ -7,9 +7,8 @@ import (
 	"sync/atomic"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/identifier"
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -66,7 +65,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 		s.bashHistory.Close()
 	})
 	go func() {
-		execution, err := bound.StartBash(s.ctx, executionID, command, excludeFromContext)
+		execution, err := startBash(s.ctx, bound, executionID, command, excludeFromContext)
 		if s.ctx.Err() != nil {
 			return
 		}
@@ -135,7 +134,7 @@ func (s *appState) startDirectBash(value, command string, excludeFromContext boo
 	}()
 }
 
-func (s *appState) abortBashAdmission(bound sessionclient.Session, executionID string) {
+func (s *appState) abortBashAdmission(bound boundSession, executionID string) {
 	go func() {
 		for attempt := 0; attempt < 6; attempt++ {
 			ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
@@ -149,7 +148,7 @@ func (s *appState) abortBashAdmission(bound sessionclient.Session, executionID s
 	}()
 }
 
-func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, executionID string) {
+func (s *appState) resumeBash(bound boundSession, operation uint64, executionID string) {
 	if executionID == "" {
 		return
 	}
@@ -159,7 +158,7 @@ func (s *appState) resumeBash(bound sessionclient.Session, operation uint64, exe
 		attachmentCtx = s.ctx
 	}
 	go func() {
-		execution, err := bound.Bash(attachmentCtx, executionID)
+		execution, err := lookupBash(attachmentCtx, bound, executionID)
 		if attachmentCtx.Err() != nil || s.reportDaemonMismatch(runtime, bound, operation, err) {
 			return
 		}
@@ -194,7 +193,7 @@ func (s *appState) reportBashRecoveryError(id, title string, err error) {
 	s.showToast(toastInput{Title: title, Subtitle: err.Error(), Variant: toastError, Persistent: true})
 }
 
-func (s *appState) watchBash(execution sessionclient.BashExecution, operation uint64) {
+func (s *appState) watchBash(execution BashExecution, operation uint64) {
 	runtime := s.Context().Runtime()
 	bound := s.bound
 	attachmentCtx := s.attachmentCtx
@@ -337,7 +336,7 @@ func (s *appState) openBashHistory(_ int) bool {
 // reflect persisted state, including executions that are no longer in the
 // loaded transcript and excluded executions that never entered droid history.
 func (s *appState) loadBashHistory() {
-	history, ok := s.bound.(sessionclient.BashHistorySession)
+	history, ok := s.bound.(BashHistorySession)
 	if !ok {
 		// Without the capability there is nothing to load, so the picker must
 		// stop presenting an in-flight read rather than waiting forever.
@@ -410,7 +409,7 @@ func (s *appState) loadBashHistory() {
 // reports the result. The deadline is created and cancelled inside the
 // goroutine: the read outlives its caller, so a caller-owned cancel would
 // abort the request in flight and discard its result.
-func readBashHistoryAsync(parent context.Context, history sessionclient.BashHistorySession, before uint64, limit int, report func([]bashHistoryEntry, bool, uint64, error, bool)) {
+func readBashHistoryAsync(parent context.Context, history BashHistorySession, before uint64, limit int, report func([]bashHistoryEntry, bool, uint64, error, bool)) {
 	go func() {
 		ctx, cancel := context.WithTimeout(parent, 3*time.Second)
 		defer cancel()
@@ -422,7 +421,7 @@ func readBashHistoryAsync(parent context.Context, history sessionclient.BashHist
 // loadOlderBashHistory appends the next older page after navigation reaches the
 // oldest loaded entry.
 func (s *appState) loadOlderBashHistory() {
-	history, ok := s.bound.(sessionclient.BashHistorySession)
+	history, ok := s.bound.(BashHistorySession)
 	if !ok || s.bashHistory.Loading || !s.bashHistory.HasMore || s.bashHistory.OlderBefore == 0 {
 		return
 	}
@@ -467,7 +466,7 @@ func (s *appState) loadOlderBashHistory() {
 
 // loadBashHistoryEntries reads one page of durable direct-bash history and
 // projects it into recall entries preserving each execution's context mode.
-func loadBashHistoryEntries(ctx context.Context, history sessionclient.BashHistorySession, before uint64, limit int) ([]bashHistoryEntry, bool, uint64, error) {
+func loadBashHistoryEntries(ctx context.Context, history BashHistorySession, before uint64, limit int) ([]bashHistoryEntry, bool, uint64, error) {
 	page, err := history.BashHistory(ctx, before, limit)
 	if err != nil {
 		return nil, false, 0, err

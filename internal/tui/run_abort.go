@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 const turnAbortTimeout = 3 * time.Second

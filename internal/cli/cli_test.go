@@ -3,6 +3,7 @@ package cli
 import (
 	"bytes"
 	"context"
+	"errors"
 	"io"
 	"path/filepath"
 	"strconv"
@@ -10,10 +11,47 @@ import (
 	"testing"
 	"time"
 
+	kit "github.com/akonwi/kit/api"
 	"github.com/akonwi/kit/internal/apphome"
 	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/version"
 )
+
+func TestBootstrapLocalClientEnsuresDaemonBeforeConnecting(t *testing.T) {
+	var calls []string
+	client, err := bootstrapLocalClientWith(t.Context(), func(ctx context.Context) error {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("ensure context has no deadline")
+		}
+		calls = append(calls, "ensure")
+		return nil
+	}, func(ctx context.Context) (*kit.Client, error) {
+		if _, ok := ctx.Deadline(); !ok {
+			t.Fatal("connect context has no deadline")
+		}
+		calls = append(calls, "connect")
+		return nil, nil
+	})
+	if err != nil || client != nil {
+		t.Fatalf("bootstrap = (%v, %v), want (nil, nil)", client, err)
+	}
+	if got := strings.Join(calls, ","); got != "ensure,connect" {
+		t.Fatalf("calls = %q, want ensure,connect", got)
+	}
+}
+
+func TestBootstrapLocalClientDoesNotConnectWhenEnsureFails(t *testing.T) {
+	want := errors.New("ensure failed")
+	_, err := bootstrapLocalClientWith(t.Context(), func(context.Context) error {
+		return want
+	}, func(context.Context) (*kit.Client, error) {
+		t.Fatal("connect called after ensure failure")
+		return nil, nil
+	})
+	if !errors.Is(err, want) {
+		t.Fatalf("error = %v, want wrapped ensure failure", err)
+	}
+}
 
 func TestServerStatusShowsDaemonAndClientCompatibility(t *testing.T) {
 	t.Parallel()

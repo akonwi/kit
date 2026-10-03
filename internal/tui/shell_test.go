@@ -10,8 +10,8 @@ import (
 	"time"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/protocol"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
 	"go.rockorager.dev/vaxis/ui/uitest"

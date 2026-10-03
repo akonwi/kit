@@ -5,8 +5,7 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -110,7 +109,7 @@ func messageHistoryEntries(messages []protocol.TranscriptMessage) []messageHisto
 	return entries
 }
 
-func loadMessageHistory(ctx context.Context, pager sessionclient.MessagePager) ([]messageHistoryEntry, error) {
+func loadMessageHistory(ctx context.Context, pager MessagePager) ([]messageHistoryEntry, error) {
 	var messages []protocol.TranscriptMessage
 	var before uint64
 	for pageIndex := 0; pageIndex < messageHistoryMaxPages; pageIndex++ {

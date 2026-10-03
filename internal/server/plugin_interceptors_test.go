@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 type interceptionProviders struct {
@@ -96,7 +96,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				}
 			}()
 			client := NewClient(paths)
-			defer client.http.CloseIdleConnections()
+			defer client.transport.CloseIdleConnections()
 			deadline := time.Now().Add(5 * time.Second)
 			for {
 				if _, _, err := client.Probe(t.Context()); err == nil {
@@ -107,12 +107,12 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				}
 				time.Sleep(10 * time.Millisecond)
 			}
-			created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+			created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 			if err != nil {
 				t.Fatal(err)
 			}
 			for {
-				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+				snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -125,11 +125,11 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				time.Sleep(10 * time.Millisecond)
 			}
 			turn := make(chan error, 1)
-			go func() { _, err := client.Prompt(ctx, created.ID, "run the tool"); turn <- err }()
+			go func() { _, err := client.transport.Prompt(ctx, created.ID, "run the tool"); turn <- err }()
 			var interaction protocol.InteractionRequest
 			var turnID string
 			for {
-				snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+				snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 				if err != nil {
 					t.Fatal(err)
 				}
@@ -147,7 +147,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				t.Fatalf("interceptor dialog=%#v", interaction)
 			}
 			if mode == "cancel" {
-				if err := client.AbortSession(ctx, created.ID, turnID); err != nil {
+				if err := client.transport.AbortSession(ctx, created.ID, turnID); err != nil {
 					t.Fatal(err)
 				}
 				select {
@@ -157,7 +157,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				}
 				end := time.Now().Add(3 * time.Second)
 				for {
-					snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+					snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 					if err != nil {
 						t.Fatal(err)
 					}
@@ -171,7 +171,7 @@ func TestPluginInterceptionUsesSharedDialogBeforeCoreToolExecution(t *testing.T)
 				}
 				return
 			}
-			if err := client.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
+			if err := client.transport.RespondInteraction(ctx, created.ID, protocol.InteractionResponse{RequestID: interaction.ID, Confirmed: &allow}); err != nil {
 				t.Fatal(err)
 			}
 			select {

@@ -13,6 +13,16 @@ import (
 	"strings"
 )
 
+// ProtocolError reports a response that violates an operation's declared wire contract.
+type ProtocolError struct{ Err error }
+
+func (e *ProtocolError) Error() string { return "session protocol: " + e.Err.Error() }
+func (e *ProtocolError) Unwrap() error { return e.Err }
+
+func responseProtocolError(format string, args ...any) error {
+	return &ProtocolError{Err: fmt.Errorf(format, args...)}
+}
+
 // MaxRequestBytes bounds session request bodies on both sides of the boundary.
 const MaxRequestBytes = 1 << 20
 
@@ -52,7 +62,7 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 		return zero, fmt.Errorf("read daemon session response: %w", err)
 	}
 	if len(encoded) > maxResponseBytes {
-		return zero, fmt.Errorf("daemon session response exceeds %d bytes", maxResponseBytes)
+		return zero, responseProtocolError("daemon session response exceeds %d bytes", maxResponseBytes)
 	}
 	success := response.StatusCode == op.Success
 	for _, status := range op.AdditionalSuccess {
@@ -63,17 +73,17 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 	}
 	if typeOf[Out]() == typeOf[NoBody]() {
 		if len(encoded) != 0 {
-			return zero, fmt.Errorf("daemon returned unexpected response body")
+			return zero, responseProtocolError("daemon returned unexpected response body")
 		}
 		return zero, nil
 	}
 	decoder := json.NewDecoder(bytes.NewReader(encoded))
 	decoder.DisallowUnknownFields()
 	if err := decoder.Decode(&zero); err != nil {
-		return zero, fmt.Errorf("decode daemon session response: %w", err)
+		return zero, responseProtocolError("decode daemon session response: %w", err)
 	}
 	if err := decoder.Decode(&struct{}{}); !errors.Is(err, io.EOF) {
-		return zero, fmt.Errorf("decode daemon session response: multiple JSON values")
+		return zero, responseProtocolError("decode daemon session response: multiple JSON values")
 	}
 	return zero, nil
 }

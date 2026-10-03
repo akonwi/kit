@@ -9,9 +9,8 @@ import (
 	"sync"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/highlight"
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"github.com/rockorager/go-uucode"
 	"go.rockorager.dev/vaxis"
@@ -114,7 +113,7 @@ func (openWorkspaceDiffTargetPickerIntent) IntentType() ui.IntentType {
 type workspaceDiffPane struct {
 	Descriptor            workspacePaneDescriptor
 	CurrentWorkspaceID    string
-	Diff                  sessionclient.DiffSession
+	Diff                  DiffSession
 	Highlighter           highlight.Highlighter
 	Dispatch              func(func())
 	Presentation          workspacePanePresentation

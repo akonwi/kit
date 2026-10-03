@@ -15,7 +15,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/workspace"
 )
 

@@ -8,8 +8,8 @@ import (
 	"reflect"
 	"strings"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/version"
 	"github.com/invopop/jsonschema"
 )
@@ -538,7 +538,7 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 		values := enum.EnumValues()
 		schema["enum"] = values
 	}
-	if typ.PkgPath() == "github.com/akonwi/kit/internal/protocol" && typ.Name() == "ScratchpadRevision" {
+	if typ.PkgPath() == "github.com/akonwi/kit/api/contract" && typ.Name() == "ScratchpadRevision" {
 		for key := range schema {
 			delete(schema, key)
 		}
@@ -549,7 +549,7 @@ func patchSchema(components map[string]any, schema map[string]any, typ reflect.T
 	if typ.Kind() != reflect.Struct {
 		return
 	}
-	if typ.PkgPath() == "github.com/akonwi/kit/internal/protocol" && typ.Name() == "ScratchpadErrorDetails" {
+	if typ.PkgPath() == "github.com/akonwi/kit/api/contract" && typ.Name() == "ScratchpadErrorDetails" {
 		schema["required"] = []string{"scratchpad"}
 	}
 	properties, _ := schema["properties"].(map[string]any)

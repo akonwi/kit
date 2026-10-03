@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 func commandOwnerInstance(selection string) string {
@@ -73,7 +73,7 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 	}
 	cwd := t.TempDir()
-	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
+	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -81,7 +81,7 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
 		for {
-			snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+			snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -102,7 +102,7 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 	input := protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance, Args: "example.txt"}
 	toastContext, cancelToasts := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancelToasts()
-	toastBody, err := client.StreamPluginToasts(toastContext, created.ID)
+	toastBody, err := client.transport.StreamPluginToasts(toastContext, created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -112,7 +112,7 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 	go func() {
 		toastResult <- ReadPluginToasts(toastBody, func(toast protocol.PluginToast) error { notices <- toast; return io.EOF })
 	}()
-	if err := client.ExecutePluginCommand(t.Context(), created.ID, input); err != nil {
+	if err := client.transport.ExecutePluginCommand(t.Context(), created.ID, input); err != nil {
 		t.Fatal(err)
 	}
 	select {
@@ -128,25 +128,25 @@ func TestPluginCommandHTTPFixtureCatalogExecutionAndStaleOwner(t *testing.T) {
 	}
 	toastBody.Close()
 	cancelToasts()
-	after, err := client.GetSessionSnapshot(t.Context(), created.ID)
+	after, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
 	if len(after.Messages) != 0 || after.ActiveTurnID != "" || after.Usage != before.Usage {
 		t.Fatalf("command started model run: %#v", after)
 	}
-	if _, err := client.ReloadSession(t.Context(), created.ID); err != nil {
+	if _, err := client.transport.ReloadSession(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
 	_ = catalog(command.Instance)
-	if err := client.ExecutePluginCommand(t.Context(), created.ID, input); err == nil || !strings.Contains(err.Error(), "unavailable") {
+	if err := client.transport.ExecutePluginCommand(t.Context(), created.ID, input); err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("stale selection = %v", err)
 	}
-	other, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
+	other, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := client.ExecutePluginCommand(t.Context(), other.ID, input); err == nil || !strings.Contains(err.Error(), "unavailable") {
+	if err := client.transport.ExecutePluginCommand(t.Context(), other.ID, input); err == nil || !strings.Contains(err.Error(), "unavailable") {
 		t.Fatalf("cross-session selection = %v", err)
 	}
 }

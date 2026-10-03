@@ -15,8 +15,8 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/attachment"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 type recordingAttachmentService struct {

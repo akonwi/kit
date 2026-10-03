@@ -9,10 +9,10 @@ import (
 	"sync"
 	"unicode/utf8"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/plugin"
-	"github.com/akonwi/kit/internal/protocol"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/vcs"
 )

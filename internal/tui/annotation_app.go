@@ -8,8 +8,7 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 )
 
 func (s *appState) applyAnnotationEvent(event protocol.SessionEvent) {
@@ -149,7 +148,7 @@ func (s *appState) activateAnnotation(annotation protocol.AnnotationSummary) {
 }
 
 func (s *appState) loadInlineAnnotation(annotationID uint64, done func(string, error)) func() {
-	annotations, ok := s.bound.(sessionclient.AnnotationSession)
+	annotations, ok := s.bound.(AnnotationSession)
 	if !ok {
 		done("", errors.New("annotations are unavailable"))
 		return func() {}
@@ -199,7 +198,7 @@ func (s *appState) loadInlineAnnotation(annotationID uint64, done func(string, e
 }
 
 func (s *appState) updateInlineAnnotation(annotationID uint64, body string, done func(error)) {
-	annotations, ok := s.bound.(sessionclient.AnnotationSession)
+	annotations, ok := s.bound.(AnnotationSession)
 	if !ok {
 		done(errors.New("annotations are unavailable"))
 		return
@@ -226,7 +225,7 @@ func (s *appState) updateInlineAnnotation(annotationID uint64, body string, done
 }
 
 func (s *appState) createInlineAnnotation(anchor protocol.AnnotationAnchor, body string, done func(error)) {
-	annotations, ok := s.bound.(sessionclient.AnnotationSession)
+	annotations, ok := s.bound.(AnnotationSession)
 	if !ok {
 		if done != nil {
 			done(errors.New("annotations are unavailable"))
@@ -285,7 +284,7 @@ func (s *appState) reanchorAnnotation(annotation protocol.AnnotationSummary) {
 }
 
 func (s *appState) removeAnnotation(annotationID uint64) {
-	annotations, ok := s.bound.(sessionclient.AnnotationSession)
+	annotations, ok := s.bound.(AnnotationSession)
 	if !ok || s.session.ID == "" || annotationID == 0 {
 		return
 	}

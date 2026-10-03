@@ -14,9 +14,9 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/protocol"
 )
 
 type pluginToolProviders struct {
@@ -119,7 +119,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.transport.CloseIdleConnections()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, err := client.Probe(t.Context()); err == nil {
@@ -130,13 +130,13 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
-	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
+	created, err := client.transport.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	// Background registration must become visible on a later request without reload.
 	for {
-		if _, err := client.Prompt(t.Context(), created.ID, "probe tool catalog"); err != nil {
+		if _, err := client.transport.Prompt(t.Context(), created.ID, "probe tool catalog"); err != nil {
 			t.Fatal(err)
 		}
 		providers.toolMu.Lock()
@@ -153,7 +153,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	providers.toolMu.Lock()
 	providers.execute = true
 	providers.toolMu.Unlock()
-	if _, err := client.Prompt(t.Context(), created.ID, "use the plugin echo tool"); err != nil {
+	if _, err := client.transport.Prompt(t.Context(), created.ID, "use the plugin echo tool"); err != nil {
 		t.Fatal(err)
 	}
 	providers.toolMu.Lock()
@@ -162,7 +162,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	if received != "exact plugin result" || !strings.Contains(guidance, "This demonstration tool does not modify files.") {
 		t.Fatalf("tool integration received=%q guidance=%q", received, guidance)
 	}
-	snapshot, err := client.GetSessionSnapshot(t.Context(), created.ID)
+	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), created.ID)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -170,7 +170,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 	if !strings.Contains(string(data), "exact plugin result") || !strings.Contains(string(data), "tool-demo__echo") {
 		t.Fatalf("tool result not durable: %s", data)
 	}
-	if err := client.DeleteSession(t.Context(), created.ID); err != nil {
+	if err := client.transport.DeleteSession(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
 }

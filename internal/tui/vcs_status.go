@@ -8,8 +8,8 @@ import (
 	"sync/atomic"
 	"time"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	kit "github.com/akonwi/kit/api"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -111,7 +111,7 @@ func (s *appState) startVCSMonitoring() {
 // watchVCSStream owns one attachment's server-pushed repository stream. It
 // reconnects with bounded backoff on transient failures and stops on terminal
 // authentication, missing-session, and protocol failures.
-func watchVCSStream(monitor *vcsMonitor, bound sessionclient.Session, minDelay time.Duration, deliver func(protocol.SessionVCSStatus)) {
+func watchVCSStream(monitor *vcsMonitor, bound boundSession, minDelay time.Duration, deliver func(protocol.SessionVCSStatus)) {
 	delay := minDelay
 	for monitor.ctx.Err() == nil {
 		delivered := false
@@ -122,8 +122,9 @@ func watchVCSStream(monitor *vcsMonitor, bound sessionclient.Session, minDelay t
 		if monitor.ctx.Err() != nil {
 			return
 		}
-		var terminal *sessionclient.StreamWatchTerminalError
-		if errors.As(err, &terminal) {
+		var legacyTerminal *StreamWatchTerminalError
+		var publicTerminal *kit.StreamWatchTerminalError
+		if errors.As(err, &legacyTerminal) || errors.As(err, &publicTerminal) {
 			return
 		}
 		if delivered {

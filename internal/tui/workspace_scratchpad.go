@@ -3,8 +3,7 @@ package tui
 import (
 	"strings"
 
-	"github.com/akonwi/kit/internal/protocol"
-	"github.com/akonwi/kit/internal/sessionclient"
+	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -105,7 +104,7 @@ func scratchpadWorkspacePane() workspacePaneDescriptor {
 
 type workspaceScratchpadPane struct {
 	Presentation workspacePanePresentation
-	Scratchpad   sessionclient.ScratchpadSession
+	Scratchpad   ScratchpadSession
 	Editor       scratchpadEditorState
 	OnChanged    ui.TextChangedCallback
 	OnRetry      ui.VoidCallback
