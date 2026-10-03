@@ -726,3 +726,119 @@ func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 		t.Fatal("escape did not reach the shell dismiss action")
 	}
 }
+
+func TestSubagentTranscriptAnchorsShortContentToBottom(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	now := time.Now().Format(time.RFC3339Nano)
+	application := uitest.New(shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		Workspace: selectedSubagentWorkspace(conversationID), SubagentScrolls: map[string]*ui.ScrollController{conversationID: &ui.ScrollController{}},
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
+		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
+			ConversationID: conversationID,
+			Messages: []protocol.TranscriptMessage{{
+				ID: "message_1", TurnID: "turn_1", Sequence: 1, Role: "assistant", StopReason: "stop", CreatedAt: now,
+				Content: []protocol.TranscriptContent{protocol.TextBlock("ONLY SUBAGENT LINE")},
+			}},
+		}},
+	}})
+	const width, height = 100, 22
+	application.Pump(width, height)
+	rows := paintedRows(application, width, height)
+	_, messageRow := findTextCell(t, rows, "ONLY SUBAGENT LINE")
+	_, hintRow := findTextCell(t, rows, "ctrl+d dismiss")
+	if messageRow < hintRow-4 {
+		t.Fatalf("short transcript row %d, hint row %d, want it anchored above the pane footer\n%s", messageRow, hintRow, strings.Join(rows, "\n"))
+	}
+}
+
+type subagentFollowRetentionHarness struct {
+	state *subagentFollowRetentionState
+}
+
+func (h subagentFollowRetentionHarness) CreateState() ui.State { return h.state }
+
+type subagentFollowRetentionState struct {
+	ui.StateBase
+	latestOut bool
+	scroll    *ui.ScrollController
+}
+
+func (s *subagentFollowRetentionState) Build(ui.BuildContext) ui.Widget {
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	now := time.Now().Format(time.RFC3339Nano)
+	messages := make([]protocol.TranscriptMessage, 0, 25)
+	for index := 0; index < 24; index++ {
+		messages = append(messages, protocol.TranscriptMessage{
+			ID: fmt.Sprintf("message_%d", index), TurnID: fmt.Sprintf("turn_%d", index), Sequence: int64(index), Role: "user", CreatedAt: now,
+			Content: []protocol.TranscriptContent{protocol.TextBlock(fmt.Sprintf("Earlier request %d", index))},
+		})
+	}
+	messages = append(messages, protocol.TranscriptMessage{
+		ID: "message_final", TurnID: "turn_final", Sequence: 24, Role: "assistant", StopReason: "stop", CreatedAt: now,
+		Content: []protocol.TranscriptContent{protocol.TextBlock("FINAL SUBAGENT RESPONSE")},
+	})
+	snapshot := shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{}, ActivityFocus: &ui.FocusNode{},
+		Workspace: selectedSubagentWorkspace(conversationID), SubagentScrolls: map[string]*ui.ScrollController{conversationID: s.scroll},
+		SubagentConversations: []protocol.SubagentConversation{{ID: conversationID, AgentName: "reviewer", State: "idle"}},
+		SubagentTranscripts:   map[string]protocol.SubagentTranscript{conversationID: {ConversationID: conversationID, Messages: messages}},
+	}
+	if s.latestOut {
+		snapshot.SubagentLatestOutOfView = map[string]bool{conversationID: true}
+	}
+	return shellView{Snapshot: snapshot, Callbacks: shellCallbacks{
+		ResumeSubagentFollow: func(ui.EventContext, string) {
+			s.scroll.ScrollToEnd()
+			s.SetState(func() { s.latestOut = false })
+		},
+	}}
+}
+
+func TestSubagentTranscriptKeepsScrollWhenLatestButtonHides(t *testing.T) {
+	scroll := &ui.ScrollController{}
+	state := &subagentFollowRetentionState{latestOut: true, scroll: scroll}
+	application := uitest.New(subagentFollowRetentionHarness{state})
+	const width, height = 100, 16
+	application.Pump(width, height)
+	for range 4 {
+		scroll.ScrollToEnd()
+		application.Pump(width, height)
+	}
+	before := scroll.Metrics()
+	if before.ScrollOffset == 0 || before.ScrollOffset != before.MaxScrollOffset {
+		t.Fatalf("setup scroll = %+v, want pinned to the end", before)
+	}
+
+	state.SetState(func() { state.latestOut = false })
+	application.Pump(width, height)
+	after := scroll.Metrics()
+	if after.ScrollOffset != before.ScrollOffset || after.MaxScrollOffset != before.MaxScrollOffset {
+		t.Fatalf("hiding latest reset scroll from %+v to %+v", before, after)
+	}
+	if !application.Contains("FINAL SUBAGENT RESPONSE") {
+		t.Fatalf("tail left the viewport after hiding latest:\n%s", application.Text())
+	}
+	if application.Contains("↓ Latest") {
+		t.Fatal("latest button stayed visible after the tail was in view")
+	}
+
+	state.SetState(func() { state.latestOut = true })
+	application.Pump(width, height)
+	if !application.Contains("↓ Latest") {
+		t.Fatalf("latest button missing while flagged out of view:\n%s", application.Text())
+	}
+	column, row := findPaintedCellSequence(t, application, width, height, "↓ Latest")
+	application.Send(vaxis.Mouse{Col: column, Row: row, Button: vaxis.MouseLeftButton, EventType: vaxis.EventPress})
+	application.Pump(width, height)
+	clicked := scroll.Metrics()
+	if clicked.ScrollOffset == 0 || clicked.ScrollOffset != clicked.MaxScrollOffset {
+		t.Fatalf("latest click scroll = %+v, want to stay at the end", clicked)
+	}
+	if application.Contains("↓ Latest") {
+		t.Fatalf("latest button returned after resume:\n%s", application.Text())
+	}
+}

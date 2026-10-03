@@ -747,22 +747,77 @@ func (w shellView) transcript(theme ui.Theme) ui.Widget {
 		}
 		leading = w.transcriptScrollIntent(ui.SizedBox{Height: 1, Child: transcriptColumn(status)}, w.Callbacks.TranscriptHistoryScrollUp)
 	}
-	transcript := w.transcriptList(theme, presentation, true, "session:"+w.Snapshot.Session.ID, w.Snapshot.Scroll, w.Snapshot.TranscriptList, true, leading)
-	children := []ui.Widget{ui.Align{Alignment: ui.BottomCenter, Child: transcript}}
-	if w.Snapshot.TranscriptInitialLoading {
+	return w.transcriptSurface(theme, transcriptSurfaceConfig{
+		Identity: "session:" + w.Snapshot.Session.ID, Presentation: presentation,
+		Controller: w.Snapshot.Scroll, List: w.Snapshot.TranscriptList, InteractiveWork: true, FollowOutput: true,
+		Leading: leading, Loading: w.Snapshot.TranscriptInitialLoading, LatestOutOfView: w.Snapshot.TranscriptLatestOutOfView,
+		OnResumeFollow: w.Callbacks.ResumeTranscriptFollow, OnScrollUp: w.Callbacks.TranscriptHistoryScrollUp,
+		Reading: w.Snapshot.TranscriptReading, ReadingPickerOpen: w.Snapshot.TranscriptReadingPickerOpen,
+		ReadingSections: w.Snapshot.TranscriptReadingSections, ReadingSelected: w.Snapshot.ReadingPickerSelected,
+		OnOpenReading: w.Callbacks.OpenTranscriptReading, OnMoveReading: w.Callbacks.MoveTranscriptReading, OnSelectReading: w.Callbacks.SelectTranscriptReading,
+	})
+}
+
+// transcriptSurfaceConfig is the shared bottom-anchored viewport used by the
+// session transcript and each subagent conversation tab.
+type transcriptSurfaceConfig struct {
+	Identity          string
+	Presentation      transcriptPresentation
+	Controller        *ui.ScrollController
+	List              *ui.SliverListController
+	InteractiveWork   bool
+	FollowOutput      bool
+	Leading           ui.Widget
+	Content           ui.Widget
+	Loading           bool
+	LatestOutOfView   bool
+	OnResumeFollow    ui.VoidCallback
+	OnScrollUp        ui.VoidCallback
+	Reading           transcriptReadingSnapshot
+	ReadingPickerOpen bool
+	ReadingSections   []transcriptReadingSection
+	ReadingSelected   int
+	OnOpenReading     ui.VoidCallback
+	OnMoveReading     func(ui.EventContext, int)
+	OnSelectReading   func(ui.EventContext, int)
+}
+
+// transcriptSurface paints one transcript viewport. It always returns a Stack
+// so the latest button and reading chrome can appear without remounting the
+// scroll view and resetting its offset.
+func (w shellView) transcriptSurface(theme ui.Theme, cfg transcriptSurfaceConfig) ui.Widget {
+	content := cfg.Content
+	if content == nil {
+		content = w.transcriptList(theme, cfg.Presentation, cfg.InteractiveWork, cfg.Identity, cfg.Controller, cfg.List, cfg.FollowOutput, cfg.Leading, cfg.OnScrollUp)
+	}
+	children := []ui.Widget{ui.Align{Alignment: ui.BottomCenter, Child: content}}
+	if cfg.Loading {
 		children = append(children, ui.DecoratedBox(ui.Decoration{Style: ui.Style{Background: theme.Background}}, ui.Center(spinnerWithLabel("Loading conversation…", ui.Style{Foreground: theme.MutedForeground}))))
 	}
-	if w.Snapshot.TranscriptLatestOutOfView {
-		children = append(children, ui.Align{Alignment: ui.BottomRight, Child: ui.Padding(ui.Insets{Right: 1, Bottom: 1}, transcriptLatestButton{OnPressed: w.Callbacks.ResumeTranscriptFollow})})
+	if cfg.LatestOutOfView {
+		children = append(children, ui.Align{Alignment: ui.BottomRight, Child: ui.Padding(ui.Insets{Right: 1, Bottom: 1}, transcriptLatestButton{OnPressed: cfg.OnResumeFollow})})
 	}
 	children = append(children, transcriptReadingChrome(
-		w.Snapshot.TranscriptReading, w.Snapshot.TranscriptReadingPickerOpen, w.Snapshot.TranscriptReadingSections, w.Snapshot.ReadingPickerSelected,
-		w.Callbacks.OpenTranscriptReading, w.Callbacks.MoveTranscriptReading, w.Callbacks.SelectTranscriptReading,
+		cfg.Reading, cfg.ReadingPickerOpen, cfg.ReadingSections, cfg.ReadingSelected,
+		cfg.OnOpenReading, cfg.OnMoveReading, cfg.OnSelectReading,
 	)...)
 	return ui.Stack{Children: children}
 }
 
-func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool, identity string, controller *ui.ScrollController, listController *ui.SliverListController, followOutput bool, leading ui.Widget) ui.Widget {
+// transcriptFillingScroll keeps an empty, loading, or failed transcript sized
+// to the viewport. The surface bottom-aligns shrink-wrapped content, which
+// would otherwise pin these states to the footer.
+func transcriptFillingScroll(controller *ui.ScrollController, child ui.Widget) ui.Widget {
+	return ui.Flex{
+		Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch,
+		Children: []ui.Widget{ui.Expanded(ui.Scrollbar{Child: ui.CustomScrollView{
+			Controller: controller, FollowOutput: true,
+			Slivers: []ui.Widget{ui.SliverToBox{Child: ui.Padding(ui.All(1), child)}},
+		}})},
+	}
+}
+
+func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresentation, interactiveWork bool, identity string, controller *ui.ScrollController, listController *ui.SliverListController, followOutput bool, leading ui.Widget, onScrollUp ui.VoidCallback) ui.Widget {
 	w.Snapshot.ActiveToolSourceID = activeToolSource(presentation, w.Snapshot.AgentRunning)
 	// Measured sliver extents are indexed, so include the first stable item in
 	// the key. Appends retain measurements while session replacement and
@@ -784,15 +839,7 @@ func (w shellView) transcriptList(theme ui.Theme, presentation transcriptPresent
 			if index == len(presentation.Items)-1 {
 				insets.Bottom = 1
 			}
-			scrollUp := w.Callbacks.TranscriptHistoryScrollUp
-			if conversationID, ok := strings.CutPrefix(identity, "subagent:"); ok {
-				scrollUp = func(ctx ui.EventContext) {
-					if w.Callbacks.SubagentTranscriptScrollUp != nil {
-						w.Callbacks.SubagentTranscriptScrollUp(ctx, conversationID)
-					}
-				}
-			}
-			return keyedTranscriptItem{ID: item.ID, Child: w.transcriptScrollIntent(ui.Padding(insets, transcriptColumn(child)), scrollUp)}
+			return keyedTranscriptItem{ID: item.ID, Child: w.transcriptScrollIntent(ui.Padding(insets, transcriptColumn(child)), onScrollUp)}
 		},
 	}})
 	return keyedTranscriptItem{ID: "transcript-viewport:" + identity, Child: ui.Scrollbar{Child: ui.CustomScrollView{
