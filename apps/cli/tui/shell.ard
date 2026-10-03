@@ -204,7 +204,7 @@ private fn command_catalog(
     command_item("login", "Connect another provider", "auth connect provider", ""),
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
     command_item("model", "Change session model", "engine", ""),
-    command_item("name", "Rename session", "rename title", ""),
+    command_item_with_hint("name", "[name]", "Rename session", "rename title", ""),
     command_item("new", "Start a new session", "", ""),
     command_item("quit", "Exit Kit", "close exit", ""),
     command_item(
@@ -353,6 +353,7 @@ struct Shell {
   mcp_warnings: [Str],
   shown_mcp_warnings: [Str],
   rename_initial: Str,
+  rename_submit_immediately: Bool,
   notice: Str,
   composer: Str,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
@@ -443,6 +444,7 @@ fn new(props: mut Props) mut Shell {
     mcp_warnings: [],
     shown_mcp_warnings: [],
     rename_initial: "",
+    rename_submit_immediately: false,
     notice: "",
     composer: "",
     selection_copy_pulse: 0.0,
@@ -819,6 +821,7 @@ impl Shell {
       session => {
         let rename = keymap::simple_command("name.open", "Rename session", fn() Bool {
           self.rename_initial = session.Name
+          self.rename_submit_immediately = false
           self.active_modal = ActiveModal::rename_session
           true
         })
@@ -1541,6 +1544,7 @@ impl Shell {
       context => {
         let _ = context.dispatch(fn() {
           self.info = Maybe::new(session)
+          self.rename_submit_immediately = false
           self.active_modal = ActiveModal::none
         })
       },
@@ -1574,6 +1578,7 @@ impl Shell {
         lifetime: self.lifetime.expect("mounted rename dialog"),
         session: self.info.or(protocol::SessionInfo{}),
         initial_name: self.rename_initial,
+        submit_immediately: self.rename_submit_immediately,
         dismiss: dismiss,
         applied: fn(session: protocol::SessionInfo) {
           self.apply_renamed_session(session)
@@ -2072,6 +2077,7 @@ impl Shell {
             true => self.info.or(protocol::SessionInfo{}).Name,
             false => value,
           }
+          self.rename_submit_immediately = value != ""
           self.active_modal = ActiveModal::rename_session
         } else if item.key == "new" {
           self.active_modal = ActiveModal::none
