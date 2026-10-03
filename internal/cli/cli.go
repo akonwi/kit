@@ -17,54 +17,13 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
-	kitclient "github.com/akonwi/kit/internal/client"
 	"github.com/akonwi/kit/internal/identifier"
 	kitserver "github.com/akonwi/kit/internal/server"
-	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/settings"
 	kittheme "github.com/akonwi/kit/internal/theme"
 	"github.com/akonwi/kit/internal/tui"
 	"github.com/akonwi/kit/internal/version"
 )
-
-// publicSessionServer is a temporary adoption adapter: server-level behavior
-// uses the public client while bound sessions remain on the legacy interface
-// until the TUI session migration lands.
-type publicSessionServer struct {
-	client *kit.Client
-	bound  sessionclient.Server
-}
-
-func (s *publicSessionServer) CreateSession(ctx context.Context, input protocol.CreateSessionInput) (protocol.SessionInfo, error) {
-	return s.client.CreateSession(ctx, input)
-}
-func (s *publicSessionServer) ForkSession(ctx context.Context, sourceID string, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
-	return s.client.ForkSession(ctx, sourceID, input)
-}
-func (s *publicSessionServer) RenameSession(ctx context.Context, sessionID, name string) (protocol.SessionInfo, error) {
-	return s.client.RenameSession(ctx, sessionID, name)
-}
-func (s *publicSessionServer) DeleteSession(ctx context.Context, sessionID string) error {
-	return s.client.DeleteSession(ctx, sessionID)
-}
-func (s *publicSessionServer) DisposeTemporarySession(ctx context.Context, sessionID string) error {
-	return s.client.DisposeTemporarySession(ctx, sessionID)
-}
-func (s *publicSessionServer) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
-	return s.client.ListSessions(ctx, kit.ListSessionsOptions{CWD: cwd})
-}
-func (s *publicSessionServer) Models(ctx context.Context) (protocol.ModelCatalog, error) {
-	return s.client.Models(ctx)
-}
-func (s *publicSessionServer) RefreshModels(ctx context.Context) (protocol.ModelCatalog, error) {
-	return s.client.RefreshModels(ctx)
-}
-func (s *publicSessionServer) ProbeCompatibility(ctx context.Context) error {
-	return s.client.ProbeCompatibility(ctx)
-}
-func (s *publicSessionServer) Attach(ctx context.Context, sessionID string) (sessionclient.Session, error) {
-	return s.bound.Attach(ctx, sessionID)
-}
 
 func bootstrapLocalClient(ctx context.Context, paths apphome.Paths) (*kit.Client, error) {
 	client, err := bootstrapLocalClientWith(ctx,
@@ -304,13 +263,12 @@ func cleanupTemporarySession(ctx context.Context, client temporarySessionDispose
 	if sessionID == "" {
 		return nil
 	}
-	err := client.DisposeTemporarySession(ctx, sessionID)
+	return ignoreMissingSession(client.DisposeTemporarySession(ctx, sessionID))
+}
+
+func ignoreMissingSession(err error) error {
 	var clientError *kit.ServerError
 	if errors.As(err, &clientError) && clientError.Code == kit.ErrorNotFound {
-		return nil
-	}
-	var serverError *kitserver.APIError
-	if errors.As(err, &serverError) && serverError.StatusCode == 404 {
 		return nil
 	}
 	return err
@@ -395,7 +353,6 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 		return 1
 	}
 	defer client.Close()
-	server := &publicSessionServer{client: client, bound: kitclient.NewLocalServer(paths)}
 	probeContext, probeCancel := context.WithTimeout(ctx, 3*time.Second)
 	_, health, probeErr := kitserver.NewClient(paths).Probe(probeContext)
 	probeCancel()
@@ -404,7 +361,7 @@ func runPrintOptions(ctx context.Context, options printOptions, stdout, stderr i
 		return 1
 	}
 	options.AvailableProviders, options.DefaultModel = interactiveProviders(health.Providers)
-	return executePrint(ctx, server, options, stdout, stderr)
+	return executePrint(ctx, client, options, stdout, stderr)
 }
 
 type printOptions struct {
@@ -420,6 +377,29 @@ type printOptions struct {
 	Prompt             string
 }
 
+func resolveAvailableModel(catalog protocol.ModelCatalog, preferred string, explicit bool) (string, error) {
+	for _, model := range catalog.Models {
+		if model.ID == preferred && model.Available {
+			return model.ID, nil
+		}
+	}
+	if explicit {
+		return "", fmt.Errorf("model %q is not available", preferred)
+	}
+	provider, _, _ := strings.Cut(preferred, "/")
+	for _, model := range catalog.Models {
+		if model.Provider == provider && model.Available {
+			return model.ID, nil
+		}
+	}
+	for _, model := range catalog.Models {
+		if model.Available {
+			return model.ID, nil
+		}
+	}
+	return "", errors.New("no authenticated model is available")
+}
+
 func printModelAvailable(providers map[string]bool, selector string) bool {
 	if providers == nil {
 		return true
@@ -428,15 +408,59 @@ func printModelAvailable(providers map[string]bool, selector string) bool {
 	return ok && providers[provider]
 }
 
+type printTurn interface {
+	Wait(context.Context) (protocol.PromptOutcome, error)
+	Abort(context.Context) error
+}
+
+type printOperations struct {
+	list    func(context.Context, string) ([]protocol.SessionInfo, error)
+	resolve func(context.Context, string) (protocol.SessionInfo, error)
+	models  func(context.Context) (protocol.ModelCatalog, error)
+	create  func(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
+	dispose func(context.Context, string) error
+	attach  func(context.Context, string) (func(context.Context, string) (printTurn, error), error)
+}
+
+func publicPrintOperations(client *kit.Client) printOperations {
+	return printOperations{
+		list: func(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
+			return client.ListSessions(ctx, kit.ListSessionsOptions{CWD: cwd})
+		},
+		resolve: client.ResolveSession,
+		models:  client.Models,
+		create:  client.CreateSession,
+		dispose: client.DisposeTemporarySession,
+		attach: func(ctx context.Context, sessionID string) (func(context.Context, string) (printTurn, error), error) {
+			session, err := client.Attach(ctx, sessionID)
+			if err != nil {
+				return nil, err
+			}
+			return func(ctx context.Context, prompt string) (printTurn, error) {
+				return session.StartPrompt(ctx, prompt)
+			}, nil
+		},
+	}
+}
+
 func executePrint(
 	ctx context.Context,
-	client sessionclient.Server,
+	client *kit.Client,
+	options printOptions,
+	stdout, stderr io.Writer,
+) int {
+	return executePrintWith(ctx, publicPrintOperations(client), options, stdout, stderr)
+}
+
+func executePrintWith(
+	ctx context.Context,
+	client printOperations,
 	options printOptions,
 	stdout, stderr io.Writer,
 ) (code int) {
 	sessionID := options.SessionID
 	if sessionID != "" {
-		selected, err := sessionclient.ResolveSession(ctx, client, sessionID)
+		selected, err := client.resolve(ctx, sessionID)
 		if err != nil {
 			fmt.Fprintf(stderr, "kit: resolve session: %v\n", err)
 			return 1
@@ -445,7 +469,7 @@ func executePrint(
 	}
 	if sessionID == "" {
 		if !options.NewSession && !options.Temporary {
-			sessions, err := client.ListSessions(ctx, options.CWD)
+			sessions, err := client.list(ctx, options.CWD)
 			if err != nil {
 				fmt.Fprintf(stderr, "kit: list sessions: %v\n", err)
 				return 1
@@ -468,12 +492,12 @@ func executePrint(
 				fmt.Fprintf(stderr, "kit: model provider for %q is not authenticated\n", model)
 				return 1
 			}
-			catalog, modelErr := client.Models(ctx)
+			catalog, modelErr := client.models(ctx)
 			if modelErr != nil {
 				fmt.Fprintf(stderr, "kit: list models: %v\n", modelErr)
 				return 1
 			}
-			model, modelErr = sessionclient.ResolveAvailableModel(catalog, model, options.Model != "")
+			model, modelErr = resolveAvailableModel(catalog, model, options.Model != "")
 			if modelErr != nil {
 				fmt.Fprintf(stderr, "kit: %v\n", modelErr)
 				return 1
@@ -493,7 +517,7 @@ func executePrint(
 				}
 				defer func(temporarySessionID string) {
 					cleanupContext, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-					if err := cleanupTemporarySession(cleanupContext, client, temporarySessionID); err != nil {
+					if err := ignoreMissingSession(client.dispose(cleanupContext, temporarySessionID)); err != nil {
 						fmt.Fprintf(stderr, "kit: dispose temporary session: %v\n", err)
 						if code == 0 {
 							code = 1
@@ -502,7 +526,7 @@ func executePrint(
 					cancel()
 				}(requestedID)
 			}
-			created, err := client.CreateSession(ctx, protocol.CreateSessionInput{
+			created, err := client.create(ctx, protocol.CreateSessionInput{
 				ID: requestedID, CWD: options.CWD, Name: options.Name, Model: model,
 				ThinkingLevel: thinking, Temporary: options.Temporary,
 			})
@@ -514,12 +538,12 @@ func executePrint(
 		}
 	}
 
-	bound, err := client.Attach(ctx, sessionID)
+	startPrompt, err := client.attach(ctx, sessionID)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: attach session: %v\n", err)
 		return 1
 	}
-	run, err := bound.StartPrompt(ctx, options.Prompt)
+	run, err := startPrompt(ctx, options.Prompt)
 	if err != nil {
 		fmt.Fprintf(stderr, "kit: start prompt: %v\n", err)
 		return 1
@@ -530,8 +554,8 @@ func executePrint(
 			abortContext, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 			abortErr := run.Abort(abortContext)
 			cancel()
-			var apiError *kitserver.APIError
-			if abortErr != nil && (!errors.As(abortErr, &apiError) || apiError.StatusCode != 409) {
+			var apiError *kit.ServerError
+			if abortErr != nil && (!errors.As(abortErr, &apiError) || apiError.Code != kit.ErrorConflict) {
 				fmt.Fprintf(stderr, "kit: abort session after interruption: %v\n", abortErr)
 			}
 			if errors.Is(ctx.Err(), context.Canceled) {
