@@ -66,7 +66,7 @@ for line in sys.stdin:
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
 	cwd := t.TempDir()
 	git := func(args ...string) {
@@ -92,7 +92,7 @@ for line in sys.stdin:
 	})
 
 	// After readiness, observation uses neither an attached client nor VCS HTTP polling.
-	client.http.CloseIdleConnections()
+	client.CloseIdleConnections()
 	// Allow one ten-second poll plus scheduling/probe headroom.
 	waitForGit := func(condition func() bool) {
 		t.Helper()

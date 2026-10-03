@@ -64,7 +64,7 @@ fi
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
 	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: cwd, Model: "test/echo"})
 	if err != nil {

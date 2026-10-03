@@ -10,7 +10,8 @@ import (
 
 	"github.com/akonwi/kit/internal/apphome"
 	kitclient "github.com/akonwi/kit/internal/client"
-	kitserver "github.com/akonwi/kit/internal/server"
+	"github.com/akonwi/kit/internal/clienttransport"
+	"github.com/akonwi/kit/internal/localdiscovery"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -18,10 +19,10 @@ import (
 var ErrClientClosed = errors.New("kit client is closed")
 
 // ErrIncompatibleServer indicates that the target server cannot serve this client.
-var ErrIncompatibleServer = kitserver.ErrIncompatibleDaemon
+var ErrIncompatibleServer = clienttransport.ErrIncompatibleServer
 
 // CompatibilityError describes an authenticated server incompatibility.
-type CompatibilityError = kitserver.DaemonCompatibilityError
+type CompatibilityError = clienttransport.CompatibilityError
 
 // Credential is an opaque server access credential.
 type Credential struct {
@@ -61,14 +62,26 @@ type Option interface{ apply(*clientOptions) error }
 
 type clientOptions struct{}
 
-type clientBackend interface {
-	sessionclient.Server
+type operationTransport interface {
+	CreateSession(context.Context, CreateSessionInput) (SessionInfo, error)
+	ForkSession(context.Context, string, ForkSessionInput) (SessionInfo, error)
+	RenameSession(context.Context, string, string) (SessionInfo, error)
+	DeleteSession(context.Context, string) error
+	DisposeTemporarySession(context.Context, string) error
+	ListSessions(context.Context, string) ([]SessionInfo, error)
+	ListModels(context.Context) (ModelCatalog, error)
+	RefreshModels(context.Context) (ModelCatalog, error)
+}
+
+type sessionAttacher interface {
+	Attach(context.Context, string) (sessionclient.Session, error)
 }
 
 // Client is a concurrent, stateful client for one Kit server.
 type Client struct {
 	mu             sync.RWMutex
-	backend        clientBackend
+	transport      operationTransport
+	attacher       sessionAttacher
 	lifetime       context.Context
 	cancel         context.CancelFunc
 	closed         bool
@@ -90,14 +103,16 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		}
 	}
 
-	var transport *kitserver.Client
+	var transport *clienttransport.Client
 	switch target.kind {
 	case targetLocal:
 		paths, err := apphome.Resolve("")
 		if err != nil {
 			return nil, fmt.Errorf("resolve Kit home: %w", err)
 		}
-		transport = kitserver.NewClient(paths)
+		transport = clienttransport.New(func() (clienttransport.Connection, error) {
+			return localdiscovery.Resolve(paths)
+		})
 	case targetEndpoint:
 		address, err := validateEndpoint(target.address)
 		if err != nil {
@@ -106,7 +121,7 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		if strings.TrimSpace(target.credential.token) == "" || strings.TrimSpace(target.credential.instanceID) == "" {
 			return nil, errors.New("endpoint token and instance id are required")
 		}
-		transport = kitserver.NewEndpointClient(address, target.credential.token, target.credential.instanceID)
+		transport = clienttransport.NewEndpoint(address, target.credential.token, target.credential.instanceID)
 	default:
 		return nil, errors.New("Kit server target is invalid")
 	}
@@ -115,12 +130,12 @@ func Connect(ctx context.Context, target Target, options ...Option) (*Client, er
 		transport.CloseIdleConnections()
 		return nil, err
 	}
-	return newClient(kitclient.NewServer(transport), transport.CloseIdleConnections), nil
+	return newClient(transport, kitclient.NewServer(transport), transport.CloseIdleConnections), nil
 }
 
-func newClient(backend clientBackend, closeTransport func()) *Client {
+func newClient(transport operationTransport, attacher sessionAttacher, closeTransport func()) *Client {
 	lifetime, cancel := context.WithCancel(context.Background())
-	return &Client{backend: backend, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
+	return &Client{transport: transport, attacher: attacher, lifetime: lifetime, cancel: cancel, closeTransport: closeTransport}
 }
 
 func validateEndpoint(address string) (string, error) {
@@ -194,7 +209,7 @@ func (c *Client) ListSessions(ctx context.Context, options ListSessionsOptions) 
 		return nil, err
 	}
 	defer cancel()
-	return c.backend.ListSessions(operation, options.CWD)
+	return projectResult(c.transport.ListSessions(operation, options.CWD))
 }
 
 // CreateSession creates one persisted or temporary session.
@@ -204,7 +219,7 @@ func (c *Client) CreateSession(ctx context.Context, input CreateSessionInput) (S
 		return SessionInfo{}, err
 	}
 	defer cancel()
-	return c.backend.CreateSession(operation, input)
+	return projectResult(c.transport.CreateSession(operation, input))
 }
 
 // ForkSession creates a linked child session.
@@ -214,7 +229,7 @@ func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input 
 		return SessionInfo{}, err
 	}
 	defer cancel()
-	return c.backend.ForkSession(operation, sourceSessionID, input)
+	return projectResult(c.transport.ForkSession(operation, sourceSessionID, input))
 }
 
 // RenameSession changes a persisted session's display name.
@@ -224,7 +239,7 @@ func (c *Client) RenameSession(ctx context.Context, sessionID, name string) (Ses
 		return SessionInfo{}, err
 	}
 	defer cancel()
-	return c.backend.RenameSession(operation, sessionID, name)
+	return projectResult(c.transport.RenameSession(operation, sessionID, name))
 }
 
 // DeleteSession permanently deletes one persisted session.
@@ -234,7 +249,7 @@ func (c *Client) DeleteSession(ctx context.Context, sessionID string) error {
 		return err
 	}
 	defer cancel()
-	return c.backend.DeleteSession(operation, sessionID)
+	return projectError(c.transport.DeleteSession(operation, sessionID))
 }
 
 // DisposeTemporarySession removes one temporary session.
@@ -244,7 +259,7 @@ func (c *Client) DisposeTemporarySession(ctx context.Context, sessionID string) 
 		return err
 	}
 	defer cancel()
-	return c.backend.DisposeTemporarySession(operation, sessionID)
+	return projectError(c.transport.DisposeTemporarySession(operation, sessionID))
 }
 
 // Models returns the server's model catalog.
@@ -254,7 +269,7 @@ func (c *Client) Models(ctx context.Context) (ModelCatalog, error) {
 		return ModelCatalog{}, err
 	}
 	defer cancel()
-	return c.backend.Models(operation)
+	return projectResult(c.transport.ListModels(operation))
 }
 
 // RefreshModels refreshes and returns the server's model catalog.
@@ -264,11 +279,7 @@ func (c *Client) RefreshModels(ctx context.Context) (ModelCatalog, error) {
 		return ModelCatalog{}, err
 	}
 	defer cancel()
-	refresher, ok := c.backend.(sessionclient.ModelCatalogRefresher)
-	if !ok {
-		return ModelCatalog{}, errors.New("server client does not support model refresh")
-	}
-	return refresher.RefreshModels(operation)
+	return projectResult(c.transport.RefreshModels(operation))
 }
 
 // ResolveSession resolves an exact or uniquely prefixed saved session selector.
@@ -278,7 +289,43 @@ func (c *Client) ResolveSession(ctx context.Context, selector string) (SessionIn
 		return SessionInfo{}, err
 	}
 	defer cancel()
-	return sessionclient.ResolveSession(operation, c.backend, selector)
+	sessions, err := c.transport.ListSessions(operation, "")
+	if err != nil {
+		return SessionInfo{}, projectError(err)
+	}
+	return resolveSessionSelector(sessions, selector)
+}
+
+func resolveSessionSelector(sessions []SessionInfo, selector string) (SessionInfo, error) {
+	selector = strings.TrimSpace(selector)
+	if selector == "" {
+		return SessionInfo{}, fmt.Errorf("%w: selector is empty", ErrSessionNotFound)
+	}
+	for _, candidate := range sessions {
+		if candidate.ID == selector {
+			return candidate, nil
+		}
+	}
+	canonicalPrefix := selector
+	if !strings.HasPrefix(canonicalPrefix, "session_") {
+		canonicalPrefix = "session_" + canonicalPrefix
+	}
+	var match SessionInfo
+	matches := 0
+	for _, candidate := range sessions {
+		if strings.HasPrefix(candidate.ID, canonicalPrefix) {
+			match = candidate
+			matches++
+		}
+	}
+	switch matches {
+	case 0:
+		return SessionInfo{}, fmt.Errorf("%w: %s", ErrSessionNotFound, selector)
+	case 1:
+		return match, nil
+	default:
+		return SessionInfo{}, fmt.Errorf("%w: %s matches %d sessions", ErrSessionAmbiguous, selector, matches)
+	}
 }
 
 // Attach binds one stateful Session handle to an immutable session identity.
@@ -288,9 +335,9 @@ func (c *Client) Attach(ctx context.Context, sessionID string) (*Session, error)
 		return nil, err
 	}
 	defer cancel()
-	bound, err := c.backend.Attach(operation, sessionID)
+	bound, err := c.attacher.Attach(operation, sessionID)
 	if err != nil {
-		return nil, err
+		return nil, projectError(err)
 	}
 	return &Session{client: c, bound: bound, id: bound.ID()}, nil
 }
@@ -320,5 +367,5 @@ func (s *Session) Snapshot(ctx context.Context) (SessionSnapshot, error) {
 		return SessionSnapshot{}, err
 	}
 	defer cancel()
-	return s.bound.Snapshot(operation)
+	return projectResult(s.bound.Snapshot(operation))
 }

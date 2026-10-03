@@ -11,6 +11,7 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/sessionclient"
 	"github.com/akonwi/kit/internal/version"
@@ -38,8 +39,11 @@ func (f *fakeClientBackend) DisposeTemporarySession(context.Context, string) err
 func (f *fakeClientBackend) ListSessions(ctx context.Context, cwd string) ([]protocol.SessionInfo, error) {
 	return f.list(ctx, cwd)
 }
-func (f *fakeClientBackend) Models(context.Context) (protocol.ModelCatalog, error) {
-	return protocol.ModelCatalog{}, errors.New("unexpected Models")
+func (f *fakeClientBackend) ListModels(context.Context) (protocol.ModelCatalog, error) {
+	return protocol.ModelCatalog{}, errors.New("unexpected ListModels")
+}
+func (f *fakeClientBackend) RefreshModels(context.Context) (protocol.ModelCatalog, error) {
+	return protocol.ModelCatalog{}, errors.New("unexpected RefreshModels")
 }
 func (f *fakeClientBackend) Attach(context.Context, string) (sessionclient.Session, error) {
 	return nil, errors.New("unexpected Attach")
@@ -52,12 +56,44 @@ func TestClientListSessionsProjectsOptions(t *testing.T) {
 		}
 		return []protocol.SessionInfo{{ID: "session_test"}}, nil
 	}}
-	client := newClient(backend, nil)
+	client := newClient(backend, backend, nil)
 	t.Cleanup(func() { _ = client.Close() })
 
 	sessions, err := client.ListSessions(t.Context(), ListSessionsOptions{CWD: "/workspace"})
 	if err != nil || len(sessions) != 1 || sessions[0].ID != "session_test" {
 		t.Fatalf("sessions = %+v, err = %v", sessions, err)
+	}
+}
+
+func TestResolveSessionSelectorUsesExactThenUniquePrefix(t *testing.T) {
+	sessions := []SessionInfo{
+		{ID: "session_0123456789abcdef0123456789abcdef"},
+		{ID: "session_01239999999999999999999999999999"},
+	}
+	exact, err := resolveSessionSelector(sessions, sessions[0].ID)
+	if err != nil || exact.ID != sessions[0].ID {
+		t.Fatalf("exact = %+v, err = %v", exact, err)
+	}
+	short, err := resolveSessionSelector(sessions, "012345")
+	if err != nil || short.ID != sessions[0].ID {
+		t.Fatalf("short = %+v, err = %v", short, err)
+	}
+	if _, err := resolveSessionSelector(sessions, "0123"); !errors.Is(err, ErrSessionAmbiguous) {
+		t.Fatalf("ambiguous error = %v", err)
+	}
+}
+
+func TestClientProjectsDeclaredServerErrors(t *testing.T) {
+	backend := &fakeClientBackend{list: func(context.Context, string) ([]protocol.SessionInfo, error) {
+		return nil, &clienttransport.APIError{Code: "not_found", Message: "session not found"}
+	}}
+	client := newClient(backend, backend, nil)
+	t.Cleanup(func() { _ = client.Close() })
+
+	_, err := client.ListSessions(t.Context(), ListSessionsOptions{})
+	var failure *ServerError
+	if !errors.As(err, &failure) || failure.Code != ErrorNotFound || failure.Message != "session not found" {
+		t.Fatalf("error = %#v", err)
 	}
 }
 
@@ -70,7 +106,7 @@ func TestClientCloseCancelsOwnedOperationsAndIsIdempotent(t *testing.T) {
 		return nil, ctx.Err()
 	}}
 	closedTransport := 0
-	client := newClient(backend, func() { closedTransport++ })
+	client := newClient(backend, backend, func() { closedTransport++ })
 
 	result := make(chan error, 1)
 	go func() {

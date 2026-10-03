@@ -57,7 +57,7 @@ func pluginFixtureClient(t *testing.T, name string, commandCount int) (*Client, 
 		}
 	})
 	client := NewClient(paths)
-	t.Cleanup(client.http.CloseIdleConnections)
+	t.Cleanup(client.CloseIdleConnections)
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, err := client.Probe(t.Context()); err == nil {
@@ -224,11 +224,11 @@ func TestPluginDialogRemainsAnswerableByAnotherClient(t *testing.T) {
 		result <- client.ExecutePluginCommand(ctx, id, protocol.PluginCommandInput{ID: command.ID, Instance: command.Instance})
 	}()
 	request := nextPluginInteraction(t, client, id, "")
-	client.http.CloseIdleConnections()
+	client.CloseIdleConnections()
 	// No client event subscription owns this pending dialog. A fresh connection
 	// observes the same request and can explicitly cancel it for all clients.
 	other := NewClient(client.paths)
-	defer other.http.CloseIdleConnections()
+	defer other.CloseIdleConnections()
 	recovered := nextPluginInteraction(t, other, id, "")
 	if recovered.ID != request.ID || recovered.Plugin == nil || *recovered.Plugin != *request.Plugin {
 		t.Fatalf("reattached request = %#v", recovered)

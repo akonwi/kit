@@ -5,8 +5,8 @@ import (
 	"io"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/clienttransport"
 	"github.com/akonwi/kit/internal/httpapi"
-	kitserver "github.com/akonwi/kit/internal/server"
 	"github.com/akonwi/kit/internal/sessionclient"
 )
 
@@ -44,7 +44,7 @@ func (c *localSession) WatchPluginToasts(ctx context.Context) (sessionclient.Plu
 func readPluginToastStream(ctx context.Context, body io.ReadCloser, updates chan<- protocol.PluginToast) error {
 	watched, stop := httpapi.WatchStreamIdle(ctx, body, pluginToastStreamIdleLimit)
 	defer stop()
-	err := kitserver.ReadPluginToasts(watched, func(toast protocol.PluginToast) error {
+	err := clienttransport.ReadPluginToasts(watched, func(toast protocol.PluginToast) error {
 		select {
 		case <-ctx.Done():
 			return ctx.Err()

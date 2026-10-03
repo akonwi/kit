@@ -119,7 +119,7 @@ func TestPluginToolFixtureReachesModelAndDurableTranscript(t *testing.T) {
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.CloseIdleConnections()
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		if _, _, err := client.Probe(t.Context()); err == nil {

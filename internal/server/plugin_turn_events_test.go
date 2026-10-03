@@ -64,7 +64,7 @@ for line in sys.stdin:
 		}
 	}()
 	client := NewClient(paths)
-	defer client.http.CloseIdleConnections()
+	defer client.CloseIdleConnections()
 	eventually(t, func() bool { _, _, err := client.Probe(t.Context()); return err == nil })
 	created, err := client.CreateSession(t.Context(), protocol.CreateSessionInput{CWD: t.TempDir(), Model: "test/echo"})
 	if err != nil {
@@ -98,7 +98,7 @@ for line in sys.stdin:
 	}
 
 	reconnected := NewClient(paths)
-	defer reconnected.http.CloseIdleConnections()
+	defer reconnected.CloseIdleConnections()
 	if _, err := reconnected.GetSessionSnapshot(t.Context(), created.ID); err != nil {
 		t.Fatal(err)
 	}
