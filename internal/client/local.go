@@ -182,8 +182,13 @@ func (c *localSession) Subagent(ctx context.Context, input protocol.SubagentOper
 	return c.transport.Subagent(ctx, c.id, input)
 }
 
-func (c *localSession) SubagentTranscript(ctx context.Context, conversationID string) (protocol.SubagentTranscript, error) {
-	return c.transport.GetSubagentTranscript(ctx, c.id, conversationID)
+func (c *localSession) SubagentTranscript(ctx context.Context, conversationID, before string) (protocol.SubagentTranscript, error) {
+	page, err := c.transport.GetSubagentTranscript(ctx, c.id, conversationID, before)
+	var apiErr *kitserver.APIError
+	if errors.As(err, &apiErr) && apiErr.Code == string(httpapi.ErrorTranscriptCursorUnavailable) {
+		return protocol.SubagentTranscript{}, sessionclient.ErrTranscriptCursorUnavailable
+	}
+	return page, err
 }
 
 func (c *localSession) SubagentEvents(ctx context.Context, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {

@@ -944,8 +944,9 @@ func (s *Supervisor) ListTasks(ctx context.Context, conversationID ConversationI
 	return s.repository.ListTasks(ctx, conversationID)
 }
 
-// Transcript returns durable child history without exposing its storage identity.
-func (s *Supervisor) Transcript(ctx context.Context, conversationID ConversationID) (Transcript, error) {
+// Transcript returns one complete-turn page of durable child history without
+// exposing its storage identity. A zero before cursor selects the newest page.
+func (s *Supervisor) Transcript(ctx context.Context, conversationID ConversationID, before uint64) (Transcript, error) {
 	conversation, err := s.repository.Conversation(ctx, conversationID)
 	if err != nil {
 		return Transcript{}, err
@@ -968,7 +969,7 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 		if owned.runtime == nil {
 			return Transcript{}, ErrConflict
 		}
-		transcript, err := owned.runtime.Transcript(ctx)
+		transcript, err := owned.runtime.Transcript(ctx, before)
 		if transcript.ConversationID == "" {
 			transcript.ConversationID = conversationID
 		}
@@ -1001,7 +1002,7 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 	if err != nil {
 		return Transcript{}, err
 	}
-	transcript, transcriptErr := runtime.Transcript(ctx)
+	transcript, transcriptErr := runtime.Transcript(ctx, before)
 	closeErr := runtime.Close(context.Background())
 	if transcript.ConversationID == "" {
 		transcript.ConversationID = conversationID

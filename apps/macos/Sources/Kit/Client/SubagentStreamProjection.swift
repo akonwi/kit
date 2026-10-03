@@ -53,7 +53,7 @@ struct SubagentStreamProjection {
     mutating func project(_ transcript: WireSubagentTranscript, refresh: Bool = true) throws -> SubagentTranscriptUpdate {
         let raw = transcript.messages ?? []
         if refresh || projection == nil {
-            guard !transcript.conversationId.isEmpty, raw.count <= 1000,
+            guard !transcript.conversationId.isEmpty,
                   zip(raw, raw.dropFirst()).allSatisfy({ $0.sequence < $1.sequence }) else { throw ClientError.invalidPayload }
             let source = raw.map(Self.scoped)
             let excerpt = SessionExcerpt(id: transcript.conversationId, title: "", sourceTitle: "Kit server",

@@ -1,6 +1,7 @@
 import Foundation
 import OpenAPIRuntime
 
+private struct ChildTranscriptCursorUnavailable: Error {}
 import CryptoKit
 
 /// Refuse redirects rather than forwarding a bearer token to another endpoint.
@@ -153,24 +154,74 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard response.statusCode == 200 else { throw ClientError.http(response.statusCode) }
     }
 
-    private func childTranscript(session id: String, conversation: String) async throws -> WireSubagentTranscript {
+    private func childTranscript(session id: String, conversation: String, before: String? = nil) async throws -> WireSubagentTranscript {
         guard [id, conversation].allSatisfy({ !$0.isEmpty && $0.allSatisfy { $0.isLetter || $0.isNumber || $0 == "-" || $0 == "_" } }) else { throw ClientError.invalidPayload }
-        let output = try await api.getSubagentTranscript(path: .init(sessionID: id, conversationID: conversation), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
-        guard case let .ok(response) = output else { throw ClientError.invalidPayload }
-        let result: WireSubagentTranscript = try generated(try response.body.json, as: WireSubagentTranscript.self)
-        guard result.conversationId == conversation else { throw ClientError.invalidPayload }
-        return result
+        let output = try await api.getSubagentTranscript(path: .init(sessionID: id, conversationID: conversation), query: .init(before: before), headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43))
+        switch output {
+        case .ok(let response):
+            let result: WireSubagentTranscript = try generated(try response.body.json, as: WireSubagentTranscript.self)
+            guard result.conversationId == conversation else { throw ClientError.invalidPayload }
+            return result
+        case .conflict(let response):
+            if case .json(let payload) = response.body, case .transcriptCursorUnavailable = payload.error {
+                throw ChildTranscriptCursorUnavailable()
+            }
+            throw ClientError.http(409)
+        default:
+            throw ClientError.invalidPayload
+        }
     }
 
     func subagentTranscript(session: String, conversation: String) async throws -> [TranscriptMessage] {
         var projection = SubagentStreamProjection()
-        return try projection.project(await childTranscript(session: session, conversation: conversation)).messages
+        return try projection.project(await completeChildTranscript(session: session, conversation: conversation)).messages
+    }
+
+    private func completeChildTranscript(session id: String, conversation: String) async throws -> WireSubagentTranscript {
+        do {
+            return try await assembledChildTranscript(session: id, conversation: conversation)
+        } catch is ChildTranscriptCursorUnavailable {
+            return try await childTranscript(session: id, conversation: conversation)
+        }
+    }
+
+    private func assembledChildTranscript(session id: String, conversation: String) async throws -> WireSubagentTranscript {
+        var page = try await childTranscript(session: id, conversation: conversation)
+        var messages = page.messages ?? []
+        var guardCursor = UInt64.max
+        while page.hasMoreMessages == true {
+            guard let cursor = page.previousMessageCursor, let value = UInt64(cursor), value > 0, value < guardCursor else {
+                throw ClientError.invalidPayload
+            }
+            guardCursor = value
+            let older = try await childTranscript(session: id, conversation: conversation, before: cursor)
+            let olderMessages = older.messages ?? []
+            if let last = olderMessages.last?.sequence, let first = messages.first?.sequence, last >= first {
+                throw ClientError.invalidPayload
+            }
+            messages = olderMessages + messages
+            page = WireSubagentTranscript(conversationId: conversation, messages: messages,
+                previousMessageCursor: older.previousMessageCursor, hasMoreMessages: older.hasMoreMessages)
+        }
+        return page
+    }
+
+    private func mergeChildTranscript(_ current: WireSubagentTranscript, newest: WireSubagentTranscript) -> WireSubagentTranscript {
+        let currentMessages = current.messages ?? []
+        let page = newest.messages ?? []
+        guard let pageMin = page.first?.sequence, pageMin > 0, !currentMessages.isEmpty else { return newest }
+        let prefix = currentMessages.filter { $0.sequence > 0 && $0.sequence < pageMin }
+        guard !prefix.isEmpty else { return newest }
+        let prefixIDs = Set(prefix.compactMap { $0.id.isEmpty ? nil : $0.id })
+        guard page.allSatisfy({ $0.id.isEmpty || !prefixIDs.contains($0.id) }) else { return newest }
+        return WireSubagentTranscript(conversationId: newest.conversationId, messages: prefix + page,
+            previousMessageCursor: current.previousMessageCursor, hasMoreMessages: current.hasMoreMessages)
     }
 
     func watchSubagent(session id: String, conversation: String,
                        receive: @escaping @Sendable (SubagentTranscriptUpdate) async -> Void) async throws {
         var projection = SubagentStreamProjection()
-        var transcript = try await childTranscript(session: id, conversation: conversation)
+        var transcript = try await completeChildTranscript(session: id, conversation: conversation)
         var lastHistoryRead = Date.distantPast
         var resets = 0
         while !Task.isCancelled {
@@ -184,6 +235,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 case .notFound: throw ClientError.http(404)
                 case .badRequest: throw ClientError.http(400)
                 case .conflict: throw ClientError.http(409)
+                case .tooManyRequests: throw ClientError.http(429)
                 case .serviceUnavailable: throw ClientError.http(503)
                 case .unauthorized: throw ClientError.http(401)
                 case .forbidden: throw ClientError.http(403)
@@ -194,7 +246,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 }
             } catch ClientError.http(404) {
                 // Journals are runtime-local; a retained conversation may have no journal after restart.
-                transcript = try await childTranscript(session: id, conversation: conversation)
+                transcript = try await completeChildTranscript(session: id, conversation: conversation)
                 projection = SubagentStreamProjection()
                 await receive(try projection.project(transcript))
                 try await Task.sleep(for: .seconds(1))
@@ -203,7 +255,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             guard try projection.accept(page) else {
                 resets += 1
                 guard resets <= 3 else { throw ClientError.invalidPayload }
-                transcript = try await childTranscript(session: id, conversation: conversation)
+                transcript = try await completeChildTranscript(session: id, conversation: conversation)
                 lastHistoryRead = .distantPast
                 continue
             }
@@ -215,7 +267,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             let refresh = oldStream.isEmpty || boundary || Date().timeIntervalSince(lastHistoryRead) >= 3
             if refresh {
                 // Read history after boundaries so persisted completions win over replayed evidence.
-                transcript = try await childTranscript(session: id, conversation: conversation)
+                transcript = mergeChildTranscript(transcript, newest: try await childTranscript(session: id, conversation: conversation))
                 lastHistoryRead = Date()
             }
             if changed || refresh {

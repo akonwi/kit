@@ -271,7 +271,7 @@ func (c *fakeBoundSession) Subagent(context.Context, protocol.SubagentOperationI
 	panic("unexpected Subagent")
 }
 
-func (c *fakeBoundSession) SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error) {
+func (c *fakeBoundSession) SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error) {
 	panic("unexpected SubagentTranscript")
 }
 

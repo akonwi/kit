@@ -664,10 +664,12 @@ extension APIProtocol {
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/transcript/get(getSubagentTranscript)`.
     internal func getSubagentTranscript(
         path: Operations.GetSubagentTranscript.Input.Path,
+        query: Operations.GetSubagentTranscript.Input.Query = .init(),
         headers: Operations.GetSubagentTranscript.Input.Headers
     ) async throws -> Operations.GetSubagentTranscript.Output {
         try await getSubagentTranscript(Operations.GetSubagentTranscript.Input(
             path: path,
+            query: query,
             headers: headers
         ))
     }

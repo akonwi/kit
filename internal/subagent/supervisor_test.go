@@ -245,7 +245,7 @@ func TestDismissSerializesChildStoreDeletionWithTranscriptInspection(t *testing.
 	factory.inspect.Store(true)
 	transcriptDone := make(chan error, 1)
 	go func() {
-		_, err := supervisor.Transcript(context.Background(), conversation.ID)
+		_, err := supervisor.Transcript(context.Background(), conversation.ID, 0)
 		transcriptDone <- err
 	}()
 	select {
@@ -528,7 +528,7 @@ func (r *gatedChildRuntime) Steer(_ context.Context, message string) error {
 	return nil
 }
 func (*gatedChildRuntime) Abort(context.Context) error { return nil }
-func (*gatedChildRuntime) Transcript(context.Context) (subagent.Transcript, error) {
+func (*gatedChildRuntime) Transcript(context.Context, uint64) (subagent.Transcript, error) {
 	return subagent.Transcript{}, nil
 }
 func (*gatedChildRuntime) Close(context.Context) error { return nil }

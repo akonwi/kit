@@ -3928,11 +3928,17 @@
           "conversationId": {
             "type": "string"
           },
+          "hasMoreMessages": {
+            "type": "boolean"
+          },
           "messages": {
             "items": {
               "$ref": "#/components/schemas/TranscriptMessage"
             },
             "type": "array"
+          },
+          "previousMessageCursor": {
+            "type": "string"
           }
         },
         "required": [
@@ -4113,6 +4119,27 @@
             "$ref": "#/components/schemas/AnnotationsContent"
           }
         ]
+      },
+      "TranscriptCursorUnavailableError": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "enum": [
+              "transcript_cursor_unavailable"
+            ],
+            "type": "string"
+          },
+          "message": {
+            "maxLength": 1024,
+            "minLength": 1,
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message"
+        ],
+        "type": "object"
       },
       "TranscriptMessage": {
         "additionalProperties": false,
@@ -18574,6 +18601,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -18917,6 +18973,35 @@
             },
             "description": "Upgrade Required"
           },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
+          },
           "500": {
             "content": {
               "application/json": {
@@ -19021,6 +19106,14 @@
             "in": "path",
             "name": "conversationID",
             "required": true,
+            "schema": {
+              "type": "string"
+            }
+          },
+          {
+            "in": "query",
+            "name": "before",
+            "required": false,
             "schema": {
               "type": "string"
             }
@@ -19163,11 +19256,15 @@
                       "discriminator": {
                         "mapping": {
                           "conflict": "#/components/schemas/ConflictError",
-                          "instance_mismatch": "#/components/schemas/InstanceMismatchError"
+                          "instance_mismatch": "#/components/schemas/InstanceMismatchError",
+                          "transcript_cursor_unavailable": "#/components/schemas/TranscriptCursorUnavailableError"
                         },
                         "propertyName": "code"
                       },
                       "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/TranscriptCursorUnavailableError"
+                        },
                         {
                           "$ref": "#/components/schemas/ConflictError"
                         },
@@ -19243,6 +19340,35 @@
               }
             },
             "description": "Upgrade Required"
+          },
+          "429": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": false,
+                  "properties": {
+                    "error": {
+                      "discriminator": {
+                        "mapping": {
+                          "capacity_exceeded": "#/components/schemas/CapacityExceededError"
+                        },
+                        "propertyName": "code"
+                      },
+                      "oneOf": [
+                        {
+                          "$ref": "#/components/schemas/CapacityExceededError"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "error"
+                  ],
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Too Many Requests"
           },
           "500": {
             "content": {

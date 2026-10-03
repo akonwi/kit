@@ -11,4 +11,7 @@ var (
 	ErrTemporaryUnavailable = errors.New("SUBAGENT_UNAVAILABLE_TEMPORARY_SESSION")
 	ErrClosed               = errors.New("subagent supervisor is closed")
 	ErrInvalidInput         = errors.New("invalid subagent input")
+	// ErrTranscriptCursorUnavailable means an older-history cursor does not
+	// identify a complete-turn boundary that still exists.
+	ErrTranscriptCursorUnavailable = errors.New("subagent transcript cursor is unavailable")
 )

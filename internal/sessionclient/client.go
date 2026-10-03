@@ -64,7 +64,9 @@ type Session interface {
 	AbortBash(context.Context, string) error
 	Abort(context.Context, string) error
 	Subagent(context.Context, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
-	SubagentTranscript(context.Context, string) (protocol.SubagentTranscript, error)
+	// SubagentTranscript loads one complete-turn child page. An empty before
+	// selects the newest page.
+	SubagentTranscript(context.Context, string, string) (protocol.SubagentTranscript, error)
 }
 
 // BashHistorySession is the optional bound-session durable direct-bash history

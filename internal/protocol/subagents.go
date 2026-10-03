@@ -2,6 +2,7 @@ package protocol
 
 import (
 	"fmt"
+	"strconv"
 	"strings"
 	"time"
 	"unicode/utf8"
@@ -290,16 +291,28 @@ func (page SubagentLiveEventPage) Validate() error {
 	return nil
 }
 
-// SubagentTranscript is durable child history selected by conversation identity.
+// SubagentTranscript is one complete-turn page of durable child history.
+// PreviousMessageCursor is the durable sequence of the oldest included message
+// when older history remains. Pages are chronological and use stable sequences.
 type SubagentTranscript struct {
-	ConversationID string              `json:"conversationId"`
-	Messages       []TranscriptMessage `json:"messages"`
+	ConversationID        string              `json:"conversationId"`
+	Messages              []TranscriptMessage `json:"messages"`
+	PreviousMessageCursor string              `json:"previousMessageCursor,omitempty"`
+	HasMoreMessages       bool                `json:"hasMoreMessages,omitempty"`
 }
 
-// Validate checks a child transcript received across a transport boundary.
+// Validate checks a child transcript page received across a transport boundary.
 func (transcript SubagentTranscript) Validate() error {
 	if !identifier.Valid(transcript.ConversationID, "subagent_") || len(transcript.Messages) > 1000 {
 		return fmt.Errorf("subagent transcript identity or size is invalid")
+	}
+	if transcript.HasMoreMessages {
+		cursor, err := strconv.ParseUint(transcript.PreviousMessageCursor, 10, 64)
+		if err != nil || cursor == 0 || len(transcript.Messages) == 0 || cursor != uint64(transcript.Messages[0].Sequence) {
+			return fmt.Errorf("subagent transcript previous-message cursor is invalid")
+		}
+	} else if transcript.PreviousMessageCursor != "" {
+		return fmt.Errorf("subagent transcript previous-message cursor requires older messages")
 	}
 	previous, aggregate := int64(-1), 0
 	for index, message := range transcript.Messages {
@@ -320,6 +333,33 @@ func (transcript SubagentTranscript) Validate() error {
 	}
 	if aggregate > 8<<20 {
 		return fmt.Errorf("subagent transcript exceeds eight MiB")
+	}
+	return nil
+}
+
+// ValidateBefore checks a page against its requested exclusive cursor.
+// An empty before selects the newest page and only runs Validate.
+func (transcript SubagentTranscript) ValidateBefore(before string) error {
+	if err := transcript.Validate(); err != nil {
+		return err
+	}
+	if before == "" {
+		return nil
+	}
+	cursor, err := strconv.ParseUint(before, 10, 64)
+	if err != nil || cursor == 0 {
+		return fmt.Errorf("requested subagent transcript cursor is invalid")
+	}
+	for _, message := range transcript.Messages {
+		if message.Sequence < 0 || uint64(message.Sequence) >= cursor {
+			return fmt.Errorf("subagent transcript message does not precede requested cursor")
+		}
+	}
+	if transcript.HasMoreMessages {
+		previous, _ := strconv.ParseUint(transcript.PreviousMessageCursor, 10, 64)
+		if previous >= cursor {
+			return fmt.Errorf("subagent transcript cursor does not precede requested cursor")
+		}
 	}
 	return nil
 }

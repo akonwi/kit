@@ -367,6 +367,70 @@ func TestEnsureSubagentTabFocusesExistingTab(t *testing.T) {
 	}
 }
 
+func TestSubagentTranscriptShowsHistoryLoadFailure(t *testing.T) {
+	t.Parallel()
+	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	view := shellView{Snapshot: shellSnapshot{
+		Phase: phaseReady, Session: protocol.SessionInfo{Name: "Parent", Model: "test/echo"},
+		ActivitySelected: true, WorkspaceLayout: &workspaceLayoutState{}, ActivityScroll: &ui.ScrollController{},
+		Workspace:                       selectedSubagentWorkspace(conversationID),
+		SubagentTranscriptHistoryErrors: map[string]string{conversationID: "cursor unavailable"},
+		SubagentTranscripts: map[string]protocol.SubagentTranscript{conversationID: {
+			ConversationID: conversationID, HasMoreMessages: true, PreviousMessageCursor: "4",
+			Messages: []protocol.TranscriptMessage{{ID: "message_4", TurnID: "turn_4", Sequence: 4, Role: "assistant", StopReason: "stop", CreatedAt: time.Now().Format(time.RFC3339Nano), Content: []protocol.TranscriptContent{protocol.TextBlock("latest child output")}}},
+		}},
+	}}
+	application := uitest.New(view)
+	application.Pump(100, 20)
+	text := strings.Join(paintedRows(application, 100, 20), "\n")
+	for _, expected := range []string{"Could not load earlier messages", "latest child output"} {
+		if !strings.Contains(text, expected) {
+			t.Fatalf("history failure missing %q:\n%s", expected, text)
+		}
+	}
+}
+
+func TestPrependSubagentTranscriptKeepsDurableCursor(t *testing.T) {
+	t.Parallel()
+	current := protocol.SubagentTranscript{
+		ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", HasMoreMessages: true, PreviousMessageCursor: "3",
+		Messages: []protocol.TranscriptMessage{{ID: "message_3", Sequence: 3}},
+	}
+	merged, err := prependSubagentTranscript(current, protocol.SubagentTranscript{
+		HasMoreMessages: true, PreviousMessageCursor: "1",
+		Messages: []protocol.TranscriptMessage{{ID: "message_1", Sequence: 1}, {ID: "message_2", Sequence: 2}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(merged.Messages) != 3 || merged.Messages[0].Sequence != 1 || merged.PreviousMessageCursor != "1" || !merged.HasMoreMessages {
+		t.Fatalf("prepended page = %+v", merged)
+	}
+	refreshed, extended := mergeSubagentTranscriptRefresh(merged, protocol.SubagentTranscript{
+		HasMoreMessages: true, PreviousMessageCursor: "2",
+		Messages: []protocol.TranscriptMessage{{ID: "message_2", Sequence: 2, Content: []protocol.TranscriptContent{protocol.TextBlock("revised")}}, {ID: "message_3", Sequence: 3}, {ID: "message_4", Sequence: 4}},
+	}, true)
+	revised, _ := refreshed.Messages[1].Content[0].Payload.(protocol.TextContent)
+	if !extended || len(refreshed.Messages) != 4 || revised.Text != "revised" || refreshed.Messages[3].ID != "message_4" || refreshed.PreviousMessageCursor != "1" {
+		t.Fatalf("refresh merge = extended %t page %+v", extended, refreshed)
+	}
+	gapped, extended := mergeSubagentTranscriptRefresh(protocol.SubagentTranscript{
+		HasMoreMessages: true, PreviousMessageCursor: "1",
+		Messages: []protocol.TranscriptMessage{{ID: "message_1", Sequence: 1}, {ID: "message_5", Sequence: 5}, {ID: "message_8", Sequence: 8}},
+	}, protocol.SubagentTranscript{
+		Messages: []protocol.TranscriptMessage{{ID: "message_8", Sequence: 8, Content: []protocol.TranscriptContent{protocol.TextBlock("kept")}}, {ID: "message_12", Sequence: 12}},
+	}, true)
+	if !extended || len(gapped.Messages) != 4 || gapped.Messages[0].ID != "message_1" || gapped.Messages[1].Sequence != 5 || gapped.PreviousMessageCursor != "1" || !gapped.HasMoreMessages {
+		t.Fatalf("gapped refresh merge = extended %t page %+v", extended, gapped)
+	}
+	replaced, extended := mergeSubagentTranscriptRefresh(gapped, protocol.SubagentTranscript{
+		Messages: []protocol.TranscriptMessage{{ID: "message_1", Sequence: 9}},
+	}, true)
+	if extended || len(replaced.Messages) != 1 || replaced.HasMoreMessages {
+		t.Fatalf("conflicting refresh merge = extended %t page %+v", extended, replaced)
+	}
+}
+
 func TestSubagentTranscriptShowsLoadFailure(t *testing.T) {
 	t.Parallel()
 	conversationID := "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
