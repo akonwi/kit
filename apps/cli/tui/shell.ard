@@ -2423,6 +2423,13 @@ impl Shell {
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
       self.usage = snapshot.Usage
+      // A settled authoritative snapshot releases idle-only palette commands
+      // even when a terminal stream event was missed during reconnection.
+      if snapshot.ActiveTurnID == "" and self.live.activity == "" {
+        self.run_id = ""
+        self.abort_pending = false
+        self.abort_after_start = false
+      }
       self.mcp_servers = snapshot.MCPServers
       self.mcp_warnings = snapshot.MCPWarnings
       for warning in snapshot.MCPWarnings {
@@ -2565,6 +2572,12 @@ impl Shell {
 
   fn mut apply_events(run_id: Str, batch: [protocol::SessionEvent]) {
     if run_id == self.run_id {
+      mut finished = false
+      for event in batch {
+        if transcript::classify(event.Kind().to_str()) == transcript::Event::run_finished {
+          finished = true
+        }
+      }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply(sessionbridge::Events(mut batch))
       if self.live.context_window > 0 {
@@ -2573,6 +2586,10 @@ impl Shell {
       }
       if self.live.activity == "" {
         self.abort_pending = false
+      }
+      if finished {
+        self.run_id = ""
+        self.abort_after_start = false
       }
     }
   }
