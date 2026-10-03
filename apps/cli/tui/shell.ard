@@ -687,8 +687,10 @@ fn transcript_row(colors: theme::Theme, entry: Entry) cui::View {
 // Whether a message has visible transcript content.
 fn renders(message: transcript::Message) Bool {
   match message.role {
+    // Buffer streamed prose in the model, but reveal it only after the
+    // assistant message settles so incomplete Markdown never reaches layout.
     transcript::Role::user => message.text != "",
-    transcript::Role::assistant => message.text != "",
+    transcript::Role::assistant => message.text != "" and not message.pending,
     transcript::Role::tool => true,
     transcript::Role::bash => true,
     transcript::Role::other => false,
