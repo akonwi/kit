@@ -6,11 +6,13 @@ use cooper/animation
 use cooper/cui
 use cooper/event
 use cooper/keymap
+use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/httpapi
 use go:github.com/akonwi/kit/internal/identifier
 use go:github.com/akonwi/kit/internal/protocol
 use go:github.com/akonwi/kit/internal/sessionclient
+use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
@@ -28,6 +30,7 @@ use kit/tui/scratchpad
 use kit/tui/sessions
 use kit/tui/spinner
 use kit/tui/theme
+use kit/tui/theme_picker
 use kit/tui/toast
 use kit/tui/transcript
 use go:strings
@@ -63,6 +66,7 @@ enum ActiveModal {
   session_debug,
   mcp_status,
   model_picker,
+  theme_picker,
   rename_session,
   sessions,
 }
@@ -237,7 +241,7 @@ private fn command_catalog(
       "not available yet",
     ),
     command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
-    command_item("theme", "Choose UI colors", "appearance colors", "not available yet"),
+    command_item("theme", "Choose UI colors", "appearance colors", ""),
     command_item("thinking", "Change reasoning effort", "reasoning effort", "not available yet"),
   ]
   let catalog = mut List::new<palette::Item>()
@@ -378,6 +382,10 @@ struct Shell {
   new_session_pending: Bool,
   model_refresh_pending: Bool,
   reload_pending: Bool,
+  theme_name: Str,
+  theme_definition: kittheme::Definition,
+  displayed_theme_definition: kittheme::Definition,
+  terminal_theme: cooper::Theme,
   workspace: WorkspacePane,
   scratchpad_open: Bool,
   scratchpad_session_generation: Int,
@@ -479,6 +487,10 @@ fn new(props: mut Props) mut Shell {
     new_session_pending: false,
     model_refresh_pending: false,
     reload_pending: false,
+    theme_name: props.options.ThemeName,
+    theme_definition: props.options.ThemeDefinition,
+    displayed_theme_definition: props.options.ThemeDefinition,
+    terminal_theme: ctheme::default(),
     workspace: WorkspacePane::agent,
     scratchpad_open: false,
     scratchpad_session_generation: 0,
@@ -531,9 +543,10 @@ impl cui::Lifecycle for Shell {
     let lifetime = contextbridge::WithCancel(self.props.options.Context)
     self.lifetime = Maybe::new(lifetime)
     self.context = Maybe::new(ctx)
-    let definition = self.props.options.ThemeDefinition
+    self.terminal_theme = (ctx.theme)()
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
-      self.props.themes.replace(theme::resolve(definition, next))
+      self.terminal_theme = next
+      self.props.themes.replace(theme::resolve(self.displayed_theme_definition, next))
     })
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
@@ -1409,6 +1422,7 @@ impl cui::Component for Shell {
       ActiveModal::session_debug => layers.push(self.session_debug_modal()),
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
       ActiveModal::model_picker => layers.push(self.model_picker_modal()),
+      ActiveModal::theme_picker => layers.push(self.theme_picker_modal()),
       ActiveModal::rename_session => layers.push(self.rename_session_modal()),
       ActiveModal::sessions => layers.push(self.sessions_modal()),
       _ => (),
@@ -1744,6 +1758,47 @@ impl Shell {
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
           self.apply_model_configuration(applied)
+        },
+      },
+    )
+  }
+
+  fn mut theme_picker_modal() cui::View {
+    let dismiss = fn() {
+      self.displayed_theme_definition = self.theme_definition
+      self.props.themes.replace(theme::resolve(self.theme_definition, self.terminal_theme))
+      match self.context {
+        context => (context.invalidate_root)(),
+        _ => (),
+      }
+      let _ = self.dismiss_modal()
+    }
+    cui::child(
+      theme_picker::new,
+      theme_picker::Props{
+        themes: self.props.themes,
+        service: self.props.options.ThemeService,
+        committed_name: self.theme_name,
+        committed_definition: self.theme_definition,
+        dismiss: dismiss,
+        preview: fn(definition: kittheme::Definition) {
+          self.displayed_theme_definition = definition
+          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
+          match self.context {
+            context => (context.invalidate_root)(),
+            _ => (),
+          }
+        },
+        applied: fn(name: Str, definition: kittheme::Definition) {
+          self.theme_name = name
+          self.theme_definition = definition
+          self.displayed_theme_definition = definition
+          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
+          self.active_modal = ActiveModal::none
+          match self.context {
+            context => (context.invalidate_root)(),
+            _ => (),
+          }
         },
       },
     )
@@ -2250,6 +2305,8 @@ impl Shell {
           self.active_modal = ActiveModal::mcp_status
         } else if item.key == "model" {
           self.active_modal = ActiveModal::model_picker
+        } else if item.key == "theme" {
+          self.active_modal = ActiveModal::theme_picker
         } else if item.key == "name" {
           let value = strings::TrimSpace(command_args(self.command_query))
           self.rename_initial = match value == "" {
