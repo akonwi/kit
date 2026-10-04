@@ -260,3 +260,5 @@ Process ownership and plugin UI routing follow
   session changes, and degrade silently when GitHub status is unavailable.
   Verify pending, successful, and failed check transitions plus reconnect and
   stale-update behavior.
+
+- [ ] PLUG-001 - allow plugins to submit messages and inform the session
