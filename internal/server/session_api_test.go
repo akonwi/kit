@@ -316,6 +316,23 @@ func TestRuntimeSessionServiceRejectsUnavailableModelProvider(t *testing.T) {
 	}
 }
 
+func TestProjectSubagentTranscriptMessageEncodesEmptyContentAsArray(t *testing.T) {
+	t.Parallel()
+	projected := projectSubagentTranscriptMessage(subagent.TranscriptMessage{
+		ID: "message_test", TurnID: "turn_test", Sequence: 1, Role: "context", CreatedAt: time.Unix(1_700_000_000, 0).UTC(),
+	})
+	encoded, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Content []json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil || payload.Content == nil || len(payload.Content) != 0 {
+		t.Fatalf("projected empty content = %s, decode=%v", encoded, err)
+	}
+}
+
 func TestProjectProviderErrorKind(t *testing.T) {
 	t.Parallel()
 	if got := projectProviderErrorKind(kitsession.ProviderErrorAuthentication); got != protocol.ProviderErrorAuthentication {

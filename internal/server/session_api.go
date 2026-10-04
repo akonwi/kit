@@ -1010,20 +1010,25 @@ func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID
 		result.PreviousMessageCursor = strconv.FormatUint(transcript.PreviousMessageCursor, 10)
 	}
 	for _, message := range transcript.Messages {
-		projected := protocol.TranscriptMessage{
-			ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence, Role: message.Role,
-			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
-			ToolCallID: message.ToolCallID, ToolName: message.ToolName,
-			BoundaryID: message.BoundaryID, BoundaryKind: message.BoundaryKind, BoundarySource: message.BoundarySource,
-			Details: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
-			CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
-		}
-		for _, block := range message.Content {
-			projected.Content = append(projected.Content, transcriptContentFromFields(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, ""))
-		}
-		result.Messages = append(result.Messages, projected)
+		result.Messages = append(result.Messages, projectSubagentTranscriptMessage(message))
 	}
 	return result, nil
+}
+
+func projectSubagentTranscriptMessage(message subagent.TranscriptMessage) protocol.TranscriptMessage {
+	projected := protocol.TranscriptMessage{
+		ID: message.ID, TurnID: message.TurnID, Sequence: message.Sequence, Role: message.Role,
+		Content:    make([]protocol.TranscriptContent, 0, len(message.Content)),
+		StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
+		ToolCallID: message.ToolCallID, ToolName: message.ToolName,
+		BoundaryID: message.BoundaryID, BoundaryKind: message.BoundaryKind, BoundarySource: message.BoundarySource,
+		Details: append(json.RawMessage(nil), message.Details...), IsError: message.IsError,
+		CreatedAt: message.CreatedAt.Format(time.RFC3339Nano),
+	}
+	for _, block := range message.Content {
+		projected.Content = append(projected.Content, transcriptContentFromFields(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, ""))
+	}
+	return projected
 }
 
 func (s runtimeSessionService) ConfigureSubagent(ctx context.Context, sessionID, conversationID string, input protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error) {
