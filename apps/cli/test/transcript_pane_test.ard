@@ -198,13 +198,17 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
   renderer.update(fn() {
     model.messages = [
       message(transcript::Role::user, "Explain this", false),
-      message(transcript::Role::assistant, "Complete answer", false),
+      message(transcript::Role::assistant, "**Complete** answer", false),
     ]
   })
   terminal.flush()
-  testing::assert(
+  try testing::assert(
     terminal.frame().text().contains("Complete answer"),
     "the completed assistant prose is revealed atomically",
+  )
+  testing::assert(
+    not terminal.frame().text().contains("**Complete**"),
+    "completed assistant prose renders as Markdown",
   )
 }
 

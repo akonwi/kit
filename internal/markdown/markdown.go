@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"strconv"
 	"strings"
+	"unicode"
 	"unicode/utf8"
 
 	"github.com/yuin/goldmark"
@@ -88,6 +89,32 @@ type Run struct {
 	Link          string
 	Image         bool
 	RawHTML       bool
+}
+
+// VisibleText returns the renderer-neutral text shown for a semantic run.
+// Images retain their role in the label, and empty link labels fall back to a
+// sanitized destination so the rendered content remains identifiable.
+func VisibleText(run Run) string {
+	switch {
+	case run.Image && run.Text == "":
+		return "image"
+	case run.Image:
+		return "image: " + run.Text
+	case run.Text == "" && run.Link != "":
+		return sanitizeLinkTarget(run.Link)
+	default:
+		return run.Text
+	}
+}
+
+func sanitizeLinkTarget(target string) string {
+	return strings.Map(func(character rune) rune {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) ||
+			unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
+			return '�'
+		}
+		return character
+	}, target)
 }
 
 // TableCell is one table cell's inline content.

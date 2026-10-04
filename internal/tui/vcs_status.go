@@ -10,6 +10,7 @@ import (
 
 	kit "github.com/akonwi/kit/api"
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/internal/hyperlink"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -67,7 +68,7 @@ func footerPullRequest(status *protocol.VCSStatus) (int, string, bool) {
 	if pr.Number <= 0 {
 		return 0, "", false
 	}
-	safe := safeExternalHyperlink(pr.URL)
+	safe := hyperlink.SafeExternal(pr.URL)
 	if safe == "" || (!strings.HasPrefix(safe, "https://") && !strings.HasPrefix(safe, "http://")) {
 		return 0, "", false
 	}

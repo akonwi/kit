@@ -1,6 +1,9 @@
 package tui
 
-import "go.rockorager.dev/vaxis/ui"
+import (
+	"github.com/akonwi/kit/internal/hyperlink"
+	"go.rockorager.dev/vaxis/ui"
+)
 
 // markdownLinkActivator adds drag-safe mouse activation to OSC 8 links without
 // making their text focusable. It belongs outside the transcript SelectionArea
@@ -82,7 +85,7 @@ func (r *renderMarkdownLinkActivator) Paint(painter *ui.Painter, offset ui.Offse
 			cell := painter.Cell(offset.X+column, offset.Y+row)
 			target, checked := safeTargets[cell.Hyperlink]
 			if !checked {
-				target = safeExternalHyperlink(cell.Hyperlink)
+				target = hyperlink.SafeExternal(cell.Hyperlink)
 				safeTargets[cell.Hyperlink] = target
 			}
 			if target == "" {

@@ -1,0 +1,180 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use kit/tui/markdown
+use kit/tui/theme
+use go:strings
+
+struct SourceModel {
+  source: Str,
+}
+
+struct SourceProps {
+  model: mut SourceModel,
+  themes: theme::Context,
+}
+
+struct SourceHost {
+  props: mut SourceProps,
+}
+
+fn source_host(props: mut SourceProps) mut SourceHost {
+  (mut SourceHost{props: props})
+}
+
+impl cui::Component for SourceHost {
+  fn mut render() cui::View {
+    markdown::view(self.props.themes, "retained", self.props.model.source)
+  }
+}
+
+fn mount(source: Str, width: Int, height: Int) headless::TestApp {
+  let terminal = headless::new(width, height)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let _ = cui::mount(
+    app,
+    markdown::view(theme::context(theme::store(theme::system())), "document", source),
+  )
+  terminal.flush()
+  terminal
+}
+
+fn position(text: Str, needle: Str) [Int] {
+  let rows = strings::Split(text, "\n")
+  mut found_x = -1
+  mut found_y = -1
+  mut row = 0
+  for value in rows {
+    let column = strings::Index(value, needle)
+    if found_x < 0 and column >= 0 {
+      found_x = column
+      found_y = row
+    }
+    row =+ 1
+  }
+  [found_x, found_y]
+}
+
+test fn markdown_renders_semantic_blocks_and_inline_attributes() Void!Str {
+  let terminal = mount(
+    "# Heading\n\nNormal **bold** *italic* ~~gone~~ and `code`.\n\n- first item\n- [x] done\n\n> quoted\n\n```go\nfmt.Println(1)\n```",
+    48,
+    18,
+  )
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  for expected in [
+    "Heading",
+    "Normal bold italic gone and code.",
+    "• first item",
+    "☑ done",
+    "│ quoted",
+    "fmt.Println(1)",
+  ] {
+    try testing::assert(painted.contains(expected), "Markdown output contains {expected}:\n{painted}")
+  }
+  try testing::assert(not painted.contains("# Heading"), "heading marker is hidden")
+  try testing::assert(not painted.contains("**bold**"), "bold markers are hidden")
+
+  let heading = position(painted, "Heading")
+  let bold = position(painted, "bold")
+  let italic = position(painted, "italic")
+  let gone = position(painted, "gone")
+  let code = position(painted, "code")
+  try testing::assert(
+    terminal.frame().cell(heading.at(0).or(-1), heading.at(1).or(-1)).expect("heading").style.bold,
+    "heading is bold",
+  )
+  try testing::assert(
+    terminal.frame().cell(bold.at(0).or(-1), bold.at(1).or(-1)).expect("bold").style.bold,
+    "strong text is bold",
+  )
+  try testing::assert(
+    terminal.frame().cell(italic.at(0).or(-1), italic.at(1).or(-1)).expect("italic").style.italic,
+    "emphasis is italic",
+  )
+  try testing::assert(
+    terminal.frame().cell(gone.at(0).or(-1), gone.at(1).or(-1)).expect("strike").style.strike,
+    "deleted text is struck",
+  )
+  testing::assert(
+    terminal.frame().cell(
+      code.at(0).or(-1),
+      code.at(1).or(-1),
+    ).expect("code").style.background.is_some(),
+    "inline code has a surface",
+  )
+}
+
+test fn markdown_uses_hanging_indent_and_aligned_ordered_markers() Void!Str {
+  let terminal = mount("9. first item with enough text to wrap at the edge\n10. second", 24, 6)
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  try testing::assert(
+    painted.contains(" 9. first item"),
+    "short ordered marker is right aligned:\n{painted}",
+  )
+  try testing::assert(painted.contains("10. second"), "wide ordered marker is visible:\n{painted}")
+  testing::assert(
+    painted.contains("    enough text"),
+    "wrapped list content uses a hanging indent:\n{painted}",
+  )
+}
+
+test fn markdown_reparses_changed_source_in_the_retained_component() Void!Str {
+  let terminal = headless::new(24, 3)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut SourceModel{source: "**first**"}
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      source_host,
+      SourceProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try testing::assert(terminal.frame().text().contains("first"), "initial parsed source is visible")
+  renderer.update(fn() {
+    model.source = "*second*"
+  })
+  terminal.flush()
+  let painted = terminal.frame().text()
+  let second = position(painted, "second")
+  try testing::assert(
+    not painted.contains("first") and painted.contains("second"),
+    "changed source replaces cached document",
+  )
+  testing::assert(
+    terminal.frame().cell(
+      second.at(0).or(-1),
+      second.at(1).or(-1),
+    ).expect("updated emphasis").style.italic,
+    "changed source is reparsed with semantic styling",
+  )
+}
+
+test fn markdown_links_show_labels_and_only_activate_safe_targets() Void!Str {
+  let terminal = mount("[docs](https://example.com/path) and [private](file:///tmp/private)", 48, 3)
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  try testing::assert(painted.contains("docs and private"), "links show labels only: {painted}")
+  let docs = position(painted, "docs")
+  let private_link = position(painted, "private")
+  let safe = terminal.frame().cell(docs.at(0).or(-1), docs.at(1).or(-1)).expect("safe link")
+  let plain = terminal.frame().cell(
+    private_link.at(0).or(-1),
+    private_link.at(1).or(-1),
+  ).expect("unsafe link")
+  try testing::assert(
+    safe.hyperlink.or("") == "https://example.com/path" and safe.style.underline,
+    "safe link retains OSC 8 metadata",
+  )
+  testing::assert(
+    plain.hyperlink.is_none() and not plain.style.underline,
+    "unsafe link is plain text",
+  )
+}
