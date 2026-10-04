@@ -326,6 +326,41 @@ func TestSubagentStateCascadesOnPhysicalSessionDeletion(t *testing.T) {
 	}
 }
 
+func TestConfigureSubagentConversationUsesGenerationAndSettlementGuard(t *testing.T) {
+	store, owner := newSubagentStore(t)
+	conversation, task, err := store.Admit(t.Context(), testAdmission(owner, "inspect"), subagent.DefaultLimits())
+	if err != nil {
+		t.Fatal(err)
+	}
+	configured, err := store.ConfigureConversation(t.Context(), conversation.ID, conversation.Generation,
+		subagent.Configuration{Model: conversation.Model, ThinkingLevel: "high"}, false, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Model != conversation.Model || configured.ThinkingLevel != "high" {
+		t.Fatalf("configured conversation = %#v", configured)
+	}
+	if _, err := store.ConfigureConversation(t.Context(), conversation.ID, conversation.Generation+1,
+		subagent.Configuration{Model: conversation.Model, ThinkingLevel: "low"}, false, time.Now()); !errors.Is(err, subagent.ErrConflict) {
+		t.Fatalf("stale generation error = %v", err)
+	}
+	if _, err := store.ConfigureConversation(t.Context(), conversation.ID, conversation.Generation,
+		subagent.Configuration{Model: "test/other", ThinkingLevel: "high"}, true, time.Now()); !errors.Is(err, subagent.ErrConflict) {
+		t.Fatalf("unsettled model change error = %v", err)
+	}
+	if _, err := store.Cancel(t.Context(), task.ID, task.CancellationGeneration, "test", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	configured, err = store.ConfigureConversation(t.Context(), conversation.ID, conversation.Generation,
+		subagent.Configuration{Model: "test/other", ThinkingLevel: "high"}, true, time.Now())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Model != "test/other" {
+		t.Fatalf("model = %q", configured.Model)
+	}
+}
+
 func newSubagentStore(t *testing.T) (*Store, string) {
 	t.Helper()
 	store, err := Open(t.Context(), filepath.Join(t.TempDir(), "kit.db"))

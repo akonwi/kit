@@ -97,6 +97,75 @@ func validSubagentText(value string, limit int) bool {
 	return len(value) <= limit && utf8.ValidString(value) && !strings.ContainsRune(value, 0)
 }
 
+// ConfigureSubagentInput patches one child conversation's model and/or thinking.
+// Nil fields preserve their authoritative values; at least one field is required.
+type ConfigureSubagentInput struct {
+	Generation    uint64         `json:"generation"`
+	Model         *string        `json:"model,omitempty"`
+	ThinkingLevel *ThinkingLevel `json:"thinkingLevel,omitempty"`
+}
+
+// Validate checks a child configuration patch received across a process boundary.
+func (input ConfigureSubagentInput) Validate() error {
+	if input.Generation == 0 {
+		return fmt.Errorf("subagent configuration requires generation")
+	}
+	if input.Model == nil && input.ThinkingLevel == nil {
+		return fmt.Errorf("subagent configuration requires model or thinkingLevel")
+	}
+	if input.Model != nil {
+		provider, model, ok := strings.Cut(*input.Model, "/")
+		if !ok || provider == "" || model == "" || strings.TrimSpace(*input.Model) != *input.Model || !validRendererText(*input.Model, 256) {
+			return fmt.Errorf("subagent model must be an exact provider/model id")
+		}
+	}
+	if input.ThinkingLevel != nil {
+		if err := input.ThinkingLevel.Validate(); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// ConfigureSubagentResult reports the authoritative child configuration.
+type ConfigureSubagentResult struct {
+	Conversation SubagentConversation `json:"conversation"`
+	Compacted    bool                 `json:"compacted,omitempty"`
+	CheckpointID string               `json:"checkpointId,omitempty"`
+	Warnings     []string             `json:"warnings,omitempty"`
+}
+
+// ValidateApplied checks a child configuration response against its request.
+func (result ConfigureSubagentResult) ValidateApplied(input ConfigureSubagentInput) error {
+	if err := input.Validate(); err != nil {
+		return err
+	}
+	if err := validateSubagentSnapshot(SessionSnapshot{SubagentConversations: []SubagentConversation{result.Conversation}}); err != nil {
+		return err
+	}
+	if result.Conversation.Generation != input.Generation {
+		return fmt.Errorf("configured subagent generation does not match request")
+	}
+	if input.Model != nil && result.Conversation.Model != *input.Model {
+		return fmt.Errorf("configured subagent model does not match request")
+	}
+	if input.ThinkingLevel != nil && result.Conversation.ThinkingLevel != string(*input.ThinkingLevel) {
+		return fmt.Errorf("configured subagent thinking level does not match request")
+	}
+	if result.Compacted != (result.CheckpointID != "") {
+		return fmt.Errorf("configured subagent compaction metadata is inconsistent")
+	}
+	if len(result.Warnings) > 16 {
+		return fmt.Errorf("configured subagent has too many warnings")
+	}
+	for _, warning := range result.Warnings {
+		if !validRendererText(warning, 4096) {
+			return fmt.Errorf("configured subagent warning is invalid")
+		}
+	}
+	return nil
+}
+
 // SubagentOperationResult is one bounded lifecycle response.
 type SubagentOperationResult struct {
 	Definitions   []SubagentDefinition   `json:"definitions,omitempty"`

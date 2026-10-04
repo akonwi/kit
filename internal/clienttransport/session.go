@@ -580,6 +580,24 @@ func (c *Client) CompactSession(ctx context.Context, sessionID string, input pro
 	return output, nil
 }
 
+// ConfigureSubagent patches one child conversation's model and/or thinking.
+func (c *Client) ConfigureSubagent(ctx context.Context, sessionID, conversationID string, input protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error) {
+	if err := input.Validate(); err != nil {
+		return protocol.ConfigureSubagentResult{}, fmt.Errorf("validate subagent configuration: %w", err)
+	}
+	output, err := httpapi.Call(ctx, c, httpapi.ConfigureSubagent, httpapi.SubagentPath{SessionID: sessionID, ConversationID: conversationID}, input)
+	if err != nil {
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	if err := output.ValidateApplied(input); err != nil {
+		return protocol.ConfigureSubagentResult{}, protocolErrorf("validate daemon subagent configuration: %w", err)
+	}
+	if output.Conversation.ID != conversationID {
+		return protocol.ConfigureSubagentResult{}, protocolErrorf("daemon subagent configuration identity mismatch")
+	}
+	return output, nil
+}
+
 // GetSubagentEvents loads a bounded child event page.
 func (c *Client) GetSubagentEvents(ctx context.Context, sessionID, conversationID, streamID string, after int64) (protocol.SubagentLiveEventPage, error) {
 	output, err := httpapi.Call(ctx, c, httpapi.GetSubagentEvents, httpapi.SubagentEventsParams{SessionID: sessionID, ConversationID: conversationID, StreamID: streamID, After: after}, httpapi.NoBody{})

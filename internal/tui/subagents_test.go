@@ -715,6 +715,9 @@ func TestSubagentTranscriptUsesRetainedConversationTab(t *testing.T) {
 		}
 	}
 	_, hintRow := findTextCell(t, rows, "ctrl+d dismiss")
+	if got, want := strings.TrimSpace(rows[hintRow]), "m model "+glyphMiddleDot+" t thinking "+glyphMiddleDot+" ctrl+d dismiss"; got != want {
+		t.Fatalf("subagent footer = %q, want binding hints %q", got, want)
+	}
 	if got := strings.TrimSpace(rows[hintRow+1]); got != strings.Repeat("─", 100) {
 		t.Fatalf("subagent bottom border = %q, want full-width divider", got)
 	}

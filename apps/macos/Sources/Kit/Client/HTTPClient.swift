@@ -53,7 +53,7 @@ struct LocalDaemonHealth: Decodable {
     let databaseReady: Bool
 }
 
-final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
+final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, WorkspaceFileClient, SubagentDismissalClient, SubagentConfigurationClient, SubagentMessagingClient, BashClient, TranscriptPagingClient, SubagentStreamingClient, SessionMutationClient, SessionCreationClient, SessionNamingClient, SessionDirectoryClient, SessionReloadClient, SessionCompactionClient, PromptCommandClient, PluginCommandClient, PluginNotificationClient, SessionDeletionClient, SessionDisposalClient, SessionForkClient, ComposerClient, AttachmentClient {
     let serverID: String
     let isDemo = false
     let endpoint: URL
@@ -438,6 +438,67 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         guard case let .ok(response) = output else { throw ClientError.invalidPayload }
         let result: WireSubagentOperationResult = try generated(try response.body.json, as: WireSubagentOperationResult.self)
         guard result.dismissed == true else { throw ClientError.invalidPayload }
+    }
+
+    func configureSubagent(_ session: String, conversation: String, generation: UInt64,
+                           model: String?, thinking: String?) async throws -> SubagentConfigurationResult {
+        func rendererSafe(_ value: String, limit: Int) -> Bool {
+            !value.isEmpty && value.utf8.count <= limit && !value.unicodeScalars.contains {
+                $0.properties.generalCategory == .control || $0.properties.generalCategory == .format
+            }
+        }
+        func validExactModel(_ value: String) -> Bool {
+            let parts = value.split(separator: "/", omittingEmptySubsequences: false)
+            return parts.count == 2 && !parts[0].isEmpty && !parts[1].isEmpty
+                && value == value.trimmingCharacters(in: .whitespacesAndNewlines)
+                && rendererSafe(value, limit: 256)
+        }
+        let validModel = model.map(validExactModel) ?? true
+        guard !session.isEmpty, session.allSatisfy({ $0.isLetter || $0.isNumber || $0 == "_" || $0 == "-" }),
+              conversation.hasPrefix("subagent_"), conversation.dropFirst(9).count == 32,
+              conversation.dropFirst(9).allSatisfy({ "0123456789abcdef".contains($0) }),
+              generation > 0, generation <= UInt64(Int.max), model != nil || thinking != nil, validModel,
+              thinking.map({ WireThinkingLevel(rawValue: $0) != nil }) ?? true else {
+            throw MutationNotSent(reason: "Invalid subagent configuration.")
+        }
+        let body = Components.Schemas.ConfigureSubagentInput(generation: Int(generation), model: model, thinkingLevel: thinking)
+        let output = try await generatedOperation {
+            try await api.configureSubagent(path: .init(sessionID: session, conversationID: conversation),
+                headers: .init(xKitInstanceID: instance, xKitProtocolVersion: ._43), body: .json(body))
+        }
+        switch output {
+        case .ok(let response):
+            let result = try response.body.json
+            let applied = result.conversation
+            // The response must describe exactly the requested conversation and patch.
+            guard applied.id == conversation, applied.generation == Int(generation),
+                  model.map({ $0 == applied.model }) ?? !applied.model.isEmpty,
+                  thinking.map({ $0 == applied.thinkingLevel }) ?? (WireThinkingLevel(rawValue: applied.thinkingLevel) != nil),
+                  (result.compacted == true) == !(result.checkpointId ?? "").isEmpty,
+                  validExactModel(applied.model),
+                  (result.warnings?.count ?? 0) <= 16,
+                  (result.warnings ?? []).allSatisfy({ rendererSafe($0, limit: 4096) }) else { throw ClientError.invalidPayload }
+            return SubagentConfigurationResult(model: applied.model, thinkingLevel: applied.thinkingLevel,
+                                               warnings: result.warnings ?? [])
+        case .badRequest(let response):
+            switch try response.body.json.error {
+            case .invalidRequest(let error): throw SubagentConfigurationRejected(message: error.message)
+            }
+        case .unprocessableContent(let response):
+            switch try response.body.json.error {
+            case .unprocessable(let error): throw SubagentConfigurationRejected(message: error.message)
+            }
+        case .unauthorized: throw ClientError.http(401)
+        case .forbidden: throw ClientError.http(403)
+        case .notFound: throw ClientError.http(404)
+        case .conflict: throw ClientError.http(409)
+        case .misdirectedRequest: throw ClientError.http(421)
+        case .upgradeRequired: throw ClientError.http(426)
+        case .tooManyRequests: throw ClientError.http(429)
+        case .internalServerError: throw ClientError.http(500)
+        case .serviceUnavailable: throw ClientError.http(503)
+        case .undocumented(let status, _): throw ClientError.http(status)
+        }
     }
 
     func sendSubagent(_ session: String, agent: String, conversation: String?, message: String) async throws -> SubagentReceipt {

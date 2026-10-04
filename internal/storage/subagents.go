@@ -324,6 +324,65 @@ func (s *Store) ClaimNext(ctx context.Context, ownerSessionID string, limits sub
 	return subagent.Claim{Conversation: conversation, Task: task}, nil
 }
 
+// ConfigureConversation atomically replaces one conversation's effective model
+// and thinking. Model changes require a fully settled child.
+func (s *Store) ConfigureConversation(ctx context.Context, conversationID subagent.ConversationID, expectedGeneration uint64, configuration subagent.Configuration, requireSettled bool, configuredAt time.Time) (subagent.Conversation, error) {
+	if s == nil || s.db == nil {
+		return subagent.Conversation{}, fmt.Errorf("store is closed")
+	}
+	if !identifier.Valid(string(conversationID), "subagent_") || expectedGeneration == 0 || strings.TrimSpace(configuration.Model) == "" || strings.TrimSpace(configuration.ThinkingLevel) == "" {
+		return subagent.Conversation{}, fmt.Errorf("%w: conversation, model, and thinking level are required", subagent.ErrInvalidInput)
+	}
+	configuredAt = configuredAt.UTC()
+	if configuredAt.IsZero() {
+		configuredAt = time.Now().UTC()
+	}
+	tx, err := s.db.BeginTx(ctx, nil)
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	defer func() { _ = tx.Rollback() }()
+	conversation, err := loadSubagentConversation(ctx, tx, conversationID, false)
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	if conversation.Generation != expectedGeneration {
+		return subagent.Conversation{}, subagent.ErrConflict
+	}
+	if requireSettled {
+		var active int
+		if err := tx.QueryRowContext(ctx, `SELECT COUNT(*) FROM subagent_tasks WHERE conversation_id = ? AND state IN ('queued', 'running')`, conversationID).Scan(&active); err != nil {
+			return subagent.Conversation{}, err
+		}
+		if active != 0 || conversation.ActiveTaskID != "" || conversation.QueuedTasks != 0 {
+			return subagent.Conversation{}, subagent.ErrConflict
+		}
+	}
+	if conversation.Model != configuration.Model || conversation.ThinkingLevel != configuration.ThinkingLevel {
+		result, err := tx.ExecContext(ctx, `
+			UPDATE subagent_conversations
+			SET model = ?, thinking_level = NULLIF(?, ''), updated_at = ?
+			WHERE id = ? AND dismissed_at IS NULL AND generation = ?`, configuration.Model, configuration.ThinkingLevel, formatTimestamp(configuredAt), conversationID, expectedGeneration)
+		if err != nil {
+			return subagent.Conversation{}, err
+		}
+		if count, _ := result.RowsAffected(); count != 1 {
+			return subagent.Conversation{}, subagent.ErrNotFound
+		}
+		if err := insertSubagentEvent(ctx, tx, conversation.OwnerSessionID, conversationID, "", "conversation.configured", configuredAt); err != nil {
+			return subagent.Conversation{}, err
+		}
+	}
+	conversation, err = loadSubagentConversation(ctx, tx, conversationID, false)
+	if err != nil {
+		return subagent.Conversation{}, err
+	}
+	if err := tx.Commit(); err != nil {
+		return subagent.Conversation{}, err
+	}
+	return conversation, nil
+}
+
 // MarkConversationInitialized records the one-time child store handshake.
 func (s *Store) MarkConversationInitialized(ctx context.Context, conversationID subagent.ConversationID, initializedAt time.Time) error {
 	result, err := s.db.ExecContext(ctx, `

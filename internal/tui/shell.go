@@ -169,6 +169,8 @@ type shellCallbacks struct {
 	SelectSubagentReading       func(ui.EventContext, string, int)
 	CancelSubagentTask          func(ui.EventContext, string, uint64)
 	DismissSubagent             func(ui.EventContext, string, uint64)
+	OpenSubagentModel           func(ui.EventContext, string)
+	OpenSubagentThinking        func(ui.EventContext, string)
 	SelectSubagent              func(ui.EventContext, string)
 	MoveSubagentSelection       selectionMovedCallback
 	SubagentFilterChanged       ui.TextChangedCallback
@@ -294,6 +296,18 @@ func (openSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.ope
 type cancelSubagentIntent struct{}
 
 func (cancelSubagentIntent) IntentType() ui.IntentType { return "kit.subagents.cancel" }
+
+type configureSubagentModelIntent struct{}
+
+func (configureSubagentModelIntent) IntentType() ui.IntentType {
+	return "kit.subagents.configure-model"
+}
+
+type configureSubagentThinkingIntent struct{}
+
+func (configureSubagentThinkingIntent) IntentType() ui.IntentType {
+	return "kit.subagents.configure-thinking"
+}
 
 type dismissSubagentIntent struct{}
 

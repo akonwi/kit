@@ -162,6 +162,13 @@ func TestConcurrentSubagentVerticalSlice(t *testing.T) {
 	if conversation.DroidInitializedAt == nil {
 		t.Fatal("child conversation was not marked initialized")
 	}
+	if err := os.RemoveAll(record.CWD); err != nil {
+		t.Fatal(err)
+	}
+	transcript, err := supervisor.Transcript(t.Context(), conversation.ID, 0)
+	if err != nil || len(transcript.Messages) < 2 || transcript.Messages[len(transcript.Messages)-1].Role != "assistant" {
+		t.Fatalf("transcript after working directory removal = %#v, %v", transcript, err)
+	}
 	if err := os.Remove(childStorePath); err != nil {
 		t.Fatal(err)
 	}

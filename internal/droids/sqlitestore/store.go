@@ -42,6 +42,7 @@ var migrations = []struct {
 type Options struct {
 	Path        string
 	BusyTimeout time.Duration
+	ReadOnly    bool
 }
 
 // Store persists exactly one droid conversation in one SQLite database file.
@@ -60,19 +61,21 @@ func Open(ctx context.Context, options Options) (*Store, error) {
 	if err != nil {
 		return nil, fmt.Errorf("droids sqlite: resolve database path: %w", err)
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
-		return nil, fmt.Errorf("droids sqlite: create database directory: %w", err)
-	}
-	file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
-	if err != nil {
-		return nil, fmt.Errorf("droids sqlite: create database: %w", err)
-	}
-	if err := file.Chmod(0o600); err != nil {
-		_ = file.Close()
-		return nil, fmt.Errorf("droids sqlite: protect database: %w", err)
-	}
-	if err := file.Close(); err != nil {
-		return nil, fmt.Errorf("droids sqlite: close bootstrap file: %w", err)
+	if !options.ReadOnly {
+		if err := os.MkdirAll(filepath.Dir(path), 0o700); err != nil {
+			return nil, fmt.Errorf("droids sqlite: create database directory: %w", err)
+		}
+		file, err := os.OpenFile(path, os.O_CREATE|os.O_RDWR, 0o600)
+		if err != nil {
+			return nil, fmt.Errorf("droids sqlite: create database: %w", err)
+		}
+		if err := file.Chmod(0o600); err != nil {
+			_ = file.Close()
+			return nil, fmt.Errorf("droids sqlite: protect database: %w", err)
+		}
+		if err := file.Close(); err != nil {
+			return nil, fmt.Errorf("droids sqlite: close bootstrap file: %w", err)
+		}
 	}
 
 	busyTimeout := options.BusyTimeout
@@ -83,7 +86,7 @@ func Open(ctx context.Context, options Options) (*Store, error) {
 		return nil, fmt.Errorf("droids sqlite: busy timeout must not be negative")
 	}
 
-	connector, err := sqlite.NewConnector(sqliteDSN(path, busyTimeout))
+	connector, err := sqlite.NewConnector(sqliteDSN(path, busyTimeout, options.ReadOnly))
 	if err != nil {
 		return nil, fmt.Errorf("droids sqlite: configure connector: %w", err)
 	}
@@ -99,18 +102,23 @@ func Open(ctx context.Context, options Options) (*Store, error) {
 	if err := db.PingContext(ctx); err != nil {
 		return fail(fmt.Errorf("droids sqlite: ping database: %w", err))
 	}
-	if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
-		return fail(fmt.Errorf("droids sqlite: enable WAL: %w", err))
-	}
-	if err := migrate(ctx, db); err != nil {
-		return fail(err)
+	if !options.ReadOnly {
+		if _, err := db.ExecContext(ctx, "PRAGMA journal_mode = WAL"); err != nil {
+			return fail(fmt.Errorf("droids sqlite: enable WAL: %w", err))
+		}
+		if err := migrate(ctx, db); err != nil {
+			return fail(err)
+		}
 	}
 	return &Store{db: db}, nil
 }
 
-func sqliteDSN(path string, busyTimeout time.Duration) string {
+func sqliteDSN(path string, busyTimeout time.Duration, readOnly bool) string {
 	uri := &url.URL{Scheme: "file", Path: filepath.ToSlash(path)}
 	query := uri.Query()
+	if readOnly {
+		query.Set("mode", "ro")
+	}
 	query.Add("_pragma", "foreign_keys(1)")
 	query.Add("_pragma", fmt.Sprintf("busy_timeout(%d)", busyTimeout.Milliseconds()))
 	query.Add("_pragma", "synchronous(NORMAL)")

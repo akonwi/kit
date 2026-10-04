@@ -8,6 +8,40 @@ import (
 	protocol "github.com/akonwi/kit/api/contract"
 )
 
+func TestConfigureSubagentValidation(t *testing.T) {
+	model := "test/model"
+	thinking := protocol.ThinkingHigh
+	valid := []protocol.ConfigureSubagentInput{
+		{Generation: 1, Model: &model},
+		{Generation: 1, ThinkingLevel: &thinking},
+		{Generation: 1, Model: &model, ThinkingLevel: &thinking},
+	}
+	for _, input := range valid {
+		if err := input.Validate(); err != nil {
+			t.Fatalf("valid input %#v: %v", input, err)
+		}
+	}
+	invalidModel := "model"
+	invalidThinking := protocol.ThinkingLevel("extreme")
+	for _, input := range []protocol.ConfigureSubagentInput{
+		{}, {Generation: 1}, {Model: &model},
+		{Generation: 1, Model: &invalidModel},
+		{Generation: 1, ThinkingLevel: &invalidThinking},
+	} {
+		if err := input.Validate(); err == nil {
+			t.Fatalf("invalid input accepted: %#v", input)
+		}
+	}
+	result := protocol.ConfigureSubagentResult{Conversation: protocol.SubagentConversation{
+		ID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentName: "scout",
+		Model: model, ThinkingLevel: "high", State: "idle", Generation: 1,
+		UpdatedAt: time.Unix(1, 0).UTC().Format(time.RFC3339Nano),
+	}}
+	if err := result.ValidateApplied(protocol.ConfigureSubagentInput{Generation: 1, Model: &model, ThinkingLevel: &thinking}); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestSubagentOperationInputValidation(t *testing.T) {
 	valid := []protocol.SubagentOperationInput{
 		{Action: protocol.SubagentListAgents},

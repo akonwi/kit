@@ -132,6 +132,50 @@ func TestLocalSessionConfigurationUpdatesCacheAndResynchronizesAmbiguousErrors(t
 	}
 }
 
+type scriptedSubagentConfigurationTransport struct {
+	sessionTransport
+	result   protocol.ConfigureSubagentResult
+	err      error
+	snapshot protocol.SessionSnapshot
+}
+
+func (transport *scriptedSubagentConfigurationTransport) ConfigureSubagent(context.Context, string, string, protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error) {
+	return transport.result, transport.err
+}
+
+func (transport *scriptedSubagentConfigurationTransport) GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error) {
+	return transport.snapshot, nil
+}
+
+func TestLocalSubagentConfigurationUpsertsAndResynchronizesCache(t *testing.T) {
+	t.Parallel()
+	const conversationID = "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+	configured := protocol.SubagentConversation{
+		ID: conversationID, AgentName: "reviewer", Model: "test/new", ThinkingLevel: "high",
+		State: "idle", Generation: 1, UpdatedAt: "2025-01-01T00:00:00Z",
+	}
+	transport := &scriptedSubagentConfigurationTransport{result: protocol.ConfigureSubagentResult{Conversation: configured}}
+	gate := make(chan struct{}, 1)
+	gate <- struct{}{}
+	session := &Session{id: "session_test", transport: transport, mutationGate: gate}
+	model := "test/new"
+	result, err := session.ConfigureSubagent(t.Context(), conversationID, protocol.ConfigureSubagentInput{Generation: 1, Model: &model})
+	if err != nil || !reflect.DeepEqual(result.Conversation, configured) || len(session.snapshot.SubagentConversations) != 1 || !reflect.DeepEqual(session.snapshot.SubagentConversations[0], configured) {
+		t.Fatalf("ConfigureSubagent() = %+v, %v cache=%+v", result, err, session.snapshot.SubagentConversations)
+	}
+
+	transport.err = errors.New("response lost")
+	configured.ThinkingLevel = "max"
+	transport.snapshot.SubagentConversations = []protocol.SubagentConversation{configured}
+	level := protocol.ThinkingMax
+	if _, err := session.ConfigureSubagent(t.Context(), conversationID, protocol.ConfigureSubagentInput{Generation: 1, ThinkingLevel: &level}); err == nil {
+		t.Fatal("ConfigureSubagent() hid an ambiguous transport error")
+	}
+	if len(session.snapshot.SubagentConversations) != 1 || session.snapshot.SubagentConversations[0].ThinkingLevel != "max" {
+		t.Fatalf("ambiguous subagent configuration did not resynchronize: %+v", session.snapshot.SubagentConversations)
+	}
+}
+
 func TestLocalSessionCompactPreservesOperationIdentityAndSerializesCancellation(t *testing.T) {
 	t.Parallel()
 

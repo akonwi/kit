@@ -12,6 +12,8 @@ import (
 	"github.com/akonwi/kit/internal/identifier"
 )
 
+const configurationTransitionTimeout = 2 * time.Minute
+
 var (
 	errTaskCanceled     = errors.New("subagent task canceled")
 	errConversationGone = errors.New("subagent conversation dismissed")
@@ -31,19 +33,21 @@ type Supervisor struct {
 	wake   chan struct{}
 	done   chan struct{}
 
-	mu                sync.Mutex
-	started           bool
-	closed            bool
-	cursor            string
-	deletingOwners    map[string]struct{}
-	ownerAdmissions   map[string]int
-	running           map[TaskID]*worker
-	live              map[ConversationID]*liveEventJournal
-	conversationLocks map[ConversationID]*conversationLock
-	liveClock         uint64
-	changed           chan struct{}
-	startErr          error
-	workerWG          sync.WaitGroup
+	mu                   sync.Mutex
+	started              bool
+	closed               bool
+	cursor               string
+	deletingOwners       map[string]struct{}
+	ownerAdmissions      map[string]int
+	running              map[TaskID]*worker
+	live                 map[ConversationID]*liveEventJournal
+	conversationLocks    map[ConversationID]*conversationLock
+	configurationLocks   map[ConversationID]*conversationLock
+	ownerTransitionLocks map[string]*conversationLock
+	liveClock            uint64
+	changed              chan struct{}
+	startErr             error
+	workerWG             sync.WaitGroup
 }
 
 type liveEventJournal struct {
@@ -91,7 +95,8 @@ func NewSupervisor(repository Repository, factory ChildRuntimeFactory, limits Li
 		running: make(map[TaskID]*worker), live: make(map[ConversationID]*liveEventJournal),
 		deletingOwners:    make(map[string]struct{}),
 		ownerAdmissions:   make(map[string]int),
-		conversationLocks: make(map[ConversationID]*conversationLock), changed: make(chan struct{}),
+		conversationLocks: make(map[ConversationID]*conversationLock), configurationLocks: make(map[ConversationID]*conversationLock),
+		ownerTransitionLocks: make(map[string]*conversationLock), changed: make(chan struct{}),
 	}, nil
 }
 
@@ -163,6 +168,12 @@ func (s *Supervisor) Admit(ctx context.Context, admission Admission) (Conversati
 		return Conversation{}, Task{}, err
 	}
 	defer s.endOwnerOperation(admission.OwnerSessionID)
+	transitionMu := s.retainOwnerTransitionLock(admission.OwnerSessionID)
+	transitionMu.mu.Lock()
+	defer func() {
+		transitionMu.mu.Unlock()
+		s.releaseOwnerTransitionLock(admission.OwnerSessionID, transitionMu)
+	}()
 	conversation, task, err := s.repository.Admit(ctx, admission, s.limits)
 	if err != nil {
 		return Conversation{}, Task{}, err
@@ -225,7 +236,11 @@ func (s *Supervisor) scheduleLoop() {
 						if err := s.beginOwnerOperation(owner); err != nil {
 							continue
 						}
+						transitionMu := s.retainOwnerTransitionLock(owner)
+						transitionMu.mu.Lock()
 						task, err := s.requests.AdmitPendingSubagentDelivery(s.ctx, owner, s.limits)
+						transitionMu.mu.Unlock()
+						s.releaseOwnerTransitionLock(owner, transitionMu)
 						s.endOwnerOperation(owner)
 						if err != nil {
 							continue
@@ -280,12 +295,18 @@ func (s *Supervisor) schedule() {
 			if err := s.beginOwnerOperation(owner); err != nil {
 				continue
 			}
+			transitionMu := s.retainOwnerTransitionLock(owner)
+			transitionMu.mu.Lock()
 			claim, err := s.repository.ClaimNext(s.ctx, owner, s.limits, time.Now().UTC())
 			if errors.Is(err, ErrNotFound) || errors.Is(err, ErrConflict) {
+				transitionMu.mu.Unlock()
+				s.releaseOwnerTransitionLock(owner, transitionMu)
 				s.endOwnerOperation(owner)
 				continue
 			}
 			if err != nil {
+				transitionMu.mu.Unlock()
+				s.releaseOwnerTransitionLock(owner, transitionMu)
 				s.endOwnerOperation(owner)
 				return
 			}
@@ -295,6 +316,8 @@ func (s *Supervisor) schedule() {
 			s.mu.Lock()
 			if s.closed {
 				s.mu.Unlock()
+				transitionMu.mu.Unlock()
+				s.releaseOwnerTransitionLock(owner, transitionMu)
 				cancel(errSupervisorStop)
 				s.endOwnerOperation(owner)
 				_, _ = s.repository.Cancel(context.Background(), claim.Task.ID, claim.Task.CancellationGeneration, "supervisor stopped", time.Now().UTC())
@@ -311,6 +334,8 @@ func (s *Supervisor) schedule() {
 			s.workerWG.Add(1)
 			s.signalChangedLocked()
 			s.mu.Unlock()
+			transitionMu.mu.Unlock()
+			s.releaseOwnerTransitionLock(owner, transitionMu)
 			s.endOwnerOperation(owner)
 			s.emitChanged(owner, claim.Task.ConversationID, claim.Task.ID)
 			// Cancellation or dismissal can commit after the claim but before the
@@ -755,6 +780,54 @@ func (s *Supervisor) CancelOwner(ownerSessionID string) {
 	s.Wake()
 }
 
+func (s *Supervisor) retainOwnerTransitionLock(owner string) *conversationLock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	lock := s.ownerTransitionLocks[owner]
+	if lock == nil {
+		lock = &conversationLock{}
+		s.ownerTransitionLocks[owner] = lock
+	}
+	lock.refs++
+	return lock
+}
+
+func (s *Supervisor) releaseOwnerTransitionLock(owner string, lock *conversationLock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if lock == nil || lock.refs < 1 || s.ownerTransitionLocks[owner] != lock {
+		panic("subagent: release of unretained owner transition lock")
+	}
+	lock.refs--
+	if lock.refs == 0 {
+		delete(s.ownerTransitionLocks, owner)
+	}
+}
+
+func (s *Supervisor) retainConfigurationLock(conversationID ConversationID) *conversationLock {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	configurationMu := s.configurationLocks[conversationID]
+	if configurationMu == nil {
+		configurationMu = &conversationLock{}
+		s.configurationLocks[conversationID] = configurationMu
+	}
+	configurationMu.refs++
+	return configurationMu
+}
+
+func (s *Supervisor) releaseConfigurationLock(conversationID ConversationID, configurationMu *conversationLock) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if configurationMu == nil || configurationMu.refs < 1 || s.configurationLocks[conversationID] != configurationMu {
+		panic("subagent: release of unretained configuration lock")
+	}
+	configurationMu.refs--
+	if configurationMu.refs == 0 {
+		delete(s.configurationLocks, conversationID)
+	}
+}
+
 func (s *Supervisor) retainConversationLockLocked(conversationID ConversationID) *conversationLock {
 	conversationMu := s.conversationLocks[conversationID]
 	if conversationMu == nil {
@@ -808,6 +881,176 @@ func (s *Supervisor) cleanupConversation(conversationID ConversationID) {
 	conversation, err := s.repository.Conversation(context.Background(), conversationID)
 	if err == nil && conversation.DismissedAt != nil {
 		_ = s.factory.Delete(context.Background(), conversation)
+	}
+}
+
+// Configure serializes and persists one exact child configuration. Thinking
+// changes are forwarded to an active runtime after the commit; model changes
+// require a fully settled child and prepare its durable context before commit.
+func (s *Supervisor) Configure(ctx context.Context, conversationID ConversationID, expectedGeneration uint64, patch ConfigurationPatch, resolve ConfigurationResolver) (ConfigurationResult, error) {
+	if err := s.available(); err != nil {
+		return ConfigurationResult{}, err
+	}
+	configurationMu := s.retainConfigurationLock(conversationID)
+	configurationMu.mu.Lock()
+	defer func() {
+		configurationMu.mu.Unlock()
+		s.releaseConfigurationLock(conversationID, configurationMu)
+	}()
+	current, err := s.repository.Conversation(ctx, conversationID)
+	if err != nil {
+		return ConfigurationResult{}, err
+	}
+	if current.DismissedAt != nil {
+		return ConfigurationResult{}, ErrDismissed
+	}
+	if current.Generation != expectedGeneration {
+		return ConfigurationResult{}, ErrConflict
+	}
+	if err := s.beginOwnerOperation(current.OwnerSessionID); err != nil {
+		return ConfigurationResult{}, err
+	}
+	defer s.endOwnerOperation(current.OwnerSessionID)
+	transitionMu := s.retainOwnerTransitionLock(current.OwnerSessionID)
+	transitionMu.mu.Lock()
+	defer func() {
+		transitionMu.mu.Unlock()
+		s.releaseOwnerTransitionLock(current.OwnerSessionID, transitionMu)
+	}()
+	current, err = s.repository.Conversation(ctx, conversationID)
+	if err != nil {
+		return ConfigurationResult{}, err
+	}
+	if current.DismissedAt != nil || current.Generation != expectedGeneration {
+		return ConfigurationResult{}, ErrConflict
+	}
+	configuration := Configuration{Model: current.Model, ThinkingLevel: current.ThinkingLevel}
+	if patch.Model != nil {
+		configuration.Model = *patch.Model
+	}
+	if patch.ThinkingLevel != nil {
+		configuration.ThinkingLevel = *patch.ThinkingLevel
+	}
+	if resolve != nil {
+		configuration, err = resolve(ctx, configuration)
+		if err != nil {
+			return ConfigurationResult{}, err
+		}
+	}
+	modelChanged := current.Model != configuration.Model
+	thinkingChanged := current.ThinkingLevel != configuration.ThinkingLevel
+	var compacted bool
+	var checkpointID string
+	operationContext := ctx
+	if modelChanged {
+		var cancel context.CancelFunc
+		operationContext, cancel = context.WithTimeout(context.WithoutCancel(ctx), configurationTransitionTimeout)
+		defer cancel()
+		// Own the child store across context assessment and the durable commit.
+		// The owner transition lock blocks admissions and claims, while this lock
+		// also excludes transcript readers that temporarily open the child store.
+		s.mu.Lock()
+		conversationMu := s.retainConversationLockLocked(conversationID)
+		s.mu.Unlock()
+		if !conversationMu.mu.TryLock() {
+			s.releaseConversationLock(conversationID, conversationMu)
+			return ConfigurationResult{}, ErrConflict
+		}
+		defer func() {
+			conversationMu.mu.Unlock()
+			s.releaseConversationLock(conversationID, conversationMu)
+		}()
+		current, err = s.repository.Conversation(operationContext, conversationID)
+		if err != nil {
+			return ConfigurationResult{}, err
+		}
+		if current.Generation != expectedGeneration || !conversationSettled(current) {
+			return ConfigurationResult{}, ErrConflict
+		}
+		preparer, ok := s.factory.(ChildConfigurationPreparer)
+		if !ok {
+			return ConfigurationResult{}, ErrClosed
+		}
+		compacted, checkpointID, err = preparer.PrepareConfiguration(operationContext, current, configuration)
+		if err != nil {
+			return ConfigurationResult{}, err
+		}
+	}
+	configured, err := s.repository.ConfigureConversation(operationContext, conversationID, expectedGeneration, configuration, modelChanged, time.Now().UTC())
+	if err != nil {
+		return ConfigurationResult{}, err
+	}
+	s.emitChanged(configured.OwnerSessionID, configured.ID, "")
+	s.signalChanged()
+	warning := ""
+	if thinkingChanged && !modelChanged && configured.ActiveTaskID != "" {
+		applyContext, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
+		err = s.configureActiveThinking(applyContext, configured.ID, configuration.ThinkingLevel)
+		cancel()
+		if err != nil {
+			s.stopConversationWorker(configured.ID, err)
+			warning = "Thinking was saved, but active work was stopped so the new setting can be applied safely."
+		}
+	}
+	return ConfigurationResult{Conversation: configured, Compacted: compacted, CheckpointID: checkpointID, Warning: warning}, nil
+}
+
+func (s *Supervisor) stopConversationWorker(conversationID ConversationID, cause error) {
+	s.mu.Lock()
+	var owned *worker
+	for _, candidate := range s.running {
+		if candidate.claim.Conversation.ID == conversationID {
+			owned = candidate
+			break
+		}
+	}
+	s.mu.Unlock()
+	if owned != nil {
+		s.cancelWorker(owned, cause)
+	}
+}
+
+func (s *Supervisor) configureActiveThinking(ctx context.Context, conversationID ConversationID, thinking string) error {
+	for {
+		s.mu.Lock()
+		changed := s.changed
+		var owned *worker
+		for _, candidate := range s.running {
+			if candidate.claim.Conversation.ID == conversationID {
+				owned = candidate
+				break
+			}
+		}
+		s.mu.Unlock()
+		if owned != nil {
+			owned.mu.Lock()
+			runtime := owned.runtime
+			if runtime != nil && context.Cause(owned.ctx) == nil {
+				configurable, ok := runtime.(interface {
+					ConfigureThinking(context.Context, string) error
+				})
+				if !ok {
+					owned.mu.Unlock()
+					return ErrClosed
+				}
+				err := configurable.ConfigureThinking(ctx, thinking)
+				if err != nil {
+					owned.cancel(err)
+				}
+				owned.mu.Unlock()
+				return err
+			}
+			owned.mu.Unlock()
+		}
+		conversation, err := s.repository.Conversation(ctx, conversationID)
+		if err != nil || conversation.ActiveTaskID == "" {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case <-changed:
+		}
 	}
 }
 
@@ -998,12 +1241,12 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 		}
 		return Transcript{}, err
 	}
-	runtime, err := s.factory.Open(ctx, conversation)
+	reader, err := s.factory.OpenTranscript(ctx, conversation)
 	if err != nil {
 		return Transcript{}, err
 	}
-	transcript, transcriptErr := runtime.Transcript(ctx, before)
-	closeErr := runtime.Close(context.Background())
+	transcript, transcriptErr := reader.Transcript(ctx, before)
+	closeErr := reader.Close(context.Background())
 	if transcript.ConversationID == "" {
 		transcript.ConversationID = conversationID
 	}

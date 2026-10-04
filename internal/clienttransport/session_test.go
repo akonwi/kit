@@ -12,9 +12,28 @@ import (
 	"testing"
 	"time"
 
+	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/version"
 )
+
+func TestConfigureSubagentRejectsMismatchedConversationIdentity(t *testing.T) {
+	const (
+		sessionID      = "session_0123456789abcdef0123456789abcdef"
+		conversationID = "subagent_0123456789abcdef0123456789abcdef"
+	)
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		_, _ = io.WriteString(response, `{"conversation":{"id":"subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa","agentName":"reviewer","model":"test/model","thinkingLevel":"off","state":"idle","generation":1,"queuedTasks":0,"updatedAt":"2025-01-01T00:00:00Z"}}`)
+	}))
+	defer server.Close()
+	model := "test/model"
+	_, err := NewEndpoint(server.URL, "secret", "instance_test").ConfigureSubagent(t.Context(), sessionID, conversationID, protocol.ConfigureSubagentInput{Generation: 1, Model: &model})
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) {
+		t.Fatalf("ConfigureSubagent() error = %T %v, want protocol error", err, err)
+	}
+}
 
 func TestSessionEventStreamCancellationClosesRequest(t *testing.T) {
 	const sessionID = "session_0123456789abcdef0123456789abcdef"

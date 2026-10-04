@@ -1491,14 +1491,23 @@ func (d *Droid) History(ctx context.Context, query HistoryQuery) (MessagePage, e
 	if d == nil || d.sdk == nil {
 		return MessagePage{}, fmt.Errorf("droids: History requires a droid opened with droids.Spawn")
 	}
-	page, err := d.sdk.store.Records(ctx, RecordQuery{
+	return ReadHistory(ctx, d.sdk.store, d.sdk.conversation, query)
+}
+
+// ReadHistory pages canonical diagnostic messages from an already-bound store
+// without opening an execution runtime.
+func ReadHistory(ctx context.Context, store Store, conversation ConversationID, query HistoryQuery) (MessagePage, error) {
+	if store == nil || conversation == "" {
+		return MessagePage{}, fmt.Errorf("droids: history store and conversation are required")
+	}
+	page, err := store.Records(ctx, RecordQuery{
 		After: query.After, Before: query.Before, Limit: query.Limit,
 		Kind: messageRecordKind, Descending: query.Descending,
 	})
 	if err != nil {
 		return MessagePage{}, err
 	}
-	return messagePageFromRecords(page, false, d.sdk.conversation)
+	return messagePageFromRecords(page, false, conversation)
 }
 
 func messagePageFromRecords(page RecordPage, reverse bool, conversation ConversationID) (MessagePage, error) {

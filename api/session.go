@@ -23,6 +23,10 @@ type sessionMutationTransport interface {
 	GetSessionSnapshot(context.Context, string) (protocol.SessionSnapshot, error)
 }
 
+type subagentConfigurationTransport interface {
+	ConfigureSubagent(context.Context, string, string, protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error)
+}
+
 type scratchpadTransport interface {
 	GetScratchpad(context.Context, string) (protocol.Scratchpad, error)
 	UpdateScratchpad(context.Context, string, protocol.UpdateScratchpadInput) (protocol.Scratchpad, error)
@@ -731,6 +735,56 @@ func (c *Session) Configure(ctx context.Context, input protocol.ConfigureSession
 	c.snapshot.EventReplayFrom = 0
 	c.snapshot.EventReplayAvailable = false
 	c.snapshot.Warnings = append([]string(nil), result.Warnings...)
+	c.mu.Unlock()
+	return result, nil
+}
+
+// ConfigureSubagent patches one retained child conversation's model and/or thinking.
+func (c *Session) ConfigureSubagent(ctx context.Context, conversationID string, input protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error) {
+	operation, cleanup, err := c.operationContext(ctx)
+	if err != nil {
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	defer cleanup()
+	select {
+	case <-c.mutationGate:
+		defer func() { c.mutationGate <- struct{}{} }()
+	case <-operation.Done():
+		return protocol.ConfigureSubagentResult{}, operation.Err()
+	}
+	transport, ok := c.transport.(subagentConfigurationTransport)
+	if !ok {
+		return protocol.ConfigureSubagentResult{}, &UnsupportedError{Capability: "subagent configuration"}
+	}
+	result, err := transport.ConfigureSubagent(operation, c.id, conversationID, input)
+	if err != nil {
+		var apiError *clienttransport.APIError
+		if !errors.As(err, &apiError) || apiError.StatusCode == 409 || apiError.StatusCode >= 500 {
+			inspectContext, cancel := context.WithTimeout(context.WithoutCancel(operation), 3*time.Second)
+			snapshot, inspectErr := c.transport.GetSessionSnapshot(inspectContext, c.id)
+			cancel()
+			if inspectErr == nil {
+				c.mu.Lock()
+				c.cacheGeneration++
+				c.snapshot = snapshot
+				c.mu.Unlock()
+			}
+		}
+		return protocol.ConfigureSubagentResult{}, projectError(err)
+	}
+	c.mu.Lock()
+	c.cacheGeneration++
+	updated := false
+	for index := range c.snapshot.SubagentConversations {
+		if c.snapshot.SubagentConversations[index].ID == conversationID {
+			c.snapshot.SubagentConversations[index] = result.Conversation
+			updated = true
+			break
+		}
+	}
+	if !updated {
+		c.snapshot.SubagentConversations = append(c.snapshot.SubagentConversations, result.Conversation)
+	}
 	c.mu.Unlock()
 	return result, nil
 }

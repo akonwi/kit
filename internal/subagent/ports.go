@@ -49,6 +49,30 @@ type Claim struct {
 }
 
 // Completion is one generation-guarded terminal worker transition.
+// Configuration is one exact effective child model/thinking selection.
+type Configuration struct {
+	Model         string
+	ThinkingLevel string
+}
+
+// ConfigurationPatch preserves omitted fields from the authoritative
+// conversation loaded under the supervisor's per-conversation lock.
+type ConfigurationPatch struct {
+	Model         *string
+	ThinkingLevel *string
+}
+
+// ConfigurationResolver validates and canonicalizes one exact target.
+type ConfigurationResolver func(context.Context, Configuration) (Configuration, error)
+
+// ConfigurationResult reports preparation performed before a model change.
+type ConfigurationResult struct {
+	Conversation Conversation
+	Compacted    bool
+	CheckpointID string
+	Warning      string
+}
+
 type Completion struct {
 	TaskID                 TaskID
 	ConversationID         ConversationID
@@ -73,6 +97,7 @@ type Repository interface {
 	QueuedSessions(context.Context) ([]string, error)
 	ClaimNext(context.Context, string, Limits, time.Time) (Claim, error)
 	MarkConversationInitialized(context.Context, ConversationID, time.Time) error
+	ConfigureConversation(context.Context, ConversationID, uint64, Configuration, bool, time.Time) (Conversation, error)
 	BindChildTurn(context.Context, TaskID, uint64, string) (Task, error)
 	Complete(context.Context, Completion) (Task, *MailboxItem, error)
 	Cancel(context.Context, TaskID, uint64, string, time.Time) (Task, error)
@@ -105,7 +130,19 @@ type RequestRepository interface {
 // ChildRuntimeFactory constructs an isolated child over its own conversation store.
 type ChildRuntimeFactory interface {
 	Open(context.Context, Conversation) (ChildRuntime, error)
+	OpenTranscript(context.Context, Conversation) (ChildTranscriptReader, error)
 	Delete(context.Context, Conversation) error
+}
+
+// ChildConfigurationPreparer adapts settled durable context before a model change.
+type ChildConfigurationPreparer interface {
+	PrepareConfiguration(context.Context, Conversation, Configuration) (bool, string, error)
+}
+
+// ChildTranscriptReader pages durable history and releases its backing store.
+type ChildTranscriptReader interface {
+	Transcript(context.Context, uint64) (Transcript, error)
+	Close(context.Context) error
 }
 
 // ChildRuntime executes one task in an isolated conversation. Run, Steer, and

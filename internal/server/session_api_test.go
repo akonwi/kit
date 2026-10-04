@@ -316,6 +316,23 @@ func TestRuntimeSessionServiceRejectsUnavailableModelProvider(t *testing.T) {
 	}
 }
 
+func TestProjectSubagentTranscriptMessageEncodesEmptyContentAsArray(t *testing.T) {
+	t.Parallel()
+	projected := projectSubagentTranscriptMessage(subagent.TranscriptMessage{
+		ID: "message_test", TurnID: "turn_test", Sequence: 1, Role: "context", CreatedAt: time.Unix(1_700_000_000, 0).UTC(),
+	})
+	encoded, err := json.Marshal(projected)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var payload struct {
+		Content []json.RawMessage `json:"content"`
+	}
+	if err := json.Unmarshal(encoded, &payload); err != nil || payload.Content == nil || len(payload.Content) != 0 {
+		t.Fatalf("projected empty content = %s, decode=%v", encoded, err)
+	}
+}
+
 func TestProjectProviderErrorKind(t *testing.T) {
 	t.Parallel()
 	if got := projectProviderErrorKind(kitsession.ProviderErrorAuthentication); got != protocol.ProviderErrorAuthentication {
@@ -452,6 +469,13 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 		observed.Conversations[0].Model != "test/echo" || observed.Conversations[0].ThinkingLevel != "off" {
 		t.Fatalf("observer roster = %#v", observed.Conversations)
 	}
+	targetModel := "test/echo-alt"
+	configured, err := observer.transport.ConfigureSubagent(t.Context(), sessionID, observed.Conversations[0].ID, protocol.ConfigureSubagentInput{
+		Generation: observed.Conversations[0].Generation, Model: &targetModel,
+	})
+	if err != nil || configured.Conversation.Model != targetModel || configured.Conversation.ThinkingLevel != "off" {
+		t.Fatalf("ConfigureSubagent() = %#v, %v", configured, err)
+	}
 	childEvents, err := observer.transport.GetSubagentEvents(t.Context(), sessionID, observed.Conversations[0].ID, "", 0)
 	if err != nil || childEvents.StreamID == "" || len(childEvents.Events) == 0 {
 		t.Fatalf("child live events = %#v, %v", childEvents, err)
@@ -462,7 +486,7 @@ func TestLocalSessionClientProjectsSubagentDefinitions(t *testing.T) {
 	}
 	snapshot, err := client.transport.GetSessionSnapshot(t.Context(), sessionID)
 	if err != nil || len(snapshot.SubagentDefinitions) != 1 || snapshot.SubagentDefinitions[0].Name != "scout" ||
-		len(snapshot.SubagentConversations) != 1 || snapshot.SubagentConversations[0].ThinkingLevel != "off" {
+		len(snapshot.SubagentConversations) != 1 || snapshot.SubagentConversations[0].Model != targetModel || snapshot.SubagentConversations[0].ThinkingLevel != "off" {
 		t.Fatalf("snapshot subagents = definitions:%#v conversations:%#v, %v", snapshot.SubagentDefinitions, snapshot.SubagentConversations, err)
 	}
 	cancel()

@@ -180,7 +180,105 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 			return nil, fmt.Errorf("wait for prior child settlement: %w", err)
 		}
 	}
-	return &childRuntime{droid: droid, store: store}, nil
+	if err := droid.ReconcileReasoning(ctx, conversation.ThinkingLevel, droids.PreserveReasoningEpoch); err != nil {
+		_ = droid.Close()
+		_ = store.Close()
+		return nil, fmt.Errorf("reconcile child reasoning: %w", err)
+	}
+	return &childRuntime{
+		droid: droid, store: store,
+		requestConfiguration: droids.RequestConfiguration{
+			SystemPrompt: systemPrompt, Reasoning: conversation.ThinkingLevel,
+			ContextWindow: model.ContextWindow, Tools: tools,
+		},
+	}, nil
+}
+
+// OpenTranscript opens durable child history without rebuilding the execution
+// bundle, so archived transcripts remain readable after their working directory
+// or configured tools are no longer available.
+func (f *ChildRuntimeFactory) OpenTranscript(ctx context.Context, conversation subagent.Conversation) (subagent.ChildTranscriptReader, error) {
+	if f == nil {
+		return nil, errors.New("child runtime factory is not initialized")
+	}
+	if !identifier.Valid(string(conversation.ID), "subagent_") {
+		return nil, fmt.Errorf("invalid child conversation id %q", conversation.ID)
+	}
+	reader := &childTranscriptReader{conversation: droids.ConversationID(conversation.ID)}
+	if conversation.DroidInitializedAt == nil {
+		return reader, nil
+	}
+	path := filepath.Join(f.directory, string(conversation.ID)+".db")
+	if _, err := os.Stat(path); err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return nil, fmt.Errorf("initialized child droid store is missing: %s", conversation.ID)
+		}
+		return nil, err
+	}
+	store, err := sqlitestore.Open(ctx, sqlitestore.Options{Path: path, ReadOnly: true})
+	if err != nil {
+		return nil, fmt.Errorf("open child transcript store: %w", err)
+	}
+	state, err := store.State(ctx)
+	if err != nil {
+		_ = store.Close()
+		return nil, fmt.Errorf("read child transcript store: %w", err)
+	}
+	if state.ID != reader.conversation {
+		_ = store.Close()
+		return nil, errors.New("child transcript store belongs to another conversation")
+	}
+	reader.store = store
+	return reader, nil
+}
+
+// PrepareConfiguration validates and, when necessary, compacts initialized
+// settled child context for a target model. The next worker opens that context
+// with the persisted target after the supervisor commits it.
+func (f *ChildRuntimeFactory) PrepareConfiguration(ctx context.Context, conversation subagent.Conversation, configuration subagent.Configuration) (compacted bool, checkpointID string, resultErr error) {
+	if configuration.Model == conversation.Model || conversation.DroidInitializedAt == nil {
+		return false, "", nil
+	}
+	raw, err := f.Open(ctx, conversation)
+	if err != nil {
+		return false, "", err
+	}
+	runtime, ok := raw.(*childRuntime)
+	if !ok {
+		_ = raw.Close(context.Background())
+		return false, "", errors.New("unexpected child runtime implementation")
+	}
+	defer func() {
+		if closeErr := runtime.Close(context.Background()); resultErr == nil && closeErr != nil {
+			resultErr = fmt.Errorf("close prepared child runtime: %w", closeErr)
+		}
+	}()
+	target, err := f.providers.Resolve(configuration.Model)
+	if err == nil && f.modelContextWindow != nil {
+		if contextWindow := f.modelContextWindow(configuration.Model); contextWindow > 0 {
+			target = target.WithContextWindow(contextWindow)
+		}
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("resolve target child model: %w", err)
+	}
+	contextTarget := droids.ContextTarget{Model: target, Reasoning: configuration.ThinkingLevel}
+	assessment, err := runtime.droid.AssessContext(ctx, contextTarget)
+	if err != nil {
+		return false, "", fmt.Errorf("assess child context: %w", err)
+	}
+	if !assessment.RequiresCompaction {
+		return false, "", nil
+	}
+	operationID, err := identifier.New("compact_")
+	if err != nil {
+		return false, "", err
+	}
+	result, err := runtime.droid.CompactContext(ctx, droids.CompactContextOptions{OperationID: operationID, Target: contextTarget})
+	if err != nil {
+		return false, "", fmt.Errorf("%w: adapt child context: %v", ErrCompactionFailed, err)
+	}
+	return result.Compacted, string(result.CheckpointID), nil
 }
 
 func childInstructions(definition subagent.Definition) string {
@@ -201,12 +299,40 @@ func modelID(exact string) string {
 	return id
 }
 
+type childTranscriptReader struct {
+	conversation droids.ConversationID
+	store        *sqlitestore.Store
+}
+
+func (r *childTranscriptReader) Transcript(ctx context.Context, before uint64) (subagent.Transcript, error) {
+	if r.store == nil {
+		return subagent.Transcript{ConversationID: subagent.ConversationID(r.conversation)}, nil
+	}
+	history := func(ctx context.Context, query droids.HistoryQuery) (droids.MessagePage, error) {
+		return droids.ReadHistory(ctx, r.store, r.conversation, query)
+	}
+	if before != 0 {
+		if err := validateChildTranscriptCursor(ctx, history, before); err != nil {
+			return subagent.Transcript{}, err
+		}
+	}
+	return collectChildTranscript(ctx, history, before)
+}
+
+func (r *childTranscriptReader) Close(context.Context) error {
+	if r.store == nil {
+		return nil
+	}
+	return r.store.Close()
+}
+
 type childRuntime struct {
 	droid *droids.Droid
 	store *sqlitestore.Store
 
-	mu     sync.Mutex
-	closed bool
+	mu                   sync.Mutex
+	closed               bool
+	requestConfiguration droids.RequestConfiguration
 }
 
 func (r *childRuntime) Steer(ctx context.Context, message string) error {
@@ -215,6 +341,21 @@ func (r *childRuntime) Steer(ctx context.Context, message string) error {
 		return subagent.ErrConflict
 	}
 	return err
+}
+
+func (r *childRuntime) ConfigureThinking(ctx context.Context, thinking string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return droids.ErrClosed
+	}
+	next := r.requestConfiguration
+	next.Reasoning = thinking
+	if err := r.droid.ReconfigureContext(ctx, next); err != nil {
+		return err
+	}
+	r.requestConfiguration = next
+	return nil
 }
 
 func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted func(string) error, emit func(subagent.LiveEvent)) (subagent.ChildOutcome, error) {

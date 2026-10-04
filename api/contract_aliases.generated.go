@@ -38,6 +38,8 @@ type (
 	CompactionStartedEvent            = contract.CompactionStartedEvent
 	ConfigureSessionInput             = contract.ConfigureSessionInput
 	ConfigureSessionResult            = contract.ConfigureSessionResult
+	ConfigureSubagentInput            = contract.ConfigureSubagentInput
+	ConfigureSubagentResult           = contract.ConfigureSubagentResult
 	ContextChangedEvent               = contract.ContextChangedEvent
 	ContextContent                    = contract.ContextContent
 	CreateAnnotationInput             = contract.CreateAnnotationInput
