@@ -1579,26 +1579,6 @@ func TestSafeHTTPSHyperlinkRejectsUnsafeTargets(t *testing.T) {
 	}
 }
 
-func TestSafeExternalHyperlinkAllowsOnlyNavigablePublicSchemes(t *testing.T) {
-	t.Parallel()
-	for _, raw := range []string{
-		"https://example.test/docs", "http://example.test/docs", "mailto:hello@example.test",
-	} {
-		if got := safeExternalHyperlink(raw); got != raw {
-			t.Errorf("safeExternalHyperlink(%q) = %q", raw, got)
-		}
-	}
-	for _, raw := range []string{
-		"file:///tmp/private", "javascript:alert(1)", "https://user@example.test/docs",
-		"https://example.test/\u009bunsafe", "https://example.test/\u202eunsafe",
-		"https://example.test/\x9c\x9b2J", "not a URL",
-	} {
-		if got := safeExternalHyperlink(raw); got != "" {
-			t.Errorf("safeExternalHyperlink(%q) = %q, want empty", raw, got)
-		}
-	}
-}
-
 func TestAuthGateEnterOpensProviderSelection(t *testing.T) {
 	t.Parallel()
 

@@ -20,6 +20,7 @@ use kit/tui/bootstrap
 use kit/tui/controls
 use kit/tui/copyable
 use kit/tui/format
+use kit/tui/markdown
 use kit/tui/mcp
 use kit/tui/modal
 use kit/tui/model
@@ -650,7 +651,7 @@ fn transcript_pane(
           entry.key
         },
         render_item: fn(entry: Entry) cui::View {
-          transcript_row(themes.current(), entry)
+          transcript_row(themes, entry)
         },
         estimated_height: 4,
         overscan: 2,
@@ -665,13 +666,13 @@ fn transcript_pane(
 }
 
 // Each row keeps a blank row above it; the last also keeps one below.
-fn transcript_row(colors: theme::Theme, entry: Entry) cui::View {
+fn transcript_row(themes: theme::Context, entry: Entry) cui::View {
   let bottom = match entry.last {
     true => 1,
     false => 0,
   }
   cui::box(
-    [entry_view(colors, entry.message).or(blank())],
+    [entry_view(themes, entry.key, entry.message).or(blank())],
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -697,9 +698,10 @@ fn renders(message: transcript::Message) Bool {
   }
 }
 
-fn entry_view(colors: theme::Theme, message: transcript::Message) cui::View? {
+fn entry_view(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+  let colors = themes.current()
   match message.role {
-    transcript::Role::user => user_entry(colors, message),
+    transcript::Role::user => user_entry(themes, key, message),
     transcript::Role::assistant => {
       let tone = match {
         message.aborted => colors.muted,
@@ -710,11 +712,12 @@ fn entry_view(colors: theme::Theme, message: transcript::Message) cui::View? {
         true => Maybe::new<cui::View>(),
         false => {
           Maybe::new(
-            cui::text(
+            markdown::view(
+              themes,
+              key,
               message.text,
-              text_style: ui::text_style(foreground: tone),
-              selectable: true,
-              selection_style: theme::selection_style(colors),
+              base: ui::text_style(foreground: tone),
+              semantic: (not message.aborted) and not message.is_error,
             ),
           )
         },
@@ -736,7 +739,8 @@ fn entry_view(colors: theme::Theme, message: transcript::Message) cui::View? {
 }
 
 // A user turn: a tinted wash with half-block edges and two-cell padding.
-fn user_entry(colors: theme::Theme, message: transcript::Message) cui::View? {
+fn user_entry(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+  let colors = themes.current()
   match message.text == "" {
     true => Maybe::new<cui::View>(),
     false => {
@@ -754,11 +758,11 @@ fn user_entry(colors: theme::Theme, message: transcript::Message) cui::View? {
             edge("▄"),
             cui::box(
               [
-                cui::text(
+                markdown::view(
+                  themes,
+                  key,
                   message.text,
-                  text_style: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
-                  selectable: true,
-                  selection_style: theme::selection_style(colors),
+                  base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
                 ),
               ],
               styles: ui::style(

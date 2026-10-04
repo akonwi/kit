@@ -1,0 +1,454 @@
+use cooper/cui
+use cooper/ui
+use go:github.com/akonwi/kit/internal/hyperlink
+use go:github.com/akonwi/kit/internal/markdown as parser
+use kit/tui/theme
+use go:strings
+use go:unicode/utf8
+
+let max_quote_depth = 4
+
+private fn maximum(left: Int, right: Int) Int {
+  match left > right {
+    true => left,
+    false => right,
+  }
+}
+
+private fn minimum(left: Int, right: Int) Int {
+  match left < right {
+    true => left,
+    false => right,
+  }
+}
+
+// Props describe one stable Markdown document. Completed transcript messages
+// retain this component by ID, so parsing is repeated only when source changes.
+struct Props {
+  themes: theme::Context,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+}
+
+struct Document {
+  props: mut Props,
+  parsed_source: Str,
+  parsed: parser::Document,
+}
+
+fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, semantic: Bool?) cui::View {
+  cui::child(
+    new,
+    Props{
+      themes: themes,
+      source: source,
+      base: base.or(ui::text_style()),
+      semantic: semantic.or(true),
+    },
+    key: "markdown:{id}",
+  )
+}
+
+private fn new(props: mut Props) mut Document {
+  (mut Document{
+    parsed_source: props.source,
+    parsed: parser::Parse(props.source),
+    props: props,
+  })
+}
+
+impl cui::Component for Document {
+  fn mut render() cui::View {
+    if self.props.source != self.parsed_source {
+      self.parsed_source = self.props.source
+      self.parsed = parser::Parse(self.props.source)
+    }
+    render_document(self.props.themes.current(), self.props.base, self.props.semantic, self.parsed)
+  }
+}
+
+private fn render_document(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  document: parser::Document,
+) cui::View {
+  match document.PlainTextFallback {
+    true => text(document_text(document), base, colors),
+    false => {
+      let children = mut List::new<cui::View>()
+      mut prior = Maybe::new<parser::Block>()
+      for block in document.Blocks {
+        match prior {
+          previous => {
+            if blocks_need_gap(previous, block) {
+              children.push(wrap_gap(colors, base, previous, block))
+            }
+          },
+          _ => (),
+        }
+        children.push(render_block(colors, base, semantic, block))
+        prior = Maybe::new(block)
+      }
+      cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    },
+  }
+}
+
+private fn document_text(document: parser::Document) Str {
+  let blocks = mut List::new<Str>()
+  for block in document.Blocks {
+    match {
+      block.Kind == parser::BlockCode => blocks.push(block.Code),
+      block.Kind == parser::BlockRule => blocks.push("────────"),
+      block.Kind == parser::BlockTable => {
+        for row in block.Rows {
+          blocks.push(row_text(row))
+        }
+      },
+      _ => blocks.push(runs_text(block.Runs)),
+    }
+  }
+  strings::Join(blocks, "\n\n")
+}
+
+private fn render_block(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  block: parser::Block,
+) cui::View {
+  mut child = match {
+    block.Kind == parser::BlockHeading => {
+      rich_text(
+        colors,
+        heading_style(colors, base, block.HeadingLevel, semantic),
+        semantic,
+        bold_runs(block.Runs),
+      )
+    },
+    block.Kind == parser::BlockCode => code_block(colors, base, block.Code),
+    block.Kind == parser::BlockRule => cui::divider(styles: ui::style(border_color: colors.border)),
+    block.Kind == parser::BlockTable => flat_table(colors, base, semantic, block),
+    block.Kind == parser::BlockQuote => {
+      rich_text(colors, quote_style(colors, base, semantic), semantic, block.Runs)
+    },
+    _ => rich_text(colors, base, semantic, block.Runs),
+  }
+  mut quote_depth = 0
+  mut index = block.Containers.size() - 1
+  while index >= 0 {
+    let container = block.Containers.at(index).expect("Markdown container")
+    match {
+      container.Kind == parser::ContainerQuote => {
+        if quote_depth < max_quote_depth {
+          child = quote(colors, base, child)
+        }
+        quote_depth =+ 1
+      },
+      container.Kind == parser::ContainerListItem => {
+        child = list_item(colors, base, semantic, container, child)
+      },
+      _ => (),
+    }
+    index =- 1
+  }
+  child
+}
+
+private fn heading_style(colors: theme::Theme, base: ui::TextStyle, level: Int, semantic: Bool) ui::TextStyle {
+  let style = mut base
+  style.bold = true
+  if semantic and level <= 2 {
+    style.foreground = colors.primary_text
+  }
+  style.@
+}
+
+private fn quote_style(colors: theme::Theme, base: ui::TextStyle, semantic: Bool) ui::TextStyle {
+  let style = mut base
+  if semantic {
+    style.foreground = colors.muted
+  }
+  style.@
+}
+
+private fn bold_runs(runs: [parser::Run]) [parser::Run] {
+  let result = mut List::new<parser::Run>()
+  for source in runs {
+    let run = mut source
+    run.Bold = true
+    result.push(run.@)
+  }
+  result.@
+}
+
+private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, runs: [parser::Run]) cui::View {
+  let spans = mut List::new<ui::Span>()
+  for run in runs {
+    let target = hyperlink::SafeExternal(run.Link)
+    let link = match target == "" {
+      true => Maybe::new<Str>(),
+      false => Maybe::new(target),
+    }
+    let foreground = match {
+      target != "" and semantic => Maybe::new(colors.primary_text),
+      run.RawHTML and semantic => Maybe::new(colors.muted),
+      _ => Maybe::new<ui::Color>(),
+    }
+    spans.push(
+      ui::span(
+        parser::VisibleText(run),
+        style: ui::span_style(
+          foreground: foreground,
+          background: match run.Code {
+            true => Maybe::new(colors.surface),
+            false => Maybe::new<ui::Color>(),
+          },
+          bold: run.Bold,
+          italic: run.Italic,
+          underline: target != "",
+          strike: run.Strikethrough,
+        ),
+        link: link,
+      ),
+    )
+  }
+  cui::text(
+    ui::styled_text(spans.@),
+    text_style: base,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+private fn text(value: Str, base: ui::TextStyle, colors: theme::Theme) cui::View {
+  cui::text(
+    value,
+    text_style: base,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+private fn code_block(colors: theme::Theme, base: ui::TextStyle, source: Str) cui::View {
+  let style = mut base
+  style.background = colors.surface
+  cui::box(
+    [text(strings::ReplaceAll(source, "\t", "  "), style.@, colors)],
+    styles: ui::style(
+      background: colors.surface,
+      padding: ui::Edges{
+        top: ui::cells(0),
+        right: ui::cells(1),
+        bottom: ui::cells(0),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+// Tables initially preserve the established narrow presentation. The final
+// responsive table layout is intentionally deferred until its design choices
+// are settled.
+private fn flat_table(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  block: parser::Block,
+) cui::View {
+  let rows = mut List::new<cui::View>()
+  for row in block.Rows {
+    let runs = mut List::new<parser::Run>()
+    mut index = 0
+    for cell in row.Cells {
+      if index > 0 {
+        runs.push(parser::Run{Text: " │ "})
+      }
+      for run in cell.Runs {
+        runs.push(run)
+      }
+      index =+ 1
+    }
+    let style = mut base
+    if row.Header {
+      style.bold = true
+    }
+    rows.push(rich_text(colors, style.@, semantic, runs.@))
+    if row.Header and block.Rows.size() > 1 {
+      rows.push(cui::divider(styles: ui::style(border_color: colors.border)))
+    }
+  }
+  cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+}
+
+private fn row_text(row: parser::TableRow) Str {
+  let cells = mut List::new<Str>()
+  for cell in row.Cells {
+    cells.push(runs_text(cell.Runs))
+  }
+  strings::Join(cells, " │ ")
+}
+
+private fn runs_text(runs: [parser::Run]) Str {
+  let parts = mut List::new<Str>()
+  for run in runs {
+    parts.push(parser::VisibleText(run))
+  }
+  strings::Join(parts, "")
+}
+
+private fn list_item(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  container: parser::Container,
+  content: cui::View,
+) cui::View {
+  mut marker = match {
+    container.Marker == parser::MarkerBullet => "•",
+    container.Marker == parser::MarkerOrdered => "{container.Number}.",
+    _ => "",
+  }
+  if container.Task {
+    let task = match container.Checked {
+      true => "☑",
+      false => "☐",
+    }
+    marker = match container.Marker == parser::MarkerOrdered {
+      true => "{marker} {task}",
+      false => task,
+    }
+  }
+  let marker_style = mut base
+  if semantic {
+    marker_style.foreground = colors.muted
+  }
+  let marker_width = maximum(1, container.MarkerWidth)
+  let shown_marker = strings::Repeat(" ", maximum(0, marker_width - utf8::RuneCountInString(marker))) + marker
+  cui::box(
+    [
+      cui::text(
+        shown_marker,
+        styles: ui::style(width: ui::cells(marker_width), flex_shrink: 0.0),
+        text_style: marker_style.@,
+      ),
+      cui::box([], styles: ui::style(width: ui::cells(1), flex_shrink: 0.0)),
+      cui::box(
+        [content],
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), min_width: ui::cells(0)),
+      ),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::row),
+  )
+}
+
+private fn quote(colors: theme::Theme, base: ui::TextStyle, content: cui::View) cui::View {
+  let gutter_style = mut base
+  gutter_style.foreground = colors.border
+  cui::box(
+    [
+      cui::text(
+        "│",
+        styles: ui::style(width: ui::cells(1), flex_shrink: 0.0),
+        text_style: gutter_style.@,
+      ),
+      cui::box(
+        [content],
+        styles: ui::style(
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          min_width: ui::cells(0),
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+      ),
+    ],
+    styles: ui::style(flex_direction: ui::FlexDirection::row),
+  )
+}
+
+private fn blocks_need_gap(previous: parser::Block, current: parser::Block) Bool {
+  mut shared = false
+  mut loose = false
+  for left in previous.Containers {
+    if left.Kind == parser::ContainerListItem {
+      for right in current.Containers {
+        if right.Kind == parser::ContainerListItem and left.ListID == right.ListID {
+          shared = true
+          loose = left.Loose or right.Loose
+        }
+      }
+    }
+  }
+  (not shared) or loose
+}
+
+private fn same_container(left: parser::Container, right: parser::Container) Bool {
+  match left.Kind != right.Kind {
+    true => false,
+    false => {
+      match left.Kind == parser::ContainerQuote {
+        true => left.QuoteID != 0 and left.QuoteID == right.QuoteID,
+        false => left.ListItemID != 0 and left.ListItemID == right.ListItemID,
+      }
+    },
+  }
+}
+
+private fn shared_containers(left: [parser::Container], right: [parser::Container]) [parser::Container] {
+  let result = mut List::new<parser::Container>()
+  let count = minimum(left.size(), right.size())
+  mut index = 0
+  mut matching = true
+  while index < count and matching {
+    let left_container = left.at(index).expect("left Markdown container")
+    let right_container = right.at(index).expect("right Markdown container")
+    if same_container(left_container, right_container) {
+      result.push(right_container)
+    } else {
+      matching = false
+    }
+    index =+ 1
+  }
+  result.@
+}
+
+private fn wrap_gap(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  previous: parser::Block,
+  current: parser::Block,
+) cui::View {
+  let containers = shared_containers(previous.Containers, current.Containers)
+  mut child = cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
+  mut quote_depth = 0
+  mut index = containers.size() - 1
+  while index >= 0 {
+    let container = containers.at(index).expect("shared Markdown container")
+    match {
+      container.Kind == parser::ContainerQuote => {
+        if quote_depth < max_quote_depth {
+          child = quote(colors, base, child)
+        }
+        quote_depth =+ 1
+      },
+      container.Kind == parser::ContainerListItem => {
+        let gap_container = mut container
+        gap_container.Marker = parser::MarkerNone
+        gap_container.Number = 0
+        gap_container.Task = false
+        gap_container.Checked = false
+        child = list_item(colors, base, true, gap_container.@, child)
+      },
+      _ => (),
+    }
+    index =- 1
+  }
+  child
+}

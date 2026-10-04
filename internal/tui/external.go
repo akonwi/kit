@@ -4,10 +4,12 @@ import (
 	"fmt"
 	"os/exec"
 	"runtime"
+
+	"github.com/akonwi/kit/internal/hyperlink"
 )
 
 func openExternalURL(raw string) error {
-	safe := safeExternalHyperlink(raw)
+	safe := hyperlink.SafeExternal(raw)
 	if safe == "" {
 		return fmt.Errorf("refusing to open an unsafe URL")
 	}

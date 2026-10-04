@@ -6,11 +6,10 @@ import (
 	"net/url"
 	"strings"
 	"time"
-	"unicode"
-	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"github.com/akonwi/kit/internal/auth"
+	"github.com/akonwi/kit/internal/hyperlink"
 	"go.rockorager.dev/vaxis/ui"
 )
 
@@ -1574,7 +1573,7 @@ func (w shellView) deviceLoginBody(theme ui.Theme) []ui.Widget {
 }
 
 func safeHTTPSHyperlink(raw string) string {
-	safe := safeExternalHyperlink(raw)
+	safe := hyperlink.SafeExternal(raw)
 	if safe == "" {
 		return ""
 	}
@@ -1583,35 +1582,6 @@ func safeHTTPSHyperlink(raw string) string {
 		return ""
 	}
 	return safe
-}
-
-func safeExternalHyperlink(raw string) string {
-	if raw == "" || len(raw) > 4096 || !utf8.ValidString(raw) || raw != strings.TrimSpace(raw) {
-		return ""
-	}
-	for _, character := range raw {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) ||
-			unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
-			return ""
-		}
-	}
-	parsed, err := url.ParseRequestURI(raw)
-	if err != nil || parsed.User != nil {
-		return ""
-	}
-	switch parsed.Scheme {
-	case "http", "https":
-		if parsed.Host == "" {
-			return ""
-		}
-	case "mailto":
-		if parsed.Opaque == "" {
-			return ""
-		}
-	default:
-		return ""
-	}
-	return raw
 }
 
 func dialogSurface(theme ui.Theme, title, meta string, body, footer ui.Widget, borderedFooter bool) ui.Widget {

@@ -3,8 +3,8 @@ package tui
 import (
 	"strconv"
 	"strings"
-	"unicode"
 
+	"github.com/akonwi/kit/internal/hyperlink"
 	kitmarkdown "github.com/akonwi/kit/internal/markdown"
 	"go.rockorager.dev/vaxis"
 	"go.rockorager.dev/vaxis/ui"
@@ -377,7 +377,7 @@ func markdownTableContentWidths(block kitmarkdown.Block, columnCount int) []int 
 		for index, cell := range row.Cells {
 			width := 0
 			for _, run := range cell.Runs {
-				width += markdownCellWidth(markdownRunText(run))
+				width += markdownCellWidth(kitmarkdown.VisibleText(run))
 			}
 			widths[index] = max(widths[index], width)
 		}
@@ -443,9 +443,9 @@ func markdownRichText(theme ui.Theme, base ui.Style, runs []kitmarkdown.Run) ui.
 func markdownTextSpans(theme ui.Theme, base ui.Style, runs []kitmarkdown.Run) []ui.TextSpan {
 	spans := make([]ui.TextSpan, 0, len(runs))
 	for _, run := range runs {
-		run.Text = markdownRunText(run)
+		run.Text = kitmarkdown.VisibleText(run)
 		span := markdownRunSpan(theme, base, run)
-		if safe := safeExternalHyperlink(run.Link); safe != "" {
+		if safe := hyperlink.SafeExternal(run.Link); safe != "" {
 			span.Style.UnderlineStyle = ui.UnderlineSingle
 			span.Style.Hyperlink = safe
 		}
@@ -454,26 +454,11 @@ func markdownTextSpans(theme ui.Theme, base ui.Style, runs []kitmarkdown.Run) []
 	return spans
 }
 
-// Labeled links display their text, with the destination retained as metadata.
-// An empty link label falls back to the destination so it remains identifiable.
-func markdownRunText(run kitmarkdown.Run) string {
-	if run.Image {
-		if run.Text == "" {
-			return "image"
-		}
-		return "image: " + run.Text
-	}
-	if run.Text == "" && run.Link != "" {
-		return sanitizeMarkdownLinkTarget(run.Link)
-	}
-	return run.Text
-}
-
 // markdownPlainText joins a run sequence into its visible text.
 func markdownPlainText(runs []kitmarkdown.Run) string {
 	var text strings.Builder
 	for _, run := range runs {
-		text.WriteString(markdownRunText(run))
+		text.WriteString(kitmarkdown.VisibleText(run))
 	}
 	return text.String()
 }
@@ -492,7 +477,7 @@ func markdownRunSpan(theme ui.Theme, base ui.Style, run kitmarkdown.Run) ui.Text
 	if run.Code {
 		style.Background = theme.Surface
 	}
-	if safeExternalHyperlink(run.Link) != "" && markdownSemanticColorAllowed(theme, base) {
+	if hyperlink.SafeExternal(run.Link) != "" && markdownSemanticColorAllowed(theme, base) {
 		style.Foreground = theme.AccentText
 	}
 	if run.RawHTML && markdownSemanticColorAllowed(theme, base) {
@@ -530,16 +515,6 @@ func mergeMarkdownStyle(base, overlay ui.Style) ui.Style {
 	}
 	overlay.Attribute |= base.Attribute
 	return overlay
-}
-
-func sanitizeMarkdownLinkTarget(target string) string {
-	return strings.Map(func(character rune) rune {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) ||
-			unicode.Is(unicode.Zl, character) || unicode.Is(unicode.Zp, character) {
-			return '�'
-		}
-		return character
-	}, target)
 }
 
 func expandMarkdownTabs(source string) string {

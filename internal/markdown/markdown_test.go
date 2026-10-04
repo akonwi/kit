@@ -8,6 +8,26 @@ import (
 	"github.com/yuin/goldmark/ast"
 )
 
+func TestVisibleText(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		run  Run
+		want string
+	}{
+		{run: Run{Text: "docs", Link: "https://example.com"}, want: "docs"},
+		{run: Run{Link: "https://example.com"}, want: "https://example.com"},
+		{run: Run{Image: true}, want: "image"},
+		{run: Run{Image: true, Text: "diagram"}, want: "image: diagram"},
+		{run: Run{Link: "https://example.com/\nunsafe"}, want: "https://example.com/�unsafe"},
+		{run: Run{Link: "https://example.com/\u202eunsafe"}, want: "https://example.com/�unsafe"},
+	} {
+		if got := VisibleText(test.run); got != test.want {
+			t.Errorf("VisibleText(%#v) = %q, want %q", test.run, got, test.want)
+		}
+	}
+}
+
 func TestParseRichCommonMarkAndGFMBlocks(t *testing.T) {
 	t.Parallel()
 
