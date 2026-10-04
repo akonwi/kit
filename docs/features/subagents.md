@@ -38,6 +38,17 @@ clients show each newly encountered diagnostic as a persistent warning toast;
 the roster also retains the current warning count. Reload the session context
 to apply changed definitions to an already loaded parent.
 
+Once a durable child conversation exists, its effective model and thinking level
+can be changed independently of its definition and parent. Thinking changes may
+be applied while the child is running: an in-flight provider request keeps its
+captured configuration and the next request observes the change. Model changes
+require the child to have no active or queued work so Kit can safely adapt its
+stored context. Accepted values are stored on the conversation, survive client
+detachment and daemon restart, and are broadcast to attached clients. Concurrent
+changes are serialized by the server and the last accepted change is
+authoritative. Dismissing the conversation removes these overrides; a later
+conversation starts again from the current definition or parent defaults.
+
 Session plugins may also register live definitions. Their canonical names are
 `<plugin-id>.<local-id>` and their roster source identifies the owning plugin.
 Filesystem definitions take precedence over a conflicting canonical name.

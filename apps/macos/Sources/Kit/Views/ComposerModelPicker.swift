@@ -8,6 +8,8 @@ struct ComposerModelPicker: View {
     let select: (String) -> Void
     let reload: () -> Void
     let dismiss: () -> Void
+    /// Names the configured target when it is not the attached session.
+    var title: String? = nil
     @State private var selection = 0
     @State private var hoveredID: String?
     @FocusState private var focused: Bool
@@ -15,6 +17,7 @@ struct ComposerModelPicker: View {
     static let width: CGFloat = 320
     static let rowHeight: CGFloat = 30
     static let maxHeight: CGFloat = 300
+    static let titleHeight: CGFloat = 28
 
     static func listHeight(count: Int) -> CGFloat {
         min(maxHeight, CGFloat(max(count, 1)) * rowHeight + 8)
@@ -35,6 +38,44 @@ struct ComposerModelPicker: View {
     }
 
     var body: some View {
+        VStack(spacing: 0) {
+            if let title {
+                Text(title).font(.kit(size: 11, weight: .medium)).foregroundStyle(theme.muted)
+                    .lineLimit(1).truncationMode(.middle)
+                    .padding(.horizontal, 12)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .frame(height: Self.titleHeight)
+                    .accessibilityAddTraits(.isHeader)
+                Rule()
+            }
+            list
+        }
+        .frame(width: Self.width)
+        .foregroundStyle(theme.text)
+        .background(theme.surface)
+        .focusable().focused($focused)
+        .onKeyPress(.downArrow) {
+            guard !models.isEmpty else { return .ignored }
+            hoveredID = nil
+            selection = min(selection + 1, models.count - 1)
+            return .handled
+        }
+        .onKeyPress(.upArrow) {
+            guard !models.isEmpty else { return .ignored }
+            hoveredID = nil
+            selection = max(0, selection - 1)
+            return .handled
+        }
+        .onKeyPress(.return) {
+            if models.isEmpty { reload(); return .handled }
+            guard models.indices.contains(selection) else { return .ignored }
+            select(models[selection].id)
+            return .handled
+        }
+        .onExitCommand(perform: dismiss)
+    }
+
+    private var list: some View {
         ScrollViewReader { proxy in
             ScrollView {
                 LazyVStack(spacing: 0) {
@@ -92,28 +133,5 @@ struct ComposerModelPicker: View {
                 }
             }
         }
-        .frame(width: Self.width)
-        .foregroundStyle(theme.text)
-        .background(theme.surface)
-        .focusable().focused($focused)
-        .onKeyPress(.downArrow) {
-            guard !models.isEmpty else { return .ignored }
-            hoveredID = nil
-            selection = min(selection + 1, models.count - 1)
-            return .handled
-        }
-        .onKeyPress(.upArrow) {
-            guard !models.isEmpty else { return .ignored }
-            hoveredID = nil
-            selection = max(0, selection - 1)
-            return .handled
-        }
-        .onKeyPress(.return) {
-            if models.isEmpty { reload(); return .handled }
-            guard models.indices.contains(selection) else { return .ignored }
-            select(models[selection].id)
-            return .handled
-        }
-        .onExitCommand(perform: dismiss)
     }
 }

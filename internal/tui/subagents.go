@@ -659,11 +659,11 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 		},
 	})
 	thinking, activity := subagentPendingStatus(messages)
-	hint := "ctrl+d dismiss"
+	hint := "m model " + glyphMiddleDot + " t thinking " + glyphMiddleDot + " ctrl+d dismiss"
 	for _, conversation := range w.Snapshot.SubagentConversations {
 		if conversation.ID == conversationID {
 			if _, cancellable := selectedSubagentTask(conversation); cancellable {
-				hint = "c cancel " + glyphMiddleDot + " ctrl+d dismiss"
+				hint = "m model " + glyphMiddleDot + " t thinking " + glyphMiddleDot + " c cancel " + glyphMiddleDot + " ctrl+d dismiss"
 			}
 			break
 		}
@@ -681,6 +681,18 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 	)
 	content := ui.Widget(ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: children})
 	actions := map[ui.IntentType]ui.ActionFunc{
+		configureSubagentModelIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if w.Callbacks.OpenSubagentModel != nil {
+				w.Callbacks.OpenSubagentModel(ctx, conversationID)
+			}
+			return ui.EventHandled
+		},
+		configureSubagentThinkingIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
+			if w.Callbacks.OpenSubagentThinking != nil {
+				w.Callbacks.OpenSubagentThinking(ctx, conversationID)
+			}
+			return ui.EventHandled
+		},
 		cancelSubagentIntent{}.IntentType(): func(ctx ui.EventContext, _ ui.Intent) ui.EventResult {
 			for _, conversation := range w.Snapshot.SubagentConversations {
 				if conversation.ID == conversationID && w.Callbacks.CancelSubagentTask != nil {
@@ -706,6 +718,7 @@ func (w shellView) subagentTranscriptPane(theme ui.Theme, conversationID string,
 		content = ui.FocusWithOptions(focus, ui.FocusOptions{SkipTraversal: !active}, content)
 	}
 	content = ui.Actions{Bindings: actions, Child: keyShortcuts{Bindings: ui.ShortcutMap{
+		"m": configureSubagentModelIntent{}, "t": configureSubagentThinkingIntent{},
 		"c": cancelSubagentIntent{}, "Ctrl+d": dismissSubagentIntent{},
 	}, Child: content}}
 	if focus != nil {

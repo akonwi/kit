@@ -17,6 +17,11 @@ func TestCompactionAndConfigurationPendingCountAsActiveWork(t *testing.T) {
 	if !(&appState{configurationPicker: configurationPickerController{Pending: true}}).hasActiveWork() {
 		t.Fatal("configuration application was not treated as active work")
 	}
+	if (&appState{configurationPicker: configurationPickerController{
+		Pending: true, Target: configurationTarget{ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"},
+	}}).hasActiveWork() {
+		t.Fatal("subagent configuration blocked the main session")
+	}
 }
 
 func TestConfigurationPickerEditsSelectedModelContextWindow(t *testing.T) {
@@ -69,6 +74,28 @@ func TestConfigurationPickerFiltersMovesAndPreservesFailedSelection(t *testing.T
 	// Text goes straight into the query through the shared picker key model.
 	if apply, handled := controller.HandleKey(ui.Key{Text: "x", Keycode: 'x'}); apply || !handled || controller.Query != "claudex" {
 		t.Fatalf("typed model key = apply:%v handled:%v query:%q", apply, handled, controller.Query)
+	}
+}
+
+func TestSubagentConfigurationSelectionBuildsPatchRequests(t *testing.T) {
+	target := configurationTarget{
+		ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentName: "reviewer", Generation: 4,
+	}
+	model := subagentConfigurationInput(target, configurationPickerModel, "test/small")
+	if model.Generation != 4 || model.Model == nil || *model.Model != "test/small" || model.ThinkingLevel != nil {
+		t.Fatalf("subagent model patch = %+v", model)
+	}
+	thinking := subagentConfigurationInput(target, configurationPickerThinking, "high")
+	if thinking.Generation != 4 || thinking.Model != nil || thinking.ThinkingLevel == nil || *thinking.ThinkingLevel != protocol.ThinkingHigh {
+		t.Fatalf("subagent thinking patch = %+v", thinking)
+	}
+	controller := configurationPickerController{}
+	controller.BeginTarget(configurationPickerModel, target, "test/current", "medium")
+	controller.Loading = false
+	controller.Selection = "test/current"
+	controller.Models = []protocol.ModelCapability{{ID: "test/current", Available: true}}
+	if controller.BeginContextEdit() {
+		t.Fatal("subagent model picker exposed global context-window overrides")
 	}
 }
 

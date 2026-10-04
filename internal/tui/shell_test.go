@@ -283,6 +283,18 @@ func TestConfigurationPickersShowAuthenticatedCapabilitiesAndSupportedThinking(t
 	if !strings.Contains(queryApp.Text(), longQuery) {
 		t.Fatalf("model query input was shrink-wrapped:\n%s", queryApp.Text())
 	}
+
+	subagentApp := uitest.New(configurationPickerSurface{Snapshot: configurationPickerSnapshot{
+		Mode: configurationPickerModel, Models: catalog, CurrentModel: "openai/gpt-large", Selection: "openai/gpt-large",
+		Target: configurationTarget{ConversationID: "subagent_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa", AgentName: "reviewer", Generation: 1},
+	}})
+	subagentApp.Pump(100, 24)
+	subagentText := subagentApp.Text()
+	for _, expected := range []string{"Select model", "subagent · reviewer", "↑↓ move · enter apply · esc close"} {
+		if !strings.Contains(subagentText, expected) {
+			t.Fatalf("subagent model picker missing %q:\n%s", expected, subagentText)
+		}
+	}
 }
 
 func TestSessionDetailsShowsAuthoritativeCumulativeUsage(t *testing.T) {

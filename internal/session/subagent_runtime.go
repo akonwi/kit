@@ -180,7 +180,67 @@ func (f *ChildRuntimeFactory) Open(ctx context.Context, conversation subagent.Co
 			return nil, fmt.Errorf("wait for prior child settlement: %w", err)
 		}
 	}
-	return &childRuntime{droid: droid, store: store}, nil
+	if err := droid.ReconcileReasoning(ctx, conversation.ThinkingLevel, droids.PreserveReasoningEpoch); err != nil {
+		_ = droid.Close()
+		_ = store.Close()
+		return nil, fmt.Errorf("reconcile child reasoning: %w", err)
+	}
+	return &childRuntime{
+		droid: droid, store: store,
+		requestConfiguration: droids.RequestConfiguration{
+			SystemPrompt: systemPrompt, Reasoning: conversation.ThinkingLevel,
+			ContextWindow: model.ContextWindow, Tools: tools,
+		},
+	}, nil
+}
+
+// PrepareConfiguration validates and, when necessary, compacts initialized
+// settled child context for a target model. The next worker opens that context
+// with the persisted target after the supervisor commits it.
+func (f *ChildRuntimeFactory) PrepareConfiguration(ctx context.Context, conversation subagent.Conversation, configuration subagent.Configuration) (compacted bool, checkpointID string, resultErr error) {
+	if configuration.Model == conversation.Model || conversation.DroidInitializedAt == nil {
+		return false, "", nil
+	}
+	raw, err := f.Open(ctx, conversation)
+	if err != nil {
+		return false, "", err
+	}
+	runtime, ok := raw.(*childRuntime)
+	if !ok {
+		_ = raw.Close(context.Background())
+		return false, "", errors.New("unexpected child runtime implementation")
+	}
+	defer func() {
+		if closeErr := runtime.Close(context.Background()); resultErr == nil && closeErr != nil {
+			resultErr = fmt.Errorf("close prepared child runtime: %w", closeErr)
+		}
+	}()
+	target, err := f.providers.Resolve(configuration.Model)
+	if err == nil && f.modelContextWindow != nil {
+		if contextWindow := f.modelContextWindow(configuration.Model); contextWindow > 0 {
+			target = target.WithContextWindow(contextWindow)
+		}
+	}
+	if err != nil {
+		return false, "", fmt.Errorf("resolve target child model: %w", err)
+	}
+	contextTarget := droids.ContextTarget{Model: target, Reasoning: configuration.ThinkingLevel}
+	assessment, err := runtime.droid.AssessContext(ctx, contextTarget)
+	if err != nil {
+		return false, "", fmt.Errorf("assess child context: %w", err)
+	}
+	if !assessment.RequiresCompaction {
+		return false, "", nil
+	}
+	operationID, err := identifier.New("compact_")
+	if err != nil {
+		return false, "", err
+	}
+	result, err := runtime.droid.CompactContext(ctx, droids.CompactContextOptions{OperationID: operationID, Target: contextTarget})
+	if err != nil {
+		return false, "", fmt.Errorf("%w: adapt child context: %v", ErrCompactionFailed, err)
+	}
+	return result.Compacted, string(result.CheckpointID), nil
 }
 
 func childInstructions(definition subagent.Definition) string {
@@ -205,8 +265,9 @@ type childRuntime struct {
 	droid *droids.Droid
 	store *sqlitestore.Store
 
-	mu     sync.Mutex
-	closed bool
+	mu                   sync.Mutex
+	closed               bool
+	requestConfiguration droids.RequestConfiguration
 }
 
 func (r *childRuntime) Steer(ctx context.Context, message string) error {
@@ -215,6 +276,21 @@ func (r *childRuntime) Steer(ctx context.Context, message string) error {
 		return subagent.ErrConflict
 	}
 	return err
+}
+
+func (r *childRuntime) ConfigureThinking(ctx context.Context, thinking string) error {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.closed {
+		return droids.ErrClosed
+	}
+	next := r.requestConfiguration
+	next.Reasoning = thinking
+	if err := r.droid.ReconfigureContext(ctx, next); err != nil {
+		return err
+	}
+	r.requestConfiguration = next
+	return nil
 }
 
 func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted func(string) error, emit func(subagent.LiveEvent)) (subagent.ChildOutcome, error) {

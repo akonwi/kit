@@ -1541,6 +1541,115 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/ConfigureSubagentInput`.
+        internal struct ConfigureSubagentInput: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentInput/generation`.
+            internal var generation: Swift.Int
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentInput/model`.
+            internal var model: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentInput/thinkingLevel`.
+            internal var thinkingLevel: Swift.String?
+            /// Creates a new `ConfigureSubagentInput`.
+            ///
+            /// - Parameters:
+            ///   - generation:
+            ///   - model:
+            ///   - thinkingLevel:
+            internal init(
+                generation: Swift.Int,
+                model: Swift.String? = nil,
+                thinkingLevel: Swift.String? = nil
+            ) {
+                self.generation = generation
+                self.model = model
+                self.thinkingLevel = thinkingLevel
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case generation
+                case model
+                case thinkingLevel
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.generation = try container.decode(
+                    Swift.Int.self,
+                    forKey: .generation
+                )
+                self.model = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .model
+                )
+                self.thinkingLevel = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .thinkingLevel
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "generation",
+                    "model",
+                    "thinkingLevel"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ConfigureSubagentResult`.
+        internal struct ConfigureSubagentResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentResult/checkpointId`.
+            internal var checkpointId: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentResult/compacted`.
+            internal var compacted: Swift.Bool?
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentResult/conversation`.
+            internal var conversation: Components.Schemas.SubagentConversation
+            /// - Remark: Generated from `#/components/schemas/ConfigureSubagentResult/warnings`.
+            internal var warnings: [Swift.String]?
+            /// Creates a new `ConfigureSubagentResult`.
+            ///
+            /// - Parameters:
+            ///   - checkpointId:
+            ///   - compacted:
+            ///   - conversation:
+            ///   - warnings:
+            internal init(
+                checkpointId: Swift.String? = nil,
+                compacted: Swift.Bool? = nil,
+                conversation: Components.Schemas.SubagentConversation,
+                warnings: [Swift.String]? = nil
+            ) {
+                self.checkpointId = checkpointId
+                self.compacted = compacted
+                self.conversation = conversation
+                self.warnings = warnings
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case checkpointId
+                case compacted
+                case conversation
+                case warnings
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.checkpointId = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .checkpointId
+                )
+                self.compacted = try container.decodeIfPresent(
+                    Swift.Bool.self,
+                    forKey: .compacted
+                )
+                self.conversation = try container.decode(
+                    Components.Schemas.SubagentConversation.self,
+                    forKey: .conversation
+                )
+                self.warnings = try container.decodeIfPresent(
+                    [Swift.String].self,
+                    forKey: .warnings
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "checkpointId",
+                    "compacted",
+                    "conversation",
+                    "warnings"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/ConflictError`.
         internal struct ConflictError: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/ConflictError/code`.

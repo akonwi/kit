@@ -150,6 +150,7 @@ type sessionService interface {
 	AbortBash(context.Context, string, string) error
 	BashHistory(context.Context, string, uint64, int) (protocol.BashHistoryPage, error)
 	Subagent(context.Context, string, protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error)
+	ConfigureSubagent(context.Context, string, string, protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error)
 	SubagentTranscript(context.Context, string, string, string) (protocol.SubagentTranscript, error)
 	SubagentEvents(context.Context, string, string, string, int64) (protocol.SubagentLiveEventPage, error)
 }
@@ -1023,6 +1024,57 @@ func (s runtimeSessionService) SubagentTranscript(ctx context.Context, sessionID
 		result.Messages = append(result.Messages, projected)
 	}
 	return result, nil
+}
+
+func (s runtimeSessionService) ConfigureSubagent(ctx context.Context, sessionID, conversationID string, input protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error) {
+	if s.subagents == nil || s.subagentTools == nil || s.subagentTools.ResolveConfiguration == nil {
+		return protocol.ConfigureSubagentResult{}, subagent.ErrClosed
+	}
+	if err := input.Validate(); err != nil {
+		return protocol.ConfigureSubagentResult{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, err)
+	}
+	if _, err := s.manager.Get(ctx, sessionID); err != nil {
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	conversation, err := s.subagents.Conversation(ctx, subagent.ConversationID(conversationID))
+	if err != nil || conversation.OwnerSessionID != sessionID {
+		if err == nil {
+			err = subagent.ErrNotFound
+		}
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	var thinking *string
+	if input.ThinkingLevel != nil {
+		value := string(*input.ThinkingLevel)
+		thinking = &value
+	}
+	var warnings []string
+	configured, err := s.subagents.Configure(ctx, conversation.ID, input.Generation,
+		subagent.ConfigurationPatch{Model: input.Model, ThinkingLevel: thinking},
+		func(ctx context.Context, target subagent.Configuration) (subagent.Configuration, error) {
+			resolvedModel, resolvedThinking, resolveErr := s.subagentTools.ResolveConfiguration(ctx, target.Model, target.ThinkingLevel)
+			if resolveErr != nil {
+				return subagent.Configuration{}, fmt.Errorf("%w: %v", errInvalidSessionRequest, resolveErr)
+			}
+			if resolvedModel != target.Model || input.ThinkingLevel != nil && resolvedThinking != target.ThinkingLevel {
+				return subagent.Configuration{}, fmt.Errorf("%w: requested model/thinking combination is unsupported", errInvalidSessionRequest)
+			}
+			if input.ThinkingLevel == nil && resolvedThinking != target.ThinkingLevel {
+				warnings = append(warnings, fmt.Sprintf("Thinking level %q is unavailable for %s; using %q.", target.ThinkingLevel, resolvedModel, resolvedThinking))
+			}
+			return subagent.Configuration{Model: resolvedModel, ThinkingLevel: resolvedThinking}, nil
+		})
+	if err != nil {
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	if configured.Warning != "" {
+		warnings = append(warnings, configured.Warning)
+	}
+	projected, err := s.projectSubagentConversation(ctx, configured.Conversation)
+	if err != nil {
+		return protocol.ConfigureSubagentResult{}, err
+	}
+	return protocol.ConfigureSubagentResult{Conversation: projected, Compacted: configured.Compacted, CheckpointID: configured.CheckpointID, Warnings: warnings}, nil
 }
 
 func (s runtimeSessionService) Subagent(ctx context.Context, sessionID string, input protocol.SubagentOperationInput) (protocol.SubagentOperationResult, error) {
@@ -2226,6 +2278,27 @@ func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
 		}
 		return result, nil
 	})
+	httpapi.HandleRaw(mux, httpapi.ConfigureSubagent, func(writer http.ResponseWriter, request *http.Request) {
+		var input protocol.ConfigureSubagentInput
+		if err := decodeSessionJSON(writer, request, &input); err != nil {
+			writeSessionError(writer, subagentAPIError(err))
+			return
+		}
+		if err := input.Validate(); err != nil {
+			writeSessionError(writer, subagentAPIError(fmt.Errorf("%w: %v", errInvalidSessionRequest, err)))
+			return
+		}
+		result, err := service.ConfigureSubagent(request.Context(), request.PathValue("sessionID"), request.PathValue("conversationID"), input)
+		if err != nil {
+			writeSessionError(writer, subagentAPIError(err))
+			return
+		}
+		if err := result.ValidateApplied(input); err != nil {
+			writeSessionError(writer, internalAPIError())
+			return
+		}
+		writeJSON(writer, http.StatusOK, result)
+	})
 	httpapi.HandleRaw(mux, httpapi.GetSubagentEvents, func(writer http.ResponseWriter, request *http.Request) {
 		after := int64(0)
 		if raw := request.URL.Query().Get("after"); raw != "" {
@@ -2694,6 +2767,8 @@ func subagentAPIError(err error) error {
 		status, code, message = http.StatusConflict, httpapi.ErrorTranscriptCursorUnavailable, "transcript cursor is unavailable"
 	case errors.Is(err, subagent.ErrConflict), errors.Is(err, subagent.ErrNotCancelable), errors.Is(err, subagent.ErrDismissed), errors.Is(err, kitsession.ErrBusy):
 		status, code, message = http.StatusConflict, httpapi.ErrorConflict, "operation conflicts with subagent state"
+	case errors.Is(err, kitsession.ErrCompactionFailed):
+		status, code, message = http.StatusUnprocessableEntity, httpapi.ErrorUnprocessable, kitsession.ErrCompactionFailed.Error()
 	case errors.Is(err, kitsession.ErrClosed), errors.Is(err, subagent.ErrClosed):
 		status, code, message = http.StatusServiceUnavailable, httpapi.ErrorUnavailable, "subagent is unavailable"
 	case errors.Is(err, kitsession.ErrInvalidInput), errors.Is(err, subagent.ErrInvalidInput), errors.Is(err, subagent.ErrTemporaryUnavailable), errors.Is(err, errInvalidSessionRequest):

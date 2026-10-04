@@ -155,6 +155,12 @@ type SubagentEventReader interface {
 	SubagentEvents(context.Context, string, string, int64) (protocol.SubagentLiveEventPage, error)
 }
 
+// SubagentConfigurationSession changes one durable child conversation's
+// server-authoritative model or thinking setting.
+type SubagentConfigurationSession interface {
+	ConfigureSubagent(context.Context, string, protocol.ConfigureSubagentInput) (protocol.ConfigureSubagentResult, error)
+}
+
 // SessionEventWatcher is the optional attachment-scoped event surface. It
 // carries all session events so an idle client can discover externally admitted
 // turns as well as session-level invalidations.

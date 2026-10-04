@@ -331,6 +331,40 @@ final class SessionStore {
         }
     }
 
+    /// Child configuration state is keyed by durable conversation so a recreated
+    /// conversation for the same agent starts without stale feedback.
+    @ObservationIgnored private var subagentConfigurations: [String: [String: SubagentConfigurationOperation]] = [:]
+    func subagentConfiguration(_ conversation: String) -> SubagentConfigurationOperation {
+        if let value = subagentConfigurations[selectedID]?[conversation] { return value }
+        let value = SubagentConfigurationOperation()
+        subagentConfigurations[selectedID, default: [:]][conversation] = value
+        return value
+    }
+    var canConfigureSubagent: Bool {
+        subagentClient is any SubagentConfigurationClient && !unavailable && connectionState == .connected
+    }
+    /// Thinking may change while a child runs; a model change requires it to
+    /// have no active or queued work. Values are read from the current roster.
+    func configureSubagent(_ name: String, model: String? = nil, thinking: String? = nil) async {
+        let session = selectedID
+        guard canConfigureSubagent, model != nil || thinking != nil,
+              let agent = selected?.subagents?.items.first(where: { $0.name == name }),
+              let conversation = agent.conversationID, let generation = agent.generation, generation > 0,
+              let client = subagentClient as? any SubagentConfigurationClient else { return }
+        if model != nil && agent.hasOutstandingWork { return }
+        let model = model == agent.model ? nil : model
+        let thinking = thinking == agent.thinkingLevel ? nil : thinking
+        guard model != nil || thinking != nil else { return }
+        await subagentConfiguration(conversation).change(session: session, conversation: conversation,
+            generation: generation, agent: name, model: model, thinking: thinking, client: client,
+            outstandingWork: { [weak self] in
+                self?.selected?.subagents?.items.first(where: { $0.conversationID == conversation })?.hasOutstandingWork ?? false
+            }) { [weak self] in
+                guard let self, self.selectedID == session else { throw CancellationError() }
+                _ = try await self.replica.resynchronize()
+            }
+    }
+
     @ObservationIgnored private var subagentSends: [String: [String: SubagentSendOperation]] = [:]
     func subagentSend(_ name: String) -> SubagentSendOperation {
         if let value = subagentSends[selectedID]?[name] { return value }

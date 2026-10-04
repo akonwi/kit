@@ -13,6 +13,13 @@ type SubagentTranscriptParams struct {
 	ConversationID string `path:"conversationID"`
 	Before         string `query:"before,omitempty"`
 }
+
+// SubagentPath binds one child conversation under its owner session.
+type SubagentPath struct {
+	SessionID      string `path:"sessionID"`
+	ConversationID string `path:"conversationID"`
+}
+
 type SubagentEventsParams struct {
 	SessionID      string `path:"sessionID"`
 	ConversationID string `path:"conversationID"`
@@ -31,6 +38,10 @@ func subagentErrors() []ErrorResponse {
 	}
 }
 
+func configureSubagentErrors() []ErrorResponse {
+	return append(subagentErrors(), ErrorResponse{Status: http.StatusUnprocessableEntity, Codes: []ErrorCode{ErrorUnprocessable}})
+}
+
 func subagentTranscriptErrors() []ErrorResponse {
 	responses := subagentErrors()
 	for index := range responses {
@@ -42,6 +53,7 @@ func subagentTranscriptErrors() []ErrorResponse {
 }
 
 var (
+	ConfigureSubagent     = Operation[SubagentPath, protocol.ConfigureSubagentInput, protocol.ConfigureSubagentResult]{ID: "configureSubagent", Tag: "subagents", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/subagents/{conversationID}/configure", Success: http.StatusOK, Errors: configureSubagentErrors()}
 	GetSubagentEvents     = Operation[SubagentEventsParams, NoBody, protocol.SubagentLiveEventPage]{ID: "getSubagentEvents", Tag: "subagents", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/subagents/{conversationID}/events", Success: http.StatusOK, Errors: subagentErrors()}
 	GetSubagentTranscript = Operation[SubagentTranscriptParams, NoBody, protocol.SubagentTranscript]{ID: "getSubagentTranscript", Tag: "subagents", Method: http.MethodGet, Path: "/v1/sessions/{sessionID}/subagents/{conversationID}/transcript", Success: http.StatusOK, Errors: subagentTranscriptErrors()}
 	OperateSubagent       = Operation[SessionPath, protocol.SubagentOperationInput, protocol.SubagentOperationResult]{ID: "operateSubagent", Tag: "subagents", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/subagents", Success: http.StatusOK, AdditionalSuccess: []int{http.StatusAccepted}, Errors: subagentErrors()}

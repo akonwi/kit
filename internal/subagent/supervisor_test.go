@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"errors"
 	"path/filepath"
 	"sync"
 	"sync/atomic"
@@ -56,6 +57,184 @@ func TestSupervisorSteersActiveConversationAndWaitsForIdle(t *testing.T) {
 	startedAt := time.Now()
 	if immediate, err := supervisor.WaitConversation(t.Context(), conversation.ID); err != nil || immediate.State != subagent.ConversationIdle || time.Since(startedAt) > 100*time.Millisecond {
 		t.Fatalf("immediate idle wait = %#v, %v", immediate, err)
+	}
+}
+
+func TestSupervisorConfiguresActiveThinkingAfterCommit(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "configure-thinking")
+	factory := newGatedChildFactory()
+	supervisor, err := subagent.NewSupervisor(store, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, task, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, factory.started)
+	high := "high"
+	configured, err := supervisor.Configure(t.Context(), conversation.ID, conversation.Generation,
+		subagent.ConfigurationPatch{ThinkingLevel: &high}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Conversation.ThinkingLevel != "high" {
+		t.Fatalf("thinking = %q", configured.Conversation.ThinkingLevel)
+	}
+	select {
+	case thinking := <-factory.configured:
+		if thinking != "high" {
+			t.Fatalf("runtime thinking = %q", thinking)
+		}
+	case <-time.After(3 * time.Second):
+		t.Fatal("active child was not reconfigured")
+	}
+	persisted, err := store.Conversation(t.Context(), conversation.ID)
+	if err != nil || persisted.ThinkingLevel != "high" {
+		t.Fatalf("persisted = %#v, %v", persisted, err)
+	}
+	factory.release(task.ID)
+}
+
+func TestSupervisorReturnsAppliedThinkingWithWarningWhenLiveRuntimeFails(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "configure-thinking-failure")
+	factory := newGatedChildFactory()
+	factory.configureErr = errors.New("live reconfiguration failed")
+	supervisor, err := subagent.NewSupervisor(store, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, _, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, factory.started)
+	high := "high"
+	result, err := supervisor.Configure(t.Context(), conversation.ID, conversation.Generation, subagent.ConfigurationPatch{ThinkingLevel: &high}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if result.Conversation.ThinkingLevel != high || result.Warning == "" {
+		t.Fatalf("configuration result = %#v", result)
+	}
+	persisted, err := store.Conversation(t.Context(), conversation.ID)
+	if err != nil || persisted.ThinkingLevel != high {
+		t.Fatalf("persisted = %#v, %v", persisted, err)
+	}
+}
+
+func TestSupervisorPreparesSettledModelChangeAndPreservesThinking(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "configure-model")
+	factory := newGatedChildFactory()
+	supervisor, err := subagent.NewSupervisor(store, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, task, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, factory.started)
+	factory.release(task.ID)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	conversation, err = supervisor.WaitConversation(ctx, conversation.ID)
+	cancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	model := "test/other"
+	configured, err := supervisor.Configure(t.Context(), conversation.ID, conversation.Generation,
+		subagent.ConfigurationPatch{Model: &model}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if configured.Conversation.Model != model || configured.Conversation.ThinkingLevel != conversation.ThinkingLevel || !configured.Compacted || configured.CheckpointID != "checkpoint_test" {
+		t.Fatalf("configured = %#v", configured)
+	}
+	select {
+	case prepared := <-factory.prepared:
+		if prepared.Model != model || prepared.ThinkingLevel != conversation.ThinkingLevel {
+			t.Fatalf("prepared = %#v", prepared)
+		}
+	default:
+		t.Fatal("model change was not prepared")
+	}
+}
+
+func TestSupervisorModelTransitionBlocksConcurrentAdmissionUntilCommit(t *testing.T) {
+	store := openSupervisorStore(t)
+	owner := createSupervisorOwner(t, store, "configure-model-admission")
+	factory := newGatedChildFactory()
+	supervisor, err := subagent.NewSupervisor(store, factory, subagent.DefaultLimits(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := supervisor.Start(t.Context()); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = supervisor.Shutdown(context.Background()) })
+	conversation, task, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "initial", time.Now().UTC()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	waitStarted(t, factory.started)
+	factory.release(task.ID)
+	ctx, cancel := context.WithTimeout(t.Context(), 3*time.Second)
+	conversation, err = supervisor.WaitConversation(ctx, conversation.ID)
+	cancel()
+	if err != nil {
+		t.Fatal(err)
+	}
+	factory.prepareRelease = make(chan struct{})
+	model := "test/other"
+	configured := make(chan error, 1)
+	go func() {
+		_, err := supervisor.Configure(t.Context(), conversation.ID, conversation.Generation, subagent.ConfigurationPatch{Model: &model}, nil)
+		configured <- err
+	}()
+	select {
+	case <-factory.prepared:
+	case <-time.After(3 * time.Second):
+		t.Fatal("model preparation did not start")
+	}
+	if err := supervisor.BeginOwnerDeletion(owner); !errors.Is(err, subagent.ErrConflict) {
+		t.Fatalf("BeginOwnerDeletion() during model transition = %v, want conflict", err)
+	}
+	admitted := make(chan error, 1)
+	go func() {
+		_, _, err := supervisor.Admit(t.Context(), supervisorAdmission(owner, "follow-up", time.Now().UTC()))
+		admitted <- err
+	}()
+	select {
+	case err := <-admitted:
+		t.Fatalf("admission completed during model transition: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+	close(factory.prepareRelease)
+	if err := <-configured; err != nil {
+		t.Fatal(err)
+	}
+	if err := <-admitted; err != nil {
+		t.Fatal(err)
+	}
+	persisted, err := store.Conversation(t.Context(), conversation.ID)
+	if err != nil || persisted.Model != model {
+		t.Fatalf("persisted = %#v, %v", persisted, err)
 	}
 }
 
@@ -474,21 +653,36 @@ func (r *claimGateRepository) ClaimNext(ctx context.Context, owner string, limit
 }
 
 type gatedChildFactory struct {
-	started chan subagent.TaskID
-	steered chan string
-	mu      sync.Mutex
-	gates   map[subagent.TaskID]chan struct{}
+	started        chan subagent.TaskID
+	steered        chan string
+	configured     chan string
+	prepared       chan subagent.Configuration
+	prepareRelease chan struct{}
+	configureErr   error
+	mu             sync.Mutex
+	gates          map[subagent.TaskID]chan struct{}
 }
 
 func newGatedChildFactory() *gatedChildFactory {
 	return &gatedChildFactory{
-		started: make(chan subagent.TaskID, 32), steered: make(chan string, 32),
+		started: make(chan subagent.TaskID, 32), steered: make(chan string, 32), configured: make(chan string, 32), prepared: make(chan subagent.Configuration, 32),
 		gates: make(map[subagent.TaskID]chan struct{}),
 	}
 }
 
 func (f *gatedChildFactory) Open(_ context.Context, _ subagent.Conversation) (subagent.ChildRuntime, error) {
 	return &gatedChildRuntime{factory: f}, nil
+}
+func (f *gatedChildFactory) PrepareConfiguration(ctx context.Context, _ subagent.Conversation, configuration subagent.Configuration) (bool, string, error) {
+	f.prepared <- configuration
+	if f.prepareRelease != nil {
+		select {
+		case <-f.prepareRelease:
+		case <-ctx.Done():
+			return false, "", ctx.Err()
+		}
+	}
+	return true, "checkpoint_test", nil
 }
 func (*gatedChildFactory) Delete(context.Context, subagent.Conversation) error { return nil }
 
@@ -521,6 +715,11 @@ func (r *gatedChildRuntime) Run(ctx context.Context, task subagent.Task, admitte
 	case <-ctx.Done():
 		return subagent.ChildOutcome{TurnID: "turn_" + string(task.ID), State: subagent.TaskAborted}, ctx.Err()
 	}
+}
+
+func (r *gatedChildRuntime) ConfigureThinking(_ context.Context, thinking string) error {
+	r.factory.configured <- thinking
+	return r.factory.configureErr
 }
 
 func (r *gatedChildRuntime) Steer(_ context.Context, message string) error {

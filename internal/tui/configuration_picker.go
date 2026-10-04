@@ -21,8 +21,17 @@ const (
 	configurationPickerThinking
 )
 
+type configurationTarget struct {
+	ConversationID string
+	AgentName      string
+	Generation     uint64
+}
+
+func (target configurationTarget) isSubagent() bool { return target.ConversationID != "" }
+
 type configurationPickerController struct {
 	Mode            configurationPickerMode
+	Target          configurationTarget
 	Loading         bool
 	Pending         bool
 	Error           string
@@ -39,6 +48,7 @@ type configurationPickerController struct {
 
 type configurationPickerSnapshot struct {
 	Mode            configurationPickerMode
+	Target          configurationTarget
 	Loading         bool
 	Pending         bool
 	Error           string
@@ -53,8 +63,13 @@ type configurationPickerSnapshot struct {
 }
 
 func (controller *configurationPickerController) Begin(mode configurationPickerMode, currentModel, currentThinking string) uint64 {
+	return controller.BeginTarget(mode, configurationTarget{}, currentModel, currentThinking)
+}
+
+func (controller *configurationPickerController) BeginTarget(mode configurationPickerMode, target configurationTarget, currentModel, currentThinking string) uint64 {
 	controller.generation++
 	controller.Mode = mode
+	controller.Target = target
 	controller.Loading = true
 	controller.Pending = false
 	controller.Error = ""
@@ -117,7 +132,7 @@ func (controller *configurationPickerController) Close() {
 
 func (controller *configurationPickerController) Snapshot() configurationPickerSnapshot {
 	return configurationPickerSnapshot{
-		Mode: controller.Mode, Loading: controller.Loading, Pending: controller.Pending,
+		Mode: controller.Mode, Target: controller.Target, Loading: controller.Loading, Pending: controller.Pending,
 		Error: controller.Error, Query: controller.Query, Selection: controller.Selection,
 		CurrentModel: controller.CurrentModel, CurrentThinking: controller.CurrentThinking,
 		Models:         append([]protocol.ModelCapability(nil), controller.Models...),
@@ -187,7 +202,7 @@ func (controller *configurationPickerController) ResolveApply(generation uint64,
 }
 
 func (controller *configurationPickerController) BeginContextEdit() bool {
-	if controller.Mode != configurationPickerModel || controller.Loading || controller.Pending || controller.Selection == "" {
+	if controller.Target.isSubagent() || controller.Mode != configurationPickerModel || controller.Loading || controller.Pending || controller.Selection == "" {
 		return false
 	}
 	index := modelCapabilityIndex(controller.Models, controller.Selection)
@@ -289,6 +304,9 @@ type configurationPickerSurface struct {
 func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 	snapshot := surface.Snapshot
 	footer := "↑↓ move · enter apply · ctrl+o overrides · esc close"
+	if snapshot.Target.isSubagent() {
+		footer = "↑↓ move · enter apply · esc close"
+	}
 	if snapshot.Mode == configurationPickerThinking {
 		footer = "↑↓ move · enter apply · esc close"
 	}
@@ -314,6 +332,9 @@ func (surface configurationPickerSurface) Build(ui.BuildContext) ui.Widget {
 				surface.Apply(ctx)
 			}
 		},
+	}
+	if snapshot.Target.isSubagent() {
+		result.TitleMeta = "subagent · " + snapshot.Target.AgentName
 	}
 	if snapshot.Mode == configurationPickerThinking {
 		result.Title = "Thinking level"

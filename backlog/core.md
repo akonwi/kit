@@ -55,12 +55,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   treating Base64 length as token count.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
-- [ ] CORE-SUB-002 — Let each subagent's model and thinking settings be changed
-  while its session is active, through the same server-authoritative validation,
-  persistence, and event flow used by the main session. Apply accepted changes
-  to the subagent's next model request without altering an in-flight request,
-  preserve them across detach and daemon restart, and return actionable errors
-  for unsupported combinations.
 - [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
   across model changes and is projected consistently after restart.
 

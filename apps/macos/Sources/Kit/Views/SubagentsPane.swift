@@ -30,7 +30,10 @@ struct AgentPane: View {
     var body: some View {
         VStack(spacing: 0) {
             HStack {
-                if let agent, !agent.model.isEmpty {
+                if let agent, let conversationID = agent.conversationID, agent.generation != nil {
+                    SubagentConfigurationControls(state: state, agent: agent,
+                        operation: state.subagentConfiguration(conversationID))
+                } else if let agent, !agent.model.isEmpty {
                     Text(agent.configurationLabel).foregroundStyle(theme.muted).lineLimit(1)
                 }
                 Spacer()
@@ -44,6 +47,9 @@ struct AgentPane: View {
                 }
             }.font(.kit(size: 12)).padding(16)
             Rule()
+            if let conversationID = agent?.conversationID {
+                SubagentConfigurationFeedback(operation: state.subagentConfiguration(conversationID))
+            }
             if let error = conversation.error {
                 HStack {
                     Text(error).font(.kit(size: 12)).foregroundStyle(theme.muted)
@@ -102,6 +108,100 @@ struct AgentPane: View {
         if state.selected?.subagents == nil { return "Subagent information unavailable" }
         if agent == nil { return "This subagent is no longer available." }
         return "This subagent has not started a conversation."
+    }
+}
+
+/// Pane-owned model and thinking controls for one durable child conversation.
+/// They never read or change the attached session's configuration.
+struct SubagentConfigurationControls: View {
+    @Environment(\.mica) private var theme
+    @Bindable var state: SessionStore
+    let agent: SubagentRoster.Item
+    let operation: SubagentConfigurationOperation
+    @State private var modelPickerPresented = false
+
+    private var models: [WireModelCapability] { state.configuration.models }
+    private var modelLabel: String { ComposerView.activeModelLabel(id: agent.model, models: models) }
+    private var thinkingLevels: [String] {
+        models.first(where: { $0.id == agent.model })?.thinkingLevels?.map(\.rawValue)
+            ?? (agent.thinkingLevel.map { [$0] } ?? [])
+    }
+    var modelEnabled: Bool { state.canConfigureSubagent && !operation.pending && !agent.hasOutstandingWork }
+    var thinkingEnabled: Bool { state.canConfigureSubagent && !operation.pending }
+    static func thinkingLabel(_ level: String?) -> String {
+        guard let level, !level.isEmpty else { return "Thinking" }
+        return level == "off" ? "Thinking off" : level.capitalized + " thinking"
+    }
+    static func modelHelp(agent: SubagentRoster.Item, models: [WireModelCapability]) -> String {
+        if agent.hasOutstandingWork { return "\(agent.name)'s model can change once its active and queued work finishes" }
+        return models.first(where: { $0.id == agent.model }).map(ComposerView.modelLabel) ?? agent.model
+    }
+
+    var body: some View {
+        HStack(spacing: 8) {
+            Button { modelPickerPresented = true } label: {
+                HStack(spacing: 4) {
+                    Text(modelLabel).lineLimit(1)
+                    Image(systemName: "chevron.up.chevron.down").font(.system(size: 9))
+                }
+            }
+            .buttonStyle(.borderless).tint(theme.text).fixedSize()
+            .help(Self.modelHelp(agent: agent, models: models))
+            .accessibilityLabel("Model for \(agent.name): \(modelLabel)")
+            .popover(isPresented: $modelPickerPresented, arrowEdge: .bottom) {
+                ComposerModelPicker(models: models, selectedID: agent.model,
+                    select: { id in
+                        modelPickerPresented = false
+                        Task { await state.configureSubagent(agent.name, model: id) }
+                    }, reload: {
+                        Task { await state.loadComposer() }
+                    }, dismiss: { modelPickerPresented = false },
+                    title: "Model for \(agent.name)")
+                    .environment(\.mica, theme)
+                    .preferredColorScheme(theme.dark ? .dark : .light)
+            }
+            .disabled(!modelEnabled)
+            Rectangle().fill(theme.border).frame(width: 1, height: 14)
+            Menu {
+                Section("Thinking for \(agent.name)") {
+                    ForEach(thinkingLevels, id: \.self) { value in
+                        Button { Task { await state.configureSubagent(agent.name, thinking: value) } } label: {
+                            if value == agent.thinkingLevel { Label(value.capitalized, systemImage: "checkmark") }
+                            else { Text(value.capitalized) }
+                        }
+                    }
+                }
+            } label: { Text(Self.thinkingLabel(agent.thinkingLevel)) }
+                .menuStyle(.borderlessButton).tint(theme.text).fixedSize()
+                .disabled(!thinkingEnabled || thinkingLevels.isEmpty)
+                .accessibilityLabel("Thinking for \(agent.name): \(Self.thinkingLabel(agent.thinkingLevel))")
+            if operation.pending { KitSpinner().accessibilityLabel("Applying \(agent.name) configuration") }
+        }
+        .onChange(of: modelEnabled) { _, enabled in if !enabled { modelPickerPresented = false } }
+        .task(id: state.selectedID) {
+            if models.isEmpty { await state.loadComposer() }
+        }
+    }
+}
+
+/// Configuration errors and warnings stay with the pane that caused them.
+private struct SubagentConfigurationFeedback: View {
+    @Environment(\.mica) private var theme
+    let operation: SubagentConfigurationOperation
+
+    var body: some View {
+        if let message = operation.error ?? operation.warning {
+            HStack(alignment: .firstTextBaseline, spacing: 8) {
+                Text(message).font(.kit(size: 12))
+                    .foregroundStyle(operation.error != nil ? theme.danger : theme.muted)
+                    .textSelection(.enabled).fixedSize(horizontal: false, vertical: true)
+                Spacer(minLength: 0)
+                Button { operation.clearFeedback() } label: { Image(systemName: "xmark") }
+                    .buttonStyle(.plain).foregroundStyle(theme.muted)
+                    .help("Dismiss").accessibilityLabel("Dismiss configuration message")
+            }.padding(.horizontal, 16).padding(.vertical, 10)
+            Rule()
+        }
     }
 }
 

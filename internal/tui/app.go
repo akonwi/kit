@@ -1437,6 +1437,12 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		DismissSubagent: func(_ ui.EventContext, conversationID string, generation uint64) {
 			s.requestSubagentDismiss(conversationID, generation)
 		},
+		OpenSubagentModel: func(_ ui.EventContext, conversationID string) {
+			s.openSubagentConfigurationPicker(conversationID, configurationPickerModel)
+		},
+		OpenSubagentThinking: func(_ ui.EventContext, conversationID string) {
+			s.openSubagentConfigurationPicker(conversationID, configurationPickerThinking)
+		},
 		SelectSubagent: func(_ ui.EventContext, name string) {
 			s.SetState(func() { s.subagentSelection = name })
 		},
@@ -4450,7 +4456,8 @@ func (s *appState) cancelLogin() {
 }
 
 func (s *appState) hasActiveWork() bool {
-	return s.turnPending || s.reloadPending || s.modelRefreshPending || s.cwdPending || s.compactPending || s.configurationPicker.Pending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
+	mainConfigurationPending := s.configurationPicker.Pending && !s.configurationPicker.Target.isSubagent()
+	return s.turnPending || s.reloadPending || s.modelRefreshPending || s.cwdPending || s.compactPending || mainConfigurationPending || s.sessionCreatePending || s.bashStarting || s.activeBashID != ""
 }
 
 func (s *appState) openPalette() {
@@ -5028,6 +5035,7 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 	s.applySubagentDiagnostics(s.session.ID, result.Diagnostics)
 	s.subagentConversations = append([]protocol.SubagentConversation(nil), result.Conversations...)
 	s.reconcileSubagentTabs()
+	s.reconcileSubagentConfigurationPicker()
 	items := filteredSubagentRosterItems(subagentRosterItems(s.subagentDefinitions, s.subagentConversations), s.subagentFilter)
 	selected, ok := selectedSubagentRosterItem(items, s.subagentSelection)
 	if !ok {
@@ -5046,6 +5054,23 @@ func (s *appState) applySubagentResult(result protocol.SubagentOperationResult) 
 		s.subagentRevealPending = true
 	} else if !rosterVisible {
 		s.subagentRevealPending = false
+	}
+}
+
+func (s *appState) reconcileSubagentConfigurationPicker() {
+	target := s.configurationPicker.Target
+	if !target.isSubagent() {
+		return
+	}
+	conversation, ok := s.subagentConversation(target.ConversationID)
+	if !ok || conversation.Generation != target.Generation {
+		s.configurationPicker.Pending = false
+		s.configurationPicker.Close()
+		return
+	}
+	if !s.configurationPicker.Pending {
+		s.configurationPicker.CurrentModel = conversation.Model
+		s.configurationPicker.CurrentThinking = conversation.ThinkingLevel
 	}
 }
 
@@ -5928,6 +5953,43 @@ func (s *appState) setDiffWrapLines(enabled bool) {
 	})
 }
 
+func subagentHasOutstandingWork(conversation protocol.SubagentConversation) bool {
+	return conversation.State == "running" || conversation.ActiveTaskID != "" || conversation.QueuedTasks > 0
+}
+
+func (s *appState) subagentConversation(conversationID string) (protocol.SubagentConversation, bool) {
+	for _, conversation := range s.subagentConversations {
+		if conversation.ID == conversationID {
+			return conversation, true
+		}
+	}
+	return protocol.SubagentConversation{}, false
+}
+
+func (s *appState) openSubagentConfigurationPicker(conversationID string, mode configurationPickerMode) {
+	conversation, ok := s.subagentConversation(conversationID)
+	if !ok {
+		s.showToast(toastInput{Title: "Subagent unavailable", Variant: toastWarning})
+		return
+	}
+	if mode == configurationPickerModel && subagentHasOutstandingWork(conversation) {
+		s.showToast(toastInput{
+			Title: "Model locked", Subtitle: fmt.Sprintf("%s's model can change once its work finishes.", conversation.AgentName), Variant: toastWarning,
+		})
+		return
+	}
+	if !s.admitRootModal() || s.phase != phaseReady || s.bound == nil || s.configurationPicker.Mode != configurationPickerClosed {
+		return
+	}
+	var generation uint64
+	s.SetState(func() {
+		generation = s.configurationPicker.BeginTarget(mode, configurationTarget{
+			ConversationID: conversation.ID, AgentName: conversation.AgentName, Generation: conversation.Generation,
+		}, conversation.Model, conversation.ThinkingLevel)
+	})
+	s.loadConfigurationCatalogOptions(s.Widget().(app).Options, s.Context().Runtime().Dispatch, generation, false)
+}
+
 func (s *appState) openConfigurationPicker(mode configurationPickerMode) {
 	if !s.admitRootModal() {
 		return
@@ -6004,8 +6066,97 @@ func (s *appState) saveModelContextWindowWithOptions(service ModelOverrideServic
 	s.loadConfigurationCatalogOptions(options, dispatch, generation, true)
 }
 
+func subagentConfigurationInput(target configurationTarget, mode configurationPickerMode, selection string) protocol.ConfigureSubagentInput {
+	input := protocol.ConfigureSubagentInput{Generation: target.Generation}
+	if mode == configurationPickerModel {
+		input.Model = &selection
+	} else {
+		level := protocol.ThinkingLevel(selection)
+		input.ThinkingLevel = &level
+	}
+	return input
+}
+
+func (s *appState) applySubagentConfigurationSelection() {
+	configurable, ok := s.bound.(SubagentConfigurationSession)
+	if !ok || s.configurationPicker.Pending {
+		if !ok {
+			s.SetState(func() { s.configurationPicker.Error = "Subagent configuration is unavailable." })
+		}
+		return
+	}
+	target := s.configurationPicker.Target
+	conversation, exists := s.subagentConversation(target.ConversationID)
+	if !exists || conversation.Generation != target.Generation {
+		s.SetState(func() { s.configurationPicker.Error = "The subagent conversation changed." })
+		return
+	}
+	mode := s.configurationPicker.Mode
+	if mode == configurationPickerModel && subagentHasOutstandingWork(conversation) {
+		s.SetState(func() { s.configurationPicker.Error = conversation.AgentName + " is busy — model locked" })
+		return
+	}
+	selection := s.configurationPicker.Selection
+	if mode == configurationPickerModel {
+		index := modelCapabilityIndex(s.configurationPicker.Models, selection)
+		if index < 0 || !s.configurationPicker.Models[index].Available {
+			s.SetState(func() { s.configurationPicker.Error = "The selected provider is not authenticated." })
+			return
+		}
+	}
+	var generation uint64
+	var accepted string
+	var begin bool
+	s.SetState(func() { generation, accepted, begin = s.configurationPicker.BeginApply() })
+	if !begin {
+		return
+	}
+	input := subagentConfigurationInput(target, mode, accepted)
+	bound := s.bound
+	sessionID := s.session.ID
+	requestGeneration := s.subagentRequestGeneration
+	attachmentContext := s.attachmentCtx
+	runtime := s.Context().Runtime()
+	go func() {
+		request, cancel := context.WithTimeout(attachmentContext, 2*time.Minute)
+		result, err := configurable.ConfigureSubagent(request, target.ConversationID, input)
+		cancel()
+		if attachmentContext.Err() != nil {
+			return
+		}
+		runtime.Dispatch(func() {
+			if s.bound != bound || s.session.ID != sessionID || s.subagentRequestGeneration != requestGeneration || generation != s.configurationPicker.generation {
+				return
+			}
+			if err == nil {
+				s.SetState(func() {
+					for index := range s.subagentConversations {
+						if s.subagentConversations[index].ID == result.Conversation.ID {
+							s.subagentConversations[index] = result.Conversation
+							break
+						}
+					}
+					s.configurationPicker.ResolveApply(generation, nil)
+				})
+				if len(result.Warnings) > 0 {
+					s.showToast(toastInput{Title: "Subagent configuration applied with warnings", Subtitle: strings.Join(result.Warnings, "\n"), Variant: toastWarning, Persistent: true})
+				} else if result.Compacted {
+					s.showToast(toastInput{Title: "Subagent model changed", Subtitle: "The child context was compacted for the selected model.", Variant: toastInfo})
+				}
+			} else {
+				s.SetState(func() { s.configurationPicker.ResolveApply(generation, err) })
+			}
+			s.refreshSubagents()
+		})
+	}()
+}
+
 func (s *appState) applyConfigurationSelection() {
 	if s.phase != phaseReady || s.bound == nil {
+		return
+	}
+	if s.configurationPicker.Target.isSubagent() {
+		s.applySubagentConfigurationSelection()
 		return
 	}
 	mode := s.configurationPicker.Mode

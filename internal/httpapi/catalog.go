@@ -9,7 +9,7 @@ func Catalog() []Descriptor {
 		ListAnnotations.Describe(), CreateAnnotation.Describe(), UpdateAnnotation.Describe(), DeleteAnnotation.Describe(),
 		GetBashHistory.Describe(), StartBash.Describe(), GetBash.Describe(), AbortBash.Describe(),
 		UploadAttachment.Describe(), ResolveAttachments.Describe(), ReadAttachment.Describe(),
-		GetSubagentEvents.Describe(), GetSubagentTranscript.Describe(), OperateSubagent.Describe(),
+		ConfigureSubagent.Describe(), GetSubagentEvents.Describe(), GetSubagentTranscript.Describe(), OperateSubagent.Describe(),
 		GetHealth.Describe(), Shutdown.Describe(), ListModels.Describe(), RefreshModels.Describe(),
 		GetWorkspace.Describe(), ListWorkspaceDirectory.Describe(), ReadWorkspaceFile.Describe(), GetSessionFileIndex.Describe(),
 		GetSessionVCS.Describe(), StreamSessionVCS.Describe(),

@@ -128,6 +128,9 @@ internal protocol APIProtocol: Sendable {
     /// - Remark: HTTP `POST /v1/sessions/{sessionID}/subagents`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/post(operateSubagent)`.
     func operateSubagent(_ input: Operations.OperateSubagent.Input) async throws -> Operations.OperateSubagent.Output
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/subagents/{conversationID}/configure`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/configure/post(configureSubagent)`.
+    func configureSubagent(_ input: Operations.ConfigureSubagent.Input) async throws -> Operations.ConfigureSubagent.Output
     /// - Remark: HTTP `GET /v1/sessions/{sessionID}/subagents/{conversationID}/events`.
     /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/events/get(getSubagentEvents)`.
     func getSubagentEvents(_ input: Operations.GetSubagentEvents.Input) async throws -> Operations.GetSubagentEvents.Output
@@ -642,6 +645,19 @@ extension APIProtocol {
         body: Operations.OperateSubagent.Input.Body
     ) async throws -> Operations.OperateSubagent.Output {
         try await operateSubagent(Operations.OperateSubagent.Input(
+            path: path,
+            headers: headers,
+            body: body
+        ))
+    }
+    /// - Remark: HTTP `POST /v1/sessions/{sessionID}/subagents/{conversationID}/configure`.
+    /// - Remark: Generated from `#/paths//v1/sessions/{sessionID}/subagents/{conversationID}/configure/post(configureSubagent)`.
+    internal func configureSubagent(
+        path: Operations.ConfigureSubagent.Input.Path,
+        headers: Operations.ConfigureSubagent.Input.Headers,
+        body: Operations.ConfigureSubagent.Input.Body
+    ) async throws -> Operations.ConfigureSubagent.Output {
+        try await configureSubagent(Operations.ConfigureSubagent.Input(
             path: path,
             headers: headers,
             body: body
