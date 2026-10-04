@@ -1,12 +1,19 @@
+use ard/async
+
+use go:context
 use cooper/cui
 use cooper/ui
+use go:github.com/akonwi/kit/internal/highlight
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
+use go:kit/ffi/contextbridge
 use kit/tui/theme
 use go:strings
 use go:unicode/utf8
 
 let max_quote_depth = 4
+// Bound async producers as well as the shared highlighter's workers and queue.
+let highlight_slots = Chan::new<Void>(highlight::DefaultWorkers + highlight::DefaultQueueDepth)
 
 private fn maximum(left: Int, right: Int) Int {
   match left > right {
@@ -26,6 +33,7 @@ private fn minimum(left: Int, right: Int) Int {
 // retain this component by ID, so parsing is repeated only when source changes.
 struct Props {
   themes: theme::Context,
+  id: Str,
   source: Str,
   base: ui::TextStyle,
   semantic: Bool,
@@ -42,6 +50,7 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, sema
     new,
     Props{
       themes: themes,
+      id: id,
       source: source,
       base: base.or(ui::text_style()),
       semantic: semantic.or(true),
@@ -64,21 +73,30 @@ impl cui::Component for Document {
       self.parsed_source = self.props.source
       self.parsed = parser::Parse(self.props.source)
     }
-    render_document(self.props.themes.current(), self.props.base, self.props.semantic, self.parsed)
+    render_document(
+      self.props.themes,
+      self.props.id,
+      self.props.base,
+      self.props.semantic,
+      self.parsed,
+    )
   }
 }
 
 private fn render_document(
-  colors: theme::Theme,
+  themes: theme::Context,
+  id: Str,
   base: ui::TextStyle,
   semantic: Bool,
   document: parser::Document,
 ) cui::View {
+  let colors = themes.current()
   match document.PlainTextFallback {
     true => text(document_text(document), base, colors),
     false => {
       let children = mut List::new<cui::View>()
       mut prior = Maybe::new<parser::Block>()
+      mut block_index = 0
       for block in document.Blocks {
         match prior {
           previous => {
@@ -88,8 +106,9 @@ private fn render_document(
           },
           _ => (),
         }
-        children.push(render_block(colors, base, semantic, block))
+        children.push(render_block(themes, id, block_index, base, semantic, block))
         prior = Maybe::new(block)
+        block_index =+ 1
       }
       cui::box(children.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
     },
@@ -114,11 +133,14 @@ private fn document_text(document: parser::Document) Str {
 }
 
 private fn render_block(
-  colors: theme::Theme,
+  themes: theme::Context,
+  id: Str,
+  block_index: Int,
   base: ui::TextStyle,
   semantic: Bool,
   block: parser::Block,
 ) cui::View {
+  let colors = themes.current()
   mut child = match {
     block.Kind == parser::BlockHeading => {
       rich_text(
@@ -128,7 +150,9 @@ private fn render_block(
         bold_runs(block.Runs),
       )
     },
-    block.Kind == parser::BlockCode => code_block(colors, base, block.Code),
+    block.Kind == parser::BlockCode => {
+      code_block(themes, "{id}:{block_index}", block.Language, block.Code, base, semantic)
+    },
     block.Kind == parser::BlockRule => cui::divider(styles: ui::style(border_color: colors.border)),
     block.Kind == parser::BlockTable => flat_table(colors, base, semantic, block),
     block.Kind == parser::BlockQuote => {
@@ -232,21 +256,187 @@ private fn text(value: Str, base: ui::TextStyle, colors: theme::Theme) cui::View
   )
 }
 
-private fn code_block(colors: theme::Theme, base: ui::TextStyle, source: Str) cui::View {
-  let style = mut base
-  style.background = colors.surface
-  cui::box(
-    [text(strings::ReplaceAll(source, "\t", "  "), style.@, colors)],
-    styles: ui::style(
-      background: colors.surface,
-      padding: ui::Edges{
-        top: ui::cells(0),
-        right: ui::cells(1),
-        bottom: ui::cells(0),
-        left: ui::cells(1),
-      },
-    ),
+struct CodeProps {
+  themes: theme::Context,
+  language: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+}
+
+struct Code {
+  props: mut CodeProps,
+  language: Str,
+  source: Str,
+  result: highlight::Result,
+  generation: Int,
+  context: cui::Context?,
+  attempt: contextbridge::Cancellation?,
+}
+
+private fn code_request(language: Str, source: Str) highlight::Request {
+  highlight::Request{Language: language, Source: strings::ReplaceAll(source, "\t", "  ")}
+}
+
+private fn plain_code(request: highlight::Request) highlight::Result {
+  highlight::Result{
+    Source: highlight::Sanitize(request.Source),
+    Language: highlight::DetectLanguage(request.Language, request.Path),
+    Fallback: true,
+  }
+}
+
+private fn code_block(
+  themes: theme::Context,
+  id: Str,
+  language: Str,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+) cui::View {
+  cui::child(
+    new_code,
+    CodeProps{
+      themes: themes,
+      language: language,
+      source: source,
+      base: base,
+      semantic: semantic,
+    },
+    key: "markdown-code:{id}",
   )
+}
+
+private fn new_code(props: mut CodeProps) mut Code {
+  let request = code_request(props.language, props.source)
+  (mut Code{
+    props: props,
+    language: request.Language,
+    source: request.Source,
+    result: plain_code(request),
+    generation: 0,
+    context: Maybe::new<cui::Context>(),
+    attempt: Maybe::new<contextbridge::Cancellation>(),
+  })
+}
+
+impl cui::Lifecycle for Code {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.start(ctx)
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.cancel()
+    self.context = Maybe::new<cui::Context>()
+  }
+}
+
+impl Code {
+  private fn mut cancel() {
+    self.generation =+ 1
+    match self.attempt {
+      attempt => attempt.Cancel(),
+      _ => (),
+    }
+    self.attempt = Maybe::new<contextbridge::Cancellation>()
+  }
+
+  private fn mut start(ctx: cui::Context) {
+    self.cancel()
+    mut acquired = false
+    select {
+      highlight_slots.send(()) => { acquired = true },
+      _ => (),
+    }
+    if acquired {
+      let generation = self.generation
+      let request = code_request(self.language, self.source)
+      let attempt = contextbridge::WithCancel(context::Background())
+      self.attempt = Maybe::new(attempt)
+      let dispatch = ctx.dispatch
+      async::start(fn() {
+        defer highlight_slots.recv()
+        let result = highlight::Default.Highlight(attempt.Context, request)
+        attempt.Cancel()
+        let _ = dispatch(fn() {
+          if self.generation == generation {
+            self.result = result
+            self.attempt = Maybe::new<contextbridge::Cancellation>()
+          }
+        })
+      })
+    }
+  }
+
+  private fn mut refresh() {
+    let request = code_request(self.props.language, self.props.source)
+    if request.Language != self.language or request.Source != self.source {
+      self.language = request.Language
+      self.source = request.Source
+      self.result = plain_code(request)
+      match self.context {
+        ctx => self.start(ctx),
+        _ => (),
+      }
+    }
+  }
+}
+
+impl cui::Component for Code {
+  fn mut render() cui::View {
+    self.refresh()
+    let colors = self.props.themes.current()
+    let style = mut self.props.base
+    style.background = colors.surface
+    cui::box(
+      [
+        cui::text(
+          code_text(colors, self.props.semantic, self.result),
+          text_style: style.@,
+          selectable: true,
+          selection_style: theme::selection_style(colors),
+        ),
+      ],
+      styles: ui::style(
+        background: colors.surface,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+}
+
+private fn code_text(colors: theme::Theme, semantic: Bool, result: highlight::Result) ui::StyledText {
+  let spans = mut List::new<ui::Span>()
+  mut position = 0
+  for capture in result.Spans {
+    if capture.Start > position {
+      spans.push(ui::span(result.Source.slice(position, capture.Start).or("")))
+    }
+    let foreground = match semantic {
+      true => Maybe::new(colors.syntax(capture.Role.to_str())),
+      false => Maybe::new<ui::Color>(),
+    }
+    spans.push(
+      ui::span(
+        result.Source.slice(capture.Start, capture.End).or(""),
+        style: ui::span_style(foreground: foreground),
+      ),
+    )
+    position = capture.End
+  }
+  if position < result.Source.size() {
+    spans.push(ui::span(result.Source.slice(position, result.Source.size()).or("")))
+  }
+  if spans.size() == 0 {
+    spans.push(ui::span(result.Source))
+  }
+  ui::styled_text(spans.@)
 }
 
 // Tables initially preserve the established narrow presentation. The final

@@ -53,6 +53,14 @@ test fn the_system_theme_paints_terminal_defaults_and_derived_tones() Void!Str {
   check("user_fill", colors.user_fill, ui::rgb(60, 76, 93))
 }
 
+test fn the_system_theme_resolves_every_shared_syntax_role() Void!Str {
+  let colors = theme::system()
+  for role in kittheme::SyntaxRoles() {
+    try testing::assert(colors.syntax_palette.get(role).is_some(), "syntax role {role} is resolved")
+  }
+  testing::pass()
+}
+
 test fn selection_copy_pulse_fades_from_selection_to_terminal_background() Void!Str {
   let colors = theme::resolve(kittheme::Definition{}, dark())
   try check("copy pulse start", theme::selection_pulse(colors, 1.0), ui::rgb(49, 89, 123))
