@@ -130,12 +130,19 @@ type RequestRepository interface {
 // ChildRuntimeFactory constructs an isolated child over its own conversation store.
 type ChildRuntimeFactory interface {
 	Open(context.Context, Conversation) (ChildRuntime, error)
+	OpenTranscript(context.Context, Conversation) (ChildTranscriptReader, error)
 	Delete(context.Context, Conversation) error
 }
 
 // ChildConfigurationPreparer adapts settled durable context before a model change.
 type ChildConfigurationPreparer interface {
 	PrepareConfiguration(context.Context, Conversation, Configuration) (bool, string, error)
+}
+
+// ChildTranscriptReader pages durable history and releases its backing store.
+type ChildTranscriptReader interface {
+	Transcript(context.Context, uint64) (Transcript, error)
+	Close(context.Context) error
 }
 
 // ChildRuntime executes one task in an isolated conversation. Run, Steer, and

@@ -587,6 +587,10 @@ func (f *inspectionGateFactory) Open(ctx context.Context, conversation subagent.
 	return f.gatedChildFactory.Open(ctx, conversation)
 }
 
+func (f *inspectionGateFactory) OpenTranscript(ctx context.Context, conversation subagent.Conversation) (subagent.ChildTranscriptReader, error) {
+	return f.Open(ctx, conversation)
+}
+
 func (f *inspectionGateFactory) Delete(context.Context, subagent.Conversation) error {
 	f.deletes.Add(1)
 	return nil
@@ -671,6 +675,9 @@ func newGatedChildFactory() *gatedChildFactory {
 }
 
 func (f *gatedChildFactory) Open(_ context.Context, _ subagent.Conversation) (subagent.ChildRuntime, error) {
+	return &gatedChildRuntime{factory: f}, nil
+}
+func (f *gatedChildFactory) OpenTranscript(_ context.Context, _ subagent.Conversation) (subagent.ChildTranscriptReader, error) {
 	return &gatedChildRuntime{factory: f}, nil
 }
 func (f *gatedChildFactory) PrepareConfiguration(ctx context.Context, _ subagent.Conversation, configuration subagent.Configuration) (bool, string, error) {

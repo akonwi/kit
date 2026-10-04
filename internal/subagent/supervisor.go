@@ -1241,12 +1241,12 @@ func (s *Supervisor) Transcript(ctx context.Context, conversationID Conversation
 		}
 		return Transcript{}, err
 	}
-	runtime, err := s.factory.Open(ctx, conversation)
+	reader, err := s.factory.OpenTranscript(ctx, conversation)
 	if err != nil {
 		return Transcript{}, err
 	}
-	transcript, transcriptErr := runtime.Transcript(ctx, before)
-	closeErr := runtime.Close(context.Background())
+	transcript, transcriptErr := reader.Transcript(ctx, before)
+	closeErr := reader.Close(context.Background())
 	if transcript.ConversationID == "" {
 		transcript.ConversationID = conversationID
 	}
