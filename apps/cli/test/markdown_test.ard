@@ -49,11 +49,21 @@ impl cui::Component for InlineSourceHost {
 }
 
 fn mount(source: Str, width: Int, height: Int) headless::TestApp {
+  mount_styled(source, width, height, ui::text_style(), true)
+}
+
+fn mount_styled(source: Str, width: Int, height: Int, base: ui::TextStyle, semantic: Bool) headless::TestApp {
   let terminal = headless::new(width, height)
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let _ = cui::mount(
     app,
-    markdown::view(theme::context(theme::store(theme::system())), "document", source),
+    markdown::view(
+      theme::context(theme::store(theme::system())),
+      "document",
+      source,
+      base: base,
+      semantic: semantic,
+    ),
   )
   terminal.flush()
   terminal
@@ -74,6 +84,35 @@ fn mount_inline(source: Str, width: Int, base: ui::TextStyle?) headless::TestApp
   )
   terminal.flush()
   terminal
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let result = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    result.push(strings::TrimRight(row, " "))
+  }
+  result.@
+}
+
+fn expect_prefix_rows(terminal: headless::TestApp, expected: [Str]) Void!Str {
+  let actual = rows(terminal)
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(
+    actual.size() >= expected.size(),
+    "row count {actual.size()}, want at least {expected.size()}:\n{shown}|",
+  )
+  mut index = 0
+  while index < expected.size() {
+    let got = actual.at(index).or("")
+    let want = expected.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color, right: ui::Color) Bool {
+  left.red == right.red and left.green == right.green and left.blue == right.blue
 }
 
 fn position(text: Str, needle: Str) [Int] {
@@ -114,27 +153,30 @@ fn wait_for_color(terminal: headless::TestApp, needle: Str, expected: ui::Color)
   matched
 }
 
-test fn markdown_renders_semantic_blocks_and_inline_attributes() Void!Str {
+test fn markdown_uses_exact_rows_for_headings_inline_styles_and_blocks() Void!Str {
   let terminal = mount(
     "# Heading\n\nNormal **bold** *italic* ~~gone~~ and `code`.\n\n- first item\n- [x] done\n\n> quoted\n\n```go\nfmt.Println(1)\n```",
     48,
     18,
   )
   defer terminal.destroy()
-  let painted = terminal.frame().text()
-  for expected in [
-    "Heading",
-    "Normal bold italic gone and code.",
-    "• first item",
-    "☑ done",
-    "│ quoted",
-    "fmt.Println(1)",
-  ] {
-    try testing::assert(painted.contains(expected), "Markdown output contains {expected}:\n{painted}")
-  }
-  try testing::assert(not painted.contains("# Heading"), "heading marker is hidden")
-  try testing::assert(not painted.contains("**bold**"), "bold markers are hidden")
+  try expect_prefix_rows(
+    terminal,
+    [
+      "Heading",
+      "",
+      "Normal bold italic gone and code.",
+      "",
+      "• first item",
+      "☑ done",
+      "",
+      "│ quoted",
+      "",
+      " fmt.Println(1)",
+    ],
+  )
 
+  let painted = terminal.frame().text()
   let heading = position(painted, "Heading")
   let bold = position(painted, "bold")
   let italic = position(painted, "italic")
@@ -146,7 +188,7 @@ test fn markdown_renders_semantic_blocks_and_inline_attributes() Void!Str {
   )
   try testing::assert(
     terminal.frame().cell(bold.at(0).or(-1), bold.at(1).or(-1)).expect("bold").style.bold,
-    "strong text is bold",
+    "strong is bold",
   )
   try testing::assert(
     terminal.frame().cell(italic.at(0).or(-1), italic.at(1).or(-1)).expect("italic").style.italic,
@@ -154,7 +196,7 @@ test fn markdown_renders_semantic_blocks_and_inline_attributes() Void!Str {
   )
   try testing::assert(
     terminal.frame().cell(gone.at(0).or(-1), gone.at(1).or(-1)).expect("strike").style.strike,
-    "deleted text is struck",
+    "deletion is struck",
   )
   testing::assert(
     terminal.frame().cell(
@@ -177,6 +219,67 @@ test fn markdown_uses_hanging_indent_and_aligned_ordered_markers() Void!Str {
   testing::assert(
     painted.contains("    enough text"),
     "wrapped list content uses a hanging indent:\n{painted}",
+  )
+}
+
+test fn markdown_distinguishes_tight_and_loose_list_spacing_in_exact_rows() Void!Str {
+  let tight = mount("- first\n- second", 24, 4)
+  defer tight.destroy()
+  try expect_prefix_rows(tight, ["• first", "• second", "", ""])
+
+  let loose = mount("- first\n\n  second paragraph\n\n- third", 24, 7)
+  defer loose.destroy()
+  expect_prefix_rows(loose, ["• first", "", "  second paragraph", "", "• third", "", ""])
+}
+
+test fn markdown_nested_loose_list_spacing_wins_over_the_tight_outer_list() Void!Str {
+  let terminal = mount(
+    "- outer\n  - inner first\n\n    inner second\n\n  - inner third\n- outer next",
+    32,
+    9,
+  )
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [
+      "• outer",
+      "  • inner first",
+      "",
+      "    inner second",
+      "",
+      "  • inner third",
+      "• outer next",
+    ],
+  )
+}
+
+test fn markdown_preserves_nested_container_order_and_block_item_markers() Void!Str {
+  let terminal = mount(
+    "- > list quote\n\n> - quote list\n\n1. [x] task\n2. > quoted\n3. ```go\n   code\n   ```",
+    40,
+    14,
+  )
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    [
+      "• │ list quote",
+      "",
+      "│ • quote list",
+      "",
+      "1. ☑ task",
+      "  2. │ quoted",
+      "  3.  code",
+    ],
+  )
+}
+
+test fn markdown_keeps_quote_gutters_continuous_and_caps_visual_depth() Void!Str {
+  let terminal = mount("> first paragraph\n>\n> second paragraph\n\n> > > > > > deep", 40, 7)
+  defer terminal.destroy()
+  expect_prefix_rows(
+    terminal,
+    ["│ first paragraph", "│", "│ second paragraph", "", "│ │ │ │ deep"],
   )
 }
 
@@ -327,6 +430,29 @@ test fn markdown_links_show_labels_and_only_activate_safe_targets() Void!Str {
   )
 }
 
+test fn markdown_renders_images_empty_labels_bare_urls_and_activates_safe_links() Void!Str {
+  let target = "https://example.com/docs"
+  let terminal = mount(
+    "![diagram](https://example.com/a.png) ![](https://example.com/b.png) [](https://example.com/empty) {target}",
+    100,
+    3,
+  )
+  defer terminal.destroy()
+  try expect_prefix_rows(
+    terminal,
+    ["image: diagram image https://example.com/empty https://example.com/docs"],
+  )
+  let link = position(terminal.frame().text(), target)
+  let cell = terminal.frame().cell(link.at(0).or(-1), link.at(1).or(-1)).expect("bare link")
+  try testing::assert(cell.hyperlink.or("") == target and cell.style.underline, "bare URL is interactive")
+  terminal.click(link.at(0).or(-1), link.at(1).or(-1))
+  let opened = terminal.opened_urls()
+  testing::assert(
+    opened.size() == 1 and opened.at(0).or("") == target,
+    "pointer release opens the safe destination",
+  )
+}
+
 test fn markdown_table_renders_natural_grid_alignment_bands_and_contiguous_header_rule() Void!Str {
   let terminal = mount(
     "| Name | Qty | Link |\n| :--- | ---: | :---: |\n| café | 2 | [docs](https://example.com) |\n| 你 | 11 | plain |",
@@ -334,21 +460,30 @@ test fn markdown_table_renders_natural_grid_alignment_bands_and_contiguous_heade
     6,
   )
   defer terminal.destroy()
-  let rows = strings::Split(terminal.frame().text(), "\n")
+  let rendered = strings::Split(terminal.frame().text(), "\n")
+  try expect_prefix_rows(
+    terminal,
+    [
+      "Name  Qty  Link",
+      "────────────────",
+      "café    2  docs",
+      "你     11  plain",
+    ],
+  )
   try testing::assert(
-    rows.at(0).or("").starts_with("Name  Qty  Link "),
+    rendered.at(0).or("").starts_with("Name  Qty  Link "),
     "header uses shared natural column widths",
   )
   try testing::assert(
-    rows.at(1).or("").starts_with("────────────────"),
+    rendered.at(1).or("").starts_with("────────────────"),
     "header divider is contiguous across the complete grid",
   )
   try testing::assert(
-    rows.at(2).or("").starts_with("café    2  docs "),
+    rendered.at(2).or("").starts_with("café    2  docs "),
     "right and center alignment are padded",
   )
   try testing::assert(
-    rows.at(3).or("").starts_with("你     11  plain"),
+    rendered.at(3).or("").starts_with("你     11  plain"),
     "wide glyphs use display-cell widths",
   )
 
@@ -414,6 +549,22 @@ test fn markdown_table_scrolls_horizontally_with_pointer_input_and_survives_resi
   )
 }
 
+test fn markdown_table_narrow_rows_remain_a_scrollable_grid_instead_of_flattening() Void!Str {
+  let terminal = mount("| A1 | B2 | C3 | D4 |\n|---|---|---|---|\n| a | b | c | d |", 8, 5)
+  defer terminal.destroy()
+  try expect_prefix_rows(terminal, ["A1  B2", "────────", "a   b"])
+  mut attempts = 0
+  while attempts < 6 {
+    terminal.scroll(2, 2, 0, delta_x: 1)
+    terminal.flush()
+    attempts =+ 1
+  }
+  testing::assert(
+    terminal.frame().text().contains("C3  D4") and terminal.frame().text().contains("c   d"),
+    "horizontal scrolling reveals the retained columns: {terminal.frame().text()}",
+  )
+}
+
 test fn markdown_table_selection_exposes_the_entire_table_as_tsv() Void!Str {
   let terminal = mount("| Name | Count |\n| --- | ---: |\n| parser | 12 |\n\nAfter table", 32, 8)
   defer terminal.destroy()
@@ -435,6 +586,67 @@ test fn markdown_table_selection_exposes_the_entire_table_as_tsv() Void!Str {
   testing::assert(
     mixed.selected_text.contains("Name    Count") and mixed.selected_text.contains("parser     12"),
     "painted fallback copying preserves visible column gaps: {mixed.selected_text}",
+  )
+}
+
+fn expect_base_style_across_blocks(base_color: ui::Color) Void!Str {
+  let terminal = mount_styled(
+    "# Heading\n\n> quote\n\n- item\n\n```unknown\ncode\n```",
+    32,
+    9,
+    ui::text_style(foreground: base_color, italic: true),
+    false,
+  )
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  for needle in ["Heading", "quote", "item", "code"] {
+    let point = position(painted, needle)
+    let style = terminal.frame().cell(
+      point.at(0).or(-1),
+      point.at(1).or(-1),
+    ).expect("styled block").style
+    try testing::assert(
+      same_color(style.foreground.expect("base foreground"), base_color) and style.italic,
+      "{needle} preserves the transcript base style",
+    )
+  }
+  testing::pass()
+}
+
+test fn markdown_preserves_muted_error_and_aborted_base_styles_across_blocks() Void!Str {
+  let colors = theme::system()
+  for base_color in [colors.muted, colors.danger_text, colors.foreground] {
+    try expect_base_style_across_blocks(base_color)
+  }
+  testing::pass()
+}
+
+test fn markdown_code_fallback_wrap_and_selection_preserve_visible_source() Void!Str {
+  let terminal = mount("```not-a-language\n\tplain café extends\n```", 12, 5)
+  defer terminal.destroy()
+  try expect_prefix_rows(terminal, ["   plain", " café", " extends"])
+  let point = position(terminal.frame().text(), "plain")
+  terminal.double_click(point.at(0).or(-1), point.at(1).or(-1))
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("code selection").selected_text == "plain",
+    "copy selection uses visible source without fence metadata",
+  )
+}
+
+test fn markdown_complexity_fallback_paints_literal_plain_text() Void!Str {
+  let source = "{strings::Repeat("> ", 65)}**deep**"
+  let terminal = mount(source, 160, 3)
+  defer terminal.destroy()
+  let rendered = rows(terminal)
+  try testing::assert(rendered.at(0).or("") == source, "fallback preserves exact source text")
+  let marker = position(terminal.frame().text(), "**deep**")
+  testing::assert(
+    not terminal.frame().cell(
+      marker.at(0).or(-1) + 2,
+      marker.at(1).or(-1),
+    ).expect("literal fallback").style.bold,
+    "fallback does not apply Markdown styling",
   )
 }
 
