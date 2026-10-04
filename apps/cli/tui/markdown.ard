@@ -47,6 +47,12 @@ struct Document {
   parsed: parser::Document,
 }
 
+struct InlineDocument {
+  props: mut Props,
+  parsed_source: Str,
+  parsed: parser::Document,
+}
+
 fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, semantic: Bool?) cui::View {
   cui::child(
     new,
@@ -58,6 +64,22 @@ fn view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, sema
       semantic: semantic.or(true),
     },
     key: "markdown:{id}",
+  )
+}
+
+// inline_view preserves Markdown inline semantics in a fixed-line host without
+// introducing document block spacing or wrapping.
+fn inline_view(themes: theme::Context, id: Str, source: Str, base: ui::TextStyle?, semantic: Bool?) cui::View {
+  cui::child(
+    new_inline,
+    Props{
+      themes: themes,
+      id: id,
+      source: source,
+      base: base.or(ui::text_style()),
+      semantic: semantic.or(true),
+    },
+    key: "markdown-inline:{id}",
   )
 }
 
@@ -78,6 +100,30 @@ impl cui::Component for Document {
     render_document(
       self.props.themes,
       self.props.id,
+      self.props.base,
+      self.props.semantic,
+      self.parsed,
+    )
+  }
+}
+
+private fn new_inline(props: mut Props) mut InlineDocument {
+  (mut InlineDocument{
+    parsed_source: props.source,
+    parsed: parser::Parse(props.source),
+    props: props,
+  })
+}
+
+impl cui::Component for InlineDocument {
+  fn mut render() cui::View {
+    if self.props.source != self.parsed_source {
+      self.parsed_source = self.props.source
+      self.parsed = parser::Parse(self.props.source)
+    }
+    render_inline(
+      self.props.themes.current(),
+      self.props.source,
       self.props.base,
       self.props.semantic,
       self.parsed,
@@ -132,6 +178,123 @@ private fn document_text(document: parser::Document) Str {
     }
   }
   strings::Join(blocks, "\n\n")
+}
+
+private fn one_line(value: Str) Str {
+  strings::ReplaceAll(
+    strings::ReplaceAll(strings::ReplaceAll(value, "\r\n", " "), "\r", " "),
+    "\n",
+    " ",
+  )
+}
+
+private fn render_inline(
+  colors: theme::Theme,
+  source: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+  document: parser::Document,
+) cui::View {
+  match document.PlainTextFallback {
+    true => {
+      cui::text(
+        one_line(source),
+        text_style: base,
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      )
+    },
+    false => {
+      cui::text(
+        ui::styled_text(markdown_spans(colors, semantic, inline_runs(source, document), true)),
+        text_style: base,
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      )
+    },
+  }
+}
+
+private fn inline_runs(source: Str, document: parser::Document) [parser::Run] {
+  let runs = mut List::new<parser::Run>()
+  for block in document.Blocks {
+    if runs.size() > 0 {
+      runs.push(parser::Run{Text: " "})
+    }
+    let prefix = inline_container_prefix(block.Containers)
+    if prefix != "" {
+      runs.push(parser::Run{Text: prefix})
+    }
+    match {
+      block.Kind == parser::BlockCode => runs.push(parser::Run{Text: block.Code, Code: true}),
+      block.Kind == parser::BlockRule => runs.push(parser::Run{Text: source}),
+      block.Kind == parser::BlockTable => {
+        mut row_index = 0
+        for row in block.Rows {
+          if row_index > 0 {
+            runs.push(parser::Run{Text: " / "})
+          }
+          mut index = 0
+          for cell in row.Cells {
+            if index > 0 {
+              runs.push(parser::Run{Text: " │ "})
+            }
+            for run in cell.Runs {
+              runs.push(run)
+            }
+            index =+ 1
+          }
+          row_index =+ 1
+        }
+      },
+      block.Kind == parser::BlockHeading => {
+        for run in bold_runs(block.Runs) {
+          runs.push(run)
+        }
+      },
+      _ => {
+        for run in block.Runs {
+          runs.push(run)
+        }
+      },
+    }
+  }
+  runs.@
+}
+
+private fn inline_container_prefix(containers: [parser::Container]) Str {
+  let parts = mut List::new<Str>()
+  for container in containers {
+    match {
+      container.Kind == parser::ContainerQuote => parts.push("│ "),
+      container.Kind == parser::ContainerListItem => {
+        mut marker = match {
+          container.Marker == parser::MarkerBullet => "•",
+          container.Marker == parser::MarkerOrdered => "{container.Number}.",
+          _ => "",
+        }
+        if container.Task {
+          let task = match container.Checked {
+            true => "☑",
+            false => "☐",
+          }
+          marker = match container.Marker == parser::MarkerOrdered {
+            true => "{marker} {task}",
+            false => task,
+          }
+        }
+        if marker != "" {
+          parts.push("{marker} ")
+        }
+      },
+      _ => (),
+    }
+  }
+  strings::Join(parts, "")
 }
 
 private fn render_block(
@@ -213,8 +376,15 @@ private fn bold_runs(runs: [parser::Run]) [parser::Run] {
 private fn visible_run_text(run: parser::Run, single_line: Bool) Str {
   let visible = parser::VisibleText(run)
   match single_line {
-    true => strings::ReplaceAll(strings::ReplaceAll(visible, "\t", " "), "\n", " "),
+    true => strings::ReplaceAll(one_line(visible), "\t", " "),
     false => visible,
+  }
+}
+
+private fn enabled(value: Bool) Bool? {
+  match value {
+    true => Maybe::new(true),
+    false => Maybe::new<Bool>(),
   }
 }
 
@@ -245,10 +415,10 @@ private fn markdown_spans(
             true => Maybe::new(colors.surface),
             false => Maybe::new<ui::Color>(),
           },
-          bold: run.Bold,
-          italic: run.Italic,
-          underline: target != "",
-          strike: run.Strikethrough,
+          bold: enabled(run.Bold),
+          italic: enabled(run.Italic),
+          underline: enabled(target != ""),
+          strike: enabled(run.Strikethrough),
         ),
         link: link,
       ),

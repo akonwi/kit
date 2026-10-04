@@ -214,3 +214,34 @@ test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {
     "Ctrl+C does not activate the focused Connect button",
   )
 }
+
+test fn pending_activity_renders_markdown_in_one_muted_row() Void!Str {
+  let terminal = headless::new(20, 3)
+  defer terminal.destroy()
+  let themes = theme::context(theme::store(theme::system()))
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    shell::pending_activity(themes, "**Checking** a very long activity status"),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let painted = terminal.frame().text()
+  let checking = strings::Index(rows(terminal).at(0).or(""), "Checking")
+  try testing::assert(
+    painted.contains("Checking") and not painted.contains("**Checking**"),
+    "pending activity renders Markdown markers: {painted}",
+  )
+  let style = terminal.frame().cell(checking, 0).expect("pending activity text").style
+  let foreground = style.foreground.expect("pending activity foreground")
+  let muted = themes.current().muted
+  try testing::assert(style.bold, "pending activity preserves strong emphasis")
+  try testing::assert(
+    foreground.red == muted.red and foreground.green == muted.green and foreground.blue == muted.blue,
+    "pending activity remains muted",
+  )
+  testing::assert(
+    strings::TrimSpace(rows(terminal).at(1).or("")) == "",
+    "long pending Markdown stays in one row: {painted}",
+  )
+}

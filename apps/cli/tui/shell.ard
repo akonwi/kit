@@ -800,6 +800,40 @@ fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {
   line("• {message.tool_name} {state}", ui::text_style(foreground: tone))
 }
 
+// pending_activity renders the latest thinking line as muted inline Markdown
+// while preserving the pending slot's fixed one-row geometry.
+fn pending_activity(themes: theme::Context, activity: Str) cui::View {
+  let colors = themes.current()
+  cui::box(
+    [
+      spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+      cui::box(
+        [
+          markdown::inline_view(
+            themes,
+            "pending-activity",
+            activity,
+            base: ui::text_style(foreground: colors.muted),
+            semantic: false,
+          ),
+        ],
+        styles: ui::style(
+          height: ui::cells(1),
+          min_width: ui::cells(0),
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      gap: ui::cells(1),
+    ),
+  )
+}
+
 // Horizontal padding of one cell, as used by the header and footer rows.
 fn inset() ui::Edges {
   ui::Edges{
@@ -1281,15 +1315,7 @@ impl Shell {
           },
         }
         match activity != "" {
-          true => {
-            cui::box(
-              [
-                spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
-                line(activity, ui::text_style(foreground: colors.muted)),
-              ],
-              styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
-            )
-          },
+          true => pending_activity(self.props.themes, activity),
           false => line("", ui::text_style(foreground: colors.muted)),
         }
       },
