@@ -10,7 +10,6 @@ struct Props {
   loading: Bool,
   saving: Bool,
   failure: Str,
-  active: Bool,
   on_change: fn(Str),
   retry: fn() Bool,
 }
@@ -54,9 +53,12 @@ fn pane(props: Props) cui::View {
       cui::box(
         [
           cui::text_area(
+            // Claim focus only when the pane mounts. A controlled focused state
+            // would reclaim it after every shell render, including while a
+            // dialog or the composer owns keyboard input.
             props.content,
             key: "scratchpad-editor",
-            focused: props.active,
+            autofocus: true,
             placeholder: "Shared working notes…",
             styles: ui::style(
               width: ui::percent(100.0),
