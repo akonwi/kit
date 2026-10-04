@@ -61,9 +61,9 @@ fn replies(count: Int) [transcript::Message] {
   transcript::project(messages.@)
 }
 
-fn message(role: transcript::Role, text: Str, pending: Bool) transcript::Message {
+fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool) transcript::Message {
   transcript::Message{
-    id: "message:{text}",
+    id: id,
     turn_id: "turn-1",
     role: role,
     text: text,
@@ -77,6 +77,26 @@ fn message(role: transcript::Role, text: Str, pending: Bool) transcript::Message
     aborted: false,
     pending: pending,
   }
+}
+
+fn message(role: transcript::Role, text: Str, pending: Bool) transcript::Message {
+  identified_message("message:{text}", role, text, pending)
+}
+
+fn position(text: Str, needle: Str) [Int] {
+  let lines = strings::Split(text, "\n")
+  mut found_x = -1
+  mut found_y = -1
+  mut row = 0
+  for value in lines {
+    let column = strings::Index(value, needle)
+    if found_x < 0 and column >= 0 {
+      found_x = column
+      found_y = row
+    }
+    row =+ 1
+  }
+  [found_x, found_y]
 }
 
 fn rows(terminal: headless::TestApp) [Str] {
@@ -294,5 +314,219 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
       " reply 9                     │",
       "                             ┃",
     ],
+  )
+}
+
+test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
+  let terminal = headless::new(42, 7)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let messages = mut List::new<transcript::Message>()
+  for item in replies(5) {
+    messages.push(item)
+  }
+  messages.push(
+    identified_message(
+      "growing-tail",
+      transcript::Role::assistant,
+      "**Final reply** starts here and has enough prose to wrap repeatedly when the transcript becomes narrow.\n\n- first detail\n- second detail\n\nTAIL sentinel",
+      false,
+    ),
+  )
+  let model = mut Model{
+    messages: messages.@,
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.list.current.expect("transcript list")
+  try testing::assert(list.is_following_edge(), "transcript initially follows its tail")
+  try testing::assert(terminal.frame().text().contains("TAIL sentinel"), "wide tail is visible")
+
+  terminal.resize(20, 7)
+  terminal.flush()
+  try testing::assert(list.is_following_edge(), "Markdown reflow preserves sticky following")
+  try testing::assert(
+    list.last_item_visible() and not model.latest_out_of_view,
+    "committed state keeps latest visible",
+  )
+  try testing::assert(
+    terminal.frame().text().contains("TAIL sentinel"),
+    "narrow reflow stays pinned to the final content",
+  )
+
+  terminal.resize(42, 7)
+  terminal.flush()
+  testing::assert(
+    list.is_following_edge() and list.last_item_visible() and terminal.frame().text().contains("TAIL sentinel"),
+    "wider reflow remains pinned to the same tail",
+  )
+}
+
+test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() Void!Str {
+  let terminal = headless::new(44, 8)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let messages = mut List::new<transcript::Message>()
+  mut index = 1
+  while index <= 16 {
+    messages.push(
+      identified_message(
+        "anchored-{index}",
+        transcript::Role::assistant,
+        "**reply {index}** carries a long explanation that changes height when the viewport narrows.",
+        false,
+      ),
+    )
+    index =+ 1
+  }
+  let model = mut Model{
+    messages: messages.@,
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("anchored-8", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  let wide_position = position(terminal.frame().text(), "reply 8")
+  try testing::assert(wide_position.at(1).or(-1) == 1, "keyed row begins at the reading anchor")
+
+  terminal.resize(22, 8)
+  terminal.flush()
+  let narrow_position = position(terminal.frame().text(), "reply 8")
+  try testing::assert(not list.is_following_edge(), "reflow does not repin a scrolled transcript")
+  try testing::assert(
+    narrow_position.at(1).or(-1) == 1,
+    "narrow reflow preserves the keyed intra-row anchor",
+  )
+  try testing::assert(model.latest_out_of_view, "committed latest state remains out of view")
+
+  terminal.resize(44, 8)
+  terminal.flush()
+  testing::assert(
+    position(terminal.frame().text(), "reply 8").at(1).or(-1) == 1,
+    "wide reflow restores the same keyed reading anchor",
+  )
+}
+
+test fn markdown_selection_survives_transcript_reflow() Void!Str {
+  let terminal = headless::new(42, 7)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [
+      identified_message(
+        "selected-markdown",
+        transcript::Role::assistant,
+        "A **selectable** phrase remains stable while this surrounding sentence wraps.",
+        false,
+      ),
+    ],
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let target = position(terminal.frame().text(), "selectable")
+  terminal.double_click(target.at(0).or(-1), target.at(1).or(-1))
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("wide Markdown selection").selected_text == "selectable",
+    "selection uses rendered Markdown text",
+  )
+
+  terminal.resize(20, 7)
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("narrow Markdown selection").selected_text == "selectable",
+    "selection source range survives narrow reflow",
+  )
+
+  terminal.resize(42, 7)
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("restored Markdown selection").selected_text == "selectable",
+    "selection survives restoring the original width",
+  )
+}
+
+test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_offscreen() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(12),
+    latest_out_of_view: false,
+    list: cui::virtual_list_ref(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-5", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  let selected = position(terminal.frame().text(), "reply 7")
+  terminal.double_click(selected.at(0).or(-1), selected.at(1).or(-1))
+  terminal.flush()
+  try testing::assert(
+    terminal.selection().expect("selected reply").selected_text == "reply",
+    "reply is selected",
+  )
+
+  renderer.update(fn() {
+    let changed = mut model.messages.at(4).expect("reply 5")
+    changed.text = "Expanded anchor\n\nline two\n\nline three\n\nline four\n\nline five\n\nline six"
+    model.messages.set(4, changed.@)
+  })
+  terminal.flush()
+  try testing::assert(list.mounted_count() < 10, "selected endpoint pin keeps virtualization bounded")
+  try testing::assert(
+    terminal.selection().expect("offscreen retained reply").selected_text == "",
+    "offscreen selected row contributes no clipped text",
+  )
+
+  renderer.update(fn() {
+    let _ = list.scroll_to_key("reply-7", cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  testing::assert(
+    terminal.selection().expect("restored selected reply").selected_text == "reply",
+    "returning to the retained transcript row restores selection",
   )
 }
