@@ -295,3 +295,114 @@ test fn markdown_links_show_labels_and_only_activate_safe_targets() Void!Str {
     "unsafe link is plain text",
   )
 }
+
+test fn markdown_table_renders_natural_grid_alignment_bands_and_contiguous_header_rule() Void!Str {
+  let terminal = mount(
+    "| Name | Qty | Link |\n| :--- | ---: | :---: |\n| café | 2 | [docs](https://example.com) |\n| 你 | 11 | plain |",
+    32,
+    6,
+  )
+  defer terminal.destroy()
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  try testing::assert(
+    rows.at(0).or("").starts_with("Name  Qty  Link "),
+    "header uses shared natural column widths",
+  )
+  try testing::assert(
+    rows.at(1).or("").starts_with("────────────────"),
+    "header divider is contiguous across the complete grid",
+  )
+  try testing::assert(
+    rows.at(2).or("").starts_with("café    2  docs "),
+    "right and center alignment are padded",
+  )
+  try testing::assert(
+    rows.at(3).or("").starts_with("你     11  plain"),
+    "wide glyphs use display-cell widths",
+  )
+
+  try testing::assert(
+    terminal.frame().cell(0, 0).expect("header text").style.bold,
+    "table headers are bold",
+  )
+  let body_style = terminal.frame().cell(0, 2).expect("body text").style
+  try testing::assert(not body_style.bold, "ordinary table body text is not bold")
+  let expected_text = theme::system().foreground
+  let body_text = body_style.foreground.expect("body foreground")
+  try testing::assert(
+    body_text.red == expected_text.red and body_text.green == expected_text.green and body_text.blue == expected_text.blue,
+    "body rows use normal transcript text rather than muted text",
+  )
+  let band = terminal.frame().cell(
+    4,
+    2,
+  ).expect("band gap").style.background.expect("band background")
+  let expected_band = theme::system().surface
+  try testing::assert(
+    band.red == expected_band.red and band.green == expected_band.green and band.blue == expected_band.blue,
+    "first body row paints one contiguous semantic band",
+  )
+  let docs = terminal.frame().cell(11, 2).expect("table link")
+  testing::assert(
+    docs.hyperlink.or("") == "https://example.com" and docs.style.underline,
+    "table links retain safe OSC 8 metadata",
+  )
+}
+
+test fn markdown_table_scrolls_horizontally_with_pointer_input_and_survives_resize() Void!Str {
+  let terminal = mount(
+    "| Name | Description |\n| --- | --- |\n| parser | renderer-neutral semantic blocks |",
+    14,
+    5,
+  )
+  defer terminal.destroy()
+  let initial = terminal.frame().text()
+  try testing::assert(
+    initial.contains("Name    Descri"),
+    "narrow grid begins at its natural left edge: {initial}",
+  )
+
+  mut attempts = 0
+  while attempts < 10 {
+    terminal.scroll(2, 2, 0, delta_x: 1)
+    terminal.flush()
+    attempts =+ 1
+  }
+  let shifted = terminal.frame().text()
+  try testing::assert(
+    shifted.contains("emantic blocks"),
+    "horizontal pointer scrolling reveals trailing columns: {shifted}",
+  )
+
+  terminal.resize(42, 5)
+  terminal.flush()
+  let resized = terminal.frame().text()
+  testing::assert(
+    resized.contains("parser  renderer-neutral semantic blocks"),
+    "resizing wider keeps the complete natural grid accessible: {resized}",
+  )
+}
+
+test fn markdown_table_selection_exposes_the_entire_table_as_tsv() Void!Str {
+  let terminal = mount("| Name | Count |\n| --- | ---: |\n| parser | 12 |\n\nAfter table", 32, 8)
+  defer terminal.destroy()
+  terminal.drag(0, 0, 2, 2)
+  terminal.flush()
+  let local = terminal.selection().expect("table selection")
+  try testing::assert(
+    local.copy_text.or("") == "Name\tCount\nparser\t12",
+    "a table-local selection supplies the complete semantic TSV payload",
+  )
+
+  terminal.drag(0, 0, 2, 4)
+  terminal.flush()
+  let mixed = terminal.selection().expect("mixed selection")
+  try testing::assert(
+    mixed.copy_text.is_none(),
+    "a mixed table and prose selection keeps ordinary painted-text copying",
+  )
+  testing::assert(
+    mixed.selected_text.contains("Name    Count") and mixed.selected_text.contains("parser     12"),
+    "painted fallback copying preserves visible column gaps: {mixed.selected_text}",
+  )
+}

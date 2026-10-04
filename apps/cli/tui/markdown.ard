@@ -2,10 +2,12 @@ use ard/async
 
 use go:context
 use cooper/cui
+use cooper/keymap
 use cooper/ui
 use go:github.com/akonwi/kit/internal/highlight
 use go:github.com/akonwi/kit/internal/hyperlink
 use go:github.com/akonwi/kit/internal/markdown as parser
+use go:github.com/akonwi/vaxis
 use go:kit/ffi/contextbridge
 use kit/tui/theme
 use go:strings
@@ -154,7 +156,7 @@ private fn render_block(
       code_block(themes, "{id}:{block_index}", block.Language, block.Code, base, semantic)
     },
     block.Kind == parser::BlockRule => cui::divider(styles: ui::style(border_color: colors.border)),
-    block.Kind == parser::BlockTable => flat_table(colors, base, semantic, block),
+    block.Kind == parser::BlockTable => table_view(colors, "{id}:{block_index}", base, semantic, block),
     block.Kind == parser::BlockQuote => {
       rich_text(colors, quote_style(colors, base, semantic), semantic, block.Runs)
     },
@@ -208,7 +210,20 @@ private fn bold_runs(runs: [parser::Run]) [parser::Run] {
   result.@
 }
 
-private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, runs: [parser::Run]) cui::View {
+private fn visible_run_text(run: parser::Run, single_line: Bool) Str {
+  let visible = parser::VisibleText(run)
+  match single_line {
+    true => strings::ReplaceAll(strings::ReplaceAll(visible, "\t", " "), "\n", " "),
+    false => visible,
+  }
+}
+
+private fn markdown_spans(
+  colors: theme::Theme,
+  semantic: Bool,
+  runs: [parser::Run],
+  single_line: Bool,
+) [ui::Span] {
   let spans = mut List::new<ui::Span>()
   for run in runs {
     let target = hyperlink::SafeExternal(run.Link)
@@ -223,7 +238,7 @@ private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, 
     }
     spans.push(
       ui::span(
-        parser::VisibleText(run),
+        visible_run_text(run, single_line),
         style: ui::span_style(
           foreground: foreground,
           background: match run.Code {
@@ -239,8 +254,12 @@ private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, 
       ),
     )
   }
+  spans.@
+}
+
+private fn rich_text(colors: theme::Theme, base: ui::TextStyle, semantic: Bool, runs: [parser::Run]) cui::View {
   cui::text(
-    ui::styled_text(spans.@),
+    ui::styled_text(markdown_spans(colors, semantic, runs, false)),
     text_style: base,
     selectable: true,
     selection_style: theme::selection_style(colors),
@@ -439,38 +458,274 @@ private fn code_text(colors: theme::Theme, semantic: Bool, result: highlight::Re
   ui::styled_text(spans.@)
 }
 
-// Tables initially preserve the established narrow presentation. The final
-// responsive table layout is intentionally deferred until its design choices
-// are settled.
-private fn flat_table(
+private struct TableLayout {
+  widths: [Int],
+  columns: Int,
+  width: Int,
+  height: Int,
+  tsv: Str,
+}
+
+private fn display_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+private fn table_text(runs: [parser::Run]) Str {
+  let parts = mut List::new<Str>()
+  for run in runs {
+    parts.push(visible_run_text(run, true))
+  }
+  strings::Join(parts, "")
+}
+
+private fn table_layout(block: parser::Block) TableLayout {
+  mut columns = 0
+  for row in block.Rows {
+    columns = maximum(columns, row.Cells.size())
+  }
+  let widths = mut List::new<Int>()
+  mut column = 0
+  while column < columns {
+    widths.push(1)
+    column =+ 1
+  }
+  for row in block.Rows {
+    mut index = 0
+    for cell in row.Cells {
+      let width = maximum(1, display_width(table_text(cell.Runs)))
+      if width > widths.at(index).or(1) {
+        widths.set(index, width)
+      }
+      index =+ 1
+    }
+  }
+  mut total = maximum(1, maximum(0, columns - 1) * 2)
+  for width in widths {
+    total =+ width
+  }
+  mut height = block.Rows.size()
+  mut row_index = 0
+  for row in block.Rows {
+    if row.Header and row_index + 1 < block.Rows.size() {
+      height =+ 1
+    }
+    row_index =+ 1
+  }
+  TableLayout{
+    widths: widths.@,
+    columns: columns,
+    width: total,
+    height: maximum(1, height),
+    tsv: table_tsv(block, columns),
+  }
+}
+
+private fn table_tsv(block: parser::Block, columns: Int) Str {
+  let rows = mut List::new<Str>()
+  for row in block.Rows {
+    let cells = mut List::new<Str>()
+    mut index = 0
+    while index < columns {
+      match row.Cells.at(index) {
+        cell => cells.push(table_text(cell.Runs)),
+        _ => cells.push(""),
+      }
+      index =+ 1
+    }
+    rows.push(strings::Join(cells, "\t"))
+  }
+  strings::Join(rows, "\n")
+}
+
+private fn table_alignment(block: parser::Block, column: Int) parser::Alignment {
+  block.Alignments.at(column).or(parser::AlignDefault)
+}
+
+private fn table_cell(
+  colors: theme::Theme,
+  base: ui::TextStyle,
+  semantic: Bool,
+  runs: [parser::Run],
+  width: Int,
+  alignment: parser::Alignment,
+) cui::View {
+  let used = display_width(table_text(runs))
+  let extra = maximum(0, width - used)
+  mut left = 0
+  mut right = extra
+  if alignment == parser::AlignRight {
+    left = extra
+    right = 0
+  } else if alignment == parser::AlignCenter {
+    left = extra / 2
+    right = extra - left
+  }
+  let spans = mut List::new<ui::Span>()
+  if left > 0 {
+    spans.push(ui::span(strings::Repeat(" ", left)))
+  }
+  for span in markdown_spans(colors, semantic, runs, true) {
+    spans.push(span)
+  }
+  if right > 0 {
+    spans.push(ui::span(strings::Repeat(" ", right)))
+  }
+  cui::text(
+    ui::styled_text(spans.@),
+    styles: ui::style(width: ui::cells(width), flex_shrink: 0.0),
+    text_style: base,
+    wrap: ui::TextWrap::none,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+private fn empty_runs() [parser::Run] {
+  let runs = List::new<parser::Run>()
+  runs
+}
+
+private fn table_row(
   colors: theme::Theme,
   base: ui::TextStyle,
   semantic: Bool,
   block: parser::Block,
+  row: parser::TableRow,
+  layout: TableLayout,
+  background: ui::Color?,
 ) cui::View {
-  let rows = mut List::new<cui::View>()
-  for row in block.Rows {
-    let runs = mut List::new<parser::Run>()
-    mut index = 0
-    for cell in row.Cells {
-      if index > 0 {
-        runs.push(parser::Run{Text: " │ "})
-      }
-      for run in cell.Runs {
-        runs.push(run)
-      }
-      index =+ 1
-    }
-    let style = mut base
-    if row.Header {
-      style.bold = true
-    }
-    rows.push(rich_text(colors, style.@, semantic, runs.@))
-    if row.Header and block.Rows.size() > 1 {
-      rows.push(cui::divider(styles: ui::style(border_color: colors.border)))
-    }
+  let cells = mut List::new<cui::View>()
+  let row_style = mut base
+  row_style.background = background
+  if semantic {
+    row_style.foreground = colors.foreground
   }
-  cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+  if row.Header {
+    row_style.bold = true
+  }
+  mut index = 0
+  while index < layout.columns {
+    if index > 0 {
+      cells.push(
+        cui::text(
+          "  ",
+          styles: ui::style(width: ui::cells(2), height: ui::cells(1), flex_shrink: 0.0),
+          text_style: row_style.@,
+          wrap: ui::TextWrap::none,
+          selectable: true,
+          selection_style: theme::selection_style(colors),
+        ),
+      )
+    }
+    let runs = match row.Cells.at(index) {
+      cell => cell.Runs,
+      _ => empty_runs(),
+    }
+    let styled_runs = match row.Header {
+      true => bold_runs(runs),
+      false => runs,
+    }
+    cells.push(
+      table_cell(
+        colors,
+        row_style.@,
+        semantic,
+        styled_runs,
+        layout.widths.at(index).or(1),
+        table_alignment(block, index),
+      ),
+    )
+    index =+ 1
+  }
+  cui::box(
+    cells.@,
+    styles: ui::style(
+      width: ui::cells(layout.width),
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+      background: background,
+    ),
+  )
+}
+
+private fn pointer_scroll_bindings() keymap::Bindings<ui::ScrollBoxAction> {
+  keymap::bindings([])
+}
+
+private fn table_view(
+  colors: theme::Theme,
+  id: Str,
+  base: ui::TextStyle,
+  semantic: Bool,
+  block: parser::Block,
+) cui::View {
+  let layout = table_layout(block)
+  let children = mut List::new<cui::View>()
+  mut body_index = 0
+  mut row_index = 0
+  for row in block.Rows {
+    mut background = base.background
+    if not row.Header {
+      if body_index % 2 == 0 {
+        background = Maybe::new(colors.surface)
+      }
+      body_index =+ 1
+    }
+    children.push(table_row(colors, base, semantic, block, row, layout, background))
+    if row.Header and row_index + 1 < block.Rows.size() {
+      let divider_style = mut base
+      divider_style.foreground = colors.border
+      children.push(
+        cui::text(
+          strings::Repeat("─", layout.width),
+          styles: ui::style(width: ui::cells(layout.width), height: ui::cells(1), flex_shrink: 0.0),
+          text_style: divider_style.@,
+          wrap: ui::TextWrap::none,
+        ),
+      )
+    }
+    row_index =+ 1
+  }
+  let grid = cui::box(
+    children.@,
+    key: "markdown-table-grid:{id}",
+    styles: ui::style(
+      width: ui::cells(layout.width),
+      height: ui::cells(layout.height),
+      flex_direction: ui::FlexDirection::column,
+      flex_shrink: 0.0,
+    ),
+  )
+  cui::box(
+    [
+      cui::scroll_box(
+        [grid],
+        key: "markdown-table-scroll:{id}",
+        styles: ui::style(
+          width: ui::percent(100.0),
+          height: ui::cells(layout.height),
+          min_width: ui::cells(0),
+          flex_shrink: 0.0,
+        ),
+        scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+        focusable: false,
+        key_bindings: pointer_scroll_bindings(),
+      ),
+    ],
+    key: "markdown-table:{id}",
+    styles: ui::style(
+      width: ui::percent(100.0),
+      height: ui::cells(layout.height),
+      min_width: ui::cells(0),
+      flex_shrink: 0.0,
+    ),
+    selection_copy: layout.tsv,
+  )
 }
 
 private fn row_text(row: parser::TableRow) Str {

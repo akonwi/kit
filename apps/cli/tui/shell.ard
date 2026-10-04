@@ -1422,7 +1422,7 @@ impl cui::Component for Shell {
           match (ctx.current_selection)() {
             selection => {
               if selection.selected_text != "" {
-                (ctx.copy)(selection.selected_text)
+                (ctx.copy)(selection.copy_text.or(selection.selected_text))
                 if self.selection_copy_pulse == 0.0 {
                   self.selection_copy_base = self.props.themes.current().selection
                 }
