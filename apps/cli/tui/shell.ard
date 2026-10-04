@@ -358,7 +358,9 @@ struct Shell {
   context: cui::Context?,
   lifetime: contextbridge::Cancellation?,
   attachment_lifetime: contextbridge::Cancellation?,
-  attachment_generation: Int,
+  // Identifies the current client-side scope for session streams and requests.
+  // Reattaching the same durable session creates a new scope.
+  session_scope_id: Int,
   session: (mut api::Session)?,
   info: protocol::SessionInfo?,
   prompt_commands: [protocol::PromptCommand],
@@ -448,7 +450,7 @@ fn new(props: mut Props) mut Shell {
     context: Maybe::new<cui::Context>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
     attachment_lifetime: Maybe::new<contextbridge::Cancellation>(),
-    attachment_generation: 0,
+    session_scope_id: 0,
     session: Maybe::new<mut api::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
     prompt_commands: [],
@@ -2700,7 +2702,7 @@ impl Shell {
     }
     let attachment = contextbridge::WithCancel(self.lifetime.expect("mounted shell").Context)
     self.attachment_lifetime = Maybe::new(attachment)
-    self.attachment_generation = self.attachment_generation + 1
+    self.session_scope_id = self.session_scope_id + 1
     self.scratchpad_session_generation = self.scratchpad_session_generation + 1
     self.workspace = WorkspacePane::agent
     self.scratchpad_open = false
@@ -2729,7 +2731,7 @@ impl Shell {
             match self.context {
               context => {
                 let ctx = lifetime.Context
-                let generation = self.attachment_generation
+                let scope_id = self.session_scope_id
                 let dispatch = context.dispatch
                 async::start(fn() {
                   match session.WatchPluginToasts(ctx) {
@@ -2740,7 +2742,7 @@ impl Shell {
                         match updates.recv() {
                           notification => {
                             let _ = dispatch(fn() {
-                              if self.attachment_generation == generation {
+                              if self.session_scope_id == scope_id {
                                 let variant = match notification.Variant.to_str() {
                                   "warning" => toast::Variant::warning,
                                   "error" => toast::Variant::error,
@@ -2765,7 +2767,7 @@ impl Shell {
                       match stream.Err() {
                         err(failure) => {
                           let _ = dispatch(fn() {
-                            if self.attachment_generation == generation {
+                            if self.session_scope_id == scope_id {
                               self.show_toast(
                                 "Plugin notifications unavailable",
                                 failure.error(),
@@ -2780,7 +2782,7 @@ impl Shell {
                     },
                     err(failure) => {
                       let _ = dispatch(fn() {
-                        if self.attachment_generation == generation {
+                        if self.session_scope_id == scope_id {
                           self.show_toast(
                             "Plugin notifications unavailable",
                             failure.error(),
@@ -2856,7 +2858,7 @@ impl Shell {
             match self.context {
               context => {
                 let ctx = lifetime.Context
-                let generation = self.attachment_generation
+                let scope_id = self.session_scope_id
                 let dispatch = context.dispatch
                 async::start(fn() {
                   match session.Watch(ctx) {
@@ -2875,7 +2877,7 @@ impl Shell {
                               }
                               let batch = update.Events
                               let _ = dispatch(fn() {
-                                if self.attachment_generation == generation {
+                                if self.session_scope_id == scope_id {
                                   self.apply_watched_events(batch)
                                 }
                               })
@@ -2883,7 +2885,7 @@ impl Shell {
                                 match session.Snapshot(ctx) {
                                   ok(settled) => {
                                     let _ = dispatch(fn() {
-                                      if self.attachment_generation == generation {
+                                      if self.session_scope_id == scope_id {
                                         self.apply_snapshot(settled)
                                       }
                                     })
@@ -2894,7 +2896,7 @@ impl Shell {
                             } else {
                               let snapshot = update.Snapshot.@
                               let _ = dispatch(fn() {
-                                if self.attachment_generation == generation {
+                                if self.session_scope_id == scope_id {
                                   self.apply_snapshot(snapshot)
                                 }
                               })
@@ -2906,7 +2908,7 @@ impl Shell {
                       match stream.Err() {
                         err(failure) => {
                           let _ = dispatch(fn() {
-                            if self.attachment_generation == generation {
+                            if self.session_scope_id == scope_id {
                               self.show_toast(
                                 "Session connection lost",
                                 failure.error(),
@@ -2921,7 +2923,7 @@ impl Shell {
                     },
                     err(failure) => {
                       let _ = dispatch(fn() {
-                        if self.attachment_generation == generation {
+                        if self.session_scope_id == scope_id {
                           self.show_toast(
                             "Session connection failed",
                             failure.error(),
@@ -2975,7 +2977,7 @@ impl Shell {
                 match self.context {
                   context => {
                     let ctx = lifetime.Context
-                    let generation = self.attachment_generation
+                    let scope_id = self.session_scope_id
                     let dispatch = context.dispatch
                     async::start(fn() {
                       match session.Stream(ctx, run_id) {
@@ -2986,7 +2988,7 @@ impl Shell {
                             match updates.recv() {
                               batch => {
                                 let _ = dispatch(fn() {
-                                  if self.attachment_generation == generation and self.run_id == run_id {
+                                  if self.session_scope_id == scope_id and self.run_id == run_id {
                                     self.apply_watched_events(batch)
                                   }
                                 })
@@ -2998,7 +3000,7 @@ impl Shell {
                             err(failure) => {
                               let snapshot = session.Snapshot(ctx)
                               let _ = dispatch(fn() {
-                                if self.attachment_generation == generation and self.run_id == run_id {
+                                if self.session_scope_id == scope_id and self.run_id == run_id {
                                   self.live.reset()
                                   self.run_id = ""
                                   match snapshot {
@@ -3020,7 +3022,7 @@ impl Shell {
                         err(failure) => {
                           let snapshot = session.Snapshot(ctx)
                           let _ = dispatch(fn() {
-                            if self.attachment_generation == generation and self.run_id == run_id {
+                            if self.session_scope_id == scope_id and self.run_id == run_id {
                               self.live.reset()
                               self.run_id = ""
                               match snapshot {
@@ -3634,12 +3636,12 @@ impl Shell {
                 let ctx = lifetime.Context
                 let session = self.session.expect("attached cwd change")
                 let resolve_location = self.props.options.ResolveLocation
-                let generation = self.attachment_generation
+                let scope_id = self.session_scope_id
                 let dispatch = context.dispatch
                 async::start(fn() {
                   let result = session.ChangeCWD(ctx, path)
                   let _ = dispatch(fn() {
-                    if self.attachment_generation == generation {
+                    if self.session_scope_id == scope_id {
                       match result {
                         ok(changed) => {
                           self.info = Maybe::new(changed)
@@ -3702,13 +3704,13 @@ impl Shell {
                     self.request_end()
                   }
                   let ctx = lifetime.Context
-                  let generation = self.attachment_generation
+                  let scope_id = self.session_scope_id
                   let dispatch = context.dispatch
                   async::start(fn() {
                     match session.SubmitPromptCommand(ctx, name, args) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
-                          if self.attachment_generation == generation {
+                          if self.session_scope_id == scope_id {
                             self.follow_ups = submission.Queue
                             if submission.Queued {
                               if optimistic {
@@ -3729,7 +3731,7 @@ impl Shell {
                       err(failure) => {
                         let message = failure.error()
                         let _ = dispatch(fn() {
-                          if self.attachment_generation == generation {
+                          if self.session_scope_id == scope_id {
                             if optimistic {
                               self.live.reset()
                               self.start_pending = false
@@ -3821,13 +3823,13 @@ impl Shell {
                     self.request_end()
                   }
                   let ctx = lifetime.Context
-                  let generation = self.attachment_generation
+                  let scope_id = self.session_scope_id
                   let dispatch = context.dispatch
                   async::start(fn() {
                     match session.SubmitPromptInput(ctx, protocol::PromptInput{Text: text}) {
                       ok(submission) => {
                         let _ = dispatch(fn() {
-                          if self.attachment_generation == generation {
+                          if self.session_scope_id == scope_id {
                             self.follow_ups = submission.Queue
                             if submission.Queued {
                               if optimistic {
@@ -3848,7 +3850,7 @@ impl Shell {
                       err(failure) => {
                         let message = failure.error()
                         let _ = dispatch(fn() {
-                          if self.attachment_generation == generation {
+                          if self.session_scope_id == scope_id {
                             if self.composer == "" {
                               self.composer = text
                             }
