@@ -24,6 +24,10 @@ struct SourceHost {
   props: mut SourceProps,
 }
 
+struct InlineSourceHost {
+  props: mut SourceProps,
+}
+
 fn source_host(props: mut SourceProps) mut SourceHost {
   (mut SourceHost{props: props})
 }
@@ -34,12 +38,39 @@ impl cui::Component for SourceHost {
   }
 }
 
+fn inline_source_host(props: mut SourceProps) mut InlineSourceHost {
+  (mut InlineSourceHost{props: props})
+}
+
+impl cui::Component for InlineSourceHost {
+  fn mut render() cui::View {
+    markdown::inline_view(self.props.themes, "retained-inline", self.props.model.source)
+  }
+}
+
 fn mount(source: Str, width: Int, height: Int) headless::TestApp {
   let terminal = headless::new(width, height)
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let _ = cui::mount(
     app,
     markdown::view(theme::context(theme::store(theme::system())), "document", source),
+  )
+  terminal.flush()
+  terminal
+}
+
+fn mount_inline(source: Str, width: Int, base: ui::TextStyle?) headless::TestApp {
+  let terminal = headless::new(width, 2)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let _ = cui::mount(
+    app,
+    markdown::inline_view(
+      theme::context(theme::store(theme::system())),
+      "inline",
+      source,
+      base: base,
+      semantic: false,
+    ),
   )
   terminal.flush()
   terminal
@@ -404,5 +435,127 @@ test fn markdown_table_selection_exposes_the_entire_table_as_tsv() Void!Str {
   testing::assert(
     mixed.selected_text.contains("Name    Count") and mixed.selected_text.contains("parser     12"),
     "painted fallback copying preserves visible column gaps: {mixed.selected_text}",
+  )
+}
+
+test fn inline_markdown_renders_activity_emphasis_without_markers() Void!Str {
+  let colors = theme::system()
+  let terminal = mount_inline(
+    "Checking **retries** and *status*",
+    48,
+    ui::text_style(foreground: colors.muted),
+  )
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  try testing::assert(
+    painted.contains("Checking retries and status") and not painted.contains("**") and not painted.contains("*status*"),
+    "inline activity renders Markdown without source markers: {painted}",
+  )
+  let retries = position(painted, "retries")
+  let status = position(painted, "status")
+  try testing::assert(
+    terminal.frame().cell(
+      retries.at(0).or(-1),
+      retries.at(1).or(-1),
+    ).expect("strong activity").style.bold,
+    "strong activity text is bold",
+  )
+  let status_style = terminal.frame().cell(
+    status.at(0).or(-1),
+    status.at(1).or(-1),
+  ).expect("emphasized activity").style
+  let muted = status_style.foreground.expect("muted activity foreground")
+  testing::assert(
+    status_style.italic and muted.red == colors.muted.red and muted.green == colors.muted.green and muted.blue == colors.muted.blue,
+    "activity emphasis retains the muted base tone",
+  )
+}
+
+test fn inline_markdown_preserves_an_italic_thinking_base_and_one_row_overflow() Void!Str {
+  let colors = theme::system()
+  let terminal = mount_inline(
+    "Plain **strong** thinking that extends well beyond the slot",
+    18,
+    ui::text_style(foreground: colors.muted, italic: true),
+  )
+  defer terminal.destroy()
+  let painted = terminal.frame().text()
+  let plain = position(painted, "Plain")
+  let strong = position(painted, "strong")
+  try testing::assert(
+    terminal.frame().cell(
+      plain.at(0).or(-1),
+      plain.at(1).or(-1),
+    ).expect("plain thinking").style.italic,
+    "plain Markdown runs preserve an italic thinking base",
+  )
+  let strong_style = terminal.frame().cell(
+    strong.at(0).or(-1),
+    strong.at(1).or(-1),
+  ).expect("strong thinking").style
+  try testing::assert(
+    strong_style.italic and strong_style.bold,
+    "strong thinking composes with the italic base",
+  )
+  testing::assert(
+    strings::Split(painted, "\n").at(1).or("") == "                  ",
+    "inline Markdown stays in one clipped row: {painted}",
+  )
+}
+
+test fn inline_markdown_keeps_compact_block_markers() Void!Str {
+  for example in [
+    ["- checking files", "• checking files"],
+    ["3. retrying", "3. retrying"],
+    ["- [x] verified", "☑ verified"],
+    ["> note", "│ note"],
+  ] {
+    let source = example.at(0).or("")
+    let expected = example.at(1).or("")
+    let terminal = mount_inline(source, 30, Maybe::new<ui::TextStyle>())
+    let painted = terminal.frame().text()
+    terminal.destroy()
+    try testing::assert(
+      painted.contains(expected),
+      "inline Markdown keeps the compact marker for {source}: {painted}",
+    )
+  }
+  testing::pass()
+}
+
+test fn inline_markdown_reparses_changed_source_in_the_retained_component() Void!Str {
+  let terminal = headless::new(32, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut SourceModel{source: "**first** activity"}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    cui::child(inline_source_host, SourceProps{model: model, themes: themes}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let first = position(terminal.frame().text(), "first")
+  try testing::assert(
+    terminal.frame().cell(first.at(0).or(-1), first.at(1).or(-1)).expect("first activity").style.bold,
+    "initial retained activity is rendered",
+  )
+
+  renderer.update(fn() {
+    model.source = "*second* activity"
+  })
+  terminal.flush()
+  let painted = terminal.frame().text()
+  let second = position(painted, "second")
+  try testing::assert(
+    painted.contains("second activity") and not painted.contains("first"),
+    "changed activity replaces the retained inline source: {painted}",
+  )
+  testing::assert(
+    terminal.frame().cell(
+      second.at(0).or(-1),
+      second.at(1).or(-1),
+    ).expect("second activity").style.italic,
+    "changed inline activity is reparsed",
   )
 }
