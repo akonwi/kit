@@ -3,9 +3,13 @@ use ard/testing
 use cooper
 use cooper/cui
 use cooper/testing as headless
+use cooper/theme as ctheme
+use cooper/ui
+use go:github.com/akonwi/kit/internal/theme as kittheme
 use kit/tui/markdown
 use kit/tui/theme
 use go:strings
+use go:time
 
 struct SourceModel {
   source: Str,
@@ -55,6 +59,28 @@ fn position(text: Str, needle: Str) [Int] {
     row =+ 1
   }
   [found_x, found_y]
+}
+
+fn wait_for_color(terminal: headless::TestApp, needle: Str, expected: ui::Color) Bool {
+  mut matched = false
+  mut attempts = 0
+  while not matched and attempts < 100 {
+    terminal.flush()
+    let point = position(terminal.frame().text(), needle)
+    if point.at(0).or(-1) >= 0 {
+      match terminal.frame().cell(point.at(0).or(-1), point.at(1).or(-1)).expect("syntax cell").style.foreground {
+        color => {
+          matched = color.red == expected.red and color.green == expected.green and color.blue == expected.blue
+        },
+        _ => (),
+      }
+    }
+    if not matched {
+      time::Sleep(time::Millisecond * 5)
+    }
+    attempts =+ 1
+  }
+  matched
 }
 
 test fn markdown_renders_semantic_blocks_and_inline_attributes() Void!Str {
@@ -154,6 +180,97 @@ test fn markdown_reparses_changed_source_in_the_retained_component() Void!Str {
       second.at(1).or(-1),
     ).expect("updated emphasis").style.italic,
     "changed source is reparsed with semantic styling",
+  )
+}
+
+test fn fenced_code_uses_renderer_neutral_syntax_roles() Void!Str {
+  let terminal = mount("```go\nconst café = \"héllo\"\n```", 48, 4)
+  defer terminal.destroy()
+  let expected = theme::system().syntax(kittheme::SyntaxKeyword)
+  try testing::assert(
+    wait_for_color(terminal, "const", expected),
+    "fenced Go keyword uses the shared syntax role",
+  )
+  testing::assert(
+    terminal.frame().text().contains("const café = \"héllo\""),
+    "byte-range syntax spans preserve Unicode source",
+  )
+}
+
+test fn fenced_code_source_changes_ignore_stale_highlights() Void!Str {
+  let terminal = headless::new(48, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut SourceModel{source: "```go\nconst old = 1\n```"}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(source_host, SourceProps{model: model, themes: themes}))
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    model.source = "```python\nreturn \"new\"\n```"
+  })
+  let expected = themes.current().syntax(kittheme::SyntaxKeyword)
+  try testing::assert(wait_for_color(terminal, "return", expected), "replacement source is highlighted")
+  testing::assert(
+    terminal.frame().text().contains("return \"new\"") and not terminal.frame().text().contains("const old"),
+    "stale highlight completion cannot restore replaced source",
+  )
+}
+
+test fn fenced_code_cancels_cleanly_when_unmounted() Void!Str {
+  let terminal = headless::new(48, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    markdown::view(
+      theme::context(theme::store(theme::system())),
+      "unmounted-code",
+      "```typescript\nconst value = \"gone\"\n```",
+    ),
+  )
+  terminal.flush()
+  renderer.destroy()
+  time::Sleep(time::Millisecond * 20)
+  terminal.flush()
+  testing::assert(
+    not terminal.frame().text().contains("gone"),
+    "unmounted code ignores async completion",
+  )
+}
+
+test fn fenced_code_repaints_user_syntax_overrides() Void!Str {
+  let terminal = headless::new(48, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = mut theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(
+    app,
+    markdown::view(themes.@, "themed-code", "```go\nconst value = 1\n```"),
+  )
+  defer renderer.destroy()
+  let original = themes.current().syntax(kittheme::SyntaxKeyword)
+  try testing::assert(wait_for_color(terminal, "const", original), "initial syntax result arrives")
+
+  let syntax = mut Map::new<kittheme::Color>()
+  syntax.set(
+    kittheme::SyntaxKeyword,
+    kittheme::Color{
+      R: 17,
+      G: 29,
+      B: 211,
+      A: 255,
+    },
+  )
+  let resolved = theme::resolve(kittheme::Definition{SyntaxPalette: syntax.@}, ctheme::default())
+  let expected = resolved.syntax(kittheme::SyntaxKeyword)
+  renderer.update(fn() {
+    themes.replace(resolved)
+  })
+  terminal.flush()
+  testing::assert(
+    wait_for_color(terminal, "const", expected),
+    "cached syntax roles repaint from the user theme without changing source",
   )
 }
 
