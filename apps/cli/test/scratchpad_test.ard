@@ -1,0 +1,104 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/scratchpad
+use kit/tui/theme
+
+struct Model {
+  scratchpad: Str,
+  other: Str,
+}
+
+struct Props {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  props: mut Props,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    cui::box(
+      [
+        scratchpad::pane(
+          scratchpad::Props{
+            themes: self.props.themes,
+            content: model.scratchpad,
+            loading: false,
+            saving: false,
+            failure: "",
+            on_change: fn(value: Str) {
+              model.scratchpad = value
+            },
+            retry: fn() Bool {
+              true
+            },
+          },
+        ),
+        cui::input(
+          model.other,
+          key: "other-input",
+          styles: ui::style(flex_shrink: 0.0),
+          autofocus: true,
+          on_input: fn(value: Str, ctx: cui::Context) {
+            model.other = value
+          },
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+fn character(value: Str) mut event::KeyEvent {
+  event::key(
+    value,
+    value,
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+test fn scratchpad_does_not_reclaim_focus_from_another_input() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{scratchpad: "notes", other: ""}
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("a"))
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+
+  try testing::assert(model.other == "ab", "the active input keeps both keystrokes: {model.other}")
+  testing::assert(
+    model.scratchpad == "notes",
+    "the scratchpad remains unchanged: {model.scratchpad}",
+  )
+}

@@ -1135,7 +1135,6 @@ impl Shell {
             loading: self.scratchpad_loading,
             saving: self.scratchpad_saving,
             failure: self.scratchpad_failure,
-            active: true,
             on_change: fn(value: Str) {
               self.change_scratchpad(value)
             },
