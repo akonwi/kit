@@ -32,7 +32,9 @@ struct Row {
 }
 
 struct Picker {
-  props: Props,
+  // The current attachment and callbacks remain parent-owned and live while
+  // picker-owned query, disclosure, editing, and pending state are retained.
+  props: mut Props,
   sessions: [protocol::SessionInfo],
   loading: Bool,
   pending: Bool,
@@ -50,7 +52,7 @@ struct Picker {
 
 fn new(props: mut Props) mut Picker {
   (mut Picker{
-    props: props.@,
+    props: props,
     sessions: [],
     loading: true,
     pending: false,

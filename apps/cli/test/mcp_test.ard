@@ -1,0 +1,144 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/mcp
+use kit/tui/theme
+
+struct Model {
+  updated: Bool,
+}
+
+struct Props {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  props: mut Props,
+  context: cui::Context?,
+}
+
+fn host(props: mut Props) mut Host {
+  (mut Host{props: props, context: Maybe::new<cui::Context>()})
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+fn server(name: Str, tools: Int) protocol::MCPServerStatus {
+  protocol::MCPServerStatus{
+    Name: name,
+    State: "configured",
+    Transport: "stdio",
+    Source: "kit-user",
+    ToolCount: tools,
+  }
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let update = keymap::simple_command("test.mcp.update", "Update MCP status", fn() Bool {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.props.model.updated = true
+          })
+          true
+        },
+        _ => false,
+      }
+    })
+    let alpha = match self.props.model.updated {
+      true => server("Alpha updated", 9),
+      false => server("Alpha", 1),
+    }
+    cui::box(
+      [
+        cui::child(
+          mcp::new,
+          mcp::Props{
+            themes: self.props.themes,
+            servers: [alpha, server("Beta", 2)],
+            warnings: [],
+            dismiss: keymap::simple_command("test.dismiss", "Dismiss", fn() Bool {
+              true
+            }),
+          },
+        ),
+      ],
+      styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0)),
+      commands: [update],
+      bindings: [keymap::binding(keymap::key("u", ctrl: true), update.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
+
+fn character(value: Str) mut event::KeyEvent {
+  event::key(
+    value,
+    value,
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn ctrl(value: Str) mut event::KeyEvent {
+  event::key(
+    value,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: true,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+test fn retained_mcp_picker_adopts_parent_updates_without_losing_its_query() Void!Str {
+  let terminal = headless::new(60, 20)
+  defer terminal.destroy()
+  let model = mut Model{updated: false}
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+
+  for value in ["a", "l", "p"] {
+    terminal.key(character(value))
+    terminal.flush()
+  }
+  try testing::assert(terminal.frame().text().contains("Alpha"), "query finds Alpha")
+  try testing::assert(not terminal.frame().text().contains("Beta"), "query filters Beta")
+
+  terminal.key(ctrl("u"))
+  terminal.flush()
+
+  try testing::assert(model.updated, "parent update command runs")
+  try testing::assert(
+    terminal.frame().text().contains("Alpha updated"),
+    "retained picker adopts new parent data",
+  )
+  testing::assert(not terminal.frame().text().contains("Beta"), "retained query remains applied")
+}

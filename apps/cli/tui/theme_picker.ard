@@ -22,7 +22,9 @@ struct Props {
 }
 
 struct Picker {
-  props: Props,
+  // Parent-owned services, committed values, and callbacks stay connected to
+  // cui::child's refreshed props slot; preview state remains local.
+  props: mut Props,
   names: [Str],
   loading: Bool,
   preview_loading: Bool,
@@ -39,7 +41,7 @@ struct Picker {
 
 fn new(props: mut Props) mut Picker {
   (mut Picker{
-    props: props.@,
+    props: props,
     names: [],
     loading: true,
     preview_loading: false,
