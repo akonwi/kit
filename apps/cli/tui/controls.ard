@@ -84,13 +84,16 @@ impl cui::Lifecycle for Button {
   fn mut mounted(ctx: cui::Context) {
     if self.props.focusable {
       self.control.current.map(fn(control) {
+        let dispatch = ctx.dispatch
         let _ = control.on_focus(fn() {
-          self.focused = true
-          (ctx.invalidate_root)()
+          let _ = dispatch(fn() {
+            self.focused = true
+          })
         })
         let _ = control.on_blur(fn() {
-          self.focused = false
-          (ctx.invalidate_root)()
+          let _ = dispatch(fn() {
+            self.focused = false
+          })
         })
       })
     }
