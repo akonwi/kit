@@ -6,6 +6,7 @@ import (
 	"encoding/binary"
 	"hash/crc32"
 	"reflect"
+	"strings"
 	"testing"
 )
 
@@ -27,6 +28,8 @@ func pngHeader(w, h uint32) []byte {
 
 func TestIngestToolResultImagesAppliesProviderNeutralLimits(t *testing.T) {
 	screenshot := testPNG(t, 64, 48)
+	metadataImage := NewImageData(ImagePNG, screenshot)
+	metadataImage.URL = strings.Replace(metadataImage.URL, "data:image/png;base64,", "data:image/png;name=shot;base64,", 1)
 	remote, err := NewImageURL(ImagePNG, "https://example.com/shot.png")
 	if err != nil {
 		t.Fatal(err)
@@ -38,6 +41,7 @@ func TestIngestToolResultImagesAppliesProviderNeutralLimits(t *testing.T) {
 		want  ResultContent
 	}{
 		{"within limits", NewImageData(ImagePNG, screenshot), NewImageData(ImagePNG, screenshot)},
+		{"canonicalizes metadata", metadataImage, NewImageData(ImagePNG, screenshot)},
 		{"mislabeled", NewImageData(ImageJPEG, screenshot), NewImageData(ImagePNG, screenshot)},
 		{"remote", remote, remote},
 		{"non-image file", pdf, pdf},

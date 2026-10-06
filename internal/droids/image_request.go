@@ -257,12 +257,29 @@ func imagePreparationReason(err error) string {
 	}
 }
 
+const maxImageDataURLHeaderBytes = 256
+
 func decodeImageDataURL(rawURL string) ([]byte, error) {
-	header, payload, ok := strings.Cut(rawURL, ",")
-	if !ok || !strings.HasSuffix(strings.ToLower(header), ";base64") {
+	separator := strings.IndexByte(rawURL, ',')
+	if separator <= 0 || separator > maxImageDataURLHeaderBytes {
+		return nil, fmt.Errorf("image data URL must have a bounded header")
+	}
+	header := rawURL[:separator]
+	if len(header) < len(";base64") || !strings.EqualFold(header[len(header)-len(";base64"):], ";base64") {
 		return nil, fmt.Errorf("image data URL must be base64-encoded")
 	}
-	return base64.StdEncoding.DecodeString(payload)
+	payload := rawURL[separator+1:]
+	if len(payload) > base64.StdEncoding.EncodedLen(MaxImageBytes) {
+		return nil, imageprep.ErrSourceTooLarge
+	}
+	data, err := base64.StdEncoding.DecodeString(payload)
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > MaxImageBytes {
+		return nil, imageprep.ErrSourceTooLarge
+	}
+	return data, nil
 }
 
 func imageDataURL(mediaType string, data []byte) string {

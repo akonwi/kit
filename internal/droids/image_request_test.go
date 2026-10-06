@@ -3,6 +3,7 @@ package droids
 import (
 	"bytes"
 	"context"
+	"encoding/base64"
 	"errors"
 	"fmt"
 	"image"
@@ -12,7 +13,23 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/akonwi/kit/internal/droids/internal/imageprep"
 )
+
+func TestDecodeImageDataURLRejectsOversizeBeforeDecoding(t *testing.T) {
+	payload := strings.Repeat("%", base64.StdEncoding.EncodedLen(MaxImageBytes)+1)
+	if _, err := decodeImageDataURL("data:image/png;base64," + payload); !errors.Is(err, imageprep.ErrSourceTooLarge) {
+		t.Fatalf("decode oversized image error = %v, want source too large", err)
+	}
+}
+
+func TestDecodeImageDataURLRejectsOversizedHeader(t *testing.T) {
+	header := "data:image/png;" + strings.Repeat("x", maxImageDataURLHeaderBytes) + ";base64,"
+	if _, err := decodeImageDataURL(header + "AA=="); err == nil {
+		t.Fatal("decode image with oversized header succeeded")
+	}
+}
 
 func testPNGDataURL(t *testing.T, w, h int) string {
 	t.Helper()

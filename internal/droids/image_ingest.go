@@ -56,11 +56,11 @@ func ingestToolResultImages(content []ResultContent) []ResultContent {
 // placeholder when it exceeds the provider-neutral limits.
 func ingestImage(file FileContent) ResultContent {
 	data, err := decodeImageDataURL(file.URL)
+	if errors.Is(err, imageprep.ErrSourceTooLarge) {
+		return omittedIngestedImage(file, fmt.Sprintf("the image exceeds the %d MiB image size limit", MaxImageBytes>>20))
+	}
 	if err != nil || len(data) == 0 {
 		return omittedIngestedImage(file, "the image data is invalid")
-	}
-	if len(data) > MaxImageBytes {
-		return omittedIngestedImage(file, fmt.Sprintf("the image exceeds the %d MiB image size limit", MaxImageBytes>>20))
 	}
 	header, err := imageprep.Inspect(data)
 	if err != nil {
@@ -74,9 +74,7 @@ func ingestImage(file FileContent) ResultContent {
 		return omittedIngestedImage(file, fmt.Sprintf("the image's %d×%d px exceed the %d px, %d MP image limit",
 			header.Width, header.Height, MaxImageWidth, MaxImagePixels/1_000_000))
 	}
-	if !strings.EqualFold(file.MediaType, header.MediaType) {
-		file.MediaType, file.URL = header.MediaType, imageDataURL(header.MediaType, data)
-	}
+	file.MediaType, file.URL = header.MediaType, imageDataURL(header.MediaType, data)
 	return file
 }
 
