@@ -399,7 +399,21 @@ impl Picker {
     true
   }
 
-  fn mut select(session_id: Str, context: cui::Context) {
+  fn mut selection_changed(session_id: Str) {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      self.selection = session_id
+    })
+  }
+
+  fn mut request_select(session_id: Str) {
+    let context = self.context.expect("mounted session picker")
+    let _ = context.dispatch(fn() {
+      self.select(session_id, context)
+    })
+  }
+
+  private fn mut select(session_id: Str, context: cui::Context) {
     if self.pending or session_id == self.props.current_session_id {
       self.props.dismiss.invoke()
     } else {
@@ -525,10 +539,10 @@ impl cui::Component for Picker {
                   }),
                   on_query_change: fn(query: Str) {},
                   on_selection_change: fn(selected: Str) {
-                    self.selection = selected
+                    self.selection_changed(selected)
                   },
                   on_activate: fn(item: palette::Item) {
-                    self.select(item.key, context: self.context.expect("mounted session picker"))
+                    self.request_select(item.key)
                   },
                 },
               )

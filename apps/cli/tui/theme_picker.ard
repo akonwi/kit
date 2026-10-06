@@ -148,6 +148,39 @@ impl Picker {
     })
   }
 
+  private fn mut request_query_changed() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.query_changed()
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut request_select(name: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.select(name)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut request_activate(name: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.activate(name)
+        })
+      },
+      _ => (),
+    }
+  }
+
   private fn mut query_changed() {
     self.commit_on_preview = ""
   }
@@ -308,13 +341,13 @@ impl cui::Component for Picker {
             remove: Maybe::new<fn(Str)>(),
             toggle: Maybe::new<fn(Str, Bool)>(),
             on_query_change: fn(query: Str) {
-              self.query_changed()
+              self.request_query_changed()
             },
             on_selection_change: fn(selected: Str) {
-              self.select(selected)
+              self.request_select(selected)
             },
             on_activate: fn(item: palette::Item) {
-              self.activate(item.key)
+              self.request_activate(item.key)
             },
           },
         )

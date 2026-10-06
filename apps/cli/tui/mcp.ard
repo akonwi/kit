@@ -15,26 +15,10 @@ struct Props {
 
 struct Status {
   props: Props,
-  query: Str,
-  selection: Str,
-  hover: Str,
-  hidden_above: Bool,
-  hidden_below: Bool,
-  viewport: Int,
-  list: mut cui::VirtualListRef,
 }
 
 fn new(props: mut Props) mut Status {
-  (mut Status{
-    props: props.@,
-    query: "",
-    selection: "",
-    hover: "",
-    hidden_above: false,
-    hidden_below: false,
-    viewport: 0,
-    list: cui::virtual_list_ref(),
-  })
+  (mut Status{props: props.@})
 }
 
 private fn status_label(state: Str) Str {
@@ -75,78 +59,6 @@ private fn catalog(servers: [protocol::MCPServerStatus]) [palette::Item] {
     )
   }
   result.@
-}
-
-impl Status {
-  private fn mut picker(catalog: [palette::Item]) palette::Props {
-    palette::Props{
-      // Status remains read-only. Enter is intentionally harmless while rows
-      // remain keyboard-navigable and filterable like other palette pickers.
-      themes: self.props.themes,
-      placeholder: "Search MCP servers…",
-      catalog: catalog,
-      query: self.query,
-      filter_query: "",
-      selection: self.selection,
-      hovered: self.hover,
-      hidden_above: self.hidden_above,
-      hidden_below: self.hidden_below,
-      on_query_change: fn(query: Str) {
-        self.query = query
-        self.hover = ""
-        let next = palette::first_enabled(
-          palette::items(
-            palette::Props{
-              themes: self.props.themes,
-              placeholder: "",
-              catalog: catalog,
-              query: query,
-              filter_query: "",
-              selection: "",
-              hovered: "",
-              hidden_above: false,
-              hidden_below: false,
-              on_query_change: fn(value: Str) {},
-              on_selection_change: fn(value: Str) {},
-              on_hover_change: fn(value: Str) {},
-              on_activate: fn(item: palette::Item) {},
-            },
-          ),
-        )
-        if next != "" {
-          self.selection = next
-        }
-      },
-      on_selection_change: fn(selection: Str) {
-        self.selection = selection
-      },
-      on_hover_change: fn(hover: Str) {
-        self.hover = hover
-      },
-      on_activate: fn(item: palette::Item) {},
-    }
-  }
-
-  private fn mut picker_viewport(catalog: [palette::Item]) palette::Viewport {
-    palette::Viewport{
-      list: self.list,
-      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        let visible = palette::items(self.picker(catalog))
-        self.hidden_above = update.state.visible_range.start > 0
-        self.hidden_below = update.state.visible_range.end < visible.size()
-        self.viewport = update.state.viewport_height
-      },
-      on_page: fn(direction: Int) {
-        let step = match self.viewport > 1 {
-          true => self.viewport - 1,
-          false => 1,
-        }
-        let _ = self.list.current.map(fn(list) {
-          list.scroll_by(direction * step)
-        })
-      },
-    }
-  }
 }
 
 impl cui::Component for Status {

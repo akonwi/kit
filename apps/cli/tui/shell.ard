@@ -553,9 +553,12 @@ impl cui::Lifecycle for Shell {
     self.lifetime = Maybe::new(lifetime)
     self.context = Maybe::new(ctx)
     self.terminal_theme = (ctx.theme)()
+    let dispatch = ctx.dispatch
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
-      self.terminal_theme = next
-      self.props.themes.replace(theme::resolve(self.displayed_theme_definition, next))
+      let _ = dispatch(fn() {
+        self.terminal_theme = next
+        self.props.themes.replace(theme::resolve(self.displayed_theme_definition, next))
+      })
     })
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
@@ -914,17 +917,32 @@ fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
 }
 
 impl Shell {
+  // Commands owned by child controls report intent back through Shell's
+  // context so only the state owner performs and renders the transition.
+  private fn mut command(id: Str, label: Str, transition: fn()) keymap::SimpleCommand {
+    keymap::simple_command(id, label, fn() Bool {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            transition()
+          })
+          true
+        },
+        _ => false,
+      }
+    })
+  }
+
   fn mut header() cui::View {
     let colors = self.props.themes.current()
     let left = mut List::new<cui::View>()
     let right = mut List::new<cui::View>()
     match self.info {
       session => {
-        let rename = keymap::simple_command("name.open", "Rename session", fn() Bool {
+        let rename = self.command("name.open", "Rename session", fn() {
           self.rename_initial = session.Name
           self.rename_submit_immediately = false
           self.active_modal = ActiveModal::rename_session
-          true
         })
         left.push(
           controls::button(
@@ -937,9 +955,8 @@ impl Shell {
             styles: ui::style(flex_shrink: 0.0),
           ),
         )
-        let open_model = keymap::simple_command("model.open", "Change session model", fn() Bool {
+        let open_model = self.command("model.open", "Change session model", fn() {
           self.active_modal = ActiveModal::model_picker
-          true
         })
         right.push(
           controls::button(
@@ -955,14 +972,9 @@ impl Shell {
         let thinking_level = strings::TrimSpace(session.ThinkingLevel)
         if thinking_level != "" {
           right.push(cui::text(" ", wrap: ui::TextWrap::none))
-          let open_thinking = keymap::simple_command(
-            "thinking.open",
-            "Change thinking level",
-            fn() Bool {
-              self.active_modal = ActiveModal::thinking_picker
-              true
-            },
-          )
+          let open_thinking = self.command("thinking.open", "Change thinking level", fn() {
+            self.active_modal = ActiveModal::thinking_picker
+          })
           right.push(
             controls::button(
               self.props.themes,
@@ -987,14 +999,9 @@ impl Shell {
               },
             }
             right.push(cui::text(" · ", text_style: ui::text_style(foreground: colors.muted)))
-            let open_debug = keymap::simple_command(
-              "debug.open",
-              "Show session diagnostics",
-              fn() Bool {
-                self.active_modal = ActiveModal::session_debug
-                true
-              },
-            )
+            let open_debug = self.command("debug.open", "Show session diagnostics", fn() {
+              self.active_modal = ActiveModal::session_debug
+            })
             right.push(
               controls::button(
                 self.props.themes,
@@ -1092,8 +1099,8 @@ impl Shell {
           line("Connect an AI provider to get started.", ui::text_style(foreground: colors.muted)),
         )
         children.push(blank())
-        let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
-          self.open_provider_picker()
+        let connect = self.command("auth.connect", "Connect a provider", fn() {
+          let _ = self.open_provider_picker()
         })
         children.push(
           controls::button(
@@ -1166,21 +1173,14 @@ impl Shell {
   // The tab strip is host chrome. Pane bodies never repeat their title or
   // close affordance, so future retained panes can share this layout.
   fn mut workspace_tabs() cui::View {
-    let agent = keymap::simple_command("workspace.agent", "Show Agent", fn() Bool {
+    let agent = self.command("workspace.agent", "Show Agent", fn() {
       self.workspace = WorkspacePane::agent
-      true
     })
-    let scratchpad_tab = keymap::simple_command(
-      "workspace.scratchpad",
-      "Show Scratchpad",
-      fn() Bool {
-        self.workspace = WorkspacePane::scratchpad
-        true
-      },
-    )
-    let close = keymap::simple_command("workspace.scratchpad.close", "Close Scratchpad", fn() Bool {
+    let scratchpad_tab = self.command("workspace.scratchpad", "Show Scratchpad", fn() {
+      self.workspace = WorkspacePane::scratchpad
+    })
+    let close = self.command("workspace.scratchpad.close", "Close Scratchpad", fn() {
       self.close_scratchpad()
-      true
     })
     let scratchpad_active = self.workspace == WorkspacePane::scratchpad
     let scratchpad_variant = match scratchpad_active {
@@ -1281,10 +1281,9 @@ impl Shell {
     )
   }
 
-  fn latest_button() cui::View {
-    let latest = keymap::simple_command("transcript.latest", "Show latest", fn() Bool {
+  fn mut latest_button() cui::View {
+    let latest = self.command("transcript.latest", "Show latest", fn() {
       self.request_end()
-      true
     })
     controls::button(
       self.props.themes,
@@ -1493,7 +1492,7 @@ impl cui::Component for Shell {
     if self.toasts.size() > 0 {
       layers.push(
         toast::stack(self.props.themes, self.toasts, fn(id: Int) {
-          self.dismiss_toast(id)
+          self.request_toast_dismissal(id)
         }),
       )
     }
@@ -1520,6 +1519,29 @@ impl Shell {
       progress,
     )
     self.props.themes.replace(colors.@)
+  }
+
+  // Child-owned controls report toast transitions through Shell's context.
+  fn mut request_toast(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.show_toast(title, detail, variant, persistent)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut request_toast_dismissal(id: Int) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.dismiss_toast(id)
+        })
+      },
+      _ => (),
+    }
   }
 
   // show_toast adds a bounded notification. Persistent notices remain until dismissed.
@@ -1617,33 +1639,52 @@ impl Shell {
   }
 
   fn mut dismiss_modal() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.dismiss_modal_now(context)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut dismiss_modal_now(context: cui::Context) {
     let dismissed = self.active_modal
     self.cancel_auth_attempt()
     match dismissed {
       ActiveModal::api_key => { self.active_modal = ActiveModal::provider_picker },
       ActiveModal::device_login => { self.active_modal = ActiveModal::provider_picker },
       ActiveModal::browser_login => { self.active_modal = ActiveModal::provider_picker },
-      _ => {
-        self.active_modal = ActiveModal::none
-        match self.context {
-          ctx => {
-            if self.phase == Phase::auth {
-              self.connect_button.focus(ctx)
-            } else if dismissed == ActiveModal::command_palette {
-              self.composer_area.focus(ctx)
-            }
-          },
-          _ => (),
-        }
-      },
+      _ => self.finish_modal_now(context),
     }
-    // Palette commands mutate shell state outside an input callback. Request a
-    // render now rather than waiting for the next key event to invalidate it.
+  }
+
+  private fn mut finish_modal() {
     match self.context {
-      ctx => (ctx.invalidate_root)(),
+      context => self.finish_modal_now(context),
       _ => (),
     }
-    true
+  }
+
+  private fn mut finish_modal_now(context: cui::Context) {
+    self.active_modal = ActiveModal::none
+    if self.phase == Phase::auth {
+      let connect = self.connect_button
+      (context.internal_commit)(
+        fn() {
+          connect.focus(context)
+        },
+      )
+    } else if self.phase == Phase::ready {
+      let composer = self.composer_area
+      (context.internal_commit)(
+        fn() {
+          composer.focus(context)
+        },
+      )
+    }
   }
 
   fn mut cancel_auth_attempt() {
@@ -1764,7 +1805,7 @@ impl Shell {
         let _ = context.dispatch(fn() {
           self.info = Maybe::new(session)
           self.rename_submit_immediately = false
-          self.active_modal = ActiveModal::none
+          self.finish_modal_now(context)
         })
       },
       _ => (),
@@ -1787,7 +1828,7 @@ impl Shell {
       context => {
         let _ = context.dispatch(fn() {
           self.info = Maybe::new(session)
-          self.active_modal = ActiveModal::none
+          self.finish_modal_now(context)
         })
       },
       _ => (),
@@ -1801,7 +1842,7 @@ impl Shell {
       context => {
         let _ = context.dispatch(fn() {
           self.info = Maybe::new(applied.Session)
-          self.active_modal = ActiveModal::none
+          self.finish_modal_now(context)
         })
       },
       _ => (),
@@ -1873,16 +1914,47 @@ impl Shell {
     )
   }
 
-  fn mut theme_picker_modal() cui::View {
-    let dismiss = fn() {
-      self.displayed_theme_definition = self.theme_definition
-      self.props.themes.replace(theme::resolve(self.theme_definition, self.terminal_theme))
-      match self.context {
-        context => (context.invalidate_root)(),
-        _ => (),
-      }
-      let _ = self.dismiss_modal()
+  private fn mut preview_theme(definition: kittheme::Definition) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.displayed_theme_definition = definition
+          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
+        })
+      },
+      _ => (),
     }
+  }
+
+  private fn mut commit_theme(name: Str, definition: kittheme::Definition) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.theme_name = name
+          self.theme_definition = definition
+          self.displayed_theme_definition = definition
+          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
+          self.finish_modal_now(context)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut cancel_theme_preview() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.displayed_theme_definition = self.theme_definition
+          self.props.themes.replace(theme::resolve(self.theme_definition, self.terminal_theme))
+          self.dismiss_modal_now(context)
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut theme_picker_modal() cui::View {
     cui::child(
       theme_picker::new,
       theme_picker::Props{
@@ -1890,25 +1962,14 @@ impl Shell {
         service: self.props.options.ThemeService,
         committed_name: self.theme_name,
         committed_definition: self.theme_definition,
-        dismiss: dismiss,
+        dismiss: fn() {
+          self.cancel_theme_preview()
+        },
         preview: fn(definition: kittheme::Definition) {
-          self.displayed_theme_definition = definition
-          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
-          match self.context {
-            context => (context.invalidate_root)(),
-            _ => (),
-          }
+          self.preview_theme(definition)
         },
         applied: fn(name: Str, definition: kittheme::Definition) {
-          self.theme_name = name
-          self.theme_definition = definition
-          self.displayed_theme_definition = definition
-          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
-          self.active_modal = ActiveModal::none
-          match self.context {
-            context => (context.invalidate_root)(),
-            _ => (),
-          }
+          self.commit_theme(name, definition)
         },
       },
     )
@@ -1942,7 +2003,7 @@ impl Shell {
           match self.context {
             context => {
               let _ = context.dispatch(fn() {
-                self.active_modal = ActiveModal::none
+                self.finish_modal_now(context)
                 self.attach(
                   bootstrap::Attached{
                     info: snapshot.Session,
@@ -2008,7 +2069,7 @@ impl Shell {
       )
       body.push(
         copyable::value(self.props.themes, self.device_code, fn() {
-          self.show_toast("Copied to clipboard", "", toast::Variant::info, false)
+          self.request_toast("Copied to clipboard", "", toast::Variant::info, false)
         }),
       )
       body.push(blank())
@@ -2414,12 +2475,12 @@ impl Shell {
         if item.disabled_reason != "" {
           self.show_toast("Command unavailable", item.disabled_reason, toast::Variant::warning, false)
         } else if item.key == "login" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.open_provider_picker()
         } else if item.key == "quit" {
           self.props.quit()
         } else if item.key == "compact" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.compact_session()
         } else if item.key == "debug" {
           self.active_modal = ActiveModal::session_debug
@@ -2440,37 +2501,37 @@ impl Shell {
           self.rename_submit_immediately = value != ""
           self.active_modal = ActiveModal::rename_session
         } else if item.key == "new" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.create_new_session()
         } else if item.key == "refresh-models" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.refresh_models()
         } else if item.key == "reload" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.reload_session()
         } else if item.key == "sessions" {
           self.active_modal = ActiveModal::sessions
         } else if item.key == "scratchpad" {
-          self.active_modal = ActiveModal::none
+          self.finish_modal()
           self.open_scratchpad()
         } else if item.key == "cd" {
           let target = strings::TrimSpace(command_args(self.command_query))
           if target == "" {
             self.show_toast("Usage: /cd <path>", "", toast::Variant::warning, false)
           } else {
-            self.active_modal = ActiveModal::none
+            self.finish_modal()
             self.change_working_directory(target)
           }
         } else {
           for command in self.prompt_commands {
             if item.key == "prompt:{command.Name}" {
-              self.active_modal = ActiveModal::none
+              self.finish_modal()
               self.submit_prompt_command(command.Name, command_args(self.command_query))
             }
           }
           for command in self.plugin_commands {
             if item.key == "plugin:{command.Instance}:{command.ID}" {
-              self.active_modal = ActiveModal::none
+              self.finish_modal()
               self.execute_plugin_command(command, command_args(self.command_query))
             }
           }
@@ -3274,7 +3335,6 @@ impl Shell {
                             )
                           },
                         }
-                        (context.invalidate_root)()
                       }
                     })
                   })
@@ -3404,7 +3464,6 @@ impl Shell {
                                   }
                                 },
                               }
-                              (context.invalidate_root)()
                             }
                           })
                         })
@@ -3478,7 +3537,6 @@ impl Shell {
                                     )
                                   },
                                 }
-                                (context.invalidate_root)()
                               }
                             })
                           },
@@ -3493,7 +3551,6 @@ impl Shell {
                                   toast::Variant::error,
                                   true,
                                 )
-                                (context.invalidate_root)()
                               }
                             })
                           },
@@ -3557,7 +3614,6 @@ impl Shell {
                       )
                     },
                   }
-                  (context.invalidate_root)()
                 })
               })
             },

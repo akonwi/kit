@@ -148,6 +148,17 @@ impl Picker {
     })
   }
 
+  private fn mut request_apply(selected: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.apply(selected, context)
+        })
+      },
+      _ => (),
+    }
+  }
+
   private fn mut apply(selected: Str, ctx: cui::Context) {
     if self.pending or selected == "" {
       ()
@@ -295,10 +306,7 @@ impl cui::Component for Picker {
                 on_query_change: fn(query: Str) {},
                 on_selection_change: fn(selected: Str) {},
                 on_activate: fn(item: palette::Item) {
-                  match self.context {
-                    context => self.apply(item.key, context),
-                    _ => (),
-                  }
+                  self.request_apply(item.key)
                 },
               },
             )
