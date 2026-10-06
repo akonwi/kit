@@ -34,19 +34,20 @@ func (e *UnsupportedError) Is(target error) bool { return target == ErrUnsupport
 type ErrorCode string
 
 const (
-	ErrorInvalidRequest   ErrorCode = "invalid_request"
-	ErrorUnauthorized     ErrorCode = "unauthorized"
-	ErrorForbidden        ErrorCode = "forbidden"
-	ErrorNotFound         ErrorCode = "not_found"
-	ErrorConflict         ErrorCode = "conflict"
-	ErrorInstanceMismatch ErrorCode = "instance_mismatch"
-	ErrorLimitExceeded    ErrorCode = "limit_exceeded"
-	ErrorInvalidHost      ErrorCode = "invalid_host"
-	ErrorUnprocessable    ErrorCode = "unprocessable"
-	ErrorProtocolMismatch ErrorCode = "protocol_mismatch"
-	ErrorCapacityExceeded ErrorCode = "capacity_exceeded"
-	ErrorInternal         ErrorCode = "internal"
-	ErrorUnavailable      ErrorCode = "unavailable"
+	ErrorInvalidRequest              ErrorCode = "invalid_request"
+	ErrorUnauthorized                ErrorCode = "unauthorized"
+	ErrorForbidden                   ErrorCode = "forbidden"
+	ErrorNotFound                    ErrorCode = "not_found"
+	ErrorConflict                    ErrorCode = "conflict"
+	ErrorTranscriptCursorUnavailable ErrorCode = "transcript_cursor_unavailable"
+	ErrorInstanceMismatch            ErrorCode = "instance_mismatch"
+	ErrorLimitExceeded               ErrorCode = "limit_exceeded"
+	ErrorInvalidHost                 ErrorCode = "invalid_host"
+	ErrorUnprocessable               ErrorCode = "unprocessable"
+	ErrorProtocolMismatch            ErrorCode = "protocol_mismatch"
+	ErrorCapacityExceeded            ErrorCode = "capacity_exceeded"
+	ErrorInternal                    ErrorCode = "internal"
+	ErrorUnavailable                 ErrorCode = "unavailable"
 )
 
 // ServerError is one failure declared by a Kit server operation.

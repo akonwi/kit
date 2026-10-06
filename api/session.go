@@ -314,7 +314,7 @@ func (c *Session) SubagentTranscript(ctx context.Context, conversationID, before
 	defer cancel()
 	page, err := c.transport.GetSubagentTranscript(operation, c.id, conversationID, before)
 	var apiErr *clienttransport.APIError
-	if errors.As(err, &apiErr) && apiErr.Code == string(httpapi.ErrorTranscriptCursorUnavailable) {
+	if errors.As(err, &apiErr) && apiErr.Code == string(ErrorTranscriptCursorUnavailable) {
 		return protocol.SubagentTranscript{}, ErrTranscriptCursorUnavailable
 	}
 	return page, projectError(err)
