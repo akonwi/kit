@@ -444,7 +444,17 @@ impl cui::Component for Picker {
       }
     }
     if not selected_exists {
-      self.props.selection = first_enabled(items(self.props))
+      let visible = items(self.props)
+      mut initial_exists = false
+      for item in visible {
+        if item.key == self.source.initial_selection and item.disabled_reason == "" {
+          initial_exists = true
+        }
+      }
+      self.props.selection = match initial_exists {
+        true => self.source.initial_selection,
+        false => first_enabled(visible),
+      }
     }
     self.props.placeholder = self.source.placeholder
     self.props.on_activate = self.source.on_activate

@@ -29,7 +29,9 @@ struct Props {
 }
 
 struct Picker {
-  props: Props,
+  // Keep parent-owned dependencies and session state linked to cui::child's
+  // refreshed props slot while retaining picker interaction state below.
+  props: mut Props,
   models: [protocol::ModelCapability],
   loading: Bool,
   pending: Bool,
@@ -43,7 +45,7 @@ struct Picker {
 
 fn new(props: mut Props) mut Picker {
   (mut Picker{
-    props: props.@,
+    props: props,
     models: [],
     loading: true,
     pending: false,

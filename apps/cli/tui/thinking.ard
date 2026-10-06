@@ -26,9 +26,13 @@ struct Props {
 }
 
 struct Picker {
-  props: Props,
+  // Parent-owned session/configuration dependencies remain live while the
+  // picker retains its own selection, loading, and request state.
+  props: mut Props,
   models: [protocol::ModelCapability],
   levels: [Str],
+  resolved_model: Str,
+  resolved_level: Str,
   selection: Str,
   loading: Bool,
   pending: Bool,
@@ -39,9 +43,11 @@ struct Picker {
 
 fn new(props: mut Props) mut Picker {
   (mut Picker{
-    props: props.@,
+    props: props,
     models: [],
     levels: [],
+    resolved_model: props.session.Model,
+    resolved_level: props.session.ThinkingLevel,
     selection: props.session.ThinkingLevel,
     loading: true,
     pending: false,
@@ -88,9 +94,11 @@ impl cui::Lifecycle for Picker {
 }
 
 impl Picker {
-  private fn mut set_levels(model: Str) {
+  private fn mut set_levels(model: Str, current_level: Str) {
+    self.resolved_model = model
+    self.resolved_level = current_level
     self.levels = []
-    self.selection = self.props.session.ThinkingLevel
+    self.selection = current_level
     for capability in self.models {
       if capability.ID == model and capability.Available {
         let levels = mut List::new<Str>()
@@ -102,7 +110,7 @@ impl Picker {
     }
     mut current_supported = false
     for level in self.levels {
-      if level == self.props.session.ThinkingLevel {
+      if level == current_level {
         current_supported = true
       }
     }
@@ -118,7 +126,6 @@ impl Picker {
     let generation = self.generation
     let client = self.props.client
     let lifetime = self.props.lifetime
-    let model = self.props.session.Model
     let dispatch = ctx.dispatch
     async::start(fn() {
       let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(10000))
@@ -130,7 +137,7 @@ impl Picker {
           match result {
             ok(catalog) => {
               self.models = catalog.Models
-              self.set_levels(model)
+              self.set_levels(self.props.session.Model, self.props.session.ThinkingLevel)
             },
             err(failure) => { self.error = failure.error() },
           }
@@ -191,8 +198,7 @@ impl Picker {
             self.pending = false
             match snapshot {
               ok(current) => {
-                self.props.session = current.Session
-                self.set_levels(current.Session.Model)
+                self.set_levels(current.Session.Model, current.Session.ThinkingLevel)
                 match result {
                   ok(_) => (self.props.applied)(current.Session),
                   err(failure) => {
@@ -204,7 +210,7 @@ impl Picker {
               err(refresh_failure) => {
                 match result {
                   ok(applied) => {
-                    self.props.session = applied.Session
+                    self.set_levels(applied.Session.Model, applied.Session.ThinkingLevel)
                     (self.props.refreshed)(applied.Session)
                     self.error = "Configuration applied but snapshot refresh failed: {refresh_failure}"
                   },
@@ -237,6 +243,9 @@ test fn thinking_catalog_marks_the_current_level_and_pending_rows() Void!Str {
 
 impl cui::Component for Picker {
   fn mut render() cui::View {
+    if not self.loading and not self.pending and (self.resolved_model != self.props.session.Model or self.resolved_level != self.props.session.ThinkingLevel) {
+      self.set_levels(self.props.session.Model, self.props.session.ThinkingLevel)
+    }
     match self.loading {
       true => {
         modal::dialog(

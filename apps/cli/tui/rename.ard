@@ -23,7 +23,9 @@ struct Props {
 }
 
 struct Dialog {
-  props: Props,
+  // Keep services, session identity, and callbacks current without replacing
+  // the child-owned edit buffer below.
+  props: mut Props,
   name: Str,
   pending: Bool,
   error: Str,
@@ -32,7 +34,7 @@ struct Dialog {
 
 fn new(props: mut Props) mut Dialog {
   (mut Dialog{
-    props: props.@,
+    props: props,
     name: props.initial_name,
     pending: false,
     error: "",

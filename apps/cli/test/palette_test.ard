@@ -700,3 +700,136 @@ test fn selection_keystrokes_reveal_scrolled_items() Void!Str {
   try testing::assert(gutter_omega, "the revealed row carries the selection gutter")
   testing::pass()
 }
+
+struct ReseedModel {
+  updated: Bool,
+  activated: Str,
+}
+
+struct ReseedProps {
+  model: mut ReseedModel,
+  themes: theme::Context,
+}
+
+struct ReseedHost {
+  props: mut ReseedProps,
+  context: cui::Context?,
+}
+
+fn reseed_host(props: mut ReseedProps) mut ReseedHost {
+  (mut ReseedHost{props: props, context: Maybe::new<cui::Context>()})
+}
+
+impl cui::Lifecycle for ReseedHost {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+fn reseed_item(key: Str) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    hint: "",
+    description: "",
+    meta: "",
+    search_terms: [],
+    disabled_reason: "",
+  }
+}
+
+impl cui::Component for ReseedHost {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let update = keymap::simple_command("test.reseed", "Replace catalog", fn() Bool {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            model.updated = true
+          })
+          true
+        },
+        _ => false,
+      }
+    })
+    let catalog = match model.updated {
+      true => [reseed_item("off"), reseed_item("high")],
+      false => [reseed_item("medium")],
+    }
+    cui::box(
+      [
+        cui::child(
+          palette::new_picker,
+          palette::PickerProps{
+            themes: self.props.themes,
+            catalog: catalog,
+            placeholder: "Search effort…",
+            initial_selection: match model.updated {
+              true => "high",
+              false => "medium",
+            },
+            title: "Effort",
+            footer: "",
+            dismiss: keymap::simple_command("test.dismiss", "Dismiss", fn() Bool {
+              true
+            }),
+            override: Maybe::new<fn(Str)>(),
+            remove: Maybe::new<fn(Str)>(),
+            toggle: Maybe::new<fn(Str, Bool)>(),
+            on_query_change: fn(query: Str) {},
+            on_selection_change: fn(selected: Str) {},
+            on_activate: fn(item: palette::Item) {
+              model.activated = item.key
+            },
+          },
+        ),
+      ],
+      styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0)),
+      commands: [update],
+      bindings: [keymap::binding(keymap::key("u", ctrl: true), update.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
+
+fn ctrl_key(name: Str) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: false,
+      ctrl: true,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+test fn retained_picker_uses_refreshed_initial_selection_when_its_row_disappears() Void!Str {
+  let terminal = headless::new(40, 12)
+  defer terminal.destroy()
+  let model = mut ReseedModel{updated: false, activated: ""}
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      reseed_host,
+      ReseedProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(ctrl_key("u"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+
+  testing::assert(
+    model.activated == "high",
+    "authoritative refreshed selection activates: {model.activated}",
+  )
+}

@@ -14,11 +14,13 @@ struct Props {
 }
 
 struct Status {
-  props: Props,
+  // Server status is parent-owned and may change while the retained picker is
+  // open. The nested palette retains its own query, selection, and scrolling.
+  props: mut Props,
 }
 
 fn new(props: mut Props) mut Status {
-  (mut Status{props: props.@})
+  (mut Status{props: props})
 }
 
 private fn status_label(state: Str) Str {
