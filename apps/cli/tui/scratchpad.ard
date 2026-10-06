@@ -1,111 +1,430 @@
+use ard/async
+use ard/unsafe
+
+use go:api
+use go:api/contract as protocol
 use cooper/cui
 use cooper/event
 use cooper/ui
 use kit/tui/theme
+use go:time
 
-// Props projects shell-owned shared scratchpad state into the pane.
+// PaneRef is the workspace host's narrow control surface. Every operation
+// schedules work through the retained Scratchpad component's own context.
+struct PaneRef {
+  focus_action: (fn() Bool)?,
+  save_action: (fn() Bool)?,
+  close_action: (fn() Bool)?,
+}
+
+fn pane_ref() mut PaneRef {
+  (mut PaneRef{
+    focus_action: Maybe::new<fn() Bool>(),
+    save_action: Maybe::new<fn() Bool>(),
+    close_action: Maybe::new<fn() Bool>(),
+  })
+}
+
+impl PaneRef {
+  fn mut focus() Bool {
+    match self.focus_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  fn mut save() Bool {
+    match self.save_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  fn mut close() Bool {
+    match self.close_action {
+      action => action(),
+      _ => false,
+    }
+  }
+}
+
+// Props contains live parent dependencies. The component owns the document,
+// draft, request state, debounce generation, and editor focus lifecycle.
 struct Props {
   themes: theme::Context,
-  content: Str,
+  active: Bool,
+  load: fn() protocol::Scratchpad!Error,
+  update: fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error,
+  control: mut PaneRef,
+  closed: fn(),
+  notice: fn(Str, Str),
+}
+
+struct Pane {
+  props: mut Props,
+  context: cui::Context?,
+  editor: mut cui::TextAreaRef,
+  record: protocol::Scratchpad?,
+  draft: Str,
   loading: Bool,
   saving: Bool,
   failure: Str,
-  on_change: fn(Str),
-  retry: fn() Bool,
+  edit_generation: Int,
+  close_requested: Bool,
+  focus_requested: Bool,
 }
 
-// pane presents the shared, session-scoped working notes editor.
-fn pane(props: Props) cui::View {
-  let colors = props.themes.current()
-  match props.loading {
-    true => {
-      cui::box(
-        [cui::text("Loading scratchpad…", text_style: ui::text_style(foreground: colors.muted))],
-        styles: ui::style(
-          flex_grow: 1.0,
-          padding: ui::Edges{
-            top: ui::cells(1),
-            right: ui::cells(1),
-            bottom: ui::cells(1),
-            left: ui::cells(1),
+// pane creates one retained, session-scoped editor. scope_id remounts the
+// component when a new attached-session scope replaces the old one.
+fn pane(props: Props, scope_id: Int) cui::View {
+  cui::child(new, props, key: "scratchpad:{scope_id}")
+}
+
+private fn new(props: mut Props) mut Pane {
+  (mut Pane{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    editor: cui::text_area_ref(),
+    record: Maybe::new<protocol::Scratchpad>(),
+    draft: "",
+    loading: true,
+    saving: false,
+    failure: "",
+    edit_generation: 0,
+    close_requested: false,
+    focus_requested: false,
+  })
+}
+
+impl cui::Lifecycle for Pane {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    self.props.control.focus_action = Maybe::new(fn() Bool {
+      self.request_focus()
+    })
+    self.props.control.save_action = Maybe::new(fn() Bool {
+      self.request_save()
+    })
+    self.props.control.close_action = Maybe::new(fn() Bool {
+      self.request_close()
+    })
+    self.load(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    self.edit_generation =+ 1
+    self.props.control.focus_action = Maybe::new<fn() Bool>()
+    self.props.control.save_action = Maybe::new<fn() Bool>()
+    self.props.control.close_action = Maybe::new<fn() Bool>()
+  }
+}
+
+impl Pane {
+  private fn mut load(context: cui::Context) {
+    self.loading = true
+    self.failure = ""
+    let load = self.props.load
+    let dispatch = context.dispatch
+    async::start(fn() {
+      let result = load()
+      let _ = dispatch(fn() {
+        self.loading = false
+        match result {
+          ok(record) => {
+            self.record = Maybe::new(record)
+            self.draft = record.Content
+            self.failure = ""
+            if self.close_requested {
+              self.finish_close()
+            } else {
+              self.focus_when_ready(context)
+            }
           },
-        ),
-      )
-    },
-    false => {
-      let status = match props.failure != "" {
-        true => "Save failed: {props.failure}",
-        false => {
-          match props.saving {
-            true => "Saving…",
-            false => "",
+          err(failure) => {
+            self.failure = failure.error()
+            (self.props.notice)("Could not open scratchpad", failure.error())
+            if self.close_requested {
+              self.finish_close()
+            }
+          },
+        }
+      })
+    })
+  }
+
+  private fn mut request_focus() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.focus_requested = true
+          self.focus_when_ready(context)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut focus_when_ready(context: cui::Context) {
+    if self.focus_requested and self.props.active and (not self.loading) and self.record.is_some() {
+      self.focus_requested = false
+      let editor = self.editor
+      context.internal_commit(fn() {
+        editor.focus(context)
+      })
+    }
+  }
+
+  private fn mut request_save() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.save()
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_retry() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.record.is_none() {
+            self.load(context)
+          } else {
+            self.failure = ""
+            self.save()
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_close() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.close_requested = true
+          self.edit_generation =+ 1
+          self.save()
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut finish_close() {
+    self.close_requested = false
+    (self.props.closed)()
+  }
+
+  private fn mut change(value: Str) {
+    if not self.loading and self.record.is_some() and self.draft != value {
+      self.draft = value
+      self.failure = ""
+      self.edit_generation =+ 1
+      let generation = self.edit_generation
+      match self.context {
+        context => {
+          let dispatch = context.dispatch
+          async::start(fn() {
+            time::Sleep(time::Millisecond * 250)
+            let _ = dispatch(fn() {
+              if self.edit_generation == generation {
+                self.save()
+              }
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut save() {
+    if self.saving or self.loading {
+      ()
+    } else {
+      match self.record {
+        record => {
+          let content = self.draft
+          if content == record.Content {
+            if self.close_requested {
+              self.finish_close()
+            }
+          } else {
+            self.saving = true
+            let update = self.props.update
+            let input = protocol::UpdateScratchpadInput{ExpectedRevision: record.Revision, Content: content}
+            match self.context {
+              context => {
+                let dispatch = context.dispatch
+                async::start(fn() {
+                  let result = update(input)
+                  let _ = dispatch(fn() {
+                    self.saving = false
+                    match result {
+                      ok(saved) => {
+                        self.record = Maybe::new(saved)
+                        self.failure = ""
+                        if self.draft != content {
+                          self.save()
+                        } else if self.close_requested {
+                          self.finish_close()
+                        }
+                      },
+                      err(failure) => self.apply_failure(failure),
+                    }
+                  })
+                })
+              },
+              _ => (),
+            }
+          }
+        },
+        _ => {
+          if self.close_requested {
+            self.finish_close()
           }
         },
       }
-      let status_color = match props.failure != "" {
-        true => colors.danger_text,
-        false => colors.muted,
-      }
-      let retry = match props.failure != "" {
-        true => cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
-        false => cui::box([], styles: ui::style()),
-      }
-      cui::box(
-        [
-          cui::text_area(
-            // Claim focus only when the pane mounts. A controlled focused state
-            // would reclaim it after every shell render, including while a
-            // dialog or the composer owns keyboard input.
-            props.content,
-            key: "scratchpad-editor",
-            autofocus: true,
-            placeholder: "Shared working notes…",
-            styles: ui::style(
-              width: ui::percent(100.0),
-              flex_grow: 1.0,
-              flex_basis: ui::cells(0),
-              padding: ui::Edges{
-                top: ui::cells(0),
-                right: ui::cells(1),
-                bottom: ui::cells(0),
-                left: ui::cells(1),
-              },
-            ),
-            on_input: fn(value: Str, ctx: cui::Context) {
-              props.on_change(value)
+    }
+  }
+
+  private fn mut apply_failure(failure: Error) {
+    match unsafe::cast<mut api::ServerError>(failure) {
+      server_error => {
+        match unsafe::cast<protocol::ScratchpadErrorDetails>(server_error.Details) {
+          details => {
+            if not unsafe::is_nil(details.Scratchpad) {
+              self.record = Maybe::new(details.Scratchpad.@)
+              self.failure = "Scratchpad changed elsewhere. Retry to replace it with your local notes."
+            } else {
+              self.report_failure(failure)
+            }
+          },
+          _ => self.report_failure(failure),
+        }
+      },
+      _ => self.report_failure(failure),
+    }
+  }
+
+  private fn mut report_failure(failure: Error) {
+    self.failure = failure.error()
+    (self.props.notice)("Scratchpad save failed", failure.error())
+  }
+}
+
+impl cui::Component for Pane {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    match self.loading {
+      true => {
+        cui::box(
+          [
+            cui::text("Loading scratchpad…", text_style: ui::text_style(foreground: colors.muted)),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            padding: ui::Edges{
+              top: ui::cells(1),
+              right: ui::cells(1),
+              bottom: ui::cells(1),
+              left: ui::cells(1),
             },
           ),
-          cui::box(
-            [
-              cui::text(status, text_style: ui::text_style(foreground: status_color)),
-              cui::box([], styles: ui::style(flex_grow: 1.0)),
-              retry,
-            ],
-            styles: ui::style(
-              flex_shrink: 0.0,
-              flex_direction: ui::FlexDirection::row,
-              padding: ui::Edges{
-                top: ui::cells(0),
-                right: ui::cells(1),
-                bottom: ui::cells(0),
-                left: ui::cells(1),
+        )
+      },
+      false => {
+        let status = match self.failure != "" {
+          true => {
+            match self.record.is_some() {
+              true => "Save failed: {self.failure}",
+              false => "Load failed: {self.failure}",
+            }
+          },
+          false => {
+            match self.saving {
+              true => "Saving…",
+              false => "",
+            }
+          },
+        }
+        let status_color = match self.failure != "" {
+          true => colors.danger_text,
+          false => colors.muted,
+        }
+        let retry = match self.failure != "" {
+          true => cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
+          false => cui::box([], styles: ui::style()),
+        }
+        cui::box(
+          [
+            cui::text_area(
+              self.draft,
+              key: "scratchpad-editor",
+              focused: match self.props.active and self.record.is_some() {
+                true => Maybe::new<Bool>(),
+                false => Maybe::new(false),
+              },
+              ref: self.editor,
+              placeholder: match self.record.is_some() {
+                true => "Shared working notes…",
+                false => "Scratchpad unavailable",
+              },
+              styles: ui::style(
+                width: ui::percent(100.0),
+                flex_grow: 1.0,
+                flex_basis: ui::cells(0),
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(1),
+                  bottom: ui::cells(0),
+                  left: ui::cells(1),
+                },
+              ),
+              on_input: fn(value: Str, context: cui::Context) {
+                self.change(value)
               },
             ),
-            on_mouse: fn(mouse: mut event::MouseEvent, ctx: cui::Context) {
-              if props.failure != "" and mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
-                let _ = props.retry()
-                mouse.prevent_default()
-              }
-            },
+            cui::box(
+              [
+                cui::text(status, text_style: ui::text_style(foreground: status_color)),
+                cui::box([], styles: ui::style(flex_grow: 1.0)),
+                retry,
+              ],
+              styles: ui::style(
+                flex_shrink: 0.0,
+                flex_direction: ui::FlexDirection::row,
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(1),
+                  bottom: ui::cells(0),
+                  left: ui::cells(1),
+                },
+              ),
+              on_mouse: fn(mouse: mut event::MouseEvent, context: cui::Context) {
+                if self.failure != "" and mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
+                  let _ = self.request_retry()
+                  mouse.prevent_default()
+                }
+              },
+            ),
+          ],
+          styles: ui::style(
+            width: ui::percent(100.0),
+            flex_grow: 1.0,
+            flex_direction: ui::FlexDirection::column,
+            overflow: ui::Overflow::hidden,
           ),
-        ],
-        styles: ui::style(
-          width: ui::percent(100.0),
-          flex_grow: 1.0,
-          flex_direction: ui::FlexDirection::column,
-          overflow: ui::Overflow::hidden,
-        ),
-      )
-    },
+        )
+      },
+    }
   }
 }
