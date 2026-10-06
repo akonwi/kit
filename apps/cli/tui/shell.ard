@@ -395,13 +395,7 @@ struct Shell {
   terminal_theme: cooper::Theme,
   workspace: WorkspacePane,
   scratchpad_open: Bool,
-  scratchpad_session_generation: Int,
-  scratchpad_record: protocol::Scratchpad?,
-  scratchpad_draft: Str,
-  scratchpad_loading: Bool,
-  scratchpad_saving: Bool,
-  scratchpad_failure: Str,
-  scratchpad_generation: Int,
+  scratchpad_control: mut scratchpad::PaneRef,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -502,13 +496,7 @@ fn new(props: mut Props) mut Shell {
     terminal_theme: ctheme::default(),
     workspace: WorkspacePane::agent,
     scratchpad_open: false,
-    scratchpad_session_generation: 0,
-    scratchpad_record: Maybe::new<protocol::Scratchpad>(),
-    scratchpad_draft: "",
-    scratchpad_loading: false,
-    scratchpad_saving: false,
-    scratchpad_failure: "",
-    scratchpad_generation: 0,
+    scratchpad_control: scratchpad::pane_ref(),
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -1135,32 +1123,69 @@ impl Shell {
 
   fn mut conversation() cui::View {
     let colors = self.props.themes.current()
-    let workspace = match self.workspace {
-      WorkspacePane::agent => self.transcript_region(),
-      WorkspacePane::scratchpad => {
-        scratchpad::pane(
-          scratchpad::Props{
-            themes: self.props.themes,
-            content: self.scratchpad_draft,
-            loading: self.scratchpad_loading,
-            saving: self.scratchpad_saving,
-            failure: self.scratchpad_failure,
-            on_change: fn(value: Str) {
-              self.change_scratchpad(value)
-            },
-            retry: fn() Bool {
-              self.retry_scratchpad()
-            },
-          },
-        )
-      },
-    }
     let children = mut List::new<cui::View>()
     if self.scratchpad_open {
       children.push(self.workspace_tabs())
       children.push(divider(colors.border))
     }
-    children.push(workspace)
+    children.push(
+      cui::box(
+        [self.transcript_region()],
+        styles: ui::style(
+          flex_grow: 1.0,
+          display: match self.workspace == WorkspacePane::agent {
+            true => ui::Display::flex,
+            false => ui::Display::none,
+          },
+        ),
+      ),
+    )
+    if self.scratchpad_open {
+      match self.session {
+        session => {
+          match self.attachment_lifetime {
+            lifetime => {
+              let context = lifetime.Context
+              children.push(
+                cui::box(
+                  [
+                    scratchpad::pane(
+                      scratchpad::Props{
+                        themes: self.props.themes,
+                        active: self.workspace == WorkspacePane::scratchpad,
+                        load: fn() protocol::Scratchpad!Error {
+                          session.Scratchpad(context)
+                        },
+                        update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
+                          session.UpdateScratchpad(context, input)
+                        },
+                        control: self.scratchpad_control,
+                        closed: fn() {
+                          self.apply_scratchpad_closed()
+                        },
+                        notice: fn(title: Str, detail: Str) {
+                          self.apply_scratchpad_notice(title, detail)
+                        },
+                      },
+                      self.session_scope_id,
+                    ),
+                  ],
+                  styles: ui::style(
+                    flex_grow: 1.0,
+                    display: match self.workspace == WorkspacePane::scratchpad {
+                      true => ui::Display::flex,
+                      false => ui::Display::none,
+                    },
+                  ),
+                ),
+              )
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
     children.push(self.pending_row())
     children.push(divider(colors.border))
     children.push(self.composer_view())
@@ -1174,10 +1199,10 @@ impl Shell {
   // close affordance, so future retained panes can share this layout.
   fn mut workspace_tabs() cui::View {
     let agent = self.command("workspace.agent", "Show Agent", fn() {
-      self.workspace = WorkspacePane::agent
+      self.show_agent_workspace()
     })
     let scratchpad_tab = self.command("workspace.scratchpad", "Show Scratchpad", fn() {
-      self.workspace = WorkspacePane::scratchpad
+      self.show_scratchpad_workspace()
     })
     let close = self.command("workspace.scratchpad.close", "Close Scratchpad", fn() {
       self.close_scratchpad()
@@ -2793,15 +2818,9 @@ impl Shell {
     self.abort_pending = false
     self.abort_after_start = false
     self.shown_mcp_warnings = []
-    self.scratchpad_session_generation = self.scratchpad_session_generation + 1
     self.workspace = WorkspacePane::agent
     self.scratchpad_open = false
-    self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
-    self.scratchpad_draft = ""
-    self.scratchpad_loading = false
-    self.scratchpad_saving = false
-    self.scratchpad_failure = ""
-    self.scratchpad_generation = self.scratchpad_generation + 1
+    self.scratchpad_control = scratchpad::pane_ref()
   }
 
   // Streams server-owned plugin notifications through the reconnecting public
@@ -3295,191 +3314,74 @@ impl Shell {
     }
   }
 
-  // Opens the singleton, shared session scratchpad and loads its authoritative
-  // revision before allowing an edit.
+  // Opens the singleton retained editor. Loading and persistence begin when
+  // the scoped Scratchpad component mounts.
   fn mut open_scratchpad() {
-    self.workspace = WorkspacePane::scratchpad
     self.scratchpad_open = true
-    if self.scratchpad_loading {
-      ()
-    } else if self.scratchpad_record.is_some() {
-      ()
-    } else {
-      match self.context {
-        context => {
-          match self.attachment_lifetime {
-            lifetime => {
-              match self.session {
-                session => {
-                  let dispatch = context.dispatch
-                  let session_generation = self.scratchpad_session_generation
-                  self.scratchpad_loading = true
-                  async::start(fn() {
-                    let result = session.Scratchpad(lifetime.Context)
-                    let _ = dispatch(fn() {
-                      if session_generation == self.scratchpad_session_generation {
-                        self.scratchpad_loading = false
-                        match result {
-                          ok(record) => {
-                            self.scratchpad_record = Maybe::new(record)
-                            self.scratchpad_draft = record.Content
-                            self.scratchpad_failure = ""
-                          },
-                          err(failure) => {
-                            self.scratchpad_failure = failure.error()
-                            self.show_toast(
-                              "Could not open scratchpad",
-                              failure.error(),
-                              toast::Variant::error,
-                              true,
-                            )
-                          },
-                        }
-                      }
-                    })
-                  })
-                },
-                _ => (),
-              }
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
+    self.show_scratchpad_workspace()
+  }
+
+  fn mut show_agent_workspace() {
+    let _ = self.scratchpad_control.save()
+    self.workspace = WorkspacePane::agent
+    self.focus_composer_after_commit()
+  }
+
+  fn mut show_scratchpad_workspace() {
+    self.workspace = WorkspacePane::scratchpad
+    match self.context {
+      context => {
+        let control = self.scratchpad_control
+        context.internal_commit(fn() {
+          let _ = control.focus()
+        })
+      },
+      _ => (),
     }
   }
 
   fn mut close_scratchpad() {
-    self.save_scratchpad()
-    self.workspace = WorkspacePane::agent
-    self.scratchpad_open = false
-  }
-
-  // Debounces local edits so the revision-guarded server document is not
-  // rewritten for every keystroke. A newer edit invalidates queued saves.
-  fn mut change_scratchpad(value: Str) {
-    if self.scratchpad_loading {
-      ()
-    } else if self.scratchpad_draft == value {
-      ()
-    } else {
-      self.scratchpad_draft = value
-      self.scratchpad_failure = ""
-      self.scratchpad_generation = self.scratchpad_generation + 1
-      let generation = self.scratchpad_generation
-      match self.context {
-        context => {
-          match self.attachment_lifetime {
-            lifetime => {
-              let dispatch = context.dispatch
-              async::start(fn() {
-                time::Sleep(time::Millisecond * 250)
-                let _ = dispatch(fn() {
-                  if generation == self.scratchpad_generation {
-                    self.save_scratchpad()
-                  }
-                })
-              })
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
+    if not self.scratchpad_control.close() {
+      self.workspace = WorkspacePane::agent
+      self.scratchpad_open = false
+      self.focus_composer_after_commit()
     }
   }
 
-  fn mut retry_scratchpad() Bool {
-    self.scratchpad_failure = ""
-    self.save_scratchpad()
-    true
+  private fn mut focus_composer_after_commit() {
+    match self.context {
+      context => {
+        let composer = self.composer_area
+        context.internal_commit(fn() {
+          composer.focus(context)
+        })
+      },
+      _ => (),
+    }
   }
 
-  fn mut save_scratchpad() {
-    if self.scratchpad_saving or self.scratchpad_loading {
-      ()
-    } else {
-      match self.scratchpad_record {
-        record => {
-          match self.context {
-            context => {
-              match self.attachment_lifetime {
-                lifetime => {
-                  match self.session {
-                    session => {
-                      let content = self.scratchpad_draft
-                      if content != record.Content {
-                        let dispatch = context.dispatch
-                        let session_generation = self.scratchpad_session_generation
-                        self.scratchpad_saving = true
-                        async::start(fn() {
-                          let result = session.UpdateScratchpad(
-                            lifetime.Context,
-                            protocol::UpdateScratchpadInput{ExpectedRevision: record.Revision, Content: content},
-                          )
-                          let _ = dispatch(fn() {
-                            if session_generation == self.scratchpad_session_generation {
-                              self.scratchpad_saving = false
-                              match result {
-                                ok(saved) => {
-                                  self.scratchpad_record = Maybe::new(saved)
-                                  self.scratchpad_failure = ""
-                                  if self.scratchpad_draft != content {
-                                    self.save_scratchpad()
-                                  }
-                                },
-                                err(failure) => {
-                                  match unsafe::cast<mut api::ServerError>(failure) {
-                                    server_error => {
-                                      match unsafe::cast<protocol::ScratchpadErrorDetails>(server_error.Details) {
-                                        details => {
-                                          if not unsafe::is_nil(details.Scratchpad) {
-                                            self.scratchpad_record = Maybe::new(
-                                              details.Scratchpad.@,
-                                            )
-                                            self.scratchpad_failure = "Scratchpad changed elsewhere. Retry to replace it with your local notes."
-                                          }
-                                        },
-                                        _ => {
-                                          self.scratchpad_failure = failure.error()
-                                          self.show_toast(
-                                            "Scratchpad save failed",
-                                            failure.error(),
-                                            toast::Variant::error,
-                                            true,
-                                          )
-                                        },
-                                      }
-                                    },
-                                    _ => {
-                                      self.scratchpad_failure = failure.error()
-                                      self.show_toast(
-                                        "Scratchpad save failed",
-                                        failure.error(),
-                                        toast::Variant::error,
-                                        true,
-                                      )
-                                    },
-                                  }
-                                },
-                              }
-                            }
-                          })
-                        })
-                      }
-                    },
-                    _ => (),
-                  }
-                },
-                _ => (),
-              }
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
+  // Child events re-enter the Shell through its owning context.
+  fn mut apply_scratchpad_closed() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.workspace = WorkspacePane::agent
+          self.scratchpad_open = false
+          self.focus_composer_after_commit()
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_scratchpad_notice(title: Str, detail: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.show_toast(title, detail, toast::Variant::error, true)
+        })
+      },
+      _ => (),
     }
   }
 
@@ -4016,11 +3918,9 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
   subject.live.submit("old prompt")
   subject.workspace = WorkspacePane::scratchpad
   subject.scratchpad_open = true
-  subject.scratchpad_record = Maybe::new(protocol::Scratchpad{Content: "saved notes"})
-  subject.scratchpad_draft = "draft notes"
-  subject.scratchpad_loading = true
-  subject.scratchpad_saving = true
-  subject.scratchpad_failure = "old failure"
+  subject.scratchpad_control.focus_action = Maybe::new(fn() Bool {
+    true
+  })
 
   subject.begin_session_scope()
 
@@ -4047,7 +3947,7 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
   try testing::assert(not subject.latest_out_of_view, "transcript viewport state resets")
   try testing::assert(subject.live.messages.size() == 0, "live transcript state resets")
   testing::assert(
-    subject.workspace == WorkspacePane::agent and not subject.scratchpad_open and subject.scratchpad_record.is_none() and subject.scratchpad_draft == "" and (not subject.scratchpad_loading and not subject.scratchpad_saving and subject.scratchpad_failure == ""),
-    "scratchpad state resets",
+    subject.workspace == WorkspacePane::agent and not subject.scratchpad_open and subject.scratchpad_control.focus_action.is_none(),
+    "scratchpad host state resets",
   )
 }

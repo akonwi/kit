@@ -1,5 +1,8 @@
 use ard/testing
+use ard/unsafe
 
+use go:api
+use go:api/contract as protocol
 use cooper
 use cooper/cui
 use cooper/event
@@ -7,10 +10,19 @@ use cooper/testing as headless
 use cooper/ui
 use kit/tui/scratchpad
 use kit/tui/theme
+use go:strings
+use go:time
 
 struct Model {
   scratchpad: Str,
   other: Str,
+  loads: Int,
+  updates: Int,
+  closed: Bool,
+  conflict: Bool,
+  delay_first_update: Bool,
+  fail_load: Bool,
+  control: mut scratchpad::PaneRef,
 }
 
 struct Props {
@@ -34,17 +46,44 @@ impl cui::Component for Host {
         scratchpad::pane(
           scratchpad::Props{
             themes: self.props.themes,
-            content: model.scratchpad,
-            loading: false,
-            saving: false,
-            failure: "",
-            on_change: fn(value: Str) {
-              model.scratchpad = value
+            active: true,
+            load: fn() protocol::Scratchpad!Error {
+              model.loads =+ 1
+              if model.fail_load {
+                model.fail_load = false
+                let server_error = api::ServerError{Code: api::ErrorUnavailable, Message: "temporarily unavailable"}
+                let failure = unsafe::cast<Error>(mut server_error).expect("server error implements Error")
+                Result::err(failure)
+              } else {
+                Result::ok(protocol::Scratchpad{Content: model.scratchpad})
+              }
             },
-            retry: fn() Bool {
-              true
+            update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
+              model.updates =+ 1
+              if model.delay_first_update and model.updates == 1 {
+                time::Sleep(time::Millisecond * 50)
+              }
+              if model.conflict {
+                let current = protocol::Scratchpad{Content: "remote notes"}
+                let server_error = api::ServerError{
+                  Code: api::ErrorConflict,
+                  Message: "scratchpad revision conflict",
+                  Details: protocol::ScratchpadErrorDetails{Scratchpad: mut current},
+                }
+                let failure = unsafe::cast<Error>(mut server_error).expect("server error implements Error")
+                Result::err(failure)
+              } else {
+                model.scratchpad = input.Content
+                Result::ok(protocol::Scratchpad{Content: input.Content})
+              }
             },
+            control: model.control,
+            closed: fn() {
+              model.closed = true
+            },
+            notice: fn(title: Str, detail: Str) {},
           },
+          1,
         ),
         cui::input(
           model.other,
@@ -82,7 +121,17 @@ fn character(value: Str) mut event::KeyEvent {
 test fn scratchpad_does_not_reclaim_focus_from_another_input() Void!Str {
   let terminal = headless::new(40, 8)
   defer terminal.destroy()
-  let model = mut Model{scratchpad: "notes", other: ""}
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: false,
+    delay_first_update: false,
+    fail_load: false,
+    control: scratchpad::pane_ref(),
+  }
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let renderer = cui::mount(
     app,
@@ -100,5 +149,262 @@ test fn scratchpad_does_not_reclaim_focus_from_another_input() Void!Str {
   testing::assert(
     model.scratchpad == "notes",
     "the scratchpad remains unchanged: {model.scratchpad}",
+  )
+}
+
+test fn scratchpad_loads_focuses_and_debounces_edits() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: false,
+    delay_first_update: false,
+    fail_load: false,
+    control: scratchpad::pane_ref(),
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+
+  mut attempts = 0
+  while not strings::Contains(terminal.frame().text(), "notes") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.loads == 1, "the retained pane loads exactly once")
+  try testing::assert(model.control.focus(), "the mounted pane accepts an explicit focus request")
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+
+  attempts = 0
+  while model.updates == 0 and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  try testing::assert(model.updates == 1, "one debounced update persists the edit")
+  try testing::assert(model.scratchpad != "notes", "the focused editor updates the scratchpad")
+  testing::assert(model.other == "", "scratchpad focus does not leak input to the composer")
+}
+
+test fn closing_scratchpad_flushes_a_pending_draft_before_closing() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: false,
+    delay_first_update: false,
+    fail_load: false,
+    control: scratchpad::pane_ref(),
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+
+  mut attempts = 0
+  while not strings::Contains(terminal.frame().text(), "notes") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  let _ = model.control.focus()
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  try testing::assert(model.control.close(), "the mounted pane accepts a close request")
+
+  attempts = 0
+  while not model.closed and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.updates == 1, "close flushes the pending draft without waiting for debounce")
+  testing::assert(model.closed, "close completes after the update succeeds")
+}
+
+test fn scratchpad_conflict_preserves_the_local_draft_for_retry() Void!Str {
+  let terminal = headless::new(72, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: true,
+    delay_first_update: false,
+    fail_load: false,
+    control: scratchpad::pane_ref(),
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+
+  mut attempts = 0
+  while not strings::Contains(terminal.frame().text(), "notes") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  let _ = model.control.focus()
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+
+  attempts = 0
+  while model.updates == 0 and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+  terminal.flush()
+  try testing::assert(
+    strings::Contains(terminal.frame().text(), "changed elsewhere"),
+    "the conflict is visible while retaining the local draft",
+  )
+
+  model.conflict = false
+  let _ = model.control.save()
+  attempts = 0
+  while model.updates < 2 and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  terminal.flush()
+  try testing::assert(model.updates == 2, "retry saves against the authoritative conflict revision")
+  try testing::assert(model.scratchpad != "notes", "retry persists the retained local draft")
+  testing::assert(
+    not strings::Contains(terminal.frame().text(), "changed elsewhere"),
+    "a successful retry clears the conflict",
+  )
+}
+
+test fn edits_during_a_pending_save_are_persisted_by_a_follow_up_save() Void!Str {
+  let terminal = headless::new(40, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: false,
+    delay_first_update: true,
+    fail_load: false,
+    control: scratchpad::pane_ref(),
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+
+  mut attempts = 0
+  while not strings::Contains(terminal.frame().text(), "notes") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  let _ = model.control.focus()
+  terminal.flush()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  let _ = model.control.save()
+
+  attempts = 0
+  while model.updates == 0 and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond)
+    attempts =+ 1
+  }
+  terminal.key(character("y"))
+  terminal.flush()
+
+  attempts = 0
+  while model.updates < 2 and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.updates == 2, "a newer draft starts one follow-up save")
+  testing::assert(
+    strings::Contains(model.scratchpad, "x") and strings::Contains(model.scratchpad, "y"),
+    "the follow-up save contains edits made during the first request: {model.scratchpad}",
+  )
+}
+
+test fn failed_initial_load_disables_editing_and_retry_loads_the_record() Void!Str {
+  let terminal = headless::new(72, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    scratchpad: "notes",
+    other: "",
+    loads: 0,
+    updates: 0,
+    closed: false,
+    conflict: false,
+    delay_first_update: false,
+    fail_load: true,
+    control: scratchpad::pane_ref(),
+  }
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+  )
+  defer renderer.destroy()
+
+  mut attempts = 0
+  while not strings::Contains(terminal.frame().text(), "Load failed") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.loads == 1, "the initial load fails once")
+  let _ = model.control.focus()
+  terminal.flush()
+  terminal.key(character("x"))
+  terminal.flush()
+  try testing::assert(model.updates == 0, "an unavailable record cannot be edited or saved")
+
+  terminal.mouse_move(1, 6)
+  terminal.mouse_down(1, 6)
+  terminal.mouse_up(1, 6)
+  attempts = 0
+  while not strings::Contains(terminal.frame().text(), "notes") and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.loads == 2, "Retry repeats the authoritative load")
+  testing::assert(
+    not strings::Contains(terminal.frame().text(), "Load failed"),
+    "the loaded editor replaces the failure state",
   )
 }
