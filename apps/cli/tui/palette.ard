@@ -212,7 +212,7 @@ fn columns(catalog: [Item]) Columns {
   columns.@
 }
 
-fn header(props: Props) [cui::View] {
+fn header(props: Props, focused: Bool?, input_ref: (mut cui::InputRef)?) [cui::View] {
   [
     // A one-cell leading spacer puts the field's text in the label column,
     // aligned with the result rows, as in the vaxis picker search field.
@@ -228,7 +228,9 @@ fn header(props: Props) [cui::View] {
           props.query,
           key: "palette.search",
           placeholder: props.placeholder,
-          autofocus: true,
+          focused: focused,
+          autofocus: focused.is_none(),
+          ref: input_ref,
           styles: ui::style(
             padding: ui::Edges{
               top: ui::cells(0),
@@ -561,7 +563,7 @@ impl cui::Component for Picker {
         placement: modal::Placement::picker,
         title: self.title,
         meta: "",
-        header: header(props),
+        header: header(props, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
         body: body(props, self.viewport_props()),
         footer: footer,
         autofocus: false,
