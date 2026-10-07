@@ -9,13 +9,19 @@ use cooper/ui
 use kit/tui/scratchpad
 use kit/tui/theme
 use go:strings
+use go:time
 
 struct Model {
   record: protocol::Scratchpad?,
   loading: Bool,
   failure: Str,
   retries: Int,
+  updates: Int,
+  closed: Bool,
+  close_tab: Bool,
   other: Str,
+  control: mut scratchpad::PaneRef,
+  context: cui::Context?,
 }
 
 struct Props {
@@ -31,6 +37,14 @@ fn host(props: mut Props) mut Host {
   (mut Host{props: props})
 }
 
+impl cui::Lifecycle for Host {
+  fn mut mounted(context: cui::Context) {
+    self.props.model.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
 impl cui::Component for Host {
   fn mut render() cui::View {
     let model = self.props.model
@@ -42,17 +56,32 @@ impl cui::Component for Host {
             record: model.record,
             loading: model.loading,
             failure: model.failure,
-            retry: fn() Bool {
+            focused: true,
+            update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
+              model.updates =+ 1
+              let saved = protocol::Scratchpad{Content: input.Content, Revision: input.ExpectedRevision + 1}
+              Result::ok(saved)
+            },
+            retry_load: fn() Bool {
               model.retries =+ 1
               true
             },
+            saved: fn(record: protocol::Scratchpad) {
+              model.record = Maybe::new(record)
+            },
+            closed: fn(close_tab: Bool) {
+              model.closed = true
+              model.close_tab = close_tab
+            },
+            notice: fn(title: Str, detail: Str) {},
+            control: model.control,
           },
+          1,
         ),
         cui::input(
           model.other,
           key: "other-input",
           styles: ui::style(flex_shrink: 0.0),
-          autofocus: true,
           on_input: fn(value: Str, context: cui::Context) {
             model.other = value
           },
@@ -81,67 +110,111 @@ fn character(value: Str) mut event::KeyEvent {
   )
 }
 
-fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+fn model(record: protocol::Scratchpad?) mut Model {
+  (mut Model{
+    record: record,
+    loading: false,
+    failure: "",
+    retries: 0,
+    updates: 0,
+    closed: false,
+    close_tab: false,
+    other: "",
+    control: scratchpad::pane_ref(),
+    context: Maybe::new<cui::Context>(),
+  })
+}
+
+fn mount(terminal: headless::TestApp, value: mut Model) cui::Renderer {
   cui::mount(
     cooper::App{context: terminal.context, root: terminal.root},
-    cui::child(host, Props{model: model, themes: theme::context(theme::store(theme::system()))}),
+    cui::child(host, Props{model: value, themes: theme::context(theme::store(theme::system()))}),
   )
 }
 
-test fn scratchpad_is_a_selectable_read_only_document() Void!Str {
+fn wait_for_update(terminal: headless::TestApp, value: mut Model) {
+  mut attempts = 0
+  mut saved = false
+  while not saved and attempts < 100 {
+    terminal.flush()
+    match value.record {
+      record => { saved = record.Content != "shared notes" },
+      _ => (),
+    }
+    time::Sleep(time::Millisecond * 5)
+    attempts =+ 1
+  }
+}
+
+test fn scratchpad_edits_and_autosaves_in_its_own_pane() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
-  let model = mut Model{
-    record: Maybe::new(protocol::Scratchpad{Content: "shared notes"}),
-    loading: false,
-    failure: "",
-    retries: 0,
-    other: "",
-  }
-  let renderer = mount(terminal, model)
+  let value = model(Maybe::new(protocol::Scratchpad{Content: "shared notes", Revision: 1}))
+  let renderer = mount(terminal, value)
   defer renderer.destroy()
   terminal.flush()
 
-  try testing::assert(strings::Contains(terminal.frame().text(), "shared notes"), "content is visible")
+  terminal.key(character("!"))
+  terminal.flush()
+  wait_for_update(terminal, value)
+
+  try testing::assert(value.updates == 1, "one worker autosaves the edited document")
+  try testing::assert(
+    value.record.expect("saved record").Content != "shared notes",
+    "the edit is persisted",
+  )
+  testing::assert(value.other == "", "scratchpad input does not leak to the other input")
+}
+
+test fn scratchpad_adopts_newer_watched_records_when_clean() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model(Maybe::new(protocol::Scratchpad{Content: "original notes", Revision: 1}))
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.record = Maybe::new(protocol::Scratchpad{Content: "remote notes", Revision: 2})
+  })
+  terminal.flush()
+
   testing::assert(
-    strings::Contains(terminal.frame().text(), "Read-only"),
-    "the surface identifies its read-only behavior",
+    strings::Contains(terminal.frame().text(), "remote notes"),
+    "a clean editor adopts the latest watched record",
   )
 }
 
-test fn scratchpad_does_not_reclaim_focus_from_the_composer() Void!Str {
+test fn scratchpad_close_flushes_before_requesting_unmount() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
-  let model = mut Model{
-    record: Maybe::new(protocol::Scratchpad{Content: "shared notes"}),
-    loading: false,
-    failure: "",
-    retries: 0,
-    other: "",
-  }
-  let renderer = mount(terminal, model)
+  let value = model(Maybe::new(protocol::Scratchpad{Content: "notes", Revision: 1}))
+  let renderer = mount(terminal, value)
   defer renderer.destroy()
   terminal.flush()
 
-  terminal.key(character("a"))
+  terminal.key(character("!"))
   terminal.flush()
-  terminal.key(character("b"))
-  terminal.flush()
+  try testing::assert(value.control.close(true), "the mounted pane accepts a close request")
+  try testing::assert(value.control.close(true), "a repeated close is handled idempotently")
+  mut attempts = 0
+  while not value.closed and attempts < 100 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
 
-  testing::assert(model.other == "ab", "the composer keeps keyboard focus: {model.other}")
+  try testing::assert(value.updates == 1, "close flushes one pending draft")
+  testing::assert(value.closed and value.close_tab, "unmount is requested only after save succeeds")
 }
 
 test fn scratchpad_loading_state_is_explicit() Void!Str {
   let terminal = headless::new(72, 8)
   defer terminal.destroy()
-  let model = mut Model{
-    record: Maybe::new<protocol::Scratchpad>(),
-    loading: true,
-    failure: "",
-    retries: 0,
-    other: "",
-  }
-  let renderer = mount(terminal, model)
+  let value = model(Maybe::new<protocol::Scratchpad>())
+  value.loading = true
+  let renderer = mount(terminal, value)
   defer renderer.destroy()
   terminal.flush()
   testing::assert(
@@ -153,14 +226,9 @@ test fn scratchpad_loading_state_is_explicit() Void!Str {
 test fn scratchpad_failure_invokes_retry() Void!Str {
   let terminal = headless::new(72, 8)
   defer terminal.destroy()
-  let model = mut Model{
-    record: Maybe::new<protocol::Scratchpad>(),
-    loading: false,
-    failure: "temporarily unavailable",
-    retries: 0,
-    other: "",
-  }
-  let renderer = mount(terminal, model)
+  let value = model(Maybe::new<protocol::Scratchpad>())
+  value.failure = "temporarily unavailable"
+  let renderer = mount(terminal, value)
   defer renderer.destroy()
   terminal.flush()
   try testing::assert(strings::Contains(terminal.frame().text(), "Load failed"), "failure is visible")
@@ -168,5 +236,5 @@ test fn scratchpad_failure_invokes_retry() Void!Str {
   terminal.mouse_down(1, 1)
   terminal.mouse_up(1, 1)
   terminal.flush()
-  testing::assert(model.retries == 1, "the failure surface invokes retry")
+  testing::assert(value.retries == 1, "the failure surface invokes retry")
 }

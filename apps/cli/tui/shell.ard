@@ -359,6 +359,8 @@ struct Shell {
   context: cui::Context?,
   lifetime: contextbridge::Cancellation?,
   attachment_lifetime: contextbridge::Cancellation?,
+  pending_attachment: bootstrap::Attached?,
+  pending_attachment_location: Str,
   // Identifies the current client-side scope for session streams and requests.
   // Reattaching the same durable session creates a new scope.
   session_scope_id: Int,
@@ -398,6 +400,7 @@ struct Shell {
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
+  scratchpad_control: mut scratchpad::PaneRef,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -447,6 +450,8 @@ fn new(props: mut Props) mut Shell {
     context: Maybe::new<cui::Context>(),
     lifetime: Maybe::new<contextbridge::Cancellation>(),
     attachment_lifetime: Maybe::new<contextbridge::Cancellation>(),
+    pending_attachment: Maybe::new<bootstrap::Attached>(),
+    pending_attachment_location: "",
     session_scope_id: 0,
     session: Maybe::new<mut api::Session>(),
     info: Maybe::new<protocol::SessionInfo>(),
@@ -501,6 +506,7 @@ fn new(props: mut Props) mut Shell {
     scratchpad_record: Maybe::new<protocol::Scratchpad>(),
     scratchpad_loading: false,
     scratchpad_failure: "",
+    scratchpad_control: scratchpad::pane_ref(),
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -1132,9 +1138,8 @@ impl Shell {
       children.push(self.workspace_tabs())
       children.push(divider(colors.border))
     }
-    // Keep the transcript surface mounted while Scratchpad is active. Replacing
-    // a large retained transcript on every workspace switch makes opening and
-    // closing Scratchpad progressively degrade the whole renderer.
+    // Keep the transcript retained so workspace switches preserve its virtual
+    // list anchor, selection, and already-parsed message surfaces.
     children.push(
       cui::box(
         [self.transcript_region()],
@@ -1151,31 +1156,63 @@ impl Shell {
     if self.scratchpad_open and self.workspace == WorkspacePane::scratchpad {
       children.push(
         cui::box(
-          [
-            scratchpad::pane(
-              scratchpad::Props{
-                themes: self.props.themes,
-                record: self.scratchpad_record,
-                loading: self.scratchpad_loading,
-                failure: self.scratchpad_failure,
-                retry: fn() Bool {
-                  self.retry_scratchpad()
-                },
-              },
-            ),
-          ],
+          [self.scratchpad_view()],
           key: "scratchpad-workspace",
           styles: ui::style(flex_grow: 1.0),
         ),
       )
     }
-    children.push(self.pending_row())
+    // Agent activity can change height as streamed follow-ups arrive. Keep it
+    // out of Scratchpad so those updates cannot resize the focused editor and
+    // force its cursor back into view.
+    if self.workspace == WorkspacePane::agent {
+      children.push(self.pending_row())
+    }
     children.push(divider(colors.border))
     children.push(self.composer_view())
     cui::box(
       children.@,
       styles: ui::style(flex_grow: 1.0, flex_direction: ui::FlexDirection::column),
     )
+  }
+
+  fn mut scratchpad_view() cui::View {
+    match self.attachment_lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            scratchpad::pane(
+              scratchpad::Props{
+                themes: self.props.themes,
+                record: self.scratchpad_record,
+                loading: self.scratchpad_loading,
+                failure: self.scratchpad_failure,
+                focused: self.active_modal == ActiveModal::none,
+                update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
+                  session.UpdateScratchpad(lifetime.Context, input)
+                },
+                retry_load: fn() Bool {
+                  self.retry_scratchpad()
+                },
+                saved: fn(record: protocol::Scratchpad) {
+                  self.apply_scratchpad_saved(record)
+                },
+                closed: fn(close_tab: Bool) {
+                  self.apply_scratchpad_closed(close_tab)
+                },
+                notice: fn(title: Str, detail: Str) {
+                  self.apply_scratchpad_notice(title, detail)
+                },
+                control: self.scratchpad_control,
+              },
+              self.session_scope_id,
+            )
+          },
+          _ => cui::box([], styles: ui::style(flex_grow: 1.0)),
+        }
+      },
+      _ => cui::box([], styles: ui::style(flex_grow: 1.0)),
+    }
   }
 
   // The tab strip is host chrome. Pane bodies never repeat their title or
@@ -1389,7 +1426,7 @@ impl Shell {
       placeholder: "Ask kit to do something…",
       placeholder_style: ui::text_style(foreground: colors.muted),
       selection_style: theme::selection_style(colors),
-      focused: self.active_modal == ActiveModal::none,
+      focused: self.active_modal == ActiveModal::none and self.workspace == WorkspacePane::agent,
       on_input: fn(value: Str, ctx: cui::Context) {
         self.composer = value
       },
@@ -2767,6 +2804,15 @@ impl Shell {
 // the UI thread.
 impl Shell {
   fn mut attach(attached: bootstrap::Attached, location: Str) {
+    if self.workspace == WorkspacePane::scratchpad and self.scratchpad_control.close(false) {
+      self.pending_attachment = Maybe::new(attached)
+      self.pending_attachment_location = location
+    } else {
+      self.attach_now(attached, location)
+    }
+  }
+
+  private fn mut attach_now(attached: bootstrap::Attached, location: Str) {
     match self.attachment_lifetime {
       current => current.Cancel(),
       _ => (),
@@ -2786,6 +2832,8 @@ impl Shell {
   // Starts a fresh client-side scope for one attached-session lifetime. This
   // invalidates queued work even when the same durable session is reattached.
   private fn mut begin_session_scope() {
+    self.pending_attachment = Maybe::new<bootstrap::Attached>()
+    self.pending_attachment_location = ""
     self.session_scope_id = self.session_scope_id + 1
     self.run_id = ""
     self.live.reset()
@@ -2807,6 +2855,7 @@ impl Shell {
     self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
     self.scratchpad_loading = false
     self.scratchpad_failure = ""
+    self.scratchpad_control = scratchpad::pane_ref()
   }
 
   // Streams server-owned plugin notifications through the reconnecting public
@@ -3160,6 +3209,10 @@ impl Shell {
     let events = sessionbridge::Events(mut batch)
     for event in events {
       let kind = transcript::classify(event.Kind)
+      if event.Kind == "scratchpad.changed" and not unsafe::is_nil(event.Scratchpad) {
+        self.scratchpad_record = Maybe::new(event.Scratchpad.@)
+        self.scratchpad_failure = ""
+      }
       if kind == transcript::Event::run_started {
         self.claim_run(event.TurnID)
       }
@@ -3311,15 +3364,17 @@ impl Shell {
     }
   }
 
-  // Cache one read-only session snapshot in Shell. The pane itself is a static
-  // view and does not exist in the CUI tree while Agent is active.
+  // Cache the authoritative record in Shell while the active pane owns its
+  // draft, serialized autosave worker, and save-before-unmount handshake.
   fn mut open_scratchpad() {
     self.scratchpad_open = true
     self.show_scratchpad_workspace()
   }
 
   fn mut show_agent_workspace() {
-    self.workspace = WorkspacePane::agent
+    if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(false) {
+      self.workspace = WorkspacePane::agent
+    }
   }
 
   fn mut show_scratchpad_workspace() {
@@ -3328,8 +3383,55 @@ impl Shell {
   }
 
   fn mut close_scratchpad() {
-    self.workspace = WorkspacePane::agent
-    self.scratchpad_open = false
+    if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(true) {
+      self.workspace = WorkspacePane::agent
+      self.scratchpad_open = false
+    }
+  }
+
+  fn mut apply_scratchpad_saved(record: protocol::Scratchpad) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.scratchpad_record = Maybe::new(record)
+          self.scratchpad_failure = ""
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_scratchpad_closed(close_tab: Bool) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          match self.pending_attachment {
+            attached => {
+              let location = self.pending_attachment_location
+              self.attach_now(attached, location)
+            },
+            _ => {
+              self.workspace = WorkspacePane::agent
+              if close_tab {
+                self.scratchpad_open = false
+              }
+            },
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_scratchpad_notice(title: Str, detail: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.show_toast(title, detail, toast::Variant::error, true)
+        })
+      },
+      _ => (),
+    }
   }
 
   fn mut retry_scratchpad() Bool {
