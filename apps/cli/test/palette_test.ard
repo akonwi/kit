@@ -213,7 +213,7 @@ impl cui::Component for Host {
     }
     let navigation = palette::navigation(picker)
     let children = mut List::new<cui::View>()
-    for view in palette::header(picker) {
+    for view in palette::header(picker, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()) {
       children.push(view)
     }
     children.push(palette::body(picker, self.viewport()))

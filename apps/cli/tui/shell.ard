@@ -430,7 +430,7 @@ struct Shell {
   toasts: [toast::Item],
   toast_next_id: Int,
   picker_list: mut cui::VirtualListRef,
-  composer_area: mut cui::TextAreaRef,
+  command_search: mut cui::InputRef,
   connect_button: mut cui::BoxRef,
   list: mut cui::VirtualListRef,
 }
@@ -533,7 +533,7 @@ fn new(props: mut Props) mut Shell {
     toasts: [],
     toast_next_id: 0,
     picker_list: cui::virtual_list_ref(),
-    composer_area: cui::text_area_ref(),
+    command_search: cui::input_ref(),
     connect_button: cui::box_ref(),
     list: cui::virtual_list_ref(),
   })
@@ -1390,7 +1390,6 @@ impl Shell {
       placeholder_style: ui::text_style(foreground: colors.muted),
       selection_style: theme::selection_style(colors),
       focused: self.active_modal == ActiveModal::none,
-      ref: self.composer_area,
       on_input: fn(value: Str, ctx: cui::Context) {
         self.composer = value
       },
@@ -1621,6 +1620,13 @@ impl Shell {
       self.command_hidden_above = false
       self.command_hidden_below = false
       self.active_modal = ActiveModal::command_palette
+      match self.context {
+        context => {
+          let search = self.command_search
+          let _ = search.focus(context)
+        },
+        _ => (),
+      }
     }
     true
   }
@@ -1685,13 +1691,6 @@ impl Shell {
       (context.internal_commit)(
         fn() {
           connect.focus(context)
-        },
-      )
-    } else if self.phase == Phase::ready {
-      let composer = self.composer_area
-      (context.internal_commit)(
-        fn() {
-          composer.focus(context)
         },
       )
     }
@@ -2561,7 +2560,7 @@ impl Shell {
         placement: modal::Placement::picker,
         title: "",
         meta: "",
-        header: palette::header(picker),
+        header: palette::header(picker, Maybe::new(true), Maybe::new(self.command_search)),
         body: palette::body(picker, self.command_picker_viewport()),
         footer: Maybe::new(
           cui::box(
@@ -2709,7 +2708,7 @@ impl Shell {
         placement: modal::Placement::picker,
         title: "Connect a provider",
         meta: "",
-        header: palette::header(picker),
+        header: palette::header(picker, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
         body: palette::body(picker, self.picker_viewport()),
         footer: footer,
         autofocus: false,
