@@ -1,113 +1,575 @@
+use ard/async
+use ard/unsafe
+
+use go:api
 use go:api/contract as protocol
 use cooper/cui
 use cooper/event
+use cooper/keymap
 use cooper/ui
 use kit/tui/theme
+use go:time
 
-// Props projects the Shell's session-scoped read-only snapshot into a purely
-// presentational pane. No Scratchpad component remains mounted while inactive.
+struct Edit {
+  generation: Int,
+  content: Str,
+}
+
+struct Flush {
+  generation: Int,
+  content: Str,
+  close_after: Bool,
+  close_tab: Bool,
+}
+
+// PaneRef is the Shell's narrow save-before-unmount control surface.
+struct PaneRef {
+  save_action: (fn() Bool)?,
+  close_action: (fn(Bool) Bool)?,
+}
+
+fn pane_ref() mut PaneRef {
+  (mut PaneRef{save_action: Maybe::new<fn() Bool>(), close_action: Maybe::new<fn(Bool) Bool>()})
+}
+
+impl PaneRef {
+  fn mut save() Bool {
+    match self.save_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  fn mut close(close_tab: Bool) Bool {
+    match self.close_action {
+      action => action(close_tab),
+      _ => false,
+    }
+  }
+}
+
 struct Props {
   themes: theme::Context,
   record: protocol::Scratchpad?,
   loading: Bool,
   failure: Str,
-  retry: fn() Bool,
+  focused: Bool,
+  update: fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error,
+  retry_load: fn() Bool,
+  saved: fn(protocol::Scratchpad),
+  closed: fn(Bool),
+  notice: fn(Str, Str),
+  control: mut PaneRef,
 }
 
-fn pane(props: Props) cui::View {
+struct EditorProps {
+  themes: theme::Context,
+  record: protocol::Scratchpad,
+  focused: Bool,
+  update: fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error,
+  saved: fn(protocol::Scratchpad),
+  closed: fn(Bool),
+  notice: fn(Str, Str),
+  control: mut PaneRef,
+}
+
+struct Editor {
+  props: mut EditorProps,
+  context: cui::Context?,
+  editor: mut cui::TextAreaRef,
+  draft: Str,
+  record: protocol::Scratchpad,
+  generation: Int,
+  saved_generation: Int,
+  saving: Bool,
+  closing: Bool,
+  failure: Str,
+  edits: Chan<Edit>,
+  flushes: Chan<Flush>,
+  remotes: Chan<protocol::Scratchpad>,
+}
+
+// pane materializes the stateful editor only while Shell shows Scratchpad.
+fn pane(props: Props, scope_id: Int) cui::View {
   let colors = props.themes.current()
   if props.loading {
     cui::box(
       [cui::text("Loading scratchpad…", text_style: ui::text_style(foreground: colors.muted))],
-      styles: ui::style(
-        flex_grow: 1.0,
-        padding: ui::Edges{
-          top: ui::cells(1),
-          right: ui::cells(1),
-          bottom: ui::cells(1),
-          left: ui::cells(1),
-        },
-      ),
+      styles: padded(),
     )
   } else {
     match props.record {
       record => {
-        cui::box(
-          [
-            cui::scroll_box(
-              // Scratchpad is pointer-scrollable but never participates in
-              // keyboard focus; the Composer remains the sole input owner.
-              [
-                cui::text(
-                  record.Content,
-                  selectable: true,
-                  selection_style: theme::selection_style(colors),
-                  styles: ui::style(width: ui::percent(100.0), flex_shrink: 0.0),
-                ),
-              ],
-              key: "scratchpad-scroll",
-              focusable: false,
-              styles: ui::style(
-                width: ui::percent(100.0),
-                flex_grow: 1.0,
-                flex_basis: ui::cells(0),
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(1),
-                  bottom: ui::cells(0),
-                  left: ui::cells(1),
-                },
-              ),
-            ),
-            cui::text(
-              "Read-only",
-              styles: ui::style(
-                flex_shrink: 0.0,
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(1),
-                  bottom: ui::cells(0),
-                  left: ui::cells(1),
-                },
-              ),
-              text_style: ui::text_style(foreground: colors.muted),
-            ),
-          ],
-          styles: ui::style(
-            width: ui::percent(100.0),
-            flex_grow: 1.0,
-            flex_direction: ui::FlexDirection::column,
-            overflow: ui::Overflow::hidden,
-          ),
+        cui::child(
+          new_editor,
+          EditorProps{
+            themes: props.themes,
+            record: record,
+            focused: props.focused,
+            update: props.update,
+            saved: props.saved,
+            closed: props.closed,
+            notice: props.notice,
+            control: props.control,
+          },
+          key: "scratchpad-editor:{scope_id}",
         )
       },
-      _ => {
+      _ => failure_view(props, colors),
+    }
+  }
+}
+
+private fn padded() ui::Style {
+  ui::style(
+    flex_grow: 1.0,
+    padding: ui::Edges{
+      top: ui::cells(1),
+      right: ui::cells(1),
+      bottom: ui::cells(1),
+      left: ui::cells(1),
+    },
+  )
+}
+
+private fn failure_view(props: Props, colors: theme::Theme) cui::View {
+  cui::box(
+    [
+      cui::text(
+        "Load failed: {props.failure}",
+        text_style: ui::text_style(foreground: colors.danger_text),
+      ),
+      cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
+    ],
+    styles: padded(),
+    on_mouse: fn(mouse: mut event::MouseEvent, context: cui::Context) {
+      if mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
+        let _ = props.retry_load()
+        mouse.prevent_default()
+      }
+    },
+  )
+}
+
+private fn new_editor(props: mut EditorProps) mut Editor {
+  (mut Editor{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    editor: cui::text_area_ref(),
+    draft: props.record.Content,
+    record: props.record,
+    generation: 0,
+    saved_generation: 0,
+    saving: false,
+    closing: false,
+    failure: "",
+    edits: Chan::new<Edit>(1),
+    flushes: Chan::new<Flush>(1),
+    remotes: Chan::new<protocol::Scratchpad>(1),
+  })
+}
+
+impl cui::Lifecycle for Editor {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    self.props.control.save_action = Maybe::new(fn() Bool {
+      self.request_save()
+    })
+    self.props.control.close_action = Maybe::new(fn(close_tab: Bool) Bool {
+      self.request_close(close_tab)
+    })
+    self.start_worker(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    self.props.control.save_action = Maybe::new<fn() Bool>()
+    self.props.control.close_action = Maybe::new<fn(Bool) Bool>()
+  }
+}
+
+impl Editor {
+  private fn mut change(value: Str) {
+    if not self.closing and self.draft != value {
+      self.draft = value
+      self.failure = ""
+      self.generation =+ 1
+      offer_edit(self.edits, Edit{generation: self.generation, content: value})
+    }
+  }
+
+  private fn mut request_save() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.failure = ""
+          offer_flush(
+            self.flushes,
+            Flush{
+              generation: self.generation,
+              content: self.draft,
+              close_after: false,
+              close_tab: false,
+            },
+          )
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_close(close_tab: Bool) Bool {
+    if self.closing {
+      true
+    } else {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            if not self.closing {
+              self.closing = true
+              self.failure = ""
+              offer_flush(
+                self.flushes,
+                Flush{
+                  generation: self.generation,
+                  content: self.draft,
+                  close_after: true,
+                  close_tab: close_tab,
+                },
+              )
+            }
+          })
+          true
+        },
+        _ => false,
+      }
+    }
+  }
+
+  private fn mut start_worker(context: cui::Context) {
+    let edits = self.edits
+    let flushes = self.flushes
+    let remotes = self.remotes
+    let cancellation = context.cancellation
+    let dispatch = context.dispatch
+    let update = self.props.update
+    async::start(fn() {
+      mut record = self.record
+      mut latest = Edit{generation: 0, content: record.Content}
+      mut saved_generation = 0
+      mut running = true
+      mut pending = false
+      mut close_after = false
+      mut close_tab = false
+      while running {
+        mut save_now = false
+        if pending {
+          select {
+            let received = edits.recv() => {
+              match received {
+                edit => {
+                  if edit.generation > latest.generation {
+                    latest = edit
+                  }
+                },
+                _ => { running = false },
+              }
+            },
+            let received = flushes.recv() => {
+              match received {
+                flush => {
+                  if flush.generation >= latest.generation {
+                    latest = Edit{generation: flush.generation, content: flush.content}
+                  }
+                  close_after = flush.close_after
+                  close_tab = flush.close_tab
+                  save_now = true
+                },
+                _ => { running = false },
+              }
+            },
+            let received = remotes.recv() => {
+              match received {
+                remote => {
+                  if remote.Revision > record.Revision {
+                    record = remote
+                  }
+                },
+                _ => { running = false },
+              }
+            },
+            cancellation.recv() => { running = false },
+            time::After(time::Millisecond * 250).recv() => { save_now = true },
+          }
+        } else {
+          select {
+            let received = edits.recv() => {
+              match received {
+                edit => {
+                  latest = edit
+                  pending = true
+                },
+                _ => { running = false },
+              }
+            },
+            let received = flushes.recv() => {
+              match received {
+                flush => {
+                  latest = Edit{generation: flush.generation, content: flush.content}
+                  close_after = flush.close_after
+                  close_tab = flush.close_tab
+                  pending = true
+                  save_now = true
+                },
+                _ => { running = false },
+              }
+            },
+            let received = remotes.recv() => {
+              match received {
+                remote => {
+                  if remote.Revision > record.Revision {
+                    record = remote
+                  }
+                },
+                _ => { running = false },
+              }
+            },
+            cancellation.recv() => { running = false },
+          }
+        }
+        if running and save_now {
+          if latest.generation <= saved_generation or latest.content == record.Content {
+            saved_generation = latest.generation
+            pending = false
+            let should_close = close_after
+            let closing_tab = close_tab
+            let completed_generation = saved_generation
+            close_after = false
+            let _ = dispatch(fn() {
+              self.saved_generation = completed_generation
+              self.saving = false
+              if should_close {
+                (self.props.closed)(closing_tab)
+              }
+            })
+          } else {
+            let saving_generation = latest.generation
+            let saving_content = latest.content
+            let should_close = close_after
+            let closing_tab = close_tab
+            close_after = false
+            let _ = dispatch(fn() {
+              self.saving = true
+            })
+            let result = update(
+              protocol::UpdateScratchpadInput{ExpectedRevision: record.Revision, Content: saving_content},
+            )
+            match result {
+              ok(saved) => {
+                record = saved
+                saved_generation = saving_generation
+                pending = latest.generation > saved_generation
+                let _ = dispatch(fn() {
+                  self.record = saved
+                  self.saved_generation = saving_generation
+                  self.saving = false
+                  self.failure = ""
+                  (self.props.saved)(saved)
+                  if should_close and self.generation == saving_generation {
+                    (self.props.closed)(closing_tab)
+                  }
+                })
+              },
+              err(failure) => {
+                match conflict_record(failure) {
+                  authoritative => { record = authoritative },
+                  _ => (),
+                }
+                pending = false
+                let authoritative = record
+                let message = conflict_message(failure)
+                let _ = dispatch(fn() {
+                  self.record = authoritative
+                  self.saving = false
+                  self.closing = false
+                  self.failure = message
+                  (self.props.notice)("Scratchpad save failed", message)
+                })
+              },
+            }
+          }
+        }
+      }
+    })
+  }
+}
+
+impl cui::Component for Editor {
+  fn mut render() cui::View {
+    if self.props.record.Revision > self.record.Revision {
+      let remote = self.props.record
+      let clean = self.generation == self.saved_generation
+      self.record = remote
+      if clean {
+        let cursor = self.editor.cursor()
+        self.draft = remote.Content
+        match cursor {
+          offset => {
+            match self.context {
+              context => {
+                let editor = self.editor
+                let mapped = match offset > remote.Content.size() {
+                  true => remote.Content.size(),
+                  false => offset,
+                }
+                let _ = editor.set_cursor(context, mapped)
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      }
+      offer_remote(self.remotes, remote)
+    }
+    let colors = self.props.themes.current()
+    let save = keymap::simple_command("scratchpad.save", "Save Scratchpad", fn() Bool {
+      self.request_save()
+    })
+    let children = mut List::new<cui::View>()
+    children.push(
+      cui::text_area(
+        self.draft,
+        key: "scratchpad-editor",
+        focused: self.props.focused and not self.closing,
+        styles: ui::style(
+          width: ui::percent(100.0),
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(1),
+            bottom: ui::cells(0),
+            left: ui::cells(1),
+          },
+        ),
+        placeholder: "Shared working notes…",
+        selection_style: theme::selection_style(colors),
+        ref: self.editor,
+        on_input: fn(value: Str, context: cui::Context) {
+          self.change(value)
+        },
+        commands: [save],
+        bindings: [keymap::binding(keymap::key("s", ctrl: true), save.with())],
+      ),
+    )
+    if self.failure != "" {
+      children.push(
         cui::box(
           [
-            cui::text(
-              "Load failed: {props.failure}",
-              text_style: ui::text_style(foreground: colors.danger_text),
-            ),
+            cui::text("Save failed: {self.failure}", text_style: ui::text_style(foreground: colors.danger_text)),
+            cui::box([], styles: ui::style(flex_grow: 1.0)),
             cui::text("Retry", text_style: ui::text_style(foreground: colors.foreground, bold: true)),
           ],
           styles: ui::style(
-            flex_grow: 1.0,
-            flex_direction: ui::FlexDirection::column,
+            flex_shrink: 0.0,
+            flex_direction: ui::FlexDirection::row,
             padding: ui::Edges{
-              top: ui::cells(1),
+              top: ui::cells(0),
               right: ui::cells(1),
-              bottom: ui::cells(1),
+              bottom: ui::cells(0),
               left: ui::cells(1),
             },
           ),
           on_mouse: fn(mouse: mut event::MouseEvent, context: cui::Context) {
             if mouse.event_type == event::MouseEventType::up and mouse.button == event::MouseButton::left {
-              let _ = props.retry()
+              let _ = self.request_save()
               mouse.prevent_default()
             }
           },
-        )
-      },
+        ),
+      )
     }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        width: ui::percent(100.0),
+        flex_grow: 1.0,
+        flex_direction: ui::FlexDirection::column,
+        overflow: ui::Overflow::hidden,
+      ),
+    )
+  }
+}
+
+private fn offer_edit(channel: Chan<Edit>, edit: Edit) {
+  select {
+    channel.send(edit) => (),
+    _ => {
+      select {
+        channel.recv() => (),
+        _ => (),
+      }
+      select {
+        channel.send(edit) => (),
+        _ => (),
+      }
+    },
+  }
+}
+
+private fn offer_remote(channel: Chan<protocol::Scratchpad>, record: protocol::Scratchpad) {
+  select {
+    channel.send(record) => (),
+    _ => {
+      select {
+        channel.recv() => (),
+        _ => (),
+      }
+      select {
+        channel.send(record) => (),
+        _ => (),
+      }
+    },
+  }
+}
+
+private fn offer_flush(channel: Chan<Flush>, flush: Flush) {
+  select {
+    channel.send(flush) => (),
+    _ => {
+      select {
+        channel.recv() => (),
+        _ => (),
+      }
+      select {
+        channel.send(flush) => (),
+        _ => (),
+      }
+    },
+  }
+}
+
+private fn conflict_record(failure: Error) protocol::Scratchpad? {
+  match unsafe::cast<mut api::ServerError>(failure) {
+    server_error => {
+      match unsafe::cast<protocol::ScratchpadErrorDetails>(server_error.Details) {
+        details => {
+          match unsafe::is_nil(details.Scratchpad) {
+            true => Maybe::new<protocol::Scratchpad>(),
+            false => Maybe::new(details.Scratchpad.@),
+          }
+        },
+        _ => Maybe::new<protocol::Scratchpad>(),
+      }
+    },
+    _ => Maybe::new<protocol::Scratchpad>(),
+  }
+}
+
+private fn conflict_message(failure: Error) Str {
+  match conflict_record(failure) {
+    record => "Scratchpad changed elsewhere. Retry to replace it with your local notes.",
+    _ => failure.error(),
   }
 }
