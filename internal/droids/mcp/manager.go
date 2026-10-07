@@ -22,7 +22,6 @@ const (
 	defaultMaxResults     = 20
 	defaultMaxTools       = 1000
 	defaultMaxSchemaBytes = 256 << 10
-	defaultMaxResultBytes = 4 << 20
 	maxToolNameLength     = 64
 )
 
@@ -57,9 +56,6 @@ type Server struct {
 	MaxTools int
 	// MaxSchemaBytes bounds a schema returned by describe. Defaults to 256 KiB.
 	MaxSchemaBytes int
-	// MaxResultBytes bounds converted model-visible content and structured output
-	// from one remote call. Defaults to 4 MiB.
-	MaxResultBytes int
 }
 
 // Manager owns lazy MCP connections and exposes one droids tool per server.
@@ -122,9 +118,6 @@ func NewManager(servers ...Server) (*Manager, error) {
 		}
 		if server.MaxSchemaBytes <= 0 {
 			server.MaxSchemaBytes = defaultMaxSchemaBytes
-		}
-		if server.MaxResultBytes <= 0 {
-			server.MaxResultBytes = defaultMaxResultBytes
 		}
 		lifetime, cancel := context.WithCancel(context.Background())
 		m.namespaces = append(m.namespaces, &namespace{
@@ -650,7 +643,7 @@ func (ns *namespace) call(ctx context.Context, name string, arguments map[string
 		}
 		return droids.ToolResult{}, fmt.Errorf("call MCP tool %s.%s: %w", ns.config.Name, name, err)
 	}
-	return convertCallResult(ns.config.Name, name, result, ns.config.MaxResultBytes)
+	return convertCallResult(ns.config.Name, name, result)
 }
 
 func (ns *namespace) logout(ctx context.Context) error {

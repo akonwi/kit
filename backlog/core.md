@@ -7,8 +7,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [ ] CORE-LIFE-002 — Bound MCP transport reads before result conversion so an
-  oversized server response fails closed instead of buffering without a limit.
 - [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
   leaking credentials or protocol output.
 - [ ] CORE-LIFE-004 — Meet documented cold-start and warm-attach acceptance

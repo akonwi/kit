@@ -15,7 +15,7 @@ func TestConvertCallResult(t *testing.T) {
 		},
 		StructuredContent: map[string]any{"id": "abc"},
 		IsError:           true,
-	}, defaultMaxResultBytes)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -31,19 +31,10 @@ func TestConvertCallResult(t *testing.T) {
 	}
 }
 
-func TestConvertCallResultRejectsOversizedContent(t *testing.T) {
-	_, err := convertCallResult("data", "large", &sdkmcp.CallToolResult{
-		Content: []sdkmcp.Content{&sdkmcp.TextContent{Text: "too large"}},
-	}, 3)
-	if err == nil {
-		t.Fatal("oversized result was accepted")
-	}
-}
-
 func TestConvertCallResultFallsBackToStructuredContent(t *testing.T) {
 	result, err := convertCallResult("data", "get", &sdkmcp.CallToolResult{
 		StructuredContent: map[string]any{"ok": true},
-	}, defaultMaxResultBytes)
+	})
 	if err != nil {
 		t.Fatal(err)
 	}
