@@ -395,7 +395,9 @@ struct Shell {
   terminal_theme: cooper::Theme,
   workspace: WorkspacePane,
   scratchpad_open: Bool,
-  scratchpad_control: mut scratchpad::PaneRef,
+  scratchpad_record: protocol::Scratchpad?,
+  scratchpad_loading: Bool,
+  scratchpad_failure: Str,
   compact_pending: Bool,
   compact_operation_id: Str,
   abort_pending: Bool,
@@ -496,7 +498,9 @@ fn new(props: mut Props) mut Shell {
     terminal_theme: ctheme::default(),
     workspace: WorkspacePane::agent,
     scratchpad_open: false,
-    scratchpad_control: scratchpad::pane_ref(),
+    scratchpad_record: Maybe::new<protocol::Scratchpad>(),
+    scratchpad_loading: false,
+    scratchpad_failure: "",
     compact_pending: false,
     compact_operation_id: "",
     abort_pending: false,
@@ -1128,9 +1132,13 @@ impl Shell {
       children.push(self.workspace_tabs())
       children.push(divider(colors.border))
     }
+    // Keep the transcript surface mounted while Scratchpad is active. Replacing
+    // a large retained transcript on every workspace switch makes opening and
+    // closing Scratchpad progressively degrade the whole renderer.
     children.push(
       cui::box(
         [self.transcript_region()],
+        key: "agent-workspace",
         styles: ui::style(
           flex_grow: 1.0,
           display: match self.workspace == WorkspacePane::agent {
@@ -1140,51 +1148,26 @@ impl Shell {
         ),
       ),
     )
-    if self.scratchpad_open {
-      match self.session {
-        session => {
-          match self.attachment_lifetime {
-            lifetime => {
-              let context = lifetime.Context
-              children.push(
-                cui::box(
-                  [
-                    scratchpad::pane(
-                      scratchpad::Props{
-                        themes: self.props.themes,
-                        active: self.workspace == WorkspacePane::scratchpad,
-                        load: fn() protocol::Scratchpad!Error {
-                          session.Scratchpad(context)
-                        },
-                        update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
-                          session.UpdateScratchpad(context, input)
-                        },
-                        control: self.scratchpad_control,
-                        closed: fn() {
-                          self.apply_scratchpad_closed()
-                        },
-                        notice: fn(title: Str, detail: Str) {
-                          self.apply_scratchpad_notice(title, detail)
-                        },
-                      },
-                      self.session_scope_id,
-                    ),
-                  ],
-                  styles: ui::style(
-                    flex_grow: 1.0,
-                    display: match self.workspace == WorkspacePane::scratchpad {
-                      true => ui::Display::flex,
-                      false => ui::Display::none,
-                    },
-                  ),
-                ),
-              )
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
+    if self.scratchpad_open and self.workspace == WorkspacePane::scratchpad {
+      children.push(
+        cui::box(
+          [
+            scratchpad::pane(
+              scratchpad::Props{
+                themes: self.props.themes,
+                record: self.scratchpad_record,
+                loading: self.scratchpad_loading,
+                failure: self.scratchpad_failure,
+                retry: fn() Bool {
+                  self.retry_scratchpad()
+                },
+              },
+            ),
+          ],
+          key: "scratchpad-workspace",
+          styles: ui::style(flex_grow: 1.0),
+        ),
+      )
     }
     children.push(self.pending_row())
     children.push(divider(colors.border))
@@ -1398,13 +1381,15 @@ impl Shell {
       composer_bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
     }
     cui::text_area(
+      // The Composer remains mounted behind dialogs, but must not compete with
+      // their search fields for focus during a Shell reconciliation.
       self.composer,
       key: "composer",
       styles: ui::style(flex_shrink: 0.0, max_height: ui::cells(10), padding: inset()),
       placeholder: "Ask kit to do something…",
       placeholder_style: ui::text_style(foreground: colors.muted),
       selection_style: theme::selection_style(colors),
-      autofocus: true,
+      focused: self.active_modal == ActiveModal::none,
       ref: self.composer_area,
       on_input: fn(value: Str, ctx: cui::Context) {
         self.composer = value
@@ -2820,7 +2805,9 @@ impl Shell {
     self.shown_mcp_warnings = []
     self.workspace = WorkspacePane::agent
     self.scratchpad_open = false
-    self.scratchpad_control = scratchpad::pane_ref()
+    self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+    self.scratchpad_loading = false
+    self.scratchpad_failure = ""
   }
 
   // Streams server-owned plugin notifications through the reconnecting public
@@ -2918,6 +2905,17 @@ impl Shell {
       self.context_tokens = snapshot.ContextTokens
       self.context_window = snapshot.ContextWindow
       self.usage = snapshot.Usage
+      // The attached session snapshot already carries the authoritative
+      // Scratchpad. Reuse it instead of issuing a second request when the pane
+      // opens; that request mutates the public Session cache while its watch is
+      // active and adds avoidable renderer work to a workspace transition.
+      if unsafe::is_nil(snapshot.Scratchpad) {
+        self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+      } else {
+        self.scratchpad_record = Maybe::new(snapshot.Scratchpad.@)
+      }
+      self.scratchpad_loading = false
+      self.scratchpad_failure = ""
       // A settled authoritative snapshot releases idle-only palette commands
       // even when a terminal stream event was missed during reconnection.
       if snapshot.ActiveTurnID == "" and self.live.activity == "" {
@@ -3314,74 +3312,79 @@ impl Shell {
     }
   }
 
-  // Opens the singleton retained editor. Loading and persistence begin when
-  // the scoped Scratchpad component mounts.
+  // Cache one read-only session snapshot in Shell. The pane itself is a static
+  // view and does not exist in the CUI tree while Agent is active.
   fn mut open_scratchpad() {
     self.scratchpad_open = true
     self.show_scratchpad_workspace()
   }
 
   fn mut show_agent_workspace() {
-    let _ = self.scratchpad_control.save()
     self.workspace = WorkspacePane::agent
-    self.focus_composer_after_commit()
   }
 
   fn mut show_scratchpad_workspace() {
     self.workspace = WorkspacePane::scratchpad
-    match self.context {
-      context => {
-        let control = self.scratchpad_control
-        context.internal_commit(fn() {
-          let _ = control.focus()
-        })
-      },
-      _ => (),
-    }
+    self.load_scratchpad()
   }
 
   fn mut close_scratchpad() {
-    if not self.scratchpad_control.close() {
-      self.workspace = WorkspacePane::agent
-      self.scratchpad_open = false
-      self.focus_composer_after_commit()
-    }
+    self.workspace = WorkspacePane::agent
+    self.scratchpad_open = false
   }
 
-  private fn mut focus_composer_after_commit() {
-    match self.context {
-      context => {
-        let composer = self.composer_area
-        context.internal_commit(fn() {
-          composer.focus(context)
-        })
-      },
-      _ => (),
-    }
+  fn mut retry_scratchpad() Bool {
+    self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+    self.scratchpad_failure = ""
+    self.load_scratchpad()
+    true
   }
 
-  // Child events re-enter the Shell through its owning context.
-  fn mut apply_scratchpad_closed() {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.workspace = WorkspacePane::agent
-          self.scratchpad_open = false
-          self.focus_composer_after_commit()
-        })
-      },
-      _ => (),
-    }
-  }
-
-  fn mut apply_scratchpad_notice(title: Str, detail: Str) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.show_toast(title, detail, toast::Variant::error, true)
-        })
-      },
-      _ => (),
+  fn mut load_scratchpad() {
+    if self.scratchpad_loading or self.scratchpad_record.is_some() {
+      ()
+    } else {
+      match self.context {
+        context => {
+          match self.attachment_lifetime {
+            lifetime => {
+              match self.session {
+                session => {
+                  self.scratchpad_loading = true
+                  let scope_id = self.session_scope_id
+                  let dispatch = context.dispatch
+                  async::start(fn() {
+                    let result = session.Scratchpad(lifetime.Context)
+                    let _ = dispatch(fn() {
+                      if self.session_scope_id == scope_id {
+                        self.scratchpad_loading = false
+                        match result {
+                          ok(record) => {
+                            self.scratchpad_record = Maybe::new(record)
+                            self.scratchpad_failure = ""
+                          },
+                          err(failure) => {
+                            self.scratchpad_failure = failure.error()
+                            self.show_toast(
+                              "Could not open scratchpad",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          },
+                        }
+                      }
+                    })
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
     }
   }
 
@@ -3918,9 +3921,9 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
   subject.live.submit("old prompt")
   subject.workspace = WorkspacePane::scratchpad
   subject.scratchpad_open = true
-  subject.scratchpad_control.focus_action = Maybe::new(fn() Bool {
-    true
-  })
+  subject.scratchpad_record = Maybe::new(protocol::Scratchpad{Content: "old notes"})
+  subject.scratchpad_loading = true
+  subject.scratchpad_failure = "old failure"
 
   subject.begin_session_scope()
 
@@ -3947,7 +3950,7 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
   try testing::assert(not subject.latest_out_of_view, "transcript viewport state resets")
   try testing::assert(subject.live.messages.size() == 0, "live transcript state resets")
   testing::assert(
-    subject.workspace == WorkspacePane::agent and not subject.scratchpad_open and subject.scratchpad_control.focus_action.is_none(),
+    subject.workspace == WorkspacePane::agent and not subject.scratchpad_open and subject.scratchpad_record.is_none() and (not subject.scratchpad_loading and subject.scratchpad_failure == ""),
     "scratchpad host state resets",
   )
 }
