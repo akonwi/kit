@@ -1191,7 +1191,7 @@ func (w shellView) workspaceTabs(theme ui.Theme) ui.Widget {
 	return ui.Flex{Axis: ui.Vertical, CrossAxisAlignment: ui.CrossAxisStretch, Children: []ui.Widget{
 		ui.SizedBox{Height: 1, Child: ui.DecoratedBox(
 			ui.Decoration{Style: ui.Style{Background: theme.Background}},
-			workspaceTabStrip{Tabs: tabs, Selected: selectedIndex, OnOverflow: w.Callbacks.OpenWorkspacePicker},
+			ui.Padding(ui.Insets{Left: 1}, workspaceTabStrip{Tabs: tabs, Selected: selectedIndex, OnOverflow: w.Callbacks.OpenWorkspacePicker}),
 		)},
 		ui.Divider{Style: ui.Style{Foreground: theme.Border, Background: theme.Background}},
 	}}

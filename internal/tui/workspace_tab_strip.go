@@ -118,7 +118,7 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 
 	loose := ui.Constraints{MaxWidth: width, MaxHeight: height}
 	desired := make([]int, len(children))
-	total := 0
+	total := max(0, r.TabCount-1) * workspaceTabGap
 	for index, child := range children {
 		desired[index] = ui.DryLayout(ctx, child, loose).Width
 		if index < r.TabCount {
@@ -128,6 +128,9 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 	if total <= width {
 		x := 0
 		for index := 0; index < r.TabCount; index++ {
+			if index > 0 {
+				x += workspaceTabGap
+			}
 			x += r.layoutChild(ctx, children[index], x, min(desired[index], max(0, width-x)), height)
 		}
 		for index := r.TabCount; index < len(children); index++ {
@@ -143,7 +146,7 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 	if r.Selected > 0 && r.Selected < r.TabCount {
 		visible[r.Selected] = true
 		visibleCount++
-		visibleWidth += desired[r.Selected]
+		visibleWidth += workspaceTabGap + desired[r.Selected]
 	}
 	for index := 1; index < r.TabCount; index++ {
 		if visible[index] {
@@ -153,11 +156,11 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 		visible[index] = true
 		overflowWidth := 0
 		if proposedHidden > 0 {
-			overflowWidth = desired[r.overflowIndex(proposedHidden, r.hiddenActivity(visible))]
+			overflowWidth = workspaceTabGap + desired[r.overflowIndex(proposedHidden, r.hiddenActivity(visible))]
 		}
-		if visibleWidth+desired[index]+overflowWidth <= width {
+		if visibleWidth+workspaceTabGap+desired[index]+overflowWidth <= width {
 			visibleCount++
-			visibleWidth += desired[index]
+			visibleWidth += workspaceTabGap + desired[index]
 		} else {
 			visible[index] = false
 		}
@@ -172,13 +175,19 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 		}
 	}
 	overflowWidth := desired[overflowIndex]
-	if visibleWidth+overflowWidth <= width {
+	if visibleWidth+workspaceTabGap+overflowWidth <= width {
 		x := 0
+		painted := 0
 		for index := 0; index < r.TabCount; index++ {
 			if visible[index] {
+				if painted > 0 {
+					x += workspaceTabGap
+				}
 				x += r.layoutChild(ctx, children[index], x, desired[index], height)
+				painted++
 			}
 		}
+		x += workspaceTabGap
 		r.layoutChild(ctx, children[overflowIndex], x, overflowWidth, height)
 		return
 	}
@@ -191,20 +200,26 @@ func (r *renderWorkspaceTabStrip) Layout(ctx ui.LayoutContext, constraints ui.Co
 		}
 	}
 	overflowWidth = min(overflowWidth, width)
-	remaining := max(0, width-overflowWidth)
+	remaining := max(0, width-overflowWidth-workspaceTabGap)
 	x := 0
 	if r.Selected > 0 && r.Selected < r.TabCount {
-		agentWidth := min(desired[0], min(workspaceTabMinWidth, remaining))
-		selectedWidth := min(desired[r.Selected], max(0, remaining-agentWidth))
-		if selectedWidth < min(workspaceTabMinWidth, remaining) {
-			selectedWidth = min(workspaceTabMinWidth, remaining)
-			agentWidth = max(0, remaining-selectedWidth)
+		selectedWidth := min(desired[r.Selected], remaining)
+		agentWidth := 0
+		if remaining >= workspaceTabMinWidth*2+workspaceTabGap {
+			selectedWidth = min(desired[r.Selected], remaining-workspaceTabMinWidth-workspaceTabGap)
+			agentWidth = min(desired[0], remaining-selectedWidth-workspaceTabGap)
 		}
-		x += r.layoutChild(ctx, children[0], x, agentWidth, height)
+		if agentWidth > 0 {
+			x += r.layoutChild(ctx, children[0], x, agentWidth, height)
+			x += workspaceTabGap
+		} else {
+			children[0].Layout(ctx, ui.Tight(ui.Size{}))
+		}
 		x += r.layoutChild(ctx, children[r.Selected], x, selectedWidth, height)
 	} else {
 		x += r.layoutChild(ctx, children[0], x, remaining, height)
 	}
+	x += workspaceTabGap
 	r.layoutChild(ctx, children[overflowIndex], x, max(0, width-x), height)
 }
 

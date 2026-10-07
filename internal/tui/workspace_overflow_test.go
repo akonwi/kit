@@ -41,10 +41,10 @@ func TestWorkspaceTabStripShowsAllTabsWhenTheyFitAndLabeledOverflowWhenNarrow(t 
 		width int
 		want  string
 	}{
-		{width: 15, want: " revi … 3 more "},
-		{width: 40, want: " Agent  reviewer-c  × … 3 more          "},
-		{width: 55, want: " Agent  reviewer-a  × reviewer-c  × … 2 more           "},
-		{width: 100, want: " Agent  reviewer-a  × reviewer-b  × reviewer-c  × reviewer-d  ×                                     "},
+		{width: 15, want: "  re  … 3 more "},
+		{width: 40, want: "  Agent   reviewer-c ×   … 3 more       "},
+		{width: 55, want: "  Agent   reviewer-a ×   reviewer-c ×   … 2 more       "},
+		{width: 100, want: "  Agent   reviewer-a ×   reviewer-b ×   reviewer-c ×   reviewer-d ×                                 "},
 	}
 	for _, test := range tests {
 		application := uitest.New(view)
@@ -52,6 +52,30 @@ func TestWorkspaceTabStripShowsAllTabsWhenTheyFitAndLabeledOverflowWhenNarrow(t 
 		if got := paintedRows(application, test.width, 12)[2]; got != test.want {
 			t.Fatalf("width %d tab row = %q, want %q", test.width, got, test.want)
 		}
+	}
+}
+
+func TestWorkspaceTabsUseFilledSeparatedTabSurfaces(t *testing.T) {
+	t.Parallel()
+	theme := ui.DefaultTheme()
+	application := uitest.New(shellView{Snapshot: overflowWorkspaceSnapshot([]string{"a"}, 0)})
+	application.Pump(40, 12)
+
+	for column := 1; column <= 7; column++ {
+		if got := application.Cell(column, 2).Style.Background; got != theme.Surface {
+			t.Fatalf("inactive Agent tab column %d background = %v, want surface %v", column, got, theme.Surface)
+		}
+	}
+	if got := application.Cell(8, 2).Style.Background; got != theme.Background {
+		t.Fatalf("tab gap background = %v, want shell background %v", got, theme.Background)
+	}
+	for column := 9; column <= 22; column++ {
+		if got := application.Cell(column, 2).Style.Background; got != theme.Primary {
+			t.Fatalf("active tab column %d background = %v, want primary %v", column, got, theme.Primary)
+		}
+	}
+	if got := application.Cell(21, 2).Grapheme; got != glyphTimes {
+		t.Fatalf("active close glyph = %q, want %q", got, glyphTimes)
 	}
 }
 

@@ -8,6 +8,7 @@ import (
 const (
 	workspaceTabMinWidth = 6
 	workspaceTabMaxWidth = 24
+	workspaceTabGap      = 1
 )
 
 type workspaceTab struct {
@@ -45,12 +46,11 @@ func (s *workspaceTabState) Build(ctx ui.BuildContext) ui.Widget {
 		labelContentWidth = max(1, contentWidth-workspaceTextWidth(marker)-1)
 	}
 	displayLabel := truncateWorkspaceTabLabel(tab.Label, labelContentWidth)
-	foreground := theme.MutedForeground
-	if tab.Selected || s.hovered {
-		foreground = theme.Foreground
-	}
-	background := theme.Background
-	if s.hovered {
+	foreground := theme.Foreground
+	background := theme.Surface
+	if tab.Selected {
+		background = theme.Primary
+	} else if s.hovered {
 		background = theme.SurfaceHovered
 	}
 	hover := func(ui.EventContext) {
@@ -81,7 +81,7 @@ func (s *workspaceTabState) Build(ctx ui.BuildContext) ui.Widget {
 		children = append(children, mouseActivator{
 			OnPressed: tab.OnClose, OnHover: hover, OnHoverExit: exit,
 			Child: ui.SizedBox{Width: 2, Height: 1, Child: ui.Text{
-				Value: " " + glyphTimes, Style: ui.Style{Foreground: closeForeground, Background: background},
+				Value: glyphTimes + " ", Style: ui.Style{Foreground: closeForeground, Background: background},
 				Overflow: ui.TextOverflowClip, MaxLines: 1,
 			}},
 		})
