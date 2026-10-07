@@ -18,6 +18,7 @@ use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
+use kit/tui/composer
 use kit/tui/controls
 use kit/tui/copyable
 use kit/tui/format
@@ -39,7 +40,7 @@ use go:strings
 use go:time
 
 // The root terminal-client component: session bootstrap, shell chrome, and
-// the composer.
+// retained feature composition.
 
 // Fills the viewport width; text beyond it is clipped.
 let rule = strings::Repeat("─", 1024)
@@ -382,7 +383,8 @@ struct Shell {
   rename_initial: Str,
   rename_submit_immediately: Bool,
   notice: Str,
-  composer: Str,
+  composer_mode: Str,
+  composer_control: mut composer::Ref,
   // 1 at the start of copy feedback, fading to 0 over 350ms.
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
@@ -489,7 +491,8 @@ fn new(props: mut Props) mut Shell {
     rename_initial: "",
     rename_submit_immediately: false,
     notice: "",
-    composer: "",
+    composer_mode: "",
+    composer_control: composer::ref(),
     selection_copy_pulse: 0.0,
     selection_copy_base: ui::rgb(0, 0, 0),
     latest_out_of_view: false,
@@ -600,9 +603,8 @@ impl Shell {
 
   // Ctrl+C clears a non-empty composer; otherwise it detaches.
   fn mut interrupt() Bool {
-    match self.phase == Phase::ready and self.composer != "" {
-      true => { self.composer = "" },
-      false => (self.props.quit)(),
+    if self.phase != Phase::ready or not self.composer_control.clear() {
+      (self.props.quit)()
     }
     true
   }
@@ -1042,24 +1044,14 @@ impl Shell {
 
   fn footer() cui::View {
     let colors = self.props.themes.current()
-    let bash = strings::HasPrefix(self.composer, "!")
-    let state = match strings::HasPrefix(self.composer, "!!") {
-      true => "bash command · result excluded from context",
-      false => {
-        match bash {
-          true => "bash command · result will be added to context",
-          false => "",
-        }
-      },
-    }
-    let tone = match bash {
+    let tone = match self.composer_mode != "" {
       true => colors.success_text,
       false => colors.muted,
     }
     cui::box(
       [
         cui::box(
-          [line(state, ui::text_style(foreground: tone))],
+          [line(self.composer_mode, ui::text_style(foreground: tone))],
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
         ),
         cui::box(
@@ -1187,7 +1179,7 @@ impl Shell {
                 record: self.scratchpad_record,
                 loading: self.scratchpad_loading,
                 failure: self.scratchpad_failure,
-                focused: self.active_modal == ActiveModal::none,
+                active: self.active_modal == ActiveModal::none,
                 update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
                   session.UpdateScratchpad(lifetime.Context, input)
                 },
@@ -1400,40 +1392,62 @@ impl Shell {
   }
 
   fn mut composer_view() cui::View {
-    let colors = self.props.themes.current()
-    let editing = keymap::rebind(
-      ui::default_text_area_bindings(),
-      ui::TextAreaAction::insert_newline,
-      [keymap::key("return", shift: true)],
-    )
-    let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
-      self.submit()
-    })
-    let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
-      self.open_command_palette()
-    })
-    let composer_bindings = mut List::new<keymap::Binding>()
-    composer_bindings.push(keymap::binding(keymap::key("return"), send.with()))
-    if self.composer == "" {
-      composer_bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
-    }
-    cui::text_area(
-      // The Composer remains mounted behind dialogs, but must not compete with
-      // their search fields for focus during a Shell reconciliation.
-      self.composer,
-      key: "composer",
-      styles: ui::style(flex_shrink: 0.0, max_height: ui::cells(10), padding: inset()),
-      placeholder: "Ask kit to do something…",
-      placeholder_style: ui::text_style(foreground: colors.muted),
-      selection_style: theme::selection_style(colors),
-      focused: self.active_modal == ActiveModal::none and self.workspace == WorkspacePane::agent,
-      on_input: fn(value: Str, ctx: cui::Context) {
-        self.composer = value
+    composer::view(
+      composer::Props{
+        themes: self.props.themes,
+        enabled: self.active_modal == ActiveModal::none,
+        focus_eligible: self.active_modal == ActiveModal::none and self.workspace == WorkspacePane::agent,
+        control: self.composer_control,
+        submit: fn(text: Str) Bool {
+          self.request_composer_submit(text)
+        },
+        open_palette: fn() {
+          self.request_composer_palette()
+        },
+        mode_changed: fn(mode: Str) {
+          self.apply_composer_mode(mode)
+        },
       },
-      key_bindings: editing,
-      commands: [send, open_palette],
-      bindings: composer_bindings.@,
     )
+  }
+
+  // Composer callbacks re-enter Shell through its owning context.
+  fn mut request_composer_submit(text: Str) Bool {
+    if self.phase != Phase::ready or self.attachment_lifetime.is_none() or self.session.is_none() {
+      false
+    } else {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.submit(text)
+          })
+          true
+        },
+        _ => false,
+      }
+    }
+  }
+
+  fn mut request_composer_palette() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.open_command_palette()
+        })
+      },
+      _ => (),
+    }
+  }
+
+  fn mut apply_composer_mode(mode: Str) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.composer_mode = mode
+        })
+      },
+      _ => (),
+    }
   }
 }
 
@@ -1730,6 +1744,15 @@ impl Shell {
           connect.focus(context)
         },
       )
+    } else if self.phase == Phase::ready {
+      match self.workspace {
+        WorkspacePane::agent => {
+          let _ = self.composer_control.focus()
+        },
+        WorkspacePane::scratchpad => {
+          let _ = self.scratchpad_control.focus()
+        },
+      }
     }
   }
 
@@ -2840,7 +2863,8 @@ impl Shell {
     self.messages = []
     self.latest_out_of_view = false
     self.notice = ""
-    self.composer = ""
+    self.composer_mode = ""
+    let _ = self.composer_control.reset()
     self.toasts = []
     self.start_pending = false
     self.new_session_pending = false
@@ -3374,6 +3398,7 @@ impl Shell {
   fn mut show_agent_workspace() {
     if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(false) {
       self.workspace = WorkspacePane::agent
+      self.focus_composer()
     }
   }
 
@@ -3386,7 +3411,12 @@ impl Shell {
     if self.workspace != WorkspacePane::scratchpad or not self.scratchpad_control.close(true) {
       self.workspace = WorkspacePane::agent
       self.scratchpad_open = false
+      self.focus_composer()
     }
+  }
+
+  private fn mut focus_composer() {
+    let _ = self.composer_control.focus()
   }
 
   fn mut apply_scratchpad_saved(record: protocol::Scratchpad) {
@@ -3415,6 +3445,7 @@ impl Shell {
               if close_tab {
                 self.scratchpad_open = false
               }
+              self.focus_composer()
             },
           }
         })
@@ -3906,8 +3937,7 @@ impl Shell {
   }
 
   // Submits the composer as a prompt, queuing it when another turn is active.
-  fn mut submit() Bool {
-    let text = strings::TrimSpace(self.composer)
+  fn mut submit(text: Str) Bool {
     if self.phase == Phase::ready and text != "" {
       match self.attachment_lifetime {
         lifetime => {
@@ -3915,7 +3945,6 @@ impl Shell {
             session => {
               match self.context {
                 context => {
-                  self.composer = ""
                   self.notice = ""
                   let optimistic = self.live.activity == "" and not self.start_pending
                   if optimistic {
@@ -3952,9 +3981,7 @@ impl Shell {
                         let message = failure.error()
                         let _ = dispatch(fn() {
                           if self.session_scope_id == scope_id {
-                            if self.composer == "" {
-                              self.composer = text
-                            }
+                            let _ = self.composer_control.restore_if_empty(text)
                             if optimistic {
                               self.live.reset()
                               self.start_pending = false
@@ -4006,7 +4033,7 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
   subject.abort_pending = true
   subject.abort_after_start = true
   subject.notice = "old session"
-  subject.composer = "old draft"
+  subject.composer_mode = "old mode"
   subject.toasts = [
     toast::Item{
       id: 1,
@@ -4043,7 +4070,7 @@ test fn a_new_session_scope_invalidates_old_work_and_resets_local_operations() V
     subject.notice == "" and subject.messages.size() == 0,
     "session presentation resets",
   )
-  try testing::assert(subject.composer == "", "the previous session draft resets")
+  try testing::assert(subject.composer_mode == "", "the previous composer mode resets")
   try testing::assert(
     subject.toasts.size() == 0 and subject.shown_mcp_warnings.size() == 0,
     "session notifications reset",

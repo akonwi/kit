@@ -1,0 +1,280 @@
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/theme
+use go:strings
+
+// Ref is the Shell's narrow control surface for explicit focus and draft
+// lifecycle events. Its actions always dispatch through the retained Composer.
+struct Ref {
+  focus_action: (fn() Bool)?,
+  clear_action: (fn() Bool)?,
+  reset_action: (fn() Bool)?,
+  restore_action: (fn(Str) Bool)?,
+}
+
+fn ref() mut Ref {
+  (mut Ref{
+    focus_action: Maybe::new<fn() Bool>(),
+    clear_action: Maybe::new<fn() Bool>(),
+    reset_action: Maybe::new<fn() Bool>(),
+    restore_action: Maybe::new<fn(Str) Bool>(),
+  })
+}
+
+impl Ref {
+  fn mut focus() Bool {
+    match self.focus_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  // clear returns false when the mounted Composer has no draft.
+  fn mut clear() Bool {
+    match self.clear_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  fn mut reset() Bool {
+    match self.reset_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
+  fn mut restore_if_empty(value: Str) Bool {
+    match self.restore_action {
+      action => action(value),
+      _ => false,
+    }
+  }
+}
+
+// Props contains live Shell-owned dependencies. Composer owns its draft,
+// editor ref, command bindings, and focus lifecycle.
+struct Props {
+  themes: theme::Context,
+  enabled: Bool,
+  focus_eligible: Bool,
+  control: mut Ref,
+  submit: fn(Str) Bool,
+  open_palette: fn(),
+  mode_changed: fn(Str),
+}
+
+struct Composer {
+  props: mut Props,
+  context: cui::Context?,
+  editor: mut cui::TextAreaRef,
+  draft: Str,
+  mode: Str,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "composer")
+}
+
+private fn new(props: mut Props) mut Composer {
+  (mut Composer{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    editor: cui::text_area_ref(),
+    draft: "",
+    mode: "",
+  })
+}
+
+impl cui::Lifecycle for Composer {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+    self.props.control.focus_action = Maybe::new(fn() Bool {
+      self.request_focus()
+    })
+    self.props.control.clear_action = Maybe::new(fn() Bool {
+      self.request_clear()
+    })
+    self.props.control.reset_action = Maybe::new(fn() Bool {
+      self.request_reset()
+    })
+    self.props.control.restore_action = Maybe::new(fn(value: Str) Bool {
+      self.request_restore(value)
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    self.props.control.focus_action = Maybe::new<fn() Bool>()
+    self.props.control.clear_action = Maybe::new<fn() Bool>()
+    self.props.control.reset_action = Maybe::new<fn() Bool>()
+    self.props.control.restore_action = Maybe::new<fn(Str) Bool>()
+  }
+}
+
+impl Composer {
+  private fn mut request_focus() Bool {
+    match self.context {
+      context => {
+        let editor = self.editor
+        let _ = context.dispatch(fn() {
+          // Resolve eligibility after the parent and retained child reconcile:
+          // one parent transition may both request focus and replace the
+          // Composer with a modal or workspace focus owner.
+          context.internal_commit(fn() {
+            if self.props.enabled and self.props.focus_eligible {
+              editor.focus(context)
+            }
+          })
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_clear() Bool {
+    if self.draft == "" {
+      false
+    } else {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.change("")
+          })
+          true
+        },
+        _ => false,
+      }
+    }
+  }
+
+  private fn mut request_reset() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.change("")
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_restore(value: Str) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.draft == "" {
+            self.change(value)
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut change(value: Str) {
+    self.draft = value
+    let next = mode(value)
+    if next != self.mode {
+      self.mode = next
+      (self.props.mode_changed)(next)
+    }
+  }
+
+  private fn mut request_submit() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          let text = strings::TrimSpace(self.draft)
+          if self.props.enabled and text != "" and (self.props.submit)(text) {
+            self.change("")
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_palette() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.props.enabled and self.draft == "" {
+            (self.props.open_palette)()
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+}
+
+impl cui::Component for Composer {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let editing = keymap::rebind(
+      ui::default_text_area_bindings(),
+      ui::TextAreaAction::insert_newline,
+      [keymap::key("return", shift: true)],
+    )
+    let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
+      self.request_submit()
+    })
+    let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
+      self.request_palette()
+    })
+    let bindings = mut List::new<keymap::Binding>()
+    bindings.push(keymap::binding(keymap::key("return"), send.with()))
+    if self.draft == "" {
+      bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
+    }
+    cui::text_area(
+      // Autofocus is mount-only. Live renders never assert focused=true, so
+      // Shell, dialogs, panes, and pointer interactions keep their focus.
+      self.draft,
+      key: "composer.editor",
+      styles: ui::style(
+        flex_shrink: 0.0,
+        max_height: ui::cells(10),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      placeholder: "Ask kit to do something…",
+      placeholder_style: ui::text_style(foreground: colors.muted),
+      selection_style: theme::selection_style(colors),
+      autofocus: self.props.enabled and self.props.focus_eligible,
+      focused: match self.props.enabled {
+        true => Maybe::new<Bool>(),
+        false => Maybe::new(false),
+      },
+      ref: self.editor,
+      on_input: fn(value: Str, context: cui::Context) {
+        self.change(value)
+      },
+      key_bindings: editing,
+      commands: [send, open_palette],
+      bindings: bindings.@,
+    )
+  }
+}
+
+private fn mode(value: Str) Str {
+  match strings::HasPrefix(value, "!!") {
+    true => "bash command · result excluded from context",
+    false => {
+      match strings::HasPrefix(value, "!") {
+        true => "bash command · result will be added to context",
+        false => "",
+      }
+    },
+  }
+}

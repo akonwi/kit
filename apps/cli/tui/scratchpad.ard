@@ -22,17 +22,29 @@ struct Flush {
   close_tab: Bool,
 }
 
-// PaneRef is the Shell's narrow save-before-unmount control surface.
+// PaneRef is the Shell's narrow focus and save-before-unmount control surface.
 struct PaneRef {
+  focus_action: (fn() Bool)?,
   save_action: (fn() Bool)?,
   close_action: (fn(Bool) Bool)?,
 }
 
 fn pane_ref() mut PaneRef {
-  (mut PaneRef{save_action: Maybe::new<fn() Bool>(), close_action: Maybe::new<fn(Bool) Bool>()})
+  (mut PaneRef{
+    focus_action: Maybe::new<fn() Bool>(),
+    save_action: Maybe::new<fn() Bool>(),
+    close_action: Maybe::new<fn(Bool) Bool>(),
+  })
 }
 
 impl PaneRef {
+  fn mut focus() Bool {
+    match self.focus_action {
+      action => action(),
+      _ => false,
+    }
+  }
+
   fn mut save() Bool {
     match self.save_action {
       action => action(),
@@ -53,7 +65,7 @@ struct Props {
   record: protocol::Scratchpad?,
   loading: Bool,
   failure: Str,
-  focused: Bool,
+  active: Bool,
   update: fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error,
   retry_load: fn() Bool,
   saved: fn(protocol::Scratchpad),
@@ -65,7 +77,7 @@ struct Props {
 struct EditorProps {
   themes: theme::Context,
   record: protocol::Scratchpad,
-  focused: Bool,
+  active: Bool,
   update: fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error,
   saved: fn(protocol::Scratchpad),
   closed: fn(Bool),
@@ -105,7 +117,7 @@ fn pane(props: Props, scope_id: Int) cui::View {
           EditorProps{
             themes: props.themes,
             record: record,
-            focused: props.focused,
+            active: props.active,
             update: props.update,
             saved: props.saved,
             closed: props.closed,
@@ -172,6 +184,9 @@ private fn new_editor(props: mut EditorProps) mut Editor {
 impl cui::Lifecycle for Editor {
   fn mut mounted(context: cui::Context) {
     self.context = Maybe::new(context)
+    self.props.control.focus_action = Maybe::new(fn() Bool {
+      self.request_focus()
+    })
     self.props.control.save_action = Maybe::new(fn() Bool {
       self.request_save()
     })
@@ -182,12 +197,30 @@ impl cui::Lifecycle for Editor {
   }
 
   fn mut unmounting(context: cui::Context) {
+    self.props.control.focus_action = Maybe::new<fn() Bool>()
     self.props.control.save_action = Maybe::new<fn() Bool>()
     self.props.control.close_action = Maybe::new<fn(Bool) Bool>()
   }
 }
 
 impl Editor {
+  private fn mut request_focus() Bool {
+    match self.context {
+      context => {
+        let editor = self.editor
+        let _ = context.dispatch(fn() {
+          context.internal_commit(fn() {
+            if self.props.active and not self.closing {
+              editor.focus(context)
+            }
+          })
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
   private fn mut change(value: Str) {
     if not self.closing and self.draft != value {
       self.draft = value
@@ -441,7 +474,11 @@ impl cui::Component for Editor {
       cui::text_area(
         self.draft,
         key: "scratchpad-editor",
-        focused: self.props.focused and not self.closing,
+        autofocus: self.props.active and not self.closing,
+        focused: match self.props.active and not self.closing {
+          true => Maybe::new<Bool>(),
+          false => Maybe::new(false),
+        },
         styles: ui::style(
           width: ui::percent(100.0),
           flex_grow: 1.0,
