@@ -7,8 +7,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [ ] CORE-LIFE-003 — Produce crash-safe logs and actionable diagnostics without
-  leaking credentials or protocol output.
 - [ ] CORE-LIFE-004 — Meet documented cold-start and warm-attach acceptance
   thresholds on supported release platforms.
 - [ ] CORE-LIFE-005 — Enforce a hard shutdown deadline for provider streams,
