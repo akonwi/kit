@@ -5,19 +5,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ## Release scope
 
-### Production data and configuration
-
-- [ ] CORE-AUTH-001 — Provide headless API-key and Anthropic credential login,
-  replacement, and logout. Verify that legacy provider and MCP auth files do not
-  block reauthentication through the supported login UX or require users to
-  manually delete files.
-- [ ] CORE-SET-001 — Validate and persist shared settings, apply changes
-  immediately where safe, and return actionable save errors.
-- [ ] CORE-SET-002 — Persist and resolve production defaults for model/thinking
-  selection, retry behavior, guided questions, and diff layout without
-  client-local drift. Renderer-specific workspace layout is client state, not a
-  shared setting.
-
 ### Daemon, sessions, and runtime
 
 - [ ] CORE-LIFE-002 — Bound MCP transport reads before result conversion so an
