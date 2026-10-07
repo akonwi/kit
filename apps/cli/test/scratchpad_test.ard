@@ -20,6 +20,7 @@ struct Model {
   closed: Bool,
   close_tab: Bool,
   other: Str,
+  other_input: mut cui::InputRef,
   control: mut scratchpad::PaneRef,
   context: cui::Context?,
 }
@@ -56,7 +57,7 @@ impl cui::Component for Host {
             record: model.record,
             loading: model.loading,
             failure: model.failure,
-            focused: true,
+            active: true,
             update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
               model.updates =+ 1
               let saved = protocol::Scratchpad{Content: input.Content, Revision: input.ExpectedRevision + 1}
@@ -81,6 +82,7 @@ impl cui::Component for Host {
         cui::input(
           model.other,
           key: "other-input",
+          ref: model.other_input,
           styles: ui::style(flex_shrink: 0.0),
           on_input: fn(value: Str, context: cui::Context) {
             model.other = value
@@ -120,6 +122,7 @@ fn model(record: protocol::Scratchpad?) mut Model {
     closed: false,
     close_tab: false,
     other: "",
+    other_input: cui::input_ref(),
     control: scratchpad::pane_ref(),
     context: Maybe::new<cui::Context>(),
   })
@@ -237,4 +240,27 @@ test fn scratchpad_failure_invokes_retry() Void!Str {
   terminal.mouse_up(1, 1)
   terminal.flush()
   testing::assert(value.retries == 1, "the failure surface invokes retry")
+}
+
+test fn scratchpad_does_not_reclaim_focus_after_the_composer_is_focused() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model(Maybe::new(protocol::Scratchpad{Content: "shared notes", Revision: 1}))
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  let _ = context.dispatch(fn() {
+    value.record = Maybe::new(protocol::Scratchpad{Content: "remote notes", Revision: 2})
+  })
+  terminal.flush()
+  terminal.key(character("a"))
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+
+  try testing::assert(value.other == "ab", "the composer keeps keyboard focus after Scratchpad renders")
+  testing::assert(value.updates == 0, "Scratchpad does not receive the composer's input")
 }
