@@ -294,9 +294,10 @@ A non-conflict persistence failure offers retry. During orderly scratchpad-tab
 close, a client attempts an immediate save and keeps the pane open with
 actionable failure feedback when the save cannot complete. Drafts may remain in
 memory while their pane or client process remains alive. In accordance with ADR
-0018, `Ctrl+C` still always quits or detaches the native client after a
-best-effort immediate save; client exit, crash, forced termination, and an
-abandoned browser page may lose an uncommitted local draft. This decision does
+0018, `Ctrl+C` does nothing while the scratchpad editor has focus; when it quits
+or detaches the native client from elsewhere, the client makes a best-effort
+immediate save. Client exit, crash, forced termination, and an abandoned
+browser page may lose an uncommitted local draft. This decision does
 not create durable client draft storage.
 
 ### Native workspace presentation

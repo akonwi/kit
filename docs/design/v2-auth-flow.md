@@ -238,7 +238,8 @@ The key is masked and edited through the same key model as picker queries, so
 typing and paste that arrive before the prompt's first frame are kept. Enter
 saves; Escape returns to the provider picker. While the save is pending the
 title shows `saving…` with the spinner, the footer offers no hints, and keys
-other than Ctrl+C are ignored because the save cannot be canceled.
+are ignored because the save cannot be canceled. As in any modal, Ctrl+C does
+not quit.
 
 ## Codex device-code wait
 
