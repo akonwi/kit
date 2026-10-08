@@ -190,6 +190,17 @@ private fn attach_new_session(
   }
 }
 
+// Backs off reconnection to a running turn: 100ms doubling to 1.6s.
+private fn retry_delay(failures: Int) Int64 {
+  mut delay = 100
+  mut step = 1
+  while step < failures and step < 5 {
+    delay = delay * 2
+    step = step + 1
+  }
+  Int64::from(delay)
+}
+
 // The fork's first message when the server published the child without
 // starting it.
 private fn failed_first_message(message: Str, forked: protocol::ForkSessionResult) bootstrap::FailedFirstMessage? {
@@ -331,6 +342,8 @@ impl Controller {
       if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
         self.messages = transcript::project(snapshot.Messages)
         self.live.reset()
+      } else {
+        self.live.adopt_stream(snapshot)
       }
     }
   }
@@ -550,7 +563,9 @@ impl Controller {
 
   // Follows turns initiated locally or found in the attachment snapshot. The
   // session-wide watch also applies every live batch, while this turn stream
-  // supplies replay needed when attaching in the middle of an active turn.
+  // supplies replay needed when attaching in the middle of an active turn. A
+  // stream that ends early is recovered from a snapshot and reopened while the
+  // turn runs; only an unrecoverable session is reported.
   private fn mut follow_run(run_id: Str) {
     if run_id != "" {
       if run_id == self.run_id {
@@ -571,64 +586,71 @@ impl Controller {
                 let ctx = lifetime.Context
                 let dispatch = self.host.dispatch
                 async::start(fn() {
-                  match session.Stream(ctx, run_id) {
-                    ok(stream) => {
-                      let updates = stream.Updates()
-                      mut open = true
-                      while open {
-                        match updates.recv() {
-                          batch => {
-                            let _ = dispatch(fn() {
-                              if self.active and self.run_id == run_id {
-                                self.apply_watched_events(batch)
-                              }
-                            })
-                          },
-                          _ => { open = false },
+                  mut failures = 0
+                  mut following = true
+                  while following {
+                    let failure = match session.Stream(ctx, run_id) {
+                      ok(stream) => {
+                        let updates = stream.Updates()
+                        mut open = true
+                        while open {
+                          match updates.recv() {
+                            batch => {
+                              failures = 0
+                              let _ = dispatch(fn() {
+                                if self.active and self.run_id == run_id {
+                                  self.apply_watched_events(batch)
+                                }
+                              })
+                            },
+                            _ => { open = false },
+                          }
                         }
-                      }
-                      match stream.Err() {
-                        err(failure) => {
-                          let snapshot = session.Snapshot(ctx)
+                        match stream.Err() {
+                          ok(_) => "",
+                          err(failure) => failure.error(),
+                        }
+                      },
+                      err(failure) => failure.error(),
+                    }
+                    if failure == "" {
+                      following = false
+                    } else {
+                      // A lost turn stream, including a server-requested
+                      // resynchronization, is recovered from an authoritative
+                      // snapshot. The turn is followed again while it runs.
+                      failures = failures + 1
+                      match session.Snapshot(ctx) {
+                        ok(current) => {
+                          let running = current.ActiveTurnID == run_id
+                          let _ = dispatch(fn() {
+                            if self.active and self.run_id == run_id {
+                              if not running {
+                                self.live.reset()
+                                self.run_id = ""
+                              }
+                              self.apply_snapshot(current)
+                            }
+                          })
+                          following = running and contextbridge::Wait(ctx, retry_delay(failures))
+                        },
+                        err(_) => {
+                          following = false
                           let _ = dispatch(fn() {
                             if self.active and self.run_id == run_id {
                               self.live.reset()
                               self.run_id = ""
-                              match snapshot {
-                                ok(current) => self.apply_snapshot(current),
-                                err(_) => (),
-                              }
                               (self.host.toast)(
                                 "Turn stream lost",
-                                failure.error(),
+                                failure,
                                 toast::Variant::error,
                                 true,
                               )
                             }
                           })
                         },
-                        ok(_) => (),
                       }
-                    },
-                    err(failure) => {
-                      let snapshot = session.Snapshot(ctx)
-                      let _ = dispatch(fn() {
-                        if self.active and self.run_id == run_id {
-                          self.live.reset()
-                          self.run_id = ""
-                          match snapshot {
-                            ok(current) => self.apply_snapshot(current),
-                            err(_) => (),
-                          }
-                          (self.host.toast)(
-                            "Turn stream failed",
-                            failure.error(),
-                            toast::Variant::error,
-                            true,
-                          )
-                        }
-                      })
-                    },
+                    }
                   }
                 })
               },
@@ -1600,4 +1622,60 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
     "the message returns to the composer",
   )
   testing::assert(subject.notice == "session is unavailable", "the reason is shown as the notice")
+}
+
+test fn reconnecting_to_a_running_turn_backs_off_to_a_ceiling() Void!Str {
+  try testing::assert(retry_delay(1) == Int64::from(100), "the first retry is prompt")
+  try testing::assert(retry_delay(3) == Int64::from(400), "retries double")
+  testing::assert(retry_delay(12) == Int64::from(1600), "retries stop doubling at 1.6s")
+}
+
+test fn a_snapshot_after_a_stream_replacement_rebases_the_live_turn() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "turn.started",
+        TurnID: "turn-1",
+        StreamID: "stream-a",
+        Sequence: 1,
+      },
+      sessionbridge::Event{
+        Kind: "assistant.text.delta",
+        TurnID: "turn-1",
+        StreamID: "stream-a",
+        Sequence: 2,
+        MessageID: "assistant-1",
+        Delta: "one",
+      },
+    ],
+  )
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      ActiveTurnID: "turn-1",
+      EventStreamID: "stream-b",
+      EventCursor: 0,
+    },
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "assistant.text.delta",
+        TurnID: "turn-1",
+        StreamID: "stream-b",
+        Sequence: 1,
+        MessageID: "assistant-1",
+        Delta: " two",
+      },
+    ],
+  )
+  let messages = subject.transcript_messages()
+  try testing::assert(subject.run_id == "turn-1", "the turn is still followed")
+  testing::assert(
+    messages.size() == 1 and messages.at(0).expect("reply").text == "one two",
+    "the live reply continues on the replacement stream",
+  )
 }
