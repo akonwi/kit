@@ -42,8 +42,11 @@ type Content struct {
 
 // Message is the client-owned projection of one persisted transcript message.
 type Message struct {
-	ID           string
-	TurnID       string
+	ID     string
+	TurnID string
+	// Sequence orders persisted messages within the session; it is zero for
+	// messages that have not been persisted.
+	Sequence     int
 	Role         string
 	Content      []Content
 	ErrorMessage string
@@ -102,7 +105,7 @@ func Messages(source []protocol.TranscriptMessage) []Message {
 	result := make([]Message, 0, len(source))
 	for _, message := range source {
 		result = append(result, Message{
-			ID: message.ID, TurnID: message.TurnID, Role: message.Role, Content: content(message.Content),
+			ID: message.ID, TurnID: message.TurnID, Sequence: int(message.Sequence), Role: message.Role, Content: content(message.Content),
 			ErrorMessage: message.ErrorMessage, ToolCallID: message.ToolCallID, ToolName: message.ToolName,
 			IsError: message.IsError, StopReason: message.StopReason,
 		})

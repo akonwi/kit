@@ -312,3 +312,66 @@ test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
     "failed tool result",
   )
 }
+
+// Persisted user messages named by ID at the given session sequences.
+fn persisted(ids: [Str], sequences: [Int]) [transcript::Message] {
+  let source = mut List::new<protocol::TranscriptMessage>()
+  mut index = 0
+  while index < ids.size() {
+    let id = ids.at(index).expect("message id")
+    source.push(
+      protocol::TranscriptMessage{
+        ID: id,
+        TurnID: "turn-{id}",
+        Sequence: Int64::from(sequences.at(index).expect("message sequence")),
+        Role: "user",
+        Content: [protocol::TextBlock(id)],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(source.@)
+}
+
+fn ids(messages: [transcript::Message]) Str {
+  let result = mut List::new<Str>()
+  for message in messages {
+    result.push("{message.id}@{message.sequence}")
+  }
+  mut joined = ""
+  for value in result {
+    joined = match joined == "" {
+      true => value,
+      false => "{joined} {value}",
+    }
+  }
+  joined
+}
+
+test fn an_overlapping_snapshot_keeps_loaded_history_in_front() Void!Str {
+  let loaded = persisted(["a", "b", "c", "d"], [1, 2, 3, 4])
+  let merged = transcript::merge_snapshot(loaded, persisted(["c", "d", "e"], [3, 4, 5]))
+  try testing::assert(merged.preserved, "history is preserved")
+  testing::assert(ids(merged.messages) == "a@1 b@2 c@3 d@4 e@5", ids(merged.messages))
+}
+
+test fn a_snapshot_that_does_not_line_up_replaces_loaded_history() Void!Str {
+  let loaded = persisted(["a", "b", "c"], [1, 2, 3])
+  // After compaction, a new message reuses a sequence that held another ID.
+  let compacted = transcript::merge_snapshot(loaded, persisted(["summary", "c"], [2, 3]))
+  try testing::assert(not compacted.preserved, "conflicting sequence replaces")
+  try testing::assert(ids(compacted.messages) == "summary@2 c@3", ids(compacted.messages))
+  let unrelated = transcript::merge_snapshot(loaded, persisted(["x", "y"], [7, 8]))
+  try testing::assert(not unrelated.preserved, "no overlap replaces")
+  testing::assert(ids(unrelated.messages) == "x@7 y@8", ids(unrelated.messages))
+}
+
+test fn earlier_pages_prepend_and_reject_overlap() Void!Str {
+  let shown = persisted(["c", "d"], [3, 4])
+  let merged = try transcript::prepend_history(persisted(["a", "b"], [1, 2]), shown) -> failure {
+    Result::err("unexpected rejection: {failure}")
+  }
+  try testing::assert(ids(merged) == "a@1 b@2 c@3 d@4", ids(merged))
+  let repeated = transcript::prepend_history(persisted(["b", "c"], [2, 3]), shown)
+  testing::assert(repeated.is_err(), "a repeated message is rejected")
+}

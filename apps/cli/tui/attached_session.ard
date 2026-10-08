@@ -55,6 +55,15 @@ struct Controller {
   plugin_commands: [protocol::PluginCommand],
   follow_ups: protocol::FollowUpQueue,
   messages: [transcript::Message],
+  // Earlier transcript pages. The cursor is the oldest loaded message;
+  // `history_scope` advances whenever the cursor is replaced so an in-flight
+  // page for a superseded cursor is ignored.
+  history_initialized: Bool,
+  history_cursor: Str,
+  history_more: Bool,
+  history_loading: Bool,
+  history_failure: Str,
+  history_scope: Int,
   live: transcript::Live,
   run_id: Str,
   context_tokens: Int,
@@ -82,6 +91,14 @@ struct Controller {
   settled_interactions: [Str],
   // The request whose response is being submitted, if any.
   interaction_responding: Str,
+}
+
+// The result of one earlier-transcript request: a page, a fresh snapshot
+// after the cursor expired, or a failure.
+private struct HistoryOutcome {
+  page: protocol::TranscriptPage?,
+  snapshot: protocol::SessionSnapshot?,
+  failure: Str,
 }
 
 private fn empty_usage() protocol::SessionUsage {
@@ -120,6 +137,12 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
       AnnotationIDs: [],
     },
     messages: [],
+    history_initialized: false,
+    history_cursor: "",
+    history_more: false,
+    history_loading: false,
+    history_failure: "",
+    history_scope: 0,
     live: transcript::live(),
     run_id: "",
     context_tokens: 0,
@@ -362,10 +385,20 @@ impl Controller {
       // that happens to include the user event can still omit later live
       // content and must not replace it.
       if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
-        self.messages = transcript::project(snapshot.Messages)
+        let merged = transcript::merge_snapshot(
+          self.messages,
+          transcript::project(snapshot.Messages),
+        )
+        self.messages = merged.messages
+        if not merged.preserved {
+          self.reset_history(snapshot)
+        }
         self.live.reset()
       } else {
         self.live.adopt_stream(snapshot)
+      }
+      if not self.history_initialized {
+        self.reset_history(snapshot)
       }
     }
   }
@@ -842,6 +875,100 @@ impl Controller {
     if self.interaction_responding == id {
       self.interaction_responding = ""
     }
+  }
+
+  // Earlier history continues from the snapshot's oldest message.
+  private fn mut reset_history(snapshot: protocol::SessionSnapshot) {
+    self.history_initialized = true
+    self.history_cursor = snapshot.PreviousMessageCursor
+    self.history_more = snapshot.HasMoreMessages and snapshot.PreviousMessageCursor != ""
+    self.history_loading = false
+    self.history_failure = ""
+    self.history_scope = self.history_scope + 1
+  }
+
+  // Whether an earlier page can be requested now.
+  fn can_load_older() Bool {
+    self.active and self.history_more and (not self.history_loading) and self.history_cursor != "" and self.session.is_some() and self.lifetime.is_some()
+  }
+
+  // Loads the page of messages before the oldest one shown. One page is in
+  // flight at a time. A cursor that is no longer valid, as after compaction,
+  // is recovered from a fresh snapshot.
+  fn mut load_older() {
+    if self.can_load_older() {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let dispatch = self.host.dispatch
+              let cursor = self.history_cursor
+              let scope = self.history_scope
+              self.history_loading = true
+              self.history_failure = ""
+              async::start(fn() {
+                let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
+                let outcome = mut HistoryOutcome{
+                  page: Maybe::new<protocol::TranscriptPage>(),
+                  snapshot: Maybe::new<protocol::SessionSnapshot>(),
+                  failure: "",
+                }
+                match session.TranscriptPage(attempt.Context, cursor) {
+                  ok(page) => { outcome.page = Maybe::new(page) },
+                  err(failure) => {
+                    match sessionbridge::CursorUnavailable(failure) {
+                      true => {
+                        match session.Snapshot(attempt.Context) {
+                          ok(snapshot) => { outcome.snapshot = Maybe::new(snapshot) },
+                          err(refresh_failure) => { outcome.failure = refresh_failure.error() },
+                        }
+                      },
+                      false => { outcome.failure = failure.error() },
+                    }
+                  },
+                }
+                attempt.Cancel()
+                let _ = dispatch(fn() {
+                  if self.active and self.history_loading and self.history_scope == scope {
+                    self.history_loading = false
+                    match outcome.page {
+                      page => self.prepend_page(page),
+                      _ => {
+                        match outcome.snapshot {
+                          snapshot => self.recover_history(snapshot),
+                          _ => { self.history_failure = outcome.failure },
+                        }
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut prepend_page(page: protocol::TranscriptPage) {
+    match transcript::prepend_history(transcript::project(page.Messages), self.messages) {
+      ok(merged) => {
+        self.messages = merged
+        self.history_cursor = page.PreviousMessageCursor
+        self.history_more = page.HasMoreMessages and page.PreviousMessageCursor != ""
+      },
+      err(failure) => { self.history_failure = failure },
+    }
+  }
+
+  // The fresh snapshot restarts history from its own cursor. Its durable
+  // messages replace those shown; a turn still streaming keeps its live tail.
+  private fn mut recover_history(snapshot: protocol::SessionSnapshot) {
+    self.messages = transcript::project(snapshot.Messages)
+    self.reset_history(snapshot)
+    self.apply_snapshot(snapshot)
   }
 
   // Submits an answer or cancellation for a pending request. A request settles
@@ -1957,4 +2084,146 @@ test fn snapshots_replace_pending_requests() Void!Str {
     subject.interactions.size() == 1 and subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_2",
     "a later snapshot drops settled requests",
   )
+}
+
+private fn transcript_messages(ids: [Str], first: Int) [protocol::TranscriptMessage] {
+  let result = mut List::new<protocol::TranscriptMessage>()
+  mut sequence = first
+  for id in ids {
+    result.push(
+      protocol::TranscriptMessage{
+        ID: id,
+        TurnID: "turn-{id}",
+        Sequence: Int64::from(sequence),
+        Role: "user",
+        Content: [protocol::TextBlock(id)],
+      },
+    )
+    sequence =+ 1
+  }
+  result.@
+}
+
+private fn shown(subject: mut Controller) Str {
+  mut joined = ""
+  for message in subject.messages {
+    joined = match joined == "" {
+      true => message.id,
+      false => "{joined} {message.id}",
+    }
+  }
+  joined
+}
+
+test fn earlier_history_continues_from_the_snapshot_and_survives_later_snapshots() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["c", "d"], 3),
+      PreviousMessageCursor: "3",
+      HasMoreMessages: true,
+    },
+  )
+  try testing::assert(
+    subject.history_more and subject.history_cursor == "3",
+    "the snapshot's cursor starts history",
+  )
+
+  subject.prepend_page(
+    protocol::TranscriptPage{
+      SessionID: "session-1",
+      Messages: transcript_messages(["a", "b"], 1),
+      HasMoreMessages: false,
+    },
+  )
+  try testing::assert(shown(subject) == "a b c d", "the page is prepended: {shown(subject)}")
+  try testing::assert(not subject.history_more, "the beginning has been reached")
+
+  // A later overlapping snapshot keeps the loaded pages and their cursor.
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["c", "d", "e"], 3),
+      PreviousMessageCursor: "3",
+      HasMoreMessages: true,
+    },
+  )
+  try testing::assert(shown(subject) == "a b c d e", "loaded history is kept: {shown(subject)}")
+  testing::assert(not subject.history_more, "the loaded beginning is retained")
+}
+
+test fn a_snapshot_that_replaces_history_restarts_its_cursor() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a", "b"], 1),
+    },
+  )
+  subject.history_failure = "connection refused"
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["summary", "z"], 9),
+      PreviousMessageCursor: "9",
+      HasMoreMessages: true,
+    },
+  )
+  try testing::assert(shown(subject) == "summary z", "the snapshot replaces: {shown(subject)}")
+  testing::assert(
+    subject.history_more and subject.history_cursor == "9" and subject.history_failure == "",
+    "history restarts from the new snapshot",
+  )
+}
+
+test fn a_page_that_overlaps_the_transcript_is_reported_and_not_applied() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["c", "d"], 3),
+      PreviousMessageCursor: "3",
+      HasMoreMessages: true,
+    },
+  )
+  subject.prepend_page(
+    protocol::TranscriptPage{
+      SessionID: "session-1",
+      Messages: transcript_messages(["b", "c"], 2),
+      PreviousMessageCursor: "2",
+      HasMoreMessages: true,
+    },
+  )
+  try testing::assert(shown(subject) == "c d", "the transcript is unchanged: {shown(subject)}")
+  testing::assert(
+    subject.history_failure != "" and subject.history_cursor == "3",
+    "the failure pauses loading at the same cursor",
+  )
+}
+
+test fn an_expired_cursor_recovers_from_a_fresh_snapshot() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a", "b", "c"], 1),
+      PreviousMessageCursor: "1",
+      HasMoreMessages: true,
+    },
+  )
+  subject.recover_history(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["summary", "d"], 20),
+      PreviousMessageCursor: "20",
+      HasMoreMessages: true,
+    },
+  )
+  try testing::assert(shown(subject) == "summary d", "the fresh snapshot is shown: {shown(subject)}")
+  testing::assert(subject.history_cursor == "20" and subject.history_more, "history restarts")
 }

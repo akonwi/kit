@@ -30,6 +30,8 @@ struct ToolCall {
 struct Message {
   id: Str,
   turn_id: Str,
+  // Orders persisted messages within the session; zero until persisted.
+  sequence: Int,
   role: Role,
   text: Str,
   thinking: Str,
@@ -100,6 +102,7 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
   Message{
     id: id,
     turn_id: turn_id,
+    sequence: 0,
     role: role,
     text: "",
     thinking: "",
@@ -162,10 +165,90 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.error_message = source.ErrorMessage
       projected.is_error = source.IsError
       projected.aborted = source.StopReason == "aborted"
+      projected.sequence = source.Sequence
       result.push(projected.@)
     }
   }
   result.@
+}
+
+// Merged is a snapshot transcript combined with already loaded history.
+struct Merged {
+  messages: [Message],
+  // Whether earlier history loaded before the snapshot was kept.
+  preserved: Bool,
+}
+
+// merge_snapshot combines a bounded snapshot transcript with the messages
+// already shown. When the snapshot overlaps them consistently, loaded history
+// older than the snapshot is kept in front of it. Otherwise, as after
+// compaction or for an unrelated transcript, the snapshot replaces them.
+fn merge_snapshot(existing: [Message], snapshot: [Message]) Merged {
+  let replaced = Merged{messages: snapshot, preserved: false}
+  match snapshot.at(0) {
+    first => {
+      if existing.size() == 0 or first.sequence <= 0 {
+        replaced
+      } else {
+        mut overlaps = false
+        mut consistent = true
+        for message in snapshot {
+          for current in existing {
+            if current.id != "" and current.id == message.id {
+              overlaps = true
+              consistent = consistent and current.sequence == message.sequence
+            } else if current.sequence > 0 and current.sequence == message.sequence {
+              consistent = false
+            }
+          }
+        }
+        match overlaps and consistent {
+          true => {
+            let merged = mut List::new<Message>()
+            for current in existing {
+              if current.sequence > 0 and current.sequence < first.sequence {
+                merged.push(current)
+              }
+            }
+            for message in snapshot {
+              merged.push(message)
+            }
+            Merged{messages: merged.@, preserved: true}
+          },
+          false => replaced,
+        }
+      }
+    },
+    _ => replaced,
+  }
+}
+
+// prepend_history places an earlier transcript page in front of the messages
+// already shown. A page that repeats or contradicts them is rejected.
+fn prepend_history(older: [Message], existing: [Message]) [Message]!Str {
+  mut failure = ""
+  for message in older {
+    for current in existing {
+      if failure == "" and message.id != "" and current.id == message.id {
+        failure = "earlier transcript overlaps message {message.id}"
+      } else if failure == "" and message.sequence > 0 and current.sequence == message.sequence {
+        failure = "earlier transcript overlaps sequence {message.sequence}"
+      }
+    }
+  }
+  match failure == "" {
+    true => {
+      let merged = mut List::new<Message>()
+      for message in older {
+        merged.push(message)
+      }
+      for current in existing {
+        merged.push(current)
+      }
+      Result::ok(merged.@)
+    },
+    false => Result::err(failure),
+  }
 }
 
 // One streamed content block of the live assistant message.
