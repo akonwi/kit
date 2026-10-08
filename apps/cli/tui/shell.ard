@@ -35,7 +35,6 @@ use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript_pane
 use go:strings
-use go:time
 
 // The root terminal-client component: session bootstrap, shell chrome, and
 // retained feature composition.
@@ -118,8 +117,8 @@ struct Shell {
   scratchpad_open: Bool,
   scratchpad_control: mut scratchpad::PaneRef,
   active_modal: ActiveModal,
-  toasts: [toast::Item],
-  toast_next_id: Int,
+  // The notification host owns notifications; Shell only raises them.
+  notifications: mut toast::Control,
   connect_button: mut cui::BoxRef,
   // Rebound to each attachment's retained transcript.
   transcript_control: mut transcript_pane::Control,
@@ -155,8 +154,7 @@ fn new(props: mut Props) mut Shell {
     scratchpad_open: false,
     scratchpad_control: scratchpad::pane_ref(),
     active_modal: ActiveModal::none,
-    toasts: [],
-    toast_next_id: 0,
+    notifications: toast::control(),
     connect_button: cui::box_ref(),
     transcript_control: transcript_pane::control(),
   })
@@ -838,6 +836,9 @@ impl cui::Component for Shell {
     )
     let layers = mut List::new<cui::View>()
     layers.push(shell)
+    // Keep the notification host at a stable position ahead of the optional
+    // modal so opening a dialog never remounts it.
+    layers.push(toast::host(self.props.themes, self.notifications))
     match self.active_modal {
       ActiveModal::command_palette => layers.push(self.command_palette_modal()),
       ActiveModal::auth => layers.push(self.auth_modal()),
@@ -849,13 +850,6 @@ impl cui::Component for Shell {
       ActiveModal::rename_session => layers.push(self.rename_session_modal()),
       ActiveModal::sessions => layers.push(self.sessions_modal()),
       _ => (),
-    }
-    if self.toasts.size() > 0 {
-      layers.push(
-        toast::stack(self.props.themes, self.toasts, fn(id: Int) {
-          self.request_toast_dismissal(id)
-        }),
-      )
     }
     cui::box(
       layers.@,
@@ -882,80 +876,9 @@ impl Shell {
     self.props.themes.replace(colors.@)
   }
 
-  // Child-owned controls report toast transitions through Shell's context.
-  fn mut request_toast(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.show_toast(title, detail, variant, persistent)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  fn mut request_toast_dismissal(id: Int) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.dismiss_toast(id)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  // show_toast adds a bounded notification. Persistent notices remain until dismissed.
-  fn mut show_toast(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
-    let normalized_title = strings::TrimSpace(title)
-    if normalized_title != "" {
-      self.toast_next_id = self.toast_next_id + 1
-      let id = self.toast_next_id
-      self.toasts.push(
-        toast::Item{
-          id: id,
-          title: normalized_title,
-          detail: strings::TrimSpace(detail),
-          variant: variant,
-          persistent: persistent,
-        },
-      )
-      if self.toasts.size() > 5 {
-        mut victim = self.toasts.at(0).expect("toast")
-        for item in self.toasts {
-          if not victim.persistent {
-            ()
-          } else if not item.persistent {
-            victim = item
-          }
-        }
-        self.dismiss_toast(victim.id)
-      }
-      if not persistent {
-        match self.context {
-          ctx => {
-            let dispatch = ctx.dispatch
-            async::start(fn() {
-              time::After(time::Second * 10).recv()
-              let _ = dispatch(fn() {
-                self.dismiss_toast(id)
-              })
-            })
-          },
-          _ => (),
-        }
-      }
-    }
-  }
-
-  fn mut dismiss_toast(id: Int) {
-    let retained = mut List::new<toast::Item>()
-    for item in self.toasts {
-      if item.id != id {
-        retained.push(item)
-      }
-    }
-    self.toasts = retained.@
+  // notify raises an application notification through the host's context.
+  fn mut notify(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+    self.notifications.show(title, detail, variant, persistent)
   }
 
   fn mut open_auth() Bool {
@@ -1346,7 +1269,7 @@ impl Shell {
           self.request_palette_action(action)
         },
         notice: fn(notice: command_palette::Notice) {
-          self.request_toast(notice.title, notice.detail, toast::Variant::warning, false)
+          self.notify(notice.title, notice.detail, toast::Variant::warning, false)
         },
       },
     )
@@ -1441,7 +1364,7 @@ impl Shell {
           self.apply_authenticated()
         },
         copied: fn() {
-          self.request_toast("Copied to clipboard", "", toast::Variant::info, false)
+          self.notify("Copied to clipboard", "", toast::Variant::info, false)
         },
       },
     )
@@ -1496,7 +1419,7 @@ impl Shell {
     attached_session::Host{
       dispatch: context.dispatch,
       toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
-        self.show_toast(title, detail, variant, persistent)
+        self.notify(title, detail, variant, persistent)
       },
       attach: fn(attached: bootstrap::Attached, location: Str) {
         self.attach(attached, location)
@@ -1521,7 +1444,7 @@ impl Shell {
     self.transcript_control = transcript_pane::control()
     self.composer_mode = ""
     let _ = self.composer_control.reset()
-    self.toasts = []
+    self.notifications.clear()
     self.workspace = WorkspacePane::agent
     self.scratchpad_open = false
     self.scratchpad_control = scratchpad::pane_ref()
@@ -1608,7 +1531,7 @@ impl Shell {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          self.show_toast(title, detail, toast::Variant::error, true)
+          self.notify(title, detail, toast::Variant::error, true)
         })
       },
       _ => (),
@@ -1618,7 +1541,7 @@ impl Shell {
   // Refreshes the server-authoritative provider model catalog.
   fn mut refresh_models() {
     if self.model_refresh_pending {
-      self.show_toast(
+      self.notify(
         "Model refresh unavailable",
         "Model refresh is already in progress.",
         toast::Variant::warning,
@@ -1642,21 +1565,14 @@ impl Shell {
                   self.model_refresh_pending = false
                   match result {
                     ok(catalog) => {
-                      self.show_toast(
+                      self.notify(
                         "Model catalog refreshed",
                         "{catalog.Models.size()} models available",
                         toast::Variant::info,
                         false,
                       )
                     },
-                    err(failure) => {
-                      self.show_toast(
-                        "Model refresh failed",
-                        failure.error(),
-                        toast::Variant::error,
-                        true,
-                      )
-                    },
+                    err(failure) => self.notify("Model refresh failed", failure.error(), toast::Variant::error, true),
                   }
                 })
               })
@@ -1682,15 +1598,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   previous.active = true
   let first_scope = subject.session_scope_id
   subject.composer_mode = "old mode"
-  subject.toasts = [
-    toast::Item{
-      id: 1,
-      title: "Old session warning",
-      detail: "",
-      variant: toast::Variant::warning,
-      persistent: true,
-    },
-  ]
+  subject.notify("Old session warning", "", toast::Variant::warning, true)
   subject.workspace = WorkspacePane::scratchpad
   subject.scratchpad_open = true
 
@@ -1699,7 +1607,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   try testing::assert(subject.session_scope_id != first_scope, "reattachment starts a new scope")
   try testing::assert(not previous.active, "the previous attachment rejects late completions")
   try testing::assert(subject.composer_mode == "", "the previous composer mode resets")
-  try testing::assert(subject.toasts.size() == 0, "session notifications reset")
+  try testing::assert(subject.notifications.pending_count() == 0, "session notifications reset")
   testing::assert(
     subject.workspace == WorkspacePane::agent and not subject.scratchpad_open,
     "workspace state resets",
