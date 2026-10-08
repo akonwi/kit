@@ -247,6 +247,34 @@ test fn resolution_validates_builtins_and_preserves_extension_arguments() Void!S
   }
 }
 
+test fn fork_stays_available_during_a_turn_and_carries_a_first_message() Void!Str {
+  mut fork = Maybe::new<palette::Item>()
+  for candidate in command_palette::command_catalog(true, [], []) {
+    if candidate.key == "fork" {
+      fork = Maybe::new(candidate)
+    }
+  }
+  try testing::assert(fork.is_some(), "the catalog offers fork")
+  let command = fork.expect("fork")
+  try testing::assert(
+    command.disabled_reason == "" and command.hint == "[message]",
+    "fork is enabled while busy and hints its optional message",
+  )
+  match command_palette::resolve(command, "fork  explore the other approach ", [], []) {
+    ok(action) => {
+      try testing::assert(
+        action.kind == command_palette::ActionKind::fork and action.argument == "explore the other approach",
+        "the trimmed argument becomes the first message",
+      )
+    },
+    err(_) => try testing::fail("fork resolves"),
+  }
+  match command_palette::resolve(command, "fork", [], []) {
+    ok(action) => testing::assert(action.argument == "", "fork without a message has no argument"),
+    err(_) => testing::fail("fork without a message resolves"),
+  }
+}
+
 test fn tab_completion_keeps_the_command_selected_while_typing_arguments() Void!Str {
   let terminal = headless::new(80, 16)
   defer terminal.destroy()

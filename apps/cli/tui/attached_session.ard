@@ -4,6 +4,7 @@ use ard/unsafe
 
 use go:api
 use go:api/contract as protocol
+use go:context
 use cooper/event
 use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/cli
@@ -154,7 +155,52 @@ fn attach(
   result.lifetime = Maybe::new(contextbridge::WithCancel(parent.Context))
   result.session = Maybe::new(attached.session)
   result.apply_snapshot(attached.snapshot)
+  match attached.failed_first_message {
+    failure => result.present_failed_first_message(failure),
+    _ => (),
+  }
   result
+}
+
+// Attaches a session this client just created or forked and reads its
+// snapshot. It runs on a worker under the request's deadline.
+private fn attach_new_session(
+  client: mut api::Client,
+  ctx: context::Context,
+  info: protocol::SessionInfo,
+  failed_first_message: bootstrap::FailedFirstMessage?,
+) bootstrap::Attached!Str {
+  match client.Attach(ctx, info.ID) {
+    ok(session) => {
+      match session.Snapshot(ctx) {
+        ok(snapshot) => {
+          Result::ok(
+            bootstrap::Attached{
+              info: info,
+              session: session,
+              snapshot: snapshot,
+              failed_first_message: failed_first_message,
+            },
+          )
+        },
+        err(failure) => Result::err(failure.error()),
+      }
+    },
+    err(failure) => Result::err(failure.error()),
+  }
+}
+
+// The fork's first message when the server published the child without
+// starting it.
+private fn failed_first_message(message: Str, forked: protocol::ForkSessionResult) bootstrap::FailedFirstMessage? {
+  match message == "" or unsafe::is_nil(forked.FirstTurnError) {
+    true => Maybe::new<bootstrap::FailedFirstMessage>(),
+    false => {
+      Maybe::new(
+        bootstrap::FailedFirstMessage{text: message, reason: forked.FirstTurnError.Message},
+      )
+    },
+  }
 }
 
 impl Controller {
@@ -921,23 +967,12 @@ impl Controller {
                 let created = client.CreateSession(attempt.Context, input)
                 match created {
                   ok(info) => {
-                    let attached = match client.Attach(attempt.Context, info.ID) {
-                      ok(session) => {
-                        match session.Snapshot(attempt.Context) {
-                          ok(snapshot) => {
-                            Result::ok(
-                              bootstrap::Attached{
-                                info: info,
-                                session: session,
-                                snapshot: snapshot,
-                              },
-                            )
-                          },
-                          err(failure) => Result::err(failure.error()),
-                        }
-                      },
-                      err(failure) => Result::err(failure.error()),
-                    }
+                    let attached = attach_new_session(
+                      client,
+                      attempt.Context,
+                      info,
+                      Maybe::new<bootstrap::FailedFirstMessage>(),
+                    )
                     let location = match attached {
                       ok(next) => resolve_location(lifetime.Context, next.info.CWD),
                       err(_) => "",
@@ -976,6 +1011,67 @@ impl Controller {
         _ => (),
       }
     }
+  }
+
+  // Forks the attached session from its latest settled boundary and installs
+  // the linked child. Forking stays available while a turn runs; it only waits
+  // for work that would replace this attachment. A non-empty message becomes
+  // the child's first prompt, which the server admits as part of the fork so it
+  // cannot be lost between forking and submitting.
+  fn mut fork(message: Str) {
+    let source_id = self.session_id()
+    if self.active and source_id != "" and (not self.new_session_pending and not self.reload_pending) {
+      match self.lifetime {
+        lifetime => {
+          let request = mut protocol::ForkSessionInput{}
+          if message != "" {
+            request.Prompt = mut protocol::PromptInput{Text: message}
+          }
+          let input = request.@
+          let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
+          let client = self.options.Client
+          let resolve_location = self.options.ResolveLocation
+          let dispatch = self.host.dispatch
+          self.new_session_pending = true
+          async::start(fn() {
+            let attached = match client.ForkSession(attempt.Context, source_id, input) {
+              ok(forked) => {
+                attach_new_session(
+                  client,
+                  attempt.Context,
+                  forked.Session,
+                  failed_first_message(message, forked),
+                )
+              },
+              err(failure) => Result::err(failure.error()),
+            }
+            let location = match attached {
+              ok(next) => resolve_location(lifetime.Context, next.info.CWD),
+              err(_) => "",
+            }
+            attempt.Cancel()
+            let _ = dispatch(fn() {
+              if self.active {
+                self.new_session_pending = false
+                match attached {
+                  ok(next) => (self.host.attach)(next, location),
+                  err(failure) => (self.host.toast)("Fork failed", failure, toast::Variant::error, true),
+                }
+              }
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Presents a first message that did not start a turn like any failed prompt
+  // submission: the message returns to an empty composer and its reason is
+  // shown as the attachment's notice.
+  fn mut present_failed_first_message(failure: bootstrap::FailedFirstMessage) {
+    (self.host.restore_draft)(failure.text)
+    self.notice = failure.reason
   }
 
   // Changes the attached session's directory through the canonical session
@@ -1239,7 +1335,9 @@ test fn a_detached_controller_ignores_session_operations() Void!Str {
   subject.submit("hello")
   subject.reload()
   subject.create_sibling()
+  subject.fork("try another approach")
   try testing::assert(not subject.can_submit(), "no session can receive prompts")
+  try testing::assert(not subject.new_session_pending, "no fork starts")
   try testing::assert(subject.live.messages.size() == 0, "no optimistic prompt is added")
   testing::assert(effects.toasts.size() == 0, "inert operations report nothing")
 }
@@ -1438,4 +1536,68 @@ test fn disposal_ends_the_attachment_scope() Void!Str {
   try testing::assert(not subject.active and not subject.can_submit(), "a disposed attachment is inert")
   try testing::assert(subject.info.or(protocol::SessionInfo{}).Name == "", "late records are ignored")
   testing::assert(subject.scratchpad_record.is_none(), "late editor completions are ignored")
+}
+
+test fn a_fork_waits_only_for_work_that_replaces_the_attachment() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, ActiveTurnID: "turn-1"},
+  )
+  subject.new_session_pending = true
+  subject.fork("")
+  subject.new_session_pending = false
+  subject.reload_pending = true
+  subject.fork("")
+  testing::assert(
+    effects.toasts.size() == 0 and not subject.new_session_pending,
+    "a fork during session creation or reload is ignored without feedback",
+  )
+}
+
+test fn only_an_unstarted_first_message_is_reported_as_failed() Void!Str {
+  let started = protocol::ForkSessionResult{Session: protocol::SessionInfo{ID: "child"}}
+  let unstarted = protocol::ForkSessionResult{
+    Session: protocol::SessionInfo{ID: "child"},
+    FirstTurnError: mut protocol::FirstTurnError{Code: protocol::FirstTurnUnavailable, Message: "session is unavailable"},
+  }
+  try testing::assert(failed_first_message("", unstarted).is_none(), "a fork without a message has none")
+  try testing::assert(
+    failed_first_message("explore", started).is_none(),
+    "a started first message did not fail",
+  )
+  let failure = failed_first_message(
+    "explore",
+    unstarted,
+  ).or(bootstrap::FailedFirstMessage{text: "", reason: ""})
+  testing::assert(
+    failure.text == "explore" and failure.reason == "session is unavailable",
+    "the unstarted message keeps its text and reason",
+  )
+}
+
+test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
+  let drafts = mut List::new<Str>()
+  let host = Host{
+    dispatch: fn(action: fn()) Void!event::DispatchError {
+      action()
+      Result::ok(())
+    },
+    toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {},
+    attach: fn(attached: bootstrap::Attached, location: Str) {},
+    restore_draft: fn(text: Str) {
+      drafts.push(text)
+    },
+    show_latest: fn() {},
+  }
+  let subject = controller(cli::TUIOptions{}, host, 1, "")
+  subject.active = true
+  subject.present_failed_first_message(
+    bootstrap::FailedFirstMessage{text: "explore the other approach", reason: "session is unavailable"},
+  )
+  try testing::assert(
+    drafts.size() == 1 and drafts.at(0).or("") == "explore the other approach",
+    "the message returns to the composer",
+  )
+  testing::assert(subject.notice == "session is unavailable", "the reason is shown as the notice")
 }
