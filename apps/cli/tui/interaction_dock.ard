@@ -477,15 +477,24 @@ impl Dock {
   }
 
   private fn mut header(colors: theme::Theme) cui::View {
-    let meta = mut List::new<Str>()
+    let meta = mut List::new<cui::View>()
     if self.guided() {
-      meta.push("Question {self.step + 1} of {self.props.request.Questions.size()}")
-      if self.optional() {
-        meta.push("optional")
+      for mark in self.trail(colors) {
+        meta.push(mark)
       }
     }
     if self.props.queue_length > 1 {
-      meta.push("1 of {self.props.queue_length}")
+      let separator = match self.guided() {
+        true => "  ·  ",
+        false => "",
+      }
+      meta.push(
+        cui::text(
+          "{separator}1 of {self.props.queue_length}",
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+        ),
+      )
     }
     cui::box(
       [
@@ -494,18 +503,56 @@ impl Dock {
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
           text_style: ui::text_style(foreground: colors.foreground, bold: true),
         ),
-        cui::text(
-          strings::Join(meta, " · "),
-          text_style: ui::text_style(foreground: colors.muted),
-          wrap: ui::TextWrap::none,
-        ),
+        cui::box(meta.@, styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0)),
       ],
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
         flex_shrink: 0.0,
         gap: ui::cells(2),
+        padding: horizontal_inset(),
       ),
     )
+  }
+
+  // trail marks each guided question: answered, current, or not yet
+  // answered. Long questionnaires drop the spacing and add a count.
+  private fn trail(colors: theme::Theme) [cui::View] {
+    let questions = self.props.request.Questions
+    let compact = questions.size() > 8
+    let marks = mut List::new<cui::View>()
+    mut index = 0
+    for question in questions {
+      let answered = match self.answers.get(question.ID) {
+        answer => not answer.Skipped,
+        _ => false,
+      }
+      let mark = match {
+        index == self.step => "◉",
+        answered => "●",
+        _ => "○",
+      }
+      let style = match {
+        index == self.step => ui::text_style(foreground: colors.primary_text, bold: true),
+        answered => ui::text_style(foreground: colors.primary_text),
+        _ => ui::text_style(foreground: colors.muted),
+      }
+      let gap = match compact or index == 0 {
+        true => "",
+        false => " ",
+      }
+      marks.push(cui::text("{gap}{mark}", text_style: style, wrap: ui::TextWrap::none))
+      index =+ 1
+    }
+    if compact {
+      marks.push(
+        cui::text(
+          " {self.step + 1}/{questions.size()}",
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+        ),
+      )
+    }
+    marks.@
   }
 
   // detail renders explanatory Markdown. It scrolls only once the options are
@@ -522,12 +569,12 @@ impl Dock {
         ),
       ],
       key: "interaction.{key}",
-      styles: ui::style(flex_shrink: 0.001, min_height: ui::cells(1)),
+      styles: ui::style(flex_shrink: 0.001, min_height: ui::cells(1), padding: horizontal_inset()),
       focusable: false,
     )
   }
 
-  private fn mut body(colors: theme::Theme) cui::View {
+  private fn mut controls(colors: theme::Theme) cui::View {
     match self.mode() {
       Mode::confirm => {
         let yes = keymap::simple_command("interaction.yes.pointer", "Yes", fn() Bool {
@@ -545,13 +592,13 @@ impl Dock {
               no,
               variant: controls::ButtonVariant::secondary,
               focusable: false,
-              raised: true,
             ),
           ],
           styles: ui::style(
             flex_direction: ui::FlexDirection::row,
             flex_shrink: 0.0,
             gap: ui::cells(1),
+            padding: horizontal_inset(),
           ),
         )
       },
@@ -561,7 +608,7 @@ impl Dock {
           self.props.request.Placeholder == "" => "Type a response",
           _ => self.props.request.Placeholder,
         }
-        cui::box(
+        let field = cui::box(
           [
             cui::input(
               // Each question mounts its own field so it takes focus.
@@ -581,14 +628,17 @@ impl Dock {
           ],
           styles: ui::style(
             flex_direction: ui::FlexDirection::row,
+            flex_grow: 1.0,
+            background: colors.surface,
+            padding: horizontal_inset(),
+          ),
+        )
+        cui::box(
+          [field],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::row,
             flex_shrink: 0.0,
-            background: colors.surface_raised,
-            padding: ui::Edges{
-              top: ui::cells(0),
-              right: ui::cells(1),
-              bottom: ui::cells(0),
-              left: ui::cells(1),
-            },
+            padding: horizontal_inset(),
           ),
         )
       },
@@ -597,6 +647,7 @@ impl Dock {
       Mode::unsupported => {
         cui::text(
           "This request is not supported by this client.",
+          styles: ui::style(padding: horizontal_inset()),
           text_style: ui::text_style(foreground: colors.danger_text),
         )
       },
@@ -687,7 +738,7 @@ impl Dock {
     let selected = index == self.cursor
     let fill = match selected {
       true => colors.picker_selected,
-      false => colors.surface,
+      false => colors.background,
     }
     let label = mut List::new<cui::View>()
     if multiple {
@@ -772,8 +823,18 @@ impl Dock {
     }
   }
 
+  // footer keeps key hints on the left and pointer actions on the right.
   private fn mut footer(colors: theme::Theme) cui::View {
     let children = mut List::new<cui::View>()
+    children.push(
+      cui::text(
+        self.hint(),
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
     if self.mode() == Mode::multiple {
       let next = keymap::simple_command("interaction.continue.pointer", "Continue", fn() Bool {
         self.continue_multiple()
@@ -794,22 +855,12 @@ impl Dock {
           variant: controls::ButtonVariant::secondary,
           compact: true,
           focusable: false,
-          raised: true,
         ),
       )
     }
     let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
       self.cancel()
     })
-    children.push(
-      cui::text(
-        self.hint(),
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-        text_style: ui::text_style(foreground: colors.muted),
-        wrap: ui::TextWrap::none,
-        overflow: ui::TextOverflow::ellipsis,
-      ),
-    )
     children.push(
       controls::button(
         self.props.themes,
@@ -818,7 +869,6 @@ impl Dock {
         variant: controls::ButtonVariant::secondary,
         compact: true,
         focusable: false,
-        raised: true,
       ),
     )
     cui::box(
@@ -827,6 +877,7 @@ impl Dock {
         flex_direction: ui::FlexDirection::row,
         flex_shrink: 0.0,
         gap: ui::cells(1),
+        padding: horizontal_inset(),
       ),
     )
   }
@@ -840,10 +891,16 @@ struct Bindings {
 impl cui::Component for Dock {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
+    let rule = ui::style(flex_shrink: 0.0, border_color: colors.border)
+    // Sections are direct children so only the detail and the options can
+    // give up rows when the terminal is short.
     let children = mut List::new<cui::View>()
     children.push(self.header(colors))
+    children.push(cui::divider(styles: rule))
+    mut context = false
     if self.props.request.Detail != "" {
       children.push(self.detail(colors, "detail", self.props.request.Detail))
+      context = true
     }
     match self.question() {
       question => {
@@ -851,26 +908,31 @@ impl cui::Component for Dock {
           cui::text(
             question.Prompt,
             key: "interaction.prompt.{self.step}",
-            styles: ui::style(flex_shrink: 0.0),
+            styles: ui::style(flex_shrink: 0.0, padding: horizontal_inset()),
             text_style: ui::text_style(foreground: colors.foreground),
           ),
         )
         if question.Detail != "" {
           children.push(self.detail(colors, "question.{self.step}", question.Detail))
         }
+        context = true
       },
       _ => (),
     }
-    children.push(spacer())
-    children.push(self.body(colors))
-    children.push(spacer())
+    if context {
+      children.push(spacer())
+    }
+    children.push(self.controls(colors))
+    children.push(cui::divider(styles: rule))
     children.push(self.footer(colors))
     let keys = match self.props.active {
       true => self.bindings(),
       false => Bindings{commands: [], bindings: []},
     }
-    // The dock owns input from any focus target while no dialog is open, so
-    // its keys apply at application scope beneath dialog priority.
+    // The dock is the dialog panel docked in the composer's place: the same
+    // frame, header, and footer, on the terminal background. It owns input
+    // from any focus target while no dialog is open, so its keys apply at
+    // application scope beneath dialog priority.
     cui::box(
       children.@,
       key: "interaction.dock",
@@ -878,14 +940,10 @@ impl cui::Component for Dock {
         flex_direction: ui::FlexDirection::column,
         flex_shrink: 1.0,
         overflow: ui::Overflow::hidden,
-        background: colors.surface,
+        background: colors.background,
         foreground: colors.foreground,
-        padding: ui::Edges{
-          top: ui::cells(0),
-          right: ui::cells(1),
-          bottom: ui::cells(1),
-          left: ui::cells(1),
-        },
+        border: ui::Border::single,
+        border_color: colors.border,
       ),
       autofocus: self.props.active and self.mode() != Mode::text,
       ref: self.focus,
@@ -894,6 +952,15 @@ impl cui::Component for Dock {
       binding_scope: keymap::ScopeMode::application,
       binding_priority: 50,
     )
+  }
+}
+
+private fn horizontal_inset() ui::Edges {
+  ui::Edges{
+    top: ui::cells(0),
+    right: ui::cells(1),
+    bottom: ui::cells(0),
+    left: ui::cells(1),
   }
 }
 

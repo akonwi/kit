@@ -135,7 +135,8 @@ Examples: model and plugin confirmation, short input, selection, and guided-ques
 - Spans the full content width without a modal backdrop
 - Leaves the selected Agent/workspace surface visible, selectable, and mouse-scrollable
 - Owns keyboard focus and provides explicit submit and cancel actions
-- Uses a measured, bounded share of terminal height and windows long content
+- Takes its natural height; the workspace shrinks first (to three rows), then
+  option lists window around the highlight, then details scroll
 - Preserves and restores the composer draft, cursor, attachments, and queued follow-ups
 - Shows the oldest server-owned pending request and identifies queue position when needed
 - Must not cancel a server-owned request merely because this client switches sessions or detaches
@@ -167,9 +168,14 @@ Palette pickers use `palettePicker`; inline pickers use `inlinePicker`. Do not f
 Examples: model- or plugin-invoked confirmation, short input, selection, and guided questions.
 
 - Replaces the composer while input is required and spans the primary transcript column
-- Uses a top `borderAccent` separator and `bgSurface` without a modal backdrop
+- Is the dialog panel docked in place: a square `borderDefault` frame on `bg`,
+  a title/meta header and a hint/action footer each separated by connected
+  rules, and no modal backdrop; the frame replaces the shell separators above
+  and below it
+- Guided requests show a step trail in the header meta (`●` answered, `◉`
+  current, `○` remaining) instead of "Question i of N"
 - Keeps the transcript visible and mouse-scrollable while the dock owns keyboard focus
-- Caps its height relative to the terminal and windows or scrolls long option content internally
+- Takes its natural height and windows or scrolls long option content only when the terminal is constrained
 - Uses `InteractionDock.Root`, `InteractionDock.Header`, `InteractionDock.Body`, and `InteractionDock.Footer`
 - Queues concurrent requests rather than stacking multiple visible docks
 - Public plugin `confirm`, `input`, and `select` primitives use this surface; arbitrary custom plugin UI remains a dialog

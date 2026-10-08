@@ -28,12 +28,11 @@ fn inset() ui::Edges {
   }
 }
 
-// A full-width one-row horizontal rule. A background joins the rule to an
-// adjacent filled surface so no unfilled half row separates them.
-fn divider(color: ui::Color, background: ui::Color?) cui::View {
+// A full-width one-row horizontal rule.
+fn divider(color: ui::Color) cui::View {
   cui::text(
     rule,
-    styles: ui::style(height: ui::cells(1), flex_shrink: 0.0, background: background),
+    styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
     text_style: ui::text_style(foreground: color),
     wrap: ui::TextWrap::none,
   )
