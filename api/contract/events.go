@@ -21,6 +21,7 @@ type SessionEventKind string
 const (
 	SessionEventTurnStarted            SessionEventKind = "turn.started"
 	SessionEventUserMessageAdded       SessionEventKind = "user.message.added"
+	SessionEventPluginMessageAdded     SessionEventKind = "plugin.message.added"
 	SessionEventAssistantStarted       SessionEventKind = "assistant.started"
 	SessionEventAssistantTextDelta     SessionEventKind = "assistant.text.delta"
 	SessionEventThinkingDelta          SessionEventKind = "assistant.thinking.delta"
@@ -169,7 +170,7 @@ func (event sessionEventWire) validate() error {
 	if len(event.Content) > maxSessionEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxSessionEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -208,6 +209,10 @@ func (event sessionEventWire) validate() error {
 	case SessionEventUserMessageAdded:
 		if event.Text == "" {
 			return fmt.Errorf("user message text is required")
+		}
+	case SessionEventPluginMessageAdded:
+		if event.Text == "" || !pluginCommandPluginID.MatchString(event.PluginID) {
+			return fmt.Errorf("plugin message requires text and a plugin id")
 		}
 	case SessionEventAssistantStarted, SessionEventAssistantCompleted:
 		if event.MessageID == "" {
@@ -378,6 +383,9 @@ func (event sessionEventWire) validate() error {
 	}
 	if isRetry && (event.ContentIndex != 0 || event.Delta != "" || event.Text != "" || event.Thinking != "") {
 		return fmt.Errorf("provider retry event cannot carry assistant content")
+	}
+	if event.Kind != SessionEventPluginMessageAdded && event.PluginID != "" {
+		return fmt.Errorf("event kind %q cannot carry a plugin id", event.Kind)
 	}
 	if event.Kind != SessionEventSessionNameChanged && event.SessionName != "" {
 		return fmt.Errorf("event kind %q cannot carry a session name", event.Kind)

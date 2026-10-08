@@ -1,7 +1,7 @@
 # Session message demo
 
-Run Kit from this worktree and use `/reload` to discover the plugin. Each
-submission outcome appears as a toast.
+Run Kit from this worktree and use `/reload` to discover the plugin. Admitted
+messages appear in the transcript; rejections appear as toasts.
 
 - `/session-message-demo.send <text>` — submits the text as a session message,
   starting a turn when the session is idle.

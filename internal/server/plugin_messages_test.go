@@ -2,10 +2,10 @@ package server
 
 import (
 	"context"
-	"encoding/json"
 	"errors"
 	"fmt"
 	"reflect"
+	"strings"
 	"testing"
 	"time"
 
@@ -81,15 +81,6 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 			return "", ""
 		}
 	}
-	admitted := func() (string, string) {
-		t.Helper()
-		title, subtitle := nextToast()
-		var result struct{ MessageID, TurnID string }
-		if title != "Message admitted" || json.Unmarshal([]byte(subtitle), &result) != nil || result.MessageID == "" || result.TurnID == "" {
-			t.Fatalf("submission toast = %q %q, want admitted", title, subtitle)
-		}
-		return result.MessageID, result.TurnID
-	}
 	settledRows := func(id string, count int) []pluginMessageRow {
 		t.Helper()
 		deadline := time.Now().Add(5 * time.Second)
@@ -112,17 +103,16 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 
 	// Kickoff from a user-invoked command.
 	execute("send", "Kickoff from a command.")
-	kickoffID, kickoffTurn := admitted()
 	rows := settledRows(sessionID, 1)
-	if want := []pluginMessageRow{{ID: kickoffID, TurnID: kickoffTurn, Source: sessionMessageFixture, Text: "Kickoff from a command.", Details: details}}; !reflect.DeepEqual(rows, want) {
+	if !strings.HasPrefix(rows[0].ID, "pluginmsg_") || rows[0].TurnID == "" {
+		t.Fatalf("kickoff row identity = %+v", rows[0])
+	}
+	if want := []pluginMessageRow{{ID: rows[0].ID, TurnID: rows[0].TurnID, Source: sessionMessageFixture, Text: "Kickoff from a command.", Details: details}}; !reflect.DeepEqual(rows, want) {
 		t.Fatalf("kickoff rows = %+v, want %+v", rows, want)
 	}
 
 	// Continuation after each completed turn the plugin started.
 	execute("loop", "3")
-	for range 3 {
-		admitted()
-	}
 	rows = settledRows(sessionID, 4)
 	var texts []string
 	for _, row := range rows {
@@ -132,14 +122,12 @@ func TestPluginSessionMessageFixtureThroughDaemon(t *testing.T) {
 		t.Fatalf("continuation texts = %q, want %q", texts, want)
 	}
 
-	// Keyed retries return the original admission; reuse with other text conflicts.
+	// A keyed retry replays the original admission without a rejection or a
+	// second row; reuse with other text conflicts. The plugin submits in order,
+	// so a rejected retry would surface as a toast before the conflict.
 	execute("send-keyed", "Keyed message.")
-	keyedID, keyedTurn := admitted()
 	settledRows(sessionID, 5)
 	execute("send-keyed", "Keyed message.")
-	if retryID, retryTurn := admitted(); retryID != keyedID || retryTurn != keyedTurn {
-		t.Fatalf("keyed retry = %s/%s, want %s/%s", retryID, retryTurn, keyedID, keyedTurn)
-	}
 	execute("send-keyed", "Different text.")
 	if title, subtitle := nextToast(); title != "Message rejected" || subtitle != "-32003 Idempotency key was used with different text" {
 		t.Fatalf("conflict toast = %q %q", title, subtitle)

@@ -106,6 +106,7 @@ type (
 	PluginFooterSegment               = contract.PluginFooterSegment
 	PluginFooterStyle                 = contract.PluginFooterStyle
 	PluginInteractionOwner            = contract.PluginInteractionOwner
+	PluginMessageAddedEvent           = contract.PluginMessageAddedEvent
 	PluginToast                       = contract.PluginToast
 	PluginToastVariant                = contract.PluginToastVariant
 	PromoteFollowUpsResult            = contract.PromoteFollowUpsResult
@@ -360,6 +361,7 @@ const (
 	SessionEventInteractionRequested      = contract.SessionEventInteractionRequested
 	SessionEventInteractionResolved       = contract.SessionEventInteractionResolved
 	SessionEventPeerQueryChanged          = contract.SessionEventPeerQueryChanged
+	SessionEventPluginMessageAdded        = contract.SessionEventPluginMessageAdded
 	SessionEventProviderRetryScheduled    = contract.SessionEventProviderRetryScheduled
 	SessionEventProviderRetryStarted      = contract.SessionEventProviderRetryStarted
 	SessionEventScratchpadChanged         = contract.SessionEventScratchpadChanged

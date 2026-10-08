@@ -1,6 +1,7 @@
 package contract
 
 import (
+	"encoding/json"
 	"testing"
 	"time"
 )
@@ -24,6 +25,7 @@ func TestSessionScopedEventValidation(t *testing.T) {
 func TestSessionEventValidatesPayloadVariants(t *testing.T) {
 	valid := []SessionEventPayload{
 		TurnStartedEvent{Status: TurnStatusRunning}, UserMessageAddedEvent{Text: "hello"},
+		PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue."},
 		AssistantStartedEvent{MessageID: "message_1"}, AssistantTextDeltaEvent{MessageID: "message_1", Delta: "hello"},
 		ThinkingDeltaEvent{MessageID: "message_1", Delta: "reasoning"}, AssistantCompletedEvent{MessageID: "message_1"},
 		ToolPlannedEvent{MessageID: "message_1", ToolCallID: "call_1", ToolName: "read", ArgumentsTruncated: true},
@@ -60,6 +62,28 @@ func TestSessionEventBatchValidatesPayloadSequence(t *testing.T) {
 	batch.Events[3].Payload = AssistantTextDeltaEvent{MessageID: "message_2", Delta: "answer"}
 	if err := batch.Validate(); err == nil {
 		t.Fatal("batch accepted assistant identity change")
+	}
+}
+
+func TestPluginMessageEventRequiresTurnTextAndPluginID(t *testing.T) {
+	for name, event := range map[string]SessionEvent{
+		"missing text":      eventForTest(1, PluginMessageAddedEvent{PluginID: "autoresearch"}),
+		"missing plugin":    eventForTest(1, PluginMessageAddedEvent{Text: "Continue."}),
+		"invalid plugin id": eventForTest(1, PluginMessageAddedEvent{PluginID: "Auto Research", Text: "Continue."}),
+		"session scoped":    {StreamID: "stream_test", Sequence: 1, SessionID: "session_test", Payload: PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue."}},
+	} {
+		if err := event.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, event)
+		}
+	}
+	// Only plugin messages may carry a plugin id on the flat wire.
+	var decoded SessionEvent
+	err := json.Unmarshal([]byte(`{"streamId":"stream_test","sequence":1,"sessionId":"session_test","turnId":"turn_test","kind":"user.message.added","text":"hello","pluginId":"autoresearch"}`), &decoded)
+	if err == nil {
+		err = decoded.Validate()
+	}
+	if err == nil {
+		t.Fatal("user message accepted a plugin id")
 	}
 }
 

@@ -21,6 +21,11 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 			want:  `{"streamId":"stream_1","sequence":1,"sessionId":"session_1","kind":"session.name.changed","sessionName":"Renamed"}`,
 		},
 		{
+			name:  "plugin message carries its plugin id",
+			event: SessionEvent{StreamID: "stream_1", Sequence: 2, SessionID: "session_1", TurnID: "turn_1", Payload: PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue."}},
+			want:  `{"streamId":"stream_1","sequence":2,"sessionId":"session_1","turnId":"turn_1","kind":"plugin.message.added","text":"Continue.","pluginId":"autoresearch"}`,
+		},
+		{
 			name:  "assistant delta omits zero content index",
 			event: SessionEvent{StreamID: "stream_1", Sequence: 2, SessionID: "session_1", TurnID: "turn_1", Payload: AssistantTextDeltaEvent{MessageID: "message_1", Delta: "hello"}},
 			want:  `{"streamId":"stream_1","sequence":2,"sessionId":"session_1","turnId":"turn_1","messageId":"message_1","kind":"assistant.text.delta","delta":"hello"}`,
@@ -42,8 +47,8 @@ func TestSessionEventFlatWireFixtures(t *testing.T) {
 func TestSessionEventPayloadVocabularyIsClosed(t *testing.T) {
 	t.Parallel()
 	variants := sessionEventVariants()
-	if len(variants) != 28 {
-		t.Fatalf("session event variants = %d; want 28", len(variants))
+	if len(variants) != 29 {
+		t.Fatalf("session event variants = %d; want 29", len(variants))
 	}
 	seen := make(map[SessionEventKind]bool, len(variants))
 	for _, variant := range variants {

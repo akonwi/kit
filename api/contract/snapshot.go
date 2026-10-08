@@ -663,7 +663,7 @@ func validatePluginMessageDetails(source string, details json.RawMessage) error 
 	if err := json.Unmarshal(details, &payload); err != nil {
 		return fmt.Errorf("decode plugin message details: %w", err)
 	}
-	if payload.Version != 1 || payload.PluginID == "" || payload.PluginID != source {
+	if payload.Version != 1 || !pluginCommandPluginID.MatchString(payload.PluginID) || payload.PluginID != source {
 		return fmt.Errorf("plugin message details require version 1 and the source plugin id")
 	}
 	return nil

@@ -199,9 +199,10 @@ func (m *Manager) submitPluginMessage(ctx context.Context, loaded *runtime, sess
 		return PluginMessageResult{}, err
 	}
 	turnID := string(handle.TurnID())
-	if _, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, true, nil, []NewEvent{{
-		SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning,
-	}}); err != nil {
+	if _, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, true, nil, []NewEvent{
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventRunStarted, Status: RunStatusRunning},
+		{SessionID: sessionID, TurnID: turnID, RunID: turnID, Kind: EventPluginMessage, PluginID: input.PluginID, Text: boundedLiveText(input.Text)},
+	}); err != nil {
 		return PluginMessageResult{}, err
 	}
 	return PluginMessageResult{MessageID: boundary.ID, TurnID: turnID}, nil

@@ -53,7 +53,15 @@ The message is recorded as a `context` transcript message with `boundaryKind`
 `plugin_message`, `boundarySource` set to the plugin ID, the submitted text as
 its content, and details `{"version":1,"pluginId":"…"}`. The model receives it
 framed as `[plugin_message from <plugin-id>]`; it is never recorded as user
-speech. Clients present it as a plugin-labelled row.
+speech. When the turn starts, the session event stream carries a
+`plugin.message.added` event with the turn ID, `pluginId`, and text, so clients
+show the message while the turn runs and not only after the transcript
+refreshes.
+
+The TUI presents the message as one muted row, `◆ <plugin-id> · <first line> ▸`,
+labelled in the plugin identity colour. Clicking the row shows the full message
+beneath a left rule. Plugin messages are not offered by prompt history recall,
+which only recalls user prompts.
 
 An admitted turn belongs to the session, not the plugin. It uses the session's
 normal tools, interceptors, and approvals, runs with or without attached

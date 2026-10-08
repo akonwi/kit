@@ -2,7 +2,7 @@
 
 Commands reply immediately and submit afterwards: the stdio loop is
 synchronous, so a handler cannot wait for its own submission response.
-Every submission outcome is reported as a toast.
+Admitted messages appear in the transcript; rejections are reported as toasts.
 """
 
 import json
@@ -55,10 +55,8 @@ def settle(response):
         error = response["error"]
         toast("Message rejected", "%d %s" % (error["code"], error["message"]))
         return
-    result = response["result"]
-    toast("Message admitted", json.dumps(result, sort_keys=True))
     if purpose == "loop":
-        loop["turn"] = result["turnId"]
+        loop["turn"] = response["result"]["turnId"]
         continue_loop()
 
 

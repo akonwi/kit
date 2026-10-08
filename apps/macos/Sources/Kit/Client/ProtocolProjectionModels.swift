@@ -360,32 +360,33 @@ struct WireSessionSnapshot: Codable, Sendable {
 enum WireSessionEventKind: String, Codable, Sendable {
     case value0 = "turn.started"
     case value1 = "user.message.added"
-    case value2 = "assistant.started"
-    case value3 = "assistant.text.delta"
-    case value4 = "assistant.thinking.delta"
-    case value5 = "assistant.completed"
-    case value6 = "tool.planned"
-    case value7 = "tool.started"
-    case value8 = "tool.output.delta"
-    case value9 = "tool.completed"
-    case value10 = "compaction.started"
-    case value11 = "compaction.completed"
-    case value12 = "provider.retry.scheduled"
-    case value13 = "provider.retry.started"
-    case value14 = "context.changed"
-    case value15 = "usage.changed"
-    case value16 = "turn.completed"
-    case value17 = "session.name.changed"
-    case value18 = "session.cwd.changed"
-    case value19 = "subagent.changed"
-    case value20 = "peer_query.changed"
-    case value21 = "interaction.requested"
-    case value22 = "interaction.resolved"
-    case value23 = "annotation.created"
-    case value24 = "annotation.updated"
-    case value25 = "annotation.deleted"
-    case value26 = "annotation.submitted"
-    case value27 = "scratchpad.changed"
+    case value2 = "plugin.message.added"
+    case value3 = "assistant.started"
+    case value4 = "assistant.text.delta"
+    case value5 = "assistant.thinking.delta"
+    case value6 = "assistant.completed"
+    case value7 = "tool.planned"
+    case value8 = "tool.started"
+    case value9 = "tool.output.delta"
+    case value10 = "tool.completed"
+    case value11 = "compaction.started"
+    case value12 = "compaction.completed"
+    case value13 = "provider.retry.scheduled"
+    case value14 = "provider.retry.started"
+    case value15 = "context.changed"
+    case value16 = "usage.changed"
+    case value17 = "turn.completed"
+    case value18 = "session.name.changed"
+    case value19 = "session.cwd.changed"
+    case value20 = "subagent.changed"
+    case value21 = "peer_query.changed"
+    case value22 = "interaction.requested"
+    case value23 = "interaction.resolved"
+    case value24 = "annotation.created"
+    case value25 = "annotation.updated"
+    case value26 = "annotation.deleted"
+    case value27 = "annotation.submitted"
+    case value28 = "scratchpad.changed"
 }
 
 enum WireTurnStatus: String, Codable, Sendable {
@@ -428,6 +429,7 @@ struct WireSessionEvent: Codable, Sendable {
     let `contentIndex`: Int?
     let `delta`: String?
     let `text`: String?
+    let `pluginId`: String?
     let `thinking`: String?
     let `toolCallId`: String?
     let `toolName`: String?

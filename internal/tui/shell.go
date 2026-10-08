@@ -117,21 +117,24 @@ type shellSnapshot struct {
 	BashStarting                    bool
 	BashCollapsed                   map[string]bool
 	AnnotationsExpanded             map[string]bool
-	BashHistory                     bashHistoryController
-	MessageHistory                  messageHistoryController
-	FileMention                     fileMentionController
-	SessionMention                  sessionMentionController
-	SessionMentions                 sessionMentionSource
-	IndexedFiles                    indexedFileSource
-	Instructions                    auth.OpenAICodexDeviceInstructions
-	BrowserInstructions             auth.AnthropicLoginInstructions
-	Remaining                       time.Duration
-	Location                        string
-	LocationBase                    string
-	LocationURL                     string
-	LocationLinkText                string
-	PluginFooter                    *protocol.PluginFooter
-	Toasts                          []toastRecord
+	// PluginMessagesExpanded is keyed by turn ID, which a plugin message keeps
+	// from its live event through the persisted transcript.
+	PluginMessagesExpanded map[string]bool
+	BashHistory            bashHistoryController
+	MessageHistory         messageHistoryController
+	FileMention            fileMentionController
+	SessionMention         sessionMentionController
+	SessionMentions        sessionMentionSource
+	IndexedFiles           indexedFileSource
+	Instructions           auth.OpenAICodexDeviceInstructions
+	BrowserInstructions    auth.AnthropicLoginInstructions
+	Remaining              time.Duration
+	Location               string
+	LocationBase           string
+	LocationURL            string
+	LocationLinkText       string
+	PluginFooter           *protocol.PluginFooter
+	Toasts                 []toastRecord
 }
 
 type providerSelectedCallback func(ui.EventContext, string)
@@ -198,6 +201,7 @@ type shellCallbacks struct {
 	SelectActivityTool          func(ui.EventContext, activityToolKey)
 	ToggleBashOutput            func(ui.EventContext, string)
 	ToggleTranscriptAnnotations func(ui.EventContext, string)
+	TogglePluginMessage         func(ui.EventContext, string)
 	OpenBashHistory             func(ui.EventContext, int) bool
 	SelectBashHistory           func(ui.EventContext, string)
 	RecallMessages              ui.VoidCallback
@@ -872,6 +876,14 @@ func (w shellView) transcriptRow(theme ui.Theme, presentation transcriptPresenta
 			})
 		}
 		message := item.Item.Message
+		if item.Item.Kind == transcriptItemPlugin {
+			turnID := message.TurnID
+			return transcriptPluginMessageEntry(theme, message, w.Snapshot.PluginMessagesExpanded[turnID], func(ctx ui.EventContext) {
+				if w.Callbacks.TogglePluginMessage != nil {
+					w.Callbacks.TogglePluginMessage(ctx, turnID)
+				}
+			})
+		}
 		key := message.ID
 		if key == "" {
 			key = message.TurnID

@@ -157,6 +157,14 @@ func TestPluginMessageStartsAttributedTurnInIdleSession(t *testing.T) {
 	if got := providerContextTexts(providers); !reflect.DeepEqual(got, want) {
 		t.Fatalf("model context = %q, want %q", got, want)
 	}
+	page, err := manager.Events(context.Background(), record.ID, "", 0)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(page.Events) < 2 || page.Events[0].Kind != session.EventRunStarted || page.Events[1].Kind != session.EventPluginMessage ||
+		page.Events[1].TurnID != result.TurnID || page.Events[1].PluginID != "autoresearch" || page.Events[1].Text != "Start autoresearch: reduce build time." {
+		t.Fatalf("live events = %+v, want run start then the plugin message", page.Events)
+	}
 	deadline := time.Now().Add(5 * time.Second)
 	for {
 		host.mu.Lock()

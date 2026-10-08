@@ -142,10 +142,12 @@ type stagedAttachment struct {
 }
 
 type transcriptMessage struct {
-	ID                     string
-	Sequence               int64
-	TurnID                 string
-	Role                   string
+	ID       string
+	Sequence int64
+	TurnID   string
+	Role     string
+	// PluginID identifies the submitting plugin of a "plugin" message.
+	PluginID               string
 	Text                   string
 	Thinking               string
 	Content                []protocol.TranscriptContent
@@ -452,6 +454,7 @@ type appState struct {
 	bashAdmission                     *bashAdmission
 	bashCollapsed                     map[string]bool
 	transcriptAnnotationsExpanded     map[string]bool
+	pluginMessagesExpanded            map[string]bool
 	bashHistory                       bashHistoryController
 	messageHistory                    messageHistoryController
 
@@ -495,6 +498,7 @@ func (s *appState) InitState() {
 	s.inlineActivityOpen = make(map[string]bool)
 	s.bashCollapsed = make(map[string]bool)
 	s.transcriptAnnotationsExpanded = make(map[string]bool)
+	s.pluginMessagesExpanded = make(map[string]bool)
 	s.toastCancels = make(map[uint64]context.CancelFunc)
 	s.location = options.Location
 	s.locationBase = options.Location
@@ -1313,6 +1317,7 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		BashStarting:                    s.bashStarting,
 		BashCollapsed:                   s.bashCollapsed,
 		AnnotationsExpanded:             s.transcriptAnnotationsExpanded,
+		PluginMessagesExpanded:          s.pluginMessagesExpanded,
 		BashHistory:                     s.bashHistory,
 		MessageHistory:                  s.messageHistory,
 		FileMention:                     s.fileMention,
@@ -1626,6 +1631,9 @@ func (s *appState) Build(ctx ui.BuildContext) ui.Widget {
 		},
 		ToggleTranscriptAnnotations: func(_ ui.EventContext, messageID string) {
 			s.SetState(func() { s.transcriptAnnotationsExpanded[messageID] = !s.transcriptAnnotationsExpanded[messageID] })
+		},
+		TogglePluginMessage: func(_ ui.EventContext, turnID string) {
+			s.SetState(func() { s.pluginMessagesExpanded[turnID] = !s.pluginMessagesExpanded[turnID] })
 		},
 		OpenBashHistory: func(_ ui.EventContext, delta int) bool {
 			return s.openBashHistory(delta)
@@ -2811,6 +2819,10 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 		if strings.TrimSpace(text) == "" && strings.TrimSpace(thinking) == "" && message.ToolName == "" && len(calls) == 0 && len(message.Content) == 0 {
 			continue
 		}
+		role, pluginID := message.Role, ""
+		if role == "context" && message.BoundaryKind == protocol.PluginMessageBoundaryKind {
+			role, pluginID = "plugin", message.BoundarySource
+		}
 		status := ""
 		if message.Role == "tool" {
 			if message.IsError {
@@ -2820,7 +2832,7 @@ func projectTranscript(messages []protocol.TranscriptMessage) []transcriptMessag
 			}
 		}
 		result = append(result, transcriptMessage{
-			ID: message.ID, Sequence: message.Sequence, TurnID: message.TurnID, Role: message.Role,
+			ID: message.ID, Sequence: message.Sequence, TurnID: message.TurnID, Role: role, PluginID: pluginID,
 			Text: text, Thinking: thinking, Content: projectTranscriptContent(message.Content),
 			ToolCallID: message.ToolCallID, ToolCalls: calls,
 			ToolName: message.ToolName, ToolStatus: status,
@@ -3014,6 +3026,15 @@ func (s *appState) applyTurnEvents(events []protocol.SessionEvent) string {
 						break
 					}
 				}
+			}
+		case protocol.PluginMessageAddedEvent:
+			transcriptChanged = true
+			if s.turnActivity == "" {
+				s.setTurnActivity("Working…")
+			}
+			id := "live-plugin:" + event.TurnID
+			if !slices.ContainsFunc(s.liveMessages, func(message transcriptMessage) bool { return message.ID == id }) {
+				s.liveMessages = append(s.liveMessages, transcriptMessage{ID: id, TurnID: event.TurnID, Role: "plugin", PluginID: payload.PluginID, Text: payload.Text})
 			}
 		case protocol.AssistantStartedEvent:
 			transcriptChanged = transcriptChanged || payload.Thinking != ""
@@ -7088,6 +7109,7 @@ func (s *appState) installSession(bound boundSession, snapshot protocol.SessionS
 	s.bashAdmission = nil
 	s.bashCollapsed = make(map[string]bool)
 	s.transcriptAnnotationsExpanded = make(map[string]bool)
+	s.pluginMessagesExpanded = make(map[string]bool)
 	s.bashHistory = bashHistoryController{}
 	s.messageHistory = messageHistoryController{}
 	s.bashRecoveryReportedID = ""

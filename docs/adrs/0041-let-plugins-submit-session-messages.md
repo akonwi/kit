@@ -35,6 +35,12 @@ The model receives the message framed with its plugin source. The boundary's
 details record the version and plugin ID. Transcript projections present the
 submitted text as the message content, without the model-facing framing.
 
+When the turn starts, the session event stream carries a turn-scoped
+`plugin.message.added` event with the plugin ID and text, so clients can
+present the message while the turn runs. Clients present plugin messages as
+rows labelled with the submitting plugin, distinct from user messages, and do
+not offer them in prompt history recall.
+
 ### Request contract
 
 Parameters are an object with:

@@ -35,6 +35,7 @@ const (
 const (
 	EventRunStarted             EventKind = "run.started"
 	EventUserMessage            EventKind = "message.user"
+	EventPluginMessage          EventKind = "message.plugin"
 	EventAssistantStarted       EventKind = "assistant.started"
 	EventAssistantTextDelta     EventKind = "assistant.text.delta"
 	EventThinkingDelta          EventKind = "assistant.thinking.delta"
@@ -74,6 +75,7 @@ type NewEvent struct {
 	ContentIndex           int
 	Delta                  string
 	Text                   string
+	PluginID               string
 	Thinking               string
 	ToolCallID             string
 	ToolName               string
@@ -208,10 +210,13 @@ func (event NewEvent) Validate() error {
 			return fmt.Errorf("parent run event cannot carry external identity")
 		}
 	}
+	if event.Kind != EventPluginMessage && event.PluginID != "" {
+		return fmt.Errorf("event kind %q cannot carry a plugin id", event.Kind)
+	}
 	if len(event.Content) > maxLiveEventContentBlocks {
 		return fmt.Errorf("event tool content exceeds %d blocks", maxLiveEventContentBlocks)
 	}
-	payloadBytes := len(event.Delta) + len(event.Text) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
+	payloadBytes := len(event.Delta) + len(event.Text) + len(event.PluginID) + len(event.Thinking) + len(event.Arguments) + len(event.Details) + len(event.ErrorMessage) + len(event.CompactionID) + len(event.SessionName) + len(event.CWD) + len(event.InteractionID) + len(event.InteractionResolution) + len(event.AcceptedMessageID) + len(event.AnnotationIDs)*8
 	if event.Scratchpad != nil {
 		payloadBytes += len(event.Scratchpad.OwnerSessionID) + len(event.Scratchpad.Content) + 64
 	}
@@ -243,6 +248,10 @@ func (event NewEvent) Validate() error {
 	case EventUserMessage:
 		if strings.TrimSpace(event.Text) == "" {
 			return fmt.Errorf("user message text is required")
+		}
+	case EventPluginMessage:
+		if strings.TrimSpace(event.Text) == "" || !pluginInteractionDomain.MatchString(event.PluginID) {
+			return fmt.Errorf("plugin message requires text and a plugin id")
 		}
 	case EventAssistantStarted, EventAssistantCompleted:
 		if event.MessageID == "" {
