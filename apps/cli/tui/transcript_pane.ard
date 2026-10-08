@@ -15,7 +15,10 @@ use go:strings
 //
 // It opens at, and follows, its latest message until the user scrolls away;
 // returning to the end resumes following. Short transcripts rest on the
-// composer, as in the vaxis client.
+// composer, as in the vaxis client. An assistant reply taller than the
+// viewport opens at its first row instead, both when it arrives while the
+// transcript follows its end and when an attachment opens on it, so reading
+// starts at the beginning of the answer.
 
 // Control is the host's handle to one attachment's transcript. Its list ref
 // binds to the mounted virtual list; replace it with each new attachment.
@@ -53,6 +56,14 @@ struct Pane {
   // from its pre-layout rows. It stays false while any portion of a tall
   // latest reply is visible.
   latest_out_of_view: Bool,
+  // The last row and whether it is an assistant reply, as last rendered.
+  tail_key: Str,
+  tail_is_reply: Bool,
+  // The last row already considered for opening at its start. Absent until
+  // the first committed update, so an attachment's initial reply counts.
+  arrived_tail: Str?,
+  // A reply aligned to its start whose fit is confirmed by the next update.
+  aligning: Str?,
 }
 
 // One transcript row: a message and its stable virtual-list key.
@@ -73,6 +84,10 @@ private fn new(props: mut Props) mut Pane {
     props: props,
     context: Maybe::new<cui::Context>(),
     latest_out_of_view: false,
+    tail_key: "",
+    tail_is_reply: false,
+    arrived_tail: Maybe::new<Str>(),
+    aligning: Maybe::new<Str>(),
   })
 }
 
@@ -88,6 +103,7 @@ impl Pane {
   // Committed list updates report the latest message's visibility. Only
   // changes dispatch, so a settled list does not schedule further renders.
   private fn mut observe(update: cui::VirtualListUpdate) {
+    self.open_tall_reply(update)
     let hidden = not update.state.last_item_visible
     if hidden != self.latest_out_of_view {
       match self.context {
@@ -101,9 +117,53 @@ impl Pane {
     }
   }
 
+  // A reply arriving at the followed end is aligned to its start. Updates
+  // are committed after painting, so its tail shows for one frame first.
+  // Aligning a reply that fits clamps to the end, where following resumes
+  // with no visible change.
+  private fn mut open_tall_reply(update: cui::VirtualListUpdate) {
+    match self.props.control.list.current {
+      list => {
+        match self.aligning {
+          key => {
+            self.aligning = Maybe::new<Str>()
+            let fits = update.state.scroll_top >= update.state.maximum_scroll_top
+            if fits and update.user_scroll.is_none() and key == self.tail_key {
+              let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+            }
+          },
+          _ => (),
+        }
+        let arrived = match self.arrived_tail {
+          previous => previous != self.tail_key,
+          _ => true,
+        }
+        if arrived {
+          self.arrived_tail = Maybe::new(self.tail_key)
+          let following = match update.state.following_edge {
+            edge => edge == cui::ScrollEdge::end,
+            _ => false,
+          }
+          if self.tail_is_reply and following {
+            list.stop_following()
+            match list.scroll_to_key(self.tail_key, alignment: cui::ScrollAlignment::start) {
+              true => { self.aligning = Maybe::new(self.tail_key) },
+              false => {
+                let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+              },
+            }
+          }
+        }
+      },
+      _ => (),
+    }
+  }
+
   private fn mut list() cui::View {
     let themes = self.props.themes
     let colors = themes.current()
+    self.tail_key = ""
+    self.tail_is_reply = false
     let shown = mut List::new<transcript::Message>()
     for message in self.props.messages {
       if renders(message) {
@@ -126,6 +186,8 @@ impl Pane {
               last: entries.size() == shown.size() - 1,
             },
           )
+          self.tail_key = key
+          self.tail_is_reply = message.role == transcript::Role::assistant
         }
         cui::virtual_list(
           entries.@,
