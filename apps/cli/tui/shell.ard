@@ -374,13 +374,10 @@ impl Shell {
     if self.workspace == WorkspacePane::agent and not docked {
       children.push(self.pending_row())
     }
-    // The dock's surface runs into the rules above and below it.
-    children.push(
-      match docked {
-        true => layout::divider(colors.primary_text, background: colors.surface),
-        false => layout::divider(colors.border),
-      },
-    )
+    // The dock's frame separates it from the workspace and footer.
+    if not docked {
+      children.push(layout::divider(colors.border))
+    }
     // The composer stays mounted behind the dock so its draft survives.
     children.push(
       cui::box(
@@ -667,18 +664,19 @@ impl cui::Component for Shell {
       bindings.push(keymap::binding(keymap::key("return"), connect.with()))
       bindings.push(keymap::binding(keymap::key("space"), connect.with()))
     }
-    // The interaction dock's surface runs into the rule beneath it.
-    let footer_rule = match self.docked() {
-      true => layout::divider(colors.border, background: colors.surface),
-      false => layout::divider(colors.border),
-    }
     let shell = cui::box(
       // Keep the application key layer attached to a focusable shell owner;
       // terminal key routing otherwise has no initial target before deferred
       // child autofocus settles.
       // Let focused controls handle Cmd+C first. This application fallback
       // copies the active cross-control selection without changing focus.
-      [self.header(), layout::divider(colors.border), self.body(), footer_rule, self.footer()],
+      [
+        self.header(),
+        layout::divider(colors.border),
+        self.body(),
+        self.footer_rule(colors),
+        self.footer(),
+      ],
       key: "shell.surface",
       styles: ui::style(
         width: ui::percent(100.0),
@@ -785,6 +783,14 @@ impl Shell {
   // notify raises an application notification through the host's context.
   fn mut notify(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
     self.notifications.show(title, detail, variant, persistent)
+  }
+
+  // The rule above the footer; the interaction dock's frame replaces it.
+  fn footer_rule(colors: theme::Theme) cui::View {
+    match self.docked() {
+      true => cui::box([], styles: ui::style(height: ui::cells(0), flex_shrink: 0.0)),
+      false => layout::divider(colors.border),
+    }
   }
 
   // Whether the interaction dock replaces the composer.
@@ -1418,48 +1424,39 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
     "  Fix pager",
     "────────────────────────────────────────────────────────────",
     "                            k i t",
+    "                         ━━━━━━━━━━━",
     "",
     "               Ask a question or give a task.",
-    "────────────────────────────────────────────────────────────",
-    " Delete the generated snapshots?",
-    "",
-    "   Yes     No",
-    "",
-    " y yes · n no · esc cancel                          Cancel",
-    "",
-    "────────────────────────────────────────────────────────────",
+    "┌──────────────────────────────────────────────────────────┐",
+    "│ Delete the generated snapshots?                          │",
+    "├──────────────────────────────────────────────────────────┤",
+    "│   Yes     No                                             │",
+    "├──────────────────────────────────────────────────────────┤",
+    "│ y yes · n no · esc cancel                        Cancel  │",
+    "└──────────────────────────────────────────────────────────┘",
     "",
   ]
   mut index = 0
   while index < expected.size() {
     try testing::assert(
       painted.at(index).or("") == expected.at(index).or(""),
-      "row {index}; the dock takes the composer's place:\n{shown}|",
+      "row {index}; the docked panel takes the composer's place:\n{shown}|",
     )
     index =+ 1
   }
-  let divider = terminal.frame().cell(
-    0,
-    5,
-  ).expect("dock divider").style.foreground.expect("divider color")
-  let accent = theme::system().primary_text
   try testing::assert(
-    divider.red == accent.red and divider.green == accent.green and divider.blue == accent.blue,
-    "the divider above the dock uses the accent color",
+    not terminal.frame().text().contains("Ask kit"),
+    "the composer is hidden:\n{shown}|",
   )
-  let surface = theme::system().surface
-  for row in [5, 12] {
-    for column in [0, 59] {
-      let fill = terminal.frame().cell(
-        column,
-        row,
-      ).expect("rule cell").style.background.expect("rule fill")
-      try testing::assert(
-        fill.red == surface.red and fill.green == surface.green and fill.blue == surface.blue,
-        "the rule on row {row} joins the dock surface at column {column}",
-      )
-    }
-  }
+  let frame = terminal.frame().cell(
+    0,
+    6,
+  ).expect("dock frame").style.foreground.expect("frame color")
+  let border = theme::system().border
+  try testing::assert(
+    frame.red == border.red and frame.green == border.green and frame.blue == border.blue,
+    "the dock uses the dialog border color",
+  )
 
   renderer.update(fn() {
     subject.attached.apply_events(
