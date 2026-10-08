@@ -489,9 +489,9 @@ final class SessionStore {
         if unavailable { return "Session unavailable" }
         if connectionState != .connected { return "Connect to fork" }
         if isTemporary { return "Temporary sessions cannot be forked" }
-        if compactionOperation.pending { return "Wait for compaction" }
+        // A fork copies the latest settled boundary, so active turns and
+        // compaction do not block it; a reload replaces the session runtime.
         if reloadOperation.pending { return "Wait for session reload" }
-        if running { return "Wait for the current turn" }
         return nil
     }
 

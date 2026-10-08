@@ -359,10 +359,11 @@ func (m *Manager) CompactSession(ctx context.Context, sessionID, operationID str
 	if err != nil {
 		return CompactSessionResult{}, err
 	}
-	if !loaded.transitionMu.TryLock() {
+	// Compaction keeps the droid in place, so forks may share the transition.
+	if !loaded.transitionMu.TryRLock() {
 		return CompactSessionResult{}, ErrConfigureBusy
 	}
-	defer loaded.transitionMu.Unlock()
+	defer loaded.transitionMu.RUnlock()
 	if !loaded.admissionMu.TryLock() {
 		return CompactSessionResult{}, ErrConfigureBusy
 	}

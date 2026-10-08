@@ -49,8 +49,8 @@ extension LocalClient: SessionForkClient {
         do { return try await client.forkSession(source, input: input) }
         catch {
             switch error {
-            case ClientError.http(409): self.error = "The session must be settled before it can be forked. Try again after its current work finishes."
-            case ClientError.http(400), ClientError.http(422): self.error = "This session cannot be forked with these settings. Only settled persistent sessions can be forked."
+            case ClientError.http(409): self.error = "This session can’t be forked until its interrupted work settles. Try again after it finishes."
+            case ClientError.http(400), ClientError.http(422): self.error = "This session cannot be forked with these settings. Only persistent sessions can be forked."
             default: self.error = error.localizedDescription
             }
             return nil

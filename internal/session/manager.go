@@ -63,7 +63,7 @@ type CreateInput struct {
 	ParentSessionID string
 }
 
-// ForkInput identifies the linked child created from a settled session.
+// ForkInput identifies the linked child created from a persistent session.
 type ForkInput struct {
 	Name string
 	// Prompt, when present, is admitted as the child's first turn as part of
@@ -238,8 +238,10 @@ type runtime struct {
 	// Lock order is transitionMu, admissionMu, then mu, workspace.mutationMu,
 	// and the event-log mutex. Manager.mu is never held while acquiring them.
 	// admissionMu remains held for a complete parent turn. mu protects the current droid and
-	// immutable bundle snapshot together with run bookkeeping.
-	transitionMu          sync.Mutex
+	// immutable bundle snapshot together with run bookkeeping. transitionMu is
+	// shared only by operations that keep the current droid in place and may
+	// overlap: explicit compaction and forks.
+	transitionMu          sync.RWMutex
 	admissionMu           sync.Mutex
 	mu                    sync.Mutex
 	activeRun             string
@@ -613,8 +615,9 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	return SessionRecord{}, err
 }
 
-// Fork publishes a linked persistent child copied from a settled source under
-// a server-generated ID. When input.Prompt is present, the prompt is admitted
+// Fork publishes a linked persistent child copied from the source's latest
+// settled boundary under a server-generated ID. A running source keeps running;
+// its active turn, queued follow-ups, and bash executions stay with it. When input.Prompt is present, the prompt is admitted
 // as the child's first turn and never on the source. Invalid prompt input
 // publishes no child. If the first turn cannot start after publication, the
 // fork still succeeds and reports the failure in ForkResult.FirstTurnErr, like
@@ -740,12 +743,12 @@ func (m *Manager) fork(ctx context.Context, sourceSessionID string, input ForkIn
 		}
 	}()
 
-	source.transitionMu.Lock()
-	defer source.transitionMu.Unlock()
-	if !source.admissionMu.TryLock() {
-		return ForkResult{}, ErrBusy
-	}
-	defer source.admissionMu.Unlock()
+	// The shared transition lock keeps the source droid in place, including
+	// during explicit compaction. Fork does not take the admission lock, which a
+	// running turn holds: the droid forks from its latest settled boundary while
+	// the turn or compaction continues.
+	source.transitionMu.RLock()
+	defer source.transitionMu.RUnlock()
 	record, err := m.sessionRecord(ctx, sourceSessionID)
 	if err != nil {
 		return ForkResult{}, err
@@ -755,15 +758,6 @@ func (m *Manager) fork(ctx context.Context, sourceSessionID string, input ForkIn
 	}
 	if !validSessionName(name) {
 		return ForkResult{}, fmt.Errorf("%w: fork name must be renderer-safe UTF-8 and at most 256 bytes", ErrInvalidInput)
-	}
-	source.mu.Lock()
-	busy := source.activeRun != "" || len(source.followUps) != 0
-	source.mu.Unlock()
-	m.bashMu.Lock()
-	busy = busy || m.bashActive[sourceSessionID] != nil
-	m.bashMu.Unlock()
-	if busy {
-		return ForkResult{}, ErrBusy
 	}
 	forked, err := source.droid.Fork(ctx, droids.ConversationID(childID), droids.ForkOptions{Store: destination})
 	if err != nil {
@@ -811,7 +805,7 @@ func (m *Manager) fork(ctx context.Context, sourceSessionID string, input ForkIn
 	return ForkResult{Session: child, Point: forked.Point}, nil
 }
 
-// Callers hold the parent's transition lock to keep its droid stable.
+// Callers hold the parent's transition lock, at least shared, to keep its droid stable.
 // Inform is safe during an active run; do not wait for its admission lock.
 func informDroidOfFork(ctx context.Context, parent *runtime, childID string) {
 	ctx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 2*time.Second)

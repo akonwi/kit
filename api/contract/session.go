@@ -17,8 +17,9 @@ type CreateSessionInput struct {
 	Temporary     bool   `json:"temporary,omitempty"`
 }
 
-// ForkSessionInput requests a linked child from a settled persistent session.
-// The server chooses the child's ID. When Prompt is present, the server admits
+// ForkSessionInput requests a linked child from a persistent session's latest
+// settled boundary. A running source keeps running, and its active turn is not
+// copied. The server chooses the child's ID. When Prompt is present, the server admits
 // it as the child's first turn as part of the fork; it is never admitted on the
 // source. Fork prompts may carry text and source attachments, but not
 // annotations. Invalid prompt input creates no child.

@@ -265,3 +265,99 @@ func TestForkPromptAdmissionFailureReportsFirstTurnErrorOnPublishedFork(t *testi
 		t.Fatalf("provider calls = %d, want 0", calls)
 	}
 }
+
+func TestForkOfRunningSessionCopiesItsLatestSettledBoundary(t *testing.T) {
+	t.Parallel()
+	h := newForkPromptHarness(t)
+	if _, err := h.manager.StartPromptInput(t.Context(), h.parent.ID, session.PromptInput{Text: "settled work"}); err != nil {
+		t.Fatal(err)
+	}
+	waitForSettledUserMessages(t, h.manager, h.parent.ID)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	h.providers.mu.Lock()
+	h.providers.block, h.providers.started = release, started
+	h.providers.mu.Unlock()
+	if _, err := h.manager.StartPromptInput(t.Context(), h.parent.ID, session.PromptInput{Text: "in flight"}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("parent turn did not start")
+	}
+
+	forked, err := h.manager.Fork(t.Context(), h.parent.ID, session.ForkInput{})
+	if err != nil {
+		t.Fatalf("Fork() of running session error = %v", err)
+	}
+	if got, want := waitForSettledUserMessages(t, h.manager, forked.Session.ID), []string{"settled work"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("child user messages = %q, want %q", got, want)
+	}
+	snapshot, err := h.manager.Snapshot(t.Context(), h.parent.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if snapshot.ActiveRunID == "" {
+		t.Fatal("parent turn ended during the fork, want it still running")
+	}
+
+	close(release)
+	if got, want := waitForSettledUserMessages(t, h.manager, h.parent.ID), []string{"settled work", "in flight"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("parent user messages = %q, want %q", got, want)
+	}
+}
+
+func TestForkDuringExplicitCompactionCopiesTheUncompactedBoundary(t *testing.T) {
+	t.Parallel()
+	h := newForkPromptHarness(t)
+	if _, err := h.manager.StartPromptInput(t.Context(), h.parent.ID, session.PromptInput{Text: "settled work"}); err != nil {
+		t.Fatal(err)
+	}
+	waitForSettledUserMessages(t, h.manager, h.parent.ID)
+	release := make(chan struct{})
+	started := make(chan struct{})
+	h.providers.mu.Lock()
+	h.providers.block, h.providers.started = release, started
+	h.providers.mu.Unlock()
+	compacted := make(chan error, 1)
+	go func() {
+		_, err := h.manager.CompactSession(context.Background(), h.parent.ID, "compact_during_fork")
+		compacted <- err
+	}()
+	select {
+	case <-started:
+	case <-time.After(5 * time.Second):
+		t.Fatal("compaction summary did not start")
+	}
+
+	type forkOutcome struct {
+		result session.ForkResult
+		err    error
+	}
+	forkDone := make(chan forkOutcome, 1)
+	go func() {
+		result, err := h.manager.Fork(t.Context(), h.parent.ID, session.ForkInput{})
+		forkDone <- forkOutcome{result, err}
+	}()
+	var forked session.ForkResult
+	select {
+	case outcome := <-forkDone:
+		if outcome.err != nil {
+			t.Fatalf("Fork() during compaction error = %v", outcome.err)
+		}
+		forked = outcome.result
+	case <-time.After(2 * time.Second):
+		close(release)
+		<-compacted
+		t.Fatal("Fork() waited for compaction to finish")
+	}
+	if got, want := waitForSettledUserMessages(t, h.manager, forked.Session.ID), []string{"settled work"}; strings.Join(got, "|") != strings.Join(want, "|") {
+		t.Fatalf("child user messages = %q, want %q", got, want)
+	}
+
+	close(release)
+	if err := <-compacted; err != nil {
+		t.Fatalf("CompactSession() error = %v", err)
+	}
+}

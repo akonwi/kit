@@ -6708,8 +6708,11 @@ func newSessionInput(current protocol.SessionInfo, defaultModel string) protocol
 	}
 }
 
+// forkCurrentSession forks from the session's latest settled boundary, so it
+// stays available while a turn or bash execution runs. It waits only for work
+// that replaces the current session attachment.
 func (s *appState) forkCurrentSession(message string) {
-	if s.phase != phaseReady || s.bound == nil || s.hasActiveWork() {
+	if s.phase != phaseReady || s.bound == nil || s.sessionCreatePending || s.reloadPending {
 		return
 	}
 	options := s.Widget().(app).Options

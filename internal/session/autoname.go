@@ -19,6 +19,10 @@ const (
 	autoNameBusyAttempts = 3
 )
 
+// errAutoNameNotReady reports a naming fork whose settled boundary does not
+// yet meet the naming threshold; naming is retried after a later turn.
+var errAutoNameNotReady = errors.New("auto-name boundary is not ready")
+
 const autoNameSystemPrompt = "You generate concise conversation titles. Return title only. No quotes. No markdown. Maximum 8 words. Focus on the concrete task or topic."
 
 func (m *Manager) scheduleAutoName(sessionID string) {
@@ -179,6 +183,15 @@ func (m *Manager) nameFromMemoryFork(sessionID string, parent *droids.Droid) err
 	}
 	child := forked.Droid
 	defer child.Close()
+	// An occupied parent forks from its last settled boundary, which can omit
+	// the active turn counted by the parent's eligibility check.
+	turns, ready, err := autoNameEligibility(ctx, child)
+	if err != nil {
+		return err
+	}
+	if !ready || turns < autoNameMinUserTurns {
+		return errAutoNameNotReady
+	}
 	if err := child.Reconfigure(droids.RequestConfiguration{SystemPrompt: autoNameSystemPrompt}); err != nil {
 		return err
 	}

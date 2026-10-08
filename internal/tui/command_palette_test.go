@@ -358,6 +358,7 @@ func TestCommandPaletteShowsStableDisabledCommandsAndQuietEmptyState(t *testing.
 	runningRows := paintedRows(application, width, height)
 	for name, description := range map[string]string{
 		"model": "Change session model", "new": "Start a new session", "files": "Open a workspace file", "diff": "Review working-tree changes",
+		"fork": "Fork the current session in…",
 	} {
 		column, row := findTextCell(t, runningRows, name)
 		if !strings.Contains(runningRows[row], description) || application.Cell(column, row).Style.Foreground != ui.DefaultTheme().Foreground {

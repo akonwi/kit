@@ -303,7 +303,7 @@ func paletteCommandDisabledReason(commandID paletteCommandID, running bool, cont
 		return "idle only"
 	}
 	switch commandID {
-	case paletteCommandCD, paletteCommandCompact, paletteCommandFork:
+	case paletteCommandCD, paletteCommandCompact:
 		return "idle only"
 	default:
 		return ""
