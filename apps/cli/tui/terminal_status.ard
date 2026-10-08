@@ -13,7 +13,8 @@ use go:unicode
 
 // Reports Kit's status to the hosting terminal: the window or tab title and,
 // where the terminal supports it, its progress indicator. A running turn
-// animates a spinner ahead of the title; idle sessions have no marker.
+// animates a spinner ahead of the title, a turn waiting for an answer shows
+// `?` with paused progress, and idle sessions have no marker.
 
 // Every other spinner frame keeps the title readable while it animates.
 let running_frames = [
@@ -56,8 +57,16 @@ struct Props {
   running: Bool,
   // Identifies the running work; a new identity restarts the animation.
   work_id: Str,
+  // Whether the running work is waiting for an answer from the user.
+  feedback: Bool,
   // Overrides the animation cadence derived from the environment.
   frame_duration: time::Duration?,
+}
+
+enum Status {
+  idle,
+  running,
+  feedback,
 }
 
 struct Reporter {
@@ -65,7 +74,7 @@ struct Reporter {
   context: cui::Context?,
   frame_duration: time::Duration,
   frame: Int,
-  running: Bool,
+  status: Status,
   work_id: Str,
   // Stops the current animation worker; absent while idle.
   ticker: Chan<Void>?,
@@ -83,7 +92,7 @@ private fn new(props: mut Props) mut Reporter {
     context: Maybe::new<cui::Context>(),
     frame_duration: props.frame_duration.or(frame_duration(os::Getenv)),
     frame: 0,
-    running: false,
+    status: Status::idle,
     work_id: "",
     ticker: Maybe::new<Chan<Void>>(),
     progress: Maybe::new<terminal_progress::State>(),
@@ -116,24 +125,31 @@ impl cui::Component for Reporter {
 
 impl Reporter {
   private fn mut publish() {
-    let running = self.props.running
-    if running != self.running or running and self.props.work_id != self.work_id {
-      self.running = running
+    let status = match {
+      not self.props.running => Status::idle,
+      self.props.feedback => Status::feedback,
+      _ => Status::running,
+    }
+    let replaced = status != Status::idle and self.props.work_id != self.work_id
+    if status != self.status or replaced {
+      self.status = status
       self.work_id = self.props.work_id
       self.frame = 0
       self.stop_ticker()
     }
-    if self.running and not self.ticker.is_some() {
+    if self.status == Status::running and self.ticker.is_none() {
       self.start_ticker()
     }
-    let marker = match self.running {
-      true => running_frames.at(self.frame % running_frames.size()).expect("running frame"),
-      false => "",
+    let marker = match self.status {
+      Status::running => running_frames.at(self.frame % running_frames.size()).expect("running frame"),
+      Status::feedback => "?",
+      Status::idle => "",
     }
     let _ = (self.props.terminal.set_title)(title(self.props.session_name, self.props.cwd, marker))
-    let progress = match self.running {
-      true => terminal_progress::State::indeterminate,
-      false => terminal_progress::State::remove,
+    let progress = match self.status {
+      Status::running => terminal_progress::State::indeterminate,
+      Status::feedback => terminal_progress::State::paused,
+      Status::idle => terminal_progress::State::remove,
     }
     let reported = match self.progress {
       current => current == progress,
@@ -165,7 +181,7 @@ impl Reporter {
               stop.recv() => { active = false },
               time::After(duration).recv() => {
                 if dispatch(fn() {
-                  if self.running {
+                  if self.status == Status::running {
                     self.frame = self.frame + 1
                   }
                 }).is_err() {

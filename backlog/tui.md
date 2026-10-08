@@ -75,7 +75,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.
-- [ ] TUI-COOPER-007 — Interaction dock for pending server-owned requests.
+- [~] TUI-COOPER-007 — Interaction dock for pending server-owned requests.
+  Model confirm, input, select, and guided requests are complete. Remaining:
+  plugin requests (custom labels, default choice, empty answers) with
+  TUI-COOPER-014, and bracketed paste into dock text fields.
 - [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, scratchpad, and
   annotations.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
@@ -88,10 +91,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   connect another provider from an already-ready session.
 - [~] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
   selection copy, and link opening. The terminal title and Ghostty progress
-  report the session name, directory, and a running turn or manual compaction.
-  Remaining: the `?` feedback marker and paused progress once pending
-  interactions exist (TUI-COOPER-007), turn-completion notifications and bell,
-  and confirming toast, selection-copy, and link-opening parity.
+  report the session name, directory, a running turn or manual compaction, and
+  a turn waiting for an answer (`?` with paused progress). Remaining:
+  turn-completion notifications and bell, and confirming toast, selection-copy,
+  and link-opening parity.
 - [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
   vaxis client's contrast-aware palette, plus user theme tokens. The palette
   derivation comes from Cooper's terminal-theme service, including live host
