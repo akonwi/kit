@@ -1,3 +1,4 @@
+use cooper/event
 use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
@@ -97,6 +98,86 @@ impl Context {
   fn mut replace(next: Theme) {
     self.store.value = next
     self.store.revision =+ 1
+  }
+}
+
+// Owner is the client-wide owner of theme selection: the committed theme, the
+// definition on screen (which differs from it while a preview is open), and
+// the terminal's own theme. It resolves them into the shared Store, so a
+// terminal theme change during a preview repaints the preview, and canceling
+// a preview restores the committed theme against the current terminal.
+//
+// Requests run through the dispatch bound on mount so the whole tree repaints;
+// before binding they apply immediately.
+struct Owner {
+  themes: Context,
+  dispatch: (fn(fn()) Void!event::DispatchError)?,
+  committed_name: Str,
+  committed: kittheme::Definition,
+  displayed: kittheme::Definition,
+  terminal: ctheme::Theme,
+}
+
+fn owner(themes: Context, name: Str, definition: kittheme::Definition) mut Owner {
+  (mut Owner{
+    themes: themes,
+    dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
+    committed_name: name,
+    committed: definition,
+    displayed: definition,
+    terminal: ctheme::default(),
+  })
+}
+
+impl Owner {
+  // bind adopts the UI dispatch and the terminal theme detected at mount. The
+  // store was already resolved against that terminal theme at startup.
+  fn mut bind(dispatch: fn(fn()) Void!event::DispatchError, terminal: ctheme::Theme) {
+    self.dispatch = Maybe::new(dispatch)
+    self.terminal = terminal
+  }
+
+  fn mut request_preview(definition: kittheme::Definition) {
+    self.schedule(fn() {
+      self.displayed = definition
+      self.paint()
+    })
+  }
+
+  fn mut request_commit(name: Str, definition: kittheme::Definition) {
+    self.schedule(fn() {
+      self.committed_name = name
+      self.committed = definition
+      self.displayed = definition
+      self.paint()
+    })
+  }
+
+  fn mut request_cancel() {
+    self.schedule(fn() {
+      self.displayed = self.committed
+      self.paint()
+    })
+  }
+
+  fn mut request_terminal(next: ctheme::Theme) {
+    self.schedule(fn() {
+      self.terminal = next
+      self.paint()
+    })
+  }
+
+  private fn mut paint() {
+    self.themes.replace(resolve(self.displayed, self.terminal))
+  }
+
+  private fn mut schedule(action: fn()) {
+    match self.dispatch {
+      dispatch => {
+        let _ = dispatch(action)
+      },
+      _ => action(),
+    }
   }
 }
 

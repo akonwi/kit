@@ -1,5 +1,6 @@
 use ard/testing
 
+use cooper/event
 use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
@@ -117,4 +118,120 @@ test fn translucent_tokens_blend_over_the_background() Void!Str {
   try check("border", colors.border, ui::rgb(148, 150, 154))
   try check("muted", colors.muted, ui::rgb(10, 20, 30))
   check("disabled", colors.disabled, ui::rgb(96, 101, 110))
+}
+
+fn light() ctheme::Theme {
+  ctheme::from_terminal(
+    ctheme::TerminalColors{
+      foreground: Maybe::new(ui::rgb(40, 44, 52)),
+      background: Maybe::new(ui::rgb(250, 250, 250)),
+      palette: [
+        Maybe::new<ui::Color>(),
+        Maybe::new(ui::rgb(228, 86, 73)),
+        Maybe::new(ui::rgb(80, 161, 79)),
+        Maybe::new(ui::rgb(193, 132, 1)),
+        Maybe::new(ui::rgb(64, 120, 242)),
+        Maybe::new(ui::rgb(166, 38, 164)),
+        Maybe::new(ui::rgb(1, 132, 188)),
+        Maybe::new<ui::Color>(),
+      ],
+    },
+  )
+}
+
+// The muted text color of the committed test theme.
+fn cool() kittheme::Color {
+  kittheme::Color{
+    R: 10,
+    G: 20,
+    B: 30,
+    A: 255,
+  }
+}
+
+// The muted text color of the previewed test theme.
+fn warm() kittheme::Color {
+  kittheme::Color{
+    R: 200,
+    G: 100,
+    B: 50,
+    A: 255,
+  }
+}
+
+// A user theme that overrides only the muted text color.
+fn muted_override(muted: kittheme::Color) kittheme::Definition {
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(kittheme::TokenTextMuted, muted)
+  kittheme::Definition{Tokens: tokens.@}
+}
+
+fn bound_owner(themes: theme::Context, terminal: ctheme::Theme) mut theme::Owner {
+  let owner = theme::owner(themes, "committed", muted_override(cool()))
+  owner.bind(
+    fn(action: fn()) Void!event::DispatchError {
+      action()
+      Result::ok(())
+    },
+    terminal,
+  )
+  owner
+}
+
+test fn canceling_a_theme_preview_restores_the_committed_theme() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  try check("previewed muted", themes.current().muted, ui::rgb(200, 100, 50))
+  owner.request_cancel()
+  try check("restored muted", themes.current().muted, ui::rgb(10, 20, 30))
+  testing::assert(owner.committed_name == "committed", "the committed name is unchanged")
+}
+
+test fn a_committed_theme_survives_a_later_cancel() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  owner.request_commit("warm", muted_override(warm()))
+  owner.request_cancel()
+  try check("committed muted", themes.current().muted, ui::rgb(200, 100, 50))
+  testing::assert(owner.committed_name == "warm", "the committed name is adopted")
+}
+
+test fn a_terminal_theme_change_repaints_the_open_preview() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let owner = bound_owner(themes, dark())
+  owner.request_preview(muted_override(warm()))
+  owner.request_terminal(light())
+  let expected = theme::resolve(muted_override(warm()), light())
+  try check("preview muted", themes.current().muted, ui::rgb(200, 100, 50))
+  try check("terminal-derived border", themes.current().border, expected.border)
+  owner.request_cancel()
+  let restored = theme::resolve(muted_override(cool()), light())
+  try check("restored muted", themes.current().muted, ui::rgb(10, 20, 30))
+  check("restored against the new terminal", themes.current().border, restored.border)
+}
+
+struct Queue {
+  actions: [fn()],
+}
+
+test fn theme_requests_wait_for_the_bound_dispatch() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let queue = mut Queue{actions: []}
+  let owner = theme::owner(themes, "committed", muted_override(cool()))
+  owner.bind(
+    fn(action: fn()) Void!event::DispatchError {
+      queue.actions.push(action)
+      Result::ok(())
+    },
+    dark(),
+  )
+  let before = themes.revision()
+  owner.request_preview(muted_override(warm()))
+  try testing::assert(themes.revision() == before, "the preview waits for dispatch")
+  for action in queue.actions {
+    action()
+  }
+  check("dispatched preview", themes.current().muted, ui::rgb(200, 100, 50))
 }

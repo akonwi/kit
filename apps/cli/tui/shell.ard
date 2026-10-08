@@ -8,7 +8,6 @@ use cooper/animation
 use cooper/cui
 use cooper/event
 use cooper/keymap
-use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/cli
@@ -112,10 +111,8 @@ struct Shell {
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
   model_refresh_pending: Bool,
-  theme_name: Str,
-  theme_definition: kittheme::Definition,
-  displayed_theme_definition: kittheme::Definition,
-  terminal_theme: cooper::Theme,
+  // Owns theme selection and preview; Shell only routes picker results.
+  theme: mut theme::Owner,
   workspace: WorkspacePane,
   scratchpad_open: Bool,
   scratchpad_control: mut scratchpad::PaneRef,
@@ -147,10 +144,7 @@ fn new(props: mut Props) mut Shell {
     selection_copy_pulse: 0.0,
     selection_copy_base: ui::rgb(0, 0, 0),
     model_refresh_pending: false,
-    theme_name: props.options.ThemeName,
-    theme_definition: props.options.ThemeDefinition,
-    displayed_theme_definition: props.options.ThemeDefinition,
-    terminal_theme: ctheme::default(),
+    theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: WorkspacePane::agent,
     scratchpad_open: false,
     scratchpad_control: scratchpad::pane_ref(),
@@ -166,13 +160,10 @@ impl cui::Lifecycle for Shell {
     let lifetime = contextbridge::WithCancel(self.props.options.Context)
     self.lifetime = Maybe::new(lifetime)
     self.context = Maybe::new(ctx)
-    self.terminal_theme = (ctx.theme)()
-    let dispatch = ctx.dispatch
+    self.theme.bind(ctx.dispatch, (ctx.theme)())
+    let owner = self.theme
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
-      let _ = dispatch(fn() {
-        self.terminal_theme = next
-        self.props.themes.replace(theme::resolve(self.displayed_theme_definition, next))
-      })
+      owner.request_terminal(next)
     })
     if self.phase == Phase::loading {
       self.bootstrap(ctx, lifetime)
@@ -844,62 +835,25 @@ impl Shell {
     )
   }
 
-  private fn mut preview_theme(definition: kittheme::Definition) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.displayed_theme_definition = definition
-          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
-        })
-      },
-      _ => (),
-    }
-  }
-
-  private fn mut commit_theme(name: Str, definition: kittheme::Definition) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.theme_name = name
-          self.theme_definition = definition
-          self.displayed_theme_definition = definition
-          self.props.themes.replace(theme::resolve(definition, self.terminal_theme))
-          self.finish_modal_now(context)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  private fn mut cancel_theme_preview() {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.displayed_theme_definition = self.theme_definition
-          self.props.themes.replace(theme::resolve(self.theme_definition, self.terminal_theme))
-          self.finish_modal_now(context)
-        })
-      },
-      _ => (),
-    }
-  }
-
   fn mut theme_picker_modal() cui::View {
+    let owner = self.theme
     cui::child(
       theme_picker::new,
       theme_picker::Props{
         themes: self.props.themes,
         service: self.props.options.ThemeService,
-        committed_name: self.theme_name,
-        committed_definition: self.theme_definition,
+        committed_name: owner.committed_name,
+        committed_definition: owner.committed,
         dismiss: fn() {
-          self.cancel_theme_preview()
+          owner.request_cancel()
+          let _ = self.dismiss_modal()
         },
         preview: fn(definition: kittheme::Definition) {
-          self.preview_theme(definition)
+          owner.request_preview(definition)
         },
         applied: fn(name: Str, definition: kittheme::Definition) {
-          self.commit_theme(name, definition)
+          owner.request_commit(name, definition)
+          let _ = self.dismiss_modal()
         },
       },
     )
