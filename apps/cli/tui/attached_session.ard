@@ -225,6 +225,16 @@ impl Controller {
     }
   }
 
+  // request_info schedules an authoritative record reported by a dialog that
+  // configured this session. It is ignored once this attachment is replaced.
+  fn mut request_info(session: protocol::SessionInfo) {
+    let _ = (self.host.dispatch)(
+      fn() {
+        self.apply_info(session)
+      },
+    )
+  }
+
   // Replaces the transcript with a server snapshot unless live events have
   // already moved past it.
   fn mut apply_snapshot(snapshot: protocol::SessionSnapshot) {
@@ -1230,6 +1240,59 @@ test fn session_records_only_update_the_attached_session() Void!Str {
   testing::assert(
     subject.info.or(protocol::SessionInfo{}).Name == "After",
     "the attached record updates",
+  )
+}
+
+struct Queue {
+  actions: [fn()],
+}
+
+private fn queued_host(queue: mut Queue) Host {
+  Host{
+    dispatch: fn(action: fn()) Void!event::DispatchError {
+      queue.actions.push(action)
+      Result::ok(())
+    },
+    toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {},
+    attach: fn(attached: bootstrap::Attached, location: Str) {},
+    restore_draft: fn(text: Str) {},
+    show_latest: fn() {},
+  }
+}
+
+private fn run_queue(queue: mut Queue) {
+  let actions = queue.actions
+  queue.actions = []
+  for action in actions {
+    action()
+  }
+}
+
+test fn dialog_records_apply_through_the_host_and_only_while_attached() Void!Str {
+  let queue = mut Queue{actions: []}
+  let subject = controller(cli::TUIOptions{}, queued_host(queue), 1, "")
+  subject.active = true
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", Name: "Before"}},
+  )
+
+  subject.request_info(protocol::SessionInfo{ID: "session-1", Name: "Renamed"})
+  try testing::assert(
+    subject.info.or(protocol::SessionInfo{}).Name == "Before",
+    "the record waits for the host's dispatch",
+  )
+  run_queue(queue)
+  try testing::assert(
+    subject.info.or(protocol::SessionInfo{}).Name == "Renamed",
+    "the dispatched record updates the attachment",
+  )
+
+  subject.request_info(protocol::SessionInfo{ID: "session-1", Name: "Late"})
+  subject.dispose()
+  run_queue(queue)
+  testing::assert(
+    subject.info.or(protocol::SessionInfo{}).Name == "Renamed",
+    "a record queued before replacement is discarded",
   )
 }
 

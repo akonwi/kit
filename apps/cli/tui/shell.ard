@@ -1015,62 +1015,12 @@ impl Shell {
     )
   }
 
-  // apply_renamed_session schedules the shell-owned update through Shell's
-  // context, so child dialogs never need to invalidate the root.
-  fn mut apply_renamed_session(session: protocol::SessionInfo) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.apply_info(session)
-          self.rename_submit_immediately = false
-          self.finish_modal_now(context)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  fn mut refresh_session_configuration(session: protocol::SessionInfo) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.apply_info(session)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  fn mut apply_thinking_configuration(session: protocol::SessionInfo) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.apply_info(session)
-          self.finish_modal_now(context)
-        })
-      },
-      _ => (),
-    }
-  }
-
-  // apply_model_configuration settles the shell state after a configuration
-  // picker completes its owned request.
-  fn mut apply_model_configuration(applied: protocol::ConfigureSessionResult) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.apply_info(applied.Session)
-          self.finish_modal_now(context)
-        })
-      },
-      _ => (),
-    }
-  }
-
   fn mut rename_session_modal() cui::View {
     let dismiss = keymap::simple_command("name.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
+    // Completions update the attachment this dialog configured.
+    let attached = self.attached
     cui::child(
       rename::new,
       rename::Props{
@@ -1082,7 +1032,8 @@ impl Shell {
         submit_immediately: self.rename_submit_immediately,
         dismiss: dismiss,
         applied: fn(session: protocol::SessionInfo) {
-          self.apply_renamed_session(session)
+          attached.request_info(session)
+          let _ = self.dismiss_modal()
         },
       },
     )
@@ -1092,6 +1043,7 @@ impl Shell {
     let dismiss = keymap::simple_command("model.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
+    let attached = self.attached
     cui::child(
       model::new,
       model::Props{
@@ -1103,7 +1055,8 @@ impl Shell {
         override_service: self.props.options.ModelOverrideService,
         dismiss: dismiss,
         applied: fn(applied: protocol::ConfigureSessionResult) {
-          self.apply_model_configuration(applied)
+          attached.request_info(applied.Session)
+          let _ = self.dismiss_modal()
         },
       },
     )
@@ -1113,6 +1066,7 @@ impl Shell {
     let dismiss = fn() {
       let _ = self.dismiss_modal()
     }
+    let attached = self.attached
     cui::child(
       thinking::new,
       thinking::Props{
@@ -1123,10 +1077,11 @@ impl Shell {
         session: self.attached.info.or(protocol::SessionInfo{}),
         dismiss: dismiss,
         refreshed: fn(session: protocol::SessionInfo) {
-          self.refresh_session_configuration(session)
+          attached.request_info(session)
         },
         applied: fn(session: protocol::SessionInfo) {
-          self.apply_thinking_configuration(session)
+          attached.request_info(session)
+          let _ = self.dismiss_modal()
         },
       },
     )
@@ -1197,6 +1152,7 @@ impl Shell {
     let dismiss = keymap::simple_command("sessions.dismiss", "Close", fn() Bool {
       self.dismiss_modal()
     })
+    let attached = self.attached
     cui::child(
       sessions::new,
       sessions::Props{
@@ -1206,14 +1162,7 @@ impl Shell {
         current_session_id: self.attached.info.or(protocol::SessionInfo{}).ID,
         dismiss: dismiss,
         renamed: fn(session: protocol::SessionInfo) {
-          match self.context {
-            context => {
-              let _ = context.dispatch(fn() {
-                self.attached.apply_info(session)
-              })
-            },
-            _ => (),
-          }
+          attached.request_info(session)
         },
         applied: fn(session: mut api::Session, snapshot: protocol::SessionSnapshot) {
           match self.context {
