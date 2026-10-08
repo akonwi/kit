@@ -10,14 +10,21 @@ use kit/tui/modal
 use kit/tui/theme
 use go:strings
 
-// Props provides the shell-owned session identity and completion callback.
+// Request is what opening the dialog needs: the name to start from, and
+// whether to submit it immediately (as when a name was given with the command).
+struct Request {
+  initial_name: Str,
+  submit_immediately: Bool,
+}
+
+// Props provides the session identity, the opening request, and the
+// completion callback.
 struct Props {
   themes: theme::Context,
   client: mut api::Client,
   lifetime: contextbridge::Cancellation,
   session: protocol::SessionInfo,
-  initial_name: Str,
-  submit_immediately: Bool,
+  request: Request,
   dismiss: keymap::SimpleCommand,
   applied: fn(protocol::SessionInfo),
 }
@@ -35,7 +42,7 @@ struct Dialog {
 fn new(props: mut Props) mut Dialog {
   (mut Dialog{
     props: props,
-    name: props.initial_name,
+    name: props.request.initial_name,
     pending: false,
     error: "",
     context: Maybe::new<cui::Context>(),
@@ -45,7 +52,7 @@ fn new(props: mut Props) mut Dialog {
 impl cui::Lifecycle for Dialog {
   fn mut mounted(ctx: cui::Context) {
     self.context = Maybe::new(ctx)
-    if self.props.submit_immediately {
+    if self.props.request.submit_immediately {
       self.submit()
     }
   }
