@@ -159,6 +159,35 @@ fn search_row(terminal: headless::TestApp) Str {
   found
 }
 
+fn footer_row(terminal: headless::TestApp) Str {
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  mut footer = ""
+  for row in rows {
+    let content = strings::TrimSpace(strings::Trim(row, "│ "))
+    if strings::Contains(row, "│") and content != "" {
+      footer = content
+    }
+  }
+  footer
+}
+
+test fn the_footer_teaches_only_the_custom_completion_binding() Void!Str {
+  let terminal = headless::new(80, 40)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  testing::assert(footer_row(terminal) == "tab complete", "footer: {footer_row(terminal)}")
+}
+
 test fn command_arguments_follow_only_the_first_command_token() Void!Str {
   try testing::assert(
     command_palette::command_word("  name  New title ") == "name",
