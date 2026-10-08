@@ -528,39 +528,35 @@ impl Shell {
   }
 
   fn mut scratchpad_view() cui::View {
-    match self.attached.lifetime {
-      lifetime => {
-        match self.attached.session {
-          session => {
-            scratchpad::pane(
-              scratchpad::Props{
-                themes: self.props.themes,
-                record: self.attached.scratchpad_record,
-                loading: self.attached.scratchpad_loading,
-                failure: self.attached.scratchpad_failure,
-                active: self.active_modal == ActiveModal::none,
-                update: fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
-                  session.UpdateScratchpad(lifetime.Context, input)
-                },
-                retry_load: fn() Bool {
-                  self.request_scratchpad_retry()
-                },
-                saved: fn(record: protocol::Scratchpad) {
-                  self.apply_scratchpad_saved(record)
-                },
-                closed: fn(close_tab: Bool) {
-                  self.apply_scratchpad_closed(close_tab)
-                },
-                notice: fn(title: Str, detail: Str) {
-                  self.apply_scratchpad_notice(title, detail)
-                },
-                control: self.scratchpad_control,
-              },
-              self.attached.scope_id,
-            )
+    // The editor reports to the attachment it was opened for; Shell keeps only
+    // workspace visibility and the close handshake.
+    let attached = self.attached
+    match attached.scratchpad_updater() {
+      update => {
+        scratchpad::pane(
+          scratchpad::Props{
+            themes: self.props.themes,
+            record: attached.scratchpad_record,
+            loading: attached.scratchpad_loading,
+            failure: attached.scratchpad_failure,
+            active: self.active_modal == ActiveModal::none,
+            update: update,
+            retry_load: fn() Bool {
+              attached.request_scratchpad_retry()
+            },
+            saved: fn(record: protocol::Scratchpad) {
+              attached.request_scratchpad_saved(record)
+            },
+            closed: fn(close_tab: Bool) {
+              self.apply_scratchpad_closed(close_tab)
+            },
+            notice: fn(title: Str, detail: Str) {
+              attached.request_scratchpad_notice(title, detail)
+            },
+            control: self.scratchpad_control,
           },
-          _ => cui::box([], styles: ui::style(flex_grow: 1.0)),
-        }
+          attached.scope_id,
+        )
       },
       _ => cui::box([], styles: ui::style(flex_grow: 1.0)),
     }
@@ -1430,17 +1426,6 @@ impl Shell {
     let _ = self.composer_control.focus()
   }
 
-  fn mut apply_scratchpad_saved(record: protocol::Scratchpad) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.apply_scratchpad_saved(record)
-        })
-      },
-      _ => (),
-    }
-  }
-
   fn mut apply_scratchpad_closed(close_tab: Bool) {
     match self.context {
       context => {
@@ -1458,29 +1443,6 @@ impl Shell {
               self.focus_composer()
             },
           }
-        })
-      },
-      _ => (),
-    }
-  }
-
-  fn mut request_scratchpad_retry() Bool {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.attached.retry_scratchpad()
-        })
-        true
-      },
-      _ => false,
-    }
-  }
-
-  fn mut apply_scratchpad_notice(title: Str, detail: Str) {
-    match self.context {
-      context => {
-        let _ = context.dispatch(fn() {
-          self.notify(title, detail, toast::Variant::error, true)
         })
       },
       _ => (),

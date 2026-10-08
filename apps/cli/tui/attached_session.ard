@@ -712,6 +712,56 @@ impl Controller {
     }
   }
 
+  // scratchpad_updater binds the editor's persistence to this attachment's
+  // session and cancellation. It runs on the editor's save worker, so it
+  // captures only those immutable handles.
+  fn scratchpad_updater() (fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error)? {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            Maybe::new(fn(input: protocol::UpdateScratchpadInput) protocol::Scratchpad!Error {
+              session.UpdateScratchpad(lifetime.Context, input)
+            })
+          },
+          _ => Maybe::new<fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error>(),
+        }
+      },
+      _ => Maybe::new<fn(protocol::UpdateScratchpadInput) protocol::Scratchpad!Error>(),
+    }
+  }
+
+  // The editor's reports re-enter through the host's dispatch and are ignored
+  // once this attachment is replaced.
+  fn mut request_scratchpad_saved(record: protocol::Scratchpad) {
+    let _ = (self.host.dispatch)(
+      fn() {
+        self.apply_scratchpad_saved(record)
+      },
+    )
+  }
+
+  fn mut request_scratchpad_retry() Bool {
+    let _ = (self.host.dispatch)(
+      fn() {
+        if self.active {
+          self.retry_scratchpad()
+        }
+      },
+    )
+    true
+  }
+
+  fn mut request_scratchpad_notice(title: Str, detail: Str) {
+    let _ = (self.host.dispatch)(
+      fn() {
+        if self.active {
+          (self.host.toast)(title, detail, toast::Variant::error, true)
+        }
+      },
+    )
+  }
+
   fn mut retry_scratchpad() {
     self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
     self.scratchpad_failure = ""
@@ -1294,6 +1344,60 @@ test fn dialog_records_apply_through_the_host_and_only_while_attached() Void!Str
     subject.info.or(protocol::SessionInfo{}).Name == "Renamed",
     "a record queued before replacement is discarded",
   )
+}
+
+test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached() Void!Str {
+  let queue = mut Queue{actions: []}
+  let effects = mut Effects{toasts: []}
+  let host = Host{
+    dispatch: fn(action: fn()) Void!event::DispatchError {
+      queue.actions.push(action)
+      Result::ok(())
+    },
+    toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+      effects.toasts.push("{title}: {detail}")
+    },
+    attach: fn(attached: bootstrap::Attached, location: Str) {},
+    restore_draft: fn(text: Str) {},
+    show_latest: fn() {},
+  }
+  let subject = controller(cli::TUIOptions{}, host, 1, "")
+  subject.active = true
+  subject.scratchpad_failure = "load failed"
+
+  subject.request_scratchpad_saved(protocol::Scratchpad{Content: "saved notes"})
+  subject.request_scratchpad_notice("Scratchpad save failed", "offline")
+  try testing::assert(
+    subject.scratchpad_record.is_none() and effects.toasts.size() == 0,
+    "reports wait for the host's dispatch",
+  )
+  run_queue(queue)
+  try testing::assert(
+    subject.scratchpad_record.or(protocol::Scratchpad{}).Content == "saved notes",
+    "a saved record becomes authoritative",
+  )
+  try testing::assert(subject.scratchpad_failure == "", "a saved record clears the load failure")
+  try testing::assert(
+    strings::Join(mut effects.toasts, "|") == "Scratchpad save failed: offline",
+    "editor failures are reported once: {strings::Join(mut effects.toasts, "|")}",
+  )
+
+  try testing::assert(subject.request_scratchpad_retry(), "retry is accepted for scheduling")
+  run_queue(queue)
+  try testing::assert(
+    subject.scratchpad_record.is_none(),
+    "retry discards the cached record to reload it",
+  )
+
+  subject.request_scratchpad_saved(protocol::Scratchpad{Content: "late notes"})
+  subject.request_scratchpad_notice("Late failure", "")
+  subject.dispose()
+  run_queue(queue)
+  try testing::assert(
+    subject.scratchpad_record.is_none(),
+    "a save queued before replacement is discarded",
+  )
+  testing::assert(effects.toasts.size() == 1, "a notice queued before replacement is discarded")
 }
 
 test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
