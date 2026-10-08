@@ -272,10 +272,13 @@ background text selection temporarily captures native focus, the interaction
 dock reclaims focus on the next frame. Background selection and scrolling remain
 available without granting keyboard ownership.
 
-`Ctrl+C` clears text and staged attachments when the non-empty composer owns
-input. Otherwise it quits/detaches the client without cancelling server-owned
-work, interactions, or annotations. A draft behind another input owner is not
-cleared. Key releases and repeats do not trigger another action. Escape cancels
+`Ctrl+C` acts only when no modal picker or dialog is open and no text field
+other than the composer has focus; inside a modal or another focused text
+field, such as the scratchpad editor or an interaction answer, it does nothing.
+Where it acts, it clears text and staged attachments when the non-empty
+composer owns input. Otherwise it quits/detaches the client without cancelling
+server-owned work, interactions, or annotations. A draft behind another input
+owner is not cleared. Key releases and repeats do not trigger another action. Escape cancels
 only the innermost reversible operation; pending non-cancellable work consumes
 it.
 
