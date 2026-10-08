@@ -22,6 +22,7 @@ use kit/tui/controls
 use kit/tui/layout
 use kit/tui/mcp
 use kit/tui/model
+use kit/tui/model_refresh
 use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/session_debug
@@ -110,7 +111,8 @@ struct Shell {
   // 1 at the start of copy feedback, fading to 0 over 350ms.
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
-  model_refresh_pending: Bool,
+  // Owns the client-wide model-catalog refresh.
+  models: mut model_refresh::Refresher,
   // Owns theme selection and preview; Shell only routes picker results.
   theme: mut theme::Owner,
   workspace: WorkspacePane,
@@ -129,6 +131,7 @@ fn new(props: mut Props) mut Shell {
     true => Phase::loading,
     false => Phase::auth,
   }
+  let notifications = toast::control()
   (mut Shell{
     props: props,
     phase: phase,
@@ -143,13 +146,13 @@ fn new(props: mut Props) mut Shell {
     composer_control: composer::ref(),
     selection_copy_pulse: 0.0,
     selection_copy_base: ui::rgb(0, 0, 0),
-    model_refresh_pending: false,
+    models: model_refresh::refresher(props.options.Client, notifications),
     theme: theme::owner(props.themes, props.options.ThemeName, props.options.ThemeDefinition),
     workspace: WorkspacePane::agent,
     scratchpad_open: false,
     scratchpad_control: scratchpad::pane_ref(),
     active_modal: NoModal{},
-    notifications: toast::control(),
+    notifications: notifications,
     connect_button: cui::box_ref(),
     transcript_control: transcript_pane::control(),
   })
@@ -161,6 +164,7 @@ impl cui::Lifecycle for Shell {
     self.lifetime = Maybe::new(lifetime)
     self.context = Maybe::new(ctx)
     self.theme.bind(ctx.dispatch, (ctx.theme)())
+    self.models.bind(ctx.dispatch, lifetime)
     let owner = self.theme
     let _ = ctx.on_theme_changed(fn(next: cooper::Theme) {
       owner.request_terminal(next)
@@ -979,7 +983,7 @@ impl Shell {
       },
       command_palette::ActionKind::refresh_models => {
         self.finish_modal()
-        self.refresh_models()
+        self.models.refresh()
       },
       command_palette::ActionKind::reload => {
         self.finish_modal()
@@ -1162,53 +1166,6 @@ impl Shell {
         })
       },
       _ => (),
-    }
-  }
-
-  // Refreshes the server-authoritative provider model catalog.
-  fn mut refresh_models() {
-    if self.model_refresh_pending {
-      self.notify(
-        "Model refresh unavailable",
-        "Model refresh is already in progress.",
-        toast::Variant::warning,
-        false,
-      )
-    } else {
-      // Model discovery is client-wide, so switching attached sessions must
-      // neither cancel it nor reinterpret its completion as session-local.
-      match self.lifetime {
-        lifetime => {
-          match self.context {
-            context => {
-              let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
-              let client = self.props.options.Client
-              let dispatch = context.dispatch
-              self.model_refresh_pending = true
-              async::start(fn() {
-                let result = client.RefreshModels(attempt.Context)
-                attempt.Cancel()
-                let _ = dispatch(fn() {
-                  self.model_refresh_pending = false
-                  match result {
-                    ok(catalog) => {
-                      self.notify(
-                        "Model catalog refreshed",
-                        "{catalog.Models.size()} models available",
-                        toast::Variant::info,
-                        false,
-                      )
-                    },
-                    err(failure) => self.notify("Model refresh failed", failure.error(), toast::Variant::error, true),
-                  }
-                })
-              })
-            },
-            _ => (),
-          }
-        },
-        _ => (),
-      }
     }
   }
 }
