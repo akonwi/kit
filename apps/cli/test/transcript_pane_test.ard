@@ -329,8 +329,11 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
   )
 }
 
+// The reply fits when it arrives, so the transcript follows it. Reflow that
+// later makes it taller than the viewport is growth, not an arrival, and keeps
+// following its end.
 test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
-  let terminal = headless::new(42, 7)
+  let terminal = headless::new(42, 12)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let messages = mut List::new<transcript::Message>()
@@ -360,10 +363,11 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
   defer renderer.destroy()
   terminal.flush()
   let list = model.control.list.current.expect("transcript list")
+  settle(terminal)
   try testing::assert(list.is_following_edge(), "transcript initially follows its tail")
   try testing::assert(terminal.frame().text().contains("TAIL sentinel"), "wide tail is visible")
 
-  terminal.resize(20, 7)
+  terminal.resize(20, 12)
   terminal.flush()
   try testing::assert(list.is_following_edge(), "Markdown reflow preserves sticky following")
   try testing::assert(list.last_item_visible(), "committed state keeps latest visible")
@@ -372,7 +376,7 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     "narrow reflow stays pinned to the final content",
   )
 
-  terminal.resize(42, 7)
+  terminal.resize(42, 12)
   terminal.flush()
   testing::assert(
     list.is_following_edge() and list.last_item_visible() and terminal.frame().text().contains("TAIL sentinel"),
@@ -634,5 +638,199 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
       " reply 8                     │",
       "                             ┃",
     ],
+  )
+}
+
+// A reply of `count` numbered paragraphs, each one row with a gap row between.
+fn tall_reply(id: Str, count: Int) transcript::Message {
+  let paragraphs = mut List::new<Str>()
+  mut index = 1
+  while index <= count {
+    paragraphs.push("{id} line {index}")
+    index =+ 1
+  }
+  let source = paragraphs.@
+  identified_message(id, transcript::Role::assistant, strings::Join(mut source, "\n\n"), false)
+}
+
+fn mount_messages(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+}
+
+// Settles the reply's one-frame alignment: its tail paints, the committed
+// update aligns it, and the next update confirms whether it fits.
+fn settle(terminal: headless::TestApp) {
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+}
+
+test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: [message(transcript::Role::user, "Explain", false), tall_reply("answer", 5)],
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "                             │",
+      " answer line 1               │",
+      "                             ┃",
+      " answer line 2               ┃",
+      "                             │",
+      " answer line 3               │",
+    ],
+  )
+  testing::assert(
+    not model.control.list.current.expect("transcript list").is_following_edge(),
+    "reading the reply's start stops following the end",
+  )
+}
+
+test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(4),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(4) {
+      next.push(item)
+    }
+    next.push(message(transcript::Role::user, "Explain", false))
+    next.push(tall_reply("answer", 5))
+    model.messages = next.@
+  })
+  settle(terminal)
+  let shown = rows(terminal)
+  try testing::assert(
+    shown.at(1).or("").starts_with(" answer line 1"),
+    "the reply's first line is at the top:\n{strings::Join(mut shown, "\n")}",
+  )
+  testing::assert(
+    not model.control.list.current.expect("transcript list").is_following_edge(),
+    "reading the reply's start stops following the end",
+  )
+}
+
+test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(4),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    model.messages = replies(5)
+  })
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      " reply 3                     │",
+      "                             │",
+      " reply 4                     │",
+      "                             ┃",
+      " reply 5                     ┃",
+      "                             ┃",
+    ],
+  )
+  testing::assert(
+    model.control.list.current.expect("transcript list").is_following_edge(),
+    "a reply that fits resumes following",
+  )
+}
+
+test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-2", cui::ScrollAlignment::start)
+  })
+  settle(terminal)
+  let before = rows(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(8) {
+      next.push(item)
+    }
+    next.push(tall_reply("answer", 5))
+    model.messages = next.@
+  })
+  settle(terminal)
+  let after = rows(terminal)
+  testing::assert(
+    after.at(1).or("") == before.at(1).or("") and after.at(1).or("").starts_with(" reply 2"),
+    "the reading position is kept:\n{strings::Join(mut after, "\n")}",
+  )
+}
+
+test fn a_tall_prompt_follows_the_end() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: replies(2),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  renderer.update(fn() {
+    let next = mut List::new<transcript::Message>()
+    for item in replies(2) {
+      next.push(item)
+    }
+    next.push(
+      message(
+        transcript::Role::user,
+        "first prompt line\nsecond\nthird\nfourth\nfifth\nsixth\nPROMPT END",
+        false,
+      ),
+    )
+    model.messages = next.@
+  })
+  settle(terminal)
+  let shown = rows(terminal)
+  try testing::assert(
+    strings::Join(mut shown, "\n").contains("PROMPT END"),
+    "a submitted prompt shows its end:\n{strings::Join(mut shown, "\n")}",
+  )
+  testing::assert(
+    model.control.list.current.expect("transcript list").is_following_edge(),
+    "the transcript keeps following",
   )
 }

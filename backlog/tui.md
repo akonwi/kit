@@ -65,8 +65,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   (`transcript_model.go`) to Ard; render user, assistant, thinking, and bash
   entries with Markdown and highlighted code in a virtual list; follow the
   bottom and latest-message shortcut (now driven by committed virtual-list
-  updates); tall-reply reading position, reading sections, and older-history
-  loading remain.
+  updates); open tall assistant replies at their start when they arrive or
+  when attaching. The vaxis reading-section strip is intentionally not
+  ported. Remaining: older-history loading.
 - [~] TUI-COOPER-004 — Composer: prompt submission and Escape abort are
   complete. Remaining: editing bindings, bracketed paste, history recall,
   follow-up queue, bash mode and history, attachments, file and session
