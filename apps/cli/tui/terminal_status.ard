@@ -1,0 +1,282 @@
+use ard/async
+use ard/testing
+
+use cooper/cui
+use cooper/terminal_progress
+use cooper/ui
+use kit/tui/spinner
+use go:os
+use go:path/filepath
+use go:strings
+use go:time
+use go:unicode
+
+// Reports Kit's status to the hosting terminal: the window or tab title and,
+// where the terminal supports it, its progress indicator. A running turn
+// animates a spinner ahead of the title; idle sessions have no marker.
+
+// Every other spinner frame keeps the title readable while it animates.
+let running_frames = [
+  spinner::frames.at(0).expect("spinner frame"),
+  spinner::frames.at(2).expect("spinner frame"),
+  spinner::frames.at(4).expect("spinner frame"),
+  spinner::frames.at(6).expect("spinner frame"),
+  spinner::frames.at(8).expect("spinner frame"),
+]
+
+let title_frame_duration = 160 * time::Millisecond
+// Multiplexers redraw their status line for every title change, so the
+// animation slows down inside them.
+let multiplexer_frame_duration = time::Second
+
+// Terminal is the host capability that publishes status. Both report whether
+// the terminal accepted the update.
+struct Terminal {
+  set_title: fn(Str) Bool,
+  progress: fn(terminal_progress::State) Bool,
+}
+
+// detached accepts no status, for clients without a hosting terminal.
+fn detached() Terminal {
+  Terminal{
+    set_title: fn(value: Str) Bool {
+      false
+    },
+    progress: fn(state: terminal_progress::State) Bool {
+      false
+    },
+  }
+}
+
+struct Props {
+  terminal: Terminal,
+  session_name: Str,
+  cwd: Str,
+  // Whether the session is doing work the user is waiting for.
+  running: Bool,
+  // Identifies the running work; a new identity restarts the animation.
+  work_id: Str,
+  // Overrides the animation cadence derived from the environment.
+  frame_duration: time::Duration?,
+}
+
+struct Reporter {
+  props: mut Props,
+  context: cui::Context?,
+  frame_duration: time::Duration,
+  frame: Int,
+  running: Bool,
+  work_id: Str,
+  // Stops the current animation worker; absent while idle.
+  ticker: Chan<Void>?,
+  progress: terminal_progress::State?,
+}
+
+// reporter publishes status while mounted and renders nothing.
+fn reporter(props: Props) cui::View {
+  cui::child(new, props)
+}
+
+private fn new(props: mut Props) mut Reporter {
+  (mut Reporter{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    frame_duration: props.frame_duration.or(frame_duration(os::Getenv)),
+    frame: 0,
+    running: false,
+    work_id: "",
+    ticker: Maybe::new<Chan<Void>>(),
+    progress: Maybe::new<terminal_progress::State>(),
+  })
+}
+
+impl cui::Lifecycle for Reporter {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.publish()
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    // Leave the terminal with the idle title and no progress.
+    self.stop_ticker()
+    let _ = (self.props.terminal.set_title)(title(self.props.session_name, self.props.cwd, ""))
+    let _ = (self.props.terminal.progress)(terminal_progress::State::remove)
+    self.context = Maybe::new<cui::Context>()
+  }
+}
+
+impl cui::Component for Reporter {
+  fn mut render() cui::View {
+    // Props arrive with each parent render, so publishing here follows every
+    // status change. The terminal ignores repeated titles.
+    self.publish()
+    cui::box([], styles: ui::style(display: ui::Display::none))
+  }
+}
+
+impl Reporter {
+  private fn mut publish() {
+    let running = self.props.running
+    if running != self.running or running and self.props.work_id != self.work_id {
+      self.running = running
+      self.work_id = self.props.work_id
+      self.frame = 0
+      self.stop_ticker()
+    }
+    if self.running and not self.ticker.is_some() {
+      self.start_ticker()
+    }
+    let marker = match self.running {
+      true => running_frames.at(self.frame % running_frames.size()).expect("running frame"),
+      false => "",
+    }
+    let _ = (self.props.terminal.set_title)(title(self.props.session_name, self.props.cwd, marker))
+    let progress = match self.running {
+      true => terminal_progress::State::indeterminate,
+      false => terminal_progress::State::remove,
+    }
+    let reported = match self.progress {
+      current => current == progress,
+      _ => false,
+    }
+    if not reported {
+      // Unsupported terminals reject progress; remember the request anyway so
+      // each frame does not retry it.
+      let _ = (self.props.terminal.progress)(progress)
+      self.progress = Maybe::new(progress)
+    }
+  }
+
+  // Advances the running marker until stopped or unmounted. Frames dispatch to
+  // this component alone, so animation does not re-render the shell.
+  private fn mut start_ticker() {
+    match self.context {
+      ctx => {
+        let stop = Chan::new<Void>(1)
+        self.ticker = Maybe::new(stop)
+        let cancellation = ctx.cancellation
+        let dispatch = ctx.dispatch
+        let duration = self.frame_duration
+        async::start(fn() {
+          mut active = true
+          while active {
+            select {
+              cancellation.recv() => { active = false },
+              stop.recv() => { active = false },
+              time::After(duration).recv() => {
+                if dispatch(fn() {
+                  if self.running {
+                    self.frame = self.frame + 1
+                  }
+                }).is_err() {
+                  active = false
+                }
+              },
+            }
+          }
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut stop_ticker() {
+    match self.ticker {
+      stop => {
+        stop.send(())
+        self.ticker = Maybe::new<Chan<Void>>()
+      },
+      _ => (),
+    }
+  }
+}
+
+// title formats `kit - <session> - <directory>`, omitting unknown parts, with
+// an optional status marker in front.
+fn title(session_name: Str, cwd: Str, marker: Str) Str {
+  let parts = mut List::new<Str>()
+  parts.push("kit")
+  let name = sanitize(session_name)
+  if name != "" {
+    parts.push(name)
+  }
+  if cwd != "" {
+    let base = sanitize(filepath::Base(filepath::Clean(cwd)))
+    if base != "" and base != "." {
+      parts.push(base)
+    }
+  }
+  mut joined = ""
+  for part in parts {
+    joined = match joined == "" {
+      true => part,
+      false => "{joined} - {part}",
+    }
+  }
+  match marker == "" {
+    true => joined,
+    false => "{marker} {joined}",
+  }
+}
+
+// sanitize drops control and invisible formatting characters, which could
+// otherwise end the title sequence or disguise the title.
+private fn sanitize(value: Str) Str {
+  let output = mut strings::Builder{}
+  for character in value {
+    let rune = Int32::from(character)
+    let hidden = unicode::IsControl(rune) or unicode::Is(unicode::Cf, rune)
+    if not hidden {
+      output.WriteRune(rune)
+      ()
+    }
+  }
+  strings::TrimSpace(output.String())
+}
+
+private fn frame_duration(getenv: fn(Str) Str) time::Duration {
+  match getenv("TMUX") != "" or getenv("STY") != "" {
+    true => multiplexer_frame_duration,
+    false => title_frame_duration,
+  }
+}
+
+test fn titles_show_the_session_and_directory() Void!Str {
+  try testing::assert(title("Fix pager", "/work/kit", "") == "kit - Fix pager - kit", "idle")
+  try testing::assert(title("Fix pager", "/work/kit", "⠋") == "⠋ kit - Fix pager - kit", "running")
+  try testing::assert(title("", "/work/kit", "⠋") == "⠋ kit - kit", "unnamed")
+  try testing::assert(title("Setup", "", "") == "kit - Setup", "unknown directory")
+  testing::assert(title("", "", "") == "kit", "nothing known")
+}
+
+test fn titles_remove_control_characters() Void!Str {
+  let got = title("Review\x1b]2;ow\u202ened\a", "/work/ki\nt", "")
+  testing::assert(got == "kit - Review]2;owned - kit", "got {got}")
+}
+
+test fn multiplexers_slow_the_running_animation() Void!Str {
+  try testing::assert(
+    frame_duration(fn(name: Str) Str {
+      match name == "TMUX" {
+        true => "/tmp/tmux-501/default,1,0",
+        false => "",
+      }
+    }) == multiplexer_frame_duration,
+    "tmux",
+  )
+  try testing::assert(
+    frame_duration(fn(name: Str) Str {
+      match name == "STY" {
+        true => "1.pts-0",
+        false => "",
+      }
+    }) == multiplexer_frame_duration,
+    "screen",
+  )
+  testing::assert(
+    frame_duration(fn(name: Str) Str {
+      ""
+    }) == title_frame_duration,
+    "direct",
+  )
+}

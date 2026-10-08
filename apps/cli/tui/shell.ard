@@ -27,11 +27,13 @@ use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/session_debug
 use kit/tui/sessions
+use kit/tui/terminal_status
 use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript_pane
+use go:time
 
 // The root terminal-client component: session bootstrap, shell chrome, and
 // retained feature composition.
@@ -91,6 +93,8 @@ struct Props {
   options: cli::TUIOptions,
   themes: theme::Context,
   quit: fn(),
+  // Publishes the session's status to the hosting terminal.
+  terminal: terminal_status::Terminal,
 }
 
 struct Shell {
@@ -637,6 +641,7 @@ impl cui::Component for Shell {
     // Keep the notification host at a stable position ahead of the optional
     // modal so opening a dialog never remounts it.
     layers.push(toast::host(self.props.themes, self.notifications))
+    layers.push(self.terminal_status())
     match self.active_modal {
       NoModal => (),
       CommandPaletteModal => layers.push(self.command_palette_modal()),
@@ -662,6 +667,26 @@ impl cui::Component for Shell {
 }
 
 impl Shell {
+  // terminal_status reports the attached session's name, directory, and
+  // whether a turn or manual compaction is running.
+  fn terminal_status() cui::View {
+    let info = self.attached.info.or(protocol::SessionInfo{})
+    let cwd = match info.CWD == "" {
+      true => self.props.options.CWD,
+      false => info.CWD,
+    }
+    terminal_status::reporter(
+      terminal_status::Props{
+        terminal: self.props.terminal,
+        session_name: info.Name,
+        cwd: cwd,
+        running: self.attached.busy(),
+        work_id: self.attached.run_id,
+        frame_duration: Maybe::new<time::Duration>(),
+      },
+    )
+  }
+
   // update_selection_copy_pulse updates the shared presentation token so
   // VirtualList rows and other independently retained subtrees repaint too.
   fn mut update_selection_copy_pulse(progress: Float64) {
@@ -1181,6 +1206,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
       options: cli::TUIOptions{},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {},
+      terminal: terminal_status::detached(),
     },
   )
   let previous = subject.attached
@@ -1216,6 +1242,7 @@ test fn rename_requests_carry_their_opening_settings_with_the_dialog() Void!Str 
       options: cli::TUIOptions{},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {},
+      terminal: terminal_status::detached(),
     },
   )
   subject.attached.apply_snapshot(

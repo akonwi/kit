@@ -86,8 +86,12 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   provider picker, Codex device login, Claude browser/manual-code login, and
   Anthropic, OpenAI, and OpenCode Go API-key entry are complete. Remaining:
   connect another provider from an already-ready session.
-- [ ] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
-  selection copy, and link opening.
+- [~] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
+  selection copy, and link opening. The terminal title and Ghostty progress
+  report the session name, directory, and a running turn or manual compaction.
+  Remaining: the `?` feedback marker and paused progress once pending
+  interactions exist (TUI-COOPER-007), turn-completion notifications and bell,
+  and confirming toast, selection-copy, and link-opening parity.
 - [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
   vaxis client's contrast-aware palette, plus user theme tokens. The palette
   derivation comes from Cooper's terminal-theme service, including live host
