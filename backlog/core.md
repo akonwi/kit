@@ -3,14 +3,11 @@
 This ledger owns client-neutral behavior. A client backlog may depend on these
 IDs but must not redefine server, persistence, or protocol semantics.
 
-## Release scope
+## Daemon, sessions, and runtime
 
-### Daemon, sessions, and runtime
-
-- [ ] CORE-SESSION-001 — Let multiple clients observe and control one
-  authoritative session without lost updates or client-global active-session
-  state. Broadcast follow-up queue changes to attached clients and expose failed
-  automatic queue admission instead of leaving a silently blocked queue.
+- [ ] CORE-SESSION-001 — Broadcast follow-up queue changes to every attached
+  client, and surface failed automatic admission of a queued follow-up instead
+  of leaving the queue silently blocked.
 - [ ] CORE-FORK-001 — Accept an optional first prompt when forking a settled
   session, and admit that prompt only on the new child.
 - [ ] CORE-RUN-005 — Include a bounded, classified failure reason in
@@ -43,7 +40,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   handoff, ordered delivery, bounded replay, and resynchronization after gaps or
   daemon restart; preserve catalog visibility rules for temporary sessions.
 
-### Protocol and shared clients
+## Protocol and shared clients
 
 - [ ] CORE-PROTO-004 — Paginate transcripts and mutable collections and recover
   records too large for an individual event or response.
@@ -56,7 +53,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   0038, migrate the TUI, print mode, and RPC bridge to it, and retire the
   existing internal client stacks.
 
-### Workspace data, tools, attachments, and interactions
+## Workspace data, tools, attachments, and interactions
 
 - [ ] CORE-TOOL-001 — Route URL opening, including MCP authorization URLs,
   through a validated attached client or platform port instead of launching a
@@ -66,7 +63,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
   beyond automated allow, reject, nested-dialog cancellation, and recovery,
   including that a client cannot bypass server-owned tool policy.
 
-### Headless and release safety
+## Headless and release safety
 
 - [ ] CORE-HEAD-001 — Define headless-safe behavior for built-ins, MCP, and
   unavailable user interactions.
@@ -76,7 +73,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-TEST-002 — Cover malformed and adversarial protocol records with fuzz
   or property tests.
 
-### GPT-6 provider and runtime capabilities
+## GPT-6 provider and runtime capabilities
 
 These are optional capabilities to revisit as GPT-6 models mature, not release
 gates. The [GPT-6 guide](https://developers.openai.com/api/docs/guides/latest-model)
@@ -135,7 +132,7 @@ handling, effort history, and prompt-cache controls are documented in the featur
   rather than baking application policy into droids. Kit's existing subagents do
   not require adopting OpenAI-hosted multi-agent orchestration.
 
-### Remote clients and automation
+## Remote clients and automation
 
 - [ ] CORE-REMOTE-001 — Provide a separately configured remote listener with
   token-authenticated CLI clients and secure browser sessions.
@@ -148,7 +145,7 @@ handling, effort history, and prompt-cache controls are documented in the featur
   diagnostics.
 - [ ] CORE-REMOTE-004 — Support `kit attach` over the public client boundary.
 
-### External plugins
+## External plugins
 
 Process ownership and plugin UI routing follow
 [ADR 0026](../docs/adrs/0026-scope-plugin-processes-and-route-plugin-ui.md).
@@ -178,7 +175,7 @@ Process ownership and plugin UI routing follow
   post-settlement continuation, stale-generation rejection, and concurrent-session
   isolation with real subprocess tests and document the public RPC contract.
 
-### Deferred workflows and compatibility
+## Deferred workflows and compatibility
 
 - [ ] CORE-BASH-001 — Let clients discover direct shell executions started and
   completed by another client, including executions excluded from model context.
