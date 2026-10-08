@@ -364,17 +364,17 @@ test fn a_confirmation_answers_from_letters_and_buttons() Void!Str {
   )
   press(terminal, "n", shift: true)
   let declined = try only_response(state)
-  try testing::assert(not unsafe::is_nil(declined.Confirmed) and not declined.Confirmed.@, "N declines")
+  try testing::assert((not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@, "N declines")
   state.responses = []
   press(terminal, "y")
   let accepted = try only_response(state)
-  try testing::assert(not unsafe::is_nil(accepted.Confirmed) and accepted.Confirmed.@, "y accepts")
+  try testing::assert((not unsafe::is_nil(accepted.Confirmed)) and accepted.Confirmed.@, "y accepts")
   state.responses = []
   terminal.click(4, 6)
   settle(terminal)
   let clicked = try only_response(state)
   testing::assert(
-    not unsafe::is_nil(clicked.Confirmed) and clicked.Confirmed.@,
+    (not unsafe::is_nil(clicked.Confirmed)) and clicked.Confirmed.@,
     "clicking Yes accepts",
   )
 }
@@ -430,7 +430,7 @@ test fn a_text_request_submits_a_non_empty_answer() Void!Str {
   press(terminal, "return")
   let response = try only_response(state)
   testing::assert(
-    not unsafe::is_nil(response.Value) and response.Value.@ == "main",
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "main",
     "Return submits the typed answer",
   )
 }
@@ -454,4 +454,242 @@ test fn the_dock_ignores_input_while_inactive_or_submitting() Void!Str {
   settle(terminal)
   press(terminal, "y")
   testing::assert(state.responses.size() == 0, "a submitted request is not answered twice")
+}
+
+fn setup_questions() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_setup",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionGuided,
+    Title: "Set up the test suite",
+    Questions: [
+      protocol::InteractionQuestion{
+        ID: "name",
+        Prompt: "What should the npm script be called?",
+        Kind: protocol::InteractionQuestionText,
+        Required: true,
+      },
+      protocol::InteractionQuestion{
+        ID: "location",
+        Prompt: "Where should test files live?",
+        Detail: "Colocated tests match the default `include` glob.",
+        Kind: protocol::InteractionQuestionSelect,
+        Required: true,
+        Options: [
+          protocol::InteractionOption{
+            ID: "colocated",
+            Label: "Next to the source",
+            Detail: "src/clamp.test.ts",
+          },
+          protocol::InteractionOption{
+            ID: "folder",
+            Label: "Top-level tests/",
+            Detail: "tests/clamp.test.ts",
+          },
+        ],
+      },
+      protocol::InteractionQuestion{
+        ID: "jobs",
+        Prompt: "Which CI jobs should run the tests?",
+        Kind: protocol::InteractionQuestionMultiselect,
+        Required: false,
+        Options: [
+          protocol::InteractionOption{ID: "pr", Label: "Pull requests"},
+          protocol::InteractionOption{ID: "main", Label: "Pushes to main"},
+          protocol::InteractionOption{ID: "nightly", Label: "Nightly"},
+        ],
+      },
+    ],
+  }
+}
+
+fn answer(response: protocol::InteractionResponse, id: Str) protocol::InteractionAnswer!Str {
+  match response.Answers.get(id) {
+    found => Result::ok(found),
+    _ => Result::err("no answer for {id}"),
+  }
+}
+
+test fn guided_questions_collect_every_answer_into_one_response() Void!Str {
+  let terminal = headless::new(72, 12)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      "",
+      " Set up the test suite                                  Question 1 of 3",
+      " What should the npm script be called?",
+      "",
+      "  Type an answer",
+      "",
+      " enter submit · esc cancel                                      Cancel",
+      "",
+    ],
+  )
+  type_text(terminal, "test")
+  press(terminal, "return")
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Set up the test suite                                  Question 2 of 3",
+      " Where should test files live?",
+      " Colocated tests match the default include glob.",
+      "",
+      " ▌A   Next to the source  src/clamp.test.ts",
+      "  B   Top-level tests/    tests/clamp.test.ts",
+      "",
+      " ↑↓ move · enter/space select · shift+tab back · esc cancel     Cancel",
+      "",
+    ],
+  )
+  press(terminal, "down")
+  press(terminal, "return")
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Set up the test suite                       Question 3 of 3 · optional",
+      " Which CI jobs should run the tests?",
+      "",
+      " ▌A   [ ] Pull requests",
+      "  B   [ ] Pushes to main",
+      "  C   [ ] Nightly",
+      "",
+      "  Continue   Skip  ↑↓ move · space toggle · enter continue · …  Cancel",
+      "",
+    ],
+  )
+  press(terminal, "space")
+  press(terminal, "j")
+  press(terminal, "j")
+  press(terminal, "space")
+  try testing::assert(
+    rows(terminal).at(6).or("") == "  A   [x] Pull requests" and rows(terminal).at(8).or("") == " ▌C   [x] Nightly",
+    "space toggles the highlighted option",
+  )
+  press(terminal, "return")
+  let response = try only_response(state)
+  let name = try answer(response, "name")
+  let location = try answer(response, "location")
+  let jobs = try answer(response, "jobs")
+  try testing::assert((not unsafe::is_nil(name.Text)) and name.Text.@ == "test", "the text answer")
+  try testing::assert(
+    location.OptionIDs.size() == 1 and location.OptionIDs.at(0).or("") == "folder",
+    "the chosen option",
+  )
+  testing::assert(
+    jobs.OptionIDs.size() == 2 and jobs.OptionIDs.at(0).or("") == "pr" and jobs.OptionIDs.at(1).or("") == "nightly",
+    "checked options in option order",
+  )
+}
+
+test fn shift_tab_returns_to_earlier_answers() Void!Str {
+  let terminal = headless::new(72, 12)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  type_text(terminal, "test")
+  press(terminal, "tab")
+  press(terminal, "down")
+  press(terminal, "tab")
+  press(terminal, "space")
+  press(terminal, "tab", shift: true)
+  try testing::assert(
+    rows(terminal).at(4).or("") == " Where should test files live?" and rows(terminal).at(8).or("") == " ▌B   Top-level tests/    tests/clamp.test.ts",
+    "going back restores the chosen option",
+  )
+  press(terminal, "tab", shift: true)
+  try testing::assert(
+    rows(terminal).at(6).or("") == " What should the npm script be called?" and rows(terminal).at(8).or("") == "  test",
+    "going back restores the text answer",
+  )
+  press(terminal, "tab", shift: true)
+  testing::assert(
+    state.responses.size() == 0 and rows(terminal).at(6).or("") == " What should the npm script be called?",
+    "the first question has nothing before it",
+  )
+}
+
+test fn only_optional_questions_can_be_skipped() Void!Str {
+  let terminal = headless::new(72, 12)
+  defer terminal.destroy()
+  let state = model(setup_questions())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "return")
+  press(terminal, "tab")
+  try testing::assert(
+    rows(terminal).at(6).or("") == " What should the npm script be called?",
+    "a required question needs an answer",
+  )
+  type_text(terminal, "test")
+  press(terminal, "return")
+  press(terminal, "return")
+  press(terminal, "return")
+  let response = try only_response(state)
+  let jobs = try answer(response, "jobs")
+  testing::assert(
+    jobs.Skipped and jobs.OptionIDs.size() == 0,
+    "continuing with nothing checked skips",
+  )
+}
+
+test fn a_yes_no_question_answers_only_from_a_choice() Void!Str {
+  let terminal = headless::new(60, 11)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_ci",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionGuided,
+      Title: "CI",
+      Questions: [
+        protocol::InteractionQuestion{
+          ID: "enable",
+          Prompt: "Add a CI job?",
+          Kind: protocol::InteractionQuestionBoolean,
+          Required: true,
+        },
+      ],
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      " CI                                         Question 1 of 1",
+      " Add a CI job?",
+      "",
+      "   Yes     No",
+      "",
+      " y yes · n no · esc cancel                          Cancel",
+      "",
+    ],
+  )
+  press(terminal, "tab")
+  try testing::assert(state.responses.size() == 0, "Tab does not choose for the user")
+  press(terminal, "n")
+  let response = try only_response(state)
+  let enable = try answer(response, "enable")
+  testing::assert((not unsafe::is_nil(enable.Boolean)) and not enable.Boolean.@, "n answers no")
 }

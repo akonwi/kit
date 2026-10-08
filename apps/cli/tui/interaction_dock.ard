@@ -1,4 +1,5 @@
 use ard/testing
+use ard/unsafe
 
 use go:api/contract as protocol
 use cooper/cui
@@ -46,13 +47,29 @@ struct Props {
   control: mut Ref,
 }
 
+// Mode is the answer shape the dock is currently collecting: the request's
+// own kind, or the kind of the current guided question.
+enum Mode {
+  confirm,
+  text,
+  choice,
+  multiple,
+  unsupported,
+}
+
 struct Dock {
   props: mut Props,
   context: cui::Context?,
+  // The guided question being answered; plain requests stay at zero.
+  step: Int,
+  // Guided answers so far, by question ID.
+  answers: [Str: protocol::InteractionAnswer],
   // The text answer being edited.
   value: Str,
   // The highlighted option.
   cursor: Int,
+  // Checked options of a multiple-choice question, by option ID.
+  checked: [Str: Bool],
   list: mut cui::VirtualListRef,
   hidden_above: Int,
   hidden_below: Int,
@@ -70,8 +87,11 @@ private fn new(props: mut Props) mut Dock {
   (mut Dock{
     props: props,
     context: Maybe::new<cui::Context>(),
+    step: 0,
+    answers: [:],
     value: props.request.InitialValue,
     cursor: 0,
+    checked: [:],
     list: cui::virtual_list_ref(),
     hidden_above: 0,
     hidden_below: 0,
@@ -94,12 +114,61 @@ impl cui::Lifecycle for Dock {
 }
 
 impl Dock {
+  private fn guided() Bool {
+    self.props.request.Kind.to_str() == "guided"
+  }
+
+  private fn question() protocol::InteractionQuestion? {
+    match self.guided() {
+      true => self.props.request.Questions.at(self.step),
+      false => Maybe::new<protocol::InteractionQuestion>(),
+    }
+  }
+
+  private fn mode() Mode {
+    match self.question() {
+      question => {
+        match question.Kind.to_str() {
+          "text" => Mode::text,
+          "boolean" => Mode::confirm,
+          "select" => Mode::choice,
+          "multiselect" => Mode::multiple,
+          _ => Mode::unsupported,
+        }
+      },
+      _ => {
+        match self.props.request.Kind.to_str() {
+          "confirm" => Mode::confirm,
+          "input" => Mode::text,
+          "select" => Mode::choice,
+          _ => Mode::unsupported,
+        }
+      },
+    }
+  }
+
+  // The choices for the current request or question.
+  private fn choices() [protocol::InteractionOption] {
+    match self.question() {
+      question => question.Options,
+      _ => self.props.request.Options,
+    }
+  }
+
+  // Whether the current guided question may be skipped.
+  private fn optional() Bool {
+    match self.question() {
+      question => not question.Required,
+      _ => false,
+    }
+  }
+
   private fn mut request_focus() Bool {
     match self.context {
       ctx => {
         let input = self.input
         let focus = self.focus
-        let text = self.accepts_text()
+        let text = self.mode() == Mode::text
         let _ = ctx.dispatch(fn() {
           if self.props.active {
             match text {
@@ -112,10 +181,6 @@ impl Dock {
       },
       _ => false,
     }
-  }
-
-  private fn accepts_text() Bool {
-    self.props.request.Kind.to_str() == "input"
   }
 
   // respond reports one response unless the dock is waiting behind a dialog
@@ -131,36 +196,182 @@ impl Dock {
     self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Cancelled: true})
   }
 
-  private fn mut confirm(value: Bool) Bool {
-    let confirmed = mut value
-    self.respond(
-      protocol::InteractionResponse{RequestID: self.props.request.ID, Confirmed: confirmed},
-    )
-  }
-
-  private fn mut submit_text(value: Str) Bool {
-    if strings::TrimSpace(value) == "" {
-      true
-    } else {
-      let answer = mut value
-      self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer})
-    }
-  }
-
-  private fn mut choose(index: Int) Bool {
-    match self.props.request.Options.at(index) {
-      option => {
-        self.cursor = index
-        self.respond(
-          protocol::InteractionResponse{RequestID: self.props.request.ID, SelectedOptionID: option.ID},
-        )
+  // Records a guided answer and moves to the next question, or submits every
+  // answer after the last one.
+  private fn mut advance(answer: protocol::InteractionAnswer) Bool {
+    match self.question() {
+      question => {
+        if self.props.active and not self.props.submitting {
+          self.answers.set(question.ID, answer)
+          if self.step + 1 >= self.props.request.Questions.size() {
+            self.respond(
+              protocol::InteractionResponse{RequestID: self.props.request.ID, Answers: self.answers},
+            )
+          } else {
+            self.show_step(self.step + 1)
+            true
+          }
+        } else {
+          true
+        }
       },
       _ => true,
     }
   }
 
+  // Shows a guided question with its earlier answer, if any, restored.
+  private fn mut show_step(step: Int) {
+    self.step = step
+    self.value = ""
+    self.cursor = 0
+    self.checked = [:]
+    self.hidden_above = 0
+    self.hidden_below = 0
+    match self.question() {
+      question => {
+        match self.answers.get(question.ID) {
+          answer => {
+            if not unsafe::is_nil(answer.Text) {
+              self.value = answer.Text.@
+            }
+            for id in answer.OptionIDs {
+              self.checked.set(id, true)
+            }
+            match answer.OptionIDs.at(0) {
+              first => {
+                mut index = 0
+                for option in question.Options {
+                  if option.ID == first {
+                    self.cursor = index
+                  }
+                  index =+ 1
+                }
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+    self.reveal()
+  }
+
+  private fn mut skip() Bool {
+    match self.optional() {
+      true => self.advance(protocol::InteractionAnswer{Skipped: true}),
+      false => true,
+    }
+  }
+
+  private fn mut confirm(value: Bool) Bool {
+    let confirmed = mut value
+    match self.guided() {
+      true => self.advance(protocol::InteractionAnswer{Boolean: confirmed}),
+      false => {
+        self.respond(
+          protocol::InteractionResponse{RequestID: self.props.request.ID, Confirmed: confirmed},
+        )
+      },
+    }
+  }
+
+  // Submits a text answer. An empty answer skips an optional question and is
+  // otherwise ignored.
+  private fn mut submit_text(value: Str) Bool {
+    let trimmed = strings::TrimSpace(value)
+    match {
+      trimmed == "" => self.skip(),
+      self.guided() => {
+        let answer = mut trimmed
+        self.advance(protocol::InteractionAnswer{Text: answer})
+      },
+      _ => {
+        let answer = mut value
+        self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer})
+      },
+    }
+  }
+
+  // Activates an option: a single choice answers with it; a multiple choice
+  // toggles it.
+  private fn mut choose(index: Int) Bool {
+    match self.choices().at(index) {
+      option => {
+        self.cursor = index
+        match self.mode() {
+          Mode::multiple => {
+            self.checked.set(option.ID, not self.checked.get(option.ID).or(false))
+            true
+          },
+          _ => {
+            match self.guided() {
+              true => self.advance(protocol::InteractionAnswer{OptionIDs: [option.ID]}),
+              false => {
+                self.respond(
+                  protocol::InteractionResponse{RequestID: self.props.request.ID, SelectedOptionID: option.ID},
+                )
+              },
+            }
+          },
+        }
+      },
+      _ => true,
+    }
+  }
+
+  // Answers a multiple-choice question with its checked options, in option
+  // order. Nothing checked skips an optional question.
+  private fn mut continue_multiple() Bool {
+    let ids = mut List::new<Str>()
+    for option in self.choices() {
+      if self.checked.get(option.ID).or(false) {
+        ids.push(option.ID)
+      }
+    }
+    match ids.size() == 0 {
+      true => self.skip(),
+      false => self.advance(protocol::InteractionAnswer{OptionIDs: ids.@}),
+    }
+  }
+
+  // Tab answers the current guided question from its current state. A
+  // yes/no question has no current state until it has been answered.
+  private fn mut next() Bool {
+    match self.mode() {
+      Mode::text => self.submit_text(self.value),
+      Mode::choice => self.choose(self.cursor),
+      Mode::multiple => self.continue_multiple(),
+      Mode::confirm => {
+        match self.question() {
+          question => {
+            match self.answers.get(question.ID) {
+              answer => {
+                match unsafe::is_nil(answer.Boolean) {
+                  true => true,
+                  false => self.advance(answer),
+                }
+              },
+              _ => true,
+            }
+          },
+          _ => true,
+        }
+      },
+      Mode::unsupported => true,
+    }
+  }
+
+  private fn mut back() Bool {
+    if self.props.active and (not self.props.submitting) and self.step > 0 {
+      self.show_step(self.step - 1)
+    }
+    true
+  }
+
   private fn mut move(delta: Int) Bool {
-    let count = self.props.request.Options.size()
+    let count = self.choices().size()
     if count > 0 {
       self.cursor = clamp(self.cursor + delta, 0, count - 1)
       self.reveal()
@@ -189,55 +400,92 @@ impl Dock {
   private fn mut bindings() Bindings {
     let commands = mut List::new<keymap::Command>()
     let bindings = mut List::new<keymap::Binding>()
-    let cancel = keymap::simple_command("interaction.cancel", "Cancel request", fn() Bool {
+    let bind = fn(name: Str, title: Str, keys: [keymap::Key], action: fn() Bool) Void {
+      let command = keymap::simple_command(name, title, action)
+      commands.push(command)
+      for key in keys {
+        bindings.push(keymap::binding(key, command.with()))
+      }
+    }
+    bind("interaction.cancel", "Cancel request", [keymap::key("escape")], fn() Bool {
       self.cancel()
     })
-    commands.push(cancel)
-    bindings.push(keymap::binding(keymap::key("escape"), cancel.with()))
-    match self.props.request.Kind.to_str() {
-      "confirm" => {
-        let yes = keymap::simple_command("interaction.yes", "Yes", fn() Bool {
-          self.confirm(true)
-        })
-        let no = keymap::simple_command("interaction.no", "No", fn() Bool {
+    if self.guided() {
+      bind("interaction.next_question", "Next question", [keymap::key("tab")], fn() Bool {
+        self.next()
+      })
+      bind(
+        "interaction.previous_question",
+        "Previous question",
+        [keymap::key("tab", shift: true)],
+        fn() Bool {
+          self.back()
+        },
+      )
+    }
+    match self.mode() {
+      Mode::confirm => {
+        bind(
+          "interaction.yes",
+          "Yes",
+          [keymap::key("y"), keymap::key("y", shift: true)],
+          fn() Bool {
+            self.confirm(true)
+          },
+        )
+        bind("interaction.no", "No", [keymap::key("n"), keymap::key("n", shift: true)], fn() Bool {
           self.confirm(false)
         })
-        commands.push(yes)
-        commands.push(no)
-        for shift in [false, true] {
-          bindings.push(keymap::binding(keymap::key("y", shift: shift), yes.with()))
-          bindings.push(keymap::binding(keymap::key("n", shift: shift), no.with()))
-        }
       },
-      "select" => {
-        let up = keymap::simple_command("interaction.previous", "Previous option", fn() Bool {
-          self.move(-1)
-        })
-        let down = keymap::simple_command("interaction.next", "Next option", fn() Bool {
-          self.move(1)
-        })
-        let choose = keymap::simple_command("interaction.choose", "Choose option", fn() Bool {
+      Mode::choice => {
+        self.bind_movement(bind)
+        bind(
+          "interaction.choose",
+          "Choose option",
+          [keymap::key("return"), keymap::key("space")],
+          fn() Bool {
+            self.choose(self.cursor)
+          },
+        )
+      },
+      Mode::multiple => {
+        self.bind_movement(bind)
+        bind("interaction.toggle", "Toggle option", [keymap::key("space")], fn() Bool {
           self.choose(self.cursor)
         })
-        commands.push(up)
-        commands.push(down)
-        commands.push(choose)
-        bindings.push(keymap::binding(keymap::key("up"), up.with()))
-        bindings.push(keymap::binding(keymap::key("k"), up.with()))
-        bindings.push(keymap::binding(keymap::key("down"), down.with()))
-        bindings.push(keymap::binding(keymap::key("j"), down.with()))
-        bindings.push(keymap::binding(keymap::key("return"), choose.with()))
-        bindings.push(keymap::binding(keymap::key("space"), choose.with()))
+        bind("interaction.continue", "Continue", [keymap::key("return")], fn() Bool {
+          self.continue_multiple()
+        })
       },
       _ => (),
     }
     Bindings{commands: commands.@, bindings: bindings.@}
   }
 
+  private fn mut bind_movement(bind: fn(Str, Str, [keymap::Key], fn() Bool)) {
+    bind(
+      "interaction.previous",
+      "Previous option",
+      [keymap::key("up"), keymap::key("k")],
+      fn() Bool {
+        self.move(-1)
+      },
+    )
+    bind("interaction.next", "Next option", [keymap::key("down"), keymap::key("j")], fn() Bool {
+      self.move(1)
+    })
+  }
+
   private fn mut header(colors: theme::Theme) cui::View {
-    let meta = match self.props.queue_length > 1 {
-      true => "1 of {self.props.queue_length}",
-      false => "",
+    let meta = mut List::new<Str>()
+    if self.guided() {
+      meta.push("Question {self.step + 1} of {self.props.request.Questions.size()}")
+      if self.optional() {
+        meta.push("optional")
+      }
+    }
+    if self.props.queue_length > 1 {
+      meta.push("1 of {self.props.queue_length}")
     }
     cui::box(
       [
@@ -246,7 +494,11 @@ impl Dock {
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
           text_style: ui::text_style(foreground: colors.foreground, bold: true),
         ),
-        cui::text(meta, text_style: ui::text_style(foreground: colors.muted), wrap: ui::TextWrap::none),
+        cui::text(
+          strings::Join(meta, " · "),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+        ),
       ],
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
@@ -256,10 +508,28 @@ impl Dock {
     )
   }
 
+  // detail renders explanatory Markdown. It scrolls only once the options are
+  // windowed to their minimum: its tiny shrink factor leaves the deficit to
+  // the list first.
+  private fn mut detail(colors: theme::Theme, key: Str, source: Str) cui::View {
+    cui::scroll_box(
+      [
+        markdown::view(
+          self.props.themes,
+          "interaction.{self.props.request.ID}.{key}",
+          source,
+          base: ui::text_style(foreground: colors.muted),
+        ),
+      ],
+      key: "interaction.{key}",
+      styles: ui::style(flex_shrink: 0.001, min_height: ui::cells(1)),
+      focusable: false,
+    )
+  }
+
   private fn mut body(colors: theme::Theme) cui::View {
-    let request = self.props.request
-    match request.Kind.to_str() {
-      "confirm" => {
+    match self.mode() {
+      Mode::confirm => {
         let yes = keymap::simple_command("interaction.yes.pointer", "Yes", fn() Bool {
           self.confirm(true)
         })
@@ -285,16 +555,18 @@ impl Dock {
           ),
         )
       },
-      "input" => {
-        let placeholder = match request.Placeholder == "" {
-          true => "Type a response",
-          false => request.Placeholder,
+      Mode::text => {
+        let placeholder = match {
+          self.guided() => "Type an answer",
+          self.props.request.Placeholder == "" => "Type a response",
+          _ => self.props.request.Placeholder,
         }
         cui::box(
           [
             cui::input(
+              // Each question mounts its own field so it takes focus.
               self.value,
-              key: "interaction.input",
+              key: "interaction.input.{self.step}",
               styles: ui::style(flex_grow: 1.0),
               placeholder: placeholder,
               autofocus: self.props.active,
@@ -320,8 +592,9 @@ impl Dock {
           ),
         )
       },
-      "select" => self.options(colors, request.Options),
-      _ => {
+      Mode::choice => self.options(colors),
+      Mode::multiple => self.options(colors),
+      Mode::unsupported => {
         cui::text(
           "This request is not supported by this client.",
           text_style: ui::text_style(foreground: colors.danger_text),
@@ -332,7 +605,9 @@ impl Dock {
 
   // options lists every choice when it fits; a constrained terminal windows
   // the list around the highlighted option.
-  private fn mut options(colors: theme::Theme, options: [protocol::InteractionOption]) cui::View {
+  private fn mut options(colors: theme::Theme) cui::View {
+    let options = self.choices()
+    let multiple = self.mode() == Mode::multiple
     mut labels = 1
     for option in options {
       labels = match option.Label.size() > labels {
@@ -340,7 +615,11 @@ impl Dock {
         false => labels,
       }
     }
-    let label_width = clamp(labels, 1, 32)
+    let checkbox = match multiple {
+      true => 4,
+      false => 0,
+    }
+    let label_width = clamp(labels, 1, 32) + checkbox
     let indices = mut List::new<Int>()
     mut index = 0
     while index < options.size() {
@@ -364,18 +643,19 @@ impl Dock {
       [
         overflow_row(colors, "above", "▲", self.hidden_above),
         cui::virtual_list(
+          // Each question starts its list at the top.
           indices.@,
           item_key: fn(item: Int) Str {
             option_key(item)
           },
           render_item: fn(item: Int) cui::View {
-            self.option_row(colors, options.at(item).expect("option"), item, label_width)
+            self.option_row(colors, options.at(item).expect("option"), item, label_width, multiple)
           },
           row_height: 1,
           estimated_height: 1,
           overscan: 2,
           scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
-          key: "interaction.options",
+          key: "interaction.options.{self.step}",
           ref: self.list,
           on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
             self.hidden_above = update.state.visible_range.start
@@ -402,12 +682,39 @@ impl Dock {
     option: protocol::InteractionOption,
     index: Int,
     label_width: Int,
+    multiple: Bool,
   ) cui::View {
     let selected = index == self.cursor
     let fill = match selected {
       true => colors.picker_selected,
       false => colors.surface,
     }
+    let label = mut List::new<cui::View>()
+    if multiple {
+      let checked = self.checked.get(option.ID).or(false)
+      label.push(
+        cui::text(
+          match checked {
+            true => "[x] ",
+            false => "[ ] ",
+          },
+          text_style: ui::text_style(
+            foreground: match checked {
+              true => colors.success_text,
+              false => colors.muted,
+            },
+          ),
+        ),
+      )
+    }
+    label.push(
+      cui::text(
+        option.Label,
+        text_style: ui::text_style(foreground: colors.foreground, bold: selected),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
     cui::box(
       [
         cui::text(
@@ -422,15 +729,12 @@ impl Dock {
           styles: ui::style(width: ui::cells(4), flex_shrink: 0.0),
         ),
         cui::box(
-          [
-            cui::text(
-              option.Label,
-              text_style: ui::text_style(foreground: colors.foreground, bold: selected),
-              wrap: ui::TextWrap::none,
-              overflow: ui::TextOverflow::ellipsis,
-            ),
-          ],
-          styles: ui::style(width: ui::cells(label_width + 2), flex_shrink: 0.0),
+          label.@,
+          styles: ui::style(
+            width: ui::cells(label_width + 2),
+            flex_shrink: 0.0,
+            flex_direction: ui::FlexDirection::row,
+          ),
         ),
         cui::text(
           option.Detail,
@@ -456,41 +760,73 @@ impl Dock {
   }
 
   private fn hint() Str {
-    match self.props.request.Kind.to_str() {
-      "confirm" => "y yes · n no · esc cancel",
-      "select" => "↑↓ move · enter/space select · esc cancel",
-      _ => "enter submit · esc cancel",
+    let base = match self.mode() {
+      Mode::confirm => "y yes · n no",
+      Mode::choice => "↑↓ move · enter/space select",
+      Mode::multiple => "↑↓ move · space toggle · enter continue",
+      _ => "enter submit",
+    }
+    match self.step > 0 {
+      true => "{base} · shift+tab back · esc cancel",
+      false => "{base} · esc cancel",
     }
   }
 
   private fn mut footer(colors: theme::Theme) cui::View {
-    let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
-      self.cancel()
-    })
-    cui::box(
-      [
-        cui::text(
-          self.hint(),
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-          text_style: ui::text_style(foreground: colors.muted),
-          wrap: ui::TextWrap::none,
-          overflow: ui::TextOverflow::ellipsis,
-        ),
+    let children = mut List::new<cui::View>()
+    if self.mode() == Mode::multiple {
+      let next = keymap::simple_command("interaction.continue.pointer", "Continue", fn() Bool {
+        self.continue_multiple()
+      })
+      children.push(
+        controls::button(self.props.themes, "Continue", next, compact: true, focusable: false),
+      )
+    }
+    if self.optional() {
+      let skip = keymap::simple_command("interaction.skip.pointer", "Skip", fn() Bool {
+        self.skip()
+      })
+      children.push(
         controls::button(
           self.props.themes,
-          "Cancel",
-          cancel,
+          "Skip",
+          skip,
           variant: controls::ButtonVariant::secondary,
           compact: true,
           focusable: false,
           raised: true,
         ),
-      ],
+      )
+    }
+    let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
+      self.cancel()
+    })
+    children.push(
+      cui::text(
+        self.hint(),
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
+    children.push(
+      controls::button(
+        self.props.themes,
+        "Cancel",
+        cancel,
+        variant: controls::ButtonVariant::secondary,
+        compact: true,
+        focusable: false,
+        raised: true,
+      ),
+    )
+    cui::box(
+      children.@,
       styles: ui::style(
         flex_direction: ui::FlexDirection::row,
         flex_shrink: 0.0,
-        gap: ui::cells(2),
-        justify_content: ui::Justify::end,
+        gap: ui::cells(1),
       ),
     )
   }
@@ -507,23 +843,23 @@ impl cui::Component for Dock {
     let children = mut List::new<cui::View>()
     children.push(self.header(colors))
     if self.props.request.Detail != "" {
-      // The detail scrolls only once the options are windowed to their
-      // minimum: its tiny shrink factor leaves the deficit to the list first.
-      children.push(
-        cui::scroll_box(
-          [
-            markdown::view(
-              self.props.themes,
-              "interaction.{self.props.request.ID}.detail",
-              self.props.request.Detail,
-              base: ui::text_style(foreground: colors.muted),
-            ),
-          ],
-          key: "interaction.detail",
-          styles: ui::style(flex_shrink: 0.001, min_height: ui::cells(1)),
-          focusable: false,
-        ),
-      )
+      children.push(self.detail(colors, "detail", self.props.request.Detail))
+    }
+    match self.question() {
+      question => {
+        children.push(
+          cui::text(
+            question.Prompt,
+            key: "interaction.prompt.{self.step}",
+            styles: ui::style(flex_shrink: 0.0),
+            text_style: ui::text_style(foreground: colors.foreground),
+          ),
+        )
+        if question.Detail != "" {
+          children.push(self.detail(colors, "question.{self.step}", question.Detail))
+        }
+      },
+      _ => (),
     }
     children.push(spacer())
     children.push(self.body(colors))
@@ -551,7 +887,7 @@ impl cui::Component for Dock {
           left: ui::cells(1),
         },
       ),
-      autofocus: self.props.active and not self.accepts_text(),
+      autofocus: self.props.active and self.mode() != Mode::text,
       ref: self.focus,
       commands: keys.commands,
       bindings: keys.bindings,
