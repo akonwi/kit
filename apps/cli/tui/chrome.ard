@@ -1,0 +1,243 @@
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/format
+use kit/tui/layout
+use kit/tui/markdown
+use kit/tui/spinner
+use kit/tui/theme
+use go:strings
+
+// Shell chrome: the header, footer, and pending rows around the workspace.
+// These are pure projections of their inputs. Actions arrive as commands owned
+// by the caller, so chrome never decides which dialog opens.
+
+// Header projects the attached session's identity, configuration, and
+// context usage. Without a session it shows the product name.
+struct Header {
+  session: protocol::SessionInfo?,
+  context_tokens: Int,
+  context_window: Int,
+  rename: keymap::SimpleCommand,
+  model: keymap::SimpleCommand,
+  thinking: keymap::SimpleCommand,
+  debug: keymap::SimpleCommand,
+}
+
+fn header(themes: theme::Context, spec: Header) cui::View {
+  let colors = themes.current()
+  let left = mut List::new<cui::View>()
+  let right = mut List::new<cui::View>()
+  match spec.session {
+    session => {
+      left.push(
+        controls::button(
+          themes,
+          format::session_name(session),
+          spec.rename,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          focusable: false,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+      right.push(
+        controls::button(
+          themes,
+          format::model_name(session.Model),
+          spec.model,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          focusable: false,
+          styles: ui::style(flex_shrink: 0.0),
+        ),
+      )
+      let thinking_level = strings::TrimSpace(session.ThinkingLevel)
+      if thinking_level != "" {
+        right.push(cui::text(" ", wrap: ui::TextWrap::none))
+        right.push(
+          controls::button(
+            themes,
+            "({thinking_level})",
+            spec.thinking,
+            variant: controls::ButtonVariant::secondary,
+            compact: true,
+            focusable: false,
+            styles: ui::style(flex_shrink: 0.0),
+          ),
+        )
+      }
+      match format::context_percentage(spec.context_tokens, spec.context_window) {
+        percentage => {
+          let tone = match percentage > 90 {
+            true => colors.danger_text,
+            false => {
+              match percentage >= 80 {
+                true => colors.warning_text,
+                false => colors.muted,
+              }
+            },
+          }
+          right.push(cui::text(" · ", text_style: ui::text_style(foreground: colors.muted)))
+          right.push(
+            controls::button(
+              themes,
+              "{percentage}%",
+              spec.debug,
+              variant: controls::ButtonVariant::secondary,
+              compact: true,
+              focusable: false,
+              foreground: tone,
+              styles: ui::style(flex_shrink: 0.0),
+            ),
+          )
+        },
+        _ => (),
+      }
+    },
+    _ => left.push(layout::line("kit", ui::text_style())),
+  }
+  cui::box(
+    [
+      cui::box(left.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
+      cui::box(
+        right.@,
+        styles: ui::style(
+          flex_grow: 2.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::row,
+          justify_content: ui::Justify::end,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+// footer shows the composer's current mode on the left and the working
+// location on the right.
+fn footer(themes: theme::Context, mode: Str, location: Str) cui::View {
+  let colors = themes.current()
+  let tone = match mode != "" {
+    true => colors.success_text,
+    false => colors.muted,
+  }
+  cui::box(
+    [
+      cui::box(
+        [layout::line(mode, ui::text_style(foreground: tone))],
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      ),
+      cui::box(
+        [layout::line(location, ui::text_style(foreground: colors.muted))],
+        styles: ui::style(
+          flex_grow: 2.0,
+          flex_basis: ui::cells(0),
+          flex_direction: ui::FlexDirection::row,
+          justify_content: ui::Justify::end,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+// Pending projects the attachment's status line and queued follow-ups.
+// A notice takes precedence over activity.
+struct Pending {
+  notice: Str,
+  activity: Str,
+  follow_ups: protocol::FollowUpQueue,
+}
+
+// pending_row shows the status line followed by up to three follow-up
+// previews; when more are queued, two previews and a remainder line.
+fn pending_row(themes: theme::Context, spec: Pending) cui::View {
+  let colors = themes.current()
+  let content = match spec.notice != "" {
+    true => layout::line(spec.notice, ui::text_style(foreground: colors.danger_text)),
+    false => {
+      match spec.activity != "" {
+        true => pending_activity(themes, spec.activity),
+        false => layout::line("", ui::text_style(foreground: colors.muted)),
+      }
+    },
+  }
+  let rows = mut List::new<cui::View>()
+  rows.push(content)
+  let maximum = match spec.follow_ups.Count > 3 {
+    true => 2,
+    false => 3,
+  }
+  mut visible = 0
+  for preview, index in spec.follow_ups.Previews {
+    if index < maximum {
+      rows.push(
+        layout::line("Follow-up {index + 1}: {preview}", ui::text_style(foreground: colors.muted)),
+      )
+      visible = visible + 1
+    }
+  }
+  if spec.follow_ups.Count > visible {
+    rows.push(
+      layout::line(
+        "+{spec.follow_ups.Count - visible} more follow-ups",
+        ui::text_style(foreground: colors.muted),
+      ),
+    )
+  }
+  cui::box(
+    rows.@,
+    styles: ui::style(
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::column,
+      padding: layout::inset(),
+    ),
+  )
+}
+
+// pending_activity renders the latest thinking line as muted inline Markdown
+// while preserving the pending slot's fixed one-row geometry.
+fn pending_activity(themes: theme::Context, activity: Str) cui::View {
+  let colors = themes.current()
+  cui::box(
+    [
+      spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+      cui::box(
+        [
+          markdown::inline_view(
+            themes,
+            "pending-activity",
+            activity,
+            base: ui::text_style(foreground: colors.muted),
+            semantic: false,
+          ),
+        ],
+        styles: ui::style(
+          height: ui::cells(1),
+          min_width: ui::cells(0),
+          flex_grow: 1.0,
+          flex_basis: ui::cells(0),
+          overflow: ui::Overflow::hidden,
+        ),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      gap: ui::cells(1),
+    ),
+  )
+}
