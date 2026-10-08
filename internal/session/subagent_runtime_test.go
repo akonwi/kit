@@ -79,23 +79,15 @@ func TestCollectChildTranscriptPagesCompleteTurns(t *testing.T) {
 		t.Fatalf("older page = %+v", older)
 	}
 
-	oversized := append([]droids.MessageEnvelope(nil), messages[0])
-	oversized[0].Message = droids.UserMessage{Content: []droids.InputContent{droids.TextInput{Text: strings.Repeat("x", maxChildTranscriptBytes+1)}}}
-	if _, err := collectChildTranscript(t.Context(), childTranscriptHistory(t, oversized), 0); err == nil || !strings.Contains(err.Error(), "synchronization bounds") {
-		t.Fatalf("oversized message error = %v", err)
-	}
-
-	olderOversized := append([]droids.MessageEnvelope(nil), oversized[0])
-	for index := 0; index < 5; index++ {
-		olderOversized = append(olderOversized, messages[index])
-		olderOversized[index+1].TurnID = droids.TurnID(fmt.Sprintf("turn_small_%d", index))
-	}
-	page, err = collectChildTranscript(t.Context(), childTranscriptHistory(t, olderOversized), 0)
+	large := append([]droids.MessageEnvelope(nil), messages[0])
+	largeText := strings.Repeat("x", 9<<20)
+	large[0].Message = droids.UserMessage{Content: []droids.InputContent{droids.TextInput{Text: largeText}}}
+	page, err = collectChildTranscript(t.Context(), childTranscriptHistory(t, large), 0)
 	if err != nil {
-		t.Fatalf("older oversized message failed the newest page: %v", err)
+		t.Fatalf("large message page error = %v", err)
 	}
-	if !page.HasMoreMessages || len(page.Messages) != 5 || page.Messages[0].Sequence != 2 {
-		t.Fatalf("newest page skipped older oversized message = cursor %d more %t len %d", page.PreviousMessageCursor, page.HasMoreMessages, len(page.Messages))
+	if page.HasMoreMessages || len(page.Messages) != 1 || len(page.Messages[0].Content) != 1 || page.Messages[0].Content[0].Text != largeText {
+		t.Fatalf("large message page = more %t len %d", page.HasMoreMessages, len(page.Messages))
 	}
 }
 

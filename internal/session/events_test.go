@@ -604,3 +604,23 @@ func TestRuntimeEventLogInvalidatesReplayAfterRetentionOrStreamReplacement(t *te
 		t.Fatalf("retained stream page = %+v, want resync", page)
 	}
 }
+
+func TestProjectTranscriptMessageCarriesCompleteToolArguments(t *testing.T) {
+	t.Parallel()
+
+	content := strings.Repeat("x", maxPresentationToolArgumentsBytes)
+	message, err := projectTranscriptMessage(droids.MessageEnvelope{
+		ID: "message_1", TurnID: "turn_1",
+		Message: droids.AssistantMessage{StopReason: droids.StopReasonToolUse, Content: []droids.AssistantContent{
+			droids.ToolCall{ID: "call_1", Name: "write", Arguments: []byte(`{ "content": "` + content + `" }`)},
+		}},
+	}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := TranscriptContent{Kind: TranscriptContentToolCall, ToolCallID: "call_1", ToolName: "write", Arguments: `{"content":"` + content + `"}`}
+	if len(message.Content) != 1 || message.Content[0].Kind != want.Kind || message.Content[0].ToolCallID != want.ToolCallID ||
+		message.Content[0].ToolName != want.ToolName || message.Content[0].Arguments != want.Arguments || message.Content[0].ArgumentsTruncated {
+		t.Fatalf("durable tool call = %d blocks, truncated %t, %d argument bytes", len(message.Content), len(message.Content) > 0 && message.Content[0].ArgumentsTruncated, len(message.Content[0].Arguments))
+	}
+}

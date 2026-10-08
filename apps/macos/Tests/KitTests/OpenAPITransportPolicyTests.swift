@@ -21,7 +21,7 @@ private final class TransportPolicyResponse: URLProtocol, @unchecked Sendable {
         Self.record(url)
         switch (url.port, url.path) {
         case (19302, _):
-            // No Content-Length: the body must be bounded while streaming.
+            // No Content-Length: the complete body is buffered while streaming.
             let response = HTTPURLResponse(url: url, statusCode: 200, httpVersion: nil, headerFields: ["Content-Type": "application/json"])!
             client?.urlProtocol(self, didReceive: response, cacheStoragePolicy: .notAllowed)
             let chunk = Data(repeating: 0x20, count: 64 * 1024)
@@ -93,11 +93,11 @@ struct OpenAPITransportPolicyTests {
         #expect(TransportPolicyResponse.requests().count == before)
     }
 
-    @Test func boundsStreamedResponsesWithoutContentLength() async throws {
+    @Test func buffersCompleteResponsesWithoutContentLength() async throws {
         let (transport, endpoint) = transport(19302)
-        await expectFailure({ if case .oversized = $0 { true } else { false } }) {
-            _ = try await transport.send(get("/v1/stream"), body: nil, baseURL: endpoint, operationID: "test")
-        }
+        let (_, body) = try await transport.send(get("/v1/sessions/s/transcript"), body: nil, baseURL: endpoint, operationID: "test")
+        let data = try await Data(collecting: try #require(body), upTo: .max)
+        #expect(data == Data(repeating: 0x20, count: 9 * 64 * 1024))
     }
 
     @Test func httpClientDoesNotFollowRedirects() async throws {

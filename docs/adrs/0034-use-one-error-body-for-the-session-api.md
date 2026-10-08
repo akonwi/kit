@@ -37,8 +37,11 @@ before routing, has `Content-Type: application/json` and this body:
 
 - `code` is required. It is a stable snake_case identifier and the only field
   clients branch on.
-- `message` is required. It is non-empty, bounded, renderer-safe text for
-  display. Clients do not parse it. Responses with status 500 use a fixed,
+- `message` is required. It is non-empty, renderer-safe text for display. The
+  server writes at most 1,024 bytes, shortening longer messages and replacing
+  control and format characters. Clients reject a message that is blank or not
+  renderer-safe, but not one that is long, so the code always reaches them.
+  Clients do not parse it. Responses with status 500 use a fixed,
   generic message and never expose internal error text.
 - `details` is present only for codes that define details. Within an
   operation, its schema is fixed by the code. A code without details never

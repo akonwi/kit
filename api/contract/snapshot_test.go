@@ -285,6 +285,32 @@ func TestSessionSnapshotAcceptsContextAndPendingBoundaries(t *testing.T) {
 	}
 }
 
+func TestTranscriptValidationAcceptsLargeMessages(t *testing.T) {
+	t.Parallel()
+	large := strings.Repeat("x", 9<<20)
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages[0].Content[1] = NewTranscriptContent(ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"` + large + `"}`})
+	snapshot.Messages[1].Content = []TranscriptContent{TextBlock(large)}
+	snapshot.Messages[1].Details = json.RawMessage(`{"output":"` + large + `"}`)
+	snapshot.Messages = append(snapshot.Messages, TranscriptMessage{
+		ID: "message_context", TurnID: "turn_context", Sequence: 3,
+		Role: "context", BoundaryID: "plugin_test", BoundaryKind: "plugin", BoundarySource: "test",
+		Content: []TranscriptContent{TextBlock(large)}, Details: json.RawMessage(`{"payload":"` + large + `"}`),
+		CreatedAt: "2026-01-01T00:00:03Z",
+	})
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("snapshot Validate() = %v", err)
+	}
+	page := TranscriptPage{SessionID: "session_0123456789abcdef0123456789abcdef", Messages: snapshot.Messages}
+	if err := page.Validate(); err != nil {
+		t.Fatalf("transcript page Validate() = %v", err)
+	}
+	child := SubagentTranscript{ConversationID: "subagent_0123456789abcdef0123456789abcdef", Messages: snapshot.Messages}
+	if err := child.Validate(); err != nil {
+		t.Fatalf("subagent transcript Validate() = %v", err)
+	}
+}
+
 func TestSessionSnapshotAllowsHarnessActiveBashWithoutStoredMessage(t *testing.T) {
 	snapshot := validTranscriptSnapshot()
 	snapshot.ActiveBashExecutionID = "bash_0123456789abcdef0123456789abcdef"

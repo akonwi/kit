@@ -527,10 +527,9 @@ func (r *childRuntime) Abort(ctx context.Context) error {
 	return r.droid.Abort(ctx)
 }
 
-const (
-	maxChildTranscriptMessages = 1000
-	maxChildTranscriptBytes    = 8 << 20
-)
+// maxChildTranscriptMessages bounds one child transcript page. Pages are
+// bounded by message count and complete turns, not by encoded size.
+const maxChildTranscriptMessages = 1000
 
 func (r *childRuntime) Transcript(ctx context.Context, before uint64) (subagent.Transcript, error) {
 	if before != 0 {
@@ -561,8 +560,9 @@ func validateChildTranscriptCursor(ctx context.Context, history func(context.Con
 
 // collectChildTranscript returns one complete-turn page preceding before.
 // A zero before selects the newest page. Sequences stay durable so the oldest
-// included sequence can request the preceding page. A message that cannot fit
-// in one response is an error.
+// included sequence can request the preceding page. Pages are bounded by
+// message count, not encoded size; a single turn with more than
+// maxChildTranscriptMessages messages is an error.
 func collectChildTranscript(ctx context.Context, history func(context.Context, droids.HistoryQuery) (droids.MessagePage, error), before uint64) (subagent.Transcript, error) {
 	var selected []droids.MessageEnvelope
 	var candidate []droids.MessageEnvelope
@@ -570,29 +570,12 @@ func collectChildTranscript(ctx context.Context, history func(context.Context, d
 	var conversationID subagent.ConversationID
 	cursor := before
 	turns := 0
-	selectedBytes := 0
 
 	includeCandidate := func() (bool, error) {
 		if len(candidate) == 0 {
 			return true, nil
 		}
-		size := 0
-		for _, envelope := range candidate {
-			message, err := projectChildTranscriptMessage(envelope, int64(envelope.Sequence))
-			if err != nil {
-				return false, err
-			}
-			messageBytes := childTranscriptMessageBytes(message)
-			if messageBytes > maxChildTranscriptBytes {
-				if len(selected) == 0 {
-					return false, errors.New("child transcript exceeds synchronization bounds")
-				}
-				return false, nil
-			}
-			size += messageBytes
-		}
-		exceeds := len(selected)+len(candidate) > maxChildTranscriptMessages || selectedBytes+size > maxChildTranscriptBytes
-		if exceeds {
+		if len(selected)+len(candidate) > maxChildTranscriptMessages {
 			if len(selected) == 0 {
 				return false, errors.New("child transcript exceeds synchronization bounds")
 			}
@@ -602,7 +585,6 @@ func collectChildTranscript(ctx context.Context, history func(context.Context, d
 			return false, nil
 		}
 		selected = append(selected, candidate...)
-		selectedBytes += size
 		candidate = nil
 		candidateTurn = ""
 		turns++
@@ -661,14 +643,6 @@ func projectChildTranscriptPage(conversationID subagent.ConversationID, descendi
 		result.Messages = append(result.Messages, message)
 	}
 	return result, nil
-}
-
-func childTranscriptMessageBytes(message subagent.TranscriptMessage) int {
-	total := len(message.ID) + len(message.TurnID) + len(message.ErrorMessage) + len(message.Details)
-	for _, block := range message.Content {
-		total += len(block.Text) + len(block.Arguments) + len(block.Filename) + len(block.MediaType)
-	}
-	return total
 }
 
 func projectChildTranscriptMessage(envelope droids.MessageEnvelope, sequence int64) (subagent.TranscriptMessage, error) {

@@ -28,12 +28,9 @@ func OpenStream[Params, Payload any](ctx context.Context, transport Transport, o
 	}
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
-		encoded, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+		encoded, err := io.ReadAll(response.Body)
 		if err != nil {
 			return nil, fmt.Errorf("read daemon session response: %w", err)
-		}
-		if len(encoded) > maxResponseBytes {
-			return nil, streamErrorf("pre-stream error body exceeds %d bytes", maxResponseBytes)
 		}
 		err = DecodeStreamError(op, response.StatusCode, encoded)
 		var apiErr *APIError

@@ -383,12 +383,8 @@ func (transcript SubagentTranscript) Validate() error {
 	} else if transcript.PreviousMessageCursor != "" {
 		return fmt.Errorf("subagent transcript previous-message cursor requires older messages")
 	}
-	previous, aggregate := int64(-1), 0
+	previous := int64(-1)
 	for index, message := range transcript.Messages {
-		aggregate += len(message.ID) + len(message.TurnID) + len(message.ErrorMessage) + len(message.Details)
-		for _, block := range message.Content {
-			aggregate += transcriptContentSize(block)
-		}
 		if message.ID == "" || message.TurnID == "" || message.Sequence <= previous {
 			return fmt.Errorf("subagent transcript message %d identity or sequence is invalid", index)
 		}
@@ -399,9 +395,6 @@ func (transcript SubagentTranscript) Validate() error {
 		if _, err := time.Parse(time.RFC3339Nano, message.CreatedAt); err != nil {
 			return fmt.Errorf("subagent transcript message %d createdAt is invalid", index)
 		}
-	}
-	if aggregate > 8<<20 {
-		return fmt.Errorf("subagent transcript exceeds eight MiB")
 	}
 	return nil
 }

@@ -40,7 +40,7 @@ func (e WorkspaceError) Validate() error {
 	default:
 		return fmt.Errorf("workspace error code is invalid")
 	}
-	if !validRendererText(e.Message, 512) || len(e.Details) > 4 {
+	if !ValidErrorMessage(e.Message) || len(e.Details) > 4 {
 		return fmt.Errorf("workspace error message or details are invalid")
 	}
 	allowed := map[string]bool{}

@@ -9,8 +9,6 @@ import (
 	"net/http"
 	"reflect"
 	"strings"
-	"unicode"
-	"unicode/utf8"
 
 	protocol "github.com/akonwi/kit/api/contract"
 )
@@ -99,7 +97,8 @@ func NewAPIError(status int, code ErrorCode, message string, details any) *APIEr
 
 // WriteError writes an APIError using the common response shape.
 func WriteError(w http.ResponseWriter, apiError *APIError) {
-	body := map[string]any{"code": apiError.Code, "message": apiError.Message}
+	message := protocol.SanitizeErrorMessage(apiError.Message, http.StatusText(apiError.StatusCode))
+	body := map[string]any{"code": apiError.Code, "message": message}
 	if apiError.TypedDetails != nil {
 		body["details"] = apiError.TypedDetails
 	}
@@ -139,7 +138,7 @@ func decodeDeclaredError(declared []ErrorResponse, statusCode int, body []byte) 
 			Details json.RawMessage `json:"details"`
 		} `json:"error"`
 	}
-	if err := decodeStrictJSONObject(body, &envelope); err != nil || envelope.Error.Code == "" || !validErrorMessage(envelope.Error.Message) {
+	if err := decodeStrictJSONObject(body, &envelope); err != nil || envelope.Error.Code == "" || !protocol.ValidErrorMessage(envelope.Error.Message) {
 		return fmt.Errorf("daemon returned malformed operation error")
 	}
 	if !containsCode(declaration.Codes, envelope.Error.Code) {
@@ -198,7 +197,7 @@ func DecodeError(statusCode int, body []byte) error {
 		}
 		var typed TypedError
 		if json.Unmarshal(envelope.Error, &typed) == nil && typed.Message != "" {
-			if code := ErrorCode(typed.Code); genericStatus(code) == statusCode && len(typed.Details) == 0 && validErrorMessage(typed.Message) {
+			if code := ErrorCode(typed.Code); genericStatus(code) == statusCode && len(typed.Details) == 0 && protocol.ValidErrorMessage(typed.Message) {
 				apiError.Code, apiError.Message = typed.Code, typed.Message
 				return apiError
 			}
@@ -222,18 +221,6 @@ func DecodeError(statusCode int, body []byte) error {
 	}
 	apiError.Message = message
 	return apiError
-}
-
-func validErrorMessage(message string) bool {
-	if strings.TrimSpace(message) == "" || len(message) > 1024 || !utf8.ValidString(message) {
-		return false
-	}
-	for _, character := range message {
-		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
-			return false
-		}
-	}
-	return true
 }
 
 // IsGenericErrorCode reports whether code is one of the protocol-wide generic

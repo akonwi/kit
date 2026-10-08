@@ -26,8 +26,6 @@ func responseProtocolError(format string, args ...any) error {
 // MaxRequestBytes bounds session request bodies on both sides of the boundary.
 const MaxRequestBytes = 1 << 20
 
-const maxResponseBytes = 8 << 20
-
 // Transport performs an authenticated, compatibility-checked session request.
 type Transport interface {
 	DoSessionRequest(context.Context, string, string, io.Reader, bool) (*http.Response, error)
@@ -57,12 +55,9 @@ func Call[Params, In, Out any](ctx context.Context, transport Transport, op Oper
 		return zero, err
 	}
 	defer response.Body.Close()
-	encoded, err := io.ReadAll(io.LimitReader(response.Body, maxResponseBytes+1))
+	encoded, err := io.ReadAll(response.Body)
 	if err != nil {
 		return zero, fmt.Errorf("read daemon session response: %w", err)
-	}
-	if len(encoded) > maxResponseBytes {
-		return zero, responseProtocolError("daemon session response exceeds %d bytes", maxResponseBytes)
 	}
 	success := response.StatusCode == op.Success
 	for _, status := range op.AdditionalSuccess {

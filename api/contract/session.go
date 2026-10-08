@@ -92,7 +92,7 @@ func (result ForkSessionResult) Validate() error {
 		if err := result.FirstTurnError.Code.Validate(); err != nil {
 			return err
 		}
-		if strings.TrimSpace(result.FirstTurnError.Message) == "" || !validRendererText(result.FirstTurnError.Message, 1024) {
+		if !ValidErrorMessage(result.FirstTurnError.Message) {
 			return fmt.Errorf("first turn error message is invalid")
 		}
 	}

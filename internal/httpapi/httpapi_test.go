@@ -2,6 +2,7 @@ package httpapi
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -168,7 +169,7 @@ func TestCallEscapesPathStrictlyDecodesAndPassesErrors(t *testing.T) {
 	}
 }
 
-func TestCallBoundsRequestAndResponseBodies(t *testing.T) {
+func TestCallBoundsRequestsAndBuffersCompleteResponses(t *testing.T) {
 	op := Operation[SessionPath, testInput, testOutput]{ID: "test", Method: http.MethodPut, Path: "/items/{sessionID}", Success: http.StatusOK,
 		Errors: []ErrorResponse{{Status: http.StatusNotFound, Codes: []ErrorCode{ErrorNotFound}}}}
 	respond := func(status int, body string) testTransport {
@@ -176,18 +177,14 @@ func TestCallBoundsRequestAndResponseBodies(t *testing.T) {
 			return &http.Response{StatusCode: status, Body: io.NopCloser(strings.NewReader(body))}, nil
 		}
 	}
-	valid := `{"value":"ok"}`
-	atLimit := valid + strings.Repeat(" ", maxResponseBytes-len(valid))
-	if output, err := Call(t.Context(), respond(http.StatusOK, atLimit), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err != nil || output.Value != "ok" {
-		t.Fatalf("response at limit = %+v, %v", output, err)
+	large := strings.Repeat("x", 16<<20)
+	if output, err := Call(t.Context(), respond(http.StatusOK, `{"value":"`+large+`"}`), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err != nil || output.Value != large {
+		t.Fatalf("large response = %d value bytes, %v", len(output.Value), err)
 	}
-	if _, err := Call(t.Context(), respond(http.StatusOK, atLimit+" "), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("response beyond limit error = %v", err)
-	}
-	notFound := `{"error":{"code":"not_found","message":"missing"}}`
-	oversizedError := notFound + strings.Repeat(" ", maxResponseBytes-len(notFound)+1)
-	if _, err := Call(t.Context(), respond(http.StatusNotFound, oversizedError), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"}); err == nil || !strings.Contains(err.Error(), "exceeds") {
-		t.Fatalf("oversized error body error = %v", err)
+	_, err := Call(t.Context(), respond(http.StatusNotFound, `{"error":{"code":"not_found","message":"missing"}}`+strings.Repeat(" ", 16<<20)), op, SessionPath{SessionID: "a"}, testInput{Name: "kit"})
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || apiErr.Code != string(ErrorNotFound) || apiErr.Message != "missing" {
+		t.Fatalf("large error body = %v", err)
 	}
 
 	called := false
@@ -195,8 +192,44 @@ func TestCallBoundsRequestAndResponseBodies(t *testing.T) {
 		called = true
 		return nil, errors.New("unexpected request")
 	})
-	_, err := Call(t.Context(), transport, op, SessionPath{SessionID: "a"}, testInput{Name: strings.Repeat("x", MaxRequestBytes)})
+	_, err = Call(t.Context(), transport, op, SessionPath{SessionID: "a"}, testInput{Name: strings.Repeat("x", MaxRequestBytes)})
 	if err == nil || !strings.Contains(err.Error(), "exceeds") || called {
 		t.Fatalf("oversized request error = %v, transport called = %t", err, called)
+	}
+}
+
+func TestWriteErrorWritesRendererSafeBoundedMessage(t *testing.T) {
+	response := httptest.NewRecorder()
+	WriteError(response, NewAPIError(http.StatusConflict, ErrorConflict, "busy\x1b[2J "+strings.Repeat("x", protocol.MaxErrorMessageBytes), nil))
+	var body struct {
+		Error struct{ Code, Message string } `json:"error"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	want := protocol.SanitizeErrorMessage("busy\x1b[2J "+strings.Repeat("x", protocol.MaxErrorMessageBytes), "")
+	if response.Code != http.StatusConflict || body.Error.Code != string(ErrorConflict) || body.Error.Message != want ||
+		!strings.HasPrefix(want, "busy [2J xxx") || !strings.HasSuffix(want, "x…") || len(want) != protocol.MaxErrorMessageBytes {
+		t.Fatalf("written error = %d %q %q (%d bytes)", response.Code, body.Error.Code, body.Error.Message, len(body.Error.Message))
+	}
+
+	response = httptest.NewRecorder()
+	WriteError(response, NewAPIError(http.StatusNotFound, ErrorNotFound, "\n", nil))
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Error.Message != "Not Found" {
+		t.Fatalf("blank message fallback = %q, %v", body.Error.Message, err)
+	}
+}
+
+func TestDecodeOperationErrorAcceptsLongMessages(t *testing.T) {
+	long := strings.Repeat("x", 64<<10)
+	err := DecodeOperationError(UpdateScratchpad, http.StatusUpgradeRequired, []byte(`{"error":{"code":"protocol_mismatch","message":"`+long+`"}}`))
+	var apiErr *APIError
+	if !errors.As(err, &apiErr) || !apiErr.IncompatibleDaemon() || apiErr.Message != long {
+		t.Fatalf("long operation error = %T", err)
+	}
+	for _, message := range []string{"", "a\x1b[31mb"} {
+		if err := DecodeOperationError(UpdateScratchpad, http.StatusUpgradeRequired, []byte(`{"error":{"code":"protocol_mismatch","message":"`+strings.ReplaceAll(message, "\x1b", `\u001b`)+`"}}`)); errors.As(err, &apiErr) {
+			t.Fatalf("accepted unsafe message %q", message)
+		}
 	}
 }

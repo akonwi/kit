@@ -260,6 +260,7 @@ func TestForkSessionResultValidate(t *testing.T) {
 	for _, result := range []ForkSessionResult{
 		{Session: child},
 		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnUnavailable, Message: "session is unavailable"}},
+		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnUnavailable, Message: strings.Repeat("x", 64<<10)}},
 	} {
 		if err := result.Validate(); err != nil {
 			t.Fatalf("Validate() result %+v error = %v", result, err)
@@ -271,6 +272,7 @@ func TestForkSessionResultValidate(t *testing.T) {
 		{Session: orphan},
 		{Session: child, FirstTurnError: &FirstTurnError{Code: "teapot", Message: "short and stout"}},
 		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnInternal, Message: " "}},
+		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnInternal, Message: "a\x1b[31mb"}},
 	} {
 		if err := result.Validate(); err == nil {
 			t.Fatalf("Validate() accepted result %+v", result)
@@ -384,6 +386,56 @@ func TestFollowUpQueueAnnotationOwnershipValidation(t *testing.T) {
 	} {
 		if err := queue.Validate(); err == nil {
 			t.Fatalf("accepted invalid queue %+v", queue)
+		}
+	}
+}
+
+func TestValidErrorMessageChecksRendererSafetyNotLength(t *testing.T) {
+	t.Parallel()
+
+	for _, message := range []string{"not found", strings.Repeat("x", 64<<10)} {
+		if !ValidErrorMessage(message) {
+			t.Errorf("ValidErrorMessage(%d bytes) = false, want true", len(message))
+		}
+	}
+	for _, message := range []string{"", "  ", "a\x1b[31mb", "a\u202eb", "a\x00b", "a\xffb"} {
+		if ValidErrorMessage(message) {
+			t.Errorf("ValidErrorMessage(%q) = true, want false", message)
+		}
+	}
+	long := strings.Repeat("x", 64<<10)
+	for name, err := range map[string]interface{ Validate() error }{
+		"workspace":  &WorkspaceError{Code: WorkspaceErrorNotFound, Message: long},
+		"diff":       &DiffError{Code: DiffErrorNotFound, Message: long},
+		"annotation": &AnnotationEvidenceError{Code: AnnotationEvidenceErrorStaleFile, Message: long},
+		"scratchpad": &ScratchpadError{Code: ScratchpadUnavailable, Message: long},
+		"plugin":     PluginCommandError{Code: PluginCommandFailed, Message: long},
+	} {
+		if validationErr := err.Validate(); validationErr != nil {
+			t.Errorf("%s error with long message: Validate() = %v", name, validationErr)
+		}
+	}
+}
+
+func TestSanitizeErrorMessage(t *testing.T) {
+	t.Parallel()
+
+	tests := map[string]struct{ message, want string }{
+		"unchanged":          {"session not found", "session not found"},
+		"control and format": {"  bad\x1b[31m path\u202e\n", "bad [31m path"},
+		"invalid UTF-8":      {"a\xffb", "a b"},
+		"blank":              {" \n\t", "Not Found"},
+		"at limit":           {strings.Repeat("x", MaxErrorMessageBytes), strings.Repeat("x", MaxErrorMessageBytes)},
+		"overlong":           {strings.Repeat("x", MaxErrorMessageBytes+1), strings.Repeat("x", MaxErrorMessageBytes-len("…")) + "…"},
+		"rune boundary":      {strings.Repeat("é", MaxErrorMessageBytes), strings.Repeat("é", (MaxErrorMessageBytes-len("…"))/2) + "…"},
+	}
+	for name, test := range tests {
+		got := SanitizeErrorMessage(test.message, "Not Found")
+		if got != test.want {
+			t.Errorf("%s: SanitizeErrorMessage() = %q (%d bytes), want %q", name, got, len(got), test.want)
+		}
+		if !ValidErrorMessage(got) || len(got) > MaxErrorMessageBytes {
+			t.Errorf("%s: sanitized message is invalid or %d bytes", name, len(got))
 		}
 	}
 }

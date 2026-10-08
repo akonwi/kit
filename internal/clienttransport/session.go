@@ -24,8 +24,6 @@ import (
 	"github.com/akonwi/kit/internal/version"
 )
 
-const maxSessionResponseBytes = 8 << 20
-
 // APIError is a non-success response from the local session protocol.
 type APIError = httpapi.APIError
 
@@ -691,13 +689,12 @@ func (c *Client) UploadAttachment(ctx context.Context, sessionID, filename strin
 		return protocol.AttachmentInfo{}, transportError("upload attachment", err)
 	}
 	defer response.Body.Close()
-	limited := io.LimitReader(response.Body, maxSessionResponseBytes)
 	if response.StatusCode != http.StatusCreated {
-		body, _ := io.ReadAll(limited)
+		body, _ := io.ReadAll(response.Body)
 		return protocol.AttachmentInfo{}, DecodeAPIError(response.StatusCode, body)
 	}
 	var output protocol.AttachmentInfo
-	if err := json.NewDecoder(limited).Decode(&output); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(&output); err != nil {
 		return protocol.AttachmentInfo{}, protocolErrorf("decode attachment response: %w", err)
 	}
 	if err := output.Validate(); err != nil {
@@ -794,7 +791,7 @@ func (c *Client) OpenAttachment(ctx context.Context, sessionID, attachmentID str
 	}
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(response.Body, maxSessionResponseBytes))
+		body, _ := io.ReadAll(response.Body)
 		return protocol.AttachmentInfo{}, nil, DecodeAPIError(response.StatusCode, body)
 	}
 	disposition, parameters, dispositionErr := mime.ParseMediaType(response.Header.Get("Content-Disposition"))
@@ -1085,7 +1082,7 @@ func (c *Client) StreamSessionEvents(ctx context.Context, sessionID, streamID st
 	}
 	if response.StatusCode != http.StatusOK {
 		defer response.Body.Close()
-		body, _ := io.ReadAll(io.LimitReader(response.Body, maxSessionResponseBytes))
+		body, _ := io.ReadAll(response.Body)
 		return nil, &APIError{StatusCode: response.StatusCode, Message: strings.TrimSpace(string(body))}
 	}
 	if mediaType, _, err := mime.ParseMediaType(response.Header.Get("Content-Type")); err != nil || mediaType != "text/event-stream" {
@@ -1142,16 +1139,15 @@ func (c *Client) sessionJSON(ctx context.Context, method, path string, input any
 		return err
 	}
 	defer response.Body.Close()
-	limited := io.LimitReader(response.Body, maxSessionResponseBytes)
 	if response.StatusCode != expectedStatus {
-		body, _ := io.ReadAll(limited)
+		body, _ := io.ReadAll(response.Body)
 		return DecodeAPIError(response.StatusCode, body)
 	}
 	if output == nil {
-		_, _ = io.Copy(io.Discard, limited)
+		_, _ = io.Copy(io.Discard, response.Body)
 		return nil
 	}
-	if err := json.NewDecoder(limited).Decode(output); err != nil {
+	if err := json.NewDecoder(response.Body).Decode(output); err != nil {
 		return fmt.Errorf("decode daemon session response: %w", err)
 	}
 	return nil

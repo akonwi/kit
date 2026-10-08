@@ -683,8 +683,8 @@ func validateBoundaryDetails(kind string, details json.RawMessage) error {
 	if len(details) == 0 {
 		return nil // Grandfathered boundary records predate structured details.
 	}
-	if len(details) > 64<<10 || !json.Valid(details) {
-		return fmt.Errorf("boundary details are invalid or exceed 64 KiB")
+	if !json.Valid(details) {
+		return fmt.Errorf("boundary details are not valid JSON")
 	}
 	if kind != "bash" {
 		return nil

@@ -155,7 +155,7 @@ func (e AnnotationEvidenceError) Validate() error {
 	default:
 		return fmt.Errorf("annotation evidence error code is invalid")
 	}
-	if !validRendererText(e.Message, 512) {
+	if !ValidErrorMessage(e.Message) {
 		return fmt.Errorf("annotation evidence error message is invalid")
 	}
 	return nil

@@ -6,8 +6,9 @@ import OpenAPIRuntime
 /// Kit-owned transport for generated OpenAPI clients.
 ///
 /// Generated code owns operation serialization while this transport retains the
-/// daemon's loopback, bearer-token, no-redirect, and bounded-body policies.
-/// Ordinary responses are fully buffered under a total cap. Successful stream
+/// daemon's loopback, bearer-token, no-redirect, and bounded-request policies.
+/// Ordinary responses are fully buffered; the server bounds them, and
+/// transcript responses are bounded by pagination (ADR 0039). Successful stream
 /// operations (ADR 0035) instead return a pull-based body that bounds each
 /// record and the idle time between records, because a stream has no end.
 final class OpenAPITransport: ClientTransport, @unchecked Sendable {
@@ -34,7 +35,6 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
     private let session: URLSession
     private let streams: [String: StreamBounds]
     private let maximumRequestBytes = 1 * 1024 * 1024
-    private let maximumResponseBytes = 512 * 1024
 
     init(endpoint: URL, token: String, instance: String, session: URLSession,
          streams: [String: StreamBounds] = OpenAPITransport.streamOperations) {
@@ -82,12 +82,9 @@ final class OpenAPITransport: ClientTransport, @unchecked Sendable {
             return (httpResponse, HTTPBody(stream.chunks(), length: .unknown, iterationBehavior: .single))
         }
         defer { bytes.task.cancel() }
-        if response.expectedContentLength > Int64(maximumResponseBytes) { throw ClientError.oversized }
         var data = Data()
-        for try await byte in bytes {
-            guard data.count < maximumResponseBytes else { throw ClientError.oversized }
-            data.append(byte)
-        }
+        if response.expectedContentLength > 0 { data.reserveCapacity(Int(response.expectedContentLength)) }
+        for try await byte in bytes { data.append(byte) }
         return (httpResponse, data.isEmpty ? nil : HTTPBody(data))
     }
 }

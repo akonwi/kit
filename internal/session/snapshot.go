@@ -806,17 +806,29 @@ func projectTranscriptContent(message droids.Message) ([]TranscriptContent, erro
 	}
 }
 
+// maxPresentationToolArgumentsBytes bounds tool arguments carried by one live
+// event. Durable transcript projections are bounded by pagination instead and
+// always carry complete arguments.
 const maxPresentationToolArgumentsBytes = 64 << 10
 
+// presentationToolArguments returns canonical arguments for a live event,
+// omitting them when they exceed the per-event bound.
 func presentationToolArguments(raw []byte) (string, bool) {
-	canonical, err := normalizeJSONObject(raw)
-	if err != nil {
-		canonical = []byte(strings.ToValidUTF8(string(raw), "�"))
-	}
+	canonical := canonicalToolArguments(raw)
 	if len(canonical) > maxPresentationToolArgumentsBytes {
 		return "", true
 	}
-	return string(canonical), false
+	return canonical, false
+}
+
+// canonicalToolArguments normalizes a JSON object, falling back to valid UTF-8
+// text for arguments that are not a single object.
+func canonicalToolArguments(raw []byte) string {
+	canonical, err := normalizeJSONObject(raw)
+	if err != nil {
+		return strings.ToValidUTF8(string(raw), "�")
+	}
+	return string(canonical)
 }
 
 func normalizeJSONObject(raw []byte) (json.RawMessage, error) {
@@ -885,10 +897,9 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 				result = append(result, TranscriptContent{Kind: TranscriptContentThinking, Text: block.Thinking})
 			}
 		case droids.ToolCall:
-			arguments, truncated := presentationToolArguments(block.Arguments)
 			result = append(result, TranscriptContent{
 				Kind: TranscriptContentToolCall, ToolCallID: string(block.ID), ToolName: block.Name,
-				Arguments: arguments, ArgumentsTruncated: truncated,
+				Arguments: canonicalToolArguments(block.Arguments),
 			})
 		case droids.FileInput:
 			kind := TranscriptContentFile

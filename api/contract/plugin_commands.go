@@ -64,7 +64,7 @@ func (failure PluginCommandError) Error() string { return failure.Message }
 
 // Validate enforces canonical error codes and renderer-safe explanations.
 func (failure PluginCommandError) Validate() error {
-	if (failure.Code != PluginCommandUnavailable && failure.Code != PluginCommandFailed) || !validRendererText(failure.Message, 1024) {
+	if (failure.Code != PluginCommandUnavailable && failure.Code != PluginCommandFailed) || !ValidErrorMessage(failure.Message) {
 		return errors.New("invalid plugin command error")
 	}
 	return nil

@@ -680,3 +680,47 @@ func (outcome PromptOutcome) Validate() error {
 	}
 	return nil
 }
+
+// MaxErrorMessageBytes is the longest error message a server writes. Clients
+// accept longer messages so an overlong explanation never hides the error code.
+const MaxErrorMessageBytes = 1024
+
+// ValidErrorMessage reports whether an error message received across a
+// transport boundary is non-blank, renderer-safe text. Length is the writer's
+// responsibility; see SanitizeErrorMessage.
+func ValidErrorMessage(message string) bool {
+	if strings.TrimSpace(message) == "" || !utf8.ValidString(message) {
+		return false
+	}
+	for _, character := range message {
+		if unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return false
+		}
+	}
+	return true
+}
+
+// SanitizeErrorMessage returns message as renderer-safe text of at most
+// MaxErrorMessageBytes. Invalid UTF-8 and control or format characters become
+// spaces, and an overlong message is shortened with an ellipsis. A message
+// that is blank after cleanup is replaced by fallback.
+func SanitizeErrorMessage(message, fallback string) string {
+	cleaned := strings.TrimSpace(strings.Map(func(character rune) rune {
+		if character == utf8.RuneError || unicode.IsControl(character) || unicode.Is(unicode.Cf, character) {
+			return ' '
+		}
+		return character
+	}, strings.ToValidUTF8(message, " ")))
+	if cleaned == "" {
+		return fallback
+	}
+	if len(cleaned) <= MaxErrorMessageBytes {
+		return cleaned
+	}
+	const ellipsis = "…"
+	end := MaxErrorMessageBytes - len(ellipsis)
+	for end > 0 && !utf8.RuneStart(cleaned[end]) {
+		end--
+	}
+	return strings.TrimSpace(cleaned[:end]) + ellipsis
+}

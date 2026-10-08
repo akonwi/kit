@@ -138,14 +138,12 @@ func TestOpenStreamClassifiesPreStreamResponses(t *testing.T) {
 	if !errors.As(err, &apiErr) || !apiErr.IncompatibleDaemon() {
 		t.Fatalf("protocol error = %#v", err)
 	}
-	oversized := `{"error":{"code":"capacity_exceeded","message":"full"}}` + strings.Repeat(" ", maxResponseBytes)
 	for name, transport := range map[string]testTransport{
 		"plain text":        respond(http.StatusTooManyRequests, "text/plain", "VCS subscriber limit exceeded\n"),
 		"plain-text 404":    respond(http.StatusNotFound, "text/plain", "404 page not found\n"),
 		"undeclared code":   respond(http.StatusTooManyRequests, "application/json", `{"error":{"code":"unavailable","message":"x"}}`),
 		"undeclared status": respond(http.StatusGone, "application/json", `{"error":{"code":"not_found","message":"x"}}`),
 		"missing message":   respond(http.StatusTooManyRequests, "application/json", `{"error":{"code":"capacity_exceeded"}}`),
-		"oversized body":    respond(http.StatusTooManyRequests, "application/json", oversized),
 	} {
 		_, err := OpenStream(t.Context(), transport, testStream, SessionPath{SessionID: "a/b"})
 		var violation *StreamError

@@ -411,7 +411,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
               input.prompt != nil || result.firstTurnError == nil else { throw ClientError.invalidPayload }
         if let message = result.firstTurnError?.message {
             guard !message.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-                  PluginCommand.safeText(message, limit: 1024) else { throw ClientError.invalidPayload }
+                  PluginCommand.safeText(message, limit: .max) else { throw ClientError.invalidPayload }
         }
         return ForkedSession(session: try SessionProjection.summary(record), firstTurnError: result.firstTurnError?.message)
     }
@@ -847,10 +847,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
             guard let response = response as? HTTPURLResponse else { throw ClientError.invalidPayload }
             guard response.statusCode == 201 else { throw ClientError.http(response.statusCode) }
             var data = Data()
-            for try await byte in bytes {
-                guard data.count < 512 * 1024 else { throw ClientError.oversized }
-                data.append(byte)
-            }
+            for try await byte in bytes { data.append(byte) }
             return try JSONDecoder().decode(WireAttachmentInfo.self, from: data)
         } onCancel: { bytes.task.cancel() }
     }

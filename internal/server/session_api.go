@@ -212,7 +212,7 @@ func firstTurnError(err error) *protocol.FirstTurnError {
 	var apiErr *httpapi.APIError
 	if errors.As(turnAPIError(err), &apiErr) && protocol.FirstTurnErrorCode(apiErr.Code).Validate() == nil {
 		firstTurnErr.Code = protocol.FirstTurnErrorCode(apiErr.Code)
-		firstTurnErr.Message = apiErr.Message
+		firstTurnErr.Message = protocol.SanitizeErrorMessage(apiErr.Message, "internal server error")
 	}
 	return firstTurnErr
 }
@@ -2844,7 +2844,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 		case kitannotation.EvidenceLimit:
 			status = http.StatusRequestEntityTooLarge
 		}
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": evidenceErr.Kind, "message": evidenceErr.Error()}})
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": evidenceErr.Kind, "message": protocol.SanitizeErrorMessage(evidenceErr.Error(), http.StatusText(status))}})
 		return
 	}
 	var diffErr *kitworkingdiff.Error
@@ -2861,7 +2861,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 			kitworkingdiff.LimitExceeded: http.StatusRequestEntityTooLarge, kitworkingdiff.CapacityExceeded: http.StatusTooManyRequests,
 			kitworkingdiff.RepositoryUnavailable: http.StatusServiceUnavailable, kitworkingdiff.Unavailable: http.StatusServiceUnavailable,
 		}[diffErr.Code]
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": diffErr.Code, "message": diffErr.Message, "details": diffErr.Details}})
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": diffErr.Code, "message": protocol.SanitizeErrorMessage(diffErr.Message, http.StatusText(status)), "details": diffErr.Details}})
 		return
 	}
 	var workspaceErr *kitworkspace.Error
@@ -2882,7 +2882,7 @@ func writeSessionError(writer http.ResponseWriter, err error) {
 		if status == 0 {
 			status = http.StatusInternalServerError
 		}
-		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": workspaceErr.Code, "message": workspaceErr.Message, "details": workspaceErr.Details}})
+		writeJSON(writer, status, map[string]any{"error": map[string]any{"code": workspaceErr.Code, "message": protocol.SanitizeErrorMessage(workspaceErr.Message, http.StatusText(status)), "details": workspaceErr.Details}})
 		return
 	}
 	status := http.StatusInternalServerError

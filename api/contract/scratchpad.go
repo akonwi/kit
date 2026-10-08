@@ -5,7 +5,6 @@ import (
 	"fmt"
 	"math"
 	"strconv"
-	"strings"
 	"time"
 
 	"github.com/akonwi/kit/internal/identifier"
@@ -139,7 +138,7 @@ func (err *ScratchpadError) Validate() error {
 	if validationErr := err.Code.Validate(); validationErr != nil {
 		return validationErr
 	}
-	if !validRendererText(err.Message, 1024) || strings.TrimSpace(err.Message) == "" {
+	if !ValidErrorMessage(err.Message) {
 		return fmt.Errorf("scratchpad error message is invalid")
 	}
 	return (ScratchpadErrorDetails{Scratchpad: err.Current}).Validate(err.Code)

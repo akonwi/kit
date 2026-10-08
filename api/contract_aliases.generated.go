@@ -297,6 +297,7 @@ const (
 	MaxDirectoryObservationBytes          = contract.MaxDirectoryObservationBytes
 	MaxDirectoryPageSize                  = contract.MaxDirectoryPageSize
 	MaxDirectoryResponseBytes             = contract.MaxDirectoryResponseBytes
+	MaxErrorMessageBytes                  = contract.MaxErrorMessageBytes
 	MaxFileIndexEntries                   = contract.MaxFileIndexEntries
 	MaxFileIndexPathLen                   = contract.MaxFileIndexPathLen
 	MaxGuidedQuestions                    = contract.MaxGuidedQuestions
