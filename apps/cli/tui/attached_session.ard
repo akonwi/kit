@@ -74,6 +74,10 @@ struct Controller {
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
+  // Pending model requests in arrival order. The oldest is presented.
+  interactions: [protocol::InteractionRequest],
+  // The request whose response is being submitted, if any.
+  interaction_responding: Str,
 }
 
 private fn empty_usage() protocol::SessionUsage {
@@ -128,6 +132,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     compact_operation_id: "",
     abort_pending: false,
     abort_after_start: false,
+    interactions: [],
+    interaction_responding: "",
     scratchpad_record: Maybe::new<protocol::Scratchpad>(),
     scratchpad_loading: false,
     scratchpad_failure: "",
@@ -242,16 +248,23 @@ impl Controller {
     self.run_id != "" or self.start_pending or self.compact_pending
   }
 
+  // The oldest pending request that this client presents.
+  fn interaction() protocol::InteractionRequest? {
+    self.interactions.at(0)
+  }
+
+  // Whether the agent is waiting for an answer from the user.
+  fn feedback_pending() Bool {
+    self.active and self.interactions.size() > 0
+  }
+
   // The current pending-row activity, if any.
   fn activity() Str {
-    match self.live.activity != "" {
-      true => self.live.activity,
-      false => {
-        match self.compact_pending {
-          true => "Compacting session…",
-          false => "",
-        }
-      },
+    match {
+      self.feedback_pending() => "Waiting for feedback…",
+      self.live.activity != "" => self.live.activity,
+      self.compact_pending => "Compacting session…",
+      _ => "",
     }
   }
 
@@ -321,6 +334,10 @@ impl Controller {
         self.abort_pending = false
         self.abort_after_start = false
       }
+      self.interactions = []
+      for request in snapshot.PendingInteractions {
+        self.add_interaction(request)
+      }
       self.mcp_servers = snapshot.MCPServers
       self.mcp_warnings = snapshot.MCPWarnings
       for warning in snapshot.MCPWarnings {
@@ -365,6 +382,12 @@ impl Controller {
       }
       if kind == transcript::Event::run_started {
         self.claim_run(event.TurnID)
+      }
+      if event.Kind == "interaction.requested" and not unsafe::is_nil(event.Interaction) {
+        self.add_interaction(event.Interaction.@)
+      }
+      if event.Kind == "interaction.resolved" {
+        self.remove_interaction(event.InteractionID)
       }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply_event(event)
@@ -768,6 +791,74 @@ impl Controller {
           }
         },
         err(failure) => (self.host.toast)("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
+  }
+
+  // Queues a model request once. Plugin requests are not presented yet.
+  private fn mut add_interaction(request: protocol::InteractionRequest) {
+    mut known = false
+    for pending in self.interactions {
+      if pending.ID == request.ID {
+        known = true
+      }
+    }
+    if (not known) and unsafe::is_nil(request.Plugin) {
+      self.interactions.push(request)
+    }
+  }
+
+  private fn mut remove_interaction(id: Str) {
+    let remaining = mut List::new<protocol::InteractionRequest>()
+    for pending in self.interactions {
+      if pending.ID != id {
+        remaining.push(pending)
+      }
+    }
+    self.interactions = remaining.@
+    if self.interaction_responding == id {
+      self.interaction_responding = ""
+    }
+  }
+
+  // Submits an answer or cancellation for a pending request. A request settles
+  // once; while its response is in flight further responses are ignored. A
+  // failed submission keeps the request so it can be answered again.
+  fn mut respond_interaction(response: protocol::InteractionResponse) {
+    if self.active and self.interaction_responding == "" {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let dispatch = self.host.dispatch
+              let id = response.RequestID
+              self.interaction_responding = id
+              async::start(fn() {
+                let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(30000))
+                let result = session.RespondInteraction(attempt.Context, response)
+                attempt.Cancel()
+                let _ = dispatch(fn() {
+                  if self.active and self.interaction_responding == id {
+                    self.interaction_responding = ""
+                    match result {
+                      ok(_) => self.remove_interaction(id),
+                      err(failure) => {
+                        (self.host.toast)(
+                          "Could not submit response",
+                          failure.error(),
+                          toast::Variant::error,
+                          false,
+                        )
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
       }
     }
   }
@@ -1677,5 +1768,120 @@ test fn a_snapshot_after_a_stream_replacement_rebases_the_live_turn() Void!Str {
   testing::assert(
     messages.size() == 1 and messages.at(0).expect("reply").text == "one two",
     "the live reply continues on the replacement stream",
+  )
+}
+
+private fn model_request(id: Str) protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: id,
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionConfirm,
+    Title: "Proceed?",
+  }
+}
+
+test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  let first = model_request("interaction_1")
+  let second = model_request("interaction_2")
+  let plugin = protocol::InteractionRequest{
+    ID: "interaction_plugin",
+    Plugin: mut protocol::PluginInteractionOwner{PluginID: "demo", Instance: "1"},
+    Kind: protocol::InteractionConfirm,
+    Title: "Plugin",
+  }
+  subject.apply_events(
+    [
+      // The session watch and the turn stream both deliver requests.
+      sessionbridge::Event{
+        Kind: "turn.started",
+        TurnID: "turn-1",
+        Sequence: 1,
+      },
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 2,
+        Interaction: mut first,
+        InteractionID: first.ID,
+      },
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 3,
+        Interaction: mut second,
+        InteractionID: second.ID,
+      },
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 3,
+        Interaction: mut first,
+        InteractionID: first.ID,
+      },
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 4,
+        Interaction: mut plugin,
+        InteractionID: plugin.ID,
+      },
+    ],
+  )
+  try testing::assert(subject.interactions.size() == 2, "{subject.interactions.size()} pending requests")
+  try testing::assert(
+    subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_1",
+    "the oldest request is presented",
+  )
+  try testing::assert(
+    subject.feedback_pending() and subject.activity() == "Waiting for feedback…",
+    "a pending request reports feedback",
+  )
+
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "interaction.resolved",
+        Sequence: 5,
+        InteractionID: "interaction_1",
+      },
+    ],
+  )
+  try testing::assert(
+    subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_2",
+    "the next request is presented",
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "interaction.resolved",
+        Sequence: 6,
+        InteractionID: "interaction_2",
+      },
+    ],
+  )
+  testing::assert(
+    subject.interaction().is_none() and not subject.feedback_pending() and subject.activity() != "Waiting for feedback…",
+    "settling every request ends feedback",
+  )
+}
+
+test fn snapshots_replace_pending_requests() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      PendingInteractions: [model_request("interaction_1"), model_request("interaction_2")],
+    },
+  )
+  try testing::assert(subject.interactions.size() == 2, "snapshot requests are adopted")
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      PendingInteractions: [model_request("interaction_2")],
+    },
+  )
+  testing::assert(
+    subject.interactions.size() == 1 and subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_2",
+    "a later snapshot drops settled requests",
   )
 }
