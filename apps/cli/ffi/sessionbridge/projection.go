@@ -26,6 +26,8 @@ type Event struct {
 	ErrorMessage     string
 	Status           string
 	Scratchpad       *protocol.Scratchpad
+	Interaction      *protocol.InteractionRequest
+	InteractionID    string
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -80,6 +82,13 @@ func Events(source []protocol.SessionEvent) []Event {
 			projected.ContextTokens, projected.ContextWindow = payload.ContextTokens, payload.ContextWindow
 		case protocol.ScratchpadChangedEvent:
 			projected.Scratchpad = payload.Scratchpad
+		case protocol.InteractionRequestedEvent:
+			projected.Interaction = payload.Interaction
+			if payload.Interaction != nil {
+				projected.InteractionID = payload.Interaction.ID
+			}
+		case protocol.InteractionResolvedEvent:
+			projected.InteractionID = payload.InteractionID
 		case protocol.TurnCompletedEvent:
 			projected.Status, projected.ErrorMessage = string(payload.Status), payload.ErrorMessage
 		}
