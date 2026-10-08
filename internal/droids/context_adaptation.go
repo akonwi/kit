@@ -212,6 +212,7 @@ func (d *Droid) CompactContext(ctx context.Context, options CompactContextOption
 		kind: "compaction", operationID: options.OperationID,
 		target: target, force: force, cancel: cancel, done: make(chan struct{}),
 	}
+	rt.leaveSettledBoundaryLocked(ctx)
 	rt.contextFlight = flight
 	rt.signalChangedLocked()
 	rt.mu.Unlock()

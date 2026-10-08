@@ -25,7 +25,7 @@ The initial SDK includes:
 - provider-neutral messages and content;
 - provider and model interfaces;
 - typed tools;
-- autonomous prompt admission, context-only boundary reaction, steering, retry, compaction, abort, and settled-conversation fork behavior;
+- autonomous prompt admission, context-only boundary reaction, steering, retry, compaction, abort, and settled-boundary fork behavior;
 - durable state and event contracts;
 - an in-memory Store;
 - a CGO-free SQLite Store;
@@ -140,7 +140,7 @@ The embedding application must not open multiple live droids with the same
 `ConversationID`. Droids does not provide distributed ownership or process
 coordination for this.
 
-### Forking a settled conversation
+### Forking from a settled boundary
 
 ```go
 type ForkOptions struct {
@@ -165,13 +165,17 @@ func (d *Droid) Fork(
 ) (ForkResult, error)
 ```
 
-`Fork` creates an independent ready conversation from a settled source. It
-copies immutable record history, active provider context, checkpoint identity,
-boundary receipts, pending idle boundaries, and the cumulative usage total at
-the exact fork point into a new destination Store. Later parent and child usage
-advance independently from that inherited total.
-Running, paused, interrupted, retrying, pausing, and aborting sources return
-`ErrBusy`; forking never duplicates active execution or ambiguous tool state.
+`Fork` creates an independent ready conversation from the source's latest
+settled boundary. A settled source forks from its current state. A source that
+is running, retrying, pausing, paused, aborting, interrupted, or compacting its
+context forks from the boundary it left for that work, which continues
+unaffected and is not copied. Fork copies immutable record history, active
+provider context, checkpoint identity, boundary receipts, pending idle
+boundaries, and the cumulative usage total at that fork point into a new
+destination Store. Later parent and child usage advance independently from that
+inherited total. Forking never duplicates active execution or ambiguous tool
+state. The boundary an occupied source left is held in memory; a source
+reopened while occupied returns `ErrBusy` until it settles.
 Fork does not invoke provider replay validation. The ordinary request path
 validates inherited context before the child's next provider request and reports
 any incompatibility through that prompt's normal outcome.
@@ -1007,7 +1011,8 @@ validation against the target model.
 
 Both operations require a settled conversation. They reject active, paused, or
 recoverable work with `ErrBusy`. While assessment or adaptation is running,
-prompt admission and semantic forks also return `ErrBusy`; `WaitQuiescent`
+prompt admission returns `ErrBusy`, and semantic forks capture the settled
+boundary from before adaptation; `WaitQuiescent`
 waits for maintenance to finish. Shutdown cancels provider work and waits for
 maintenance settlement. Boundary admission may proceed concurrently and is
 merged into the latest runtime state rather than overwritten by a captured

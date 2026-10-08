@@ -1,4 +1,4 @@
-# 0005: Fork settled droid conversations semantically
+# 0005: Fork droid conversations semantically from settled boundaries
 
 ## Status
 
@@ -66,24 +66,38 @@ host resources; conversation state and Store ownership do not.
 The destination Store is dedicated to the child and is owned by the caller.
 Forking does not transfer or close either Store.
 
-### Fork only at a settled boundary
+### Fork from the latest settled boundary
 
-The initial operation accepts only a settled source conversation. Ready,
-completed, failed, and aborted conversations have a settled boundary from which
-a new turn can begin. Running, retrying, pausing, paused, aborting, and
-interrupted conversations are occupied and cannot be forked.
+A fork always begins at a settled boundary: a ready, completed, failed, or
+aborted state from which a new turn can begin. Forking is available whether or
+not the source is currently occupied:
 
-In particular, a quiescent paused or interrupted execution is not considered a
-safe fork point. Copying one would let two conversations resume the same turn,
-repeat an approval, or cross an ambiguous tool side-effect boundary. The caller
-must first settle the source through its ordinary lifecycle or wait for the
-active turn to settle.
+- A settled source forks from its current state.
+- An occupied source — running, retrying, pausing, paused, aborting,
+  interrupted, or adapting its context — forks from the settled boundary it left
+  when that work began. The source's work continues unaffected and is not
+  copied.
 
-Fork does not wait for settlement implicitly. It serializes with `Prompt`,
-`Inform`, pause, resume, abort, and other source mutations, checks the source
-state while holding the droid's mutation lock, and returns `ErrBusy` when the
-source is occupied. A racing operation is therefore ordered wholly before or
-after the fork point; the fork cannot observe a partial transition.
+A source never forks from within an execution. Copying an active, paused, or
+interrupted execution would let two conversations resume the same turn, repeat
+an approval, or cross an ambiguous tool side-effect boundary. Forking from the
+boundary before that work gives the caller the latest durable state that both
+conversations can safely continue from.
+
+When the runtime leaves a settled state for a turn or context adaptation, it
+retains that boundary's runtime state, revision, outbox position, configuration,
+and the sequence of its last history record. History records are immutable and
+sequenced, so the records at or before that sequence are exactly the boundary's
+history even as the source appends more. The retained boundary is held in
+memory only. A source reopened while occupied has no retained boundary and
+returns `ErrBusy` until it settles.
+
+Fork does not wait for settlement. It serializes with `Prompt`, `Inform`,
+pause, resume, abort, and other source mutations while it selects its boundary
+under the droid's mutation lock. A racing operation is therefore ordered wholly
+before or after that selection; the fork cannot observe a partial transition.
+Reading the selected boundary's history does not hold the mutation lock, so the
+source's work is not blocked while a fork copies history.
 
 ### The child starts ready
 
@@ -305,7 +319,10 @@ Positive:
 
 Trade-offs:
 
-- settled-only forking does not capture or branch an active execution;
+- forking never captures or branches an active execution; a fork of an
+  occupied source omits that work;
+- retaining the last settled boundary keeps a second copy of runtime state in
+  memory while a source is occupied;
 - hosts must qualify nested droids IDs by conversation or session;
 - copying complete immutable record history can be expensive for long conversations;
 - versioned history records require droids-owned fork transformations;

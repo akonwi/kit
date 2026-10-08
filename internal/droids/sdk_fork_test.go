@@ -213,44 +213,85 @@ func TestSDKForkAcceptsFailedAndAbortedSources(t *testing.T) {
 	})
 }
 
-func TestSDKForkRejectsOccupiedSource(t *testing.T) {
+func TestSDKForkOfRunningSourceStartsFromLastSettledBoundary(t *testing.T) {
 	providers := newSteeringProviders()
-	source, err := droids.Spawn(t.Context(), "conversation_fork_busy", droids.Config{
-		Model: resolvedTestModel(providers, "test/steer"),
+	providers.blockCall = 2
+	sourceStore := droids.NewMemoryStore()
+	source, err := droids.Spawn(t.Context(), "conversation_fork_source", droids.Config{
+		Model: resolvedTestModel(providers, "test/steer"), Store: sourceStore,
 	})
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { _ = source.Close() })
-	handle := promptDroid(t, source, "stay busy")
+	waitHandleCompleted(t, promptDroid(t, source, "settled work"))
+	settled, err := source.Snapshot(t.Context(), droids.SnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	settledHistory, err := source.History(t.Context(), droids.HistoryQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	handle := promptDroid(t, source, "in flight")
 	select {
 	case <-providers.started:
 	case <-time.After(5 * time.Second):
 		t.Fatal("provider did not start")
 	}
-	destination := droids.NewMemoryStore()
-	if _, err := source.Fork(t.Context(), "conversation_busy_child", droids.ForkOptions{Store: destination}); !errors.Is(err, droids.ErrBusy) {
-		t.Fatalf("Fork error = %v, want ErrBusy", err)
-	}
-	if _, err := destination.State(t.Context()); !errors.Is(err, droids.ErrStoreUninitialized) {
-		t.Fatalf("destination State error = %v, want ErrStoreUninitialized", err)
-	}
-	close(providers.release)
-	waitHandleCompleted(t, handle)
-}
 
-func TestSDKForkRejectsPausedSource(t *testing.T) {
-	providers := newReadProviders()
-	var toolRuns atomic.Int32
-	budget := droids.ExecutionPolicy{Budget: droids.ExecutionBudget{MaxModelCycles: 1}}
-	source, err := droids.Spawn(t.Context(), "conversation_fork_paused", droids.Config{
-		Model: resolvedTestModel(providers, "test/read"), Execution: &budget,
-		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
-	})
+	forked, err := source.Fork(t.Context(), "conversation_fork_child", droids.ForkOptions{})
+	if err != nil {
+		t.Fatalf("Fork running source: %v", err)
+	}
+	child := forked.Droid
+	t.Cleanup(func() { _ = child.Close() })
+	want := droids.ForkPoint{ConversationID: "conversation_fork_source", Revision: settled.Conversation.Revision, LastEvent: settled.LastEvent}
+	if forked.Point != want {
+		t.Fatalf("fork point = %+v, want the settled boundary %+v", forked.Point, want)
+	}
+	childSnapshot, err := child.Snapshot(t.Context(), droids.SnapshotOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = source.Close() })
+	if childSnapshot.Active != nil || childSnapshot.Context.Messages != settled.Context.Messages {
+		t.Fatalf("child state = %+v, want ready with the settled context of %d messages", childSnapshot, settled.Context.Messages)
+	}
+	childHistory, err := child.History(t.Context(), droids.HistoryQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	assertForkedMessages(t, settledHistory, childHistory)
+	waitHandleCompleted(t, promptDroid(t, child, "child work"))
+
+	close(providers.release)
+	waitHandleCompleted(t, handle)
+	sourceHistory, err := source.History(t.Context(), droids.HistoryQuery{Limit: 100})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(sourceHistory.Messages) != len(settledHistory.Messages)+2 {
+		t.Fatalf("source messages = %d, want the settled %d plus its own turn", len(sourceHistory.Messages), len(settledHistory.Messages))
+	}
+}
+
+func TestSDKForkOfPausedSourceStartsFromLastSettledBoundary(t *testing.T) {
+	providers := newReadProviders()
+	var toolRuns atomic.Int32
+	budget := droids.ExecutionPolicy{Budget: droids.ExecutionBudget{MaxModelCycles: 1}}
+	store := droids.NewMemoryStore()
+	config := droids.Config{
+		Model: resolvedTestModel(providers, "test/read"), Execution: &budget, Store: store,
+		Tools: []droids.AnyTool{readOnlyTool(&toolRuns)},
+	}
+	source, err := droids.Spawn(t.Context(), "conversation_fork_paused", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	settled, err := source.Snapshot(t.Context(), droids.SnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
 	handle := promptDroid(t, source, "pause after tools")
 	ctx, cancel := context.WithTimeout(t.Context(), 5*time.Second)
 	defer cancel()
@@ -261,10 +302,34 @@ func TestSDKForkRejectsPausedSource(t *testing.T) {
 	if outcome.Status != droids.ExecutionPaused {
 		t.Fatalf("outcome = %+v, want paused", outcome)
 	}
-	if _, err := source.Fork(t.Context(), "conversation_paused_child", droids.ForkOptions{}); !errors.Is(err, droids.ErrBusy) {
-		t.Fatalf("Fork error = %v, want ErrBusy", err)
+	forked, err := source.Fork(t.Context(), "conversation_paused_child", droids.ForkOptions{})
+	if err != nil {
+		t.Fatalf("Fork paused source: %v", err)
 	}
-	if err := source.Abort(t.Context()); err != nil {
+	want := droids.ForkPoint{ConversationID: "conversation_fork_paused", Revision: settled.Conversation.Revision, LastEvent: settled.LastEvent}
+	if forked.Point != want {
+		t.Fatalf("fork point = %+v, want the boundary before the paused turn %+v", forked.Point, want)
+	}
+	childHistory, err := forked.Droid.History(t.Context(), droids.HistoryQuery{Limit: 100})
+	if err != nil || len(childHistory.Messages) != 0 {
+		t.Fatalf("child history = %+v, %v; want none of the paused turn", childHistory, err)
+	}
+	_ = forked.Droid.Close()
+
+	// The settled boundary is not persisted, so a reopened occupied source
+	// cannot be forked until it settles.
+	if err := source.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := droids.Spawn(t.Context(), "conversation_fork_paused", config)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if _, err := reopened.Fork(t.Context(), "conversation_reopened_child", droids.ForkOptions{}); !errors.Is(err, droids.ErrBusy) {
+		t.Fatalf("Fork reopened paused source error = %v, want ErrBusy", err)
+	}
+	if err := reopened.Abort(t.Context()); err != nil {
 		t.Fatal(err)
 	}
 }

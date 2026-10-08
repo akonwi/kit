@@ -462,9 +462,18 @@ func TestSDKQuiescentCompactionPreservesBoundaryAcceptedDuringSummary(t *testing
 	}}, droids.PromptOptions{}); !errors.Is(err, droids.ErrBusy) {
 		t.Fatalf("prompt during compaction error = %v", err)
 	}
-	if _, err := droid.Fork(t.Context(), "conversation_adapt_racing_fork", droids.ForkOptions{}); !errors.Is(err, droids.ErrBusy) {
-		t.Fatalf("fork during compaction error = %v", err)
+	before, err := droid.Snapshot(t.Context(), droids.SnapshotOptions{})
+	if err != nil {
+		t.Fatal(err)
 	}
+	forked, err := droid.Fork(t.Context(), "conversation_adapt_racing_fork", droids.ForkOptions{})
+	if err != nil {
+		t.Fatalf("fork during compaction error = %v, want a fork from the uncompacted boundary", err)
+	}
+	if snapshot, err := forked.Droid.Snapshot(t.Context(), droids.SnapshotOptions{}); err != nil || snapshot.Context.Messages != before.Context.Messages {
+		t.Fatalf("fork during compaction = %+v, %v; want the uncompacted context of %d messages", snapshot, err, before.Context.Messages)
+	}
+	_ = forked.Droid.Close()
 	quiescent := make(chan error, 1)
 	go func() {
 		_, err := droid.WaitQuiescent(context.Background())

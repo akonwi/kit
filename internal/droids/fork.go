@@ -13,9 +13,10 @@ const (
 	forkReconciliationLimit = 30 * time.Second
 )
 
-// Fork creates an independent ready conversation from this droid's settled
-// state. The destination Store must be uninitialized and dedicated to the
-// returned child.
+// Fork creates an independent ready conversation from this droid's latest
+// settled boundary: its current state when settled, or the state it left for
+// an active turn or context compaction, which continues unaffected. The
+// destination Store must be uninitialized and dedicated to the returned child.
 func (d *Droid) Fork(ctx context.Context, id ConversationID, options ForkOptions) (ForkResult, error) {
 	if d == nil || d.sdk == nil {
 		return ForkResult{}, fmt.Errorf("droids: Fork requires a droid opened with droids.Spawn")
@@ -128,37 +129,46 @@ func (d *Droid) captureFork(ctx context.Context) (
 ) {
 	rt := d.sdk
 	rt.mu.Lock()
-	defer rt.mu.Unlock()
 	if rt.closed {
+		rt.mu.Unlock()
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrClosed
 	}
-	if rt.contextFlight != nil {
+	var boundary *settledForkBoundary
+	// A context assessment reads settled state without changing it.
+	maintaining := rt.contextFlight != nil && rt.contextFlight.kind != "assessment"
+	if forkableStatus(rt.state.Status) && !maintaining {
+		captured, err := rt.settledBoundaryLocked(ctx)
+		if err != nil {
+			rt.mu.Unlock()
+			return ForkPoint{}, durableRuntime{}, nil, Config{}, err
+		}
+		boundary = captured
+	} else {
+		// An occupied source forks from the boundary it last left.
+		boundary = rt.settledFork
+	}
+	rt.mu.Unlock()
+	if boundary == nil {
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrBusy
 	}
-	if !forkableStatus(rt.state.Status) {
-		return ForkPoint{}, durableRuntime{}, nil, Config{}, ErrBusy
-	}
-	if rt.state.AttemptOpen || len(rt.state.PendingSteering) != 0 || len(rt.state.Tools) != 0 {
+	if boundary.state.AttemptOpen || len(boundary.state.PendingSteering) != 0 || len(boundary.state.Tools) != 0 {
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, fmt.Errorf("droids: settled fork source contains active execution state")
 	}
-	state, err := cloneDurableRuntime(rt.state)
+	state, err := cloneDurableRuntime(boundary.state)
 	if err != nil {
 		return ForkPoint{}, durableRuntime{}, nil, Config{}, err
 	}
-	point := ForkPoint{
-		ConversationID: rt.conversation,
-		Revision:       rt.revision,
-		LastEvent:      rt.lastEvent,
-	}
+	// History is immutable, so the records at or before the boundary's last
+	// sequence are exactly its history even while the source keeps running.
 	var records []EncodedRecord
 	var after uint64
-	for {
-		page, err := rt.store.Records(ctx, RecordQuery{After: after, Limit: forkRecordPageSize})
+	for boundary.lastRecord > 0 {
+		page, err := rt.store.Records(ctx, RecordQuery{After: after, Before: boundary.lastRecord + 1, Limit: forkRecordPageSize})
 		if err != nil {
 			return ForkPoint{}, durableRuntime{}, nil, Config{}, fmt.Errorf("droids: read fork history: %w", err)
 		}
 		for _, record := range page.Records {
-			if record.Scope != RecordHistory || record.Sequence <= after {
+			if record.Scope != RecordHistory || record.Sequence <= after || record.Sequence > boundary.lastRecord {
 				return ForkPoint{}, durableRuntime{}, nil, Config{}, fmt.Errorf("droids: fork history is not strictly ordered")
 			}
 			after = record.Sequence
@@ -172,9 +182,53 @@ func (d *Droid) captureFork(ctx context.Context) (
 			return ForkPoint{}, durableRuntime{}, nil, Config{}, fmt.Errorf("droids: fork history pagination did not advance")
 		}
 	}
+	return boundary.point, state, records, cloneForkConfig(boundary.config), nil
+}
+
+// settledForkBoundary is a settled point from which a source can be forked:
+// its runtime state, durable position, and last history record sequence.
+type settledForkBoundary struct {
+	point      ForkPoint
+	state      durableRuntime
+	lastRecord uint64
+	config     Config
+}
+
+// settledBoundaryLocked captures the current settled state. Callers hold rt.mu
+// while the runtime is settled.
+func (rt *sdkRuntime) settledBoundaryLocked(ctx context.Context) (*settledForkBoundary, error) {
+	state, err := cloneDurableRuntime(rt.state)
+	if err != nil {
+		return nil, err
+	}
+	latest, err := rt.store.Records(ctx, RecordQuery{Limit: 1, Descending: true})
+	if err != nil {
+		return nil, fmt.Errorf("droids: read fork history position: %w", err)
+	}
+	var lastRecord uint64
+	if len(latest.Records) == 1 {
+		lastRecord = latest.Records[0].Sequence
+	}
 	config := cloneForkConfig(rt.config)
 	config.Reasoning = rt.currentRequestConfiguration().reasoning
-	return point, state, records, config, nil
+	return &settledForkBoundary{
+		point:      ForkPoint{ConversationID: rt.conversation, Revision: rt.revision, LastEvent: rt.lastEvent},
+		state:      state,
+		lastRecord: lastRecord,
+		config:     config,
+	}, nil
+}
+
+// leaveSettledBoundaryLocked records the settled boundary the runtime is about
+// to leave for a turn or context maintenance, so it stays forkable while
+// occupied. Callers hold rt.mu. Failure only makes the source unforkable until
+// it settles again; it never blocks the work that is starting.
+func (rt *sdkRuntime) leaveSettledBoundaryLocked(ctx context.Context) {
+	boundary, err := rt.settledBoundaryLocked(context.WithoutCancel(ctx))
+	if err != nil {
+		boundary = nil
+	}
+	rt.settledFork = boundary
 }
 
 func forkableStatus(status ExecutionStatus) bool {

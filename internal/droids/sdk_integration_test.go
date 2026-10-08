@@ -998,9 +998,16 @@ func TestSDKRawToolResultFailureBlocksContinuation(t *testing.T) {
 	}}, droids.PromptOptions{}); !errors.Is(err, droids.ErrBusy) {
 		t.Fatalf("Prompt error = %v, want ErrBusy", err)
 	}
-	if _, err := droid.Fork(t.Context(), "conversation_raw_failure_fork", droids.ForkOptions{}); !errors.Is(err, droids.ErrBusy) {
-		t.Fatalf("Fork interrupted droid error = %v, want ErrBusy", err)
+	// The interrupted turn stays with its source; a fork starts from the
+	// settled boundary before it.
+	forked, err := droid.Fork(t.Context(), "conversation_raw_failure_fork", droids.ForkOptions{})
+	if err != nil {
+		t.Fatalf("Fork interrupted droid error = %v, want a fork from the settled boundary", err)
 	}
+	if snapshot, err := forked.Droid.Snapshot(t.Context(), droids.SnapshotOptions{}); err != nil || snapshot.Active != nil || snapshot.Context.Messages != 0 {
+		t.Fatalf("fork of interrupted droid = %+v, %v; want a ready child without the interrupted turn", snapshot, err)
+	}
+	_ = forked.Droid.Close()
 	if err := droid.Abort(t.Context()); err != nil {
 		t.Fatal(err)
 	}
@@ -1346,6 +1353,8 @@ type steeringProviders struct {
 	requests []droids.Request
 	started  chan struct{}
 	release  chan struct{}
+	// blockCall is the provider call that waits for release; zero means the first.
+	blockCall int
 }
 
 func newSteeringProviders() *steeringProviders {
@@ -1379,7 +1388,7 @@ func (p *steeringProviders) Stream(_ context.Context, _ droids.Model, request dr
 		Provider: "test", Model: "steer", StopReason: droids.StopReasonStop,
 		Content: []droids.AssistantContent{droids.TextContent{Text: "complete"}},
 	}
-	if call == 1 {
+	if call == max(p.blockCall, 1) {
 		return &blockingReadStream{message: message, started: p.started, release: p.release}
 	}
 	return sdkStaticStream(message)

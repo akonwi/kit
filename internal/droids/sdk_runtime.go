@@ -55,8 +55,11 @@ type sdkRuntime struct {
 	resumeCancel          context.CancelFunc
 	resumeFlight          *resumeFlight
 	contextFlight         *contextMaintenanceFlight
-	abortPending          bool
-	persistenceErr        error
+	// settledFork is the settled boundary last left for a turn or context
+	// compaction. It is nil when none is known since the runtime opened.
+	settledFork    *settledForkBoundary
+	abortPending   bool
+	persistenceErr error
 
 	subsMu sync.Mutex
 	subs   map[*sdkSubscription]struct{}
@@ -528,6 +531,7 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	if err != nil {
 		return nil, err
 	}
+	rt.leaveSettledBoundaryLocked(ctx)
 	rt.state = newDurableRuntime()
 	rt.state.Context = before.Context
 	rt.state.ReasoningHistory = before.ReasoningHistory

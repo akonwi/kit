@@ -136,7 +136,7 @@ cumulative usage.
 ## Related
 
 - [ADR 0004: Model a droid as an autonomous agent runtime](0004-droids-agent-runtime-boundary.md)
-- [ADR 0005: Fork settled droid conversations semantically](0005-droids-semantic-forking.md)
+- [ADR 0005: Fork droid conversations semantically from settled boundaries](0005-droids-semantic-forking.md)
 - [ADR 0006: Make droids authoritative for session conversation data](0006-droids-as-session-data-authority.md)
 - [ADR 0010: Compose session-scoped system prompts from Kit-owned guidance](0010-compose-session-system-prompts.md)
 - [ADR 0015: Configure model-specific context windows in user settings](0015-model-specific-context-windows.md)

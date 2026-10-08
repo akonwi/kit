@@ -414,7 +414,7 @@ tool.
 ## Related
 
 - [ADR 0001: Native Go application architecture](0001-native-go-architecture.md)
-- [ADR 0005: Fork settled droid conversations semantically](0005-droids-semantic-forking.md)
+- [ADR 0005: Fork droid conversations semantically from settled boundaries](0005-droids-semantic-forking.md)
 - [ADR 0009: Keep temporary sessions process-local](0009-keep-temporary-sessions-process-local.md)
 - [ADR 0011: Use SSE for session event delivery](0011-use-sse-for-session-events.md)
 - [ADR 0017: Create top-level sessions from model tools](0017-create-top-level-sessions-from-model-tools.md)

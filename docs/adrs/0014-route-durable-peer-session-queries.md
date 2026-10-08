@@ -248,7 +248,7 @@ peer sessions.
 
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
 - [0004: Model a droid as an autonomous agent runtime](./0004-droids-agent-runtime-boundary.md)
-- [0005: Fork settled droid conversations semantically](./0005-droids-semantic-forking.md)
+- [0005: Fork droid conversations semantically from settled boundaries](./0005-droids-semantic-forking.md)
 - [0006: Make droids the session data authority](./0006-droids-as-session-data-authority.md)
 - [`../droids-sdk.md`](../droids-sdk.md)
 - [`../features/subagents.md`](../features/subagents.md)
