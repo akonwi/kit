@@ -7,6 +7,7 @@ struct SessionEventProjection {
     private var text: [String: [Int: String]] = [:]
     private var thinking: [String: [Int: String]] = [:]
     private var userTurns: Set<String>
+    private var pluginTurns: Set<String>
     private var candidateAnnotationTurn: String?
     private var lastTurn: String?
     private let persistedMessages: Set<String>
@@ -32,6 +33,7 @@ struct SessionEventProjection {
         self.session.tabStatus = Self.status(runID: activeRunID, pending: pendingInteractions)
         self.session.activity = session.activeCompactionID != nil ? "Compacting context…" : (activeRunID == nil ? nil : "Working…")
         userTurns = Set(source.filter { $0.role == "user" }.map(\.turnId))
+        pluginTurns = Set(source.filter { $0.role == "context" && $0.boundaryKind == "plugin_message" }.map(\.turnId))
         let pending = source.filter {
             $0.role == "assistant" && $0.turnId == activeRunID && ($0.stopReason ?? "").isEmpty
         }
@@ -115,6 +117,15 @@ struct SessionEventProjection {
                 candidateAnnotationTurn = value == "Annotations" && (event.content?.isEmpty ?? true) ? event.turnId : nil
             }
             session.observedTurns = Array(Set((session.observedTurns ?? []) + [event.turnId]))
+            lastTurn = event.turnId
+        case "plugin.message.added":
+            guard let plugin = event.pluginId, !plugin.isEmpty, let value = event.text, !value.isEmpty,
+                  !event.turnId.isEmpty else { throw ClientError.invalidPayload }
+            // The persisted row replaces this one when the next snapshot arrives.
+            if pluginTurns.insert(event.turnId).inserted {
+                session.messages.append(TranscriptMessage(id: "live-plugin-" + event.turnId, role: "plugin", text: value, tools: [],
+                    plugin: PluginMessageOrigin(pluginID: plugin, turnID: event.turnId)))
+            }
             lastTurn = event.turnId
         case "assistant.started", "assistant.text.delta", "assistant.thinking.delta":
             guard let id = event.messageId, !id.isEmpty else { throw ClientError.invalidPayload }

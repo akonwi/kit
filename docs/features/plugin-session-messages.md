@@ -58,10 +58,13 @@ speech. When the turn starts, the session event stream carries a
 show the message while the turn runs and not only after the transcript
 refreshes.
 
-The TUI presents the message as one muted row, `◆ <plugin-id> · <first line> ▸`,
-labelled in the plugin identity colour. Clicking the row shows the full message
-beneath a left rule. Plugin messages are not offered by prompt history recall,
-which only recalls user prompts.
+Both clients present the message as one muted row naming the plugin, followed
+by the message's first line. In the TUI it reads `◆ <plugin-id> · <first line> ▸`
+in the plugin identity colour; the macOS app uses the plugin symbol and the
+styling of a tool group. Clicking the row shows the full message beneath a left
+rule, and the choice is kept for the turn when the live row gives way to the
+recorded one. Plugin messages are not offered by prompt history recall, which
+only recalls user prompts.
 
 An admitted turn belongs to the session, not the plugin. It uses the session's
 normal tools, interceptors, and approvals, runs with or without attached

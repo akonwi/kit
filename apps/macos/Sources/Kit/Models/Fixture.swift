@@ -94,6 +94,15 @@ struct TranscriptMessage: Decodable, Identifiable, Sendable, Equatable {
     var attachments: [TranscriptAttachment]? = nil
     var annotations: [FileAnnotation]? = nil
     var bash: BashExecution? = nil
+    /// Set on a plugin-submitted message, which presents as a "plugin" row.
+    var plugin: PluginMessageOrigin? = nil
+}
+
+/// The plugin that submitted a transcript message and the turn the message
+/// started. The turn identifies the message across its live and persisted rows.
+struct PluginMessageOrigin: Decodable, Sendable, Equatable {
+    let pluginID: String
+    let turnID: String
 }
 
 struct ToolActivity: Decodable, Identifiable, Sendable, Equatable {
