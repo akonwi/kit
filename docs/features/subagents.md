@@ -108,9 +108,9 @@ active, Kit admits that item as a droids boundary for the next safe model
 boundary. If the parent is idle or unloaded, Kit loads it and starts an
 autonomous context-only reaction turn. The model sees the bounded completion
 boundary and decides whether to respond, use tools, delegate more work, or stop.
-Kit limits autonomous parent reactions to four concurrent sessions and eight
-consecutive reactions per session; reaching the chain limit leaves later
-mailbox items pending until the next user prompt. Attached native clients watch
+Kit runs autonomous parent reactions in at most four concurrent sessions and
+does not limit how many consecutive reactions a session runs; the user can
+abort any autonomous turn. Attached native clients watch
 session-wide run admission and settlement, so autonomous responses appear
 without requiring another user interaction. Only the agent identity, terminal state, bounded result metadata, and summary
 enter parent context—never internal IDs or the child transcript. Pending

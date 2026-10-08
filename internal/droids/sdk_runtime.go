@@ -21,7 +21,6 @@ const (
 	maxSubscriptionReplay     = 1000
 	maxPendingSteering        = 64
 	maxPendingBoundaries      = 64
-	maxAutonomousReactions    = 15
 )
 
 type sdkRuntime struct {
@@ -460,24 +459,15 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		return nil, ErrConflict
 	}
 
-	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash, true)
+	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash)
 }
 
 // React durably starts a context-only turn from pending external boundaries.
 // admissionKey makes retries return the originally admitted turn. The replayed
 // result reports whether the handle belongs to an earlier admission.
+// Consecutive reactions are not counted or limited; callers own any stopping
+// policy for the work they schedule.
 func (d *Droid) React(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
-	return d.react(ctx, admissionKey, true)
-}
-
-// ReactUncounted admits independently scheduled boundary work without charging
-// the conversation-wide autonomous reaction limit. The caller must enforce
-// its own durable admission, concurrency, and loop policy.
-func (d *Droid) ReactUncounted(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
-	return d.react(ctx, admissionKey, false)
-}
-
-func (d *Droid) react(ctx context.Context, admissionKey string, countAutonomous bool) (handle ExecutionHandle, replayed bool, err error) {
 	if d == nil || d.sdk == nil {
 		return nil, false, fmt.Errorf("droids: React requires a droid opened with droids.Spawn")
 	}
@@ -511,14 +501,11 @@ func (d *Droid) react(ctx context.Context, admissionKey string, countAutonomous 
 	if len(rt.state.PendingBoundaries) == 0 {
 		return nil, false, ErrUnsafeContinuation
 	}
-	if countAutonomous && rt.state.AutonomousReactions >= maxAutonomousReactions {
-		return nil, false, ErrReactionLimit
-	}
-	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash, countAutonomous)
+	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash)
 	return handle, false, err
 }
 
-func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string, countAutonomous bool) (ExecutionHandle, error) {
+func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string) (ExecutionHandle, error) {
 	turnID, err := newTurnID()
 	if err != nil {
 		return nil, err
@@ -542,10 +529,6 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	rt.state.AdmissionKey = admissionKey
 	rt.state.AdmissionHash = admissionHash
 	if message == nil {
-		rt.state.AutonomousReactions = before.AutonomousReactions
-		if countAutonomous {
-			rt.state.AutonomousReactions++
-		}
 		rt.state.BoundaryReaction = true
 	}
 	rt.state.Status = ExecutionRunning

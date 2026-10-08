@@ -172,7 +172,6 @@ type Manager struct {
 	admissions        sync.WaitGroup
 	cleanups          sync.WaitGroup
 	mailboxWorkers    map[string]*mailboxReactionWorker
-	mailboxBlocked    map[string]bool
 	mailboxSlots      chan struct{}
 	mailboxStarted    bool
 	peerWorkers       map[string]*mailboxReactionWorker
@@ -428,8 +427,7 @@ func NewManager(store Repository, providers droids.Providers, bundleBuilder Runt
 		bashContext: bashContext, cancelBash: cancelBash,
 		mailboxContext: mailboxContext, cancelMailbox: cancelMailbox,
 		runtimes: make(map[string]*runtime), loading: make(map[string]*runtimeLoad), deleting: make(map[string]bool), creating: make(map[string]*sessionCreation), temporary: make(map[string]SessionRecord), disposals: make(map[string]*temporaryDisposal), disposedTemporary: make(map[string]struct{}),
-		shutdownDone: make(chan struct{}), mailboxWorkers: make(map[string]*mailboxReactionWorker),
-		mailboxBlocked: make(map[string]bool), mailboxSlots: make(chan struct{}, maxConcurrentReactions),
+		shutdownDone: make(chan struct{}), mailboxWorkers: make(map[string]*mailboxReactionWorker), mailboxSlots: make(chan struct{}, maxConcurrentReactions),
 		peerLimits: peer.DefaultLimits(), peerWorkers: make(map[string]*mailboxReactionWorker), peerActive: make(map[string]peer.Request), peerAdmissionCounts: make(map[string]int),
 		bashActive: make(map[string]*activeBashExecution), bashHistory: make(map[string]map[string]BashExecution),
 		bashNextSequence: make(map[string]int64),
@@ -2040,13 +2038,8 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		})
 	}
 	reservation, err := m.launchAdmittedRunLocked(loaded, sessionID, handle, subscription, false, nil, initialEvents)
-	if err == nil {
-		m.mu.Lock()
-		delete(m.mailboxBlocked, sessionID)
-		m.mu.Unlock()
-		if mailboxErr != nil {
-			m.wakeSubagentMailbox(sessionID)
-		}
+	if err == nil && mailboxErr != nil {
+		m.wakeSubagentMailbox(sessionID)
 	}
 	return reservation, err
 }

@@ -182,9 +182,6 @@ func (m *Manager) processOnePeerQuery(ctx context.Context, recipient string) err
 	if err != nil {
 		subscription.Close()
 		release()
-		if errors.Is(err, droids.ErrReactionLimit) {
-			m.failPeerRequest(request, peer.StateInterrupted, err)
-		}
 		return err
 	}
 	bound, err := m.peerQueries.BindPeerRecipientTurn(ctx, request.ID, request.Generation, string(handle.TurnID()))

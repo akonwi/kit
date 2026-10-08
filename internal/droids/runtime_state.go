@@ -78,9 +78,7 @@ type durableRuntime struct {
 	LastTransitionID        string                     `json:"last_transition_id,omitempty"`
 	AdmissionKey            string                     `json:"admission_key,omitempty"`
 	AdmissionHash           string                     `json:"admission_hash,omitempty"`
-	AutonomousReactions     uint8                      `json:"autonomous_reactions,omitempty"`
 	BoundaryReaction        bool                       `json:"boundary_reaction,omitempty"`
-	ReactionLimitDeferred   bool                       `json:"reaction_limit_deferred,omitempty"`
 }
 
 type durableBoundary struct {

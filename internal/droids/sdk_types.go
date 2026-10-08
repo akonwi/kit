@@ -262,7 +262,6 @@ const (
 	DroidErrorPersistence DroidErrorKind = "persistence"
 	DroidErrorCompaction  DroidErrorKind = "compaction"
 	DroidErrorUnsafe      DroidErrorKind = "unsafe_continuation"
-	DroidErrorLimit       DroidErrorKind = "limit"
 	DroidErrorInternal    DroidErrorKind = "internal"
 )
 

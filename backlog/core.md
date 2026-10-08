@@ -30,16 +30,8 @@ IDs but must not redefine server, persistence, or protocol semantics.
   treating Base64 length as token count.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
-- [ ] CORE-RUN-008 — Remove autonomous turn-chain limits as specified by
+- [x] CORE-RUN-008 — Remove autonomous turn-chain limits per
   [ADR 0040](../docs/adrs/0040-do-not-limit-autonomous-turn-chains.md).
-  Context-only reactions from any boundary source are admitted without a
-  consecutive-turn counter, limit-reached error, deferred-limit state, or
-  counted/uncounted distinction, and a session's subagent mailbox is never
-  blocked by such a limit. Persisted runtime state written with the former
-  counter or deferred-limit fields loads and resumes normally, and boundaries
-  left pending by the former limit are delivered. Verify with a chain of more
-  than 15 consecutive subagent-result and peer-query reactions and with
-  persisted state fixtures carrying the former fields.
 - [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
   across model changes and is projected consistently after restart.
 

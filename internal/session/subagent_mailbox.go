@@ -125,10 +125,6 @@ func (m *Manager) wakeSubagentMailbox(owner string) bool {
 		m.mu.Unlock()
 		return false
 	}
-	if m.mailboxBlocked[owner] {
-		m.mu.Unlock()
-		return true
-	}
 	if worker := m.mailboxWorkers[owner]; worker != nil {
 		worker.dirty = true
 		m.mu.Unlock()
@@ -162,9 +158,6 @@ func (m *Manager) runSubagentMailbox(owner string) {
 	for {
 		err := m.processSubagentMailbox(m.mailboxContext, owner)
 		if errors.Is(err, ErrNotFound) || errors.Is(err, ErrDeleteBusy) {
-			err = nil
-		}
-		if errors.Is(err, droids.ErrReactionLimit) {
 			err = nil
 		}
 		if err != nil && m.mailboxContext.Err() == nil {
@@ -351,11 +344,6 @@ func (m *Manager) deliverSubagentMailboxAutonomously(ctx context.Context, loaded
 	}
 	handle, replayed, err := loaded.droid.React(ctx, "mailbox:"+item.ID)
 	if err != nil {
-		if errors.Is(err, droids.ErrReactionLimit) {
-			m.mu.Lock()
-			m.mailboxBlocked[item.OwnerSessionID] = true
-			m.mu.Unlock()
-		}
 		subscription.Close()
 		release()
 		if errors.Is(err, droids.ErrBusy) {
