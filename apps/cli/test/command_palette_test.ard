@@ -353,3 +353,29 @@ test fn opening_from_a_mounted_editor_moves_typing_into_the_search_field() Void!
     "the palette search owns input: {search_row(terminal)}",
   )
 }
+
+test fn gapped_command_words_rank_the_command_and_keep_arguments() Void!Str {
+  let terminal = headless::new(80, 16)
+  defer terminal.destroy()
+  let model = mut Model{
+    open: true,
+    draft: "",
+    busy: false,
+    actions: [],
+    notices: [],
+    dismissed: 0,
+  }
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "nm Release notes")
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(model.actions.size() == 1, "Enter resolves one action")
+  let action = model.actions.at(0).expect("action")
+  testing::assert(
+    action.kind == command_palette::ActionKind::rename and action.argument == "Release notes",
+    "the best fuzzy command activates with its literal argument",
+  )
+}
