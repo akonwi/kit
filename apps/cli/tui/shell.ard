@@ -370,17 +370,16 @@ impl Shell {
     // force its cursor back into view.
     // A dock stays presented beneath dialogs; it only stops owning input.
     let request = self.attached.interaction()
-    let docked = request.is_some()
+    let docked = self.docked()
     if self.workspace == WorkspacePane::agent and not docked {
       children.push(self.pending_row())
     }
+    // The dock's surface runs into the rules above and below it.
     children.push(
-      layout::divider(
-        match docked {
-          true => colors.primary_text,
-          false => colors.border,
-        },
-      ),
+      match docked {
+        true => layout::divider(colors.primary_text, background: colors.surface),
+        false => layout::divider(colors.border),
+      },
     )
     // The composer stays mounted behind the dock so its draft survives.
     children.push(
@@ -668,19 +667,18 @@ impl cui::Component for Shell {
       bindings.push(keymap::binding(keymap::key("return"), connect.with()))
       bindings.push(keymap::binding(keymap::key("space"), connect.with()))
     }
+    // The interaction dock's surface runs into the rule beneath it.
+    let footer_rule = match self.docked() {
+      true => layout::divider(colors.border, background: colors.surface),
+      false => layout::divider(colors.border),
+    }
     let shell = cui::box(
       // Keep the application key layer attached to a focusable shell owner;
       // terminal key routing otherwise has no initial target before deferred
       // child autofocus settles.
       // Let focused controls handle Cmd+C first. This application fallback
       // copies the active cross-control selection without changing focus.
-      [
-        self.header(),
-        layout::divider(colors.border),
-        self.body(),
-        layout::divider(colors.border),
-        self.footer(),
-      ],
+      [self.header(), layout::divider(colors.border), self.body(), footer_rule, self.footer()],
       key: "shell.surface",
       styles: ui::style(
         width: ui::percent(100.0),
@@ -787,6 +785,11 @@ impl Shell {
   // notify raises an application notification through the host's context.
   fn mut notify(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
     self.notifications.show(title, detail, variant, persistent)
+  }
+
+  // Whether the interaction dock replaces the composer.
+  fn docked() Bool {
+    self.phase == Phase::ready and self.attached.interaction().is_some()
   }
 
   // Whether no root dialog is open.
@@ -1444,6 +1447,19 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
     divider.red == accent.red and divider.green == accent.green and divider.blue == accent.blue,
     "the divider above the dock uses the accent color",
   )
+  let surface = theme::system().surface
+  for row in [5, 12] {
+    for column in [0, 59] {
+      let fill = terminal.frame().cell(
+        column,
+        row,
+      ).expect("rule cell").style.background.expect("rule fill")
+      try testing::assert(
+        fill.red == surface.red and fill.green == surface.green and fill.blue == surface.blue,
+        "the rule on row {row} joins the dock surface at column {column}",
+      )
+    }
+  }
 
   renderer.update(fn() {
     subject.attached.apply_events(
