@@ -1,9 +1,10 @@
 import SwiftUI
 
-/// A plugin-submitted message as one quiet disclosure row naming the plugin and
-/// the message's first line. Expanding it shows the full message beneath a
-/// rule. The message is context the plugin gave the agent, so it stays below
-/// user and assistant messages in visual weight, like a tool group.
+/// A plugin-submitted message presented like a recorded tool call: the plugin
+/// symbol, the plugin name, and the message's first line as the summary.
+/// Expanding it shows the full message as a tool-call detail. The message is
+/// machine input that starts the turn, so it shares the tool-call vocabulary
+/// but stays its own row ahead of the turn's tool group.
 struct PluginMessageRow: View {
     @Environment(\.mica) private var theme
     let message: TranscriptMessage
@@ -12,6 +13,7 @@ struct PluginMessageRow: View {
     @Bindable var state: ToolDrawerState
     var onExpand: () -> Void = {}
     @State private var hovering = false
+    @State private var contentHeight: CGFloat = 1
 
     var body: some View {
         let expanded = state.expanded ?? false
@@ -20,29 +22,25 @@ struct PluginMessageRow: View {
                 state.expanded = !expanded
                 if !expanded { onExpand() }
             } label: {
-                HStack(spacing: 9) {
-                    Image(systemName: "puzzlepiece.extension").font(.kit(size: 12)).frame(width: 16)
-                    Text(origin.pluginID).font(.kit(size: 12, weight: .medium))
-                        .foregroundStyle(hovering ? theme.accent : theme.text).fixedSize()
-                    Text(glyphMiddleDot)
-                    Text(Self.summary(message.text)).lineLimit(1).truncationMode(.tail)
-                    Spacer(minLength: 0)
-                    Image(systemName: expanded ? "chevron.down" : "chevron.right")
-                        .font(.kit(size: 8, weight: .semibold)).frame(width: 16)
-                }.padding(.vertical, 5).contentShape(Rectangle())
+                DisclosureChipLabel(icon: "puzzlepiece.extension", iconColor: theme.muted, title: origin.pluginID,
+                                    summary: Self.summary(message.text), monospacedSummary: false,
+                                    expanded: expanded, hovering: hovering)
             }
-            .buttonStyle(.plain).foregroundStyle(theme.muted)
-            .onHover { hovering = $0 }
-            .help("\(expanded ? "Hide" : "Show") the message from \(origin.pluginID)")
+            .buttonStyle(.plain).onHover { hovering = $0 }
+            .help(Self.summary(message.text))
             .accessibilityLabel("Message from \(origin.pluginID)")
             .accessibilityValue(expanded ? "Expanded" : "Collapsed")
+            .accessibilityHint("Show the full message")
             if expanded {
-                MarkdownView(source: message.text)
-                    .foregroundStyle(theme.muted)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.leading, 12)
-                    .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 2) }
-                    .padding(.leading, 25)
+                ScrollView(.vertical) {
+                    MarkdownView(source: message.text)
+                        .frame(maxWidth: .infinity, alignment: .leading).padding(.vertical, 8)
+                        .onGeometryChange(for: CGFloat.self) { $0.size.height } action: { contentHeight = $0 }
+                }
+                .defaultScrollAnchor(.topLeading, for: .alignment)
+                .frame(height: min(max(1, contentHeight), 280))
+                .disclosureDetail()
+                .padding(.leading, 25)
             }
         }
         .font(.kit(size: 12))
@@ -57,6 +55,4 @@ struct PluginMessageRow: View {
             .lazy.map { $0.trimmingCharacters(in: .whitespaces) }
             .first { !$0.isEmpty } ?? ""
     }
-
-    private let glyphMiddleDot = "·"
 }

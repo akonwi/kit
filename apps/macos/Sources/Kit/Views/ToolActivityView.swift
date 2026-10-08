@@ -122,31 +122,59 @@ private struct ToolChipRow: View {
 
     var body: some View {
         Button(action: action) {
-            HStack(spacing: 9) {
-                Image(systemName: icon)
-                    .font(.kit(size: 13)).frame(width: 16)
-                    .foregroundStyle(tool.failed ? theme.danger : theme.muted)
-                Text(label).foregroundStyle(theme.text).fixedSize()
-                if let status = tool.status, status != "Completed" {
-                    Text(status).font(.kit(size: 11)).foregroundStyle(theme.muted)
-                }
-                HStack(spacing: 8) {
-                    Text(ToolPresentation(tool).summary)
-                        .font(.kit(size: 11, design: .monospaced))
-                        .lineLimit(1).truncationMode(.middle)
-                        .frame(maxWidth: .infinity, alignment: .leading)
-                    Image(systemName: selected ? "chevron.down" : "chevron.right")
-                        .font(.kit(size: 8, weight: .semibold))
-                }
-                .foregroundStyle(selected || hovering ? theme.text : theme.muted)
-                .padding(.vertical, 5)
-
-            }.contentShape(Rectangle())
+            DisclosureChipLabel(icon: icon, iconColor: tool.failed ? theme.danger : theme.muted, title: label,
+                                status: tool.status == "Completed" ? nil : tool.status,
+                                summary: ToolPresentation(tool).summary, expanded: selected, hovering: hovering)
         }
         .buttonStyle(.plain).onHover { hovering = $0 }
         .help(ToolPresentation(tool).summary)
         .accessibilityLabel("\(label): \(ToolPresentation(tool).summary)\(tool.failed ? ", failed" : "")")
         .accessibilityValue(selected ? "Expanded" : "Collapsed")
         .accessibilityHint("Show tool details")
+    }
+}
+
+/// The row layout of a recorded tool call, shared by other transcript rows
+/// that disclose details the same way: an icon in the indicator column, a
+/// title, an optional status, and a muted one-line summary with a chevron.
+struct DisclosureChipLabel: View {
+    @Environment(\.mica) private var theme
+    let icon: String
+    let iconColor: Color
+    let title: String
+    var status: String? = nil
+    let summary: String
+    /// Monospaced summaries (paths, commands) truncate in the middle; prose
+    /// summaries truncate at the end.
+    var monospacedSummary = true
+    let expanded: Bool
+    let hovering: Bool
+
+    var body: some View {
+        let detail = expanded || hovering ? theme.text : theme.muted
+        HStack(spacing: 9) {
+            Image(systemName: icon)
+                .font(.kit(size: 13)).frame(width: 16)
+                .foregroundStyle(iconColor)
+            // The title is larger than the status and summary; share a
+            // baseline rather than centring each run of text.
+            HStack(alignment: .firstTextBaseline, spacing: 9) {
+                Text(title).foregroundStyle(theme.text).fixedSize()
+                if let status {
+                    Text(status).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                }
+                Text(summary)
+                    .font(.kit(size: 11, design: monospacedSummary ? .monospaced : .default))
+                    .lineLimit(1).truncationMode(monospacedSummary ? .middle : .tail)
+                    .frame(maxWidth: .infinity, alignment: .leading)
+                    .foregroundStyle(detail)
+            }
+            Image(systemName: expanded ? "chevron.down" : "chevron.right")
+                .font(.kit(size: 8, weight: .semibold))
+                .foregroundStyle(detail)
+                .padding(.leading, -1)
+        }
+        .padding(.vertical, 5)
+        .contentShape(Rectangle())
     }
 }

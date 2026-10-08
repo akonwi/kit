@@ -34,9 +34,7 @@ struct ToolCallDetail: View {
             .defaultScrollAnchor(.topLeading, for: .alignment)
             .frame(height: min(max(1, contentHeight), tool.bashCommand != nil ? 180 : 280))
         }
-        .font(.kit(size: 11)).foregroundStyle(theme.text)
-        .padding(.leading, 12)
-        .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 1) }
+        .disclosureDetail()
     }
 
     @ViewBuilder private var content: some View {
@@ -188,5 +186,20 @@ private struct ToolEditDiff: View {
         case .removed: theme.token("diffRemovedBg", fallback: theme.danger.opacity(0.1))
         case .context: .clear
         }
+    }
+}
+
+extension View {
+    /// The text style and leading rule of a disclosed tool-call detail.
+    func disclosureDetail() -> some View { modifier(DisclosureDetail()) }
+}
+
+private struct DisclosureDetail: ViewModifier {
+    @Environment(\.mica) private var theme
+    func body(content: Content) -> some View {
+        content
+            .font(.kit(size: 11)).foregroundStyle(theme.text)
+            .padding(.leading, 12)
+            .overlay(alignment: .leading) { Rectangle().fill(theme.border).frame(width: 1) }
     }
 }
