@@ -708,9 +708,11 @@ struct WireCompactSessionResult: Codable, Sendable {
 }
 
 struct WireForkSessionInput: Codable, Sendable {
-    let `id`: String?
     let `name`: String?
+    let `prompt`: WirePromptInput?
 }
+
+typealias WireForkSessionResult = Components.Schemas.ForkSessionResult
 
 enum WireThinkingLevel: String, Codable, Sendable {
     case value0 = "off"

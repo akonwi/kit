@@ -506,6 +506,7 @@ final class SessionStore {
     func refreshSessions() async { await replica.refreshSessions() }
     func attach() {
         let id = selectedID
+        applyForkFirstTurnFailure()
         pluginNotifications.start(session: id, client: catalogClient as? any PluginNotificationClient) { [weak self] notification in
             guard let self, self.selectedID == id, !self.unavailable else { return }
             self.feedback.showPluginNotification(notification)
@@ -661,6 +662,14 @@ final class SessionStore {
                 guard let self, self.selectedID == id else { return }
                 self.applyAcknowledgedDraft()
             }
+    }
+
+    /// Presents a fork's first message that could not start like any failed
+    /// prompt submission: it returns to the composer with the failure shown.
+    func applyForkFirstTurnFailure() {
+        guard !isDemo, let failure = ForkFirstTurnFailures.shared.take(SessionIdentity(server: serverID, session: selectedID)) else { return }
+        if ui.draft.isEmpty { ui.draft = failure.message }
+        operations.reject(failure.error)
     }
 
     func recoverSubmission() {

@@ -71,6 +71,7 @@ struct SessionScreen: View {
         }
         .onAppear { state.attach(); onSelection(state.selectedID) }
         .onChange(of: state.selectedID) { onSelection(state.selectedID) }
+        .onChange(of: ForkFirstTurnFailures.shared.revision) { state.applyForkFirstTurnFailure() }
         .onDisappear { state.detach() }
         .navigationTitle(state.selected?.title ?? "Kit")
         .navigationSubtitle((state.isTemporary ? "Temporary · " : "") + (state.selected?.workspace ?? ""))

@@ -3586,6 +3586,52 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/FirstTurnError`.
+        internal struct FirstTurnError: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/FirstTurnError/code`.
+            internal enum CodePayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case invalidRequest = "invalid_request"
+                case notFound = "not_found"
+                case conflict = "conflict"
+                case unavailable = "unavailable"
+                case _internal = "internal"
+            }
+            /// - Remark: Generated from `#/components/schemas/FirstTurnError/code`.
+            internal var code: Components.Schemas.FirstTurnError.CodePayload
+            /// - Remark: Generated from `#/components/schemas/FirstTurnError/message`.
+            internal var message: Swift.String
+            /// Creates a new `FirstTurnError`.
+            ///
+            /// - Parameters:
+            ///   - code:
+            ///   - message:
+            internal init(
+                code: Components.Schemas.FirstTurnError.CodePayload,
+                message: Swift.String
+            ) {
+                self.code = code
+                self.message = message
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case code
+                case message
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.code = try container.decode(
+                    Components.Schemas.FirstTurnError.CodePayload.self,
+                    forKey: .code
+                )
+                self.message = try container.decode(
+                    Swift.String.self,
+                    forKey: .message
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "code",
+                    "message"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/FollowUpQueue`.
         internal struct FollowUpQueue: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/FollowUpQueue/annotationIds`.
@@ -3679,39 +3725,77 @@ extension Components {
         }
         /// - Remark: Generated from `#/components/schemas/ForkSessionInput`.
         internal struct ForkSessionInput: Codable, Hashable, Sendable {
-            /// - Remark: Generated from `#/components/schemas/ForkSessionInput/id`.
-            internal var id: Swift.String?
             /// - Remark: Generated from `#/components/schemas/ForkSessionInput/name`.
             internal var name: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/ForkSessionInput/prompt`.
+            internal var prompt: Components.Schemas.PromptInput?
             /// Creates a new `ForkSessionInput`.
             ///
             /// - Parameters:
-            ///   - id:
             ///   - name:
+            ///   - prompt:
             internal init(
-                id: Swift.String? = nil,
-                name: Swift.String? = nil
+                name: Swift.String? = nil,
+                prompt: Components.Schemas.PromptInput? = nil
             ) {
-                self.id = id
                 self.name = name
+                self.prompt = prompt
             }
             internal enum CodingKeys: String, CodingKey {
-                case id
                 case name
+                case prompt
             }
             internal init(from decoder: any Swift.Decoder) throws {
                 let container = try decoder.container(keyedBy: CodingKeys.self)
-                self.id = try container.decodeIfPresent(
-                    Swift.String.self,
-                    forKey: .id
-                )
                 self.name = try container.decodeIfPresent(
                     Swift.String.self,
                     forKey: .name
                 )
+                self.prompt = try container.decodeIfPresent(
+                    Components.Schemas.PromptInput.self,
+                    forKey: .prompt
+                )
                 try decoder.ensureNoAdditionalProperties(knownKeys: [
-                    "id",
-                    "name"
+                    "name",
+                    "prompt"
+                ])
+            }
+        }
+        /// - Remark: Generated from `#/components/schemas/ForkSessionResult`.
+        internal struct ForkSessionResult: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/ForkSessionResult/firstTurnError`.
+            internal var firstTurnError: Components.Schemas.FirstTurnError?
+            /// - Remark: Generated from `#/components/schemas/ForkSessionResult/session`.
+            internal var session: Components.Schemas.SessionInfo
+            /// Creates a new `ForkSessionResult`.
+            ///
+            /// - Parameters:
+            ///   - firstTurnError:
+            ///   - session:
+            internal init(
+                firstTurnError: Components.Schemas.FirstTurnError? = nil,
+                session: Components.Schemas.SessionInfo
+            ) {
+                self.firstTurnError = firstTurnError
+                self.session = session
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case firstTurnError
+                case session
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.firstTurnError = try container.decodeIfPresent(
+                    Components.Schemas.FirstTurnError.self,
+                    forKey: .firstTurnError
+                )
+                self.session = try container.decode(
+                    Components.Schemas.SessionInfo.self,
+                    forKey: .session
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "firstTurnError",
+                    "session"
                 ])
             }
         }
