@@ -74,8 +74,12 @@ struct Controller {
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
-  // Pending model requests in arrival order. The oldest is presented.
+  // Pending model and plugin requests in arrival order. The oldest is
+  // presented.
   interactions: [protocol::InteractionRequest],
+  // Recently settled request IDs. The session watch and a turn stream can
+  // each deliver a request, so a late copy must not reopen it.
+  settled_interactions: [Str],
   // The request whose response is being submitted, if any.
   interaction_responding: Str,
 }
@@ -133,6 +137,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     abort_pending: false,
     abort_after_start: false,
     interactions: [],
+    settled_interactions: [],
     interaction_responding: "",
     scratchpad_record: Maybe::new<protocol::Scratchpad>(),
     scratchpad_loading: false,
@@ -795,7 +800,7 @@ impl Controller {
     }
   }
 
-  // Queues a model request once. Plugin requests are not presented yet.
+  // Queues a request once, unless it has already settled.
   private fn mut add_interaction(request: protocol::InteractionRequest) {
     mut known = false
     for pending in self.interactions {
@@ -803,12 +808,30 @@ impl Controller {
         known = true
       }
     }
-    if (not known) and unsafe::is_nil(request.Plugin) {
+    for settled in self.settled_interactions {
+      if settled == request.ID {
+        known = true
+      }
+    }
+    if not known {
       self.interactions.push(request)
     }
   }
 
+  // Settles a request, remembering a bounded number of settled IDs.
   private fn mut remove_interaction(id: Str) {
+    let remembered = mut List::new<Str>()
+    for settled in self.settled_interactions {
+      if settled != id {
+        remembered.push(settled)
+      }
+    }
+    remembered.push(id)
+    let recent = remembered.@
+    self.settled_interactions = match recent.size() > 64 {
+      true => recent.slice(start: recent.size() - 64).expect("recent settled requests").to_list(),
+      false => recent,
+    }
     let remaining = mut List::new<protocol::InteractionRequest>()
     for pending in self.interactions {
       if pending.ID != id {
@@ -1826,7 +1849,7 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
       },
     ],
   )
-  try testing::assert(subject.interactions.size() == 2, "{subject.interactions.size()} pending requests")
+  try testing::assert(subject.interactions.size() == 3, "{subject.interactions.size()} pending requests")
   try testing::assert(
     subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_1",
     "the oldest request is presented",
@@ -1858,10 +1881,60 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
       },
     ],
   )
+  try testing::assert(
+    subject.interaction().or(protocol::InteractionRequest{}).ID == "interaction_plugin",
+    "plugin requests queue with model requests",
+  )
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "interaction.resolved",
+        Sequence: 7,
+        InteractionID: "interaction_plugin",
+      },
+    ],
+  )
   testing::assert(
     subject.interaction().is_none() and (not subject.feedback_pending()) and subject.activity() != "Waiting for feedback…",
     "settling every request ends feedback",
   )
+}
+
+test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  let request = model_request("interaction_1")
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 1,
+        Interaction: mut request,
+        InteractionID: request.ID,
+      },
+      sessionbridge::Event{
+        Kind: "interaction.resolved",
+        Sequence: 2,
+        InteractionID: request.ID,
+      },
+    ],
+  )
+  // The turn stream lags the session watch and delivers the request again.
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "interaction.requested",
+        Sequence: 1,
+        Interaction: mut request,
+        InteractionID: request.ID,
+      },
+    ],
+  )
+  try testing::assert(subject.interaction().is_none(), "the event stream copy stays settled")
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, PendingInteractions: [request]},
+  )
+  testing::assert(subject.interaction().is_none(), "a stale snapshot copy stays settled")
 }
 
 test fn snapshots_replace_pending_requests() Void!Str {

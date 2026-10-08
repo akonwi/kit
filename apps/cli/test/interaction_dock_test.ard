@@ -778,3 +778,209 @@ test fn a_paste_does_not_answer_a_choice() Void!Str {
   settle(terminal)
   testing::assert(state.responses.size() == 0, "pasted text is not a key press")
 }
+
+fn owner() mut protocol::PluginInteractionOwner {
+  (mut protocol::PluginInteractionOwner{PluginID: "ui-api-demo", Instance: "owner:1"})
+}
+
+fn plugin_confirmation(default_value: Bool) protocol::InteractionRequest {
+  let preferred = mut default_value
+  protocol::InteractionRequest{
+    ID: "interaction_confirm",
+    Plugin: owner(),
+    Kind: protocol::InteractionConfirm,
+    Title: "Confirm plugin action",
+    Detail: "Shows a **toast**.",
+    ConfirmLabel: "Show toast",
+    CancelLabel: "Do not show",
+    DefaultValue: preferred,
+  }
+}
+
+fn same(left: ui::Color, right: ui::Color) Bool {
+  left.red == right.red and left.green == right.green and left.blue == right.blue
+}
+
+fn fill(terminal: headless::TestApp, x: Int, y: Int) ui::Color {
+  terminal.frame().cell(x, y).expect("cell").style.background.expect("button fill")
+}
+
+test fn a_plugin_confirmation_shows_its_source_labels_and_default() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(plugin_confirmation(true))
+  state.queue_length = 2
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Confirm plugin action             ui-api-demo  ·  1 of 2 │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ Shows a toast.                                           │",
+      "│                                                          │",
+      "│   Show toast     Do not show                             │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ tab switch · enter choose · y/n answer · esc cancel      │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  let colors = theme::system()
+  try testing::assert(
+    same(fill(terminal, 3, 8), colors.primary) and same(fill(terminal, 18, 8), colors.surface),
+    "the default answer is highlighted",
+  )
+  press(terminal, "tab")
+  testing::assert(
+    same(fill(terminal, 3, 8), colors.surface) and same(fill(terminal, 18, 8), colors.primary),
+    "Tab highlights the other answer",
+  )
+}
+
+test fn return_chooses_the_highlighted_plugin_answer() Void!Str {
+  for default_value in [false, true] {
+    for switched in [false, true] {
+      let terminal = headless::new(60, 12)
+      let state = model(plugin_confirmation(default_value))
+      let renderer = mount(terminal, state)
+      if switched {
+        press(terminal, "right")
+      }
+      press(terminal, "return")
+      let want = match switched {
+        true => not default_value,
+        false => default_value,
+      }
+      let response = only_response(state)
+      renderer.destroy()
+      terminal.destroy()
+      let answer = try response
+      try testing::assert(
+        (not unsafe::is_nil(answer.Confirmed)) and answer.Confirmed.@ == want,
+        "default {default_value}, switched {switched}",
+      )
+    }
+  }
+  testing::pass()
+}
+
+test fn a_plugin_confirmation_without_a_default_highlights_declining() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_confirm",
+      Plugin: owner(),
+      Kind: protocol::InteractionConfirm,
+      Title: "Confirm plugin action",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "return")
+  let declined = try only_response(state)
+  try testing::assert(
+    (not unsafe::is_nil(declined.Confirmed)) and not declined.Confirmed.@,
+    "Return declines when nothing is preferred",
+  )
+  state.responses = []
+  press(terminal, "escape")
+  let cancelled = try only_response(state)
+  testing::assert(cancelled.Cancelled, "Escape still cancels the request")
+}
+
+test fn a_plugin_text_request_starts_from_its_initial_value_and_accepts_an_empty_answer() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_note",
+      Plugin: owner(),
+      Kind: protocol::InteractionInput,
+      Title: "Plugin input",
+      InitialValue: "draft note",
+      Placeholder: "Your note",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try testing::assert(
+    rows(terminal).at(6).or("") == "│  draft note                                              │",
+    "the initial value fills the field",
+  )
+  press(terminal, "return")
+  let initial = try only_response(state)
+  try testing::assert(
+    (not unsafe::is_nil(initial.Value)) and initial.Value.@ == "draft note",
+    "the initial value is the answer",
+  )
+  let empty_terminal = headless::new(60, 10)
+  defer empty_terminal.destroy()
+  let empty_state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_empty",
+      Plugin: owner(),
+      Kind: protocol::InteractionInput,
+      Title: "Optional note",
+      Placeholder: "Your note",
+    },
+  )
+  let empty_renderer = mount(empty_terminal, empty_state)
+  defer empty_renderer.destroy()
+  press(empty_terminal, "return")
+  let empty = try only_response(empty_state)
+  testing::assert(
+    (not unsafe::is_nil(empty.Value)) and empty.Value.@ == "" and (not empty.Cancelled),
+    "an empty answer is still an answer",
+  )
+}
+
+test fn a_filterable_plugin_select_is_a_plain_list() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let filterable = mut true
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_select",
+      Plugin: owner(),
+      Kind: protocol::InteractionSelect,
+      Title: "Choose target",
+      Filterable: filterable,
+      Placeholder: "Filter scopes...",
+      Options: [
+        protocol::InteractionOption{ID: "option_file", Label: "Current file"},
+        protocol::InteractionOption{ID: "option_project", Label: "Whole project"},
+      ],
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────────┐",
+      "│ Choose target                                ui-api-demo │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│▌A   Current file                                         │",
+      "│ B   Whole project                                        │",
+      "├──────────────────────────────────────────────────────────┤",
+      "│ ↑↓ move · enter/space select · esc cancel        Cancel  │",
+      "└──────────────────────────────────────────────────────────┘",
+    ],
+  )
+  press(terminal, "j")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    response.SelectedOptionID == "option_project",
+    "the plain list chooses by keyboard",
+  )
+}
