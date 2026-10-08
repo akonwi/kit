@@ -1,0 +1,619 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper/cui
+use cooper/event
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/markdown
+use kit/tui/theme
+use go:strings
+
+// The interaction dock: the composer's replacement while the agent waits for
+// an answer. It presents the oldest pending request at its natural height,
+// owns keyboard input while no dialog is open, and reports one response per
+// request through `respond`.
+
+// Ref lets Shell return focus to the dock, for example after a dialog closes.
+struct Ref {
+  focus_action: (fn() Bool)?,
+}
+
+fn ref() mut Ref {
+  (mut Ref{focus_action: Maybe::new<fn() Bool>()})
+}
+
+impl Ref {
+  fn mut focus() Bool {
+    match self.focus_action {
+      action => action(),
+      _ => false,
+    }
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  request: protocol::InteractionRequest,
+  // The number of pending requests, including this one.
+  queue_length: Int,
+  // False while a dialog above the dock owns input.
+  active: Bool,
+  // True while a response for this request is being submitted.
+  submitting: Bool,
+  respond: fn(protocol::InteractionResponse),
+  control: mut Ref,
+}
+
+struct Dock {
+  props: mut Props,
+  context: cui::Context?,
+  // The text answer being edited.
+  value: Str,
+  // The highlighted option.
+  cursor: Int,
+  list: mut cui::VirtualListRef,
+  hidden_above: Int,
+  hidden_below: Int,
+  focus: mut cui::BoxRef,
+  input: mut cui::InputRef,
+}
+
+// dock presents `props.request`. Each request mounts a fresh dock, so answer
+// state never carries over to the next request.
+fn dock(props: Props) cui::View {
+  cui::child(new, props, key: "interaction.{props.request.ID}")
+}
+
+private fn new(props: mut Props) mut Dock {
+  (mut Dock{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    value: props.request.InitialValue,
+    cursor: 0,
+    list: cui::virtual_list_ref(),
+    hidden_above: 0,
+    hidden_below: 0,
+    focus: cui::box_ref(),
+    input: cui::input_ref(),
+  })
+}
+
+impl cui::Lifecycle for Dock {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.props.control.focus_action = Maybe::new(fn() Bool {
+      self.request_focus()
+    })
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    self.props.control.focus_action = Maybe::new<fn() Bool>()
+  }
+}
+
+impl Dock {
+  private fn mut request_focus() Bool {
+    match self.context {
+      ctx => {
+        let input = self.input
+        let focus = self.focus
+        let text = self.accepts_text()
+        let _ = ctx.dispatch(fn() {
+          if self.props.active {
+            match text {
+              true => input.focus(ctx),
+              false => focus.focus(ctx),
+            }
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn accepts_text() Bool {
+    self.props.request.Kind.to_str() == "input"
+  }
+
+  // respond reports one response unless the dock is waiting behind a dialog
+  // or a response is already in flight.
+  private fn mut respond(response: protocol::InteractionResponse) Bool {
+    if self.props.active and not self.props.submitting {
+      (self.props.respond)(response)
+    }
+    true
+  }
+
+  private fn mut cancel() Bool {
+    self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Cancelled: true})
+  }
+
+  private fn mut confirm(value: Bool) Bool {
+    let confirmed = mut value
+    self.respond(
+      protocol::InteractionResponse{RequestID: self.props.request.ID, Confirmed: confirmed},
+    )
+  }
+
+  private fn mut submit_text(value: Str) Bool {
+    if strings::TrimSpace(value) == "" {
+      true
+    } else {
+      let answer = mut value
+      self.respond(protocol::InteractionResponse{RequestID: self.props.request.ID, Value: answer})
+    }
+  }
+
+  private fn mut choose(index: Int) Bool {
+    match self.props.request.Options.at(index) {
+      option => {
+        self.cursor = index
+        self.respond(
+          protocol::InteractionResponse{RequestID: self.props.request.ID, SelectedOptionID: option.ID},
+        )
+      },
+      _ => true,
+    }
+  }
+
+  private fn mut move(delta: Int) Bool {
+    let count = self.props.request.Options.size()
+    if count > 0 {
+      self.cursor = clamp(self.cursor + delta, 0, count - 1)
+      self.reveal()
+    }
+    true
+  }
+
+  // Keeps the highlighted option in view once the list has laid out.
+  private fn mut reveal() {
+    match self.context {
+      ctx => {
+        let list = self.list
+        let key = option_key(self.cursor)
+        (ctx.internal_commit)(
+          fn() {
+            let _ = list.current.map(fn(current) {
+              current.reveal(key)
+            })
+          },
+        )
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut bindings() Bindings {
+    let commands = mut List::new<keymap::Command>()
+    let bindings = mut List::new<keymap::Binding>()
+    let cancel = keymap::simple_command("interaction.cancel", "Cancel request", fn() Bool {
+      self.cancel()
+    })
+    commands.push(cancel)
+    bindings.push(keymap::binding(keymap::key("escape"), cancel.with()))
+    match self.props.request.Kind.to_str() {
+      "confirm" => {
+        let yes = keymap::simple_command("interaction.yes", "Yes", fn() Bool {
+          self.confirm(true)
+        })
+        let no = keymap::simple_command("interaction.no", "No", fn() Bool {
+          self.confirm(false)
+        })
+        commands.push(yes)
+        commands.push(no)
+        for shift in [false, true] {
+          bindings.push(keymap::binding(keymap::key("y", shift: shift), yes.with()))
+          bindings.push(keymap::binding(keymap::key("n", shift: shift), no.with()))
+        }
+      },
+      "select" => {
+        let up = keymap::simple_command("interaction.previous", "Previous option", fn() Bool {
+          self.move(-1)
+        })
+        let down = keymap::simple_command("interaction.next", "Next option", fn() Bool {
+          self.move(1)
+        })
+        let choose = keymap::simple_command("interaction.choose", "Choose option", fn() Bool {
+          self.choose(self.cursor)
+        })
+        commands.push(up)
+        commands.push(down)
+        commands.push(choose)
+        bindings.push(keymap::binding(keymap::key("up"), up.with()))
+        bindings.push(keymap::binding(keymap::key("k"), up.with()))
+        bindings.push(keymap::binding(keymap::key("down"), down.with()))
+        bindings.push(keymap::binding(keymap::key("j"), down.with()))
+        bindings.push(keymap::binding(keymap::key("return"), choose.with()))
+        bindings.push(keymap::binding(keymap::key("space"), choose.with()))
+      },
+      _ => (),
+    }
+    Bindings{commands: commands.@, bindings: bindings.@}
+  }
+
+  private fn mut header(colors: theme::Theme) cui::View {
+    let meta = match self.props.queue_length > 1 {
+      true => "1 of {self.props.queue_length}",
+      false => "",
+    }
+    cui::box(
+      [
+        cui::text(
+          self.props.request.Title,
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.foreground, bold: true),
+        ),
+        cui::text(meta, text_style: ui::text_style(foreground: colors.muted), wrap: ui::TextWrap::none),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+        gap: ui::cells(2),
+      ),
+    )
+  }
+
+  private fn mut body(colors: theme::Theme) cui::View {
+    let request = self.props.request
+    match request.Kind.to_str() {
+      "confirm" => {
+        let yes = keymap::simple_command("interaction.yes.pointer", "Yes", fn() Bool {
+          self.confirm(true)
+        })
+        let no = keymap::simple_command("interaction.no.pointer", "No", fn() Bool {
+          self.confirm(false)
+        })
+        cui::box(
+          [
+            controls::button(self.props.themes, "Yes", yes, focusable: false),
+            controls::button(
+              self.props.themes,
+              "No",
+              no,
+              variant: controls::ButtonVariant::secondary,
+              focusable: false,
+              raised: true,
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::row,
+            flex_shrink: 0.0,
+            gap: ui::cells(1),
+          ),
+        )
+      },
+      "input" => {
+        let placeholder = match request.Placeholder == "" {
+          true => "Type a response",
+          false => request.Placeholder,
+        }
+        cui::box(
+          [
+            cui::input(
+              self.value,
+              key: "interaction.input",
+              styles: ui::style(flex_grow: 1.0),
+              placeholder: placeholder,
+              autofocus: self.props.active,
+              ref: self.input,
+              on_input: fn(value: Str, ctx: cui::Context) {
+                self.value = value
+              },
+              on_submit: fn(value: Str, ctx: cui::Context) {
+                let _ = self.submit_text(value)
+              },
+            ),
+          ],
+          styles: ui::style(
+            flex_direction: ui::FlexDirection::row,
+            flex_shrink: 0.0,
+            background: colors.surface_raised,
+            padding: ui::Edges{
+              top: ui::cells(0),
+              right: ui::cells(1),
+              bottom: ui::cells(0),
+              left: ui::cells(1),
+            },
+          ),
+        )
+      },
+      "select" => self.options(colors, request.Options),
+      _ => {
+        cui::text(
+          "This request is not supported by this client.",
+          text_style: ui::text_style(foreground: colors.danger_text),
+        )
+      },
+    }
+  }
+
+  // options lists every choice when it fits; a constrained terminal windows
+  // the list around the highlighted option.
+  private fn mut options(colors: theme::Theme, options: [protocol::InteractionOption]) cui::View {
+    mut labels = 1
+    for option in options {
+      labels = match option.Label.size() > labels {
+        true => option.Label.size(),
+        false => labels,
+      }
+    }
+    let label_width = clamp(labels, 1, 32)
+    let indices = mut List::new<Int>()
+    mut index = 0
+    while index < options.size() {
+      indices.push(index)
+      index =+ 1
+    }
+    let count = options.size()
+    // A list that cannot show every option always reports what it hides.
+    let overflow_rows = match count > 3 {
+      true => {
+        match self.hidden_above > 0 and self.hidden_below > 0 {
+          true => 2,
+          false => 1,
+        }
+      },
+      false => 0,
+    }
+    cui::box(
+      // A windowed list keeps three options plus its overflow rows before
+      // the detail gives up space.
+      [
+        overflow_row(colors, "above", "▲", self.hidden_above),
+        cui::virtual_list(
+          indices.@,
+          item_key: fn(item: Int) Str {
+            option_key(item)
+          },
+          render_item: fn(item: Int) cui::View {
+            self.option_row(colors, options.at(item).expect("option"), item, label_width)
+          },
+          row_height: 1,
+          estimated_height: 1,
+          overscan: 2,
+          scrollbar_options: ui::scrollbar_options(visibility: ui::ScrollbarVisibility::hidden),
+          key: "interaction.options",
+          ref: self.list,
+          on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+            self.hidden_above = update.state.visible_range.start
+            self.hidden_below = count - update.state.visible_range.end
+          },
+          styles: ui::style(
+            height: ui::cells(count),
+            min_height: ui::cells(clamp(count, 0, 3)),
+            flex_shrink: 1.0,
+          ),
+        ),
+        overflow_row(colors, "below", "▼", self.hidden_below),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        flex_shrink: 1.0,
+        min_height: ui::cells(clamp(count, 0, 3) + overflow_rows),
+      ),
+    )
+  }
+
+  private fn mut option_row(
+    colors: theme::Theme,
+    option: protocol::InteractionOption,
+    index: Int,
+    label_width: Int,
+  ) cui::View {
+    let selected = index == self.cursor
+    let fill = match selected {
+      true => colors.picker_selected,
+      false => colors.surface,
+    }
+    cui::box(
+      [
+        cui::text(
+          match selected {
+            true => "▌",
+            false => " ",
+          },
+          text_style: ui::text_style(foreground: colors.primary),
+        ),
+        cui::box(
+          [cui::text(option_marker(index), text_style: ui::text_style(foreground: colors.muted))],
+          styles: ui::style(width: ui::cells(4), flex_shrink: 0.0),
+        ),
+        cui::box(
+          [
+            cui::text(
+              option.Label,
+              text_style: ui::text_style(foreground: colors.foreground, bold: selected),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+          ],
+          styles: ui::style(width: ui::cells(label_width + 2), flex_shrink: 0.0),
+        ),
+        cui::text(
+          option.Detail,
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      styles: ui::style(
+        background: fill,
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+          let _ = self.choose(index)
+          received.prevent_default()
+        }
+      },
+    )
+  }
+
+  private fn hint() Str {
+    match self.props.request.Kind.to_str() {
+      "confirm" => "y yes · n no · esc cancel",
+      "select" => "↑↓ move · enter/space select · esc cancel",
+      _ => "enter submit · esc cancel",
+    }
+  }
+
+  private fn mut footer(colors: theme::Theme) cui::View {
+    let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
+      self.cancel()
+    })
+    cui::box(
+      [
+        cui::text(
+          self.hint(),
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.muted),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+        controls::button(
+          self.props.themes,
+          "Cancel",
+          cancel,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          focusable: false,
+          raised: true,
+        ),
+      ],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+        gap: ui::cells(2),
+        justify_content: ui::Justify::end,
+      ),
+    )
+  }
+}
+
+struct Bindings {
+  commands: [keymap::Command],
+  bindings: [keymap::Binding],
+}
+
+impl cui::Component for Dock {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let children = mut List::new<cui::View>()
+    children.push(self.header(colors))
+    if self.props.request.Detail != "" {
+      // The detail scrolls only once the options are windowed to their
+      // minimum: its tiny shrink factor leaves the deficit to the list first.
+      children.push(
+        cui::scroll_box(
+          [
+            markdown::view(
+              self.props.themes,
+              "interaction.{self.props.request.ID}.detail",
+              self.props.request.Detail,
+              base: ui::text_style(foreground: colors.muted),
+            ),
+          ],
+          key: "interaction.detail",
+          styles: ui::style(flex_shrink: 0.001, min_height: ui::cells(1)),
+          focusable: false,
+        ),
+      )
+    }
+    children.push(spacer())
+    children.push(self.body(colors))
+    children.push(spacer())
+    children.push(self.footer(colors))
+    let keys = match self.props.active {
+      true => self.bindings(),
+      false => Bindings{commands: [], bindings: []},
+    }
+    // The dock owns input from any focus target while no dialog is open, so
+    // its keys apply at application scope beneath dialog priority.
+    cui::box(
+      children.@,
+      key: "interaction.dock",
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        flex_shrink: 1.0,
+        overflow: ui::Overflow::hidden,
+        background: colors.surface,
+        foreground: colors.foreground,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(1),
+          left: ui::cells(1),
+        },
+      ),
+      autofocus: self.props.active and not self.accepts_text(),
+      ref: self.focus,
+      commands: keys.commands,
+      bindings: keys.bindings,
+      binding_scope: keymap::ScopeMode::application,
+      binding_priority: 50,
+    )
+  }
+}
+
+private fn spacer() cui::View {
+  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
+}
+
+// overflow_row reports options hidden past one edge of a windowed list.
+private fn overflow_row(colors: theme::Theme, key: Str, arrow: Str, hidden: Int) cui::View {
+  match hidden > 0 {
+    true => {
+      cui::text(
+        "     {arrow} {hidden} more",
+        key: "interaction.overflow.{key}",
+        styles: ui::style(flex_shrink: 0.0),
+        text_style: ui::text_style(foreground: colors.muted),
+      )
+    },
+    false => {
+      cui::box(
+        [],
+        key: "interaction.overflow.{key}",
+        styles: ui::style(height: ui::cells(0), flex_shrink: 0.0),
+      )
+    },
+  }
+}
+
+private fn option_key(index: Int) Str {
+  "option.{index}"
+}
+
+private fn clamp(value: Int, low: Int, high: Int) Int {
+  match {
+    value < low => low,
+    value > high => high,
+    _ => value,
+  }
+}
+
+// option_marker letters options A–Z, then AA, AB, and so on.
+fn option_marker(index: Int) Str {
+  let letters = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"
+  mut marker = ""
+  mut remaining = index
+  while remaining >= 0 {
+    let letter = remaining % 26
+    marker = "{letters.slice(letter, letter + 1).or("")}{marker}"
+    remaining = remaining / 26 - 1
+  }
+  marker
+}
+
+test fn options_are_lettered_like_spreadsheet_columns() Void!Str {
+  try testing::assert(option_marker(0) == "A", "first")
+  try testing::assert(option_marker(25) == "Z", "last single letter")
+  try testing::assert(option_marker(26) == "AA", "first double letter")
+  testing::assert(option_marker(27) == "AB", "second double letter")
+}

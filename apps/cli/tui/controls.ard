@@ -24,6 +24,8 @@ struct ButtonProps {
   styles: ui::Style?,
   foreground: ui::Color?,
   hover_label: Str?,
+  // Secondary buttons placed on a surface fill one step above it.
+  raised: Bool,
   control: mut cui::BoxRef,
 }
 
@@ -50,6 +52,7 @@ fn button(
   foreground: ui::Color?,
   hover_label: Str?,
   ref: (mut cui::BoxRef)?,
+  raised: Bool?,
 ) cui::View {
   cui::child(
     new,
@@ -65,6 +68,7 @@ fn button(
       styles: styles,
       foreground: foreground,
       hover_label: hover_label,
+      raised: raised.or(false),
       control: ref.or(cui::box_ref()),
     },
   )
@@ -118,6 +122,7 @@ impl Button {
         match {
           self.pressed => colors.surface_pressed,
           self.hovered or self.focused => colors.surface_hovered,
+          self.props.raised => colors.surface_raised,
           _ => colors.surface,
         }
       },
