@@ -78,7 +78,7 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [~] TUI-COOPER-007 — Interaction dock for pending server-owned requests.
   Model confirm, input, select, and guided requests are complete. Remaining:
   plugin requests (custom labels, default choice, empty answers) with
-  TUI-COOPER-014, and bracketed paste into dock text fields.
+  TUI-COOPER-014.
 - [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, scratchpad, and
   annotations.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and

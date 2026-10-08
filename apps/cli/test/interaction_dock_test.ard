@@ -742,3 +742,39 @@ test fn long_questionnaires_compact_the_step_trail() Void!Str {
     "answered, skipped, current, and remaining questions: {rows(terminal).at(4).or("")}",
   )
 }
+
+test fn pasted_text_fills_a_text_answer_without_submitting_it() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_branch",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionInput,
+      Title: "Which branch should the fix target?",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.paste(event::paste("release/2.0\n"))
+  settle(terminal)
+  try testing::assert(state.responses.size() == 0, "a paste never submits")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    (not unsafe::is_nil(response.Value)) and response.Value.@ == "release/2.0",
+    "the pasted text is the answer: {response.Value.@}",
+  )
+}
+
+test fn a_paste_does_not_answer_a_choice() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.paste(event::paste("y"))
+  settle(terminal)
+  testing::assert(state.responses.size() == 0, "pasted text is not a key press")
+}
