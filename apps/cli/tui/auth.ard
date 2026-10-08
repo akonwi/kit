@@ -210,15 +210,6 @@ private fn link_line(url: Str, colors: theme::Theme) cui::View {
   )
 }
 
-private fn inset() ui::Edges {
-  ui::Edges{
-    top: ui::cells(0),
-    right: ui::cells(1),
-    bottom: ui::cells(0),
-    left: ui::cells(1),
-  }
-}
-
 impl cui::Lifecycle for Flow {
   fn mut mounted(context: cui::Context) {
     self.context = Maybe::new(context)
@@ -527,7 +518,7 @@ impl Flow {
         title: "Connect OpenAI Codex",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        body: cui::box(body.@, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
         footer: Maybe::new<cui::View>(),
         autofocus: true,
         dismiss: self.back_command(),
@@ -575,7 +566,7 @@ impl Flow {
         title: "Connect Claude",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        body: cui::box(body.@, styles: ui::style(padding: layout::inset(), min_height: ui::cells(8))),
         footer: Maybe::new<cui::View>(),
         autofocus: self.browser_url == "",
         dismiss: self.back_command(),
@@ -622,7 +613,7 @@ impl Flow {
         title: "Connect {provider_label(self.provider)}",
         meta: "",
         header: [],
-        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: inset())),
+        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: layout::inset())),
         footer: Maybe::new<cui::View>(),
         autofocus: false,
         dismiss: self.back_command(),

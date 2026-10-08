@@ -1,0 +1,146 @@
+use ard/testing
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/keymap
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/chrome
+use kit/tui/theme
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn render(width: Int, height: Int, view: cui::View) [Str] {
+  let terminal = headless::new(width, height)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    cui::box(
+      [view],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  rows(terminal)
+}
+
+fn noop(id: Str) keymap::SimpleCommand {
+  keymap::simple_command(id, id, fn() Bool {
+    true
+  })
+}
+
+fn header_for(session: protocol::SessionInfo?, tokens: Int, window: Int) cui::View {
+  chrome::header(
+    theme::context(theme::store(theme::system())),
+    chrome::Header{
+      session: session,
+      context_tokens: tokens,
+      context_window: window,
+      rename: noop("rename"),
+      model: noop("model"),
+      thinking: noop("thinking"),
+      debug: noop("debug"),
+    },
+  )
+}
+
+// Session name, model, and thinking level are compact buttons with one cell of
+// padding on each side.
+test fn header_shows_session_identity_configuration_and_context_usage() Void!Str {
+  let session = protocol::SessionInfo{
+    ID: "session-1",
+    Name: "Release notes",
+    Model: "openai-codex/gpt-5.6-sol",
+    ThinkingLevel: "high",
+  }
+  expect_rows(
+    render(60, 1, header_for(Maybe::new(session), 110000, 272000)),
+    ["  Release notes               GPT 5.6 Sol   (high)  ·  40%"],
+  )
+}
+
+test fn header_without_a_session_shows_the_product_name() Void!Str {
+  expect_rows(render(40, 1, header_for(Maybe::new<protocol::SessionInfo>(), 0, 0)), [" kit"])
+}
+
+test fn footer_shows_the_composer_mode_and_location() Void!Str {
+  expect_rows(
+    render(40, 1, chrome::footer(theme::context(theme::store(theme::system())), "bash", "~/kit")),
+    [" bash                             ~/kit"],
+  )
+}
+
+test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  try expect_rows(
+    render(
+      40,
+      4,
+      chrome::pending_row(
+        themes,
+        chrome::Pending{
+          notice: "",
+          activity: "",
+          follow_ups: protocol::FollowUpQueue{
+            Count: 3,
+            Previews: ["one", "two", "three"],
+            AnnotationIDs: [],
+          },
+        },
+      ),
+    ),
+    ["", " Follow-up 1: one", " Follow-up 2: two", " Follow-up 3: three"],
+  )
+  expect_rows(
+    render(
+      40,
+      4,
+      chrome::pending_row(
+        themes,
+        chrome::Pending{
+          notice: "Prompt did not start a turn",
+          activity: "Thinking",
+          follow_ups: protocol::FollowUpQueue{
+            Count: 5,
+            Previews: ["one", "two", "three"],
+            AnnotationIDs: [],
+          },
+        },
+      ),
+    ),
+    [
+      " Prompt did not start a turn",
+      " Follow-up 1: one",
+      " Follow-up 2: two",
+      " +3 more follow-ups",
+    ],
+  )
+}

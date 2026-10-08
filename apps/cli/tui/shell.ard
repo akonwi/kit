@@ -16,31 +16,25 @@ use go:kit/ffi/contextbridge
 use kit/tui/attached_session
 use kit/tui/auth
 use kit/tui/bootstrap
+use kit/tui/chrome
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
-use kit/tui/format
 use kit/tui/layout
-use kit/tui/markdown
 use kit/tui/mcp
-use kit/tui/modal
 use kit/tui/model
 use kit/tui/rename
 use kit/tui/scratchpad
+use kit/tui/session_debug
 use kit/tui/sessions
-use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
 use kit/tui/transcript_pane
-use go:strings
 
 // The root terminal-client component: session bootstrap, shell chrome, and
 // retained feature composition.
-
-// Fills the viewport width; text beyond it is clipped.
-let rule = strings::Repeat("─", 1024)
 
 enum Phase {
   loading,
@@ -219,59 +213,6 @@ impl Shell {
   }
 }
 
-// pending_activity renders the latest thinking line as muted inline Markdown
-// while preserving the pending slot's fixed one-row geometry.
-fn pending_activity(themes: theme::Context, activity: Str) cui::View {
-  let colors = themes.current()
-  cui::box(
-    [
-      spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
-      cui::box(
-        [
-          markdown::inline_view(
-            themes,
-            "pending-activity",
-            activity,
-            base: ui::text_style(foreground: colors.muted),
-            semantic: false,
-          ),
-        ],
-        styles: ui::style(
-          height: ui::cells(1),
-          min_width: ui::cells(0),
-          flex_grow: 1.0,
-          flex_basis: ui::cells(0),
-          overflow: ui::Overflow::hidden,
-        ),
-      ),
-    ],
-    styles: ui::style(
-      height: ui::cells(1),
-      flex_direction: ui::FlexDirection::row,
-      gap: ui::cells(1),
-    ),
-  )
-}
-
-// Horizontal padding of one cell, as used by the header and footer rows.
-fn inset() ui::Edges {
-  ui::Edges{
-    top: ui::cells(0),
-    right: ui::cells(1),
-    bottom: ui::cells(0),
-    left: ui::cells(1),
-  }
-}
-
-fn divider(color: ui::Color) cui::View {
-  cui::text(
-    rule,
-    styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
-    text_style: ui::text_style(foreground: color),
-    wrap: ui::TextWrap::none,
-  )
-}
-
 impl Shell {
   // Commands owned by child controls report intent back through Shell's
   // context so only the state owner performs and renders the transition.
@@ -290,143 +231,32 @@ impl Shell {
   }
 
   fn mut header() cui::View {
-    let colors = self.props.themes.current()
-    let left = mut List::new<cui::View>()
-    let right = mut List::new<cui::View>()
-    match self.attached.info {
-      session => {
-        let rename = self.command("name.open", "Rename session", fn() {
-          self.rename_initial = session.Name
+    chrome::header(
+      self.props.themes,
+      chrome::Header{
+        session: self.attached.info,
+        context_tokens: self.attached.context_tokens,
+        context_window: self.attached.context_window,
+        rename: self.command("name.open", "Rename session", fn() {
+          self.rename_initial = self.attached.info.or(protocol::SessionInfo{}).Name
           self.rename_submit_immediately = false
           self.active_modal = ActiveModal::rename_session
-        })
-        left.push(
-          controls::button(
-            self.props.themes,
-            format::session_name(session),
-            rename,
-            variant: controls::ButtonVariant::secondary,
-            compact: true,
-            focusable: false,
-            styles: ui::style(flex_shrink: 0.0),
-          ),
-        )
-        let open_model = self.command("model.open", "Change session model", fn() {
+        }),
+        model: self.command("model.open", "Change session model", fn() {
           self.active_modal = ActiveModal::model_picker
-        })
-        right.push(
-          controls::button(
-            self.props.themes,
-            format::model_name(session.Model),
-            open_model,
-            variant: controls::ButtonVariant::secondary,
-            compact: true,
-            focusable: false,
-            styles: ui::style(flex_shrink: 0.0),
-          ),
-        )
-        let thinking_level = strings::TrimSpace(session.ThinkingLevel)
-        if thinking_level != "" {
-          right.push(cui::text(" ", wrap: ui::TextWrap::none))
-          let open_thinking = self.command("thinking.open", "Change thinking level", fn() {
-            self.active_modal = ActiveModal::thinking_picker
-          })
-          right.push(
-            controls::button(
-              self.props.themes,
-              "({thinking_level})",
-              open_thinking,
-              variant: controls::ButtonVariant::secondary,
-              compact: true,
-              focusable: false,
-              styles: ui::style(flex_shrink: 0.0),
-            ),
-          )
-        }
-        match format::context_percentage(self.attached.context_tokens, self.attached.context_window) {
-          percentage => {
-            let tone = match percentage > 90 {
-              true => colors.danger_text,
-              false => {
-                match percentage >= 80 {
-                  true => colors.warning_text,
-                  false => colors.muted,
-                }
-              },
-            }
-            right.push(cui::text(" · ", text_style: ui::text_style(foreground: colors.muted)))
-            let open_debug = self.command("debug.open", "Show session diagnostics", fn() {
-              self.active_modal = ActiveModal::session_debug
-            })
-            right.push(
-              controls::button(
-                self.props.themes,
-                "{percentage}%",
-                open_debug,
-                variant: controls::ButtonVariant::secondary,
-                compact: true,
-                focusable: false,
-                foreground: tone,
-                styles: ui::style(flex_shrink: 0.0),
-              ),
-            )
-          },
-          _ => (),
-        }
+        }),
+        thinking: self.command("thinking.open", "Change thinking level", fn() {
+          self.active_modal = ActiveModal::thinking_picker
+        }),
+        debug: self.command("debug.open", "Show session diagnostics", fn() {
+          self.active_modal = ActiveModal::session_debug
+        }),
       },
-      _ => left.push(layout::line("kit", ui::text_style())),
-    }
-    cui::box(
-      [
-        cui::box(left.@, styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
-        cui::box(
-          right.@,
-          styles: ui::style(
-            flex_grow: 2.0,
-            flex_basis: ui::cells(0),
-            flex_direction: ui::FlexDirection::row,
-            justify_content: ui::Justify::end,
-          ),
-        ),
-      ],
-      styles: ui::style(
-        height: ui::cells(1),
-        flex_shrink: 0.0,
-        flex_direction: ui::FlexDirection::row,
-        padding: inset(),
-      ),
     )
   }
 
   fn footer() cui::View {
-    let colors = self.props.themes.current()
-    let tone = match self.composer_mode != "" {
-      true => colors.success_text,
-      false => colors.muted,
-    }
-    cui::box(
-      [
-        cui::box(
-          [layout::line(self.composer_mode, ui::text_style(foreground: tone))],
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-        ),
-        cui::box(
-          [layout::line(self.attached.location, ui::text_style(foreground: colors.muted))],
-          styles: ui::style(
-            flex_grow: 2.0,
-            flex_basis: ui::cells(0),
-            flex_direction: ui::FlexDirection::row,
-            justify_content: ui::Justify::end,
-          ),
-        ),
-      ],
-      styles: ui::style(
-        height: ui::cells(1),
-        flex_shrink: 0.0,
-        flex_direction: ui::FlexDirection::row,
-        padding: inset(),
-      ),
-    )
+    chrome::footer(self.props.themes, self.composer_mode, self.attached.location)
   }
 }
 
@@ -487,7 +317,7 @@ impl Shell {
     let children = mut List::new<cui::View>()
     if self.scratchpad_open {
       children.push(self.workspace_tabs())
-      children.push(divider(colors.border))
+      children.push(layout::divider(colors.border))
     }
     // Keep the transcript retained so workspace switches preserve its virtual
     // list anchor, selection, and already-parsed message surfaces.
@@ -519,7 +349,7 @@ impl Shell {
     if self.workspace == WorkspacePane::agent {
       children.push(self.pending_row())
     }
-    children.push(divider(colors.border))
+    children.push(layout::divider(colors.border))
     children.push(self.composer_view())
     cui::box(
       children.@,
@@ -642,50 +472,13 @@ impl Shell {
   }
 
   fn pending_row() cui::View {
-    let colors = self.props.themes.current()
-    let content = match self.attached.notice != "" {
-      true => layout::line(self.attached.notice, ui::text_style(foreground: colors.danger_text)),
-      false => {
-        let activity = self.attached.activity()
-        match activity != "" {
-          true => pending_activity(self.props.themes, activity),
-          false => layout::line("", ui::text_style(foreground: colors.muted)),
-        }
+    chrome::pending_row(
+      self.props.themes,
+      chrome::Pending{
+        notice: self.attached.notice,
+        activity: self.attached.activity(),
+        follow_ups: self.attached.follow_ups,
       },
-    }
-    let rows = mut List::new<cui::View>()
-    rows.push(content)
-    let maximum = match self.attached.follow_ups.Count > 3 {
-      true => 2,
-      false => 3,
-    }
-    mut visible = 0
-    for preview, index in self.attached.follow_ups.Previews {
-      if index < maximum {
-        rows.push(
-          layout::line(
-            "Follow-up {index + 1}: {preview}",
-            ui::text_style(foreground: colors.muted),
-          ),
-        )
-        visible = visible + 1
-      }
-    }
-    if self.attached.follow_ups.Count > visible {
-      rows.push(
-        layout::line(
-          "+{self.attached.follow_ups.Count - visible} more follow-ups",
-          ui::text_style(foreground: colors.muted),
-        ),
-      )
-    }
-    cui::box(
-      rows.@,
-      styles: ui::style(
-        flex_shrink: 0.0,
-        flex_direction: ui::FlexDirection::column,
-        padding: inset(),
-      ),
     )
   }
 
@@ -790,7 +583,13 @@ impl cui::Component for Shell {
       // child autofocus settles.
       // Let focused controls handle Cmd+C first. This application fallback
       // copies the active cross-control selection without changing focus.
-      [self.header(), divider(colors.border), self.body(), divider(colors.border), self.footer()],
+      [
+        self.header(),
+        layout::divider(colors.border),
+        self.body(),
+        layout::divider(colors.border),
+        self.footer(),
+      ],
       key: "shell.surface",
       styles: ui::style(
         width: ui::percent(100.0),
@@ -929,85 +728,18 @@ impl Shell {
     }
   }
 
-  // session_debug_modal presents the server snapshot's configuration and
-  // cumulative provider usage without interrupting an active turn.
   fn mut session_debug_modal() cui::View {
-    let dismiss = keymap::simple_command("debug.dismiss", "Close", fn() Bool {
-      self.dismiss_modal()
-    })
-    let context = match self.attached.context_window > 0 {
-      true => {
-        "{format::usage_integer(self.attached.context_tokens)} / {format::usage_integer(self.attached.context_window)} tokens"
-      },
-      false => "Unavailable",
-    }
-    let session = self.attached.info.or(protocol::SessionInfo{})
-    let thinking = match strings::TrimSpace(session.ThinkingLevel) == "" {
-      true => "default",
-      false => session.ThinkingLevel,
-    }
-    let parent = match session.ParentSessionID == "" {
-      true => "None",
-      false => {
-        match session.ParentSessionName == "" {
-          true => session.ParentSessionID,
-          false => "{session.ParentSessionName} ({session.ParentSessionID})",
-        }
-      },
-    }
-    let colors = self.props.themes.current()
-    let row = fn(label: Str, value: Str) cui::View {
-      cui::box(
-        [
-          cui::box(
-            [layout::line(label, ui::text_style(foreground: colors.muted))],
-            styles: ui::style(width: ui::cells(14), flex_shrink: 0.0),
-          ),
-          layout::line(value, ui::text_style()),
-        ],
-        styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
-      )
-    }
-    let heading = fn(value: Str) cui::View {
-      layout::line(value, ui::text_style(bold: true))
-    }
-    let body = cui::box(
-      [
-        heading("Configuration"),
-        row("Model", session.Model),
-        row("Thinking", thinking),
-        row("Context", context),
-        row("Parent", parent),
-        layout::blank(),
-        heading("Cumulative usage"),
-        row("Input", format::usage_integer(self.attached.usage.Input)),
-        row("Output", format::usage_integer(self.attached.usage.Output)),
-        row("Cache read", format::usage_integer(self.attached.usage.CacheRead)),
-        row("Cache write", format::usage_integer(self.attached.usage.CacheWrite)),
-        row("Reasoning", format::usage_integer(self.attached.usage.Reasoning)),
-        row("Total", format::usage_integer(self.attached.usage.TotalTokens)),
-        row("Cost", format::usage_cost(self.attached.usage.Cost.Total)),
-      ],
-      styles: ui::style(
-        flex_direction: ui::FlexDirection::column,
-        padding: inset(),
-        min_width: ui::cells(44),
-      ),
-    )
-    modal::dialog(
+    session_debug::dialog(
       self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: "Session details",
-        meta: "",
-        header: [],
-        body: body,
-        footer: Maybe::new<cui::View>(),
-        autofocus: true,
-        dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
+      session_debug::Details{
+        session: self.attached.info.or(protocol::SessionInfo{}),
+        context_tokens: self.attached.context_tokens,
+        context_window: self.attached.context_window,
+        usage: self.attached.usage,
       },
+      keymap::simple_command("debug.dismiss", "Close", fn() Bool {
+        self.dismiss_modal()
+      }),
     )
   }
 

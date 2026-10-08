@@ -1,0 +1,98 @@
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/format
+use kit/tui/layout
+use kit/tui/modal
+use kit/tui/theme
+use go:strings
+
+// Details is the attached session's configuration and cumulative usage, as
+// projected from its authoritative snapshot.
+struct Details {
+  session: protocol::SessionInfo,
+  context_tokens: Int,
+  context_window: Int,
+  usage: protocol::SessionUsage,
+}
+
+// dialog presents the session's configuration and cumulative provider usage
+// without interrupting an active turn.
+fn dialog(themes: theme::Context, details: Details, dismiss: keymap::SimpleCommand) cui::View {
+  let context = match details.context_window > 0 {
+    true => {
+      "{format::usage_integer(details.context_tokens)} / {format::usage_integer(details.context_window)} tokens"
+    },
+    false => "Unavailable",
+  }
+  let session = details.session
+  let thinking = match strings::TrimSpace(session.ThinkingLevel) == "" {
+    true => "default",
+    false => session.ThinkingLevel,
+  }
+  let parent = match session.ParentSessionID == "" {
+    true => "None",
+    false => {
+      match session.ParentSessionName == "" {
+        true => session.ParentSessionID,
+        false => "{session.ParentSessionName} ({session.ParentSessionID})",
+      }
+    },
+  }
+  let colors = themes.current()
+  let row = fn(label: Str, value: Str) cui::View {
+    cui::box(
+      [
+        cui::box(
+          [layout::line(label, ui::text_style(foreground: colors.muted))],
+          styles: ui::style(width: ui::cells(14), flex_shrink: 0.0),
+        ),
+        layout::line(value, ui::text_style()),
+      ],
+      styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+    )
+  }
+  let heading = fn(value: Str) cui::View {
+    layout::line(value, ui::text_style(bold: true))
+  }
+  let usage = details.usage
+  let body = cui::box(
+    [
+      heading("Configuration"),
+      row("Model", session.Model),
+      row("Thinking", thinking),
+      row("Context", context),
+      row("Parent", parent),
+      layout::blank(),
+      heading("Cumulative usage"),
+      row("Input", format::usage_integer(usage.Input)),
+      row("Output", format::usage_integer(usage.Output)),
+      row("Cache read", format::usage_integer(usage.CacheRead)),
+      row("Cache write", format::usage_integer(usage.CacheWrite)),
+      row("Reasoning", format::usage_integer(usage.Reasoning)),
+      row("Total", format::usage_integer(usage.TotalTokens)),
+      row("Cost", format::usage_cost(usage.Cost.Total)),
+    ],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      padding: layout::inset(),
+      min_width: ui::cells(44),
+    ),
+  )
+  modal::dialog(
+    themes,
+    modal::Dialog{
+      placement: modal::Placement::centered,
+      title: "Session details",
+      meta: "",
+      header: [],
+      body: body,
+      footer: Maybe::new<cui::View>(),
+      autofocus: true,
+      dismiss: dismiss,
+      commands: Maybe::new<[keymap::Command]>(),
+      bindings: Maybe::new<[keymap::Binding]>(),
+    },
+  )
+}

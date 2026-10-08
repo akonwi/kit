@@ -1,6 +1,7 @@
 use cooper/cui
 use cooper/ui
 use kit/tui/theme
+use go:strings
 
 // Shared single-row and centered layout primitives for terminal surfaces.
 
@@ -11,6 +12,29 @@ fn line(content: Str, style: ui::TextStyle) cui::View {
     text_style: style,
     wrap: ui::TextWrap::none,
     overflow: ui::TextOverflow::ellipsis,
+  )
+}
+
+// Fills the viewport width; text beyond it is clipped.
+let rule = strings::Repeat("─", 1024)
+
+// Horizontal padding of one cell, as used by chrome rows and dialog bodies.
+fn inset() ui::Edges {
+  ui::Edges{
+    top: ui::cells(0),
+    right: ui::cells(1),
+    bottom: ui::cells(0),
+    left: ui::cells(1),
+  }
+}
+
+// A full-width one-row horizontal rule.
+fn divider(color: ui::Color) cui::View {
+  cui::text(
+    rule,
+    styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+    text_style: ui::text_style(foreground: color),
+    wrap: ui::TextWrap::none,
   )
 }
 
