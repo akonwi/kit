@@ -533,12 +533,7 @@ impl cui::Component for Palette {
         body: palette::body(picker, self.viewport_props()),
         footer: Maybe::new(
           cui::box(
-            [
-              layout::line(
-                "↑↓ move · enter run · esc close",
-                ui::text_style(foreground: self.props.themes.current().muted),
-              ),
-            ],
+            [layout::line("tab complete", ui::text_style(foreground: self.props.themes.current().muted))],
             styles: ui::style(
               padding: ui::Edges{
                 top: ui::cells(0),
