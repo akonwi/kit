@@ -110,10 +110,6 @@ fn command_catalog(
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
 ) [palette::Item] {
-  let idle = match running {
-    true => "idle only",
-    false => "not available yet",
-  }
   let cd_disabled = match running {
     true => "idle only",
     false => "",
@@ -138,7 +134,13 @@ fn command_catalog(
     command_item("debug", "Show session diagnostics", "details usage", ""),
     command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
     command_item("files", "Open a workspace file", "file open browse", "not available yet"),
-    command_item("fork", "Fork the current session into a linked child session", "branch", idle),
+    command_item_with_hint(
+      "fork",
+      "[message]",
+      "Fork the current session into a linked child session",
+      "branch",
+      "",
+    ),
     command_item("login", "Connect another provider", "auth connect provider", ""),
     command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
     command_item("model", "Change session model", "engine", ""),
@@ -228,6 +230,7 @@ enum ActionKind {
   thinking,
   rename,
   new_session,
+  fork,
   refresh_models,
   reload,
   sessions,
@@ -337,6 +340,7 @@ fn resolve(
       "thinking" => builtin(ActionKind::thinking),
       "name" => builtin(ActionKind::rename),
       "new" => builtin(ActionKind::new_session),
+      "fork" => builtin(ActionKind::fork),
       "refresh-models" => builtin(ActionKind::refresh_models),
       "reload" => builtin(ActionKind::reload),
       "sessions" => builtin(ActionKind::sessions),

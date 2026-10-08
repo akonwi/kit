@@ -12,6 +12,15 @@ struct Attached {
   info: protocol::SessionInfo,
   session: mut api::Session,
   snapshot: protocol::SessionSnapshot,
+  // A fork's first message the server could not start on this session.
+  failed_first_message: FailedFirstMessage?,
+}
+
+// A first message that did not start a turn. Installing the session presents
+// it like any failed prompt submission.
+struct FailedFirstMessage {
+  text: Str,
+  reason: Str,
 }
 
 // Selects the session named by `options`, resuming the most recent eligible
@@ -63,6 +72,7 @@ fn attach(ctx: context::Context, options: cli::TUIOptions) Attached!Str {
       info: selected,
       session: session,
       snapshot: snapshot,
+      failed_first_message: Maybe::new<FailedFirstMessage>(),
     },
   )
 }

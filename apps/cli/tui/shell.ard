@@ -889,6 +889,7 @@ impl Shell {
                     info: snapshot.Session,
                     session: session,
                     snapshot: snapshot,
+                    failed_first_message: Maybe::new<bootstrap::FailedFirstMessage>(),
                   },
                   self.props.options.ResolveLocation(
                     self.lifetime.expect("session lifetime").Context,
@@ -980,6 +981,10 @@ impl Shell {
       command_palette::ActionKind::new_session => {
         self.finish_modal()
         self.attached.create_sibling()
+      },
+      command_palette::ActionKind::fork => {
+        self.finish_modal()
+        self.attached.fork(action.argument)
       },
       command_palette::ActionKind::refresh_models => {
         self.finish_modal()
