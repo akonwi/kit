@@ -99,6 +99,7 @@ impl cui::Component for TreeHost {
     cui::child(
       palette::new_picker,
       palette::PickerProps{
+        // Searches ignore the collapsed state and show matches with ancestors.
         themes: self.props.themes,
         catalog: catalog.@,
         placeholder: "Search sessions…",
@@ -123,6 +124,36 @@ impl cui::Component for TreeHost {
             self.collapsed = not expand
           })
         }),
+        tree: Maybe::new(
+          [
+            palette::Branch{
+              item: palette::Item{
+                key: "parent",
+                label: "Parent",
+                hint: "",
+                description: "/parent",
+                meta: "",
+                search_terms: [],
+                disabled_reason: "",
+              },
+              parent: "",
+              name: "Parent",
+            },
+            palette::Branch{
+              item: palette::Item{
+                key: "child",
+                label: "    Child",
+                hint: "↳",
+                description: "/child",
+                meta: "",
+                search_terms: [],
+                disabled_reason: "",
+              },
+              parent: "parent",
+              name: "Child",
+            },
+          ],
+        ),
         on_query_change: fn(query: Str) {
           let actions = mut List::new<Str>()
           for action in model.actions {
@@ -158,7 +189,7 @@ impl cui::Component for Host {
       catalog: self.props.catalog,
       query: model.query,
       filter_query: "",
-      keep_order: false,
+      tree: Maybe::new<[palette::Branch]>(),
       selection: model.selection,
       hovered: model.hovered,
       hidden_above: model.hidden_above,
@@ -174,7 +205,7 @@ impl cui::Component for Host {
               catalog: self.props.catalog,
               query: query,
               filter_query: "",
-              keep_order: false,
+              tree: Maybe::new<[palette::Branch]>(),
               selection: "",
               hovered: "",
               hidden_above: false,
@@ -252,7 +283,7 @@ impl Host {
             catalog: catalog,
             query: model.query,
             filter_query: "",
-            keep_order: false,
+            tree: Maybe::new<[palette::Branch]>(),
             selection: "",
             hovered: "",
             hidden_above: false,
@@ -376,6 +407,7 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
         override: Maybe::new<fn(Str)>(),
         remove: Maybe::new<fn(Str)>(),
         toggle: Maybe::new<fn(Str, Bool)>(),
+        tree: Maybe::new<[palette::Branch]>(),
         on_query_change: fn(query: Str) {},
         on_selection_change: fn(selected: Str) {},
         on_activate: fn(item: palette::Item) {},
@@ -461,6 +493,38 @@ test fn stateful_picker_reports_queries_with_no_selection() Void!Str {
   try testing::assert(model.actions.at(0).or("") == "query:z", "query change is reported")
   try testing::assert(model.actions.at(1).or("") == "select:", "no result clears selection")
   testing::pass()
+}
+
+test fn stateful_tree_search_finds_collapsed_rows_and_restores_their_parent() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let model = mut TreeModel{actions: []}
+  let renderer = mount_tree(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(key("left"))
+  terminal.flush()
+  terminal.key(character("c"))
+  terminal.key(character("h"))
+  terminal.flush()
+  let rendered = terminal.frame().text()
+  try testing::assert(
+    rendered.contains("Parent") and rendered.contains("Child"),
+    "the collapsed child is found beneath its parent: {rendered}",
+  )
+  try testing::assert(
+    model.actions.at(model.actions.size() - 1).or("") == "select:child",
+    "the match is selected: {model.actions.at(model.actions.size() - 1).or("")}",
+  )
+
+  terminal.key(key("backspace"))
+  terminal.key(key("backspace"))
+  terminal.flush()
+  testing::assert(
+    model.actions.at(model.actions.size() - 1).or("") == "select:parent",
+    "clearing the search selects the visible parent: {model.actions.at(model.actions.size() - 1).or("")}",
+  )
 }
 
 test fn stateful_picker_navigation_reveals_each_selected_row() Void!Str {
@@ -784,6 +848,7 @@ impl cui::Component for ReseedHost {
             override: Maybe::new<fn(Str)>(),
             remove: Maybe::new<fn(Str)>(),
             toggle: Maybe::new<fn(Str, Bool)>(),
+            tree: Maybe::new<[palette::Branch]>(),
             on_query_change: fn(query: Str) {},
             on_selection_change: fn(selected: Str) {},
             on_activate: fn(item: palette::Item) {
@@ -862,14 +927,14 @@ fn ranking_catalog() [palette::Item] {
   ]
 }
 
-fn ranked_keys(query: Str, keep_order: Bool) Str {
-  let props = palette::Props{
+fn search_props(catalog: [palette::Item], tree: [palette::Branch]?, query: Str) palette::Props {
+  palette::Props{
     themes: theme::context(theme::store(theme::system())),
     placeholder: "",
-    catalog: ranking_catalog(),
+    catalog: catalog,
     query: query,
     filter_query: "",
-    keep_order: keep_order,
+    tree: tree,
     selection: "",
     hovered: "",
     hidden_above: false,
@@ -879,6 +944,9 @@ fn ranked_keys(query: Str, keep_order: Bool) Str {
     on_hover_change: fn(value: Str) {},
     on_activate: fn(item: palette::Item) {},
   }
+}
+
+fn keys_of(props: palette::Props) Str {
   let keys = mut List::new<Str>()
   for item in palette::items(props) {
     keys.push(item.key)
@@ -886,29 +954,90 @@ fn ranked_keys(query: Str, keep_order: Bool) Str {
   strings::Join(keys, ",")
 }
 
+fn ranked_keys(query: Str) Str {
+  keys_of(search_props(ranking_catalog(), Maybe::new<[palette::Branch]>(), query))
+}
+
 test fn fuzzy_filtering_ranks_exact_prefix_word_and_substring_matches() Void!Str {
   // Exact label, label prefix, label word boundary, label substring, then a
   // description-only match.
-  let ranked = ranked_keys("Model", false)
+  let ranked = ranked_keys("Model")
   testing::assert(ranked == "model,my-model,refresh-models,remodel,catalog", "ranked: {ranked}")
 }
 
 test fn fuzzy_filtering_matches_gapped_characters_and_aliases() Void!Str {
   // The label's word-start match outranks the gapped description match.
-  let gapped = ranked_keys("rfm", false)
+  let gapped = ranked_keys("rfm")
   try testing::assert(gapped == "refresh-models,catalog", "gapped: {gapped}")
   // An alias outranks a description match of the same strength, and ties keep
   // catalog order.
-  let alias = ranked_keys("engine", false)
+  let alias = ranked_keys("engine")
   testing::assert(alias == "model,my-model", "alias: {alias}")
 }
 
-test fn fuzzy_filtering_keeps_the_catalog_for_blank_queries_and_tree_order() Void!Str {
-  let blank = ranked_keys("  ", false)
-  try testing::assert(blank == "catalog,model,my-model,refresh-models,remodel", "blank: {blank}")
-  let ordered = ranked_keys("model", true)
-  testing::assert(
-    ordered == "catalog,model,my-model,refresh-models,remodel",
-    "tree order: {ordered}",
-  )
+test fn fuzzy_filtering_keeps_the_catalog_for_blank_queries() Void!Str {
+  let blank = ranked_keys("  ")
+  testing::assert(blank == "catalog,model,my-model,refresh-models,remodel", "blank: {blank}")
+}
+
+// A session-like hierarchy: release planning has an auth child with a nested
+// OAuth leaf and a docs sibling; auth is a separate root.
+fn tree_branch(key: Str, parent: Str, depth: Int, name: Str) palette::Branch {
+  palette::Branch{
+    item: ranking_item(key, "{strings::Repeat("  ", depth)}{name}", "/repo/{key}", []),
+    parent: parent,
+    name: name,
+  }
+}
+
+fn session_tree() [palette::Branch] {
+  [
+    tree_branch("root", "", 0, "Release planning"),
+    tree_branch("child", "root", 1, "Auth providers"),
+    tree_branch("leaf", "child", 2, "OAuth tokens"),
+    tree_branch("sibling", "root", 1, "Docs refresh"),
+    tree_branch("other", "", 0, "Auth"),
+  ]
+}
+
+// The browsing catalog with the auth child collapsed, hiding the OAuth leaf.
+fn collapsed_catalog() [palette::Item] {
+  let catalog = mut List::new<palette::Item>()
+  for branch in session_tree() {
+    if branch.item.key != "leaf" {
+      catalog.push(branch.item)
+    }
+  }
+  catalog.@
+}
+
+test fn tree_search_shows_collapsed_matches_beneath_their_ancestors() Void!Str {
+  let props = search_props(collapsed_catalog(), Maybe::new(session_tree()), "  OAUTH ")
+  let shown = keys_of(props)
+  try testing::assert(shown == "root,child,leaf", "shown: {shown}")
+  let selection = palette::query_selection(props, "root")
+  testing::assert(selection == "leaf", "the match, not its ancestor, is selected: {selection}")
+}
+
+test fn tree_search_orders_families_by_their_best_match() Void!Str {
+  // The exact root match ranks above the auth child's prefix match, and the
+  // auth child's family keeps its context ancestor and tree order.
+  let props = search_props(collapsed_catalog(), Maybe::new(session_tree()), "auth")
+  let shown = keys_of(props)
+  try testing::assert(shown == "other,root,child,leaf", "shown: {shown}")
+  let selection = palette::query_selection(props, "")
+  try testing::assert(selection == "other", "best match selection: {selection}")
+  let empty = search_props(collapsed_catalog(), Maybe::new(session_tree()), "zzz")
+  try testing::assert(keys_of(empty) == "", "no results: {keys_of(empty)}")
+  testing::assert(palette::query_selection(empty, "leaf") == "", "nothing is selectable")
+}
+
+test fn clearing_a_tree_search_selects_the_nearest_visible_ancestor() Void!Str {
+  let props = search_props(collapsed_catalog(), Maybe::new(session_tree()), "")
+  let shown = keys_of(props)
+  try testing::assert(shown == "root,child,sibling,other", "browsing tree: {shown}")
+  let hidden = palette::query_selection(props, "leaf")
+  try testing::assert(hidden == "child", "collapsed leaf falls back to its parent: {hidden}")
+  let visible = palette::query_selection(props, "sibling")
+  testing::assert(visible == "sibling", "a visible row stays selected: {visible}")
 }
