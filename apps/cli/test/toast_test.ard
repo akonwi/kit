@@ -7,6 +7,7 @@ use cooper/ui
 use kit/tui/theme
 use kit/tui/toast
 use go:strings
+use go:time
 
 test fn toast_stack_uses_top_right_status_cards() Void!Str {
   let terminal = headless::new(60, 20)
@@ -81,4 +82,136 @@ test fn toast_stack_uses_top_right_status_cards() Void!Str {
     rendered.contains("wraps onto a second row."),
     "long toast detail wraps instead of clipping: {rendered}",
   )
+}
+
+fn mount_host(terminal: headless::TestApp, control: mut toast::Control, expiry: time::Duration) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::box(
+      [
+        cui::box([], styles: ui::style(width: ui::percent(100.0), height: ui::percent(100.0))),
+        toast::host(theme::context(theme::store(theme::system())), control, expiry: expiry),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+      ),
+    ),
+  )
+}
+
+// Delivers dispatched requests and completes every card's enter animation.
+fn settle(terminal: headless::TestApp) {
+  terminal.flush()
+  terminal.advance_time(0)
+  terminal.advance_time(350)
+  terminal.render()
+  terminal.flush()
+}
+
+// The candidate titles that are visible, in top-to-bottom order.
+fn visible(terminal: headless::TestApp, candidates: [Str]) [Str] {
+  let shown = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    for title in candidates {
+      if strings::Contains(row, "● {title}") or strings::Contains(row, "▲ {title}") {
+        shown.push(title)
+      }
+    }
+  }
+  shown.@
+}
+
+fn expect_titles(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, ", ")
+  try testing::assert(actual.size() == expected.size(), "titles: {shown}")
+  for title, index in expected {
+    try testing::assert(actual.at(index).or("") == title, "titles: {shown}")
+  }
+  testing::pass()
+}
+
+test fn notifications_raised_before_the_host_mounts_are_delivered() Void!Str {
+  let terminal = headless::new(60, 20)
+  defer terminal.destroy()
+  let control = toast::control()
+  control.show("Early notice", "", toast::Variant::info, true)
+  let renderer = mount_host(terminal, control, time::Second * 10)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_titles(visible(terminal, ["Early notice"]), ["Early notice"])
+  testing::assert(control.pending_count() == 0, "the buffered request was consumed")
+}
+
+test fn transient_notifications_expire_and_persistent_ones_wait_for_dismissal() Void!Str {
+  let terminal = headless::new(60, 20)
+  defer terminal.destroy()
+  let control = toast::control()
+  let renderer = mount_host(terminal, control, time::Millisecond * 30)
+  defer renderer.destroy()
+  terminal.flush()
+  control.show("Kept", "", toast::Variant::warning, true)
+  control.show("Brief", "", toast::Variant::info, false)
+  settle(terminal)
+  try expect_titles(visible(terminal, ["Kept", "Brief"]), ["Kept", "Brief"])
+
+  time::Sleep(time::Millisecond * 80)
+  settle(terminal)
+  try expect_titles(visible(terminal, ["Kept", "Brief"]), ["Kept"])
+
+  // The persistent card's close control is its only × glyph.
+  let rows = strings::Split(terminal.frame().text(), "\n")
+  mut x = -1
+  mut y = -1
+  for row, index in rows {
+    for character, column in strings::Split(row, "") {
+      if character == "×" and y < 0 {
+        x = column
+        y = index
+      }
+    }
+  }
+  try testing::assert(y >= 0, "the persistent card offers a close control")
+  terminal.mouse_down(x, y)
+  terminal.mouse_up(x, y)
+  settle(terminal)
+  expect_titles(visible(terminal, ["Kept", "Brief"]), [])
+}
+
+test fn the_host_keeps_five_notifications_evicting_the_oldest_transient_first() Void!Str {
+  let terminal = headless::new(60, 30)
+  defer terminal.destroy()
+  let control = toast::control()
+  let renderer = mount_host(terminal, control, time::Second * 10)
+  defer renderer.destroy()
+  terminal.flush()
+  control.show("Pinned", "", toast::Variant::warning, true)
+  control.show("One", "", toast::Variant::info, false)
+  control.show("Two", "", toast::Variant::info, false)
+  control.show("Three", "", toast::Variant::info, false)
+  control.show("Four", "", toast::Variant::info, false)
+  control.show("Five", "", toast::Variant::info, false)
+  settle(terminal)
+  expect_titles(
+    visible(terminal, ["Pinned", "One", "Two", "Three", "Four", "Five"]),
+    ["Pinned", "Two", "Three", "Four", "Five"],
+  )
+}
+
+test fn clearing_replaces_every_current_notification() Void!Str {
+  let terminal = headless::new(60, 20)
+  defer terminal.destroy()
+  let control = toast::control()
+  let renderer = mount_host(terminal, control, time::Second * 10)
+  defer renderer.destroy()
+  terminal.flush()
+  control.show("Old warning", "", toast::Variant::warning, true)
+  control.show("Old info", "", toast::Variant::info, false)
+  settle(terminal)
+  control.clear()
+  control.show("Fresh", "", toast::Variant::info, false)
+  settle(terminal)
+  expect_titles(visible(terminal, ["Old warning", "Old info", "Fresh"]), ["Fresh"])
 }

@@ -1,8 +1,14 @@
+use ard/async
+
+use go:context
 use cooper/animation
 use cooper/cui
 use cooper/event
 use cooper/ui
+use go:kit/ffi/contextbridge
 use kit/tui/theme
+use go:strings
+use go:time
 
 // Variant communicates the severity of a transient application notification.
 enum Variant {
@@ -11,13 +17,243 @@ enum Variant {
   error,
 }
 
-// Item is a shell-owned toast record.
+// Item is one displayed notification.
 struct Item {
   id: Int,
   title: Str,
   detail: Str,
   variant: Variant,
   persistent: Bool,
+}
+
+// The host keeps at most this many notifications, evicting the oldest
+// transient one first.
+let capacity = 5
+
+// Request is a notification or reset awaiting delivery to the host.
+struct Request {
+  clear: Bool,
+  title: Str,
+  detail: Str,
+  variant: Variant,
+  persistent: Bool,
+}
+
+// Control is the narrow surface other owners use to raise notifications.
+// Requests are delivered through the host's own context; requests made before
+// the host mounts are buffered and delivered in order when it does.
+struct Control {
+  deliver: fn(Request)?,
+  pending: [Request],
+}
+
+fn control() mut Control {
+  (mut Control{deliver: Maybe::new<fn(Request)>(), pending: []})
+}
+
+impl Control {
+  // show raises a notification. Persistent notifications remain until
+  // dismissed; others expire.
+  fn mut show(title: Str, detail: Str, variant: Variant, persistent: Bool) {
+    self.send(
+      Request{
+        clear: false,
+        title: title,
+        detail: detail,
+        variant: variant,
+        persistent: persistent,
+      },
+    )
+  }
+
+  // clear removes every current notification.
+  fn mut clear() {
+    self.send(
+      Request{
+        clear: true,
+        title: "",
+        detail: "",
+        variant: Variant::info,
+        persistent: false,
+      },
+    )
+  }
+
+  // pending_count reports requests still awaiting a mounted host.
+  fn pending_count() Int {
+    self.pending.size()
+  }
+
+  private fn mut send(request: Request) {
+    match self.deliver {
+      deliver => deliver(request),
+      _ => {
+        if request.clear {
+          self.pending = []
+        } else {
+          self.pending.push(request)
+        }
+      },
+    }
+  }
+}
+
+struct HostProps {
+  themes: theme::Context,
+  control: mut Control,
+  expiry: time::Duration,
+}
+
+// Host owns the application's notifications: their order, bound, expiry, and
+// dismissal. It must stay mounted for the application's lifetime.
+struct Host {
+  props: mut HostProps,
+  context: cui::Context?,
+  lifetime: contextbridge::Cancellation?,
+  items: [Item],
+  next_id: Int,
+}
+
+// host mounts the notification overlay. expiry defaults to ten seconds.
+fn host(themes: theme::Context, control: mut Control, expiry: time::Duration?) cui::View {
+  cui::child(
+    new_host,
+    HostProps{
+      themes: themes,
+      control: control,
+      expiry: expiry.or(time::Second * 10),
+    },
+    key: "toast.host",
+  )
+}
+
+private fn new_host(props: mut HostProps) mut Host {
+  (mut Host{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+    items: [],
+    next_id: 0,
+  })
+}
+
+impl cui::Lifecycle for Host {
+  fn mut mounted(ctx: cui::Context) {
+    self.context = Maybe::new(ctx)
+    self.lifetime = Maybe::new(contextbridge::WithCancel(context::Background()))
+    let control = self.props.control
+    let dispatch = ctx.dispatch
+    control.deliver = Maybe::new(fn(request: Request) {
+      let _ = dispatch(fn() {
+        self.apply(request)
+      })
+    })
+    for request in control.pending {
+      self.apply(request)
+    }
+    control.pending = []
+  }
+
+  fn mut unmounting(ctx: cui::Context) {
+    // Pending expiry timers end with the host.
+    match self.lifetime {
+      lifetime => lifetime.Cancel(),
+      _ => (),
+    }
+    self.props.control.deliver = Maybe::new<fn(Request)>()
+  }
+}
+
+impl Host {
+  private fn mut apply(request: Request) {
+    match request.clear {
+      true => { self.items = [] },
+      false => self.show(request),
+    }
+  }
+
+  private fn mut show(request: Request) {
+    let title = strings::TrimSpace(request.title)
+    if title != "" {
+      self.next_id =+ 1
+      let id = self.next_id
+      self.items.push(
+        Item{
+          id: id,
+          title: title,
+          detail: strings::TrimSpace(request.detail),
+          variant: request.variant,
+          persistent: request.persistent,
+        },
+      )
+      if self.items.size() > capacity {
+        mut victim = self.items.at(0).expect("notification")
+        for item in self.items {
+          if victim.persistent and not item.persistent {
+            victim = item
+          }
+        }
+        self.dismiss(victim.id)
+      }
+      if not request.persistent {
+        self.expire(id)
+      }
+    }
+  }
+
+  private fn mut expire(id: Int) {
+    match self.context {
+      ctx => {
+        match self.lifetime {
+          lifetime => {
+            let dispatch = ctx.dispatch
+            let after = self.props.expiry
+            async::start(fn() {
+              select {
+                lifetime.Context.Done().recv() => (),
+                time::After(after).recv() => {
+                  let _ = dispatch(fn() {
+                    self.dismiss(id)
+                  })
+                },
+              }
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut dismiss(id: Int) {
+    let retained = mut List::new<Item>()
+    for item in self.items {
+      if item.id != id {
+        retained.push(item)
+      }
+    }
+    self.items = retained.@
+  }
+
+  private fn mut request_dismissal(id: Int) {
+    match self.context {
+      ctx => {
+        let _ = ctx.dispatch(fn() {
+          self.dismiss(id)
+        })
+      },
+      _ => (),
+    }
+  }
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    stack(self.props.themes, self.items, fn(id: Int) {
+      self.request_dismissal(id)
+    })
+  }
 }
 
 // stack renders the application's non-modal notification overlay.
