@@ -1,0 +1,213 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/terminal_progress
+use cooper/testing as headless
+use kit/tui/terminal_status
+use go:strings
+use go:time
+
+struct Status {
+  session_name: Str,
+  running: Bool,
+  work_id: Str,
+}
+
+struct HostProps {
+  status: mut Status,
+  terminal: terminal_status::Terminal,
+  frame_duration: time::Duration,
+}
+
+struct Host {
+  props: mut HostProps,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    terminal_status::reporter(
+      terminal_status::Props{
+        terminal: self.props.terminal,
+        session_name: self.props.status.session_name,
+        cwd: "/work/kit",
+        running: self.props.status.running,
+        work_id: self.props.status.work_id,
+        frame_duration: Maybe::new(self.props.frame_duration),
+      },
+    )
+  }
+}
+
+fn host_terminal(terminal: headless::TestApp) terminal_status::Terminal {
+  terminal_status::Terminal{
+    set_title: fn(value: Str) Bool {
+      terminal.context.set_title(value)
+    },
+    progress: fn(state: terminal_progress::State) Bool {
+      terminal.context.progress(state, Maybe::new<Int>())
+    },
+  }
+}
+
+fn mount(terminal: headless::TestApp, status: mut Status, frame_duration: time::Duration) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{
+        status: status,
+        terminal: host_terminal(terminal),
+        frame_duration: frame_duration,
+      },
+    ),
+  )
+}
+
+fn expect_titles(terminal: headless::TestApp, expected: [Str]) Void!Str {
+  let actual = terminal.terminal_titles()
+  let shown = strings::Join(mut actual, " | ")
+  try testing::assert(actual.size() == expected.size(), "titles: {shown}")
+  mut index = 0
+  while index < expected.size() {
+    try testing::assert(actual.at(index).or("") == expected.at(index).or(""), "title {index}: {shown}")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn expect_progress(terminal: headless::TestApp, expected: [terminal_progress::State]) Void!Str {
+  let actual = terminal.terminal_progress_reports()
+  try testing::assert(actual.size() == expected.size(), "{actual.size()} progress reports")
+  mut index = 0
+  while index < expected.size() {
+    let report = actual.at(index).expect("progress report")
+    try testing::assert(
+      report.state == expected.at(index).expect("expected state") and not report.percent.is_some(),
+      "progress report {index}",
+    )
+    index =+ 1
+  }
+  testing::pass()
+}
+
+test fn the_title_and_progress_follow_running_work() Void!Str {
+  let terminal = headless::new(10, 1)
+  defer terminal.destroy()
+  let status = mut Status{
+    session_name: "Fix pager",
+    running: false,
+    work_id: "",
+  }
+  // The animation never advances, so every published title is deterministic.
+  let renderer = mount(terminal, status, time::Hour)
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_titles(terminal, ["kit - Fix pager - kit"])
+  try expect_progress(terminal, [terminal_progress::State::remove])
+
+  renderer.update(fn() {
+    status.running = true
+    status.work_id = "turn-1"
+  })
+  terminal.flush()
+  try expect_titles(terminal, ["kit - Fix pager - kit", "⠋ kit - Fix pager - kit"])
+  try expect_progress(
+    terminal,
+    [terminal_progress::State::remove, terminal_progress::State::indeterminate],
+  )
+
+  renderer.update(fn() {
+    status.session_name = "Renamed"
+  })
+  terminal.flush()
+  try expect_titles(
+    terminal,
+    ["kit - Fix pager - kit", "⠋ kit - Fix pager - kit", "⠋ kit - Renamed - kit"],
+  )
+
+  renderer.update(fn() {
+    status.running = false
+    status.work_id = ""
+  })
+  terminal.flush()
+  try expect_titles(
+    terminal,
+    [
+      "kit - Fix pager - kit",
+      "⠋ kit - Fix pager - kit",
+      "⠋ kit - Renamed - kit",
+      "kit - Renamed - kit",
+    ],
+  )
+  expect_progress(
+    terminal,
+    [
+      terminal_progress::State::remove,
+      terminal_progress::State::indeterminate,
+      terminal_progress::State::remove,
+    ],
+  )
+}
+
+test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
+  let terminal = headless::new(10, 1)
+  defer terminal.destroy()
+  let status = mut Status{
+    session_name: "Animate",
+    running: true,
+    work_id: "turn-1",
+  }
+  let renderer = mount(terminal, status, 40 * time::Millisecond)
+  defer renderer.destroy()
+  terminal.flush()
+  time::Sleep(100 * time::Millisecond)
+  terminal.flush()
+  // Frames that elapse between renders coalesce, so the second title may skip
+  // ahead; it must still be a later running frame for the same session.
+  let animated = terminal.terminal_titles()
+  let shown = strings::Join(mut animated, " | ")
+  try testing::assert(
+    animated.at(0).or("") == "⠋ kit - Animate - kit",
+    "running starts at the first frame: {shown}",
+  )
+  let advanced = animated.at(1).or("")
+  mut later_frame = false
+  for marker in ["⠹", "⠼", "⠦", "⠇"] {
+    later_frame = later_frame or advanced == "{marker} kit - Animate - kit"
+  }
+  try testing::assert(later_frame, "the marker advances to a later frame: {shown}")
+
+  renderer.update(fn() {
+    status.work_id = "turn-2"
+  })
+  terminal.flush()
+  let restarted = terminal.terminal_titles()
+  testing::assert(
+    restarted.at(restarted.size() - 1).or("") == "⠋ kit - Animate - kit",
+    "new work restarts at the first frame: {strings::Join(mut restarted, " | ")}",
+  )
+}
+
+test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
+  let terminal = headless::new(10, 1)
+  defer terminal.destroy()
+  let status = mut Status{
+    session_name: "Exit",
+    running: true,
+    work_id: "turn-1",
+  }
+  let renderer = mount(terminal, status, time::Hour)
+  terminal.flush()
+  renderer.destroy()
+  try expect_titles(terminal, ["⠋ kit - Exit - kit", "kit - Exit - kit"])
+  expect_progress(
+    terminal,
+    [terminal_progress::State::indeterminate, terminal_progress::State::remove],
+  )
+}
