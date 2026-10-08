@@ -20,6 +20,7 @@ use kit/tui/composer
 use kit/tui/controls
 use kit/tui/copyable
 use kit/tui/format
+use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/mcp
 use kit/tui/modal
@@ -33,7 +34,7 @@ use kit/tui/theme
 use kit/tui/theme_picker
 use kit/tui/thinking
 use kit/tui/toast
-use kit/tui/transcript
+use kit/tui/transcript_pane
 use go:strings
 use go:time
 
@@ -384,7 +385,6 @@ struct Shell {
   // 1 at the start of copy feedback, fading to 0 over 350ms.
   selection_copy_pulse: Float64,
   selection_copy_base: ui::Color,
-  latest_out_of_view: Bool,
   model_refresh_pending: Bool,
   theme_name: Str,
   theme_definition: kittheme::Definition,
@@ -423,7 +423,8 @@ struct Shell {
   picker_list: mut cui::VirtualListRef,
   command_search: mut cui::InputRef,
   connect_button: mut cui::BoxRef,
-  list: mut cui::VirtualListRef,
+  // Rebound to each attachment's retained transcript.
+  transcript_control: mut transcript_pane::Control,
 }
 
 fn new(props: mut Props) mut Shell {
@@ -447,7 +448,6 @@ fn new(props: mut Props) mut Shell {
     composer_control: composer::ref(),
     selection_copy_pulse: 0.0,
     selection_copy_base: ui::rgb(0, 0, 0),
-    latest_out_of_view: false,
     model_refresh_pending: false,
     theme_name: props.options.ThemeName,
     theme_definition: props.options.ThemeDefinition,
@@ -486,7 +486,7 @@ fn new(props: mut Props) mut Shell {
     picker_list: cui::virtual_list_ref(),
     command_search: cui::input_ref(),
     connect_button: cui::box_ref(),
-    list: cui::virtual_list_ref(),
+    transcript_control: transcript_pane::control(),
   })
 }
 
@@ -549,202 +549,6 @@ impl Shell {
   }
 }
 
-// One transcript row: a message and its stable virtual-list key.
-struct Entry {
-  key: Str,
-  message: transcript::Message,
-  last: Bool,
-}
-
-// The conversation transcript. It opens at, and follows, its latest message
-// until the user scrolls away; returning to the end resumes following. Short
-// transcripts rest on the composer, as in the vaxis client.
-fn transcript_pane(
-  themes: theme::Context,
-  messages: [transcript::Message],
-  session_id: Str,
-  list: mut cui::VirtualListRef,
-  on_update: fn(cui::VirtualListUpdate, cui::Context),
-) cui::View {
-  let colors = themes.current()
-  let shown = mut List::new<transcript::Message>()
-  for message in messages {
-    if renders(message) {
-      shown.push(message)
-    }
-  }
-  match shown.size() == 0 {
-    true => empty_state(colors, "Ask a question or give a task."),
-    false => {
-      let entries = mut List::new<Entry>()
-      for message in shown {
-        let key = match message.id == "" {
-          true => "pending:{entries.size()}",
-          false => message.id,
-        }
-        entries.push(
-          Entry{
-            key: key,
-            message: message,
-            last: entries.size() == shown.size() - 1,
-          },
-        )
-      }
-      cui::virtual_list(
-        entries.@,
-        item_key: fn(entry: Entry) Str {
-          entry.key
-        },
-        render_item: fn(entry: Entry) cui::View {
-          transcript_row(themes, entry)
-        },
-        estimated_height: 4,
-        overscan: 2,
-        key: "transcript:{session_id}",
-        ref: list,
-        sticky_scroll: cui::ScrollEdge::end,
-        on_update: on_update,
-        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-      )
-    },
-  }
-}
-
-// Each row keeps a blank row above it; the last also keeps one below.
-fn transcript_row(themes: theme::Context, entry: Entry) cui::View {
-  let bottom = match entry.last {
-    true => 1,
-    false => 0,
-  }
-  cui::box(
-    [entry_view(themes, entry.key, entry.message).or(blank())],
-    styles: ui::style(
-      flex_direction: ui::FlexDirection::column,
-      padding: ui::Edges{
-        top: ui::cells(1),
-        right: ui::cells(1),
-        bottom: ui::cells(bottom),
-        left: ui::cells(1),
-      },
-    ),
-  )
-}
-
-// Whether a message has visible transcript content.
-fn renders(message: transcript::Message) Bool {
-  match message.role {
-    // Buffer streamed prose in the model, but reveal it only after the
-    // assistant message settles so incomplete Markdown never reaches layout.
-    transcript::Role::user => message.text != "",
-    transcript::Role::assistant => message.text != "" and not message.pending,
-    transcript::Role::tool => true,
-    transcript::Role::bash => true,
-    transcript::Role::other => false,
-  }
-}
-
-fn entry_view(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
-  let colors = themes.current()
-  match message.role {
-    transcript::Role::user => user_entry(themes, key, message),
-    transcript::Role::assistant => {
-      let tone = match {
-        message.aborted => colors.muted,
-        message.is_error => colors.danger_text,
-        _ => colors.foreground,
-      }
-      match message.text == "" {
-        true => Maybe::new<cui::View>(),
-        false => {
-          Maybe::new(
-            markdown::view(
-              themes,
-              key,
-              message.text,
-              base: ui::text_style(foreground: tone),
-              semantic: (not message.aborted) and not message.is_error,
-            ),
-          )
-        },
-      }
-    },
-    transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
-    transcript::Role::bash => {
-      Maybe::new(
-        cui::text(
-          "$ {message.text}",
-          text_style: ui::text_style(foreground: colors.muted),
-          selectable: true,
-          selection_style: theme::selection_style(colors),
-        ),
-      )
-    },
-    transcript::Role::other => Maybe::new<cui::View>(),
-  }
-}
-
-// A user turn: a tinted wash with half-block edges and two-cell padding.
-fn user_entry(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
-  let colors = themes.current()
-  match message.text == "" {
-    true => Maybe::new<cui::View>(),
-    false => {
-      let edge = fn(glyph: Str) cui::View {
-        cui::text(
-          strings::Repeat(glyph, 1024),
-          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
-          text_style: ui::text_style(foreground: colors.user_fill),
-          wrap: ui::TextWrap::none,
-        )
-      }
-      Maybe::new(
-        cui::box(
-          [
-            edge("▄"),
-            cui::box(
-              [
-                markdown::view(
-                  themes,
-                  key,
-                  message.text,
-                  base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
-                ),
-              ],
-              styles: ui::style(
-                background: colors.user_fill,
-                padding: ui::Edges{
-                  top: ui::cells(0),
-                  right: ui::cells(2),
-                  bottom: ui::cells(0),
-                  left: ui::cells(2),
-                },
-              ),
-            ),
-            edge("▀"),
-          ],
-          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
-        ),
-      )
-    },
-  }
-}
-
-fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {
-  let state = match message.tool_state {
-    transcript::ToolState::planned => "planned",
-    transcript::ToolState::running => "running…",
-    transcript::ToolState::completed => "done",
-    transcript::ToolState::failed => "failed",
-    transcript::ToolState::not_run => "not run",
-    transcript::ToolState::none => "",
-  }
-  let tone = match message.tool_state == transcript::ToolState::failed {
-    true => colors.danger_text,
-    false => colors.muted,
-  }
-  line("• {message.tool_name} {state}", ui::text_style(foreground: tone))
-}
-
 // pending_activity renders the latest thinking line as muted inline Markdown
 // while preserving the pending slot's fixed one-row geometry.
 fn pending_activity(themes: theme::Context, activity: Str) cui::View {
@@ -798,15 +602,6 @@ fn divider(color: ui::Color) cui::View {
   )
 }
 
-fn line(content: Str, style: ui::TextStyle) cui::View {
-  cui::text(
-    content,
-    text_style: style,
-    wrap: ui::TextWrap::none,
-    overflow: ui::TextOverflow::ellipsis,
-  )
-}
-
 fn link_line(url: Str, colors: theme::Theme) cui::View {
   cui::text(
     ui::styled_text(
@@ -819,40 +614,6 @@ fn link_line(url: Str, colors: theme::Theme) cui::View {
     selectable: true,
     selection_style: theme::selection_style(colors),
   )
-}
-
-fn blank() cui::View {
-  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
-}
-
-fn wordmark(colors: theme::Theme) [cui::View] {
-  [
-    line("k i t", ui::text_style(bold: true)),
-    line("━━━━━━━━━━━", ui::text_style(foreground: colors.primary_text)),
-  ]
-}
-
-// Centers content in the region that remains after the chrome.
-fn centered(children: [cui::View]) cui::View {
-  cui::box(
-    children,
-    styles: ui::style(
-      flex_grow: 1.0,
-      flex_direction: ui::FlexDirection::column,
-      justify_content: ui::Justify::center,
-      align_items: ui::Align::center,
-    ),
-  )
-}
-
-fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
-  let children = mut List::new<cui::View>()
-  for view in wordmark(colors) {
-    children.push(view)
-  }
-  children.push(blank())
-  children.push(line(instruction, ui::text_style(foreground: colors.muted)))
-  centered(children.@)
 }
 
 impl Shell {
@@ -957,7 +718,7 @@ impl Shell {
           _ => (),
         }
       },
-      _ => left.push(line("kit", ui::text_style())),
+      _ => left.push(layout::line("kit", ui::text_style())),
     }
     cui::box(
       [
@@ -990,11 +751,11 @@ impl Shell {
     cui::box(
       [
         cui::box(
-          [line(self.composer_mode, ui::text_style(foreground: tone))],
+          [layout::line(self.composer_mode, ui::text_style(foreground: tone))],
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
         ),
         cui::box(
-          [line(self.attached.location, ui::text_style(foreground: colors.muted))],
+          [layout::line(self.attached.location, ui::text_style(foreground: colors.muted))],
           styles: ui::style(
             flex_grow: 2.0,
             flex_basis: ui::cells(0),
@@ -1017,17 +778,20 @@ impl Shell {
   fn mut body() cui::View {
     let colors = self.props.themes.current()
     match self.phase {
-      Phase::loading => empty_state(colors, "Starting Kit…"),
+      Phase::loading => layout::empty_state(colors, "Starting Kit…"),
       Phase::auth => {
         let children = mut List::new<cui::View>()
-        for view in wordmark(colors) {
+        for view in layout::wordmark(colors) {
           children.push(view)
         }
-        children.push(blank())
+        children.push(layout::blank())
         children.push(
-          line("Connect an AI provider to get started.", ui::text_style(foreground: colors.muted)),
+          layout::line(
+            "Connect an AI provider to get started.",
+            ui::text_style(foreground: colors.muted),
+          ),
         )
-        children.push(blank())
+        children.push(layout::blank())
         let connect = self.command("auth.connect", "Connect a provider", fn() {
           let _ = self.open_provider_picker()
         })
@@ -1041,20 +805,20 @@ impl Shell {
             ref: self.connect_button,
           ),
         )
-        centered(children.@)
+        layout::centered(children.@)
       },
       Phase::failed => {
-        centered(
+        layout::centered(
           [
-            line("Kit could not start", ui::text_style(foreground: colors.danger_text, bold: true)),
-            blank(),
+            layout::line("Kit could not start", ui::text_style(foreground: colors.danger_text, bold: true)),
+            layout::blank(),
             cui::text(
               self.error,
               styles: ui::style(max_width: ui::cells(72)),
               text_style: ui::text_style(foreground: colors.muted),
             ),
-            blank(),
-            line("r retry · ctrl+c quit", ui::text_style(foreground: colors.muted)),
+            layout::blank(),
+            layout::line("r retry · ctrl+c quit", ui::text_style(foreground: colors.muted)),
           ],
         )
       },
@@ -1073,7 +837,7 @@ impl Shell {
     // list anchor, selection, and already-parsed message surfaces.
     children.push(
       cui::box(
-        [self.transcript_region()],
+        [self.transcript_view()],
         key: "agent-workspace",
         styles: ui::style(
           flex_grow: 1.0,
@@ -1215,66 +979,25 @@ impl Shell {
   }
 
   fn mut transcript_view() cui::View {
-    transcript_pane(
-      self.props.themes,
-      self.attached.transcript_messages(),
-      self.attached.session_id(),
-      self.list,
-      fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        self.latest_out_of_view = not update.state.last_item_visible
+    transcript_pane::pane(
+      transcript_pane::Props{
+        themes: self.props.themes,
+        messages: self.attached.transcript_messages(),
+        control: self.transcript_control,
       },
-    )
-  }
-
-  // The latest shortcut is based on the VirtualList's committed visibility,
-  // rather than estimates from its pre-layout rows. It remains hidden while
-  // any portion of a tall latest reply is visible.
-  fn mut transcript_region() cui::View {
-    let children = mut List::new<cui::View>()
-    children.push(self.transcript_view())
-    if self.latest_out_of_view {
-      children.push(self.latest_button())
-    }
-    cui::box(
-      children.@,
-      styles: ui::style(
-        flex_grow: 1.0,
-        flex_basis: ui::cells(0),
-        position: ui::Position::relative,
-        overflow: ui::Overflow::visible,
-      ),
-    )
-  }
-
-  fn mut latest_button() cui::View {
-    let latest = self.command("transcript.latest", "Show latest", fn() {
-      self.request_end()
-    })
-    controls::button(
-      self.props.themes,
-      "↓ Latest",
-      latest,
-      variant: controls::ButtonVariant::secondary,
-      compact: true,
-      focusable: false,
-      styles: ui::style(
-        position: ui::Position::absolute,
-        right: ui::cells(1),
-        bottom: ui::cells(1),
-        z_index: 1,
-      ),
+      self.attached.scope_id,
     )
   }
 
   fn pending_row() cui::View {
     let colors = self.props.themes.current()
     let content = match self.attached.notice != "" {
-      true => line(self.attached.notice, ui::text_style(foreground: colors.danger_text)),
+      true => layout::line(self.attached.notice, ui::text_style(foreground: colors.danger_text)),
       false => {
         let activity = self.attached.activity()
         match activity != "" {
           true => pending_activity(self.props.themes, activity),
-          false => line("", ui::text_style(foreground: colors.muted)),
+          false => layout::line("", ui::text_style(foreground: colors.muted)),
         }
       },
     }
@@ -1288,14 +1011,17 @@ impl Shell {
     for preview, index in self.attached.follow_ups.Previews {
       if index < maximum {
         rows.push(
-          line("Follow-up {index + 1}: {preview}", ui::text_style(foreground: colors.muted)),
+          layout::line(
+            "Follow-up {index + 1}: {preview}",
+            ui::text_style(foreground: colors.muted),
+          ),
         )
         visible = visible + 1
       }
     }
     if self.attached.follow_ups.Count > visible {
       rows.push(
-        line(
+        layout::line(
           "+{self.attached.follow_ups.Count - visible} more follow-ups",
           ui::text_style(foreground: colors.muted),
         ),
@@ -1735,16 +1461,16 @@ impl Shell {
       cui::box(
         [
           cui::box(
-            [line(label, ui::text_style(foreground: colors.muted))],
+            [layout::line(label, ui::text_style(foreground: colors.muted))],
             styles: ui::style(width: ui::cells(14), flex_shrink: 0.0),
           ),
-          line(value, ui::text_style()),
+          layout::line(value, ui::text_style()),
         ],
         styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
       )
     }
     let heading = fn(value: Str) cui::View {
-      line(value, ui::text_style(bold: true))
+      layout::line(value, ui::text_style(bold: true))
     }
     let body = cui::box(
       [
@@ -1753,7 +1479,7 @@ impl Shell {
         row("Thinking", thinking),
         row("Context", context),
         row("Parent", parent),
-        blank(),
+        layout::blank(),
         heading("Cumulative usage"),
         row("Input", format::usage_integer(self.attached.usage.Input)),
         row("Output", format::usage_integer(self.attached.usage.Output)),
@@ -2033,33 +1759,42 @@ impl Shell {
     let body = mut List::new<cui::View>()
     if self.auth_error != "" {
       body.push(
-        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+        layout::line(
+          self.auth_error,
+          ui::text_style(foreground: self.props.themes.current().danger_text),
+        ),
       )
-      body.push(blank())
+      body.push(layout::blank())
     }
     if self.device_url == "" {
       body.push(spinner::spinner())
       body.push(
-        line(
+        layout::line(
           "Starting device authorization…",
           ui::text_style(foreground: self.props.themes.current().muted),
         ),
       )
     } else {
       body.push(
-        line("Open this URL", ui::text_style(foreground: self.props.themes.current().muted)),
+        layout::line(
+          "Open this URL",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
       )
       body.push(link_line(self.device_url, self.props.themes.current()))
-      body.push(blank())
+      body.push(layout::blank())
       body.push(
-        line("Enter this code", ui::text_style(foreground: self.props.themes.current().muted)),
+        layout::line(
+          "Enter this code",
+          ui::text_style(foreground: self.props.themes.current().muted),
+        ),
       )
       body.push(
         copyable::value(self.props.themes, self.device_code, fn() {
           self.request_toast("Copied to clipboard", "", toast::Variant::info, false)
         }),
       )
-      body.push(blank())
+      body.push(layout::blank())
       let waiting_style = match self.device_remaining_seconds <= Int64::from(120) {
         true => ui::text_style(foreground: self.props.themes.current().warning_text),
         false => ui::text_style(foreground: self.props.themes.current().muted),
@@ -2068,7 +1803,7 @@ impl Shell {
         cui::box(
           [
             spinner::spinner(),
-            line(device_waiting_text(self.device_remaining_seconds), waiting_style),
+            layout::line(device_waiting_text(self.device_remaining_seconds), waiting_style),
           ],
           styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
         ),
@@ -2174,27 +1909,30 @@ impl Shell {
     let body = mut List::new<cui::View>()
     if self.auth_error != "" {
       body.push(
-        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+        layout::line(
+          self.auth_error,
+          ui::text_style(foreground: self.props.themes.current().danger_text),
+        ),
       )
     }
     if self.browser_url == "" {
       body.push(spinner::spinner())
       body.push(
-        line(
+        layout::line(
           "Starting Claude sign-in…",
           ui::text_style(foreground: self.props.themes.current().muted),
         ),
       )
     } else {
       body.push(
-        line(
+        layout::line(
           "Complete authentication in your browser.",
           ui::text_style(foreground: self.props.themes.current().muted),
         ),
       )
-      body.push(blank())
+      body.push(layout::blank())
       body.push(link_line(self.browser_url, self.props.themes.current()))
-      body.push(blank())
+      body.push(layout::blank())
       body.push(
         cui::input(
           self.browser_code,
@@ -2317,17 +2055,23 @@ impl Shell {
       ),
     )
     if self.auth_error != "" {
-      body.push(blank())
+      body.push(layout::blank())
       body.push(
-        line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+        layout::line(
+          self.auth_error,
+          ui::text_style(foreground: self.props.themes.current().danger_text),
+        ),
       )
     }
     match self.auth_pending {
       true => {
-        body.push(blank())
+        body.push(layout::blank())
         body.push(spinner::spinner())
         body.push(
-          line("Saving API key…", ui::text_style(foreground: self.props.themes.current().muted)),
+          layout::line(
+            "Saving API key…",
+            ui::text_style(foreground: self.props.themes.current().muted),
+          ),
         )
       },
       false => (),
@@ -2543,7 +2287,7 @@ impl Shell {
         footer: Maybe::new(
           cui::box(
             [
-              line(
+              layout::line(
                 "↑↓ move · enter run · esc close",
                 ui::text_style(foreground: self.props.themes.current().muted),
               ),
@@ -2666,7 +2410,7 @@ impl Shell {
         Maybe::new(
           cui::box(
             [
-              line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
+              layout::line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
             ],
             styles: ui::style(padding: inset(), flex_shrink: 0.0),
           ),
@@ -2779,7 +2523,7 @@ impl Shell {
         let _ = self.composer_control.restore_if_empty(text)
       },
       show_latest: fn() {
-        self.request_end()
+        let _ = self.transcript_control.show_latest()
       },
     }
   }
@@ -2792,7 +2536,7 @@ impl Shell {
     self.pending_attachment = Maybe::new<bootstrap::Attached>()
     self.pending_attachment_location = ""
     self.session_scope_id = self.session_scope_id + 1
-    self.latest_out_of_view = false
+    self.transcript_control = transcript_pane::control()
     self.composer_mode = ""
     let _ = self.composer_control.reset()
     self.toasts = []
@@ -2942,13 +2686,6 @@ impl Shell {
       }
     }
   }
-
-  // Sending a prompt returns the transcript to its end and resumes following.
-  fn request_end() {
-    let _ = self.list.current.map(fn(list) {
-      let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
-    })
-  }
 }
 
 test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation() Void!Str {
@@ -2972,7 +2709,6 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
       persistent: true,
     },
   ]
-  subject.latest_out_of_view = true
   subject.workspace = WorkspacePane::scratchpad
   subject.scratchpad_open = true
 
@@ -2982,7 +2718,6 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   try testing::assert(not previous.active, "the previous attachment rejects late completions")
   try testing::assert(subject.composer_mode == "", "the previous composer mode resets")
   try testing::assert(subject.toasts.size() == 0, "session notifications reset")
-  try testing::assert(not subject.latest_out_of_view, "transcript viewport state resets")
   testing::assert(
     subject.workspace == WorkspacePane::agent and not subject.scratchpad_open,
     "workspace state resets",

@@ -1,0 +1,326 @@
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/controls
+use kit/tui/layout
+use kit/tui/markdown
+use kit/tui/theme
+use kit/tui/transcript
+use go:strings
+
+// The retained conversation transcript. The attached-session owner supplies
+// projected messages; this component owns presentation state only: the
+// virtual list, its reading position and sticky tail, and whether the latest
+// message is out of view.
+//
+// It opens at, and follows, its latest message until the user scrolls away;
+// returning to the end resumes following. Short transcripts rest on the
+// composer, as in the vaxis client.
+
+// Control is the host's handle to one attachment's transcript. Its list ref
+// binds to the mounted virtual list; replace it with each new attachment.
+struct Control {
+  list: mut cui::VirtualListRef,
+}
+
+fn control() mut Control {
+  (mut Control{list: cui::virtual_list_ref()})
+}
+
+impl Control {
+  // Returns the transcript to its end and resumes following. UI-thread only.
+  fn show_latest() Bool {
+    match self.list.current {
+      list => {
+        let _ = list.scroll_to_edge(cui::ScrollEdge::end, sticky: true)
+        true
+      },
+      _ => false,
+    }
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  messages: [transcript::Message],
+  control: mut Control,
+}
+
+struct Pane {
+  props: mut Props,
+  context: cui::Context?,
+  // Derived from the VirtualList's committed visibility rather than estimates
+  // from its pre-layout rows. It stays false while any portion of a tall
+  // latest reply is visible.
+  latest_out_of_view: Bool,
+}
+
+// One transcript row: a message and its stable virtual-list key.
+struct Entry {
+  key: Str,
+  message: transcript::Message,
+  last: Bool,
+}
+
+// pane retains one attachment's transcript. `scope_id` remounts it, resetting
+// presentation state, when a new attachment replaces the old one.
+fn pane(props: Props, scope_id: Int) cui::View {
+  cui::child(new, props, key: "transcript:{scope_id}")
+}
+
+private fn new(props: mut Props) mut Pane {
+  (mut Pane{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    latest_out_of_view: false,
+  })
+}
+
+impl cui::Lifecycle for Pane {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Pane {
+  // Committed list updates report the latest message's visibility. Only
+  // changes dispatch, so a settled list does not schedule further renders.
+  private fn mut observe(update: cui::VirtualListUpdate) {
+    let hidden = not update.state.last_item_visible
+    if hidden != self.latest_out_of_view {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.latest_out_of_view = hidden
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut list() cui::View {
+    let themes = self.props.themes
+    let colors = themes.current()
+    let shown = mut List::new<transcript::Message>()
+    for message in self.props.messages {
+      if renders(message) {
+        shown.push(message)
+      }
+    }
+    match shown.size() == 0 {
+      true => layout::empty_state(colors, "Ask a question or give a task."),
+      false => {
+        let entries = mut List::new<Entry>()
+        for message in shown {
+          let key = match message.id == "" {
+            true => "pending:{entries.size()}",
+            false => message.id,
+          }
+          entries.push(
+            Entry{
+              key: key,
+              message: message,
+              last: entries.size() == shown.size() - 1,
+            },
+          )
+        }
+        cui::virtual_list(
+          entries.@,
+          item_key: fn(entry: Entry) Str {
+            entry.key
+          },
+          render_item: fn(entry: Entry) cui::View {
+            transcript_row(themes, entry)
+          },
+          estimated_height: 4,
+          overscan: 2,
+          key: "transcript",
+          ref: self.props.control.list,
+          sticky_scroll: cui::ScrollEdge::end,
+          on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
+            self.observe(update)
+          },
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+        )
+      },
+    }
+  }
+
+  private fn mut latest_button() cui::View {
+    let control = self.props.control
+    let latest = keymap::simple_command("transcript.latest", "Show latest", fn() Bool {
+      control.show_latest()
+    })
+    controls::button(
+      self.props.themes,
+      "↓ Latest",
+      latest,
+      variant: controls::ButtonVariant::secondary,
+      compact: true,
+      focusable: false,
+      styles: ui::style(
+        position: ui::Position::absolute,
+        right: ui::cells(1),
+        bottom: ui::cells(1),
+        z_index: 1,
+      ),
+    )
+  }
+}
+
+impl cui::Component for Pane {
+  fn mut render() cui::View {
+    let children = mut List::new<cui::View>()
+    children.push(self.list())
+    if self.latest_out_of_view {
+      children.push(self.latest_button())
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        position: ui::Position::relative,
+        overflow: ui::Overflow::visible,
+      ),
+    )
+  }
+}
+
+// Each row keeps a blank row above it; the last also keeps one below.
+private fn transcript_row(themes: theme::Context, entry: Entry) cui::View {
+  let bottom = match entry.last {
+    true => 1,
+    false => 0,
+  }
+  cui::box(
+    [entry_view(themes, entry.key, entry.message).or(layout::blank())],
+    styles: ui::style(
+      flex_direction: ui::FlexDirection::column,
+      padding: ui::Edges{
+        top: ui::cells(1),
+        right: ui::cells(1),
+        bottom: ui::cells(bottom),
+        left: ui::cells(1),
+      },
+    ),
+  )
+}
+
+// Whether a message has visible transcript content.
+private fn renders(message: transcript::Message) Bool {
+  match message.role {
+    // Buffer streamed prose in the model, but reveal it only after the
+    // assistant message settles so incomplete Markdown never reaches layout.
+    transcript::Role::user => message.text != "",
+    transcript::Role::assistant => message.text != "" and not message.pending,
+    transcript::Role::tool => true,
+    transcript::Role::bash => true,
+    transcript::Role::other => false,
+  }
+}
+
+private fn entry_view(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+  let colors = themes.current()
+  match message.role {
+    transcript::Role::user => user_entry(themes, key, message),
+    transcript::Role::assistant => {
+      let tone = match {
+        message.aborted => colors.muted,
+        message.is_error => colors.danger_text,
+        _ => colors.foreground,
+      }
+      match message.text == "" {
+        true => Maybe::new<cui::View>(),
+        false => {
+          Maybe::new(
+            markdown::view(
+              themes,
+              key,
+              message.text,
+              base: ui::text_style(foreground: tone),
+              semantic: (not message.aborted) and not message.is_error,
+            ),
+          )
+        },
+      }
+    },
+    transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
+    transcript::Role::bash => {
+      Maybe::new(
+        cui::text(
+          "$ {message.text}",
+          text_style: ui::text_style(foreground: colors.muted),
+          selectable: true,
+          selection_style: theme::selection_style(colors),
+        ),
+      )
+    },
+    transcript::Role::other => Maybe::new<cui::View>(),
+  }
+}
+
+// A user turn: a tinted wash with half-block edges and two-cell padding.
+private fn user_entry(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+  let colors = themes.current()
+  match message.text == "" {
+    true => Maybe::new<cui::View>(),
+    false => {
+      let edge = fn(glyph: Str) cui::View {
+        cui::text(
+          strings::Repeat(glyph, 1024),
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.user_fill),
+          wrap: ui::TextWrap::none,
+        )
+      }
+      Maybe::new(
+        cui::box(
+          [
+            edge("▄"),
+            cui::box(
+              [
+                markdown::view(
+                  themes,
+                  key,
+                  message.text,
+                  base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
+                ),
+              ],
+              styles: ui::style(
+                background: colors.user_fill,
+                padding: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(2),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+            ),
+            edge("▀"),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        ),
+      )
+    },
+  }
+}
+
+private fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {
+  let state = match message.tool_state {
+    transcript::ToolState::planned => "planned",
+    transcript::ToolState::running => "running…",
+    transcript::ToolState::completed => "done",
+    transcript::ToolState::failed => "failed",
+    transcript::ToolState::not_run => "not run",
+    transcript::ToolState::none => "",
+  }
+  let tone = match message.tool_state == transcript::ToolState::failed {
+    true => colors.danger_text,
+    false => colors.muted,
+  }
+  layout::line("• {message.tool_name} {state}", ui::text_style(foreground: tone))
+}

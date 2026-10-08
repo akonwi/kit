@@ -4,15 +4,15 @@ use go:api/contract as protocol
 use cooper
 use cooper/cui
 use cooper/testing as headless
-use kit/tui/shell
 use kit/tui/theme
 use kit/tui/transcript
+use kit/tui/transcript_pane
 use go:strings
 
 struct Model {
   messages: [transcript::Message],
-  latest_out_of_view: Bool,
-  list: mut cui::VirtualListRef,
+  scope_id: Int,
+  control: mut transcript_pane::Control,
 }
 
 struct HostProps {
@@ -20,8 +20,8 @@ struct HostProps {
   themes: theme::Context,
 }
 
-// Hosts the transcript pane the way the shell does: a fixed-height column
-// that owns the scroll box ref.
+// Hosts the transcript pane the way the shell does: the host supplies
+// projected messages and the attachment scope, and keeps the pane's control.
 struct Host {
   model: mut Model,
   themes: theme::Context,
@@ -33,14 +33,13 @@ fn host(props: mut HostProps) mut Host {
 
 impl cui::Component for Host {
   fn mut render() cui::View {
-    shell::transcript_pane(
-      self.themes,
-      self.model.messages,
-      "session-1",
-      self.model.list,
-      fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        self.model.latest_out_of_view = not update.state.last_item_visible
+    transcript_pane::pane(
+      transcript_pane::Props{
+        themes: self.themes,
+        messages: self.model.messages,
+        control: self.model.control,
       },
+      self.model.scope_id,
     )
   }
 }
@@ -126,8 +125,8 @@ fn render(count: Int) [Str] {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{
     messages: replies(count),
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -147,8 +146,8 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{
     messages: [],
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -194,8 +193,8 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
       message(transcript::Role::user, "Explain this", false),
       message(transcript::Role::assistant, "**partial", true),
     ],
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -257,8 +256,8 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{
     messages: replies(8),
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -269,16 +268,29 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
   )
   defer renderer.destroy()
   terminal.flush()
-  try testing::assert(not model.latest_out_of_view, "the settled tail keeps the latest reply visible")
-  let list = model.list.current.expect("transcript list")
+  try expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
+  )
+  let list = model.control.list.current.expect("transcript list")
   renderer.update(fn() {
     list.stop_following()
     let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
   })
+  // Committed visibility is reported while painting; its state change renders
+  // on the following frame.
+  terminal.flush()
   terminal.flush()
   testing::assert(
-    model.latest_out_of_view,
-    "the committed update reports the latest reply out of view",
+    terminal.frame().text().contains("↓ Latest"),
+    "the committed update offers a return to the latest reply",
   )
 }
 
@@ -288,8 +300,8 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{
     messages: replies(8),
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -335,8 +347,8 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
   )
   let model = mut Model{
     messages: messages.@,
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -347,17 +359,14 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
   )
   defer renderer.destroy()
   terminal.flush()
-  let list = model.list.current.expect("transcript list")
+  let list = model.control.list.current.expect("transcript list")
   try testing::assert(list.is_following_edge(), "transcript initially follows its tail")
   try testing::assert(terminal.frame().text().contains("TAIL sentinel"), "wide tail is visible")
 
   terminal.resize(20, 7)
   terminal.flush()
   try testing::assert(list.is_following_edge(), "Markdown reflow preserves sticky following")
-  try testing::assert(
-    list.last_item_visible() and not model.latest_out_of_view,
-    "committed state keeps latest visible",
-  )
+  try testing::assert(list.last_item_visible(), "committed state keeps latest visible")
   try testing::assert(
     terminal.frame().text().contains("TAIL sentinel"),
     "narrow reflow stays pinned to the final content",
@@ -390,8 +399,8 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
   }
   let model = mut Model{
     messages: messages.@,
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -402,7 +411,7 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
   )
   defer renderer.destroy()
   terminal.flush()
-  let list = model.list.current.expect("transcript list")
+  let list = model.control.list.current.expect("transcript list")
   renderer.update(fn() {
     list.stop_following()
     let _ = list.scroll_to_key("anchored-8", cui::ScrollAlignment::start)
@@ -419,7 +428,10 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     narrow_position.at(1).or(-1) == 1,
     "narrow reflow preserves the keyed intra-row anchor",
   )
-  try testing::assert(model.latest_out_of_view, "committed latest state remains out of view")
+  try testing::assert(
+    terminal.frame().text().contains("↓ Latest"),
+    "committed latest state remains out of view",
+  )
 
   terminal.resize(44, 8)
   terminal.flush()
@@ -442,8 +454,8 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
         false,
       ),
     ],
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -483,8 +495,8 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let model = mut Model{
     messages: replies(12),
-    latest_out_of_view: false,
-    list: cui::virtual_list_ref(),
+    scope_id: 1,
+    control: transcript_pane::control(),
   }
   let renderer = cui::mount(
     app,
@@ -495,7 +507,7 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
   )
   defer renderer.destroy()
   terminal.flush()
-  let list = model.list.current.expect("transcript list")
+  let list = model.control.list.current.expect("transcript list")
   renderer.update(fn() {
     list.stop_following()
     let _ = list.scroll_to_key("reply-5", cui::ScrollAlignment::start)
@@ -528,5 +540,99 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
   testing::assert(
     terminal.selection().expect("restored selected reply").selected_text == "reply",
     "returning to the retained transcript row restores selection",
+  )
+}
+
+test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+  terminal.flush()
+  let button = position(terminal.frame().text(), "↓ Latest")
+  try testing::assert(button.at(1).or(-1) >= 0, "a scrolled transcript offers the latest reply")
+
+  terminal.mouse_move(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.mouse_down(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.mouse_up(button.at(0).or(-1) + 1, button.at(1).or(-1))
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(list.is_following_edge(), "returning to the latest reply resumes following")
+  // Every row has now been measured, so the thumb reflects exact content height.
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     ┃",
+      "                             ┃",
+    ],
+  )
+}
+
+test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
+  let terminal = headless::new(30, 6)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: replies(8),
+    scope_id: 1,
+    control: transcript_pane::control(),
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let first = model.control.list.current.expect("first transcript list")
+  renderer.update(fn() {
+    first.stop_following()
+    let _ = first.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+
+  renderer.update(fn() {
+    model.scope_id = 2
+    model.control = transcript_pane::control()
+  })
+  terminal.flush()
+  terminal.flush()
+  let second = model.control.list.current.expect("second transcript list")
+  try testing::assert(second.is_following_edge(), "the reattached transcript follows its tail")
+  expect_rows(
+    rows(terminal),
+    [
+      " reply 6                     │",
+      "                             │",
+      " reply 7                     │",
+      "                             │",
+      " reply 8                     │",
+      "                             ┃",
+    ],
   )
 }
