@@ -1,0 +1,118 @@
+use ard/async
+
+use go:api
+use go:context
+use cooper/event
+use go:kit/ffi/contextbridge
+use kit/tui/toast
+
+// The client-wide model-catalog refresh. Refresher owns whether a refresh is in
+// flight, its timeout, and the notifications that report its outcome. Model
+// discovery is not tied to an attached session, so switching sessions neither
+// cancels a refresh nor scopes its completion.
+
+// The longest a refresh may run before it is canceled.
+let timeout_ms = 30000
+
+struct Refresher {
+  // Refreshes the server's catalog and returns how many models it lists.
+  run: fn(context::Context) Int!Error,
+  // Starts the background work; tests substitute a synchronous runner.
+  spawn: fn(fn()),
+  notifications: mut toast::Control,
+  dispatch: (fn(fn()) Void!event::DispatchError)?,
+  lifetime: contextbridge::Cancellation?,
+  pending: Bool,
+}
+
+// refresher refreshes through the public API client.
+fn refresher(client: mut api::Client, notifications: mut toast::Control) mut Refresher {
+  custom(
+    fn(ctx: context::Context) Int!Error {
+      let catalog = try client.RefreshModels(ctx)
+      Result::ok(catalog.Models.size())
+    },
+    fn(work: fn()) {
+      async::start(work)
+    },
+    notifications,
+  )
+}
+
+// custom builds a Refresher from injected work, as tests require.
+fn custom(run: fn(context::Context) Int!Error, spawn: fn(fn()), notifications: mut toast::Control) mut Refresher {
+  (mut Refresher{
+    run: run,
+    spawn: spawn,
+    notifications: notifications,
+    dispatch: Maybe::new<fn(fn()) Void!event::DispatchError>(),
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+    pending: false,
+  })
+}
+
+impl Refresher {
+  // bind adopts the UI dispatch and the application lifetime at mount.
+  fn mut bind(dispatch: fn(fn()) Void!event::DispatchError, lifetime: contextbridge::Cancellation) {
+    self.dispatch = Maybe::new(dispatch)
+    self.lifetime = Maybe::new(lifetime)
+  }
+
+  // refresh starts one refresh, or reports that one is already running.
+  // An unbound Refresher does nothing.
+  fn mut refresh() {
+    if self.pending {
+      self.notifications.show(
+        "Model refresh unavailable",
+        "Model refresh is already in progress.",
+        toast::Variant::warning,
+        false,
+      )
+    } else {
+      match self.dispatch {
+        dispatch => {
+          match self.lifetime {
+            lifetime => {
+              let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(timeout_ms))
+              let run = self.run
+              self.pending = true
+              (self.spawn)(
+                fn() {
+                  let result = run(attempt.Context)
+                  attempt.Cancel()
+                  let _ = dispatch(fn() {
+                    self.finish(result)
+                  })
+                },
+              )
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut finish(result: Int!Error) {
+    self.pending = false
+    match result {
+      ok(count) => {
+        self.notifications.show(
+          "Model catalog refreshed",
+          "{count} models available",
+          toast::Variant::info,
+          false,
+        )
+      },
+      err(failure) => {
+        self.notifications.show(
+          "Model refresh failed",
+          failure.error(),
+          toast::Variant::error,
+          true,
+        )
+      },
+    }
+  }
+}
