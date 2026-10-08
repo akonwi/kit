@@ -252,6 +252,21 @@ impl Live {
     self.sequence > 0 and snapshot.EventStreamID == self.stream_id and snapshot.EventCursor < self.sequence
   }
 
+  // Adopts the event stream that replaced the one this live turn followed.
+  // The server renumbers a replacement stream, so applied sequences restart at
+  // the snapshot's cursor, or at its start when the snapshot can replay the
+  // whole active turn. Events still in flight from the replaced stream are
+  // ignored.
+  fn mut adopt_stream(snapshot: protocol::SessionSnapshot) {
+    if self.stream_id != "" and snapshot.EventStreamID != "" and snapshot.EventStreamID != self.stream_id {
+      self.stream_id = snapshot.EventStreamID
+      self.sequence = match snapshot.EventReplayAvailable {
+        true => Int64::from(0),
+        false => snapshot.EventCursor,
+      }
+    }
+  }
+
   // Reports whether an active live turn owns the transcript tail. Attached
   // session snapshots are not authoritative for this in-flight turn, even
   // after its optimistic user row gains a durable identity.
@@ -438,7 +453,8 @@ impl Live {
   // Applies one ordered event. Session-watch consumers use this boundary so
   // turn lifecycle bookkeeping and transcript reduction stay in wire order.
   fn mut apply_event(event: sessionbridge::Event) Bool {
-    if event.Sequence <= self.sequence {
+    let replaced = self.stream_id != "" and event.StreamID != "" and event.StreamID != self.stream_id
+    if replaced or event.Sequence <= self.sequence {
       false
     } else {
       self.sequence = event.Sequence
