@@ -229,6 +229,55 @@ func TestPromptInputValidate(t *testing.T) {
 	}
 }
 
+func TestForkSessionInputValidatePrompt(t *testing.T) {
+	t.Parallel()
+	for _, prompt := range []*PromptInput{
+		nil,
+		{Text: "explore the other approach"},
+		{AttachmentIDs: []string{"attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}},
+	} {
+		if err := (ForkSessionInput{Prompt: prompt}).Validate(); err != nil {
+			t.Fatalf("Validate() fork prompt %+v error = %v", prompt, err)
+		}
+	}
+	for _, prompt := range []*PromptInput{
+		{},
+		{Text: "bad\x00prompt"},
+		{Text: "review this", AnnotationIDs: []uint64{1}},
+	} {
+		if err := (ForkSessionInput{Prompt: prompt}).Validate(); err == nil {
+			t.Fatalf("Validate() accepted fork prompt %+v", prompt)
+		}
+	}
+}
+
+func TestForkSessionResultValidate(t *testing.T) {
+	t.Parallel()
+	child := SessionInfo{
+		ID: "session_cccccccccccccccccccccccccccccccc", CWD: "/work", Model: "test/echo", ConfigurationRevision: 1,
+		ParentSessionID: "session_0123456789abcdef0123456789abcdef", CreatedAt: "2026-03-23T12:34:56Z", UpdatedAt: "2026-03-23T12:34:56Z",
+	}
+	for _, result := range []ForkSessionResult{
+		{Session: child},
+		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnUnavailable, Message: "session is unavailable"}},
+	} {
+		if err := result.Validate(); err != nil {
+			t.Fatalf("Validate() result %+v error = %v", result, err)
+		}
+	}
+	orphan := child
+	orphan.ParentSessionID = ""
+	for _, result := range []ForkSessionResult{
+		{Session: orphan},
+		{Session: child, FirstTurnError: &FirstTurnError{Code: "teapot", Message: "short and stout"}},
+		{Session: child, FirstTurnError: &FirstTurnError{Code: FirstTurnInternal, Message: " "}},
+	} {
+		if err := result.Validate(); err == nil {
+			t.Fatalf("Validate() accepted result %+v", result)
+		}
+	}
+}
+
 func TestRenameSessionInputValidate(t *testing.T) {
 	t.Parallel()
 

@@ -48,19 +48,24 @@ func (c *Client) CreateSession(ctx context.Context, input protocol.CreateSession
 }
 
 // ForkSession creates a linked child from one settled persistent session.
-func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+// A first prompt that could not start is reported in the result's
+// FirstTurnError; the fork itself still succeeded.
+func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
 	if err := input.Validate(); err != nil {
-		return protocol.SessionInfo{}, fmt.Errorf("validate session fork: %w", err)
+		return protocol.ForkSessionResult{}, fmt.Errorf("validate session fork: %w", err)
 	}
 	output, err := httpapi.Call(ctx, c, httpapi.ForkSession, httpapi.SessionPath{SessionID: sourceSessionID}, input)
 	if err != nil {
-		return protocol.SessionInfo{}, err
+		return protocol.ForkSessionResult{}, err
 	}
 	if err := output.Validate(); err != nil {
-		return protocol.SessionInfo{}, protocolErrorf("validate forked daemon session: %w", err)
+		return protocol.ForkSessionResult{}, protocolErrorf("validate forked daemon session: %w", err)
 	}
-	if output.Temporary || output.ParentSessionID != sourceSessionID || (input.ID != "" && output.ID != input.ID) {
-		return protocol.SessionInfo{}, protocolErrorf("daemon session fork identity mismatch")
+	if output.Session.ParentSessionID != sourceSessionID || output.Session.ID == sourceSessionID {
+		return protocol.ForkSessionResult{}, protocolErrorf("daemon session fork identity mismatch")
+	}
+	if input.Prompt == nil && output.FirstTurnError != nil {
+		return protocol.ForkSessionResult{}, protocolErrorf("daemon reported a first turn for a fork without a prompt")
 	}
 	return output, nil
 }

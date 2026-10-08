@@ -3672,16 +3672,8 @@ func (s *appState) recheckDaemonUsing(reattach func(context.Context, string) (bo
 				s.showToast(toastInput{Title: "Server recheck failed", Subtitle: err.Error(), Variant: toastError})
 				return
 			}
-			nextTurnID, nextBashID := snapshot.ActiveTurnID, snapshot.ActiveBashExecutionID
 			s.SetState(func() { s.installSession(next, snapshot, location) })
-			s.startVCSMonitoring()
-			s.watchAttachedSession(next, s.operation)
-			if nextTurnID != "" {
-				s.watchSession(next, s.operation, nextTurnID)
-			}
-			if nextBashID != "" {
-				s.resumeBash(next, s.operation, nextBashID)
-			}
+			s.resumeInstalledSession(next, s.operation, snapshot)
 			s.showToast(toastInput{Title: "Session reattached", Variant: toastInfo})
 		})
 	}()
@@ -6721,11 +6713,6 @@ func (s *appState) forkCurrentSession(message string) {
 		return
 	}
 	options := s.Widget().(app).Options
-	childID, err := identifier.New("session_")
-	if err != nil {
-		s.showToast(toastInput{Title: "Could not fork session", Subtitle: err.Error(), Variant: toastError})
-		return
-	}
 	forkContext, cancel := context.WithTimeout(s.ctx, 30*time.Second)
 	generation := s.sessionCreateGeneration + 1
 	sourceOperation := s.operation
@@ -6736,13 +6723,14 @@ func (s *appState) forkCurrentSession(message string) {
 		s.sessionCreateCancel = cancel
 	})
 	runtime := s.Context().Runtime()
+	input := forkSessionInput(message)
 	go func() {
-		created, err := options.forkSession(forkContext, sourceSessionID, protocol.ForkSessionInput{ID: childID})
+		forked, err := options.forkSession(forkContext, sourceSessionID, input)
 		var bound boundSession
 		var snapshot protocol.SessionSnapshot
 		var location string
 		if err == nil {
-			bound, snapshot, location, err = attachSessionForSwitchOptions(forkContext, options, created.ID)
+			bound, snapshot, location, err = attachSessionForSwitchOptions(forkContext, options, forked.Session.ID)
 		}
 		cancel()
 		if s.ctx.Err() != nil {
@@ -6765,20 +6753,38 @@ func (s *appState) forkCurrentSession(message string) {
 			s.SetState(func() {
 				s.installSession(bound, snapshot, location)
 				operation = s.operation
+				s.applyForkFirstTurnError(input.Prompt, forked.FirstTurnError)
 			})
-			s.startVCSMonitoring()
-			s.watchAttachedSession(bound, operation)
-			if prompt := strings.TrimSpace(message); prompt != "" {
-				s.startPromptSubmission(prompt, func(ctx context.Context) (Turn, error) {
-					if supportsStructuredPrompts(bound) {
-						result, submitErr := submitPromptInput(ctx, bound, protocol.PromptInput{Text: prompt})
-						return result.Turn, submitErr
-					}
-					return startPrompt(ctx, bound, prompt)
-				})
-			}
+			// A fork with a first message is already running its first turn.
+			s.resumeInstalledSession(bound, operation, snapshot)
 		})
 	}()
+}
+
+// applyForkFirstTurnError presents a fork's first message that could not start
+// like any failed prompt submission in the installed child: the message returns
+// to the composer and the failure joins the transcript.
+func (s *appState) applyForkFirstTurnError(prompt *protocol.PromptInput, failure *protocol.FirstTurnError) {
+	if prompt == nil || failure == nil {
+		return
+	}
+	if s.composer == "" {
+		s.composer = prompt.Text
+		s.composerCursorEndGeneration++
+		s.composerDraftGeneration++
+	}
+	s.messages = append(s.messages, transcriptMessage{Role: "error", Text: failure.Message})
+}
+
+// forkSessionInput requests a fork whose optional first message the server
+// admits on the child as part of the fork, so it cannot be lost between forking
+// and submitting.
+func forkSessionInput(message string) protocol.ForkSessionInput {
+	var input protocol.ForkSessionInput
+	if prompt := strings.TrimSpace(message); prompt != "" {
+		input.Prompt = &protocol.PromptInput{Text: prompt}
+	}
+	return input
 }
 
 func createSessionForSwitchOptions(ctx context.Context, options Options, input protocol.CreateSessionInput) (boundSession, protocol.SessionSnapshot, string, error) {
@@ -6854,8 +6860,6 @@ func (s *appState) switchSelectedSession() {
 				return
 			}
 			var operation uint64
-			nextTurnID := snapshot.ActiveTurnID
-			nextBashID := snapshot.ActiveBashExecutionID
 			s.SetState(func() {
 				if !s.sessionExplorer.ResolveSwitch(generation, nil) {
 					return
@@ -6869,16 +6873,24 @@ func (s *appState) switchSelectedSession() {
 			for _, warning := range snapshot.Warnings {
 				s.showToast(toastInput{Title: "Configuration adjusted", Subtitle: warning, Variant: toastWarning, Persistent: true})
 			}
-			s.startVCSMonitoring()
-			s.watchAttachedSession(bound, operation)
-			if nextTurnID != "" {
-				s.watchSession(bound, operation, nextTurnID)
-			}
-			if nextBashID != "" {
-				s.resumeBash(bound, operation, nextBashID)
-			}
+			s.resumeInstalledSession(bound, operation, snapshot)
 		})
 	}()
+}
+
+// resumeInstalledSession starts watching a newly installed session and resumes
+// any turn or bash execution it already has running. The attached-session
+// watcher does not resume an active turn the installed snapshot already
+// reports, so callers that install a session must resume it here.
+func (s *appState) resumeInstalledSession(bound boundSession, operation uint64, snapshot protocol.SessionSnapshot) {
+	s.startVCSMonitoring()
+	s.watchAttachedSession(bound, operation)
+	if snapshot.ActiveTurnID != "" {
+		s.watchSession(bound, operation, snapshot.ActiveTurnID)
+	}
+	if snapshot.ActiveBashExecutionID != "" {
+		s.resumeBash(bound, operation, snapshot.ActiveBashExecutionID)
+	}
 }
 
 func attachSessionForSwitchOptions(ctx context.Context, options Options, sessionID string) (boundSession, protocol.SessionSnapshot, string, error) {

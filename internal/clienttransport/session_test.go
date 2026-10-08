@@ -35,6 +35,34 @@ func TestConfigureSubagentRejectsMismatchedConversationIdentity(t *testing.T) {
 	}
 }
 
+func TestForkSessionReturnsFirstTurnErrorWithPublishedChild(t *testing.T) {
+	const sourceID = "session_0123456789abcdef0123456789abcdef"
+	const child = `"session":{"id":"session_cccccccccccccccccccccccccccccccc","cwd":"/work","model":"test/echo","thinkingLevel":"","configurationRevision":1,"parentSessionId":"session_0123456789abcdef0123456789abcdef","createdAt":"2026-03-23T12:34:56Z","updatedAt":"2026-03-23T12:34:56Z"}`
+	const failure = `"firstTurnError":{"code":"unavailable","message":"session is unavailable"}`
+	server := httptest.NewServer(http.HandlerFunc(func(response http.ResponseWriter, request *http.Request) {
+		response.Header().Set("Content-Type", "application/json")
+		response.WriteHeader(http.StatusCreated)
+		_, _ = io.WriteString(response, "{"+child+","+failure+"}")
+	}))
+	defer server.Close()
+	endpoint := NewEndpoint(server.URL, "secret", "instance_test")
+
+	result, err := endpoint.ForkSession(t.Context(), sourceID, protocol.ForkSessionInput{Prompt: &protocol.PromptInput{Text: "explore the other approach"}})
+	if err != nil {
+		t.Fatalf("ForkSession() error = %v, want the published child", err)
+	}
+	want := protocol.FirstTurnError{Code: protocol.FirstTurnUnavailable, Message: "session is unavailable"}
+	if result.Session.ID != "session_cccccccccccccccccccccccccccccccc" || result.FirstTurnError == nil || *result.FirstTurnError != want {
+		t.Fatalf("ForkSession() = %+v, want the child with first turn error %+v", result, want)
+	}
+
+	_, err = endpoint.ForkSession(t.Context(), sourceID, protocol.ForkSessionInput{})
+	var protocolErr *ProtocolError
+	if !errors.As(err, &protocolErr) {
+		t.Fatalf("ForkSession() without a prompt error = %T %v, want protocol error for an unrequested first turn", err, err)
+	}
+}
+
 func TestSessionEventStreamCancellationClosesRequest(t *testing.T) {
 	const sessionID = "session_0123456789abcdef0123456789abcdef"
 	requestCanceled := make(chan struct{})

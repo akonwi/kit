@@ -3,6 +3,7 @@ package contract
 
 import (
 	"encoding/json"
+	"fmt"
 	"strings"
 )
 
@@ -17,9 +18,84 @@ type CreateSessionInput struct {
 }
 
 // ForkSessionInput requests a linked child from a settled persistent session.
+// The server chooses the child's ID. When Prompt is present, the server admits
+// it as the child's first turn as part of the fork; it is never admitted on the
+// source. Fork prompts may carry text and source attachments, but not
+// annotations. Invalid prompt input creates no child.
 type ForkSessionInput struct {
-	ID   string `json:"id,omitempty"`
-	Name string `json:"name,omitempty"`
+	Name   string       `json:"name,omitempty"`
+	Prompt *PromptInput `json:"prompt,omitempty"`
+}
+
+// ForkSessionResult reports a published fork. FirstTurnError is present when
+// the request carried a prompt that could not start the child's first turn;
+// the fork itself still succeeded, and clients treat the error like any failed
+// prompt submission in the child.
+type ForkSessionResult struct {
+	Session        SessionInfo     `json:"session"`
+	FirstTurnError *FirstTurnError `json:"firstTurnError,omitempty"`
+}
+
+// FirstTurnError is a renderer-safe reason a fork's first prompt did not start.
+type FirstTurnError struct {
+	Code    FirstTurnErrorCode `json:"code"`
+	Message string             `json:"message"`
+}
+
+// FirstTurnErrorCode is the stable identity of a fork's first-turn failure. It
+// uses the same codes as a failed prompt submission.
+type FirstTurnErrorCode string
+
+const (
+	FirstTurnInvalidRequest FirstTurnErrorCode = "invalid_request"
+	FirstTurnNotFound       FirstTurnErrorCode = "not_found"
+	FirstTurnConflict       FirstTurnErrorCode = "conflict"
+	FirstTurnUnavailable    FirstTurnErrorCode = "unavailable"
+	FirstTurnInternal       FirstTurnErrorCode = "internal"
+)
+
+// Values returns every permitted first-turn error code.
+func (FirstTurnErrorCode) Values() []FirstTurnErrorCode {
+	return []FirstTurnErrorCode{FirstTurnInvalidRequest, FirstTurnNotFound, FirstTurnConflict, FirstTurnUnavailable, FirstTurnInternal}
+}
+
+// EnumValues returns the string values for contract reflection.
+func (FirstTurnErrorCode) EnumValues() []string {
+	values := FirstTurnErrorCode("").Values()
+	result := make([]string, len(values))
+	for index, value := range values {
+		result[index] = string(value)
+	}
+	return result
+}
+
+// Validate checks a stable first-turn error code.
+func (code FirstTurnErrorCode) Validate() error {
+	for _, value := range code.Values() {
+		if code == value {
+			return nil
+		}
+	}
+	return fmt.Errorf("first turn error code %q is invalid", code)
+}
+
+// Validate checks a fork result crossing a transport boundary.
+func (result ForkSessionResult) Validate() error {
+	if err := result.Session.Validate(); err != nil {
+		return err
+	}
+	if result.Session.ParentSessionID == "" || result.Session.Temporary {
+		return fmt.Errorf("forked session must be a persistent child")
+	}
+	if result.FirstTurnError != nil {
+		if err := result.FirstTurnError.Code.Validate(); err != nil {
+			return err
+		}
+		if strings.TrimSpace(result.FirstTurnError.Message) == "" || !validRendererText(result.FirstTurnError.Message, 1024) {
+			return fmt.Errorf("first turn error message is invalid")
+		}
+	}
+	return nil
 }
 
 // RenameSessionInput requests a new non-empty display name for a session.

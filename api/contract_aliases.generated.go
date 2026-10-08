@@ -67,8 +67,11 @@ type (
 	FileContent                       = contract.FileContent
 	FileDiffPage                      = contract.FileDiffPage
 	FileIndexEntry                    = contract.FileIndexEntry
+	FirstTurnError                    = contract.FirstTurnError
+	FirstTurnErrorCode                = contract.FirstTurnErrorCode
 	FollowUpQueue                     = contract.FollowUpQueue
 	ForkSessionInput                  = contract.ForkSessionInput
+	ForkSessionResult                 = contract.ForkSessionResult
 	GitHubPullRequest                 = contract.GitHubPullRequest
 	ImageContent                      = contract.ImageContent
 	InteractionAnswer                 = contract.InteractionAnswer
@@ -252,6 +255,11 @@ const (
 	DiffTargetBranch                      = contract.DiffTargetBranch
 	DiffTargetCommit                      = contract.DiffTargetCommit
 	DiffTargetWorkingTree                 = contract.DiffTargetWorkingTree
+	FirstTurnConflict                     = contract.FirstTurnConflict
+	FirstTurnInternal                     = contract.FirstTurnInternal
+	FirstTurnInvalidRequest               = contract.FirstTurnInvalidRequest
+	FirstTurnNotFound                     = contract.FirstTurnNotFound
+	FirstTurnUnavailable                  = contract.FirstTurnUnavailable
 	InteractionConfirm                    = contract.InteractionConfirm
 	InteractionGuided                     = contract.InteractionGuided
 	InteractionInput                      = contract.InteractionInput

@@ -8,7 +8,7 @@ IDs but must not redefine server, persistence, or protocol semantics.
 - [ ] CORE-SESSION-001 — Broadcast follow-up queue changes to every attached
   client, and surface failed automatic admission of a queued follow-up instead
   of leaving the queue silently blocked.
-- [ ] CORE-FORK-001 — Accept an optional first prompt when forking a settled
+- [x] CORE-FORK-001 — Accept an optional first prompt when forking a settled
   session, and admit that prompt only on the new child.
 - [ ] CORE-RUN-005 — Include a bounded, classified failure reason in
   failed-compaction events, persisted compaction state, and the explicit

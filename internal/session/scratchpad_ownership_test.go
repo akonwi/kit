@@ -253,38 +253,6 @@ func TestScratchpadFanoutCompletesBeforeOwnerTransfer(t *testing.T) {
 	}
 }
 
-func TestForkReconciliationRejectsMismatchedScratchpadOwner(t *testing.T) {
-	root := t.TempDir()
-	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(func() { _ = store.Close() })
-	repository := &mismatchedScratchpadOwnerRepository{Repository: store}
-	manager, err := session.NewManager(
-		repository,
-		&authorityProviders{},
-		staticRuntimeBundleBuilder("system"),
-		session.WithDroidStoreDirectory(filepath.Join(root, "droids")),
-	)
-	if err != nil {
-		t.Fatal(err)
-	}
-	t.Cleanup(manager.Close)
-	parent, err := manager.Create(t.Context(), session.CreateInput{CWD: root, Model: "test/echo"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	child, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{})
-	if err != nil {
-		t.Fatal(err)
-	}
-	repository.corruptID = child.Session.ID
-	if _, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{ID: child.Session.ID}); !errors.Is(err, session.ErrInvalidInput) {
-		t.Fatalf("retry with mismatched owner error = %v", err)
-	}
-}
-
 func TestAmbiguousForkPublicationRejectsMismatchedScratchpadOwner(t *testing.T) {
 	root := t.TempDir()
 	store, err := storage.Open(t.Context(), filepath.Join(root, "kit.db"))

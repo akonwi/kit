@@ -65,14 +65,19 @@ type CreateInput struct {
 
 // ForkInput identifies the linked child created from a settled session.
 type ForkInput struct {
-	ID   string
 	Name string
+	// Prompt, when present, is admitted as the child's first turn as part of
+	// the fork. It may carry text and source attachments but not annotations.
+	Prompt *PromptInput
 }
 
 // ForkResult is the published child and its exact semantic fork point.
 type ForkResult struct {
 	Session SessionRecord
 	Point   droids.ForkPoint
+	// FirstTurnErr reports why a requested first prompt did not start. The
+	// fork itself succeeded.
+	FirstTurnErr error
 }
 
 // RunReservation identifies a durably admitted droid turn.
@@ -608,8 +613,61 @@ func (m *Manager) Create(ctx context.Context, input CreateInput) (SessionRecord,
 	return SessionRecord{}, err
 }
 
-// Fork publishes a linked persistent child copied from a settled source.
+// Fork publishes a linked persistent child copied from a settled source under
+// a server-generated ID. When input.Prompt is present, the prompt is admitted
+// as the child's first turn and never on the source. Invalid prompt input
+// publishes no child. If the first turn cannot start after publication, the
+// fork still succeeds and reports the failure in ForkResult.FirstTurnErr, like
+// a failed prompt submission in any session.
 func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkInput) (ForkResult, error) {
+	if input.Prompt == nil {
+		return m.fork(ctx, sourceSessionID, input)
+	}
+	if ctx == nil {
+		ctx = context.Background()
+	}
+	if len(input.Prompt.AnnotationIDs) > 0 {
+		return ForkResult{}, fmt.Errorf("%w: fork prompts cannot include annotations", ErrInvalidInput)
+	}
+	prompt := PromptInput{Text: input.Prompt.Text, AttachmentIDs: append([]string(nil), input.Prompt.AttachmentIDs...)}
+	if err := validatePromptInput(prompt); err != nil {
+		return ForkResult{}, err
+	}
+	if err := m.validateForkPrompt(ctx, sourceSessionID, prompt); err != nil {
+		return ForkResult{}, err
+	}
+	result, err := m.fork(ctx, sourceSessionID, input)
+	if err != nil {
+		return ForkResult{}, err
+	}
+	// The child is published and may already be visible to other clients, so
+	// a first turn that cannot start is a prompt failure in the child, not a
+	// fork failure.
+	if _, err := m.StartPromptInput(ctx, result.Session.ID, prompt); err != nil {
+		result.FirstTurnErr = err
+	}
+	return result, nil
+}
+
+// validateForkPrompt resolves a fork prompt against the source, whose model
+// and attachments the child inherits, so invalid input publishes no child.
+func (m *Manager) validateForkPrompt(ctx context.Context, sourceSessionID string, prompt PromptInput) error {
+	if len(prompt.AttachmentIDs) == 0 {
+		return nil
+	}
+	source, err := m.runtime(ctx, sourceSessionID)
+	if err != nil {
+		return err
+	}
+	source.mu.Lock()
+	model := source.model
+	source.mu.Unlock()
+	_, err = m.resolvePromptContent(ctx, sourceSessionID, model, prompt, nil, "")
+	return err
+}
+
+// fork publishes a linked persistent child under a server-generated ID.
+func (m *Manager) fork(ctx context.Context, sourceSessionID string, input ForkInput) (ForkResult, error) {
 	if err := m.beginOperation(); err != nil {
 		return ForkResult{}, err
 	}
@@ -627,45 +685,11 @@ func (m *Manager) Fork(ctx context.Context, sourceSessionID string, input ForkIn
 		return ForkResult{}, fmt.Errorf("%w: temporary sessions cannot be forked", ErrInvalidInput)
 	}
 
-	childID := input.ID
-	if childID == "" {
-		childID, err = identifier.New("session_")
-		if err != nil {
-			return ForkResult{}, err
-		}
-	} else if !identifier.Valid(childID, "session_") {
-		return ForkResult{}, fmt.Errorf("%w: invalid child session id", ErrInvalidInput)
-	}
-	if childID == sourceSessionID {
-		return ForkResult{}, fmt.Errorf("%w: child session id must differ from source", ErrInvalidInput)
+	childID, err := identifier.New("session_")
+	if err != nil {
+		return ForkResult{}, err
 	}
 	name := strings.TrimSpace(input.Name)
-	if input.ID != "" {
-		if existing, lookupErr := m.store.GetSession(ctx, childID); lookupErr == nil {
-			if existing.ParentSessionID == sourceSessionID && existing.ScratchpadOwnerID == sourceMetadata.ScratchpadOwnerID && existing.DroidInitializedAt != nil && (name == "" || existing.Name == name) {
-				childRuntime, runtimeErr := m.runtime(ctx, childID)
-				if runtimeErr == nil {
-					childRuntime.transitionMu.Lock()
-					childRuntime.mu.Lock()
-					snapshot, snapshotErr := childRuntime.droid.Snapshot(ctx, droids.SnapshotOptions{})
-					childRuntime.mu.Unlock()
-					childRuntime.transitionMu.Unlock()
-					if snapshotErr == nil && snapshot.Conversation.ForkedFrom != nil && snapshot.Conversation.ForkedFrom.ConversationID == droids.ConversationID(sourceSessionID) {
-						source.transitionMu.Lock()
-						source.mu.Lock()
-						informDroidOfFork(ctx, source, childID)
-						source.mu.Unlock()
-						source.transitionMu.Unlock()
-						return ForkResult{Session: existing, Point: *snapshot.Conversation.ForkedFrom}, nil
-					}
-				}
-			}
-			return ForkResult{}, fmt.Errorf("%w: child session id is already in use", ErrInvalidInput)
-		} else if !errors.Is(lookupErr, ErrNotFound) {
-			return ForkResult{}, lookupErr
-		}
-	}
-
 	m.mu.Lock()
 	if m.closed {
 		m.mu.Unlock()

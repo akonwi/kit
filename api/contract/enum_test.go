@@ -12,7 +12,7 @@ type stringEnum interface{ EnumValues() []string }
 
 func TestStringEnumValuesCoverDeclaredConstants(t *testing.T) {
 	t.Parallel()
-	enums := map[string]stringEnum{"ScratchpadErrorCode": ScratchpadErrorCode(""), "VCSHeadKind": VCSHeadKind("")}
+	enums := map[string]stringEnum{"FirstTurnErrorCode": FirstTurnErrorCode(""), "ScratchpadErrorCode": ScratchpadErrorCode(""), "VCSHeadKind": VCSHeadKind("")}
 	files, err := parser.ParseDir(token.NewFileSet(), ".", nil, 0)
 	if err != nil {
 		t.Fatal(err)

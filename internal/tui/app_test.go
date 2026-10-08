@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"reflect"
 	"strconv"
 	"strings"
 	"testing"
@@ -1574,7 +1575,7 @@ func (s *fakeServer) CreateSession(_ context.Context, input protocol.CreateSessi
 	return s.createdResult, s.createErr
 }
 
-func (s *fakeServer) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+func (s *fakeServer) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
 	panic("unexpected ForkSession")
 }
 
@@ -1728,4 +1729,21 @@ func (fakeSession) StartPrompt(context.Context, string) (Turn, error) {
 
 func (fakeSession) StartPromptCommand(context.Context, string, string) (Turn, error) {
 	panic("unexpected StartPromptCommand")
+}
+
+func TestForkSessionInputCarriesFirstMessageToServer(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		message string
+		want    protocol.ForkSessionInput
+	}{
+		{message: "", want: protocol.ForkSessionInput{}},
+		{message: "   ", want: protocol.ForkSessionInput{}},
+		{message: "  explore the other approach ", want: protocol.ForkSessionInput{Prompt: &protocol.PromptInput{Text: "explore the other approach"}}},
+	}
+	for _, test := range tests {
+		if got := forkSessionInput(test.message); !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("forkSessionInput(%q) = %+v, want %+v", test.message, got, test.want)
+		}
+	}
 }

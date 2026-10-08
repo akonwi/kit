@@ -1186,14 +1186,9 @@ func TestManagerForkPublishesAttachableChildWithParentLineage(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	childID := "session_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
-	forked, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{ID: childID})
+	forked, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{})
 	if err != nil {
 		t.Fatal(err)
-	}
-	retried, err := manager.Fork(t.Context(), parent.ID, session.ForkInput{ID: childID})
-	if err != nil || retried.Session.ID != forked.Session.ID || retried.Point != forked.Point {
-		t.Fatalf("retry Fork() = %+v, %v; want %+v", retried, err, forked)
 	}
 	if forked.Session.ID == parent.ID || forked.Session.ParentSessionID != parent.ID {
 		t.Fatalf("forked session = %+v", forked.Session)

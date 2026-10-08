@@ -66,7 +66,7 @@ type compatibilityTransport interface {
 
 type operationTransport interface {
 	CreateSession(context.Context, CreateSessionInput) (SessionInfo, error)
-	ForkSession(context.Context, string, ForkSessionInput) (SessionInfo, error)
+	ForkSession(context.Context, string, ForkSessionInput) (ForkSessionResult, error)
 	RenameSession(context.Context, string, string) (SessionInfo, error)
 	DeleteSession(context.Context, string) error
 	DisposeTemporarySession(context.Context, string) error
@@ -233,11 +233,12 @@ func (c *Client) CreateSession(ctx context.Context, input CreateSessionInput) (S
 	return projectResult(c.transport.CreateSession(operation, input))
 }
 
-// ForkSession creates a linked child session.
-func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input ForkSessionInput) (SessionInfo, error) {
+// ForkSession creates a linked child session. A first prompt that could not
+// start is reported in the result's FirstTurnError; the fork still succeeded.
+func (c *Client) ForkSession(ctx context.Context, sourceSessionID string, input ForkSessionInput) (ForkSessionResult, error) {
 	operation, cancel, err := c.operationContext(ctx)
 	if err != nil {
-		return SessionInfo{}, err
+		return ForkSessionResult{}, err
 	}
 	defer cancel()
 	return projectResult(c.transport.ForkSession(operation, sourceSessionID, input))

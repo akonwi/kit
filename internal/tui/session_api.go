@@ -22,7 +22,7 @@ func (o Options) createSession(ctx context.Context, input protocol.CreateSession
 	return o.Server.CreateSession(ctx, input)
 }
 
-func (o Options) forkSession(ctx context.Context, sourceID string, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+func (o Options) forkSession(ctx context.Context, sourceID string, input protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
 	if o.Client != nil {
 		return o.Client.ForkSession(ctx, sourceID, input)
 	}

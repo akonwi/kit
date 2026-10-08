@@ -222,12 +222,17 @@ func (input ChangeCWDInput) Validate() error {
 
 // Validate checks a session-fork request crossing a transport boundary.
 func (input ForkSessionInput) Validate() error {
-	if input.ID != "" && !identifier.Valid(input.ID, "session_") {
-		return fmt.Errorf("child session id %q is not canonical", input.ID)
-	}
 	name := strings.TrimSpace(input.Name)
 	if name != "" && !ValidSessionName(name) {
 		return fmt.Errorf("session name must be renderer-safe UTF-8 and at most 256 bytes")
+	}
+	if input.Prompt != nil {
+		if err := input.Prompt.Validate(); err != nil {
+			return fmt.Errorf("fork prompt: %w", err)
+		}
+		if len(input.Prompt.AnnotationIDs) > 0 {
+			return fmt.Errorf("fork prompt cannot include annotations")
+		}
 	}
 	return nil
 }

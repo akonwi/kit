@@ -1336,3 +1336,95 @@ func TestProjectSessionEventPageCarriesProviderRetryLifecycle(t *testing.T) {
 		t.Fatalf("started provider retry = %+v", got)
 	}
 }
+
+type forkRouteTestService struct {
+	sessionService
+	inputs         *[]protocol.ForkSessionInput
+	firstTurnError *protocol.FirstTurnError
+}
+
+func (service forkRouteTestService) Fork(_ context.Context, sourceSessionID string, input protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
+	*service.inputs = append(*service.inputs, input)
+	return protocol.ForkSessionResult{Session: protocol.SessionInfo{ID: "session_cccccccccccccccccccccccccccccccc", Name: "fork: Parent", CWD: "/work", Model: "test/echo", ParentSessionID: sourceSessionID, ConfigurationRevision: 1, CreatedAt: "2026-03-23T12:34:56Z", UpdatedAt: "2026-03-23T12:34:56Z"}, FirstTurnError: service.firstTurnError}, nil
+}
+
+func TestFirstTurnErrorUsesPromptSubmissionCodes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		err  error
+		want *protocol.FirstTurnError
+	}{
+		{err: nil, want: nil},
+		{err: fmt.Errorf("start: %w", kitsession.ErrBusy), want: &protocol.FirstTurnError{Code: protocol.FirstTurnConflict, Message: "operation conflicts with session state"}},
+		{err: kitsession.ErrClosed, want: &protocol.FirstTurnError{Code: protocol.FirstTurnUnavailable, Message: "session is unavailable"}},
+		{err: kitsession.ErrInvalidInput, want: &protocol.FirstTurnError{Code: protocol.FirstTurnInvalidRequest, Message: "invalid request"}},
+		{err: errors.New("disk full"), want: &protocol.FirstTurnError{Code: protocol.FirstTurnInternal, Message: "internal server error"}},
+		{err: kitsession.ErrInteractionCapacity, want: &protocol.FirstTurnError{Code: protocol.FirstTurnInternal, Message: "internal server error"}},
+	}
+	for _, test := range tests {
+		if got := firstTurnError(test.err); !reflect.DeepEqual(got, test.want) {
+			t.Fatalf("firstTurnError(%v) = %+v, want %+v", test.err, got, test.want)
+		}
+	}
+}
+
+func TestForkRouteReportsFirstTurnErrorOnCreatedFork(t *testing.T) {
+	t.Parallel()
+	var inputs []protocol.ForkSessionInput
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, forkRouteTestService{inputs: &inputs, firstTurnError: &protocol.FirstTurnError{Code: protocol.FirstTurnUnavailable, Message: "session is unavailable"}})
+	var contractErr error
+	handler := contractConformanceMiddleware(t, mux, func(err error) { contractErr = err })
+	request := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_0123456789abcdef0123456789abcdef/forks", strings.NewReader(`{"prompt":{"text":"explore the other approach"}}`))
+	request.Header.Set("Content-Type", "application/json")
+	addContractRequestHeaders(request)
+	response := httptest.NewRecorder()
+	handler.ServeHTTP(response, request)
+	if contractErr != nil {
+		t.Fatalf("contract validation: %v", contractErr)
+	}
+	if response.Code != http.StatusCreated {
+		t.Fatalf("POST fork = %d %q, want %d", response.Code, response.Body.String(), http.StatusCreated)
+	}
+	var result protocol.ForkSessionResult
+	if err := json.Unmarshal(response.Body.Bytes(), &result); err != nil {
+		t.Fatal(err)
+	}
+	want := &protocol.FirstTurnError{Code: protocol.FirstTurnUnavailable, Message: "session is unavailable"}
+	if result.Session.ID != "session_cccccccccccccccccccccccccccccccc" || !reflect.DeepEqual(result.FirstTurnError, want) {
+		t.Fatalf("fork result = %+v, want the child with first turn error %+v", result, want)
+	}
+}
+
+func TestForkRouteForwardsFirstPromptAndRejectsAnnotations(t *testing.T) {
+	t.Parallel()
+	var inputs []protocol.ForkSessionInput
+	mux := http.NewServeMux()
+	registerSessionRoutes(mux, forkRouteTestService{inputs: &inputs})
+	var contractErr error
+	handler := contractConformanceMiddleware(t, mux, func(err error) { contractErr = err })
+	tests := []struct {
+		body string
+		want int
+	}{
+		{body: `{"prompt":{"text":"explore the other approach","attachmentIds":["attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"]}}`, want: http.StatusCreated},
+		{body: `{"prompt":{"text":"review","annotationIds":[1]}}`, want: http.StatusBadRequest},
+	}
+	for _, test := range tests {
+		request := httptest.NewRequest(http.MethodPost, "/v1/sessions/session_0123456789abcdef0123456789abcdef/forks", strings.NewReader(test.body))
+		request.Header.Set("Content-Type", "application/json")
+		addContractRequestHeaders(request)
+		response := httptest.NewRecorder()
+		handler.ServeHTTP(response, request)
+		if contractErr != nil {
+			t.Fatalf("contract validation for %s: %v", test.body, contractErr)
+		}
+		if response.Code != test.want {
+			t.Fatalf("POST %s = %d %q, want %d", test.body, response.Code, response.Body.String(), test.want)
+		}
+	}
+	want := []protocol.ForkSessionInput{{Prompt: &protocol.PromptInput{Text: "explore the other approach", AttachmentIDs: []string{"attachment_aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"}}}}
+	if !reflect.DeepEqual(inputs, want) {
+		t.Fatalf("forwarded fork inputs = %+v, want %+v", inputs, want)
+	}
+}

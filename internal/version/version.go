@@ -21,5 +21,8 @@ const (
 	// 42: Session API errors use one code-bearing body for scratchpad operations
 	// and requests rejected before routing.
 	// 43: Turns replace runs throughout the session wire contract.
-	SessionProtocolVersion = 43
+	// 44: The server chooses fork child IDs; fork requests no longer carry one.
+	// Forks accept an optional first prompt and return ForkSessionResult, which
+	// reports a first turn that could not start without failing the fork.
+	SessionProtocolVersion = 44
 )

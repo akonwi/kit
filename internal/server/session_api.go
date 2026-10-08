@@ -102,7 +102,7 @@ var errInvalidSessionRequest = errors.New("invalid session request")
 type sessionService interface {
 	SubscribePluginToasts(context.Context, string) (pluginToastSource, error)
 	Create(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error)
-	Fork(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error)
+	Fork(context.Context, string, protocol.ForkSessionInput) (protocol.ForkSessionResult, error)
 	ChangeCWD(context.Context, string, protocol.ChangeCWDInput) (protocol.ChangeWorkspaceCWDResult, error)
 	Rename(context.Context, string, protocol.RenameSessionInput) (protocol.SessionInfo, error)
 	Delete(context.Context, string) error
@@ -187,12 +187,34 @@ func (s runtimeSessionService) Fork(
 	ctx context.Context,
 	sourceSessionID string,
 	input protocol.ForkSessionInput,
-) (protocol.SessionInfo, error) {
-	result, err := s.manager.Fork(ctx, sourceSessionID, kitsession.ForkInput{ID: input.ID, Name: input.Name})
-	if err != nil {
-		return protocol.SessionInfo{}, err
+) (protocol.ForkSessionResult, error) {
+	forkInput := kitsession.ForkInput{Name: input.Name}
+	if input.Prompt != nil {
+		forkInput.Prompt = &kitsession.PromptInput{Text: input.Prompt.Text, AttachmentIDs: input.Prompt.AttachmentIDs, AnnotationIDs: input.Prompt.AnnotationIDs}
 	}
-	return s.projectSession(result.Session), nil
+	result, err := s.manager.Fork(ctx, sourceSessionID, forkInput)
+	if err != nil {
+		return protocol.ForkSessionResult{}, err
+	}
+	return protocol.ForkSessionResult{
+		Session:        s.projectSession(result.Session),
+		FirstTurnError: firstTurnError(result.FirstTurnErr),
+	}, nil
+}
+
+// firstTurnError projects a fork's first-turn failure with the same code and
+// message a failed prompt submission would carry.
+func firstTurnError(err error) *protocol.FirstTurnError {
+	if err == nil {
+		return nil
+	}
+	firstTurnErr := &protocol.FirstTurnError{Code: protocol.FirstTurnInternal, Message: "internal server error"}
+	var apiErr *httpapi.APIError
+	if errors.As(turnAPIError(err), &apiErr) && protocol.FirstTurnErrorCode(apiErr.Code).Validate() == nil {
+		firstTurnErr.Code = protocol.FirstTurnErrorCode(apiErr.Code)
+		firstTurnErr.Message = apiErr.Message
+	}
+	return firstTurnErr
 }
 
 func (s runtimeSessionService) workspaceService() (*kitworkspace.Service, error) {
@@ -1892,18 +1914,18 @@ func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service session
 		}
 		return result, nil
 	})
-	httpapi.Handle(mux, httpOptions, httpapi.ForkSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.ForkSessionInput) (protocol.SessionInfo, error) {
+	httpapi.Handle(mux, httpOptions, httpapi.ForkSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
 		if err := input.Validate(); err != nil {
-			return protocol.SessionInfo{}, invalidAPIError()
+			return protocol.ForkSessionResult{}, invalidAPIError()
 		}
-		record, err := service.Fork(ctx, params.SessionID, input)
+		result, err := service.Fork(ctx, params.SessionID, input)
 		if err != nil {
-			return protocol.SessionInfo{}, lifecycleAPIError(err)
+			return protocol.ForkSessionResult{}, lifecycleAPIError(err)
 		}
-		if err := record.Validate(); err != nil {
-			return protocol.SessionInfo{}, internalAPIError()
+		if err := result.Validate(); err != nil {
+			return protocol.ForkSessionResult{}, internalAPIError()
 		}
-		return record, nil
+		return result, nil
 	})
 	httpapi.Handle(mux, httpOptions, httpapi.RenameSession, func(ctx context.Context, params httpapi.SessionPath, input protocol.RenameSessionInput) (protocol.SessionInfo, error) {
 		if err := input.Validate(); err != nil {

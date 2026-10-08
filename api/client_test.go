@@ -25,8 +25,8 @@ type fakeClientBackend struct {
 func (f *fakeClientBackend) CreateSession(context.Context, protocol.CreateSessionInput) (protocol.SessionInfo, error) {
 	return protocol.SessionInfo{}, errors.New("unexpected CreateSession")
 }
-func (f *fakeClientBackend) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.SessionInfo, error) {
-	return protocol.SessionInfo{}, errors.New("unexpected ForkSession")
+func (f *fakeClientBackend) ForkSession(context.Context, string, protocol.ForkSessionInput) (protocol.ForkSessionResult, error) {
+	return protocol.ForkSessionResult{}, errors.New("unexpected ForkSession")
 }
 func (f *fakeClientBackend) RenameSession(context.Context, string, string) (protocol.SessionInfo, error) {
 	return protocol.SessionInfo{}, errors.New("unexpected RenameSession")

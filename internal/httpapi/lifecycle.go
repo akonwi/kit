@@ -50,7 +50,7 @@ var (
 	// DisposeTemporarySession removes a temporary session.
 	DisposeTemporarySession = Operation[SessionPath, NoBody, NoBody]{ID: "disposeTemporarySession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/dispose", Success: http.StatusNoContent, Errors: lifecycleErrors(400, 404, 503, 500)}
 	// ForkSession creates a linked child from a persistent session.
-	ForkSession = Operation[SessionPath, protocol.ForkSessionInput, protocol.SessionInfo]{ID: "forkSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/forks", Success: http.StatusCreated, Errors: lifecycleErrors(400, 413, 404, 409, 503, 500)}
+	ForkSession = Operation[SessionPath, protocol.ForkSessionInput, protocol.ForkSessionResult]{ID: "forkSession", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/forks", Success: http.StatusCreated, Errors: lifecycleErrors(400, 413, 404, 409, 503, 500)}
 	// ChangeSessionCWD changes a session working directory.
 	ChangeSessionCWD = Operation[SessionPath, protocol.ChangeCWDInput, protocol.ChangeWorkspaceCWDResult]{ID: "changeSessionCWD", Tag: "sessions", Method: http.MethodPost, Path: "/v1/sessions/{sessionID}/cwd", Success: http.StatusOK, Errors: lifecycleErrors(400, 413, 404, 409, 503, 500)}
 	// ConfigureSession applies a revision-guarded model configuration.
