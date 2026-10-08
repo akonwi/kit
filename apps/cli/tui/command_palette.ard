@@ -1,0 +1,566 @@
+use go:api/contract as protocol
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use kit/tui/layout
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+// The command palette owns command discovery and invocation parsing: its query,
+// selection, hover, viewport, search focus, argument semantics, and activation
+// validation. Shell supplies live session capabilities and executes resolved
+// actions; it does not inspect palette rows or query text.
+
+// command_word extracts the palette's command token; the remaining query is
+// literal command input rather than catalog-filter text.
+fn command_word(query: Str) Str {
+  let trimmed = strings::TrimSpace(query)
+  let separator = strings::Index(trimmed, " ")
+  match separator < 0 {
+    true => trimmed,
+    false => trimmed.slice(0, separator).or(""),
+  }
+}
+
+// command_args removes one command token and one separator, preserving all
+// remaining whitespace for plugin argument fidelity.
+fn command_args(query: Str) Str {
+  let invocation = strings::TrimLeft(query, " \t")
+  let leading = query.size() - invocation.size()
+  let separator = strings::Index(invocation, " ")
+  match separator < 0 {
+    true => "",
+    false => query.slice(leading + separator + 1, query.size()).or(""),
+  }
+}
+
+private fn command_item_with_hint(
+  key: Str,
+  hint: Str,
+  description: Str,
+  terms: Str,
+  disabled_reason: Str,
+) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    hint: hint,
+    description: description,
+    meta: "",
+    search_terms: strings::Split(terms, " "),
+    disabled_reason: disabled_reason,
+  }
+}
+
+private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
+  palette::Item{
+    key: key,
+    label: key,
+    description: description,
+    hint: "",
+    meta: "",
+    search_terms: strings::Split(terms, " "),
+    disabled_reason: disabled_reason,
+  }
+}
+
+// sorted_catalog keeps built-ins and discovered commands in one stable,
+// case-insensitive alphabetical catalog.
+private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
+  let result = mut List::new<palette::Item>()
+  let placed = mut List::new<Str>()
+  while result.size() < items.size() {
+    mut next = Maybe::new<palette::Item>()
+    for item in items {
+      mut already_placed = false
+      for key in placed {
+        if key == item.key {
+          already_placed = true
+        }
+      }
+      if not already_placed {
+        match next {
+          current => {
+            if strings::Compare(strings::ToLower(item.label), strings::ToLower(current.label)) < 0 {
+              next = Maybe::new(item)
+            }
+          },
+          _ => { next = Maybe::new(item) },
+        }
+      }
+    }
+    match next {
+      item => {
+        placed.push(item.key)
+        result.push(item)
+      },
+      _ => (),
+    }
+  }
+  result.@
+}
+
+// command_catalog preserves the established command vocabulary while this
+// client reaches feature parity. Commands whose owning surface is not ported
+// yet stay discoverable but cannot be activated.
+fn command_catalog(
+  running: Bool,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+) [palette::Item] {
+  let idle = match running {
+    true => "idle only",
+    false => "not available yet",
+  }
+  let cd_disabled = match running {
+    true => "idle only",
+    false => "",
+  }
+  let builtins = [
+    command_item_with_hint(
+      "cd",
+      "[path]",
+      "Change working directory",
+      "cwd directory folder",
+      cd_disabled,
+    ),
+    command_item(
+      "compact",
+      "Compact session context",
+      "summarize shrink",
+      match running {
+        true => "idle only",
+        false => "",
+      },
+    ),
+    command_item("debug", "Show session diagnostics", "details usage", ""),
+    command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
+    command_item("files", "Open a workspace file", "file open browse", "not available yet"),
+    command_item("fork", "Fork the current session into a linked child session", "branch", idle),
+    command_item("login", "Connect another provider", "auth connect provider", ""),
+    command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
+    command_item("model", "Change session model", "engine", ""),
+    command_item_with_hint("name", "[name]", "Rename session", "rename title", ""),
+    command_item("new", "Start a new session", "", ""),
+    command_item("quit", "Exit Kit", "close exit", ""),
+    command_item(
+      "refresh-models",
+      "Update the provider catalog of models",
+      "catalog models",
+      match running {
+        true => "idle only",
+        false => "",
+      },
+    ),
+    command_item("reload", "Reload session context", "agents context refresh", ""),
+    command_item("scratchpad", "Open shared working notes", "notes memory", ""),
+    command_item("sessions", "Browse sessions", "list resume switch threads", ""),
+    command_item(
+      "subagents",
+      "Inspect delegated work",
+      "agents delegates children",
+      "not available yet",
+    ),
+    command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
+    command_item("theme", "Choose UI colors", "appearance colors", ""),
+    command_item("thinking", "Change reasoning effort", "reasoning effort", ""),
+  ]
+  let catalog = mut List::new<palette::Item>()
+  for item in builtins {
+    catalog.push(item)
+  }
+  for command in prompt_commands {
+    mut shadows_builtin = false
+    for builtin in builtins {
+      if builtin.label == command.Name {
+        shadows_builtin = true
+      }
+    }
+    if not shadows_builtin {
+      catalog.push(
+        palette::Item{
+          // Prompt commands submit as queued follow-ups while a turn is live.
+          key: "prompt:{command.Name}",
+          label: command.Name,
+          description: command.Description,
+          hint: command.ArgumentHint,
+          meta: command.Source,
+          search_terms: [command.Source, command.Location],
+          disabled_reason: "",
+        },
+      )
+    }
+  }
+  for command in plugin_commands {
+    let hint = match command.ArgName != "" {
+      true => "<{command.ArgName}>",
+      false => "",
+    }
+    // Instance-backed keys distinguish same-named contributions from separate
+    // plugins. The short command name is visible; plugin metadata disambiguates
+    // duplicate names while canonical ID remains the execution identity.
+    catalog.push(
+      palette::Item{
+        key: "plugin:{command.Instance}:{command.ID}",
+        label: command.LocalID,
+        hint: hint,
+        description: command.Description,
+        meta: command.PluginID,
+        search_terms: [command.ID, command.PluginID, command.Category],
+        disabled_reason: "",
+      },
+    )
+  }
+  sorted_catalog(catalog.@)
+}
+
+// ActionKind identifies one executable command resolved by the palette.
+enum ActionKind {
+  login,
+  quit,
+  compact,
+  debug,
+  mcp,
+  model,
+  theme,
+  thinking,
+  rename,
+  new_session,
+  refresh_models,
+  reload,
+  sessions,
+  scratchpad,
+  change_directory,
+  prompt_command,
+  plugin_command,
+}
+
+// Action is a validated invocation. argument is trimmed for built-ins and kept
+// literal for prompt and plugin commands.
+struct Action {
+  kind: ActionKind,
+  argument: Str,
+  prompt_command: Str,
+  plugin_command: protocol::PluginCommand?,
+}
+
+// Notice is user-facing feedback for an activation that cannot run. The
+// palette remains open so the invocation can be corrected.
+struct Notice {
+  title: Str,
+  detail: Str,
+}
+
+// Props contains live Shell-owned capabilities and result callbacks.
+struct Props {
+  themes: theme::Context,
+  busy: Bool,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+  dismiss: fn() Bool,
+  activate: fn(Action),
+  notice: fn(Notice),
+}
+
+struct Palette {
+  // props remains linked to cui::child's mutable slot so catalog capabilities
+  // refresh without resetting the local query, selection, or viewport.
+  props: mut Props,
+  context: cui::Context?,
+  search: mut cui::InputRef,
+  list: mut cui::VirtualListRef,
+  query: Str,
+  selection: Str,
+  hovered: Str,
+  hidden_above: Bool,
+  hidden_below: Bool,
+  viewport: Int,
+}
+
+// view mounts a fresh palette for each opening.
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "command-palette")
+}
+
+private fn new(props: mut Props) mut Palette {
+  (mut Palette{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    search: cui::input_ref(),
+    list: cui::virtual_list_ref(),
+    query: "",
+    selection: palette::first_enabled(command_catalog(props.busy, props.prompt_commands, props.plugin_commands)),
+    hovered: "",
+    hidden_above: false,
+    hidden_below: false,
+    viewport: 0,
+  })
+}
+
+private fn unavailable(reason: Str) Notice {
+  Notice{title: "Command unavailable", detail: reason}
+}
+
+// resolve validates one activated row against the invocation query, returning
+// an executable action or feedback that keeps the palette open.
+fn resolve(
+  item: palette::Item,
+  query: Str,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+) Action!Notice {
+  let literal = command_args(query)
+  let trimmed = strings::TrimSpace(literal)
+  let builtin = fn(kind: ActionKind) Action!Notice {
+    Result::ok(
+      Action{
+        kind: kind,
+        argument: trimmed,
+        prompt_command: "",
+        plugin_command: Maybe::new<protocol::PluginCommand>(),
+      },
+    )
+  }
+  if item.disabled_reason != "" {
+    Result::err(unavailable(item.disabled_reason))
+  } else {
+    match item.key {
+      "login" => builtin(ActionKind::login),
+      "quit" => builtin(ActionKind::quit),
+      "compact" => builtin(ActionKind::compact),
+      "debug" => builtin(ActionKind::debug),
+      "mcp" => builtin(ActionKind::mcp),
+      "model" => builtin(ActionKind::model),
+      "theme" => builtin(ActionKind::theme),
+      "thinking" => builtin(ActionKind::thinking),
+      "name" => builtin(ActionKind::rename),
+      "new" => builtin(ActionKind::new_session),
+      "refresh-models" => builtin(ActionKind::refresh_models),
+      "reload" => builtin(ActionKind::reload),
+      "sessions" => builtin(ActionKind::sessions),
+      "scratchpad" => builtin(ActionKind::scratchpad),
+      "cd" => {
+        match trimmed == "" {
+          true => Result::err(Notice{title: "Usage: /cd <path>", detail: ""}),
+          false => builtin(ActionKind::change_directory),
+        }
+      },
+      _ => {
+        mut resolved = Maybe::new<Action>()
+        for command in prompt_commands {
+          if item.key == "prompt:{command.Name}" {
+            resolved = Maybe::new(
+              Action{
+                kind: ActionKind::prompt_command,
+                argument: literal,
+                prompt_command: command.Name,
+                plugin_command: Maybe::new<protocol::PluginCommand>(),
+              },
+            )
+          }
+        }
+        for command in plugin_commands {
+          if item.key == "plugin:{command.Instance}:{command.ID}" {
+            resolved = Maybe::new(
+              Action{
+                kind: ActionKind::plugin_command,
+                argument: literal,
+                prompt_command: "",
+                plugin_command: Maybe::new(command),
+              },
+            )
+          }
+        }
+        match resolved {
+          action => Result::ok(action),
+          _ => Result::err(unavailable("not available yet")),
+        }
+      },
+    }
+  }
+}
+
+impl cui::Lifecycle for Palette {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Palette {
+  private fn mut catalog() [palette::Item] {
+    command_catalog(self.props.busy, self.props.prompt_commands, self.props.plugin_commands)
+  }
+
+  private fn mut visible() [palette::Item] {
+    palette::items(self.view_props(self.catalog()))
+  }
+
+  private fn mut view_props(catalog: [palette::Item]) palette::Props {
+    palette::Props{
+      themes: self.props.themes,
+      placeholder: "Search commands…",
+      catalog: catalog,
+      query: self.query,
+      filter_query: command_word(self.query),
+      selection: self.selection,
+      hovered: self.hovered,
+      hidden_above: self.hidden_above,
+      hidden_below: self.hidden_below,
+      on_query_change: fn(query: Str) {
+        self.change_query(query)
+      },
+      on_selection_change: fn(selection: Str) {
+        self.select(selection)
+      },
+      on_hover_change: fn(hovered: Str) {
+        self.hovered = hovered
+      },
+      on_activate: fn(item: palette::Item) {
+        self.activate(item)
+      },
+    }
+  }
+
+  // Filtering follows only the command word, so typing arguments keeps the
+  // selected command stable.
+  private fn mut change_query(query: Str) {
+    let previous_word = command_word(self.query)
+    self.query = query
+    self.hovered = ""
+    if command_word(query) != previous_word or not self.selection_visible() {
+      let next = palette::first_enabled(self.visible())
+      if next != "" {
+        self.select(next)
+      }
+    }
+  }
+
+  private fn mut selection_visible() Bool {
+    mut found = false
+    for item in self.visible() {
+      if item.key == self.selection {
+        found = true
+      }
+    }
+    found
+  }
+
+  private fn mut select(selection: Str) {
+    self.selection = selection
+    match self.context {
+      context => {
+        let list = self.list
+        context.internal_commit(fn() {
+          let _ = list.current.map(fn(current) {
+            current.reveal(selection)
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  // complete turns the selected row into an invocation buffer.
+  private fn mut complete() Bool {
+    match palette::selected(self.visible(), self.selection) {
+      item => {
+        self.query = "{item.label} "
+        self.hovered = ""
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut activate(item: palette::Item) {
+    match resolve(item, self.query, self.props.prompt_commands, self.props.plugin_commands) {
+      ok(action) => self.props.activate(action),
+      err(notice) => self.props.notice(notice),
+    }
+  }
+
+  private fn mut viewport_props() palette::Viewport {
+    palette::Viewport{
+      list: self.list,
+      on_update: fn(update: cui::VirtualListUpdate, context: cui::Context) {
+        let count = self.visible().size()
+        self.hidden_above = update.state.visible_range.start > 0
+        self.hidden_below = update.state.visible_range.end < count
+        self.viewport = update.state.viewport_height
+      },
+      on_page: fn(direction: Int) {
+        let step = match self.viewport > 1 {
+          true => self.viewport - 1,
+          false => 1,
+        }
+        let _ = self.list.current.map(fn(list) {
+          let _ = list.scroll_by(direction * step)
+        })
+      },
+    }
+  }
+}
+
+impl cui::Component for Palette {
+  fn mut render() cui::View {
+    let catalog = self.catalog()
+    // Capabilities can change while the palette is open. Keep the selected row
+    // when it remains visible; otherwise fall back to the first enabled row.
+    if not self.selection_visible() {
+      self.selection = palette::first_enabled(palette::items(self.view_props(catalog)))
+    }
+    let picker = self.view_props(catalog)
+    let navigation = palette::navigation(picker)
+    let complete = keymap::simple_command("palette.complete", "Complete command", fn() Bool {
+      self.complete()
+    })
+    let dismiss = keymap::simple_command("palette.dismiss", "Close", fn() Bool {
+      self.props.dismiss()
+    })
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        // The palette is the modal's only focus owner while open; controlled
+        // focus keeps the search field authoritative across Shell rerenders.
+        placement: modal::Placement::picker,
+        title: "",
+        meta: "",
+        header: palette::header(picker, Maybe::new(true), Maybe::new(self.search)),
+        body: palette::body(picker, self.viewport_props()),
+        footer: Maybe::new(
+          cui::box(
+            [
+              layout::line(
+                "↑↓ move · enter run · esc close",
+                ui::text_style(foreground: self.props.themes.current().muted),
+              ),
+            ],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(1),
+                bottom: ui::cells(0),
+                left: ui::cells(1),
+              },
+              flex_shrink: 0.0,
+            ),
+          ),
+        ),
+        autofocus: false,
+        dismiss: dismiss,
+        commands: Maybe::new([navigation.up, navigation.down, complete]),
+        bindings: Maybe::new(
+          [
+            keymap::binding(keymap::key("tab"), complete.with()),
+            keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
+            keymap::binding(keymap::key("down"), navigation.down.with(), keymap::Trigger::press_or_repeat),
+          ],
+        ),
+      },
+    )
+  }
+}

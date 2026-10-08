@@ -16,6 +16,7 @@ use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use kit/tui/attached_session
 use kit/tui/bootstrap
+use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
 use kit/tui/copyable
@@ -93,207 +94,6 @@ private fn device_waiting_text(remaining: Int64) Str {
     true => "Code expires in {duration} — Esc to get a new code",
     false => "Waiting for approval — expires in {duration}",
   }
-}
-
-// command_catalog preserves the established command vocabulary while this
-// client reaches feature parity. Commands whose owning surface is not ported
-// yet stay discoverable but cannot be activated.
-// command_word extracts the palette's command token; the remaining query is
-// literal command input rather than catalog-filter text.
-private fn command_word(query: Str) Str {
-  let trimmed = strings::TrimSpace(query)
-  let separator = strings::Index(trimmed, " ")
-  match separator < 0 {
-    true => trimmed,
-    false => trimmed.slice(0, separator).or(""),
-  }
-}
-
-// command_args removes one command token and one separator, preserving all
-// remaining whitespace for plugin argument fidelity.
-private fn command_args(query: Str) Str {
-  let separator = strings::Index(strings::TrimLeft(query, " \t"), " ")
-  match separator < 0 {
-    true => "",
-    false => query.slice(separator + 1, query.size()).or(""),
-  }
-}
-
-private fn command_item_with_hint(
-  key: Str,
-  hint: Str,
-  description: Str,
-  terms: Str,
-  disabled_reason: Str,
-) palette::Item {
-  palette::Item{
-    key: key,
-    label: key,
-    hint: hint,
-    description: description,
-    meta: "",
-    search_terms: strings::Split(terms, " "),
-    disabled_reason: disabled_reason,
-  }
-}
-
-private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
-  palette::Item{
-    key: key,
-    label: key,
-    description: description,
-    hint: "",
-    meta: "",
-    search_terms: strings::Split(terms, " "),
-    disabled_reason: disabled_reason,
-  }
-}
-
-// sorted_catalog keeps built-ins and discovered commands in one stable,
-// case-insensitive alphabetical catalog.
-private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
-  let result = mut List::new<palette::Item>()
-  let placed = mut List::new<Str>()
-  while result.size() < items.size() {
-    mut next = Maybe::new<palette::Item>()
-    for item in items {
-      mut already_placed = false
-      for key in placed {
-        if key == item.key {
-          already_placed = true
-        }
-      }
-      if not already_placed {
-        match next {
-          current => {
-            if strings::Compare(strings::ToLower(item.label), strings::ToLower(current.label)) < 0 {
-              next = Maybe::new(item)
-            }
-          },
-          _ => { next = Maybe::new(item) },
-        }
-      }
-    }
-    match next {
-      item => {
-        placed.push(item.key)
-        result.push(item)
-      },
-      _ => (),
-    }
-  }
-  result.@
-}
-
-private fn command_catalog(
-  running: Bool,
-  prompt_commands: [protocol::PromptCommand],
-  plugin_commands: [protocol::PluginCommand],
-) [palette::Item] {
-  let idle = match running {
-    true => "idle only",
-    false => "not available yet",
-  }
-  let cd_disabled = match running {
-    true => "idle only",
-    false => "",
-  }
-  let builtins = [
-    command_item_with_hint(
-      "cd",
-      "[path]",
-      "Change working directory",
-      "cwd directory folder",
-      cd_disabled,
-    ),
-    command_item(
-      "compact",
-      "Compact session context",
-      "summarize shrink",
-      match running {
-        true => "idle only",
-        false => "",
-      },
-    ),
-    command_item("debug", "Show session diagnostics", "details usage", ""),
-    command_item("diff", "Review working-tree changes", "changes working tree", "not available yet"),
-    command_item("files", "Open a workspace file", "file open browse", "not available yet"),
-    command_item("fork", "Fork the current session into a linked child session", "branch", idle),
-    command_item("login", "Connect another provider", "auth connect provider", ""),
-    command_item("mcp", "Show configured MCP servers", "tools connections status", ""),
-    command_item("model", "Change session model", "engine", ""),
-    command_item_with_hint("name", "[name]", "Rename session", "rename title", ""),
-    command_item("new", "Start a new session", "", ""),
-    command_item("quit", "Exit Kit", "close exit", ""),
-    command_item(
-      "refresh-models",
-      "Update the provider catalog of models",
-      "catalog models",
-      match running {
-        true => "idle only",
-        false => "",
-      },
-    ),
-    command_item("reload", "Reload session context", "agents context refresh", ""),
-    command_item("scratchpad", "Open shared working notes", "notes memory", ""),
-    command_item("sessions", "Browse sessions", "list resume switch threads", ""),
-    command_item(
-      "subagents",
-      "Inspect delegated work",
-      "agents delegates children",
-      "not available yet",
-    ),
-    command_item("tabs", "Open a workspace tab", "panes workspace", "not available yet"),
-    command_item("theme", "Choose UI colors", "appearance colors", ""),
-    command_item("thinking", "Change reasoning effort", "reasoning effort", ""),
-  ]
-  let catalog = mut List::new<palette::Item>()
-  for item in builtins {
-    catalog.push(item)
-  }
-  for command in prompt_commands {
-    mut shadows_builtin = false
-    for builtin in builtins {
-      if builtin.label == command.Name {
-        shadows_builtin = true
-      }
-    }
-    if not shadows_builtin {
-      catalog.push(
-        palette::Item{
-          // Prompt commands submit as queued follow-ups while a turn is live.
-          key: "prompt:{command.Name}",
-          label: command.Name,
-          description: command.Description,
-          hint: command.ArgumentHint,
-          meta: command.Source,
-          search_terms: [command.Source, command.Location],
-          disabled_reason: "",
-        },
-      )
-    }
-  }
-  for command in plugin_commands {
-    let hint = match command.ArgName != "" {
-      true => "<{command.ArgName}>",
-      false => "",
-    }
-    // Instance-backed keys distinguish same-named contributions from separate
-    // plugins. The short command name is visible; plugin metadata disambiguates
-    // duplicate names while canonical ID remains the execution identity.
-    catalog.push(
-      palette::Item{
-        key: "plugin:{command.Instance}:{command.ID}",
-        label: command.LocalID,
-        hint: hint,
-        description: command.Description,
-        meta: command.PluginID,
-        search_terms: [command.ID, command.PluginID, command.Category],
-        disabled_reason: "",
-      },
-    )
-  }
-  sorted_catalog(catalog.@)
 }
 
 private fn provider_catalog() [palette::Item] {
@@ -412,16 +212,9 @@ struct Shell {
   picker_hidden_above: Bool,
   picker_hidden_below: Bool,
   picker_viewport: Int,
-  command_query: Str,
-  command_selection: Str,
-  command_hover: Str,
-  command_hidden_above: Bool,
-  command_hidden_below: Bool,
-  command_viewport: Int,
   toasts: [toast::Item],
   toast_next_id: Int,
   picker_list: mut cui::VirtualListRef,
-  command_search: mut cui::InputRef,
   connect_button: mut cui::BoxRef,
   // Rebound to each attachment's retained transcript.
   transcript_control: mut transcript_pane::Control,
@@ -475,16 +268,9 @@ fn new(props: mut Props) mut Shell {
     picker_hidden_above: false,
     picker_hidden_below: false,
     picker_viewport: 0,
-    command_query: "",
-    command_selection: "cd",
-    command_hover: "",
-    command_hidden_above: false,
-    command_hidden_below: false,
-    command_viewport: 0,
     toasts: [],
     toast_next_id: 0,
     picker_list: cui::virtual_list_ref(),
-    command_search: cui::input_ref(),
     connect_button: cui::box_ref(),
     transcript_control: transcript_pane::control(),
   })
@@ -1305,25 +1091,7 @@ impl Shell {
 
   fn mut open_command_palette() Bool {
     if self.phase == Phase::ready and self.active_modal == ActiveModal::none {
-      self.command_query = ""
-      self.command_selection = palette::first_enabled(
-        command_catalog(
-          self.attached.busy(),
-          self.attached.prompt_commands,
-          self.attached.plugin_commands,
-        ),
-      )
-      self.command_hover = ""
-      self.command_hidden_above = false
-      self.command_hidden_below = false
       self.active_modal = ActiveModal::command_palette
-      match self.context {
-        context => {
-          let search = self.command_search
-          let _ = search.focus(context)
-        },
-        _ => (),
-      }
     }
     true
   }
@@ -2132,216 +1900,98 @@ impl Shell {
     }
   }
 
-  // complete_palette_command turns the current selected catalog row into an
-  // invocation buffer. Filtering stays on its command word while arguments are
-  // typed, so the selection remains stable until that word is edited.
-  fn mut complete_palette_command(catalog: [palette::Item]) Bool {
-    mut completed = false
-    for item in catalog {
-      if item.key == self.command_selection and not completed {
-        self.command_query = "{item.label} "
-        self.command_hover = ""
-        completed = true
-      }
-    }
-    completed
-  }
-
   fn mut command_palette_modal() cui::View {
-    let catalog = command_catalog(
-      self.attached.busy(),
-      self.attached.prompt_commands,
-      self.attached.plugin_commands,
-    )
-    let picker = palette::Props{
-      themes: self.props.themes,
-      placeholder: "Search commands…",
-      catalog: catalog,
-      query: self.command_query,
-      filter_query: command_word(self.command_query),
-      selection: self.command_selection,
-      hovered: self.command_hover,
-      hidden_above: self.command_hidden_above,
-      hidden_below: self.command_hidden_below,
-      on_query_change: fn(query: Str) {
-        self.command_query = query
-        self.command_hover = ""
-        let next = palette::first_enabled(
-          palette::items(
-            palette::Props{
-              themes: self.props.themes,
-              placeholder: "",
-              catalog: catalog,
-              query: query,
-              filter_query: command_word(query),
-              selection: "",
-              hovered: "",
-              hidden_above: false,
-              hidden_below: false,
-              on_query_change: fn(value: Str) {},
-              on_selection_change: fn(value: Str) {},
-              on_hover_change: fn(value: Str) {},
-              on_activate: fn(item: palette::Item) {},
-            },
-          ),
-        )
-        if next != "" {
-          self.command_selection = next
-        }
-        let selection = self.command_selection
-        let _ = self.picker_list.current.map(fn(list) {
-          let _ = list.reveal(selection)
-        })
-      },
-      on_selection_change: fn(selection: Str) {
-        self.command_selection = selection
-        let _ = self.picker_list.current.map(fn(list) {
-          let _ = list.reveal(selection)
-        })
-      },
-      on_hover_change: fn(hovered: Str) {
-        self.command_hover = hovered
-      },
-      on_activate: fn(item: palette::Item) {
-        if item.disabled_reason != "" {
-          self.show_toast("Command unavailable", item.disabled_reason, toast::Variant::warning, false)
-        } else if item.key == "login" {
-          self.finish_modal()
-          self.open_provider_picker()
-        } else if item.key == "quit" {
-          self.props.quit()
-        } else if item.key == "compact" {
-          self.finish_modal()
-          self.attached.compact()
-        } else if item.key == "debug" {
-          self.active_modal = ActiveModal::session_debug
-        } else if item.key == "mcp" {
-          self.active_modal = ActiveModal::mcp_status
-        } else if item.key == "model" {
-          self.active_modal = ActiveModal::model_picker
-        } else if item.key == "theme" {
-          self.active_modal = ActiveModal::theme_picker
-        } else if item.key == "thinking" {
-          self.active_modal = ActiveModal::thinking_picker
-        } else if item.key == "name" {
-          let value = strings::TrimSpace(command_args(self.command_query))
-          self.rename_initial = match value == "" {
-            true => self.attached.info.or(protocol::SessionInfo{}).Name,
-            false => value,
-          }
-          self.rename_submit_immediately = value != ""
-          self.active_modal = ActiveModal::rename_session
-        } else if item.key == "new" {
-          self.finish_modal()
-          self.attached.create_sibling()
-        } else if item.key == "refresh-models" {
-          self.finish_modal()
-          self.refresh_models()
-        } else if item.key == "reload" {
-          self.finish_modal()
-          self.attached.reload()
-        } else if item.key == "sessions" {
-          self.active_modal = ActiveModal::sessions
-        } else if item.key == "scratchpad" {
-          self.finish_modal()
-          self.open_scratchpad()
-        } else if item.key == "cd" {
-          let target = strings::TrimSpace(command_args(self.command_query))
-          if target == "" {
-            self.show_toast("Usage: /cd <path>", "", toast::Variant::warning, false)
-          } else {
-            self.finish_modal()
-            self.attached.change_working_directory(target)
-          }
-        } else {
-          for command in self.attached.prompt_commands {
-            if item.key == "prompt:{command.Name}" {
-              self.finish_modal()
-              self.attached.submit_prompt_command(command.Name, command_args(self.command_query))
-            }
-          }
-          for command in self.attached.plugin_commands {
-            if item.key == "plugin:{command.Instance}:{command.ID}" {
-              self.finish_modal()
-              self.attached.execute_plugin_command(command, command_args(self.command_query))
-            }
-          }
-        }
-      },
-    }
-    let navigation = palette::navigation(picker)
-    let complete = keymap::simple_command("palette.complete", "Complete command", fn() Bool {
-      self.complete_palette_command(catalog)
-    })
-    let dismiss = keymap::simple_command("palette.dismiss", "Close", fn() Bool {
-      self.dismiss_modal()
-    })
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::picker,
-        title: "",
-        meta: "",
-        header: palette::header(picker, Maybe::new(true), Maybe::new(self.command_search)),
-        body: palette::body(picker, self.command_picker_viewport()),
-        footer: Maybe::new(
-          cui::box(
-            [
-              layout::line(
-                "↑↓ move · enter run · esc close",
-                ui::text_style(foreground: self.props.themes.current().muted),
-              ),
-            ],
-            styles: ui::style(padding: inset(), flex_shrink: 0.0),
-          ),
-        ),
-        autofocus: false,
-        dismiss: dismiss,
-        commands: Maybe::new([navigation.up, navigation.down, complete]),
-        bindings: Maybe::new(
-          [
-            keymap::binding(keymap::key("tab"), complete.with()),
-            keymap::binding(keymap::key("up"), navigation.up.with(), keymap::Trigger::press_or_repeat),
-            keymap::binding(keymap::key("down"), navigation.down.with(), keymap::Trigger::press_or_repeat),
-          ],
-        ),
+    command_palette::view(
+      command_palette::Props{
+        themes: self.props.themes,
+        busy: self.attached.busy(),
+        prompt_commands: self.attached.prompt_commands,
+        plugin_commands: self.attached.plugin_commands,
+        dismiss: fn() Bool {
+          self.dismiss_modal()
+        },
+        activate: fn(action: command_palette::Action) {
+          self.request_palette_action(action)
+        },
+        notice: fn(notice: command_palette::Notice) {
+          self.request_toast(notice.title, notice.detail, toast::Variant::warning, false)
+        },
       },
     )
   }
 
-  fn mut command_picker_viewport() palette::Viewport {
-    palette::Viewport{
-      list: self.picker_list,
-      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        let visible = palette::items(
-          palette::Props{
-            themes: self.props.themes,
-            placeholder: "",
-            catalog: command_catalog(self.attached.busy(), self.attached.prompt_commands, self.attached.plugin_commands),
-            query: self.command_query,
-            filter_query: command_word(self.command_query),
-            selection: "",
-            hovered: "",
-            hidden_above: false,
-            hidden_below: false,
-            on_query_change: fn(value: Str) {},
-            on_selection_change: fn(value: Str) {},
-            on_hover_change: fn(value: Str) {},
-            on_activate: fn(item: palette::Item) {},
-          },
-        )
-        self.command_hidden_above = update.state.visible_range.start > 0
-        self.command_hidden_below = update.state.visible_range.end < visible.size()
-        self.command_viewport = update.state.viewport_height
-      },
-      on_page: fn(direction: Int) {
-        let step = match self.command_viewport > 1 {
-          true => self.command_viewport - 1,
-          false => 1,
-        }
-        let _ = self.picker_list.current.map(fn(list) {
-          let _ = list.scroll_by(direction * step)
+  // Palette actions re-enter Shell through its owning context. The palette has
+  // already validated the invocation; Shell only routes it to its owner.
+  fn mut request_palette_action(action: command_palette::Action) {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.active_modal == ActiveModal::command_palette {
+            self.run_palette_action(action)
+          }
         })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut run_palette_action(action: command_palette::Action) {
+    match action.kind {
+      command_palette::ActionKind::login => {
+        self.finish_modal()
+        let _ = self.open_provider_picker()
+      },
+      command_palette::ActionKind::quit => self.props.quit(),
+      command_palette::ActionKind::compact => {
+        self.finish_modal()
+        self.attached.compact()
+      },
+      command_palette::ActionKind::debug => { self.active_modal = ActiveModal::session_debug },
+      command_palette::ActionKind::mcp => { self.active_modal = ActiveModal::mcp_status },
+      command_palette::ActionKind::model => { self.active_modal = ActiveModal::model_picker },
+      command_palette::ActionKind::theme => { self.active_modal = ActiveModal::theme_picker },
+      command_palette::ActionKind::thinking => { self.active_modal = ActiveModal::thinking_picker },
+      command_palette::ActionKind::rename => {
+        self.rename_initial = match action.argument == "" {
+          true => self.attached.info.or(protocol::SessionInfo{}).Name,
+          false => action.argument,
+        }
+        self.rename_submit_immediately = action.argument != ""
+        self.active_modal = ActiveModal::rename_session
+      },
+      command_palette::ActionKind::new_session => {
+        self.finish_modal()
+        self.attached.create_sibling()
+      },
+      command_palette::ActionKind::refresh_models => {
+        self.finish_modal()
+        self.refresh_models()
+      },
+      command_palette::ActionKind::reload => {
+        self.finish_modal()
+        self.attached.reload()
+      },
+      command_palette::ActionKind::sessions => { self.active_modal = ActiveModal::sessions },
+      command_palette::ActionKind::scratchpad => {
+        self.finish_modal()
+        self.open_scratchpad()
+      },
+      command_palette::ActionKind::change_directory => {
+        self.finish_modal()
+        self.attached.change_working_directory(action.argument)
+      },
+      command_palette::ActionKind::prompt_command => {
+        self.finish_modal()
+        self.attached.submit_prompt_command(action.prompt_command, action.argument)
+      },
+      command_palette::ActionKind::plugin_command => {
+        match action.plugin_command {
+          command => {
+            self.finish_modal()
+            self.attached.execute_plugin_command(command, action.argument)
+          },
+          _ => (),
+        }
       },
     }
   }
