@@ -1,0 +1,329 @@
+use ard/testing
+
+use go:context
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use go:errors
+use go:kit/ffi/authbridge
+use go:kit/ffi/contextbridge
+use kit/tui/auth
+use kit/tui/theme
+use go:strings
+use go:time
+
+struct Model {
+  open: Bool,
+  dismissed: Int,
+  authenticated: Int,
+  api_provider: Str,
+  api_key: Str,
+  api_failure: Str,
+  device_cancelled: Bool,
+  device_failure: Str,
+  device_context: context::Context?,
+}
+
+struct HostProps {
+  model: mut Model,
+  themes: theme::Context,
+  lifetime: contextbridge::Cancellation,
+}
+
+struct Host {
+  props: mut HostProps,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{props: props})
+}
+
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.props.model
+    let children = mut List::new<cui::View>()
+    if model.open {
+      children.push(
+        auth::flow(
+          auth::Props{
+            themes: self.props.themes,
+            lifetime: self.props.lifetime,
+            services: auth::Services{
+              device: fn(ctx: context::Context, notify: fn(authbridge::DeviceInstructions)) Void!Error {
+                notify(
+                  authbridge::DeviceInstructions{
+                    VerificationURI: "https://example.test/device",
+                    UserCode: "ABCD-1234",
+                    ExpiresAtUnixMS: time::Now().UnixMilli() + Int64::from(600000),
+                  },
+                )
+                model.device_context = Maybe::new(ctx)
+                match model.device_failure != "" {
+                  true => errors::New(model.device_failure),
+                  false => {
+                    ctx.Done().recv()
+                    model.device_cancelled = true
+                    errors::New("device login canceled")
+                  },
+                }
+              },
+              browser: fn(ctx: context::Context, manual: Chan<Str>, notify: fn(authbridge::BrowserInstructions)) Void!Error {
+                errors::New("browser login unavailable")
+              },
+              api_key: fn(ctx: context::Context, provider: Str, key: Str) Void!Error {
+                model.api_provider = provider
+                model.api_key = key
+                match model.api_failure == "" {
+                  true => Result::ok(()),
+                  false => errors::New(model.api_failure),
+                }
+              },
+            },
+            dismiss: fn() {
+              model.dismissed =+ 1
+            },
+            authenticated: fn() {
+              model.authenticated =+ 1
+            },
+            copied: fn() {},
+          },
+        ),
+      )
+    }
+    cui::box(
+      children.@,
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        position: ui::Position::relative,
+      ),
+    )
+  }
+}
+
+fn modifiers() event::Modifiers {
+  event::Modifiers{
+    shift: false,
+    ctrl: false,
+    alt: false,
+    super: false,
+  }
+}
+
+fn key(name: Str) mut event::KeyEvent {
+  event::key(name, "", event::KeyEventType::press, modifiers())
+}
+
+fn type_text(terminal: headless::TestApp, text: Str) {
+  for character in strings::Split(text, "") {
+    terminal.key(event::key(character, character, event::KeyEventType::press, modifiers()))
+    terminal.flush()
+  }
+}
+
+fn press(terminal: headless::TestApp, name: Str) {
+  terminal.key(key(name))
+  terminal.flush()
+}
+
+fn shows(terminal: headless::TestApp, text: Str) Bool {
+  strings::Contains(terminal.frame().text(), text)
+}
+
+fn wait_for_text(terminal: headless::TestApp, text: Str) Bool {
+  mut attempts = 0
+  while not shows(terminal, text) and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  shows(terminal, text)
+}
+
+// The selected picker row carries the gutter marker before its label.
+fn selected_row(terminal: headless::TestApp) Str {
+  mut result = ""
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    let column = strings::Index(row, "▌")
+    if column >= 0 and result == "" {
+      result = strings::TrimSpace(strings::Trim(strings::ReplaceAll(row, "▌", ""), "│ "))
+    }
+  }
+  result
+}
+
+fn new_model() mut Model {
+  (mut Model{
+    open: true,
+    dismissed: 0,
+    authenticated: 0,
+    api_provider: "",
+    api_key: "",
+    api_failure: "",
+    device_cancelled: false,
+    device_failure: "",
+    device_context: Maybe::new<context::Context>(),
+  })
+}
+
+fn mount(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{
+        model: model,
+        themes: theme::context(theme::store(theme::system())),
+        lifetime: contextbridge::WithCancel(context::Background()),
+      },
+    ),
+  )
+}
+
+test fn api_key_provider_submits_its_store_id_and_reports_success() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(shows(terminal, "Connect a provider"), "the flow opens at the provider picker")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  try testing::assert(
+    strings::HasPrefix(selected_row(terminal), "OpenCode Go"),
+    "selection reaches OpenCode Go: {selected_row(terminal)}",
+  )
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "Connect OpenCode Go"), "activation opens the API-key step")
+
+  // The key field owns focus on its first render.
+  type_text(terminal, "sk-test")
+  press(terminal, "return")
+  mut attempts = 0
+  while model.authenticated == 0 and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.authenticated == 1, "an installed credential is reported once")
+  try testing::assert(
+    model.api_provider == "opencode-go",
+    "the store provider ID is submitted: {model.api_provider}",
+  )
+  testing::assert(model.api_key == "sk-test", "the entered key is submitted: {model.api_key}")
+}
+
+test fn api_key_failure_stays_in_its_step_and_back_returns_to_the_provider() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  model.api_failure = "invalid API key"
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  press(terminal, "down")
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "Connect Anthropic"), "Anthropic opens the API-key step")
+  type_text(terminal, "bad")
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "invalid API key"), "the failure is shown in the step")
+  try testing::assert(shows(terminal, "Connect Anthropic"), "the step remains open for another attempt")
+  try testing::assert(model.authenticated == 0, "a failed attempt does not authenticate")
+
+  press(terminal, "escape")
+  try testing::assert(
+    wait_for_text(terminal, "Connect a provider"),
+    "Escape goes back to the provider picker",
+  )
+  try testing::assert(
+    strings::HasPrefix(selected_row(terminal), "Anthropic"),
+    "the picker reselects the last provider: {selected_row(terminal)}",
+  )
+  try testing::assert(model.dismissed == 0, "Back stays inside the flow")
+  press(terminal, "escape")
+  testing::assert(model.dismissed == 1, "Escape at the picker dismisses the flow")
+}
+
+test fn device_login_shows_its_code_and_back_cancels_the_attempt() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "ABCD-1234"), "device instructions show the user code")
+  try testing::assert(shows(terminal, "https://example.test/device"), "device instructions show the URL")
+
+  press(terminal, "escape")
+  mut attempts = 0
+  while not model.device_cancelled and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.device_cancelled, "Back cancels the in-flight device login")
+  try testing::assert(
+    wait_for_text(terminal, "Connect a provider"),
+    "Back returns to the provider picker",
+  )
+  // Let the canceled attempt's completion reach the UI thread.
+  time::Sleep(time::Millisecond * 20)
+  terminal.flush()
+  // Regression guard: an abandoned attempt's failure must not reach the
+  // newer picker step.
+  testing::assert(
+    not shows(terminal, "device login canceled"),
+    "a stale completion does not overwrite the picker",
+  )
+}
+
+test fn closing_the_flow_cancels_an_in_flight_login() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "ABCD-1234"), "the device login is pending")
+  renderer.update(fn() {
+    model.open = false
+  })
+  mut attempts = 0
+  while not model.device_cancelled and attempts < 200 {
+    terminal.flush()
+    time::Sleep(time::Millisecond * 2)
+    attempts =+ 1
+  }
+  try testing::assert(model.device_cancelled, "unmounting cancels the attempt")
+  testing::assert(model.authenticated == 0, "a canceled attempt does not authenticate")
+}
+
+test fn a_failed_device_login_returns_to_the_picker_and_releases_its_attempt() Void!Str {
+  let terminal = headless::new(80, 32)
+  defer terminal.destroy()
+  let model = new_model()
+  model.device_failure = "device code expired"
+  let renderer = mount(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+
+  press(terminal, "return")
+  try testing::assert(wait_for_text(terminal, "device code expired"), "the failure is shown")
+  try testing::assert(shows(terminal, "Connect a provider"), "a device failure returns to the picker")
+  // The countdown worker stops when the attempt's context is released.
+  match model.device_context {
+    ctx => testing::assert(ctx.Err().is_err(), "the finished attempt's context is canceled"),
+    _ => testing::fail("the device service received a context"),
+  }
+}

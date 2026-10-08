@@ -105,6 +105,7 @@ impl cui::Component for TreeHost {
         initial_selection: "parent",
         title: "Sessions",
         footer: "",
+        error: "",
         dismiss: keymap::simple_command("test.dismiss", "Dismiss", fn() Bool {
           true
         }),
@@ -365,6 +366,7 @@ fn mount_stateful(terminal: headless::TestApp) cui::Renderer {
         initial_selection: "item-0",
         title: "Items",
         footer: "",
+        error: "",
         dismiss: keymap::simple_command("test.items.dismiss", "Dismiss", fn() Bool {
           true
         }),
@@ -772,6 +774,7 @@ impl cui::Component for ReseedHost {
             },
             title: "Effort",
             footer: "",
+            error: "",
             dismiss: keymap::simple_command("test.dismiss", "Dismiss", fn() Bool {
               true
             }),
