@@ -30,6 +30,16 @@ IDs but must not redefine server, persistence, or protocol semantics.
   treating Base64 length as token count.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
+- [ ] CORE-RUN-008 — Remove autonomous turn-chain limits as specified by
+  [ADR 0040](../docs/adrs/0040-do-not-limit-autonomous-turn-chains.md).
+  Context-only reactions from any boundary source are admitted without a
+  consecutive-turn counter, limit-reached error, deferred-limit state, or
+  counted/uncounted distinction, and a session's subagent mailbox is never
+  blocked by such a limit. Persisted runtime state written with the former
+  counter or deferred-limit fields loads and resumes normally, and boundaries
+  left pending by the former limit are delivered. Verify with a chain of more
+  than 15 consecutive subagent-result and peer-query reactions and with
+  persisted state fixtures carrying the former fields.
 - [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
   across model changes and is projected consistently after restart.
 
@@ -163,17 +173,25 @@ Process ownership and plugin UI routing follow
   generation cleanup, and behavior across detach, reload, and runtime disposal
   before adding a public protocol method.
 
-- [ ] CORE-PLUGIN-010 — Let plugins submit messages to their owning session to
-  start or queue model turns, enabling workflows such as autoresearch kickoff and
-  automatic continuation after a settled turn. This is distinct from the passive
-  information channel in CORE-PLUGIN-009. Define the supported replacement for
-  the currently unsupported `kit/session/submit-message` call used by dot-kit's
-  autoresearch plugin. Preserve plugin provenance rather than impersonating user
-  speech; enforce session/generation ownership, normal tool policy, bounded queues
-  and autonomous-loop limits. Specify busy-session admission, cancellation,
-  duplicate/retry handling, and detach/reload/restart behavior. Cover kickoff,
-  post-settlement continuation, stale-generation rejection, and concurrent-session
-  isolation with real subprocess tests and document the public RPC contract.
+- [ ] CORE-PLUGIN-010 — Implement `kit/session/submit-message` as specified by
+  [ADR 0041](../docs/adrs/0041-let-plugins-submit-session-messages.md): a
+  plugin's current generation can start a context-only turn in its owning idle
+  session from a `plugin_message` boundary sourced to the plugin ID, returning
+  `{messageId, turnId}` on admission. Recording the boundary and starting the
+  turn are atomic, which requires a droids admission that does both or neither.
+  Reject with busy (`-32006`) and no record while a turn is active, user
+  follow-ups are queued, or another admission, context operation, or runtime
+  transition is in progress. Reject stale generations (`-32002`), invalid or
+  unknown parameters (`-32602`), and idempotency-key reuse with different text
+  (`-32003`); a repeated key with the same text returns the original result
+  across plugin reload and daemon restart. Publish `plugin_message` context
+  messages through the session transcript contract per
+  [`docs/api-development.md`](../docs/api-development.md). Cover kickoff from a
+  command, continuation after `agent.turn.completed`, busy rejection (including
+  queued follow-ups), stale-generation rejection, idempotent retry, conflict,
+  admitted-turn survival across plugin reload, and concurrent-session isolation
+  with real subprocess tests, and document the public RPC contract. Depends on
+  `CORE-RUN-008`.
 
 ## Deferred workflows and compatibility
 
@@ -229,5 +247,3 @@ Process ownership and plugin UI routing follow
   session changes, and degrade silently when GitHub status is unavailable.
   Verify pending, successful, and failed check transitions plus reconnect and
   stale-update behavior.
-
-- [ ] PLUG-001 - allow plugins to submit messages and inform the session

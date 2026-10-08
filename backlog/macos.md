@@ -45,6 +45,10 @@ in this branch. Items marked **Server-ready** do not require new server function
   work; built-in PR links remain. Persistent failure alerts use the existing
   session feedback surface, with detailed evidence in the private server log.
   Depends on `CORE-PLUGIN-004`, `CORE-PLUGIN-006`.
+- [ ] MAC-PLUGIN-002 — Show plugin-submitted messages as transcript rows
+  labelled with the submitting plugin and styled distinctly from user messages,
+  both live and after reconnect, rather than hiding them with agent-to-agent
+  context boundaries. Depends on `CORE-PLUGIN-010`.
 - [x] MAC-GH-001 — Present cached GitHub pull requests in the built-in footer.
   Depends on `CORE-GH-001`.
   The workspace location now shows `cwd (branch* · PR #123)` from server-cached

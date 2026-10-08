@@ -3,7 +3,9 @@
 ## Status
 
 Accepted. Print-client interaction policy is governed by
-[ADR 0027](0027-treat-print-as-an-ordinary-session-client.md).
+[ADR 0027](0027-treat-print-as-an-ordinary-session-client.md). Plugin message
+submission is governed by
+[ADR 0041](0041-let-plugins-submit-session-messages.md).
 
 ## Context
 
@@ -178,14 +180,16 @@ session, including command-originated feedback. Persistent plugin failures remai
 discoverable after reconnect. Stale transient toasts are not replayed on a later
 attachment.
 
-### Session information without autonomous submission
+### Session messages and information
 
-Autonomous plugin message submission is outside the native implementation scope.
-A plugin cannot impersonate user speech or start or queue a model turn. A future
-bounded, provenance-preserving channel may let a plugin inform only its owning
-session at a deliberate consumption boundary without changing an already-sent
-model request. Its retention, client visibility, consumption, and lifecycle
-semantics must be specified before adding a public method.
+A plugin may submit a message that starts a turn in its owning idle session,
+as specified by [ADR 0041](0041-let-plugins-submit-session-messages.md). A
+plugin cannot impersonate user speech or queue a model turn behind active work.
+A future bounded, provenance-preserving channel may let a plugin inform only its
+owning session at a deliberate consumption boundary without starting a turn or
+changing an already-sent model request. Its retention, client visibility,
+consumption, and lifecycle semantics must be specified before adding a public
+method.
 
 ## Consequences
 
@@ -197,7 +201,8 @@ semantics must be specified before adding a public method.
 - Static plugin footer content does not require client-origin tracking or
   plugin-triggered browser side effects.
 - Session notification state and client-side presentation are separate concerns.
-- Plugins cannot autonomously trigger provider work by submitting session messages.
+- Plugins can trigger provider work only by submitting attributed messages to
+  their own idle session.
 - Background initialization favors immediate session availability over plugin
   readiness; plugin policies are not an always-on enforcement boundary.
 - Automatic project loading requires users to trust repositories containing

@@ -43,6 +43,10 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   actionable failures without exposing credentials. Depends on `CORE-AUTH-001`.
 - [ ] TUI-HEAD-001 — Make diagnostics and unavailable interaction behavior clear
   when transitioning between TUI and headless workflows.
+- [ ] TUI-PLUGIN-002 — Show plugin-submitted messages as transcript rows
+  labelled with the submitting plugin and styled distinctly from user messages,
+  both live and after reload or reattach. Prompt history recall continues to
+  offer only user-submitted prompts. Depends on `CORE-PLUGIN-010`.
 
 ## Scope decisions
 

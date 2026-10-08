@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Autonomous turn chains are governed by
+[ADR 0040](0040-do-not-limit-autonomous-turn-chains.md).
 
 ## Context
 
@@ -203,7 +204,9 @@ into an active parent only at a safe boundary between model turns. If the parent
 is idle or unloaded, the session manager starts an autonomous context-only
 reaction turn so the model can decide how to proceed. Mailbox delivery and
 reaction admission are idempotent, pending owners are reconciled after startup,
-and global concurrency plus per-session chain limits bound autonomous reactions.
+and global concurrency plus per-session admission serialization bound autonomous
+reactions. Consecutive autonomous turns are not counted or limited
+([ADR 0040](0040-do-not-limit-autonomous-turn-chains.md)).
 
 Client disconnects do not affect subagents. After a daemon crash, in-flight
 work is recorded as interrupted; Kit does not claim that an arbitrary provider
