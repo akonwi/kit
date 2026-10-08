@@ -94,8 +94,10 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   selection copy, and link opening. The terminal title and Ghostty progress
   report the session name, directory, a running turn or manual compaction, and
   a turn waiting for an answer (`?` with paused progress). Remaining:
-  turn-completion notifications and bell, and confirming toast, selection-copy,
-  and link-opening parity.
+  turn-completion notifications and bell; an attention alert (bell and desktop
+  notification) when a model or plugin request arrives, once per request, so a
+  user in another window notices the agent is waiting (not in the vaxis
+  client); and confirming toast, selection-copy, and link-opening parity.
 - [ ] TUI-COOPER-013 — System theme derived from terminal colors, matching the
   vaxis client's contrast-aware palette, plus user theme tokens. The palette
   derivation comes from Cooper's terminal-theme service, including live host
