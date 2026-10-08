@@ -248,12 +248,7 @@ func (rt *sdkRuntime) prepareModelBoundary(ctx context.Context, turnID TurnID) e
 			rt.state = before
 			return err
 		}
-		prefix := fmt.Sprintf("[%s", pending.Message.Kind)
-		if pending.Message.Source != "" {
-			prefix += " from " + pending.Message.Source
-		}
-		prefix += "]"
-		content = append([]InputContent{TextInput{Text: prefix}}, content...)
+		content = append([]InputContent{TextInput{Text: BoundaryFraming(pending.Message.Kind, pending.Message.Source)}}, content...)
 		message := ContextMessage{
 			BoundaryID: pending.Message.ID,
 			Kind:       pending.Message.Kind, Source: pending.Message.Source, Content: content,

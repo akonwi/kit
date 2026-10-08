@@ -285,6 +285,37 @@ func TestSessionSnapshotAcceptsContextAndPendingBoundaries(t *testing.T) {
 	}
 }
 
+func TestSessionSnapshotValidatesPluginMessageDetails(t *testing.T) {
+	message := TranscriptMessage{
+		ID: "message_plugin", TurnID: "turn_plugin", Sequence: 3,
+		Role: "context", BoundaryID: "pluginmsg_0123456789abcdef0123456789abcdef", BoundaryKind: PluginMessageBoundaryKind, BoundarySource: "autoresearch",
+		Content: []TranscriptContent{TextBlock("Continue the experiment loop.")},
+		Details: json.RawMessage(`{"version":1,"pluginId":"autoresearch"}`), CreatedAt: "2026-01-01T00:00:03Z",
+	}
+	snapshot := validTranscriptSnapshot()
+	snapshot.Messages = append(snapshot.Messages, message)
+	if err := snapshot.Validate(); err != nil {
+		t.Fatalf("Validate() rejected plugin message: %v", err)
+	}
+	for name, details := range map[string]string{
+		"missing":         ``,
+		"wrong version":   `{"version":2,"pluginId":"autoresearch"}`,
+		"missing plugin":  `{"version":1}`,
+		"mismatched":      `{"version":1,"pluginId":"other"}`,
+		"not json object": `"autoresearch"`,
+	} {
+		t.Run(name, func(t *testing.T) {
+			invalid := validTranscriptSnapshot()
+			candidate := message
+			candidate.Details = json.RawMessage(details)
+			invalid.Messages = append(invalid.Messages, candidate)
+			if err := invalid.Validate(); err == nil {
+				t.Fatalf("Validate() accepted plugin message details %s", details)
+			}
+		})
+	}
+}
+
 func TestTranscriptValidationAcceptsLargeMessages(t *testing.T) {
 	t.Parallel()
 	large := strings.Repeat("x", 9<<20)

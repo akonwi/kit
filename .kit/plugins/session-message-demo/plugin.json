@@ -1,0 +1,6 @@
+{
+  "manifestVersion": 1,
+  "id": "session-message-demo",
+  "name": "Session Message Demo",
+  "transport": { "type": "stdio", "command": "python3", "args": ["-u", "plugin.py"] }
+}

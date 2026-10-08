@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -199,6 +200,193 @@ func TestSDKReactDeliversBoundaryPersistedWithFormerReactionLimit(t *testing.T) 
 	status, err := reopened.BoundaryStatus(t.Context(), boundary.ID)
 	if err != nil || !status.Received || status.Pending || status.TurnID != handle.TurnID() {
 		t.Fatalf("delivered boundary status = %+v, %v", status, err)
+	}
+}
+
+func TestSDKReactToAdmitsBoundaryAndTurnAtomically(t *testing.T) {
+	providers := newSteeringProviders()
+	store := droids.NewMemoryStore()
+	droid, err := droids.Spawn(t.Context(), "conversation_react_to", droids.Config{
+		Store: store, Model: resolvedTestModel(providers, "test/steer"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := droids.BoundaryMessage{
+		ID: "mail_11111111111111111111111111111111", Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "already pending"}},
+	}
+	if err := droid.Inform(t.Context(), pending); err != nil {
+		t.Fatal(err)
+	}
+	message := droids.BoundaryMessage{
+		ID: "pluginmsg_a", ReceiptIDs: []string{"pluginmsg_a", "pluginmsg_a_content"},
+		Kind: "plugin_message", Source: "autoresearch",
+		Content: []droids.InputContent{droids.TextInput{Text: "Continue the experiment loop."}},
+	}
+	handle, err := droid.ReactTo(t.Context(), message)
+	if err != nil {
+		t.Fatal(err)
+	}
+	<-providers.started
+
+	// A second submission while the turn is active records nothing.
+	busy := droids.BoundaryMessage{
+		ID: "pluginmsg_b", Kind: "plugin_message", Source: "autoresearch",
+		Content: []droids.InputContent{droids.TextInput{Text: "rejected while busy"}},
+	}
+	if _, err := droid.ReactTo(t.Context(), busy); !errors.Is(err, droids.ErrBusy) {
+		t.Fatalf("busy ReactTo error = %v, want ErrBusy", err)
+	}
+	if status, err := droid.BoundaryStatus(t.Context(), busy.ID); err != nil || status != (droids.BoundaryStatus{}) {
+		t.Fatalf("busy boundary status = %+v, %v; want unrecorded", status, err)
+	}
+	close(providers.release)
+	if outcome, err := handle.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("ReactTo outcome = %#v, %v", outcome, err)
+	}
+
+	requests := providers.Requests()
+	if len(requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(requests))
+	}
+	var framed []string
+	for _, item := range requests[0].Messages {
+		boundary, ok := item.(droids.ContextMessage)
+		if !ok {
+			t.Fatalf("reaction message = %T, want ContextMessage", item)
+		}
+		var texts []string
+		for _, content := range boundary.Content {
+			texts = append(texts, content.(droids.TextInput).Text)
+		}
+		framed = append(framed, strings.Join(texts, "|"))
+	}
+	want := []string{
+		"[subagent_result from subagent]|already pending",
+		"[plugin_message from autoresearch]|Continue the experiment loop.",
+	}
+	if !slices.Equal(framed, want) {
+		t.Fatalf("reaction context = %q, want %q", framed, want)
+	}
+	for _, id := range []string{pending.ID, message.ID, "pluginmsg_a_content"} {
+		status, err := droid.BoundaryStatus(t.Context(), id)
+		if err != nil || status != (droids.BoundaryStatus{Received: true, TurnID: handle.TurnID()}) {
+			t.Fatalf("boundary %s status = %+v, %v; want consumed by %s", id, status, err, handle.TurnID())
+		}
+	}
+	if err := droid.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	reopened, err := droids.Spawn(t.Context(), "conversation_react_to", droids.Config{
+		Store: store, Model: resolvedTestModel(providers, "test/steer"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	if _, err := reopened.ReactTo(t.Context(), message); !errors.Is(err, droids.ErrDuplicateBoundary) {
+		t.Fatalf("duplicate ReactTo error = %v, want ErrDuplicateBoundary", err)
+	}
+	partial := message
+	partial.ReceiptIDs = []string{"pluginmsg_a", "pluginmsg_a_other_content"}
+	if _, err := reopened.ReactTo(t.Context(), partial); !errors.Is(err, droids.ErrConflict) {
+		t.Fatalf("partial ReactTo error = %v, want ErrConflict", err)
+	}
+	if status, err := reopened.BoundaryStatus(t.Context(), "pluginmsg_a_other_content"); err != nil || status != (droids.BoundaryStatus{}) {
+		t.Fatalf("conflicting receipt status = %+v, %v; want unrecorded", status, err)
+	}
+	if len(providers.Requests()) != 1 {
+		t.Fatalf("provider requests after rejected admissions = %d, want 1", len(providers.Requests()))
+	}
+}
+
+// faultingCommitStore fails the next commit, either before it persists or
+// after it persists (an ambiguous failure the runtime must reconcile).
+type faultingCommitStore struct {
+	droids.Store
+	failBefore, failAfter atomic.Bool
+}
+
+func (s *faultingCommitStore) Commit(ctx context.Context, request droids.CommitRequest) (droids.CommitResult, error) {
+	if s.failBefore.CompareAndSwap(true, false) {
+		return droids.CommitResult{}, errors.New("injected commit failure")
+	}
+	result, err := s.Store.Commit(ctx, request)
+	if err == nil && s.failAfter.CompareAndSwap(true, false) {
+		return droids.CommitResult{}, errors.New("injected ambiguous commit failure")
+	}
+	return result, err
+}
+
+func TestSDKReactToRecordsNothingWhenAdmissionCommitFails(t *testing.T) {
+	providers := &reactionProviders{}
+	store := &faultingCommitStore{Store: droids.NewMemoryStore()}
+	droid, err := droids.Spawn(t.Context(), "conversation_react_to_fault", droids.Config{
+		Store: store, Model: resolvedTestModel(providers, "test/reaction"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	pending := droids.BoundaryMessage{
+		ID: "mail_22222222222222222222222222222222", Kind: "subagent_result", Source: "subagent",
+		Content: []droids.InputContent{droids.TextInput{Text: "pending before the failure"}},
+	}
+	if err := droid.Inform(t.Context(), pending); err != nil {
+		t.Fatal(err)
+	}
+	message := droids.BoundaryMessage{
+		ID: "pluginmsg_fault", ReceiptIDs: []string{"pluginmsg_fault", "pluginmsg_fault_content"},
+		Kind: "plugin_message", Source: "autoresearch",
+		Content: []droids.InputContent{droids.TextInput{Text: "Continue."}},
+	}
+	store.failBefore.Store(true)
+	if _, err := droid.ReactTo(t.Context(), message); err == nil {
+		t.Fatal("ReactTo succeeded despite a failed commit")
+	}
+	for _, id := range []string{"pluginmsg_fault", "pluginmsg_fault_content"} {
+		if status, err := droid.BoundaryStatus(t.Context(), id); err != nil || status != (droids.BoundaryStatus{}) {
+			t.Fatalf("receipt %s after failed commit = %+v, %v; want unrecorded", id, status, err)
+		}
+	}
+	if status, err := droid.BoundaryStatus(t.Context(), pending.ID); err != nil || status != (droids.BoundaryStatus{Received: true, Pending: true}) {
+		t.Fatalf("earlier boundary after failed commit = %+v, %v; want pending", status, err)
+	}
+	snapshot, err := droid.Snapshot(t.Context(), droids.SnapshotOptions{})
+	if err != nil || snapshot.Active != nil || len(snapshot.Pending.Boundaries) != 1 || snapshot.Pending.Boundaries[0].Message.ID != pending.ID {
+		t.Fatalf("snapshot after failed commit = active %+v, pending %+v, %v", snapshot.Active, snapshot.Pending.Boundaries, err)
+	}
+
+	// An ambiguous failure that did persist reconciles to the admitted turn.
+	store.failAfter.Store(true)
+	handle, err := droid.ReactTo(t.Context(), message)
+	if err != nil {
+		t.Fatalf("ReactTo after ambiguous commit = %v, want reconciled admission", err)
+	}
+	if outcome, err := handle.Wait(t.Context()); err != nil || outcome.Status != droids.ExecutionCompleted {
+		t.Fatalf("ReactTo outcome = %#v, %v", outcome, err)
+	}
+	if _, err := droid.ReactTo(t.Context(), message); !errors.Is(err, droids.ErrDuplicateBoundary) {
+		t.Fatalf("repeat after reconciled admission = %v, want ErrDuplicateBoundary", err)
+	}
+	if err := droid.Close(); err != nil {
+		t.Fatal(err)
+	}
+	reopened, err := droids.Spawn(t.Context(), "conversation_react_to_fault", droids.Config{
+		Store: store, Model: resolvedTestModel(providers, "test/reaction"),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = reopened.Close() })
+	for _, id := range []string{pending.ID, "pluginmsg_fault", "pluginmsg_fault_content"} {
+		if status, err := reopened.BoundaryStatus(t.Context(), id); err != nil || status != (droids.BoundaryStatus{Received: true, TurnID: handle.TurnID()}) {
+			t.Fatalf("reopened boundary %s = %+v, %v; want consumed by %s", id, status, err, handle.TurnID())
+		}
+	}
+	if len(providers.requests) != 1 {
+		t.Fatalf("provider requests = %d, want 1", len(providers.requests))
 	}
 }
 

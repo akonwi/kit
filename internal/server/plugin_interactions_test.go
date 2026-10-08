@@ -23,6 +23,11 @@ func pluginDialogClient(t *testing.T) (*Client, string, protocol.PluginCommand) 
 
 func pluginFixtureClient(t *testing.T, name string, commandCount int) (*Client, string, protocol.PluginCommand) {
 	t.Helper()
+	return pluginFixtureClientWithProviders(t, name, commandCount, &daemonEchoProviders{})
+}
+
+func pluginFixtureClientWithProviders(t *testing.T, name string, commandCount int, providers *daemonEchoProviders) (*Client, string, protocol.PluginCommand) {
+	t.Helper()
 	if _, err := exec.LookPath("python3"); err != nil {
 		t.Skip("UI fixture requires Python")
 	}
@@ -43,7 +48,7 @@ func pluginFixtureClient(t *testing.T, name string, commandCount int) (*Client, 
 	ctx, cancel := context.WithCancel(t.Context())
 	done := make(chan error, 1)
 	go func() {
-		done <- Run(ctx, RunOptions{Paths: paths, Providers: &daemonEchoProviders{}, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
+		done <- Run(ctx, RunOptions{Paths: paths, Providers: providers, Logger: slog.New(slog.NewTextHandler(io.Discard, nil))})
 	}()
 	t.Cleanup(func() {
 		cancel()

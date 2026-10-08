@@ -30,8 +30,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
   treating Base64 length as token count.
 - [ ] CORE-SESSION-003 — Define transcript replacement and corruption-recovery
   semantics.
-- [x] CORE-RUN-008 — Remove autonomous turn-chain limits per
-  [ADR 0040](../docs/adrs/0040-do-not-limit-autonomous-turn-chains.md).
 - [ ] CORE-USAGE-001 — Verify that cumulative historical cost remains unchanged
   across model changes and is projected consistently after restart.
 
@@ -165,25 +163,9 @@ Process ownership and plugin UI routing follow
   generation cleanup, and behavior across detach, reload, and runtime disposal
   before adding a public protocol method.
 
-- [ ] CORE-PLUGIN-010 — Implement `kit/session/submit-message` as specified by
-  [ADR 0041](../docs/adrs/0041-let-plugins-submit-session-messages.md): a
-  plugin's current generation can start a context-only turn in its owning idle
-  session from a `plugin_message` boundary sourced to the plugin ID, returning
-  `{messageId, turnId}` on admission. Recording the boundary and starting the
-  turn are atomic, which requires a droids admission that does both or neither.
-  Reject with busy (`-32006`) and no record while a turn is active, user
-  follow-ups are queued, or another admission, context operation, or runtime
-  transition is in progress. Reject stale generations (`-32002`), invalid or
-  unknown parameters (`-32602`), and idempotency-key reuse with different text
-  (`-32003`); a repeated key with the same text returns the original result
-  across plugin reload and daemon restart. Publish `plugin_message` context
-  messages through the session transcript contract per
-  [`docs/api-development.md`](../docs/api-development.md). Cover kickoff from a
-  command, continuation after `agent.turn.completed`, busy rejection (including
-  queued follow-ups), stale-generation rejection, idempotent retry, conflict,
-  admitted-turn survival across plugin reload, and concurrent-session isolation
-  with real subprocess tests, and document the public RPC contract. Depends on
-  `CORE-RUN-008`.
+- [x] CORE-PLUGIN-010 — Plugins submit attributed messages that start turns in
+  their idle owning session per
+  [ADR 0041](../docs/adrs/0041-let-plugins-submit-session-messages.md).
 
 ## Deferred workflows and compatibility
 

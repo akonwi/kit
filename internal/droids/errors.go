@@ -14,6 +14,7 @@ var (
 	ErrTurnNotFound           = errors.New("turn not found")
 	ErrRecordNotFound         = errors.New("record not found")
 	ErrUnsafeContinuation     = errors.New("unsafe continuation")
+	ErrDuplicateBoundary      = errors.New("boundary was already accepted")
 	ErrContextNotAdaptable    = errors.New("context cannot be adapted to target model")
 	ErrConflict               = errors.New("store revision conflict")
 	ErrStoreUninitialized     = errors.New("store is not initialized")

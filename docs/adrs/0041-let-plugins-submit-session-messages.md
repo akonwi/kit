@@ -32,8 +32,8 @@ context-only turn that consumes it. The message is never recorded as a user
 message.
 
 The model receives the message framed with its plugin source. The boundary's
-details record the version, plugin ID, and submitted text so clients can present
-the message without parsing model-facing framing.
+details record the version and plugin ID. Transcript projections present the
+submitted text as the message content, without the model-facing framing.
 
 ### Request contract
 
@@ -70,10 +70,13 @@ The request fails with a busy error (`-32006`) and leaves no record when:
 - another turn admission, context operation such as compaction, or runtime
   transition such as reload, cwd change, or deletion is in progress.
 
-Queued user follow-ups therefore take precedence over plugin messages. Kit
-does not queue, retry, or later deliver a rejected plugin message. The plugin
-decides whether and when to try again, typically after
-`kit/events/agent.turn.completed`.
+A turn that has finished but is still settling, for example while its
+completion event is delivered to plugins, does not count as active. Kit waits
+briefly for it to settle rather than rejecting the request, so a plugin may
+submit from its `kit/events/agent.turn.completed` handler. Kit never contends
+for admission while user follow-ups are queued, so queued user follow-ups take
+precedence over plugin messages. Kit does not queue, retry, or later deliver a
+rejected plugin message. The plugin decides whether and when to try again.
 
 Any context boundaries already pending when a plugin message is admitted, such
 as subagent results, are consumed by the same turn.
@@ -97,7 +100,8 @@ cancelling it after admission has no effect on the turn.
 Without an idempotency key, each request is a new submission. With a key, Kit
 derives a durable receipt from the plugin ID and key in the owning session.
 Repeating the key with the same text returns the original `messageId` and
-`turnId`, including after plugin reload or daemon restart. Repeating a key with
+`turnId`, including while the session is busy and after plugin reload or daemon
+restart. Repeating a key with
 different text fails with a conflict error (`-32003`). A busy rejection records
 no receipt, so a retry with the same key can be admitted later.
 

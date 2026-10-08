@@ -325,6 +325,7 @@ const (
 	ModelInputText                        = contract.ModelInputText
 	PluginCommandFailed                   = contract.PluginCommandFailed
 	PluginCommandUnavailable              = contract.PluginCommandUnavailable
+	PluginMessageBoundaryKind             = contract.PluginMessageBoundaryKind
 	PluginToastError                      = contract.PluginToastError
 	PluginToastInfo                       = contract.PluginToastInfo
 	PluginToastWarning                    = contract.PluginToastWarning

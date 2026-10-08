@@ -2656,6 +2656,11 @@ func (m *Manager) newDroid(ctx context.Context, record SessionRecord) (*runtime,
 				return loaded.interactions.requestPlugin(ctx, record.ID, input, available)
 			})
 		}
+		if host, ok := loaded.plugins.(PluginMessageHost); ok {
+			host.SetMessageObserver(func(ctx context.Context, input PluginMessageInput, current func() bool) (PluginMessageResult, error) {
+				return m.submitPluginMessage(ctx, loaded, record.ID, input, current)
+			})
+		}
 	}
 	if m.pluginSubagents != nil && loaded.plugins != nil {
 		cleanup, err := m.pluginSubagents.RegisterPluginCatalogProvider(record.ID, loaded.appliedPluginSubagentCatalog)

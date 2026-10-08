@@ -796,7 +796,7 @@ func projectTranscriptContent(message droids.Message) ([]TranscriptContent, erro
 	case droids.UserMessage:
 		return projectDroidContent(typed.Content)
 	case droids.ContextMessage:
-		return projectDroidContent(typed.Content)
+		return projectDroidContent(pluginMessagePresentationContent(typed))
 	case droids.AssistantMessage:
 		return projectDroidContent(typed.Content)
 	case droids.ToolResultMessage:
