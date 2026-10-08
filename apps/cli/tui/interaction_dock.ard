@@ -70,6 +70,8 @@ struct Dock {
   cursor: Int,
   // Checked options of a multiple-choice question, by option ID.
   checked: [Str: Bool],
+  // The highlighted answer of a confirmation that offers a default choice.
+  confirming: Bool,
   list: mut cui::VirtualListRef,
   hidden_above: Int,
   hidden_below: Int,
@@ -92,6 +94,7 @@ private fn new(props: mut Props) mut Dock {
     value: props.request.InitialValue,
     cursor: 0,
     checked: [:],
+    confirming: unsafe::is_nil(props.request.DefaultValue) == false and props.request.DefaultValue.@,
     list: cui::virtual_list_ref(),
     hidden_above: 0,
     hidden_below: 0,
@@ -116,6 +119,39 @@ impl cui::Lifecycle for Dock {
 impl Dock {
   private fn guided() Bool {
     self.props.request.Kind.to_str() == "guided"
+  }
+
+  private fn plugin() Bool {
+    not unsafe::is_nil(self.props.request.Plugin)
+  }
+
+  // Plugin confirmations, and any confirmation with a default, highlight one
+  // answer that Return chooses and Tab or the arrow keys switch.
+  private fn offers_choice() Bool {
+    (not self.guided()) and (self.plugin() or (not unsafe::is_nil(self.props.request.DefaultValue)))
+  }
+
+  private fn confirm_label() Str {
+    match {
+      self.guided() => "Yes",
+      self.props.request.ConfirmLabel != "" => self.props.request.ConfirmLabel,
+      self.plugin() => "Confirm",
+      _ => "Yes",
+    }
+  }
+
+  private fn decline_label() Str {
+    match {
+      self.guided() => "No",
+      self.props.request.CancelLabel != "" => self.props.request.CancelLabel,
+      self.plugin() => "Cancel",
+      _ => "No",
+    }
+  }
+
+  private fn mut switch_choice() Bool {
+    self.confirming = not self.confirming
+    true
   }
 
   private fn question() protocol::InteractionQuestion? {
@@ -277,12 +313,12 @@ impl Dock {
     }
   }
 
-  // Submits a text answer. An empty answer skips an optional question and is
-  // otherwise ignored.
+  // Submits a text answer. Plugins may accept an empty answer; otherwise an
+  // empty answer skips an optional question and is ignored.
   private fn mut submit_text(value: Str) Bool {
     let trimmed = strings::TrimSpace(value)
     match {
-      trimmed == "" => self.skip(),
+      trimmed == "" and not self.plugin() => self.skip(),
       self.guided() => {
         let answer = mut trimmed
         self.advance(protocol::InteractionAnswer{Text: answer})
@@ -436,6 +472,24 @@ impl Dock {
         bind("interaction.no", "No", [keymap::key("n"), keymap::key("n", shift: true)], fn() Bool {
           self.confirm(false)
         })
+        if self.offers_choice() {
+          bind(
+            "interaction.switch",
+            "Switch answer",
+            [
+              keymap::key("tab"),
+              keymap::key("tab", shift: true),
+              keymap::key("left"),
+              keymap::key("right"),
+            ],
+            fn() Bool {
+              self.switch_choice()
+            },
+          )
+          bind("interaction.choose_answer", "Choose answer", [keymap::key("return")], fn() Bool {
+            self.confirm(self.confirming)
+          })
+        }
       },
       Mode::choice => {
         self.bind_movement(bind)
@@ -476,25 +530,33 @@ impl Dock {
     })
   }
 
+  // header shows the title with its source, guided progress, and queue
+  // position as meta.
   private fn mut header(colors: theme::Theme) cui::View {
     let meta = mut List::new<cui::View>()
+    let muted = fn(text: Str) cui::View {
+      cui::text(
+        text,
+        text_style: ui::text_style(foreground: colors.muted),
+        wrap: ui::TextWrap::none,
+      )
+    }
+    if self.plugin() {
+      meta.push(muted(self.props.request.Plugin.PluginID))
+    }
     if self.guided() {
+      if meta.size() > 0 {
+        meta.push(muted("  ·  "))
+      }
       for mark in self.trail(colors) {
         meta.push(mark)
       }
     }
     if self.props.queue_length > 1 {
-      let separator = match self.guided() {
-        true => "  ·  ",
-        false => "",
+      if meta.size() > 0 {
+        meta.push(muted("  ·  "))
       }
-      meta.push(
-        cui::text(
-          "{separator}1 of {self.props.queue_length}",
-          text_style: ui::text_style(foreground: colors.muted),
-          wrap: ui::TextWrap::none,
-        ),
-      )
+      meta.push(muted("1 of {self.props.queue_length}"))
     }
     cui::box(
       [
@@ -577,20 +639,39 @@ impl Dock {
   private fn mut controls(colors: theme::Theme) cui::View {
     match self.mode() {
       Mode::confirm => {
-        let yes = keymap::simple_command("interaction.yes.pointer", "Yes", fn() Bool {
-          self.confirm(true)
-        })
-        let no = keymap::simple_command("interaction.no.pointer", "No", fn() Bool {
+        let yes = keymap::simple_command(
+          "interaction.yes.pointer",
+          self.confirm_label(),
+          fn() Bool {
+            self.confirm(true)
+          },
+        )
+        let no = keymap::simple_command("interaction.no.pointer", self.decline_label(), fn() Bool {
           self.confirm(false)
         })
+        // The highlighted answer is primary; without a default choice the
+        // affirmative answer leads.
+        let affirmative = (not self.offers_choice()) or self.confirming
+        let variant = fn(highlighted: Bool) controls::ButtonVariant {
+          match highlighted {
+            true => controls::ButtonVariant::primary,
+            false => controls::ButtonVariant::secondary,
+          }
+        }
         cui::box(
           [
-            controls::button(self.props.themes, "Yes", yes, focusable: false),
             controls::button(
               self.props.themes,
-              "No",
+              self.confirm_label(),
+              yes,
+              variant: variant(affirmative),
+              focusable: false,
+            ),
+            controls::button(
+              self.props.themes,
+              self.decline_label(),
               no,
-              variant: controls::ButtonVariant::secondary,
+              variant: variant(not affirmative),
               focusable: false,
             ),
           ],
@@ -812,7 +893,12 @@ impl Dock {
 
   private fn hint() Str {
     let base = match self.mode() {
-      Mode::confirm => "y yes · n no",
+      Mode::confirm => {
+        match self.offers_choice() {
+          true => "tab switch · enter choose · y/n answer",
+          false => "y yes · n no",
+        }
+      },
       Mode::choice => "↑↓ move · enter/space select",
       Mode::multiple => "↑↓ move · space toggle · enter continue",
       _ => "enter submit",
@@ -858,19 +944,22 @@ impl Dock {
         ),
       )
     }
-    let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
-      self.cancel()
-    })
-    children.push(
-      controls::button(
-        self.props.themes,
-        "Cancel",
-        cancel,
-        variant: controls::ButtonVariant::secondary,
-        compact: true,
-        focusable: false,
-      ),
-    )
+    // A confirmation that offers a choice already has a decline button.
+    if not self.mode() == Mode::confirm and self.offers_choice() {
+      let cancel = keymap::simple_command("interaction.cancel.pointer", "Cancel", fn() Bool {
+        self.cancel()
+      })
+      children.push(
+        controls::button(
+          self.props.themes,
+          "Cancel",
+          cancel,
+          variant: controls::ButtonVariant::secondary,
+          compact: true,
+          focusable: false,
+        ),
+      )
+    }
     cui::box(
       children.@,
       styles: ui::style(

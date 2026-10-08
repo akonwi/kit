@@ -75,10 +75,11 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.
-- [~] TUI-COOPER-007 — Interaction dock for pending server-owned requests.
-  Model confirm, input, select, and guided requests are complete. Remaining:
-  plugin requests (custom labels, default choice, empty answers) with
-  TUI-COOPER-014.
+- [x] TUI-COOPER-007 — Interaction dock for pending server-owned requests:
+  model confirm, input, select, and guided requests, and plugin confirm,
+  input, and select requests with their labels, default choice, initial
+  value, and empty answers. Filterable plugin selections use the plain list,
+  as in the vaxis client.
 - [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, scratchpad, and
   annotations.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
