@@ -27,6 +27,10 @@ type ServeOptions struct {
 	// StreamHeartbeat shortens the stream heartbeat interval for tests. Zero
 	// or values above StreamHeartbeatInterval use StreamHeartbeatInterval.
 	StreamHeartbeat time.Duration
+	// StreamShutdown ends open streams cleanly when it is done, so a graceful
+	// server shutdown does not wait for attached clients to disconnect. Nil
+	// leaves streams bounded only by their request.
+	StreamShutdown context.Context
 }
 
 var registered = struct {

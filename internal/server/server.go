@@ -323,13 +323,16 @@ func Run(ctx context.Context, options RunOptions) error {
 	registryPublished = true
 
 	stop := make(chan struct{}, 1)
+	streamShutdown, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
 	handler := newHandler(localHandlerOptions{
-		baseURL:      baseURL,
-		expectedHost: listener.Addr().String(),
-		registry:     registry,
-		token:        token,
-		store:        store,
-		logger:       logger,
+		baseURL:        baseURL,
+		streamShutdown: streamShutdown,
+		expectedHost:   listener.Addr().String(),
+		registry:       registry,
+		token:          token,
+		store:          store,
+		logger:         logger,
 		sessions: runtimeSessionService{
 			manager: sessionManager, availableProviders: providerAvailability, modelContextWindow: modelContextWindow, fileIndexes: newSessionFileIndexCache(),
 			workspaces: workspaceService, diffs: diffService, annotations: annotationService, annotationCursorKey: []byte(token), subagents: subagents, subagentTools: subagentTools, attachments: attachmentStore,
@@ -349,6 +352,9 @@ func Run(ctx context.Context, options RunOptions) error {
 		IdleTimeout:       60 * time.Second,
 		MaxHeaderBytes:    32 << 10,
 	}
+	// Shutdown waits for active requests, and attached clients hold event
+	// streams open indefinitely. End those streams as soon as shutdown begins.
+	server.RegisterOnShutdown(endStreams)
 
 	serveResult := make(chan error, 1)
 	go func() {
@@ -400,6 +406,8 @@ type localHandlerOptions struct {
 	attachments  attachmentService
 	providers    func(context.Context) []string
 	requestStop  func()
+	// streamShutdown ends open event streams when it is done.
+	streamShutdown context.Context
 	// logger receives causes of failed requests; nil disables reporting.
 	logger *slog.Logger
 }
@@ -427,7 +435,7 @@ func newHandler(options localHandlerOptions) http.Handler {
 		return httpapi.ShutdownResult{Stopping: true}, nil
 	})
 	if options.sessions != nil {
-		registerSessionRoutes(mux, options.sessions)
+		registerSessionRoutesWithStreamShutdown(mux, options.sessions, options.streamShutdown)
 	}
 	if options.attachments != nil {
 		registerAttachmentRoutes(mux, options.attachments)

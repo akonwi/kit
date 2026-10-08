@@ -159,3 +159,54 @@ func TestStreamPreStreamErrorsUseErrorBody(t *testing.T) {
 		t.Fatalf("status=%d headers=%v body=%q", response.Code, response.Header(), response.Body.String())
 	}
 }
+
+// blockingSource waits for its context, as an idle live stream does.
+type blockingSource struct{ closed chan struct{} }
+
+func (s *blockingSource) Next(ctx context.Context) (StreamRecord[streamPayload], error) {
+	<-ctx.Done()
+	return StreamRecord[streamPayload]{}, ctx.Err()
+}
+func (s *blockingSource) Close() { close(s.closed) }
+
+func TestStreamShutdownEndsOpenStreamsSoGracefulShutdownCompletes(t *testing.T) {
+	t.Parallel()
+	streamShutdown, endStreams := context.WithCancel(context.Background())
+	defer endStreams()
+	source := &blockingSource{closed: make(chan struct{})}
+	mux := http.NewServeMux()
+	HandleStream(mux, ServeOptions{StreamShutdown: streamShutdown, WriteError: func(w http.ResponseWriter, err error) {
+		t.Errorf("unexpected open error: %v", err)
+	}}, testStream, func(context.Context, SessionPath) (StreamSource[streamPayload], error) {
+		return source, nil
+	})
+	server := httptest.NewUnstartedServer(mux)
+	server.Config.RegisterOnShutdown(endStreams)
+	server.Start()
+	defer server.Close()
+
+	response, err := server.Client().Get(server.URL + "/items/a%2Fb/events")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer response.Body.Close()
+	connected := make([]byte, len(": connected\n\n"))
+	if _, err := io.ReadFull(response.Body, connected); err != nil || string(connected) != ": connected\n\n" {
+		t.Fatalf("stream preamble = %q, %v", connected, err)
+	}
+
+	shutdownContext, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	if err := server.Config.Shutdown(shutdownContext); err != nil {
+		t.Fatalf("graceful shutdown = %v, want nil with an attached stream", err)
+	}
+	select {
+	case <-source.closed:
+	default:
+		t.Fatal("stream source was not closed after shutdown")
+	}
+	rest, err := io.ReadAll(response.Body)
+	if err != nil || len(rest) != 0 {
+		t.Fatalf("stream tail = %q, %v; want clean end", rest, err)
+	}
+}

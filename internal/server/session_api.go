@@ -1845,7 +1845,13 @@ func (source *sessionEventStreamSource) Next(ctx context.Context) (httpapi.Strea
 func (*sessionEventStreamSource) Close() {}
 
 func registerSessionRoutes(mux *http.ServeMux, service sessionService) {
-	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, WriteError: func(writer http.ResponseWriter, err error) {
+	registerSessionRoutesWithStreamShutdown(mux, service, nil)
+}
+
+// registerSessionRoutesWithStreamShutdown registers session routes whose open
+// event streams end cleanly once streamShutdown is done.
+func registerSessionRoutesWithStreamShutdown(mux *http.ServeMux, service sessionService, streamShutdown context.Context) {
+	httpOptions := httpapi.ServeOptions{MaxRequestBytes: maxSessionRequestBytes, StreamShutdown: streamShutdown, WriteError: func(writer http.ResponseWriter, err error) {
 		var requestErr *httpapi.RequestError
 		if errors.As(err, &requestErr) {
 			err = fmt.Errorf("%w: %v", errInvalidSessionRequest, requestErr)

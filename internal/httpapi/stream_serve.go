@@ -37,13 +37,19 @@ func HandleStream[Params, Payload any](mux *http.ServeMux, options ServeOptions,
 			return
 		}
 		defer source.Close()
-		serveStream(w, r, op, source, options.StreamHeartbeat)
+		ctx, cancel := context.WithCancel(r.Context())
+		defer cancel()
+		if options.StreamShutdown != nil {
+			stop := context.AfterFunc(options.StreamShutdown, cancel)
+			defer stop()
+		}
+		serveStream(ctx, w, op, source, options.StreamHeartbeat)
 	})
 }
 
-// serveStream writes SSE framing, heartbeats, and bounds until the client
-// disconnects, the source fails, or a record would violate the operation.
-func serveStream[Params, Payload any](w http.ResponseWriter, r *http.Request, op StreamOperation[Params, Payload], source StreamSource[Payload], heartbeat time.Duration) {
+// serveStream writes SSE framing, heartbeats, and bounds until ctx ends, the
+// client disconnects, the source fails, or a record would violate the operation.
+func serveStream[Params, Payload any](streamContext context.Context, w http.ResponseWriter, op StreamOperation[Params, Payload], source StreamSource[Payload], heartbeat time.Duration) {
 	if heartbeat <= 0 || heartbeat > StreamHeartbeatInterval {
 		heartbeat = StreamHeartbeatInterval
 	}
@@ -57,14 +63,14 @@ func serveStream[Params, Payload any](w http.ResponseWriter, r *http.Request, op
 	if _, err := io.WriteString(w, ": connected\n\n"); err != nil || controller.Flush() != nil {
 		return
 	}
-	for r.Context().Err() == nil {
-		ctx, cancel := context.WithTimeout(r.Context(), heartbeat)
+	for streamContext.Err() == nil {
+		ctx, cancel := context.WithTimeout(streamContext, heartbeat)
 		record, err := source.Next(ctx)
 		cancel()
 		_ = controller.SetWriteDeadline(time.Now().Add(streamWriteTimeout))
 		var frame []byte
 		switch {
-		case errors.Is(err, context.DeadlineExceeded) && r.Context().Err() == nil:
+		case errors.Is(err, context.DeadlineExceeded) && streamContext.Err() == nil:
 			frame = []byte(": heartbeat\n\n")
 		case err != nil:
 			return
