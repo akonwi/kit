@@ -6,6 +6,9 @@ use kit/tui/modal
 use kit/tui/theme
 use go:strings
 
+// A search term that marks the attached row for presentation; it never matches.
+let current_marker = "__palette_current__"
+
 // Item is one flat palette row. search_terms participate in matching without
 // being displayed, so providers can be found by their authentication method.
 struct Item {
@@ -28,6 +31,9 @@ struct Props {
   // filter_query may project a command word while query remains the complete
   // editable invocation, including literal arguments.
   filter_query: Str,
+  // keep_order keeps matches in catalog order instead of ranking them, so tree
+  // catalogs keep each row under its parent.
+  keep_order: Bool,
   selection: Str,
   hovered: Str,
   hidden_above: Bool,
@@ -90,6 +96,7 @@ fn new_picker(props: mut PickerProps) mut Picker {
       catalog: props.catalog,
       query: "",
       filter_query: "",
+      keep_order: props.toggle.is_some(),
       selection: props.initial_selection,
       hovered: "",
       hidden_above: false,
@@ -120,6 +127,9 @@ struct Viewport {
   on_page: fn(Int),
 }
 
+// items filters the catalog with the shared fuzzy matcher. A blank query
+// returns the catalog unchanged. Otherwise matches are ranked best first, with
+// ties in catalog order, unless keep_order is set.
 fn items(props: Props) [Item] {
   let raw_query = match props.filter_query != "" {
     true => props.filter_query,
@@ -129,17 +139,174 @@ fn items(props: Props) [Item] {
   if query == "" {
     props.catalog
   } else {
-    let result = mut List::new<Item>()
+    let ranked = mut List::new<Ranked>()
+    mut position = 0
     for item in props.catalog {
-      mut searchable = "{item.label} {item.description}"
-      for term in item.search_terms {
-        searchable = "{searchable} {term}"
+      let score = item_score(item, query)
+      if score > 0 {
+        ranked.push(
+          Ranked{
+            item: item,
+            score: score,
+            position: position,
+          },
+        )
       }
-      if strings::ToLower(searchable).contains(query) {
-        result.push(item)
-      }
+      position =+ 1
+    }
+    if not props.keep_order {
+      ranked.sort(ranks_before)
+    }
+    let result = mut List::new<Item>()
+    for entry in ranked {
+      result.push(entry.item)
     }
     result.@
+  }
+}
+
+private struct Ranked {
+  item: Item,
+  score: Int,
+  position: Int,
+}
+
+// ranks_before orders better scores first and equal scores by catalog order.
+private fn ranks_before(left: Ranked, right: Ranked) Bool {
+  match left.score == right.score {
+    true => left.position < right.position,
+    false => left.score > right.score,
+  }
+}
+
+// item_score is the best match among the label (weighted highest), the
+// description, and the search terms, which act as aliases. Zero means no match.
+// This follows the vaxis client's fuzzy select filter so both clients rank
+// alike.
+fn item_score(item: Item, query: Str) Int {
+  mut best = 0
+  let label = string_score(strings::ToLower(item.label), query)
+  if label > 0 and label + 40 > best {
+    best = label + 40
+  }
+  let description = string_score(strings::ToLower(item.description), query)
+  if description > best {
+    best = description
+  }
+  for term in item.search_terms {
+    if term != "" and term != current_marker {
+      let alias = string_score(strings::ToLower(term), query)
+      if alias > 0 and alias + 15 > best {
+        best = alias + 15
+      }
+    }
+  }
+  best
+}
+
+// string_score ranks an exact match, then a prefix, then a substring (higher
+// at a word boundary), then the query's characters in order with gaps.
+fn string_score(candidate: Str, query: Str) Int {
+  let query_chars = strings::Split(query, "")
+  let length = query_chars.size()
+  if candidate == query {
+    1000
+  } else if strings::HasPrefix(candidate, query) {
+    900 + length * 4
+  } else {
+    let chars = strings::Split(candidate, "")
+    let index = find(chars, query_chars)
+    match index >= 0 {
+      true => {
+        let boundary = match word_boundary(chars, index) {
+          true => 50,
+          false => 0,
+        }
+        800 + length * 4 - index + boundary
+      },
+      false => subsequence_score(chars, query_chars),
+    }
+  }
+}
+
+// find returns the character index of query within chars, or -1.
+private fn find(chars: [Str], query: [Str]) Int {
+  mut found = -1
+  mut start = 0
+  while found < 0 and start + query.size() <= chars.size() {
+    mut matched = true
+    mut offset = 0
+    while matched and offset < query.size() {
+      if chars.at(start + offset).or("") != query.at(offset).or("") {
+        matched = false
+      }
+      offset =+ 1
+    }
+    if matched {
+      found = start
+    }
+    start =+ 1
+  }
+  found
+}
+
+// subsequence_score rewards consecutive characters and word starts, and
+// penalizes a late start and a wide span. Non-positive scores do not match.
+private fn subsequence_score(chars: [Str], query: [Str]) Int {
+  mut query_index = 0
+  mut start = -1
+  mut last = -1
+  mut consecutive = 0
+  mut boundaries = 0
+  mut score = 0
+  mut index = 0
+  while score == 0 and query_index < query.size() and index < chars.size() {
+    if chars.at(index).or("") == query.at(query_index).or("") {
+      if start == -1 {
+        start = index
+      }
+      if last == index - 1 {
+        consecutive =+ 1
+      }
+      if word_boundary(chars, index) {
+        boundaries =+ 1
+      }
+      last = index
+      query_index =+ 1
+      if query_index == query.size() {
+        let span = last - start + 1
+        score = 500 + query.size() * 8 + consecutive * 12 + boundaries * 10 - start * 2 - span
+        if score <= 0 {
+          score = -1
+        }
+      }
+    }
+    index =+ 1
+  }
+  match score > 0 {
+    true => score,
+    false => 0,
+  }
+}
+
+private fn word_boundary(chars: [Str], index: Int) Bool {
+  match index <= 0 {
+    true => true,
+    false => {
+      match chars.at(index - 1).or("") {
+        " " => true,
+        "-" => true,
+        "_" => true,
+        ":" => true,
+        "/" => true,
+        "." => true,
+        "+" => true,
+        "#" => true,
+        "@" => true,
+        "\t" => true,
+        _ => false,
+      }
+    },
   }
 }
 
@@ -370,6 +537,7 @@ impl Picker {
       catalog: catalog,
       query: self.props.query,
       filter_query: "",
+      keep_order: self.source.toggle.is_some(),
       selection: self.props.selection,
       hovered: self.props.hovered,
       hidden_above: self.hidden_above,
@@ -611,7 +779,7 @@ private fn overflow_row(props: Props, key: Str, direction: Int, on_page: fn(Int)
 private fn is_current(item: Item) Bool {
   mut current = false
   for term in item.search_terms {
-    if term == "__palette_current__" {
+    if term == current_marker {
       current = true
     }
   }

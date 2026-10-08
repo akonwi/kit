@@ -406,6 +406,7 @@ impl Palette {
       catalog: catalog,
       query: self.query,
       filter_query: command_word(self.query),
+      keep_order: false,
       selection: self.selection,
       hovered: self.hovered,
       hidden_above: self.hidden_above,
