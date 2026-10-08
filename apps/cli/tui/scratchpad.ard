@@ -7,6 +7,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/controls
 use kit/tui/theme
 use go:time
 
@@ -496,8 +497,11 @@ impl cui::Component for Editor {
         on_input: fn(value: Str, context: cui::Context) {
           self.change(value)
         },
-        commands: [save],
-        bindings: [keymap::binding(keymap::key("s", ctrl: true), save.with())],
+        commands: [save, controls::keep_interrupt],
+        bindings: [
+          keymap::binding(keymap::key("s", ctrl: true), save.with()),
+          controls::keep_interrupt_binding(),
+        ],
       ),
     )
     if self.failure != "" {

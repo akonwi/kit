@@ -7,11 +7,13 @@ use cooper/event
 use cooper/terminal_progress
 use cooper/testing as headless
 use go:kit/ffi/cli
+use kit/tui/bootstrap
 use kit/tui/chrome
 use kit/tui/shell
 use kit/tui/terminal_status
 use kit/tui/theme
 use go:strings
+use go:time
 
 fn modifiers(ctrl: Bool) event::Modifiers {
   event::Modifiers{
@@ -56,15 +58,26 @@ fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
 }
 
 fn mount_signed_out(terminal: headless::TestApp, quits: mut Quits) cui::Renderer {
+  mount(terminal, quits, false, Chan::new<Int>(8))
+}
+
+// Mounts the shell. Each start attempt reports on `attempts` and fails the
+// way an unreachable server does.
+fn mount(terminal: headless::TestApp, quits: mut Quits, authenticated: Bool, attempts: Chan<Int>) cui::Renderer {
   let props = shell::Props{
     options: cli::TUIOptions{
       Context: context::Background(),
       CWD: "/private/tmp",
       Location: "/private/tmp",
+      Authenticated: authenticated,
     },
     themes: theme::context(theme::store(theme::system())),
     quit: fn() {
       quits.count =+ 1
+    },
+    attach: fn(ctx: context::Context, options: cli::TUIOptions) bootstrap::Attached!Str {
+      attempts.send(1)
+      Result::err("list sessions: connection refused")
     },
     terminal: terminal_status::Terminal{
       set_title: fn(value: Str) Bool {
@@ -77,6 +90,23 @@ fn mount_signed_out(terminal: headless::TestApp, quits: mut Quits) cui::Renderer
   }
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(app, cui::child(shell::new, props))
+}
+
+// Waits for the next start attempt, then for its failure to render.
+fn await_attempt(terminal: headless::TestApp, attempts: Chan<Int>) Void!Str {
+  mut attempted = false
+  select {
+    attempts.recv() => { attempted = true },
+    time::After(2 * time::Second).recv() => (),
+  }
+  try testing::assert(attempted, "a start attempt was made")
+  mut tries = 0
+  while not terminal.frame().text().contains("Kit could not start") and tries < 100 {
+    time::Sleep(5 * time::Millisecond)
+    terminal.flush()
+    tries =+ 1
+  }
+  testing::pass()
 }
 
 test fn signed_out_shell_matches_the_vaxis_layout() Void!Str {
@@ -227,6 +257,38 @@ test fn provider_picker_centers_after_its_width_cap() Void!Str {
   }
   // The capped 96-cell picker centers in a 140-cell viewport.
   testing::assert(left == 22, "picker left border {left}, want 22")
+}
+
+test fn a_failed_start_explains_the_error_and_r_retries() Void!Str {
+  let terminal = headless::new(60, 12)
+  defer terminal.destroy()
+  let quits = mut Quits{count: 0}
+  let attempts = Chan::new<Int>(8)
+  let renderer = mount(terminal, quits, true, attempts)
+  defer renderer.destroy()
+  terminal.flush()
+  try await_attempt(terminal, attempts)
+  let failed = [
+    " kit",
+    "────────────────────────────────────────────────────────────",
+    "",
+    "",
+    "                     Kit could not start",
+    "",
+    "              list sessions: connection refused",
+    "",
+    "                    r retry · ctrl+c quit",
+    "",
+    "────────────────────────────────────────────────────────────",
+    "                                               /private/tmp",
+  ]
+  try expect_rows(rows(terminal), failed)
+
+  terminal.key(key("r"))
+  terminal.flush()
+  try await_attempt(terminal, attempts)
+  try expect_rows(rows(terminal), failed)
+  testing::assert(quits.count == 0, "retrying does not quit")
 }
 
 test fn ctrl_c_quits_when_there_is_no_draft() Void!Str {

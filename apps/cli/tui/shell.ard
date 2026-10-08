@@ -98,6 +98,9 @@ struct Props {
   options: cli::TUIOptions,
   themes: theme::Context,
   quit: fn(),
+  // Resolves, resumes, or creates the session and attaches to it; normally
+  // `bootstrap::attach`. It runs off the UI thread.
+  attach: fn(context::Context, cli::TUIOptions) bootstrap::Attached!Str,
   // Publishes the session's status to the hosting terminal.
   terminal: terminal_status::Terminal,
 }
@@ -202,9 +205,10 @@ impl Shell {
   // Attaches in the background and applies the outcome on the UI thread.
   fn mut bootstrap(ctx: cui::Context, lifetime: contextbridge::Cancellation) {
     let options = self.props.options
+    let attach = self.props.attach
     let dispatch = ctx.dispatch
     async::start(fn() {
-      let result = bootstrap::attach(lifetime.Context, options)
+      let result = attach(lifetime.Context, options)
       let location = match result {
         ok => options.ResolveLocation(lifetime.Context, ok.snapshot.Session.CWD),
         err => options.Location,
@@ -221,8 +225,33 @@ impl Shell {
     })
   }
 
-  // Ctrl+C clears a non-empty composer that owns input; otherwise it detaches.
-  // A draft behind the interaction dock is kept.
+  // Starts again after a failed start. Creating a session is idempotent for
+  // its requested ID, so a session created before the failure is reused.
+  fn mut retry() Bool {
+    match self.phase == Phase::failed {
+      true => {
+        match self.context {
+          ctx => {
+            match self.lifetime {
+              lifetime => {
+                self.error = ""
+                self.phase = Phase::loading
+                self.bootstrap(ctx, lifetime)
+                true
+              },
+              _ => false,
+            }
+          },
+          _ => false,
+        }
+      },
+      false => false,
+    }
+  }
+
+  // Ctrl+C reaches the shell only outside modals and text fields other than
+  // the composer. It clears a non-empty composer; otherwise it detaches. A
+  // draft behind the interaction dock is kept.
   fn mut interrupt() Bool {
     if self.phase != Phase::ready or self.attached.feedback_pending() or (not self.composer_control.clear()) {
       (self.props.quit)()
@@ -678,6 +707,13 @@ impl cui::Component for Shell {
       })
       commands.push(abort)
       bindings.push(keymap::binding(keymap::key("escape"), abort.with()))
+    }
+    if self.phase == Phase::failed {
+      let retry = keymap::simple_command("app.retry", "Retry", fn() Bool {
+        self.retry()
+      })
+      commands.push(retry)
+      bindings.push(keymap::binding(keymap::key("r"), retry.with()))
     }
     if self.phase == Phase::auth and self.modal_closed() {
       let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
@@ -1325,6 +1361,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
       options: cli::TUIOptions{},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {},
+      attach: bootstrap::attach,
       terminal: terminal_status::detached(),
     },
   )
@@ -1361,6 +1398,7 @@ test fn rename_requests_carry_their_opening_settings_with_the_dialog() Void!Str 
       options: cli::TUIOptions{},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {},
+      attach: bootstrap::attach,
       terminal: terminal_status::detached(),
     },
   )
@@ -1413,6 +1451,7 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
       options: cli::TUIOptions{Context: context::Background(), Authenticated: true},
       themes: theme::context(theme::store(theme::system())),
       quit: fn() {},
+      attach: bootstrap::attach,
       terminal: terminal_status::detached(),
     },
   )

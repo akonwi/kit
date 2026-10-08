@@ -55,9 +55,11 @@ vaxis client's tests. Until then, `cmd/kit` ships the vaxis client. Known,
 accepted differences: centered odd-width content can sit one cell right,
 because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
-- [~] TUI-COOPER-001 — Session bootstrap and shell chrome: resolve, resume, or
+- [x] TUI-COOPER-001 — Session bootstrap and shell chrome: resolve, resume, or
   create the session; header, dividers, footer location and bash state,
-  loading, failed, and signed-out states; Ctrl+C clear and detach.
+  loading, failed (with `r` retry), and signed-out states; Ctrl+C clear and
+  detach. Ctrl+C acts only outside modals and text fields other than the
+  composer, where it clears a draft or detaches.
 - [ ] TUI-COOPER-002 — Live session: `Watch` bridge, batched event dispatch to
   the UI thread, run lifecycle, reconnect and recovery footer states, and the
   incompatible-daemon state.
