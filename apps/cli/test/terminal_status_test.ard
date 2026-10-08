@@ -12,6 +12,7 @@ struct Status {
   session_name: Str,
   running: Bool,
   work_id: Str,
+  feedback: Bool,
 }
 
 struct HostProps {
@@ -37,6 +38,7 @@ impl cui::Component for Host {
         cwd: "/work/kit",
         running: self.props.status.running,
         work_id: self.props.status.work_id,
+        feedback: self.props.status.feedback,
         frame_duration: Maybe::new(self.props.frame_duration),
       },
     )
@@ -103,6 +105,7 @@ test fn the_title_and_progress_follow_running_work() Void!Str {
     session_name: "Fix pager",
     running: false,
     work_id: "",
+    feedback: false,
   }
   // The animation never advances, so every published title is deterministic.
   let renderer = mount(terminal, status, time::Hour)
@@ -162,6 +165,7 @@ test fn the_running_marker_animates_and_restarts_for_new_work() Void!Str {
     session_name: "Animate",
     running: true,
     work_id: "turn-1",
+    feedback: false,
   }
   let renderer = mount(terminal, status, 40 * time::Millisecond)
   defer renderer.destroy()
@@ -201,6 +205,7 @@ test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
     session_name: "Exit",
     running: true,
     work_id: "turn-1",
+    feedback: false,
   }
   let renderer = mount(terminal, status, time::Hour)
   terminal.flush()
@@ -209,5 +214,36 @@ test fn unmounting_leaves_an_idle_title_without_progress() Void!Str {
   expect_progress(
     terminal,
     [terminal_progress::State::indeterminate, terminal_progress::State::remove],
+  )
+}
+
+test fn waiting_for_an_answer_marks_the_title_and_pauses_progress() Void!Str {
+  let terminal = headless::new(10, 1)
+  defer terminal.destroy()
+  let status = mut Status{
+    session_name: "Ask",
+    running: true,
+    work_id: "turn-1",
+    feedback: false,
+  }
+  let renderer = mount(terminal, status, time::Hour)
+  defer renderer.destroy()
+  terminal.flush()
+  renderer.update(fn() {
+    status.feedback = true
+  })
+  terminal.flush()
+  renderer.update(fn() {
+    status.feedback = false
+  })
+  terminal.flush()
+  try expect_titles(terminal, ["⠋ kit - Ask - kit", "? kit - Ask - kit", "⠋ kit - Ask - kit"])
+  expect_progress(
+    terminal,
+    [
+      terminal_progress::State::indeterminate,
+      terminal_progress::State::paused,
+      terminal_progress::State::indeterminate,
+    ],
   )
 }
