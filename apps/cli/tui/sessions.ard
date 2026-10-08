@@ -152,20 +152,14 @@ private fn hidden_by_collapsed(
   hidden
 }
 
+// catalog is the browsing tree, which hides rows under collapsed parents and
+// shows each parent's disclosure.
 private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Bool, collapsed: [Str]) [palette::Item] {
   let items = mut List::new<palette::Item>()
   let now = time::Now()
   for row in hierarchy(sessions) {
     let session = row.session
     if not hidden_by_collapsed(sessions, session, collapsed) {
-      let name = format::session_name(session)
-      // The branch joint occupies the current depth's indent. Only reserve
-      // space for preceding ancestor levels so nested rows do not double-indent.
-      let ancestor_depth = match row.depth > 0 {
-        true => row.depth - 1,
-        false => 0,
-      }
-      let prefix = strings::Repeat("  ", ancestor_depth)
       let children = child_count(sessions, session.ID)
       let disclosure = match children > 0 {
         true => {
@@ -177,31 +171,59 @@ private fn catalog(sessions: [protocol::SessionInfo], current: Str, pending: Boo
         },
         false => "",
       }
-      let lineage = match session.ParentSessionID == "" {
-        true => "",
-        false => "└ ",
-      }
-      let current_marker = match session.ID == current {
-        true => "__palette_current__",
-        false => "",
-      }
-      items.push(
-        palette::Item{
-          key: session.ID,
-          label: "{prefix}{lineage}{name}",
-          hint: disclosure,
-          description: format::session_display_cwd(session.CWD, 40),
-          meta: format::format_session_updated(session.UpdatedAt, now),
-          search_terms: [session.CWD, session.ID, session.ParentSessionName, current_marker],
-          disabled_reason: match pending {
-            true => "switching…",
-            false => "",
-          },
-        },
-      )
+      items.push(row_item(row, current, pending, now, disclosure))
     }
   }
   items.@
+}
+
+// search_tree is every session in tree order, including those under collapsed
+// parents. Search results have no disclosures because filtering ignores
+// collapsed state.
+private fn search_tree(sessions: [protocol::SessionInfo], current: Str, pending: Bool) [palette::Branch] {
+  let branches = mut List::new<palette::Branch>()
+  let now = time::Now()
+  for row in hierarchy(sessions) {
+    branches.push(
+      palette::Branch{
+        item: row_item(row, current, pending, now, ""),
+        parent: row.session.ParentSessionID,
+        name: format::session_name(row.session),
+      },
+    )
+  }
+  branches.@
+}
+
+private fn row_item(row: Row, current: Str, pending: Bool, now: time::Time, disclosure: Str) palette::Item {
+  let session = row.session
+  // The branch joint occupies the current depth's indent. Only reserve space
+  // for preceding ancestor levels so nested rows do not double-indent.
+  let ancestor_depth = match row.depth > 0 {
+    true => row.depth - 1,
+    false => 0,
+  }
+  let prefix = strings::Repeat("  ", ancestor_depth)
+  let lineage = match session.ParentSessionID == "" {
+    true => "",
+    false => "└ ",
+  }
+  let current_marker = match session.ID == current {
+    true => "__palette_current__",
+    false => "",
+  }
+  palette::Item{
+    key: session.ID,
+    label: "{prefix}{lineage}{format::session_name(session)}",
+    hint: disclosure,
+    description: format::session_display_cwd(session.CWD, 40),
+    meta: format::format_session_updated(session.UpdatedAt, now),
+    search_terms: [session.CWD, session.ID, session.ParentSessionName, current_marker],
+    disabled_reason: match pending {
+      true => "switching…",
+      false => "",
+    },
+  }
 }
 
 impl cui::Lifecycle for Picker {
@@ -540,6 +562,7 @@ impl cui::Component for Picker {
                   toggle: Maybe::new(fn(session_id: Str, expand: Bool) {
                     self.toggle(session_id, expand)
                   }),
+                  tree: Maybe::new(search_tree(self.sessions, self.props.current_session_id, self.pending)),
                   on_query_change: fn(query: Str) {},
                   on_selection_change: fn(selected: Str) {
                     self.selection_changed(selected)

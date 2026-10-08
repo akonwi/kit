@@ -21,6 +21,15 @@ struct Item {
   disabled_reason: Str,
 }
 
+// Branch is one row of a searchable tree. parent is the key of the row it is
+// nested under, or empty for a root. name is the unadorned label used for
+// matching, because item.label carries the tree's indentation and glyphs.
+struct Branch {
+  item: Item,
+  parent: Str,
+  name: Str,
+}
+
 // Catalog, query, selection, hover, and overflow visibility are controlled by
 // the feature owner; the picker only projects them.
 struct Props {
@@ -31,9 +40,10 @@ struct Props {
   // filter_query may project a command word while query remains the complete
   // editable invocation, including literal arguments.
   filter_query: Str,
-  // keep_order keeps matches in catalog order instead of ranking them, so tree
-  // catalogs keep each row under its parent.
-  keep_order: Bool,
+  // tree, when present, is searched in place of catalog while the query is
+  // not blank, so rows under collapsed parents can be found and matches are
+  // shown beneath their ancestors.
+  tree: [Branch]?,
   selection: Str,
   hovered: Str,
   hidden_above: Bool,
@@ -63,6 +73,8 @@ struct PickerProps {
   rename: fn(Str)?,
   // toggle receives the selected key and true for expand, false for collapse.
   toggle: fn(Str, Bool)?,
+  // tree is the full hierarchy searched while a query is present; see Props.
+  tree: [Branch]?,
   on_query_change: fn(Str),
   on_selection_change: fn(Str),
   on_activate: fn(Item),
@@ -96,7 +108,7 @@ fn new_picker(props: mut PickerProps) mut Picker {
       catalog: props.catalog,
       query: "",
       filter_query: "",
-      keep_order: props.toggle.is_some(),
+      tree: props.tree,
       selection: props.initial_selection,
       hovered: "",
       hidden_above: false,
@@ -129,40 +141,197 @@ struct Viewport {
 
 // items filters the catalog with the shared fuzzy matcher. A blank query
 // returns the catalog unchanged. Otherwise matches are ranked best first, with
-// ties in catalog order, unless keep_order is set.
+// ties in catalog order; a tree picker shows them grouped by family instead.
 fn items(props: Props) [Item] {
+  let query = search_query(props)
+  if query == "" {
+    props.catalog
+  } else {
+    match props.tree {
+      tree => tree_items(tree, query),
+      _ => {
+        let ranked = mut List::new<Ranked>()
+        mut position = 0
+        for item in props.catalog {
+          let score = item_score(item, query)
+          if score > 0 {
+            ranked.push(
+              Ranked{
+                item: item,
+                score: score,
+                position: position,
+              },
+            )
+          }
+          position =+ 1
+        }
+        ranked.sort(ranks_before)
+        let result = mut List::new<Item>()
+        for entry in ranked {
+          result.push(entry.item)
+        }
+        result.@
+      },
+    }
+  }
+}
+
+// search_query is the normalized text that filters the catalog.
+private fn search_query(props: Props) Str {
   let raw_query = match props.filter_query != "" {
     true => props.filter_query,
     false => props.query,
   }
-  let query = strings::ToLower(strings::TrimSpace(raw_query))
-  if query == "" {
-    props.catalog
-  } else {
-    let ranked = mut List::new<Ranked>()
-    mut position = 0
-    for item in props.catalog {
-      let score = item_score(item, query)
-      if score > 0 {
-        ranked.push(
-          Ranked{
-            item: item,
-            score: score,
-            position: position,
-          },
-        )
-      }
-      position =+ 1
+  strings::ToLower(strings::TrimSpace(raw_query))
+}
+
+// ranked_branches scores every branch by its name, description, and search
+// terms, best first with ties in tree order.
+private fn ranked_branches(tree: [Branch], query: Str) [Ranked] {
+  let ranked = mut List::new<Ranked>()
+  mut position = 0
+  for branch in tree {
+    let score = fields_score(branch.name, branch.item, query)
+    if score > 0 {
+      ranked.push(
+        Ranked{
+          item: branch.item,
+          score: score,
+          position: position,
+        },
+      )
     }
-    if not props.keep_order {
-      ranked.sort(ranks_before)
-    }
-    let result = mut List::new<Item>()
-    for entry in ranked {
-      result.push(entry.item)
-    }
-    result.@
+    position =+ 1
   }
+  ranked.sort(ranks_before)
+  ranked.@
+}
+
+// tree_items shows each match with its ancestors, ignoring collapsed state.
+// A family (a root and its shown descendants) stays together in tree order,
+// and families are ordered by their best-ranked match.
+private fn tree_items(tree: [Branch], query: Str) [Item] {
+  let parents = parent_map(tree)
+  let shown = mut Map::new<Bool>()
+  let families = mut List::new<Str>()
+  let grouped = mut Map::new<Bool>()
+  for entry in ranked_branches(tree, query) {
+    // Mark the match and each ancestor until reaching one already shown.
+    mut key = entry.item.key
+    mut steps = 0
+    while key != "" and steps <= tree.size() {
+      match shown.get(key).or(false) {
+        true => { key = "" },
+        false => {
+          shown.set(key, true)
+          key = parents.get(key).or("")
+        },
+      }
+      steps =+ 1
+    }
+    let family = root_of(parents, entry.item.key)
+    if not grouped.get(family).or(false) {
+      grouped.set(family, true)
+      families.push(family)
+    }
+  }
+  let roots = mut Map::new<Str>()
+  for branch in tree {
+    if shown.get(branch.item.key).or(false) {
+      roots.set(branch.item.key, root_of(parents, branch.item.key))
+    }
+  }
+  let result = mut List::new<Item>()
+  for family in families {
+    for branch in tree {
+      if roots.get(branch.item.key).or("") == family {
+        result.push(branch.item)
+      }
+    }
+  }
+  result.@
+}
+
+// parent_map maps each key to its parent, or to empty when the row is a root
+// or its parent is not in the tree.
+private fn parent_map(tree: [Branch]) [Str: Str] {
+  let present = mut Map::new<Bool>()
+  for branch in tree {
+    present.set(branch.item.key, true)
+  }
+  let parents = mut Map::new<Str>()
+  for branch in tree {
+    parents.set(
+      branch.item.key,
+      match present.get(branch.parent).or(false) {
+        true => branch.parent,
+        false => "",
+      },
+    )
+  }
+  parents.@
+}
+
+// root_of follows parents to the top of key's family. The step bound guards
+// against malformed cyclic parents.
+private fn root_of(parents: [Str: Str], key: Str) Str {
+  mut root = key
+  mut parent = parents.get(key).or("")
+  let limit = parents.size()
+  mut steps = 0
+  while parent != "" and steps <= limit {
+    root = parent
+    parent = parents.get(parent).or("")
+    steps =+ 1
+  }
+  root
+}
+
+// query_selection is the row to select after the query changes to the one in
+// props. Tree pickers select the best match rather than the first row, which
+// may only be an ancestor shown for context, and a cleared query returns to the
+// previous row or its nearest visible ancestor.
+fn query_selection(props: Props, previous: Str) Str {
+  let visible = items(props)
+  match props.tree {
+    tree => {
+      let query = search_query(props)
+      mut next = ""
+      if query == "" {
+        let parents = parent_map(tree)
+        mut key = previous
+        mut steps = 0
+        while next == "" and key != "" and steps <= tree.size() {
+          if enabled(visible, key) {
+            next = key
+          }
+          key = parents.get(key).or("")
+          steps =+ 1
+        }
+      } else {
+        for entry in ranked_branches(tree, query) {
+          if next == "" and entry.item.disabled_reason == "" {
+            next = entry.item.key
+          }
+        }
+      }
+      match next == "" {
+        true => first_enabled(visible),
+        false => next,
+      }
+    },
+    _ => first_enabled(visible),
+  }
+}
+
+private fn enabled(items: [Item], key: Str) Bool {
+  mut found = false
+  for item in items {
+    if item.key == key and item.disabled_reason == "" {
+      found = true
+    }
+  }
+  found
 }
 
 private struct Ranked {
@@ -184,8 +353,14 @@ private fn ranks_before(left: Ranked, right: Ranked) Bool {
 // This follows the vaxis client's fuzzy select filter so both clients rank
 // alike.
 fn item_score(item: Item, query: Str) Int {
+  fields_score(item.label, item, query)
+}
+
+// fields_score scores label in place of item.label, so tree rows can match by
+// their unadorned name.
+private fn fields_score(label_text: Str, item: Item, query: Str) Int {
   mut best = 0
-  let label = string_score(strings::ToLower(item.label), query)
+  let label = string_score(strings::ToLower(label_text), query)
   if label > 0 and label + 40 > best {
     best = label + 40
   }
@@ -537,7 +712,7 @@ impl Picker {
       catalog: catalog,
       query: self.props.query,
       filter_query: "",
-      keep_order: self.source.toggle.is_some(),
+      tree: self.source.tree,
       selection: self.props.selection,
       hovered: self.props.hovered,
       hidden_above: self.hidden_above,
@@ -546,7 +721,7 @@ impl Picker {
         self.props.query = query
         self.source.on_query_change(query)
         self.props.hovered = ""
-        let next = first_enabled(items(self.view_props()))
+        let next = query_selection(self.view_props(), self.props.selection)
         self.props.selection = next
         self.source.on_selection_change(next)
         if next != "" {
@@ -609,8 +784,11 @@ impl cui::Component for Picker {
     // selection, hover, viewport, and focus state.
     self.props.themes = self.source.themes
     self.props.catalog = self.source.catalog
+    self.props.tree = self.source.tree
+    // The selection must stay visible; a tree search can select a row the
+    // browsing catalog hides under a collapsed parent.
     mut selected_exists = false
-    for item in self.props.catalog {
+    for item in items(self.props) {
       if item.key == self.props.selection {
         selected_exists = true
       }

@@ -343,6 +343,7 @@ impl cui::Component for Picker {
             override: Maybe::new<fn(Str)>(),
             remove: Maybe::new<fn(Str)>(),
             toggle: Maybe::new<fn(Str, Bool)>(),
+            tree: Maybe::new<[palette::Branch]>(),
             on_query_change: fn(query: Str) {
               self.request_query_changed()
             },
