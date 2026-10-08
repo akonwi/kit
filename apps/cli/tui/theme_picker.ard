@@ -338,6 +338,7 @@ impl cui::Component for Picker {
             initial_selection: self.props.committed_name,
             title: "Theme",
             footer: status,
+            error: "",
             dismiss: self.dismiss_command(),
             override: Maybe::new<fn(Str)>(),
             remove: Maybe::new<fn(Str)>(),

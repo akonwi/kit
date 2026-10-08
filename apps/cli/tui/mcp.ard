@@ -74,6 +74,7 @@ impl cui::Component for Status {
         initial_selection: "",
         title: "",
         footer: "",
+        error: "",
         dismiss: self.props.dismiss,
         override: Maybe::new<fn(Str)>(),
         remove: Maybe::new<fn(Str)>(),

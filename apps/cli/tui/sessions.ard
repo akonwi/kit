@@ -528,6 +528,7 @@ impl cui::Component for Picker {
                   initial_selection: self.props.current_session_id,
                   title: "Sessions",
                   footer: "ctrl+r rename · ctrl+d delete",
+                  error: "",
                   dismiss: self.props.dismiss,
                   override: Maybe::new<fn(Str)>(),
                   rename: Maybe::new(fn(session_id: Str) {

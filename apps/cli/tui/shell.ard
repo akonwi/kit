@@ -11,22 +11,20 @@ use cooper/keymap
 use cooper/theme as ctheme
 use cooper/ui
 use go:github.com/akonwi/kit/internal/theme as kittheme
-use go:kit/ffi/authbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use kit/tui/attached_session
+use kit/tui/auth
 use kit/tui/bootstrap
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
-use kit/tui/copyable
 use kit/tui/format
 use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/mcp
 use kit/tui/modal
 use kit/tui/model
-use kit/tui/palette
 use kit/tui/rename
 use kit/tui/scratchpad
 use kit/tui/sessions
@@ -62,10 +60,7 @@ enum WorkspacePane {
 enum ActiveModal {
   none,
   command_palette,
-  provider_picker,
-  api_key,
-  device_login,
-  browser_login,
+  auth,
   session_debug,
   mcp_status,
   model_picker,
@@ -73,77 +68,6 @@ enum ActiveModal {
   thinking_picker,
   rename_session,
   sessions,
-}
-
-private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
-  let remaining = expires_at_ms - time::Now().UnixMilli()
-  match remaining > 0 {
-    true => (remaining + Int64::from(999)) / Int64::from(1000),
-    false => Int64::from(0),
-  }
-}
-
-private fn device_waiting_text(remaining: Int64) Str {
-  let seconds = remaining % Int64::from(60)
-  let second_text = match seconds < Int64::from(10) {
-    true => "0{seconds}",
-    false => "{seconds}",
-  }
-  let duration = "{remaining / Int64::from(60)}:{second_text}"
-  match remaining <= Int64::from(120) {
-    true => "Code expires in {duration} — Esc to get a new code",
-    false => "Waiting for approval — expires in {duration}",
-  }
-}
-
-private fn provider_catalog() [palette::Item] {
-  [
-    palette::Item{
-      key: "codex",
-      label: "OpenAI Codex",
-      description: "ChatGPT plan · device code",
-      hint: "",
-      meta: "",
-      search_terms: ["openai", "device"],
-      disabled_reason: "",
-    },
-    palette::Item{
-      key: "anthropic",
-      label: "Anthropic",
-      description: "API key",
-      hint: "",
-      meta: "",
-      search_terms: ["api key"],
-      disabled_reason: "",
-    },
-    palette::Item{
-      key: "openai",
-      label: "OpenAI",
-      description: "API key",
-      hint: "",
-      meta: "",
-      search_terms: ["api key"],
-      disabled_reason: "",
-    },
-    palette::Item{
-      key: "opencode",
-      label: "OpenCode Go",
-      description: "API key",
-      hint: "",
-      meta: "",
-      search_terms: ["api key"],
-      disabled_reason: "",
-    },
-    palette::Item{
-      key: "claude",
-      label: "Claude",
-      description: "Pro or Max plan · browser",
-      hint: "",
-      meta: "",
-      search_terms: ["browser", "oauth"],
-      disabled_reason: "",
-    },
-  ]
 }
 
 // The detached placeholder never starts work, so its effects are inert.
@@ -194,27 +118,8 @@ struct Shell {
   scratchpad_open: Bool,
   scratchpad_control: mut scratchpad::PaneRef,
   active_modal: ActiveModal,
-  auth_provider: Str,
-  auth_api_key: Str,
-  auth_error: Str,
-  auth_pending: Bool,
-  auth_generation: Int,
-  auth_attempt: contextbridge::Cancellation?,
-  device_url: Str,
-  device_code: Str,
-  device_remaining_seconds: Int64,
-  browser_code: Str,
-  browser_manual: Chan<Str>?,
-  browser_url: Str,
-  picker_query: Str,
-  picker_selection: Str,
-  picker_hover: Str,
-  picker_hidden_above: Bool,
-  picker_hidden_below: Bool,
-  picker_viewport: Int,
   toasts: [toast::Item],
   toast_next_id: Int,
-  picker_list: mut cui::VirtualListRef,
   connect_button: mut cui::BoxRef,
   // Rebound to each attachment's retained transcript.
   transcript_control: mut transcript_pane::Control,
@@ -250,27 +155,8 @@ fn new(props: mut Props) mut Shell {
     scratchpad_open: false,
     scratchpad_control: scratchpad::pane_ref(),
     active_modal: ActiveModal::none,
-    auth_provider: "",
-    auth_api_key: "",
-    auth_error: "",
-    auth_pending: false,
-    auth_generation: 0,
-    auth_attempt: Maybe::new<contextbridge::Cancellation>(),
-    device_url: "",
-    device_code: "",
-    device_remaining_seconds: Int64::from(0),
-    browser_code: "",
-    browser_manual: Maybe::new<Chan<Str>>(),
-    browser_url: "",
-    picker_query: "",
-    picker_selection: "codex",
-    picker_hover: "",
-    picker_hidden_above: false,
-    picker_hidden_below: false,
-    picker_viewport: 0,
     toasts: [],
     toast_next_id: 0,
-    picker_list: cui::virtual_list_ref(),
     connect_button: cui::box_ref(),
     transcript_control: transcript_pane::control(),
   })
@@ -385,20 +271,6 @@ fn divider(color: ui::Color) cui::View {
     styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
     text_style: ui::text_style(foreground: color),
     wrap: ui::TextWrap::none,
-  )
-}
-
-fn link_line(url: Str, colors: theme::Theme) cui::View {
-  cui::text(
-    ui::styled_text(
-      [
-        ui::span(url, link: url, style: ui::span_style(foreground: colors.primary_text, underline: true)),
-      ],
-    ),
-    wrap: ui::TextWrap::none,
-    overflow: ui::TextOverflow::ellipsis,
-    selectable: true,
-    selection_style: theme::selection_style(colors),
   )
 }
 
@@ -579,7 +451,7 @@ impl Shell {
         )
         children.push(layout::blank())
         let connect = self.command("auth.connect", "Connect a provider", fn() {
-          let _ = self.open_provider_picker()
+          let _ = self.open_auth()
         })
         children.push(
           controls::button(
@@ -912,7 +784,7 @@ impl cui::Component for Shell {
     }
     if self.phase == Phase::auth and self.active_modal == ActiveModal::none {
       let connect = keymap::simple_command("auth.connect", "Connect a provider", fn() Bool {
-        self.open_provider_picker()
+        self.open_auth()
       })
       commands.push(connect)
       bindings.push(keymap::binding(keymap::key("return"), connect.with()))
@@ -968,10 +840,7 @@ impl cui::Component for Shell {
     layers.push(shell)
     match self.active_modal {
       ActiveModal::command_palette => layers.push(self.command_palette_modal()),
-      ActiveModal::provider_picker => layers.push(self.provider_picker_modal()),
-      ActiveModal::api_key => layers.push(self.api_key_modal()),
-      ActiveModal::device_login => layers.push(self.device_login_modal()),
-      ActiveModal::browser_login => layers.push(self.browser_login_modal()),
+      ActiveModal::auth => layers.push(self.auth_modal()),
       ActiveModal::session_debug => layers.push(self.session_debug_modal()),
       ActiveModal::mcp_status => layers.push(self.mcp_status_modal()),
       ActiveModal::model_picker => layers.push(self.model_picker_modal()),
@@ -1089,6 +958,11 @@ impl Shell {
     self.toasts = retained.@
   }
 
+  fn mut open_auth() Bool {
+    self.active_modal = ActiveModal::auth
+    true
+  }
+
   fn mut open_command_palette() Bool {
     if self.phase == Phase::ready and self.active_modal == ActiveModal::none {
       self.active_modal = ActiveModal::command_palette
@@ -1096,49 +970,15 @@ impl Shell {
     true
   }
 
-  fn mut open_provider_picker() Bool {
-    self.auth_error = ""
-    self.active_modal = ActiveModal::provider_picker
-    true
-  }
-
-  fn mut select_auth_provider(key: Str) {
-    if self.auth_pending {
-      ()
-    } else if key == "codex" {
-      self.auth_provider = key
-      self.start_device_login()
-    } else if key == "claude" {
-      self.auth_provider = key
-      self.start_browser_login()
-    } else {
-      self.auth_provider = key
-      self.auth_api_key = ""
-      self.auth_error = ""
-      self.active_modal = ActiveModal::api_key
-    }
-  }
-
   fn mut dismiss_modal() Bool {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          self.dismiss_modal_now(context)
+          self.finish_modal_now(context)
         })
         true
       },
       _ => false,
-    }
-  }
-
-  private fn mut dismiss_modal_now(context: cui::Context) {
-    let dismissed = self.active_modal
-    self.cancel_auth_attempt()
-    match dismissed {
-      ActiveModal::api_key => { self.active_modal = ActiveModal::provider_picker },
-      ActiveModal::device_login => { self.active_modal = ActiveModal::provider_picker },
-      ActiveModal::browser_login => { self.active_modal = ActiveModal::provider_picker },
-      _ => self.finish_modal_now(context),
     }
   }
 
@@ -1167,34 +1007,6 @@ impl Shell {
           let _ = self.scratchpad_control.focus()
         },
       }
-    }
-  }
-
-  fn mut cancel_auth_attempt() {
-    self.auth_generation =+ 1
-    match self.auth_attempt {
-      attempt => attempt.Cancel(),
-      _ => (),
-    }
-    self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
-    self.auth_pending = false
-  }
-
-  fn auth_provider_label() Str {
-    match self.auth_provider {
-      "anthropic" => "Anthropic",
-      "openai" => "OpenAI",
-      "opencode" => "OpenCode Go",
-      "codex" => "OpenAI Codex",
-      "claude" => "Claude",
-      _ => "provider",
-    }
-  }
-
-  fn auth_provider_id() Str {
-    match self.auth_provider {
-      "opencode" => "opencode-go",
-      _ => self.auth_provider,
     }
   }
 
@@ -1430,7 +1242,7 @@ impl Shell {
         let _ = context.dispatch(fn() {
           self.displayed_theme_definition = self.theme_definition
           self.props.themes.replace(theme::resolve(self.theme_definition, self.terminal_theme))
-          self.dismiss_modal_now(context)
+          self.finish_modal_now(context)
         })
       },
       _ => (),
@@ -1520,386 +1332,6 @@ impl Shell {
     )
   }
 
-  fn mut device_login_modal() cui::View {
-    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
-      self.dismiss_modal()
-    })
-    let body = mut List::new<cui::View>()
-    if self.auth_error != "" {
-      body.push(
-        layout::line(
-          self.auth_error,
-          ui::text_style(foreground: self.props.themes.current().danger_text),
-        ),
-      )
-      body.push(layout::blank())
-    }
-    if self.device_url == "" {
-      body.push(spinner::spinner())
-      body.push(
-        layout::line(
-          "Starting device authorization…",
-          ui::text_style(foreground: self.props.themes.current().muted),
-        ),
-      )
-    } else {
-      body.push(
-        layout::line(
-          "Open this URL",
-          ui::text_style(foreground: self.props.themes.current().muted),
-        ),
-      )
-      body.push(link_line(self.device_url, self.props.themes.current()))
-      body.push(layout::blank())
-      body.push(
-        layout::line(
-          "Enter this code",
-          ui::text_style(foreground: self.props.themes.current().muted),
-        ),
-      )
-      body.push(
-        copyable::value(self.props.themes, self.device_code, fn() {
-          self.request_toast("Copied to clipboard", "", toast::Variant::info, false)
-        }),
-      )
-      body.push(layout::blank())
-      let waiting_style = match self.device_remaining_seconds <= Int64::from(120) {
-        true => ui::text_style(foreground: self.props.themes.current().warning_text),
-        false => ui::text_style(foreground: self.props.themes.current().muted),
-      }
-      body.push(
-        cui::box(
-          [
-            spinner::spinner(),
-            layout::line(device_waiting_text(self.device_remaining_seconds), waiting_style),
-          ],
-          styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
-        ),
-      )
-    }
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: "Connect OpenAI Codex",
-        meta: "",
-        header: [],
-        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
-        footer: Maybe::new<cui::View>(),
-        autofocus: true,
-        dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
-      },
-    )
-  }
-
-  fn mut start_device_login() {
-    self.cancel_auth_attempt()
-    match self.lifetime {
-      lifetime => {
-        let attempt = contextbridge::WithCancel(lifetime.Context)
-        let generation = self.auth_generation
-        let ui_context = self.context.expect("mounted auth shell")
-        let dispatch = ui_context.dispatch
-        let login = self.props.options.Login
-        self.active_modal = ActiveModal::device_login
-        self.auth_attempt = Maybe::new(attempt)
-        self.auth_pending = true
-        self.auth_error = ""
-        self.device_url = ""
-        self.device_code = ""
-        self.device_remaining_seconds = Int64::from(0)
-        async::start(fn() {
-          let result = authbridge::RunDevice(
-            attempt.Context,
-            login,
-            fn(instructions: authbridge::DeviceInstructions) {
-              let _ = dispatch(fn() {
-                if generation == self.auth_generation {
-                  self.device_url = instructions.VerificationURI
-                  self.device_code = instructions.UserCode
-                  self.device_remaining_seconds = device_remaining_seconds(
-                    instructions.ExpiresAtUnixMS,
-                  )
-                }
-              })
-              async::start(fn() {
-                mut ticking = true
-                while ticking {
-                  select {
-                    attempt.Context.Done().recv() => { ticking = false },
-                    time::After(time::Second).recv() => {
-                      let remaining = device_remaining_seconds(instructions.ExpiresAtUnixMS)
-                      if dispatch(fn() {
-                        if generation == self.auth_generation {
-                          self.device_remaining_seconds = remaining
-                        }
-                      }).is_err() {
-                        ticking = false
-                      }
-                    },
-                  }
-                }
-              })
-            },
-          )
-          let _ = dispatch(fn() {
-            if generation == self.auth_generation {
-              self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
-              self.auth_pending = false
-              match result {
-                ok(_) => {
-                  self.active_modal = ActiveModal::none
-                  self.phase = Phase::loading
-                  self.bootstrap(ui_context, lifetime)
-                },
-                err(error) => {
-                  self.active_modal = ActiveModal::provider_picker
-                  self.auth_error = "{error}"
-                },
-              }
-            }
-          })
-        })
-      },
-      _ => {
-        self.active_modal = ActiveModal::device_login
-        self.auth_error = "OpenAI Codex login is unavailable"
-      },
-    }
-  }
-
-  fn mut browser_login_modal() cui::View {
-    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
-      self.dismiss_modal()
-    })
-    let body = mut List::new<cui::View>()
-    if self.auth_error != "" {
-      body.push(
-        layout::line(
-          self.auth_error,
-          ui::text_style(foreground: self.props.themes.current().danger_text),
-        ),
-      )
-    }
-    if self.browser_url == "" {
-      body.push(spinner::spinner())
-      body.push(
-        layout::line(
-          "Starting Claude sign-in…",
-          ui::text_style(foreground: self.props.themes.current().muted),
-        ),
-      )
-    } else {
-      body.push(
-        layout::line(
-          "Complete authentication in your browser.",
-          ui::text_style(foreground: self.props.themes.current().muted),
-        ),
-      )
-      body.push(layout::blank())
-      body.push(link_line(self.browser_url, self.props.themes.current()))
-      body.push(layout::blank())
-      body.push(
-        cui::input(
-          self.browser_code,
-          key: "auth.browser-code",
-          placeholder: "Paste final redirect URL or authorization code…",
-          autofocus: true,
-          on_input: fn(value: Str, ctx: cui::Context) {
-            self.browser_code = value
-          },
-          on_submit: fn(value: Str, ctx: cui::Context) {
-            self.submit_browser_code(value)
-          },
-        ),
-      )
-    }
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: "Connect Claude",
-        meta: "",
-        header: [],
-        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
-        footer: Maybe::new<cui::View>(),
-        autofocus: false,
-        dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
-      },
-    )
-  }
-
-  fn mut start_browser_login() {
-    self.cancel_auth_attempt()
-    match self.lifetime {
-      lifetime => {
-        let attempt = contextbridge::WithCancel(lifetime.Context)
-        let generation = self.auth_generation
-        let ui_context = self.context.expect("mounted auth shell")
-        let dispatch = ui_context.dispatch
-        let login = self.props.options.BrowserLogin
-        let manual = Chan::new<Str>(1)
-        self.active_modal = ActiveModal::browser_login
-        self.auth_attempt = Maybe::new(attempt)
-        self.browser_manual = Maybe::new(manual)
-        self.browser_url = ""
-        self.browser_code = ""
-        self.auth_error = ""
-        self.auth_pending = true
-        async::start(fn() {
-          let result = authbridge::RunBrowser(
-            attempt.Context,
-            login,
-            manual.receiver(),
-            fn(instructions: authbridge::BrowserInstructions) {
-              let _ = dispatch(fn() {
-                if generation == self.auth_generation {
-                  self.browser_url = instructions.AuthorizationURL
-                }
-              })
-            },
-          )
-          let _ = dispatch(fn() {
-            if generation == self.auth_generation {
-              self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
-              self.browser_manual = Maybe::new<Chan<Str>>()
-              self.auth_pending = false
-              match result {
-                ok(_) => {
-                  self.active_modal = ActiveModal::none
-                  self.phase = Phase::loading
-                  self.bootstrap(ui_context, lifetime)
-                },
-                err(error) => { self.auth_error = "{error}" },
-              }
-            }
-          })
-        })
-      },
-      _ => {
-        self.active_modal = ActiveModal::browser_login
-        self.auth_error = "Claude subscription login is unavailable"
-      },
-    }
-  }
-
-  fn mut submit_browser_code(value: Str) {
-    if value != "" and self.auth_pending {
-      match self.browser_manual {
-        manual => {
-          manual.send(value)
-          self.browser_code = ""
-        },
-        _ => (),
-      }
-    }
-  }
-
-  fn mut api_key_modal() cui::View {
-    let dismiss = keymap::simple_command("auth.back", "Back", fn() Bool {
-      self.dismiss_modal()
-    })
-    let body = mut List::new<cui::View>()
-    body.push(
-      cui::input(
-        self.auth_api_key,
-        key: "auth.api-key",
-        styles: ui::style(width: ui::percent(100.0)),
-        placeholder: "Paste API key…",
-        autofocus: not self.auth_pending,
-        on_input: fn(value: Str, ctx: cui::Context) {
-          if not self.auth_pending {
-            self.auth_api_key = value
-            self.auth_error = ""
-          }
-        },
-        on_submit: fn(value: Str, ctx: cui::Context) {
-          self.submit_api_key(value)
-        },
-      ),
-    )
-    if self.auth_error != "" {
-      body.push(layout::blank())
-      body.push(
-        layout::line(
-          self.auth_error,
-          ui::text_style(foreground: self.props.themes.current().danger_text),
-        ),
-      )
-    }
-    match self.auth_pending {
-      true => {
-        body.push(layout::blank())
-        body.push(spinner::spinner())
-        body.push(
-          layout::line(
-            "Saving API key…",
-            ui::text_style(foreground: self.props.themes.current().muted),
-          ),
-        )
-      },
-      false => (),
-    }
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        placement: modal::Placement::centered,
-        title: "Connect {self.auth_provider_label()}",
-        meta: "",
-        header: [],
-        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: inset())),
-        footer: Maybe::new<cui::View>(),
-        autofocus: false,
-        dismiss: dismiss,
-        commands: Maybe::new<[keymap::Command]>(),
-        bindings: Maybe::new<[keymap::Binding]>(),
-      },
-    )
-  }
-
-  fn mut submit_api_key(value: Str) {
-    if self.auth_pending or value == "" {
-      ()
-    } else {
-      match self.lifetime {
-        lifetime => {
-          let attempt = contextbridge::WithCancel(lifetime.Context)
-          let generation = self.auth_generation
-          let ui_context = self.context.expect("mounted auth shell")
-          let dispatch = ui_context.dispatch
-          let login = self.props.options.APIKeyLogin
-          let provider = self.auth_provider_id()
-          self.auth_attempt = Maybe::new(attempt)
-          self.auth_pending = true
-          self.auth_error = ""
-          async::start(fn() {
-            let result = authbridge::RunAPIKey(attempt.Context, login, provider, value)
-            let _ = dispatch(fn() {
-              if generation == self.auth_generation {
-                self.auth_attempt = Maybe::new<contextbridge::Cancellation>()
-                self.auth_pending = false
-                match result {
-                  ok(_) => {
-                    self.auth_api_key = ""
-                    self.active_modal = ActiveModal::none
-                    self.phase = Phase::loading
-                    self.bootstrap(ui_context, lifetime)
-                  },
-                  err(error) => { self.auth_error = "{error}" },
-                }
-              }
-            })
-          })
-        },
-        _ => { self.auth_error = "Authentication is unavailable" },
-      }
-    }
-  }
-
   fn mut command_palette_modal() cui::View {
     command_palette::view(
       command_palette::Props{
@@ -1937,10 +1369,8 @@ impl Shell {
 
   private fn mut run_palette_action(action: command_palette::Action) {
     match action.kind {
-      command_palette::ActionKind::login => {
-        self.finish_modal()
-        let _ = self.open_provider_picker()
-      },
+      // Replacing the palette mounts the flow's own focus owner.
+      command_palette::ActionKind::login => { self.active_modal = ActiveModal::auth },
       command_palette::ActionKind::quit => self.props.quit(),
       command_palette::ActionKind::compact => {
         self.finish_modal()
@@ -1996,138 +1426,40 @@ impl Shell {
     }
   }
 
-  fn mut provider_picker_modal() cui::View {
-    let catalog = provider_catalog()
-    let picker = palette::Props{
-      themes: self.props.themes,
-      placeholder: "Search providers…",
-      catalog: catalog,
-      query: self.picker_query,
-      filter_query: "",
-      selection: self.picker_selection,
-      hovered: self.picker_hover,
-      hidden_above: self.picker_hidden_above,
-      hidden_below: self.picker_hidden_below,
-      on_query_change: fn(query: Str) {
-        self.picker_query = query
-        self.picker_hover = ""
-        let next = palette::first_enabled(
-          palette::items(
-            palette::Props{
-              themes: self.props.themes,
-              placeholder: "",
-              catalog: catalog,
-              query: query,
-              filter_query: "",
-              selection: "",
-              hovered: "",
-              hidden_above: false,
-              hidden_below: false,
-              on_query_change: fn(value: Str) {},
-              on_selection_change: fn(value: Str) {},
-              on_hover_change: fn(value: Str) {},
-              on_activate: fn(item: palette::Item) {},
-            },
-          ),
-        )
-        if next != "" {
-          self.picker_selection = next
-        }
-        let selection = self.picker_selection
-        let _ = self.picker_list.current.map(fn(list) {
-          let _ = list.reveal(selection)
-        })
-      },
-      on_selection_change: fn(selection: Str) {
-        self.picker_selection = selection
-        let _ = self.picker_list.current.map(fn(list) {
-          let _ = list.reveal(selection)
-        })
-      },
-      on_hover_change: fn(hovered: Str) {
-        self.picker_hover = hovered
-      },
-      on_activate: fn(item: palette::Item) {
-        self.select_auth_provider(item.key)
-      },
-    }
-    let navigation = palette::navigation(picker)
-    let dismiss = keymap::simple_command("auth.dismiss", "Close", fn() Bool {
-      self.dismiss_modal()
-    })
-    let footer = match self.auth_error != "" {
-      true => {
-        Maybe::new(
-          cui::box(
-            [
-              layout::line(self.auth_error, ui::text_style(foreground: self.props.themes.current().danger_text)),
-            ],
-            styles: ui::style(padding: inset(), flex_shrink: 0.0),
-          ),
-        )
-      },
-      false => Maybe::new<cui::View>(),
-    }
-    modal::dialog(
-      self.props.themes,
-      modal::Dialog{
-        // No hint footer: arrows, Enter, and Esc are intuitive primitives and
-        // the provider picker has no custom bindings to teach yet.
-        placement: modal::Placement::picker,
-        title: "Connect a provider",
-        meta: "",
-        header: palette::header(picker, Maybe::new<Bool>(), Maybe::new<mut cui::InputRef>()),
-        body: palette::body(picker, self.picker_viewport()),
-        footer: footer,
-        autofocus: false,
-        dismiss: dismiss,
-        commands: palette::commands(navigation),
-        bindings: palette::bindings(navigation),
+  // The connection flow owns its steps and attempts. Shell decides only what
+  // an installed credential means for the root phase.
+  fn mut auth_modal() cui::View {
+    auth::flow(
+      auth::Props{
+        themes: self.props.themes,
+        lifetime: self.lifetime.expect("mounted shell"),
+        services: auth::services(self.props.options),
+        dismiss: fn() {
+          let _ = self.dismiss_modal()
+        },
+        authenticated: fn() {
+          self.apply_authenticated()
+        },
+        copied: fn() {
+          self.request_toast("Copied to clipboard", "", toast::Variant::info, false)
+        },
       },
     )
   }
 
-  // The picker list viewport: the virtual list plus its committed-visibility
-  // overflow state and page controls.
-  fn mut picker_viewport() palette::Viewport {
-    palette::Viewport{
-      list: self.picker_list,
-      on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-        let visible = palette::items(
-          palette::Props{
-            themes: self.props.themes,
-            placeholder: "",
-            catalog: provider_catalog(),
-            query: self.picker_query,
-            filter_query: "",
-            selection: "",
-            hovered: "",
-            hidden_above: false,
-            hidden_below: false,
-            on_query_change: fn(value: Str) {},
-            on_selection_change: fn(value: Str) {},
-            on_hover_change: fn(value: Str) {},
-            on_activate: fn(item: palette::Item) {},
-          },
-        )
-        self.picker_hidden_above = update.state.visible_range.start > 0
-        self.picker_hidden_below = update.state.visible_range.end < visible.size()
-        self.picker_viewport = update.state.viewport_height
+  fn mut apply_authenticated() {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.active_modal == ActiveModal::auth {
+            self.active_modal = ActiveModal::none
+            self.phase = Phase::loading
+            self.bootstrap(context, self.lifetime.expect("mounted shell"))
+          }
+        })
       },
-      on_page: fn(direction: Int) {
-        self.page_picker(direction)
-      },
+      _ => (),
     }
-  }
-
-  fn mut page_picker(direction: Int) {
-    let step = match self.picker_viewport > 1 {
-      true => self.picker_viewport - 1,
-      false => 1,
-    }
-    let _ = self.picker_list.current.map(fn(list) {
-      let _ = list.scroll_by(direction * step)
-    })
   }
 }
 

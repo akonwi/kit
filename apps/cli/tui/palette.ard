@@ -48,6 +48,8 @@ struct PickerProps {
   initial_selection: Str,
   title: Str,
   footer: Str,
+  // error replaces the footer hint with a danger-toned, feature-owned failure.
+  error: Str,
   dismiss: keymap::SimpleCommand,
   override: fn(Str)?,
   // remove and rename receive the selected key for feature-owned dialogs.
@@ -537,14 +539,20 @@ impl cui::Component for Picker {
       },
       _ => (),
     }
-    let footer = match self.footer == "" {
+    let footer_text = match self.source.error != "" {
+      true => self.source.error,
+      false => self.footer,
+    }
+    let footer_color = match self.source.error != "" {
+      true => self.props.themes.current().danger_text,
+      false => self.props.themes.current().muted,
+    }
+    let footer = match footer_text == "" {
       true => Maybe::new<cui::View>(),
       false => {
         Maybe::new(
           cui::box(
-            [
-              cui::text(self.footer, text_style: ui::text_style(foreground: self.props.themes.current().muted)),
-            ],
+            [cui::text(footer_text, text_style: ui::text_style(foreground: footer_color))],
             styles: ui::style(
               padding: ui::Edges{
                 top: ui::cells(0),

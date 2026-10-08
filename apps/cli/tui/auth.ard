@@ -1,0 +1,654 @@
+use ard/async
+
+use go:context
+use cooper/cui
+use cooper/keymap
+use cooper/ui
+use go:kit/ffi/authbridge
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use kit/tui/copyable
+use kit/tui/layout
+use kit/tui/modal
+use kit/tui/palette
+use kit/tui/spinner
+use kit/tui/theme
+use go:time
+
+// The provider connection flow. Flow owns provider selection, the active
+// login step, pending and failure state, the in-flight attempt's cancellation,
+// and the generation that rejects completions from abandoned attempts.
+// Shell owns only whether the flow is mounted and what happens after a
+// credential has been installed.
+
+// Services are the credential operations the flow performs. They are injected
+// so the flow can be exercised without real provider endpoints.
+struct Services {
+  device: fn(context::Context, fn(authbridge::DeviceInstructions)) Void!Error,
+  browser: fn(context::Context, Chan<Str>, fn(authbridge::BrowserInstructions)) Void!Error,
+  api_key: fn(context::Context, Str, Str) Void!Error,
+}
+
+// services adapts the CLI's configured login services.
+fn services(options: cli::TUIOptions) Services {
+  Services{
+    device: fn(ctx: context::Context, notify: fn(authbridge::DeviceInstructions)) Void!Error {
+      authbridge::RunDevice(ctx, options.Login, notify)
+    },
+    browser: fn(ctx: context::Context, manual: Chan<Str>, notify: fn(authbridge::BrowserInstructions)) Void!Error {
+      authbridge::RunBrowser(ctx, options.BrowserLogin, manual.receiver(), notify)
+    },
+    api_key: fn(ctx: context::Context, provider: Str, key: Str) Void!Error {
+      authbridge::RunAPIKey(ctx, options.APIKeyLogin, provider, key)
+    },
+  }
+}
+
+// Props are live parent dependencies. dismiss closes the flow from the
+// provider picker; authenticated reports an installed credential. Both run
+// inside the flow's dispatch and must re-enter their owner's context.
+struct Props {
+  themes: theme::Context,
+  lifetime: contextbridge::Cancellation,
+  services: Services,
+  dismiss: fn(),
+  authenticated: fn(),
+  copied: fn(),
+}
+
+enum Step {
+  picker,
+  api_key,
+  device,
+  browser,
+}
+
+struct Flow {
+  props: mut Props,
+  context: cui::Context?,
+  step: Step,
+  provider: Str,
+  api_key: Str,
+  error: Str,
+  pending: Bool,
+  generation: Int,
+  attempt: contextbridge::Cancellation?,
+  device_url: Str,
+  device_code: Str,
+  device_remaining_seconds: Int64,
+  browser_code: Str,
+  browser_manual: Chan<Str>?,
+  browser_url: Str,
+}
+
+// flow mounts the retained connection flow at its provider picker.
+fn flow(props: Props) cui::View {
+  cui::child(new, props, key: "auth.flow")
+}
+
+private fn new(props: mut Props) mut Flow {
+  (mut Flow{
+    props: props,
+    context: Maybe::new<cui::Context>(),
+    step: Step::picker,
+    provider: "",
+    api_key: "",
+    error: "",
+    pending: false,
+    generation: 0,
+    attempt: Maybe::new<contextbridge::Cancellation>(),
+    device_url: "",
+    device_code: "",
+    device_remaining_seconds: Int64::from(0),
+    browser_code: "",
+    browser_manual: Maybe::new<Chan<Str>>(),
+    browser_url: "",
+  })
+}
+
+fn provider_catalog() [palette::Item] {
+  [
+    palette::Item{
+      key: "codex",
+      label: "OpenAI Codex",
+      description: "ChatGPT plan · device code",
+      hint: "",
+      meta: "",
+      search_terms: ["openai", "device"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "anthropic",
+      label: "Anthropic",
+      description: "API key",
+      hint: "",
+      meta: "",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "openai",
+      label: "OpenAI",
+      description: "API key",
+      hint: "",
+      meta: "",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "opencode",
+      label: "OpenCode Go",
+      description: "API key",
+      hint: "",
+      meta: "",
+      search_terms: ["api key"],
+      disabled_reason: "",
+    },
+    palette::Item{
+      key: "claude",
+      label: "Claude",
+      description: "Pro or Max plan · browser",
+      hint: "",
+      meta: "",
+      search_terms: ["browser", "oauth"],
+      disabled_reason: "",
+    },
+  ]
+}
+
+fn provider_label(key: Str) Str {
+  match key {
+    "anthropic" => "Anthropic",
+    "openai" => "OpenAI",
+    "opencode" => "OpenCode Go",
+    "codex" => "OpenAI Codex",
+    "claude" => "Claude",
+    _ => "provider",
+  }
+}
+
+// provider_id maps a catalog key to its credential-store provider ID.
+fn provider_id(key: Str) Str {
+  match key {
+    "opencode" => "opencode-go",
+    _ => key,
+  }
+}
+
+private fn device_remaining_seconds(expires_at_ms: Int64) Int64 {
+  let remaining = expires_at_ms - time::Now().UnixMilli()
+  match remaining > 0 {
+    true => (remaining + Int64::from(999)) / Int64::from(1000),
+    false => Int64::from(0),
+  }
+}
+
+fn device_waiting_text(remaining: Int64) Str {
+  let seconds = remaining % Int64::from(60)
+  let second_text = match seconds < Int64::from(10) {
+    true => "0{seconds}",
+    false => "{seconds}",
+  }
+  let duration = "{remaining / Int64::from(60)}:{second_text}"
+  match remaining <= Int64::from(120) {
+    true => "Code expires in {duration} — Esc to get a new code",
+    false => "Waiting for approval — expires in {duration}",
+  }
+}
+
+private fn link_line(url: Str, colors: theme::Theme) cui::View {
+  cui::text(
+    ui::styled_text(
+      [
+        ui::span(url, link: url, style: ui::span_style(foreground: colors.primary_text, underline: true)),
+      ],
+    ),
+    wrap: ui::TextWrap::none,
+    overflow: ui::TextOverflow::ellipsis,
+    selectable: true,
+    selection_style: theme::selection_style(colors),
+  )
+}
+
+private fn inset() ui::Edges {
+  ui::Edges{
+    top: ui::cells(0),
+    right: ui::cells(1),
+    bottom: ui::cells(0),
+    left: ui::cells(1),
+  }
+}
+
+impl cui::Lifecycle for Flow {
+  fn mut mounted(context: cui::Context) {
+    self.context = Maybe::new(context)
+  }
+
+  fn mut unmounting(context: cui::Context) {
+    // Closing the flow abandons any in-flight login.
+    self.cancel_attempt()
+  }
+}
+
+impl Flow {
+  // Commands and nested picker callbacks re-enter through the flow's context.
+  private fn mut request(transition: fn()) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          transition()
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut cancel_attempt() {
+    self.generation =+ 1
+    match self.attempt {
+      attempt => attempt.Cancel(),
+      _ => (),
+    }
+    self.attempt = Maybe::new<contextbridge::Cancellation>()
+    self.browser_manual = Maybe::new<Chan<Str>>()
+    self.pending = false
+  }
+
+  private fn mut back() {
+    self.cancel_attempt()
+    self.error = ""
+    self.step = Step::picker
+  }
+
+  private fn mut select(key: Str) {
+    if not self.pending {
+      self.provider = key
+      self.error = ""
+      match key {
+        "codex" => self.start_device(),
+        "claude" => self.start_browser(),
+        _ => {
+          self.api_key = ""
+          self.step = Step::api_key
+        },
+      }
+    }
+  }
+
+  private fn mut start_device() {
+    self.cancel_attempt()
+    match self.context {
+      context => {
+        let attempt = contextbridge::WithCancel(self.props.lifetime.Context)
+        let generation = self.generation
+        let dispatch = context.dispatch
+        let run = self.props.services.device
+        self.step = Step::device
+        self.attempt = Maybe::new(attempt)
+        self.pending = true
+        self.device_url = ""
+        self.device_code = ""
+        self.device_remaining_seconds = Int64::from(0)
+        async::start(fn() {
+          let result = run(attempt.Context, fn(instructions: authbridge::DeviceInstructions) {
+            let _ = dispatch(fn() {
+              if generation == self.generation {
+                self.device_url = instructions.VerificationURI
+                self.device_code = instructions.UserCode
+                self.device_remaining_seconds = device_remaining_seconds(
+                  instructions.ExpiresAtUnixMS,
+                )
+              }
+            })
+            async::start(fn() {
+              mut ticking = true
+              while ticking {
+                select {
+                  attempt.Context.Done().recv() => { ticking = false },
+                  time::After(time::Second).recv() => {
+                    let remaining = device_remaining_seconds(instructions.ExpiresAtUnixMS)
+                    if dispatch(fn() {
+                      if generation == self.generation {
+                        self.device_remaining_seconds = remaining
+                      }
+                    }).is_err() {
+                      ticking = false
+                    }
+                  },
+                }
+              }
+            })
+          })
+          // A finished attempt releases its context, which also stops the
+          // countdown worker.
+          attempt.Cancel()
+          let _ = dispatch(fn() {
+            if generation == self.generation {
+              self.attempt = Maybe::new<contextbridge::Cancellation>()
+              self.pending = false
+              match result {
+                ok(_) => self.props.authenticated(),
+                err(failure) => {
+                  self.step = Step::picker
+                  self.error = failure.error()
+                },
+              }
+            }
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut start_browser() {
+    self.cancel_attempt()
+    match self.context {
+      context => {
+        let attempt = contextbridge::WithCancel(self.props.lifetime.Context)
+        let generation = self.generation
+        let dispatch = context.dispatch
+        let run = self.props.services.browser
+        let manual = Chan::new<Str>(1)
+        self.step = Step::browser
+        self.attempt = Maybe::new(attempt)
+        self.browser_manual = Maybe::new(manual)
+        self.browser_url = ""
+        self.browser_code = ""
+        self.pending = true
+        async::start(fn() {
+          let result = run(
+            attempt.Context,
+            manual,
+            fn(instructions: authbridge::BrowserInstructions) {
+              let _ = dispatch(fn() {
+                if generation == self.generation {
+                  self.browser_url = instructions.AuthorizationURL
+                }
+              })
+            },
+          )
+          attempt.Cancel()
+          let _ = dispatch(fn() {
+            if generation == self.generation {
+              self.attempt = Maybe::new<contextbridge::Cancellation>()
+              self.browser_manual = Maybe::new<Chan<Str>>()
+              self.pending = false
+              match result {
+                ok(_) => self.props.authenticated(),
+                err(failure) => { self.error = failure.error() },
+              }
+            }
+          })
+        })
+      },
+      _ => (),
+    }
+  }
+
+  private fn mut submit_browser_code(value: Str) {
+    if value != "" and self.pending {
+      match self.browser_manual {
+        manual => {
+          manual.send(value)
+          self.browser_code = ""
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut submit_api_key(value: Str) {
+    if not self.pending and value != "" {
+      match self.context {
+        context => {
+          self.cancel_attempt()
+          let attempt = contextbridge::WithCancel(self.props.lifetime.Context)
+          let generation = self.generation
+          let dispatch = context.dispatch
+          let run = self.props.services.api_key
+          let provider = provider_id(self.provider)
+          self.attempt = Maybe::new(attempt)
+          self.pending = true
+          self.error = ""
+          async::start(fn() {
+            let result = run(attempt.Context, provider, value)
+            attempt.Cancel()
+            let _ = dispatch(fn() {
+              if generation == self.generation {
+                self.attempt = Maybe::new<contextbridge::Cancellation>()
+                self.pending = false
+                match result {
+                  ok(_) => {
+                    self.api_key = ""
+                    self.props.authenticated()
+                  },
+                  err(failure) => { self.error = failure.error() },
+                }
+              }
+            })
+          })
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut picker_view() cui::View {
+    let initial = match self.provider == "" {
+      true => "codex",
+      false => self.provider,
+    }
+    // No hint footer: arrows, Enter, and Esc are intuitive primitives and the
+    // provider picker has no custom bindings to teach yet.
+    cui::child(
+      palette::new_picker,
+      palette::PickerProps{
+        themes: self.props.themes,
+        catalog: provider_catalog(),
+        placeholder: "Search providers…",
+        initial_selection: initial,
+        title: "Connect a provider",
+        footer: "",
+        error: self.error,
+        dismiss: keymap::simple_command("auth.dismiss", "Close", fn() Bool {
+          self.props.dismiss()
+          true
+        }),
+        override: Maybe::new<fn(Str)>(),
+        remove: Maybe::new<fn(Str)>(),
+        rename: Maybe::new<fn(Str)>(),
+        toggle: Maybe::new<fn(Str, Bool)>(),
+        on_query_change: fn(query: Str) {},
+        on_selection_change: fn(selection: Str) {},
+        on_activate: fn(item: palette::Item) {
+          let key = item.key
+          let _ = self.request(fn() {
+            self.select(key)
+          })
+        },
+      },
+    )
+  }
+
+  private fn mut back_command() keymap::SimpleCommand {
+    keymap::simple_command("auth.back", "Back", fn() Bool {
+      self.request(fn() {
+        self.back()
+      })
+    })
+  }
+
+  private fn mut error_line() cui::View {
+    layout::line(self.error, ui::text_style(foreground: self.props.themes.current().danger_text))
+  }
+
+  private fn mut device_view() cui::View {
+    let colors = self.props.themes.current()
+    let muted = ui::text_style(foreground: colors.muted)
+    let body = mut List::new<cui::View>()
+    if self.error != "" {
+      body.push(self.error_line())
+      body.push(layout::blank())
+    }
+    if self.device_url == "" {
+      body.push(spinner::spinner())
+      body.push(layout::line("Starting device authorization…", muted))
+    } else {
+      body.push(layout::line("Open this URL", muted))
+      body.push(link_line(self.device_url, colors))
+      body.push(layout::blank())
+      body.push(layout::line("Enter this code", muted))
+      body.push(
+        copyable::value(self.props.themes, self.device_code, fn() {
+          self.props.copied()
+        }),
+      )
+      body.push(layout::blank())
+      let waiting_style = match self.device_remaining_seconds <= Int64::from(120) {
+        true => ui::text_style(foreground: colors.warning_text),
+        false => muted,
+      }
+      body.push(
+        cui::box(
+          [
+            spinner::spinner(),
+            layout::line(device_waiting_text(self.device_remaining_seconds), waiting_style),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row, gap: ui::cells(1)),
+        ),
+      )
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect OpenAI Codex",
+        meta: "",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        footer: Maybe::new<cui::View>(),
+        autofocus: true,
+        dismiss: self.back_command(),
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  // The panel owns focus until the code field appears.
+  private fn mut browser_view() cui::View {
+    let colors = self.props.themes.current()
+    let muted = ui::text_style(foreground: colors.muted)
+    let body = mut List::new<cui::View>()
+    if self.error != "" {
+      body.push(self.error_line())
+    }
+    if self.browser_url == "" {
+      body.push(spinner::spinner())
+      body.push(layout::line("Starting Claude sign-in…", muted))
+    } else {
+      body.push(layout::line("Complete authentication in your browser.", muted))
+      body.push(layout::blank())
+      body.push(link_line(self.browser_url, colors))
+      body.push(layout::blank())
+      body.push(
+        cui::input(
+          self.browser_code,
+          key: "auth.browser-code",
+          placeholder: "Paste final redirect URL or authorization code…",
+          autofocus: true,
+          on_input: fn(value: Str, ctx: cui::Context) {
+            self.browser_code = value
+          },
+          on_submit: fn(value: Str, ctx: cui::Context) {
+            self.submit_browser_code(value)
+          },
+        ),
+      )
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect Claude",
+        meta: "",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(padding: inset(), min_height: ui::cells(8))),
+        footer: Maybe::new<cui::View>(),
+        autofocus: self.browser_url == "",
+        dismiss: self.back_command(),
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+
+  private fn mut api_key_view() cui::View {
+    let colors = self.props.themes.current()
+    let body = mut List::new<cui::View>()
+    body.push(
+      cui::input(
+        self.api_key,
+        key: "auth.api-key",
+        styles: ui::style(width: ui::percent(100.0)),
+        placeholder: "Paste API key…",
+        autofocus: true,
+        on_input: fn(value: Str, ctx: cui::Context) {
+          if not self.pending {
+            self.api_key = value
+            self.error = ""
+          }
+        },
+        on_submit: fn(value: Str, ctx: cui::Context) {
+          self.submit_api_key(value)
+        },
+      ),
+    )
+    if self.error != "" {
+      body.push(layout::blank())
+      body.push(self.error_line())
+    }
+    if self.pending {
+      body.push(layout::blank())
+      body.push(spinner::spinner())
+      body.push(layout::line("Saving API key…", ui::text_style(foreground: colors.muted)))
+    }
+    modal::dialog(
+      self.props.themes,
+      modal::Dialog{
+        placement: modal::Placement::centered,
+        title: "Connect {provider_label(self.provider)}",
+        meta: "",
+        header: [],
+        body: cui::box(body.@, styles: ui::style(flex_grow: 1.0, padding: inset())),
+        footer: Maybe::new<cui::View>(),
+        autofocus: false,
+        dismiss: self.back_command(),
+        commands: Maybe::new<[keymap::Command]>(),
+        bindings: Maybe::new<[keymap::Binding]>(),
+      },
+    )
+  }
+}
+
+impl cui::Component for Flow {
+  fn mut render() cui::View {
+    // Each step has its own keyed root so moving between steps remounts a
+    // distinct focus owner.
+    let step = match self.step {
+      Step::picker => "picker",
+      Step::api_key => "api-key",
+      Step::device => "device",
+      Step::browser => "browser",
+    }
+    let view = match self.step {
+      Step::picker => self.picker_view(),
+      Step::api_key => self.api_key_view(),
+      Step::device => self.device_view(),
+      Step::browser => self.browser_view(),
+    }
+    cui::box([view], key: "auth.step.{step}", styles: ui::style(display: ui::Display::contents))
+  }
+}

@@ -308,6 +308,7 @@ impl cui::Component for Picker {
                   self.error != "" => self.error,
                   _ => "",
                 },
+                error: "",
                 dismiss: self.dismiss_command(),
                 override: Maybe::new<fn(Str)>(),
                 remove: Maybe::new<fn(Str)>(),
