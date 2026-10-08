@@ -1859,7 +1859,7 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
     ],
   )
   testing::assert(
-    subject.interaction().is_none() and not subject.feedback_pending() and subject.activity() != "Waiting for feedback…",
+    subject.interaction().is_none() and (not subject.feedback_pending()) and subject.activity() != "Waiting for feedback…",
     "settling every request ends feedback",
   )
 }
