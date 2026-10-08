@@ -116,3 +116,81 @@ test fn button_has_semantic_interaction_surfaces_and_activates_from_pointer_and_
   terminal.flush()
   testing::assert(model.presses == 3, "focused button activates from Return")
 }
+
+struct Interrupts {
+  count: Int,
+}
+
+struct FieldProps {
+  interrupts: mut Interrupts,
+  keep: Bool,
+}
+
+struct FieldHost {
+  props: mut FieldProps,
+}
+
+fn field_host(props: mut FieldProps) mut FieldHost {
+  (mut FieldHost{props: props})
+}
+
+impl cui::Component for FieldHost {
+  fn mut render() cui::View {
+    let interrupts = self.props.interrupts
+    let interrupt = keymap::simple_command("app.interrupt", "Clear or quit", fn() Bool {
+      interrupts.count =+ 1
+      true
+    })
+    let field = match self.props.keep {
+      true => {
+        cui::input(
+          "draft",
+          autofocus: true,
+          commands: [controls::keep_interrupt],
+          bindings: [controls::keep_interrupt_binding()],
+        )
+      },
+      false => cui::input("draft", autofocus: true),
+    }
+    cui::box(
+      [field],
+      commands: [interrupt],
+      bindings: [keymap::binding(keymap::key("c", ctrl: true), interrupt.with())],
+      binding_scope: keymap::ScopeMode::application,
+    )
+  }
+}
+
+fn interrupts_after_ctrl_c(keep: Bool) Int {
+  let terminal = headless::new(20, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let interrupts = mut Interrupts{count: 0}
+  let renderer = cui::mount(
+    app,
+    cui::child(field_host, FieldProps{interrupts: interrupts, keep: keep}),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  terminal.key(
+    event::key(
+      "c",
+      "",
+      event::KeyEventType::press,
+      event::Modifiers{
+        shift: false,
+        ctrl: true,
+        alt: false,
+        super: false,
+      },
+    ),
+  )
+  terminal.flush()
+  interrupts.count
+}
+
+test fn a_focused_text_field_keeps_ctrl_c_from_the_application() Void!Str {
+  try testing::assert(interrupts_after_ctrl_c(false) == 1, "an ordinary field lets Ctrl+C through")
+  testing::assert(interrupts_after_ctrl_c(true) == 0, "a field keeping Ctrl+C holds it")
+}

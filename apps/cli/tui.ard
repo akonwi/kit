@@ -2,6 +2,7 @@ use cooper
 use cooper/cui
 use cooper/terminal_progress
 use go:kit/ffi/cli
+use kit/tui/bootstrap
 use kit/tui/shell
 use kit/tui/terminal_status
 use kit/tui/theme
@@ -21,6 +22,7 @@ fn run(options: cli::TUIOptions) Void!Error {
     quit: fn() {
       application.context.destroy_live()
     },
+    attach: bootstrap::attach,
     terminal: terminal_status::Terminal{
       set_title: fn(value: Str) Bool {
         application.context.set_title(value)

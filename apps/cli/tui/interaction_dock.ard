@@ -705,6 +705,8 @@ impl Dock {
               on_submit: fn(value: Str, ctx: cui::Context) {
                 let _ = self.submit_text(value)
               },
+              commands: [controls::keep_interrupt],
+              bindings: [controls::keep_interrupt_binding()],
             ),
           ],
           styles: ui::style(

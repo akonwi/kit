@@ -4,6 +4,20 @@ use cooper/keymap
 use cooper/ui
 use kit/tui/theme
 
+// Ctrl+C clears the composer or quits only when focus is outside modals and
+// other text fields. A focused field claims the key with this exact-focus
+// binding, which takes precedence over the shell's application-wide command
+// and does nothing.
+let keep_interrupt = keymap::simple_command("text.keep_interrupt", "Stay in the field", fn() Bool {
+  true
+})
+
+// keep_interrupt_binding keeps Ctrl+C inside a focused text field; register
+// it with `keep_interrupt`. The composer does not use it.
+fn keep_interrupt_binding() keymap::Binding {
+  keymap::binding(keymap::key("c", ctrl: true), keep_interrupt.with())
+}
+
 // ButtonVariant selects a semantic presentation while retaining the same
 // pointer and keyboard interaction contract.
 enum ButtonVariant {
