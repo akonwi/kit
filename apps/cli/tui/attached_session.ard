@@ -1,0 +1,1274 @@
+use ard/async
+use ard/testing
+use ard/unsafe
+
+use go:api
+use go:api/contract as protocol
+use cooper/event
+use go:github.com/akonwi/kit/internal/identifier
+use go:kit/ffi/cli
+use go:kit/ffi/contextbridge
+use go:kit/ffi/sessionbridge
+use kit/tui/bootstrap
+use kit/tui/toast
+use kit/tui/transcript
+use go:strings
+
+// The attached-session owner. One Controller represents one client-side
+// attachment lifetime: its session handle and cancellation, authoritative
+// snapshot projections, live turn transcript, and session-scoped operations.
+//
+// Shell renders this state, so every mutation is scheduled through the host's
+// dispatch. Replacing an attachment disposes the old Controller; completions
+// that arrive afterward observe `active == false` and are discarded, which
+// also rejects stale `A₁ → B → A₂` callbacks for the same durable session.
+//
+// Shell reads Controller fields for presentation but mutates them only through
+// Controller methods.
+
+// Host lists the root-owned effects an attachment may request. All callbacks
+// run on the UI thread inside `dispatch`.
+struct Host {
+  // Schedules a mutation through the component that renders the attachment.
+  dispatch: fn(fn()) Void!event::DispatchError,
+  toast: fn(Str, Str, toast::Variant, Bool),
+  // Replaces this attachment with a newly created session.
+  attach: fn(bootstrap::Attached, Str),
+  // Returns a failed prompt to the composer when it has not been reused.
+  restore_draft: fn(Str),
+  // Returns the transcript to its end after a local submission.
+  show_latest: fn(),
+}
+
+struct Controller {
+  options: cli::TUIOptions,
+  host: Host,
+  // Identifies this attachment for keyed retained presentation.
+  scope_id: Int,
+  active: Bool,
+  lifetime: contextbridge::Cancellation?,
+  session: (mut api::Session)?,
+  info: protocol::SessionInfo?,
+  location: Str,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+  follow_ups: protocol::FollowUpQueue,
+  messages: [transcript::Message],
+  live: transcript::Live,
+  run_id: Str,
+  context_tokens: Int,
+  context_window: Int,
+  usage: protocol::SessionUsage,
+  mcp_servers: [protocol::MCPServerStatus],
+  mcp_warnings: [Str],
+  shown_mcp_warnings: [Str],
+  notice: Str,
+  start_pending: Bool,
+  new_session_pending: Bool,
+  reload_pending: Bool,
+  compact_pending: Bool,
+  compact_operation_id: Str,
+  abort_pending: Bool,
+  abort_after_start: Bool,
+  scratchpad_record: protocol::Scratchpad?,
+  scratchpad_loading: Bool,
+  scratchpad_failure: Str,
+}
+
+private fn empty_usage() protocol::SessionUsage {
+  protocol::SessionUsage{
+    Input: 0,
+    Output: 0,
+    CacheRead: 0,
+    CacheWrite: 0,
+    Reasoning: 0,
+    TotalTokens: 0,
+    Cost: protocol::SessionUsageCost{
+      Input: 0.0,
+      Output: 0.0,
+      CacheRead: 0.0,
+      CacheWrite: 0.0,
+      Total: 0.0,
+    },
+  }
+}
+
+private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, location: Str) mut Controller {
+  (mut Controller{
+    options: options,
+    host: host,
+    scope_id: scope_id,
+    active: false,
+    lifetime: Maybe::new<contextbridge::Cancellation>(),
+    session: Maybe::new<mut api::Session>(),
+    info: Maybe::new<protocol::SessionInfo>(),
+    location: location,
+    prompt_commands: [],
+    plugin_commands: [],
+    follow_ups: protocol::FollowUpQueue{
+      Count: 0,
+      Previews: [],
+      AnnotationIDs: [],
+    },
+    messages: [],
+    live: transcript::live(),
+    run_id: "",
+    context_tokens: 0,
+    context_window: 0,
+    usage: empty_usage(),
+    mcp_servers: [],
+    mcp_warnings: [],
+    shown_mcp_warnings: [],
+    notice: "",
+    start_pending: false,
+    new_session_pending: false,
+    reload_pending: false,
+    compact_pending: false,
+    compact_operation_id: "",
+    abort_pending: false,
+    abort_after_start: false,
+    scratchpad_record: Maybe::new<protocol::Scratchpad>(),
+    scratchpad_loading: false,
+    scratchpad_failure: "",
+  })
+}
+
+// detached is the inert attachment shown before bootstrap completes. It owns
+// no session and ignores every operation.
+fn detached(options: cli::TUIOptions, host: Host) mut Controller {
+  controller(options, host, 0, options.Location)
+}
+
+// attach adopts an attached session under a new cancellation scope derived
+// from `parent`. Call `start` once the Controller is installed.
+fn attach(
+  options: cli::TUIOptions,
+  host: Host,
+  scope_id: Int,
+  parent: contextbridge::Cancellation,
+  attached: bootstrap::Attached,
+  location: Str,
+) mut Controller {
+  let result = controller(options, host, scope_id, location)
+  result.active = true
+  result.lifetime = Maybe::new(contextbridge::WithCancel(parent.Context))
+  result.session = Maybe::new(attached.session)
+  result.apply_snapshot(attached.snapshot)
+  result
+}
+
+impl Controller {
+  // start opens the session watches and follows a turn already in progress.
+  fn mut start(active_turn_id: Str) {
+    self.watch()
+    self.watch_plugin_toasts()
+    self.follow_run(active_turn_id)
+  }
+
+  // dispose cancels this attachment's requests and streams. Queued
+  // completions become no-ops.
+  fn mut dispose() {
+    self.active = false
+    match self.lifetime {
+      lifetime => lifetime.Cancel(),
+      _ => (),
+    }
+  }
+
+  // Whether a prompt can be submitted to this attachment.
+  fn can_submit() Bool {
+    self.active and self.session.is_some() and self.lifetime.is_some()
+  }
+
+  // Whether idle-only commands must wait for active session work.
+  fn busy() Bool {
+    self.run_id != "" or self.start_pending or self.compact_pending
+  }
+
+  // The current pending-row activity, if any.
+  fn activity() Str {
+    match self.live.activity != "" {
+      true => self.live.activity,
+      false => {
+        match self.compact_pending {
+          true => "Compacting session…",
+          false => "",
+        }
+      },
+    }
+  }
+
+  fn session_id() Str {
+    match self.info {
+      info => info.ID,
+      _ => "",
+    }
+  }
+
+  // The settled transcript followed by the active turn's live messages.
+  fn transcript_messages() [transcript::Message] {
+    let messages = mut List::new<transcript::Message>()
+    for message in self.messages {
+      messages.push(message)
+    }
+    for message in self.live.messages {
+      messages.push(message)
+    }
+    messages.@
+  }
+
+  // Adopts an authoritative session record returned by a child request.
+  // Records for another session are ignored.
+  fn mut apply_info(session: protocol::SessionInfo) {
+    if self.active and session.ID == self.session_id() {
+      self.info = Maybe::new(session)
+    }
+  }
+
+  // Replaces the transcript with a server snapshot unless live events have
+  // already moved past it.
+  fn mut apply_snapshot(snapshot: protocol::SessionSnapshot) {
+    if not self.live.supersedes(snapshot) {
+      self.info = Maybe::new(snapshot.Session)
+      self.prompt_commands = snapshot.PromptCommands
+      self.plugin_commands = snapshot.PluginCommands
+      self.follow_ups = snapshot.FollowUps
+      self.context_tokens = snapshot.ContextTokens
+      self.context_window = snapshot.ContextWindow
+      self.usage = snapshot.Usage
+      // The attached session snapshot already carries the authoritative
+      // Scratchpad. Reuse it instead of issuing a second request when the pane
+      // opens; that request mutates the public Session cache while its watch is
+      // active and adds avoidable renderer work to a workspace transition.
+      if unsafe::is_nil(snapshot.Scratchpad) {
+        self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+      } else {
+        self.scratchpad_record = Maybe::new(snapshot.Scratchpad.@)
+      }
+      self.scratchpad_loading = false
+      self.scratchpad_failure = ""
+      // A settled authoritative snapshot releases idle-only palette commands
+      // even when a terminal stream event was missed during reconnection.
+      if snapshot.ActiveTurnID == "" and self.live.activity == "" {
+        self.run_id = ""
+        self.abort_pending = false
+        self.abort_after_start = false
+      }
+      self.mcp_servers = snapshot.MCPServers
+      self.mcp_warnings = snapshot.MCPWarnings
+      for warning in snapshot.MCPWarnings {
+        mut already_shown = false
+        for shown in self.shown_mcp_warnings {
+          if shown == warning {
+            already_shown = true
+          }
+        }
+        if not already_shown {
+          self.shown_mcp_warnings.push(warning)
+          (self.host.toast)("MCP configuration warning", warning, toast::Variant::warning, true)
+        }
+      }
+      // Watch snapshots can lag the active turn. Keep its complete live tail
+      // (including the optimistic user row) until turn settlement; a snapshot
+      // that happens to include the user event can still omit later live
+      // content and must not replace it.
+      if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
+        self.messages = transcript::project(snapshot.Messages)
+        self.live.reset()
+      }
+    }
+  }
+
+  // Applies the authoritative batch already delivered by Session.Watch.
+  fn mut apply_watched_events(batch: [protocol::SessionEvent]) {
+    self.apply_events(sessionbridge::Events(mut batch))
+  }
+
+  // A remote client can start the turn, and one session batch can finish a
+  // turn before starting its queued successor, so lifecycle and transcript
+  // updates are reduced together in wire order.
+  fn mut apply_events(events: [sessionbridge::Event]) {
+    for event in events {
+      let kind = transcript::classify(event.Kind)
+      if event.Kind == "scratchpad.changed" and not unsafe::is_nil(event.Scratchpad) {
+        self.scratchpad_record = Maybe::new(event.Scratchpad.@)
+        self.scratchpad_failure = ""
+      }
+      if kind == transcript::Event::run_started {
+        self.claim_run(event.TurnID)
+      }
+      // A transcript pinned to its end follows new content on its own.
+      let _ = self.live.apply_event(event)
+      if kind == transcript::Event::run_finished and event.TurnID == self.run_id {
+        self.run_id = ""
+        self.abort_pending = false
+        self.abort_after_start = false
+      }
+    }
+    if self.live.context_window > 0 {
+      self.context_tokens = self.live.context_tokens
+      self.context_window = self.live.context_window
+    }
+    if self.live.activity == "" {
+      self.abort_pending = false
+    }
+  }
+
+  // Streams server-owned plugin notifications through the reconnecting public
+  // session handle. The stream remains fresh-only across reconnects.
+  private fn mut watch_plugin_toasts() {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            async::start(fn() {
+              match session.WatchPluginToasts(ctx) {
+                ok(stream) => {
+                  let updates = stream.Updates()
+                  mut open = true
+                  while open {
+                    match updates.recv() {
+                      notification => {
+                        let _ = dispatch(fn() {
+                          if self.active {
+                            let variant = match notification.Variant.to_str() {
+                              "warning" => toast::Variant::warning,
+                              "error" => toast::Variant::error,
+                              _ => toast::Variant::info,
+                            }
+                            let detail = match notification.Subtitle == "" {
+                              true => "",
+                              false => "{notification.PluginID} · {notification.Subtitle}",
+                            }
+                            (self.host.toast)(
+                              notification.Title,
+                              detail,
+                              variant,
+                              notification.Persistent,
+                            )
+                          }
+                        })
+                      },
+                      _ => { open = false },
+                    }
+                  }
+                  match stream.Err() {
+                    err(failure) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          (self.host.toast)(
+                            "Plugin notifications unavailable",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
+                      })
+                    },
+                    ok(_) => (),
+                  }
+                },
+                err(failure) => {
+                  let _ = dispatch(fn() {
+                    if self.active {
+                      (self.host.toast)(
+                        "Plugin notifications unavailable",
+                        failure.error(),
+                        toast::Variant::error,
+                        true,
+                      )
+                    }
+                  })
+                },
+              }
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Watches the attached session through the public client's reconnecting
+  // stream. Initial and replay-gap updates carry authoritative snapshots.
+  private fn mut watch() {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            async::start(fn() {
+              match session.Watch(ctx) {
+                ok(stream) => {
+                  let updates = stream.Updates()
+                  mut open = true
+                  while open {
+                    match updates.recv() {
+                      update => {
+                        if unsafe::is_nil(update.Snapshot) {
+                          mut finished = false
+                          for event in update.Events {
+                            if transcript::classify(event.Kind().to_str()) == transcript::Event::run_finished {
+                              finished = true
+                            }
+                          }
+                          let batch = update.Events
+                          let _ = dispatch(fn() {
+                            if self.active {
+                              self.apply_watched_events(batch)
+                            }
+                          })
+                          if finished {
+                            match session.Snapshot(ctx) {
+                              ok(settled) => {
+                                let _ = dispatch(fn() {
+                                  if self.active {
+                                    self.apply_snapshot(settled)
+                                  }
+                                })
+                              },
+                              err(_) => (),
+                            }
+                          }
+                        } else {
+                          let snapshot = update.Snapshot.@
+                          let _ = dispatch(fn() {
+                            if self.active {
+                              self.apply_snapshot(snapshot)
+                            }
+                          })
+                        }
+                      },
+                      _ => { open = false },
+                    }
+                  }
+                  match stream.Err() {
+                    err(failure) => {
+                      let _ = dispatch(fn() {
+                        if self.active {
+                          (self.host.toast)(
+                            "Session connection lost",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
+                      })
+                    },
+                    ok(_) => (),
+                  }
+                },
+                err(failure) => {
+                  let _ = dispatch(fn() {
+                    if self.active {
+                      (self.host.toast)(
+                        "Session connection failed",
+                        failure.error(),
+                        toast::Variant::error,
+                        true,
+                      )
+                    }
+                  })
+                },
+              }
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Records a turn discovered by the session-wide watch without opening a
+  // competing stream or consuming an abort queued for a local submission.
+  private fn mut claim_run(run_id: Str) {
+    if run_id != "" {
+      self.run_id = run_id
+    }
+  }
+
+  // Follows turns initiated locally or found in the attachment snapshot. The
+  // session-wide watch also applies every live batch, while this turn stream
+  // supplies replay needed when attaching in the middle of an active turn.
+  private fn mut follow_run(run_id: Str) {
+    if run_id != "" {
+      if run_id == self.run_id {
+        if self.abort_after_start {
+          self.abort_after_start = false
+          self.abort_run()
+        }
+      } else {
+        self.run_id = run_id
+        if self.abort_after_start {
+          self.abort_after_start = false
+          self.abort_run()
+        }
+        match self.lifetime {
+          lifetime => {
+            match self.session {
+              session => {
+                let ctx = lifetime.Context
+                let dispatch = self.host.dispatch
+                async::start(fn() {
+                  match session.Stream(ctx, run_id) {
+                    ok(stream) => {
+                      let updates = stream.Updates()
+                      mut open = true
+                      while open {
+                        match updates.recv() {
+                          batch => {
+                            let _ = dispatch(fn() {
+                              if self.active and self.run_id == run_id {
+                                self.apply_watched_events(batch)
+                              }
+                            })
+                          },
+                          _ => { open = false },
+                        }
+                      }
+                      match stream.Err() {
+                        err(failure) => {
+                          let snapshot = session.Snapshot(ctx)
+                          let _ = dispatch(fn() {
+                            if self.active and self.run_id == run_id {
+                              self.live.reset()
+                              self.run_id = ""
+                              match snapshot {
+                                ok(current) => self.apply_snapshot(current),
+                                err(_) => (),
+                              }
+                              (self.host.toast)(
+                                "Turn stream lost",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
+                          })
+                        },
+                        ok(_) => (),
+                      }
+                    },
+                    err(failure) => {
+                      let snapshot = session.Snapshot(ctx)
+                      let _ = dispatch(fn() {
+                        if self.active and self.run_id == run_id {
+                          self.live.reset()
+                          self.run_id = ""
+                          match snapshot {
+                            ok(current) => self.apply_snapshot(current),
+                            err(_) => (),
+                          }
+                          (self.host.toast)(
+                            "Turn stream failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
+                      })
+                    },
+                  }
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      }
+    }
+  }
+
+  // Whether Escape should target the current active droid turn.
+  fn can_abort() Bool {
+    self.active and (self.run_id != "" or self.start_pending) and self.live.activity != "" and (not self.abort_pending) and (not self.abort_after_start)
+  }
+
+  // Requests cancellation without changing the composer or adding transient
+  // status UI. The streamed run-finished event remains authoritative.
+  fn mut abort_run() Bool {
+    if self.can_abort() {
+      if self.run_id == "" {
+        self.abort_after_start = true
+      } else {
+        match self.lifetime {
+          lifetime => {
+            match self.session {
+              session => {
+                let run_id = self.run_id
+                let dispatch = self.host.dispatch
+                self.abort_pending = true
+                async::start(fn() {
+                  let _ = session.Abort(lifetime.Context, run_id)
+                  let _ = dispatch(fn() {
+                    if self.active and self.run_id == run_id {
+                      self.abort_pending = false
+                    }
+                  })
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      }
+    }
+    true
+  }
+
+  // Compacts the session through its idempotent API and then refreshes the
+  // snapshot. Its local activity is rendered in the reasoning slot, while only
+  // failures produce persistent feedback.
+  fn mut compact() {
+    if self.active and not self.compact_pending {
+      match identifier::New("compact_") {
+        ok(operation_id) => {
+          match self.lifetime {
+            lifetime => {
+              match self.session {
+                session => {
+                  let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(120000))
+                  let dispatch = self.host.dispatch
+                  self.compact_pending = true
+                  self.compact_operation_id = operation_id
+                  async::start(fn() {
+                    let result = session.Compact(
+                      attempt.Context,
+                      protocol::CompactSessionInput{OperationID: operation_id},
+                    )
+                    match result {
+                      ok(_) => {
+                        let snapshot = session.Snapshot(attempt.Context)
+                        attempt.Cancel()
+                        let _ = dispatch(fn() {
+                          if self.active and self.compact_operation_id == operation_id {
+                            self.compact_pending = false
+                            self.compact_operation_id = ""
+                            match snapshot {
+                              ok(current) => self.apply_snapshot(current),
+                              err(failure) => {
+                                (self.host.toast)(
+                                  "Session compacted",
+                                  "Session context was compacted. {failure}",
+                                  toast::Variant::warning,
+                                  true,
+                                )
+                              },
+                            }
+                          }
+                        })
+                      },
+                      err(failure) => {
+                        attempt.Cancel()
+                        let _ = dispatch(fn() {
+                          if self.active and self.compact_operation_id == operation_id {
+                            self.compact_pending = false
+                            self.compact_operation_id = ""
+                            (self.host.toast)(
+                              "Compaction failed",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          }
+                        })
+                      },
+                    }
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        err(failure) => (self.host.toast)("Compaction failed", failure.error(), toast::Variant::error, true),
+      }
+    }
+  }
+
+  // Adopts a record persisted by the Scratchpad editor.
+  fn mut apply_scratchpad_saved(record: protocol::Scratchpad) {
+    if self.active {
+      self.scratchpad_record = Maybe::new(record)
+      self.scratchpad_failure = ""
+    }
+  }
+
+  fn mut retry_scratchpad() {
+    self.scratchpad_record = Maybe::new<protocol::Scratchpad>()
+    self.scratchpad_failure = ""
+    self.load_scratchpad()
+  }
+
+  // Loads the authoritative Scratchpad when the snapshot did not supply one.
+  fn mut load_scratchpad() {
+    if self.active and not self.scratchpad_loading and self.scratchpad_record.is_none() {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              self.scratchpad_loading = true
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.Scratchpad(lifetime.Context)
+                let _ = dispatch(fn() {
+                  if self.active {
+                    self.scratchpad_loading = false
+                    match result {
+                      ok(record) => {
+                        self.scratchpad_record = Maybe::new(record)
+                        self.scratchpad_failure = ""
+                      },
+                      err(failure) => {
+                        self.scratchpad_failure = failure.error()
+                        (self.host.toast)(
+                          "Could not open scratchpad",
+                          failure.error(),
+                          toast::Variant::error,
+                          true,
+                        )
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Reloads the session's prompt and tool context, then adopts its fresh snapshot.
+  fn mut reload() {
+    if not self.active {
+      ()
+    } else if self.reload_pending {
+      (self.host.toast)(
+        "Session reload unavailable",
+        "Session reload is already in progress.",
+        toast::Variant::warning,
+        false,
+      )
+    } else {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(15000))
+              let dispatch = self.host.dispatch
+              self.reload_pending = true
+              async::start(fn() {
+                let result = session.Reload(attempt.Context)
+                match result {
+                  ok(reloaded) => {
+                    let snapshot = session.Snapshot(attempt.Context)
+                    attempt.Cancel()
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        self.reload_pending = false
+                        match snapshot {
+                          ok(current) => {
+                            self.apply_snapshot(current)
+                            let detail = match reloaded.Warnings.size() > 0 {
+                              true => reloaded.Warnings.at(0).or(""),
+                              false => "",
+                            }
+                            (self.host.toast)(
+                              "Session context reloaded",
+                              detail,
+                              toast::Variant::info,
+                              false,
+                            )
+                          },
+                          err(failure) => {
+                            (self.host.toast)(
+                              "Session reload failed",
+                              "Session reloaded, but refresh failed: {failure}",
+                              toast::Variant::error,
+                              true,
+                            )
+                          },
+                        }
+                      }
+                    })
+                  },
+                  err(failure) => {
+                    attempt.Cancel()
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        self.reload_pending = false
+                        (self.host.toast)(
+                          "Session reload failed",
+                          failure.error(),
+                          toast::Variant::error,
+                          true,
+                        )
+                      }
+                    })
+                  },
+                }
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Creates and attaches a sibling session using the current session's
+  // workspace and configuration. Creation is serialized locally to avoid
+  // replacing the attached session with a stale completion.
+  fn mut create_sibling() {
+    if not self.active {
+      ()
+    } else if self.new_session_pending {
+      (self.host.toast)(
+        "New session unavailable",
+        "Session creation is already in progress.",
+        toast::Variant::warning,
+        false,
+      )
+    } else {
+      match self.info {
+        info => {
+          match self.lifetime {
+            lifetime => {
+              let attempt = contextbridge::WithTimeout(lifetime.Context, Int64::from(8000))
+              let client = self.options.Client
+              let resolve_location = self.options.ResolveLocation
+              let dispatch = self.host.dispatch
+              let input = protocol::CreateSessionInput{
+                CWD: info.CWD,
+                Model: info.Model,
+                ThinkingLevel: info.ThinkingLevel,
+                Temporary: false,
+              }
+              self.new_session_pending = true
+              async::start(fn() {
+                let created = client.CreateSession(attempt.Context, input)
+                match created {
+                  ok(info) => {
+                    let attached = match client.Attach(attempt.Context, info.ID) {
+                      ok(session) => {
+                        match session.Snapshot(attempt.Context) {
+                          ok(snapshot) => {
+                            Result::ok(
+                              bootstrap::Attached{
+                                info: info,
+                                session: session,
+                                snapshot: snapshot,
+                              },
+                            )
+                          },
+                          err(failure) => Result::err(failure.error()),
+                        }
+                      },
+                      err(failure) => Result::err(failure.error()),
+                    }
+                    let location = match attached {
+                      ok(next) => resolve_location(lifetime.Context, next.info.CWD),
+                      err(_) => "",
+                    }
+                    attempt.Cancel()
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        self.new_session_pending = false
+                        match attached {
+                          ok(next) => (self.host.attach)(next, location),
+                          err(failure) => (self.host.toast)("New session failed", failure, toast::Variant::error, true),
+                        }
+                      }
+                    })
+                  },
+                  err(failure) => {
+                    attempt.Cancel()
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        self.new_session_pending = false
+                        (self.host.toast)(
+                          "New session failed",
+                          failure.error(),
+                          toast::Variant::error,
+                          true,
+                        )
+                      }
+                    })
+                  },
+                }
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Changes the attached session's directory through the canonical session
+  // mutation endpoint. The server resolves relative paths from its current cwd.
+  fn mut change_working_directory(path: Str) {
+    if self.active {
+      match self.lifetime {
+        lifetime => {
+          match self.info {
+            info => {
+              match self.session {
+                session => {
+                  let previous = info.CWD
+                  let ctx = lifetime.Context
+                  let resolve_location = self.options.ResolveLocation
+                  let dispatch = self.host.dispatch
+                  async::start(fn() {
+                    let result = session.ChangeCWD(ctx, path)
+                    let location = match result {
+                      ok(changed) => resolve_location(ctx, changed.CWD),
+                      err(_) => "",
+                    }
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        match result {
+                          ok(changed) => {
+                            self.info = Maybe::new(changed)
+                            self.location = location
+                            match changed.CWD == previous {
+                              true => (self.host.toast)("Already in directory", changed.CWD, toast::Variant::info, false),
+                              false => {
+                                (self.host.toast)(
+                                  "Working directory changed",
+                                  "Now {changed.CWD} · run /reload to refresh agent context",
+                                  toast::Variant::warning,
+                                  false,
+                                )
+                              },
+                            }
+                          },
+                          err(failure) => {
+                            (self.host.toast)(
+                              "Failed to change directory",
+                              failure.error(),
+                              toast::Variant::error,
+                              true,
+                            )
+                          },
+                        }
+                      }
+                    })
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Starts the optimistic live turn for a local submission when no other turn
+  // is active. Returns whether the live transcript must be rolled back on
+  // rejection.
+  private fn mut begin_submission(display: Str) Bool {
+    self.notice = ""
+    let optimistic = self.live.activity == "" and not self.start_pending
+    if optimistic {
+      self.live.submit(display)
+      self.start_pending = true
+      (self.host.show_latest)()
+    }
+    optimistic
+  }
+
+  // Applies the server's response to a prompt or prompt-command submission.
+  private fn mut accept_submission(
+    submission: api::PromptSubmission,
+    optimistic: Bool,
+    unstarted: Str,
+  ) {
+    self.follow_ups = submission.Queue
+    if submission.Queued {
+      if optimistic {
+        self.live.reset()
+        self.start_pending = false
+      }
+    } else if not unsafe::is_nil(submission.Turn) {
+      self.start_pending = false
+      self.follow_run(submission.Turn.ID())
+    } else {
+      self.live.reset()
+      self.start_pending = false
+      self.notice = unstarted
+    }
+  }
+
+  private fn mut reject_submission(optimistic: Bool, message: Str) {
+    if optimistic {
+      self.live.reset()
+      self.start_pending = false
+      self.abort_after_start = false
+    }
+    self.notice = message
+  }
+
+  // Submits a discovered prompt command. The server queues it behind active
+  // work and retains the /command invocation as the follow-up preview.
+  fn mut submit_prompt_command(name: Str, args: Str) {
+    if self.active {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let suffix = match args != "" {
+                true => " {args}",
+                false => "",
+              }
+              let optimistic = self.begin_submission("/{name}{suffix}")
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.SubmitPromptCommand(ctx, name, args)
+                let _ = dispatch(fn() {
+                  if self.active {
+                    match result {
+                      ok(submission) => {
+                        self.accept_submission(
+                          submission,
+                          optimistic,
+                          "Prompt command did not start a turn",
+                        )
+                      },
+                      err(failure) => self.reject_submission(optimistic, failure.error()),
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Executes a plugin-owned command without creating an agent turn or
+  // changing the composer draft. The server validates the generation-owned
+  // instance so stale palette entries cannot run a replacement plugin.
+  fn mut execute_plugin_command(command: protocol::PluginCommand, args: Str) {
+    if self.active {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.ExecutePluginCommand(
+                  ctx,
+                  protocol::PluginCommandInput{
+                    ID: command.ID,
+                    Instance: command.Instance,
+                    Args: args,
+                  },
+                )
+                let _ = dispatch(fn() {
+                  if self.active {
+                    match result {
+                      // Plugins own successful user-facing feedback through
+                      // their server notification stream. Do not duplicate it
+                      // with a client-generated completion toast.
+                      ok(_) => (),
+                      err(failure) => {
+                        (self.host.toast)(
+                          "Plugin command failed",
+                          failure.error(),
+                          toast::Variant::error,
+                          false,
+                        )
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Submits a prompt, queuing it when another turn is active.
+  fn mut submit(text: Str) {
+    if self.can_submit() and text != "" {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let optimistic = self.begin_submission(text)
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.SubmitPromptInput(ctx, protocol::PromptInput{Text: text})
+                let _ = dispatch(fn() {
+                  if self.active {
+                    match result {
+                      ok(submission) => self.accept_submission(submission, optimistic, "Prompt did not start a turn"),
+                      err(failure) => {
+                        (self.host.restore_draft)(text)
+                        self.reject_submission(optimistic, failure.error())
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+}
+
+struct Effects {
+  toasts: [Str],
+}
+
+private fn test_host(effects: mut Effects) Host {
+  Host{
+    dispatch: fn(action: fn()) Void!event::DispatchError {
+      action()
+      Result::ok(())
+    },
+    toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {
+      effects.toasts.push("{title}: {detail}")
+    },
+    attach: fn(attached: bootstrap::Attached, location: Str) {},
+    restore_draft: fn(text: Str) {},
+    show_latest: fn() {},
+  }
+}
+
+private fn active_controller(effects: mut Effects) mut Controller {
+  let result = controller(cli::TUIOptions{}, test_host(effects), 1, "")
+  result.active = true
+  result
+}
+
+test fn a_detached_controller_ignores_session_operations() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = detached(cli::TUIOptions{}, test_host(effects))
+  subject.submit("hello")
+  subject.reload()
+  subject.create_sibling()
+  try testing::assert(not subject.can_submit(), "no session can receive prompts")
+  try testing::assert(subject.live.messages.size() == 0, "no optimistic prompt is added")
+  testing::assert(effects.toasts.size() == 0, "inert operations report nothing")
+}
+
+test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  let snapshot = protocol::SessionSnapshot{
+    Session: protocol::SessionInfo{ID: "session-1", Name: "Notes"},
+    Messages: [
+      protocol::TranscriptMessage{
+        ID: "reply-1",
+        Role: "assistant",
+        Content: [protocol::TextBlock("hello")],
+      },
+    ],
+    ContextTokens: 10,
+    ContextWindow: 100,
+    MCPWarnings: ["missing server"],
+  }
+  subject.apply_snapshot(snapshot)
+  subject.apply_snapshot(snapshot)
+
+  try testing::assert(subject.session_id() == "session-1", "the session record is adopted")
+  try testing::assert(subject.transcript_messages().size() == 1, "the transcript is projected")
+  try testing::assert(
+    subject.context_tokens == 10 and subject.context_window == 100,
+    "context usage is adopted",
+  )
+  testing::assert(
+    strings::Join(mut effects.toasts, "|") == "MCP configuration warning: missing server",
+    "each warning is reported once per attachment: {strings::Join(mut effects.toasts, "|")}",
+  )
+}
+
+test fn session_records_only_update_the_attached_session() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", Name: "Before"}},
+  )
+  subject.apply_info(protocol::SessionInfo{ID: "session-2", Name: "Other"})
+  try testing::assert(
+    subject.info.or(protocol::SessionInfo{}).Name == "Before",
+    "other sessions are ignored",
+  )
+  subject.apply_info(protocol::SessionInfo{ID: "session-1", Name: "After"})
+  testing::assert(
+    subject.info.or(protocol::SessionInfo{}).Name == "After",
+    "the attached record updates",
+  )
+}
+
+test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "turn.started",
+        TurnID: "turn-1",
+        Sequence: 1,
+      },
+    ],
+  )
+  try testing::assert(subject.run_id == "turn-1" and subject.busy(), "a remote turn is claimed")
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "turn.completed",
+        TurnID: "turn-1",
+        Sequence: 2,
+      },
+    ],
+  )
+  testing::assert(
+    subject.run_id == "" and not subject.busy(),
+    "turn completion releases idle commands",
+  )
+}
+
+test fn disposal_ends_the_attachment_scope() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.dispose()
+  subject.apply_info(protocol::SessionInfo{ID: "session-1", Name: "Late"})
+  subject.apply_scratchpad_saved(protocol::Scratchpad{Content: "late"})
+  try testing::assert(not subject.active and not subject.can_submit(), "a disposed attachment is inert")
+  try testing::assert(subject.info.or(protocol::SessionInfo{}).Name == "", "late records are ignored")
+  testing::assert(subject.scratchpad_record.is_none(), "late editor completions are ignored")
+}
