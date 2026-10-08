@@ -7,9 +7,6 @@ IDs but must not redefine server, persistence, or protocol semantics.
 
 ### Daemon, sessions, and runtime
 
-- [ ] CORE-LIFE-005 — Enforce a hard shutdown deadline for provider streams,
-  direct tool processes, and subagent runtimes that ignore cooperative
-  cancellation, without allowing late cleanup to access closed shared storage.
 - [ ] CORE-SESSION-001 — Let multiple clients observe and control one
   authoritative session without lost updates or client-global active-session
   state. Broadcast follow-up queue changes to attached clients and expose failed
