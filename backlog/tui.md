@@ -61,13 +61,15 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [ ] TUI-COOPER-002 — Live session: `Watch` bridge, batched event dispatch to
   the UI thread, run lifecycle, reconnect and recovery footer states, and the
   incompatible-daemon state.
-- [ ] TUI-COOPER-003 — Transcript: port the transcript projection
+- [x] TUI-COOPER-003 — Transcript: port the transcript projection
   (`transcript_model.go`) to Ard; render user, assistant, thinking, and bash
   entries with Markdown and highlighted code in a virtual list; follow the
   bottom and latest-message shortcut (now driven by committed virtual-list
   updates); open tall assistant replies at their start when they arrive or
-  when attaching. The vaxis reading-section strip is intentionally not
-  ported. Remaining: older-history loading.
+  when attaching; load earlier history a page at a time within 40 rows of
+  the top, including when the first page does not fill the view, keeping
+  loaded pages across later snapshots. The vaxis reading-section strip and
+  "Beginning of conversation" row are intentionally not ported.
 - [~] TUI-COOPER-004 — Composer: prompt submission and Escape abort are
   complete. Remaining: editing bindings, bracketed paste, history recall,
   follow-up queue, bash mode and history, attachments, file and session

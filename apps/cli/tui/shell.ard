@@ -513,6 +513,14 @@ impl Shell {
         themes: self.props.themes,
         messages: self.attached.transcript_messages(),
         control: self.transcript_control,
+        history: transcript_pane::History{
+          more: self.attached.history_more,
+          loading: self.attached.history_loading,
+          failure: self.attached.history_failure,
+        },
+        load_older: fn() {
+          self.request_older_history()
+        },
       },
       self.attached.scope_id,
     )
@@ -601,6 +609,21 @@ impl Shell {
           true
         },
         _ => false,
+      }
+    }
+  }
+
+  // The transcript asks for earlier history while rendering; the request
+  // runs on the next dispatch so the attachment changes outside that render.
+  fn mut request_older_history() {
+    if self.attached.can_load_older() {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            self.attached.load_older()
+          })
+        },
+        _ => (),
       }
     }
   }

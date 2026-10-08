@@ -13,6 +13,26 @@ struct Model {
   messages: [transcript::Message],
   scope_id: Int,
   control: mut transcript_pane::Control,
+  history: transcript_pane::History,
+  // Earlier-page requests the pane made while the owner was idle.
+  requests: Int,
+}
+
+// Every message is shown; there is no earlier history.
+fn complete() transcript_pane::History {
+  transcript_pane::History{
+    more: false,
+    loading: false,
+    failure: "",
+  }
+}
+
+fn more_history() transcript_pane::History {
+  transcript_pane::History{
+    more: true,
+    loading: false,
+    failure: "",
+  }
 }
 
 struct HostProps {
@@ -38,6 +58,19 @@ impl cui::Component for Host {
         themes: self.themes,
         messages: self.model.messages,
         control: self.model.control,
+        history: self.model.history,
+        load_older: fn() {
+          // Like the attachment, an owner already loading ignores requests.
+          let model = self.model
+          if not model.history.loading {
+            model.requests =+ 1
+            model.history = transcript_pane::History{
+              more: true,
+              loading: true,
+              failure: "",
+            }
+          }
+        },
       },
       self.model.scope_id,
     )
@@ -64,6 +97,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
   transcript::Message{
     id: id,
     turn_id: "turn-1",
+    sequence: 0,
     role: role,
     text: text,
     thinking: "",
@@ -127,6 +161,8 @@ fn render(count: Int) [Str] {
     messages: replies(count),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -148,6 +184,8 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     messages: [],
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -163,6 +201,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
       transcript::Message{
         id: "",
         turn_id: "",
+        sequence: 0,
         role: transcript::Role::user,
         text: "test message",
         thinking: "",
@@ -195,6 +234,8 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     ],
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -258,6 +299,8 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     messages: replies(8),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -302,6 +345,8 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     messages: replies(8),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -352,6 +397,8 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     messages: messages.@,
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -405,6 +452,8 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     messages: messages.@,
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -460,6 +509,8 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     ],
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -501,6 +552,8 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     messages: replies(12),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -555,6 +608,8 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     messages: replies(8),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -603,6 +658,8 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     messages: replies(8),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = cui::mount(
     app,
@@ -679,6 +736,8 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     messages: [message(transcript::Role::user, "Explain", false), tall_reply("answer", 5)],
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -707,6 +766,8 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     messages: replies(4),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -739,6 +800,8 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     messages: replies(4),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -771,6 +834,8 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     messages: replies(8),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -805,6 +870,8 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     messages: replies(2),
     scope_id: 1,
     control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -832,5 +899,241 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
   testing::assert(
     model.control.list.current.expect("transcript list").is_following_edge(),
     "the transcript keeps following",
+  )
+}
+
+// Replies numbered first through last, as one transcript page.
+fn reply_range(first: Int, last: Int) [transcript::Message] {
+  let messages = mut List::new<protocol::TranscriptMessage>()
+  mut index = first
+  while index <= last {
+    messages.push(
+      protocol::TranscriptMessage{
+        ID: "reply-{index}",
+        Role: "assistant",
+        Content: [protocol::TextBlock("reply {index}")],
+      },
+    )
+    index =+ 1
+  }
+  transcript::project(messages.@)
+}
+
+fn join(head: [transcript::Message], tail: [transcript::Message]) [transcript::Message] {
+  let joined = mut List::new<transcript::Message>()
+  for message in head {
+    joined.push(message)
+  }
+  for message in tail {
+    joined.push(message)
+  }
+  joined.@
+}
+
+fn mount_history(terminal: headless::TestApp, model: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+}
+
+test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str {
+  let terminal = headless::new(36, 8)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(9, 10),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 1, "{model.requests} requests")
+  try expect_rows(
+    rows(terminal),
+    ["", "", " ⠋ Loading earlier messages…", "", " reply 9", "", " reply 10", ""],
+  )
+
+  // The final page arrives: the status row is gone once nothing is left.
+  renderer.update(fn() {
+    model.messages = join(reply_range(7, 8), model.messages)
+    model.history = complete()
+  })
+  terminal.flush()
+  // The page fills the view, so the scrollbar appears beside it.
+  expect_rows(
+    content_rows(terminal),
+    [" reply 7", "", " reply 8", "", " reply 9", "", " reply 10", ""],
+  )
+}
+
+test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
+  let terminal = headless::new(36, 10)
+  defer terminal.destroy()
+  // Thirty two-row replies under a two-row status. Rows not yet measured
+  // count at the list's four-row estimate, so each position below lands on
+  // the same side of the 40-row threshold whether or not it is measured.
+  let model = mut Model{
+    messages: reply_range(1, 30),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "at the end: {model.requests} requests")
+
+  let list = model.control.list.current.expect("transcript list")
+  // reply-25 starts between 50 and 98 rows from the top.
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-25", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "well below the top: {model.requests} requests")
+  // reply-10 starts between 20 and 38 rows from the top.
+  renderer.update(fn() {
+    let _ = list.scroll_to_key("reply-10", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  testing::assert(model.requests == 1, "near the top: {model.requests} requests")
+}
+
+test fn a_prepended_page_keeps_the_reading_position() Void!Str {
+  let terminal = headless::new(36, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(11, 40),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: more_history(),
+    requests: 0,
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    list.stop_following()
+    let _ = list.scroll_to_key("reply-20", alignment: cui::ScrollAlignment::start)
+  })
+  terminal.flush()
+  terminal.flush()
+  let before = content_rows(terminal)
+  try testing::assert(
+    before.at(1).or("") == " reply 20",
+    "reading from reply 20:\n{strings::Join(mut before, "\n")}",
+  )
+
+  renderer.update(fn() {
+    model.messages = join(reply_range(1, 10), model.messages)
+    model.history = complete()
+  })
+  terminal.flush()
+  terminal.flush()
+  expect_rows(content_rows(terminal), before)
+}
+
+// Rows without the scrollbar column, whose thumb moves as content is added.
+fn content_rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    let without_track = strings::TrimSuffix(strings::TrimRight(row, " "), "│")
+    trimmed.push(strings::TrimRight(strings::TrimSuffix(without_track, "┃"), " "))
+  }
+  trimmed.@
+}
+
+test fn a_failed_page_pauses_loading_until_retried() Void!Str {
+  let terminal = headless::new(48, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(9, 10),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: transcript_pane::History{
+      more: true,
+      loading: false,
+      failure: "connection refused",
+    },
+    requests: 0,
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  terminal.flush()
+  try testing::assert(model.requests == 0, "a failure pauses loading: {model.requests} requests")
+  let text = terminal.frame().text()
+  let retry = position(text, "Could not load earlier messages · retry")
+  try testing::assert(retry.at(1).or(-1) >= 0, "the status offers a retry:\n{text}")
+
+  terminal.mouse_move(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.mouse_down(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.mouse_up(retry.at(0).or(-1) + 2, retry.at(1).or(-1))
+  terminal.flush()
+  testing::assert(model.requests == 1, "retry requests the page: {model.requests} requests")
+}
+
+test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Void!Str {
+  let terminal = headless::new(36, 6)
+  defer terminal.destroy()
+  let model = mut Model{
+    messages: reply_range(11, 40),
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: transcript_pane::History{
+      more: true,
+      loading: true,
+      failure: "",
+    },
+    requests: 0,
+  }
+  let renderer = mount_history(terminal, model)
+  defer renderer.destroy()
+  terminal.flush()
+  let list = model.control.list.current.expect("transcript list")
+  renderer.update(fn() {
+    let _ = list.scroll_to_edge(cui::ScrollEdge::start, sticky: false)
+  })
+  terminal.flush()
+  terminal.flush()
+  try expect_rows(
+    content_rows(terminal),
+    [
+      "",
+      " ⠋ Loading earlier messages…",
+      "",
+      " reply 11",
+      "                          ↓ Latest",
+      " reply 12",
+    ],
+  )
+
+  // More history remains, so the status row stays above the new page.
+  renderer.update(fn() {
+    model.messages = join(reply_range(1, 10), model.messages)
+    model.history = transcript_pane::History{
+      more: true,
+      loading: true,
+      failure: "",
+    }
+  })
+  terminal.flush()
+  terminal.flush()
+  expect_rows(
+    content_rows(terminal),
+    ["", " reply 11", "", " reply 12", "                          ↓ Latest", " reply 13"],
   )
 }

@@ -4,6 +4,7 @@ use cooper/ui
 use kit/tui/controls
 use kit/tui/layout
 use kit/tui/markdown
+use kit/tui/spinner
 use kit/tui/theme
 use kit/tui/transcript
 use go:strings
@@ -19,6 +20,11 @@ use go:strings
 // viewport opens at its first row instead, both when it arrives while the
 // transcript follows its end and when an attachment opens on it, so reading
 // starts at the beginning of the answer.
+//
+// Earlier history loads a page at a time once the view is within
+// `history_threshold` rows of the top, which includes a first page too short
+// to fill the viewport. A status row above the oldest message reports loading
+// and failure; it disappears once the conversation's beginning is shown.
 
 // Control is the host's handle to one attachment's transcript. Its list ref
 // binds to the mounted virtual list; replace it with each new attachment.
@@ -43,10 +49,28 @@ impl Control {
   }
 }
 
+// Rows from the top at which the next earlier page is requested.
+let history_threshold = 40
+// The history status row and the blank row above it.
+let status_rows = 2
+
+// History is the attachment's earlier-transcript paging state.
+struct History {
+  // Whether earlier messages exist beyond the oldest one shown.
+  more: Bool,
+  loading: Bool,
+  // The last failure; automatic loading pauses until retried.
+  failure: Str,
+}
+
 struct Props {
   themes: theme::Context,
   messages: [transcript::Message],
   control: mut Control,
+  history: History,
+  // Requests the next earlier page. Repeated requests while one is in flight
+  // are ignored by the owner.
+  load_older: fn(),
 }
 
 struct Pane {
@@ -64,14 +88,24 @@ struct Pane {
   arrived_tail: Str?,
   // A reply aligned to its start whose fit is confirmed by the next update.
   aligning: Str?,
+  // The committed scroll position, absent until the list first reports.
+  scroll_top: Int?,
+  // The oldest message row and whether the history status sat above it, as
+  // last rendered.
+  head_key: Str,
+  head_status: Bool,
 }
 
-// One transcript row: a message and its stable virtual-list key.
+// One transcript row: a message, or the earlier-history status, and its
+// stable virtual-list key.
 struct Entry {
   key: Str,
   message: transcript::Message,
   last: Bool,
+  status: Bool,
 }
+
+let history_status_key = "history:status"
 
 // pane retains one attachment's transcript. `scope_id` remounts it, resetting
 // presentation state, when a new attachment replaces the old one.
@@ -88,6 +122,9 @@ private fn new(props: mut Props) mut Pane {
     tail_is_reply: false,
     arrived_tail: Maybe::new<Str>(),
     aligning: Maybe::new<Str>(),
+    scroll_top: Maybe::new<Int>(),
+    head_key: "",
+    head_status: false,
   })
 }
 
@@ -103,7 +140,9 @@ impl Pane {
   // Committed list updates report the latest message's visibility. Only
   // changes dispatch, so a settled list does not schedule further renders.
   private fn mut observe(update: cui::VirtualListUpdate) {
+    self.scroll_top = Maybe::new(update.state.scroll_top)
     self.open_tall_reply(update)
+    self.request_history(update.state.scroll_top)
     let hidden = not update.state.last_item_visible
     if hidden != self.latest_out_of_view {
       match self.context {
@@ -159,6 +198,41 @@ impl Pane {
     }
   }
 
+  // A view resting on the history status anchors to the status itself, so a
+  // prepended page would keep the top in view and pull reading back to the
+  // start. Instead, the message that was oldest is aligned to the top.
+  private fn mut keep_reading_position(head: Str) {
+    let previous = self.head_key
+    let had_status = self.head_status
+    self.head_key = head
+    self.head_status = self.props.history.more or self.props.history.loading or self.props.history.failure != ""
+    if had_status and previous != "" and previous != head {
+      match self.scroll_top {
+        top => {
+          if top < status_rows {
+            match self.props.control.list.current {
+              list => {
+                if not list.is_following_edge() {
+                  let _ = list.scroll_to_key(previous, alignment: cui::ScrollAlignment::start)
+                }
+              },
+              _ => (),
+            }
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Requests the next earlier page while the view is near the top.
+  private fn request_history(scroll_top: Int) {
+    let history = self.props.history
+    if history.more and (not history.loading) and history.failure == "" and scroll_top <= history_threshold {
+      (self.props.load_older)()
+    }
+  }
+
   private fn mut list() cui::View {
     let themes = self.props.themes
     let colors = themes.current()
@@ -174,18 +248,36 @@ impl Pane {
       true => layout::empty_state(colors, "Ask a question or give a task."),
       false => {
         let entries = mut List::new<Entry>()
+        let history = self.props.history
+        let status = history.more or history.loading or history.failure != ""
+        if status {
+          entries.push(
+            Entry{
+              key: history_status_key,
+              message: transcript::message("", "", transcript::Role::other),
+              last: false,
+              status: true,
+            },
+          )
+        }
+        mut position = 0
         for message in shown {
           let key = match message.id == "" {
-            true => "pending:{entries.size()}",
+            true => "pending:{position}",
             false => message.id,
           }
           entries.push(
             Entry{
               key: key,
               message: message,
-              last: entries.size() == shown.size() - 1,
+              last: position == shown.size() - 1,
+              status: false,
             },
           )
+          if position == 0 {
+            self.keep_reading_position(key)
+          }
+          position =+ 1
           self.tail_key = key
           self.tail_is_reply = message.role == transcript::Role::assistant
         }
@@ -195,7 +287,10 @@ impl Pane {
             entry.key
           },
           render_item: fn(entry: Entry) cui::View {
-            transcript_row(themes, entry)
+            match entry.status {
+              true => self.history_row(),
+              false => transcript_row(themes, entry),
+            }
           },
           estimated_height: 4,
           overscan: 2,
@@ -209,6 +304,62 @@ impl Pane {
         )
       },
     }
+  }
+
+  // The status above the oldest message shown: loading, or a failure that
+  // can be retried.
+  private fn history_row() cui::View {
+    let colors = self.props.themes.current()
+    let muted = ui::text_style(foreground: colors.muted)
+    let history = self.props.history
+    let content = match {
+      history.loading => {
+        cui::box(
+          [
+            spinner::spinner(styles: ui::style(foreground: colors.muted)),
+            layout::line(" Loading earlier messages…", muted),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row),
+        )
+      },
+      history.failure != "" => {
+        let load_older = self.props.load_older
+        let retry = keymap::simple_command(
+          "transcript.history.retry",
+          "Retry earlier messages",
+          fn() Bool {
+            load_older()
+            true
+          },
+        )
+        cui::box(
+          [
+            controls::button(
+              self.props.themes,
+              "Could not load earlier messages · retry",
+              retry,
+              variant: controls::ButtonVariant::secondary,
+              compact: true,
+              focusable: false,
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::row),
+        )
+      },
+      _ => layout::line("↑ Scroll for earlier messages", muted),
+    }
+    cui::box(
+      [content],
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::column,
+        padding: ui::Edges{
+          top: ui::cells(1),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
   }
 
   private fn mut latest_button() cui::View {
@@ -237,6 +388,17 @@ impl cui::Component for Pane {
   fn mut render() cui::View {
     let children = mut List::new<cui::View>()
     children.push(self.list())
+    // Paging state changes without a list update, as when a page brings no
+    // displayable messages or nothing is shown yet, still continue loading.
+    match self.tail_key == "" {
+      true => self.request_history(0),
+      false => {
+        match self.scroll_top {
+          top => self.request_history(top),
+          _ => (),
+        }
+      },
+    }
     if self.latest_out_of_view {
       children.push(self.latest_button())
     }

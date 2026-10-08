@@ -1,6 +1,7 @@
 package sessionbridge
 
 import (
+	"reflect"
 	"testing"
 
 	protocol "github.com/akonwi/kit/api/contract"
@@ -33,5 +34,21 @@ func TestEventsProjectsInteractionLifecycle(t *testing.T) {
 	}
 	if projected[1].Kind != "interaction.resolved" || projected[1].Interaction != nil || projected[1].InteractionID != "interaction_1" {
 		t.Fatalf("resolved = %+v", projected[1])
+	}
+}
+
+func TestMessagesCarryTheirSessionSequence(t *testing.T) {
+	t.Parallel()
+
+	got := Messages([]protocol.TranscriptMessage{{
+		ID: "message_1", TurnID: "turn_1", Sequence: 42, Role: "user",
+		Content: []protocol.TranscriptContent{protocol.TextBlock("hello")},
+	}})
+	want := Message{
+		ID: "message_1", TurnID: "turn_1", Sequence: 42, Role: "user",
+		Content: []Content{{Kind: "text", Text: "hello"}},
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Fatalf("Messages() = %#v, want %#v", got, []Message{want})
 	}
 }
