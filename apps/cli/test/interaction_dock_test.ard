@@ -1,0 +1,457 @@
+use ard/testing
+use ard/unsafe
+
+use go:api/contract as protocol
+use cooper
+use cooper/cui
+use cooper/event
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/interaction_dock
+use kit/tui/theme
+use go:strings
+
+struct Model {
+  request: protocol::InteractionRequest,
+  queue_length: Int,
+  active: Bool,
+  submitting: Bool,
+  responses: [protocol::InteractionResponse],
+  control: mut interaction_dock::Ref,
+}
+
+struct HostProps {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+struct Host {
+  model: mut Model,
+  themes: theme::Context,
+}
+
+fn host(props: mut HostProps) mut Host {
+  (mut Host{model: props.model, themes: props.themes})
+}
+
+// Hosts the dock beneath a transcript stand-in that keeps three rows, the way
+// the shell lays out the agent workspace.
+impl cui::Component for Host {
+  fn mut render() cui::View {
+    let model = self.model
+    cui::box(
+      [
+        cui::box(
+          [cui::text("transcript")],
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0), min_height: ui::cells(3)),
+        ),
+        interaction_dock::dock(
+          interaction_dock::Props{
+            themes: self.themes,
+            request: model.request,
+            queue_length: model.queue_length,
+            active: model.active,
+            submitting: model.submitting,
+            respond: fn(response: protocol::InteractionResponse) {
+              model.responses.push(response)
+            },
+            control: model.control,
+          },
+        ),
+      ],
+      styles: ui::style(
+        width: ui::percent(100.0),
+        height: ui::percent(100.0),
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
+  }
+}
+
+fn model(request: protocol::InteractionRequest) mut Model {
+  (mut Model{
+    request: request,
+    queue_length: 1,
+    active: true,
+    submitting: false,
+    responses: [],
+    control: interaction_dock::ref(),
+  })
+}
+
+fn mount(terminal: headless::TestApp, state: mut Model) cui::Renderer {
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let themes = theme::context(theme::store(theme::system()))
+  let renderer = cui::mount(app, cui::child(host, HostProps{model: state, themes: themes}))
+  settle(terminal)
+  renderer
+}
+
+// Windowed lists report their visible range after a commit, and the overflow
+// rows that range adds lay the list out once more.
+fn settle(terminal: headless::TestApp) {
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+}
+
+fn press(terminal: headless::TestApp, name: Str, shift: Bool?) {
+  terminal.key(key(name, shift))
+  settle(terminal)
+}
+
+fn type_text(terminal: headless::TestApp, text: Str) {
+  for character in text {
+    terminal.key(
+      event::key(
+        "{character}",
+        "{character}",
+        event::KeyEventType::press,
+        event::Modifiers{
+          shift: false,
+          ctrl: false,
+          alt: false,
+          super: false,
+        },
+      ),
+    )
+  }
+  settle(terminal)
+}
+
+fn only_response(state: mut Model) protocol::InteractionResponse!Str {
+  match state.responses.size() == 1 {
+    true => Result::ok(state.responses.at(0).expect("response")),
+    false => Result::err("{state.responses.size()} responses"),
+  }
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn key(name: Str, shift: Bool?) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: shift.or(false),
+      ctrl: false,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+fn runners() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_runner",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionSelect,
+    Title: "Which test runner should I set up?",
+    Detail: "No test config exists yet. `vitest` reuses the Vite build.",
+    Options: [
+      protocol::InteractionOption{
+        ID: "vitest",
+        Label: "Vitest",
+        Detail: "Vite-native, Jest-compatible API",
+      },
+      protocol::InteractionOption{
+        ID: "jest",
+        Label: "Jest",
+        Detail: "Most widely used; needs a transform",
+      },
+      protocol::InteractionOption{
+        ID: "node",
+        Label: "node:test",
+        Detail: "Built in, no dependencies",
+      },
+      protocol::InteractionOption{
+        ID: "playwright",
+        Label: "Playwright Test",
+        Detail: "Browser end-to-end runner",
+      },
+      protocol::InteractionOption{
+        ID: "mocha",
+        Label: "Mocha + Chai",
+        Detail: "Flexible; assertions are separate",
+      },
+      protocol::InteractionOption{
+        ID: "none",
+        Label: "None for now",
+        Detail: "Only add the CI job",
+      },
+    ],
+  }
+}
+
+test fn a_select_request_lists_every_option_at_its_natural_height() Void!Str {
+  let terminal = headless::new(72, 16)
+  defer terminal.destroy()
+  let state = model(runners())
+  state.queue_length = 2
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      "",
+      " Which test runner should I set up?                              1 of 2",
+      " No test config exists yet. vitest reuses the Vite build.",
+      "",
+      " ▌A   Vitest           Vite-native, Jest-compatible API",
+      "  B   Jest             Most widely used; needs a transform",
+      "  C   node:test        Built in, no dependencies",
+      "  D   Playwright Test  Browser end-to-end runner",
+      "  E   Mocha + Chai     Flexible; assertions are separate",
+      "  F   None for now     Only add the CI job",
+      "",
+      " ↑↓ move · enter/space select · esc cancel                      Cancel",
+      "",
+    ],
+  )
+  let colors = theme::system()
+  let selected = terminal.frame().cell(
+    30,
+    7,
+  ).expect("selected row").style.background.expect("selected fill")
+  let surface = terminal.frame().cell(
+    30,
+    8,
+  ).expect("option row").style.background.expect("surface fill")
+  testing::assert(
+    selected.red == colors.picker_selected.red and selected.green == colors.picker_selected.green and selected.blue == colors.picker_selected.blue and surface.red == colors.surface.red and surface.green == colors.surface.green and surface.blue == colors.surface.blue,
+    "the highlighted option uses the picker selection fill over the dock surface",
+  )
+}
+
+test fn the_keyboard_moves_through_options_and_chooses_one() Void!Str {
+  let terminal = headless::new(72, 16)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "down")
+  press(terminal, "j")
+  press(terminal, "k")
+  try testing::assert(
+    rows(terminal).at(7).or("") == "  A   Vitest           Vite-native, Jest-compatible API" and rows(terminal).at(8).or("") == " ▌B   Jest             Most widely used; needs a transform",
+    "the highlight follows the keys",
+  )
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    response.RequestID == "interaction_runner" and response.SelectedOptionID == "jest" and (not response.Cancelled),
+    "Return chooses the highlighted option",
+  )
+}
+
+test fn clicking_an_option_chooses_it() Void!Str {
+  let terminal = headless::new(72, 16)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  terminal.click(10, 9)
+  settle(terminal)
+  let response = try only_response(state)
+  testing::assert(response.SelectedOptionID == "node", "the clicked option is chosen")
+}
+
+test fn a_constrained_terminal_windows_the_options_around_the_highlight() Void!Str {
+  let terminal = headless::new(72, 14)
+  defer terminal.destroy()
+  let state = model(runners())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Which test runner should I set up?",
+      " No test config exists yet. vitest reuses the Vite build.",
+      "",
+      " ▌A   Vitest           Vite-native, Jest-compatible API",
+      "  B   Jest             Most widely used; needs a transform",
+      "  C   node:test        Built in, no dependencies",
+      "  D   Playwright Test  Browser end-to-end runner",
+      "      ▼ 2 more",
+      "",
+      " ↑↓ move · enter/space select · esc cancel                      Cancel",
+      "",
+    ],
+  )
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  press(terminal, "down")
+  expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Which test runner should I set up?",
+      " No test config exists yet. vitest reuses the Vite build.",
+      "",
+      "      ▲ 2 more",
+      "  C   node:test        Built in, no dependencies",
+      "  D   Playwright Test  Browser end-to-end runner",
+      " ▌E   Mocha + Chai     Flexible; assertions are separate",
+      "      ▼ 1 more",
+      "",
+      " ↑↓ move · enter/space select · esc cancel                      Cancel",
+      "",
+    ],
+  )
+}
+
+fn confirmation() protocol::InteractionRequest {
+  protocol::InteractionRequest{
+    ID: "interaction_confirm",
+    TurnID: "turn-1",
+    ToolCallID: "call-1",
+    Kind: protocol::InteractionConfirm,
+    Title: "Delete the generated snapshots?",
+    Detail: "This removes **14 files**.",
+  }
+}
+
+test fn a_confirmation_answers_from_letters_and_buttons() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Delete the generated snapshots?",
+      " This removes 14 files.",
+      "",
+      "   Yes     No",
+      "",
+      " y yes · n no · esc cancel                          Cancel",
+      "",
+    ],
+  )
+  press(terminal, "n", shift: true)
+  let declined = try only_response(state)
+  try testing::assert(not unsafe::is_nil(declined.Confirmed) and not declined.Confirmed.@, "N declines")
+  state.responses = []
+  press(terminal, "y")
+  let accepted = try only_response(state)
+  try testing::assert(not unsafe::is_nil(accepted.Confirmed) and accepted.Confirmed.@, "y accepts")
+  state.responses = []
+  terminal.click(4, 6)
+  settle(terminal)
+  let clicked = try only_response(state)
+  testing::assert(
+    not unsafe::is_nil(clicked.Confirmed) and clicked.Confirmed.@,
+    "clicking Yes accepts",
+  )
+}
+
+test fn escape_and_the_cancel_button_cancel_the_request() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "escape")
+  let escaped = try only_response(state)
+  try testing::assert(escaped.Cancelled and unsafe::is_nil(escaped.Confirmed), "Escape cancels")
+  state.responses = []
+  terminal.click(53, 8)
+  settle(terminal)
+  let clicked = try only_response(state)
+  testing::assert(clicked.Cancelled, "the Cancel button cancels")
+}
+
+test fn a_text_request_submits_a_non_empty_answer() Void!Str {
+  let terminal = headless::new(60, 9)
+  defer terminal.destroy()
+  let state = model(
+    protocol::InteractionRequest{
+      ID: "interaction_branch",
+      TurnID: "turn-1",
+      ToolCallID: "call-1",
+      Kind: protocol::InteractionInput,
+      Title: "Which branch should the fix target?",
+      Placeholder: "release/… or main",
+    },
+  )
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  try expect_rows(
+    rows(terminal),
+    [
+      "transcript",
+      "",
+      "",
+      " Which branch should the fix target?",
+      "",
+      "  release/… or main",
+      "",
+      " enter submit · esc cancel                          Cancel",
+      "",
+    ],
+  )
+  press(terminal, "return")
+  try testing::assert(state.responses.size() == 0, "an empty answer is not submitted")
+  type_text(terminal, "main")
+  press(terminal, "return")
+  let response = try only_response(state)
+  testing::assert(
+    not unsafe::is_nil(response.Value) and response.Value.@ == "main",
+    "Return submits the typed answer",
+  )
+}
+
+test fn the_dock_ignores_input_while_inactive_or_submitting() Void!Str {
+  let terminal = headless::new(60, 10)
+  defer terminal.destroy()
+  let state = model(confirmation())
+  state.active = false
+  let renderer = mount(terminal, state)
+  defer renderer.destroy()
+  press(terminal, "y")
+  press(terminal, "escape")
+  terminal.click(4, 6)
+  settle(terminal)
+  try testing::assert(state.responses.size() == 0, "a dock behind a dialog does not answer")
+  renderer.update(fn() {
+    state.active = true
+    state.submitting = true
+  })
+  settle(terminal)
+  press(terminal, "y")
+  testing::assert(state.responses.size() == 0, "a submitted request is not answered twice")
+}
