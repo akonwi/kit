@@ -1,0 +1,51 @@
+use cooper/cui
+use cooper/ui
+use kit/tui/theme
+
+// Shared single-row and centered layout primitives for terminal surfaces.
+
+// One unwrapped row, ellipsized when it exceeds its width.
+fn line(content: Str, style: ui::TextStyle) cui::View {
+  cui::text(
+    content,
+    text_style: style,
+    wrap: ui::TextWrap::none,
+    overflow: ui::TextOverflow::ellipsis,
+  )
+}
+
+// One empty fixed-height row.
+fn blank() cui::View {
+  cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0))
+}
+
+fn wordmark(colors: theme::Theme) [cui::View] {
+  [
+    line("k i t", ui::text_style(bold: true)),
+    line("━━━━━━━━━━━", ui::text_style(foreground: colors.primary_text)),
+  ]
+}
+
+// Centers content in the region that remains after the chrome.
+fn centered(children: [cui::View]) cui::View {
+  cui::box(
+    children,
+    styles: ui::style(
+      flex_grow: 1.0,
+      flex_direction: ui::FlexDirection::column,
+      justify_content: ui::Justify::center,
+      align_items: ui::Align::center,
+    ),
+  )
+}
+
+// The wordmark above a muted instruction, centered in the available region.
+fn empty_state(colors: theme::Theme, instruction: Str) cui::View {
+  let children = mut List::new<cui::View>()
+  for view in wordmark(colors) {
+    children.push(view)
+  }
+  children.push(blank())
+  children.push(line(instruction, ui::text_style(foreground: colors.muted)))
+  centered(children.@)
+}
