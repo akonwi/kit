@@ -7,6 +7,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/after_commit
 use kit/tui/controls
 use kit/tui/theme
 use go:time
@@ -210,7 +211,7 @@ impl Editor {
       context => {
         let editor = self.editor
         let _ = context.dispatch(fn() {
-          context.internal_commit(fn() {
+          let _ = after_commit::once(context, fn() {
             if self.props.active and not self.closing {
               editor.focus(context)
             }

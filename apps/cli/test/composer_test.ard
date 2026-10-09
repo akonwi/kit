@@ -287,6 +287,27 @@ test fn parent_renders_do_not_make_the_composer_reclaim_focus() Void!Str {
   testing::assert(value.submitted == "", "the composer remains idle")
 }
 
+test fn a_focus_request_does_not_keep_reclaiming_focus() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(value.control.focus(), "focus is requested")
+  terminal.flush()
+  let context = value.context.expect("mounted host")
+  let _ = value.other_input.focus(context)
+  terminal.flush()
+  // Each typed letter commits a frame; the composer stays unfocused.
+  terminal.key(character("a"))
+  terminal.flush()
+  terminal.key(character("b"))
+  terminal.flush()
+  testing::assert(value.other == "ab", "the other input keeps focus: {value.other}")
+}
+
 test fn enabling_the_composer_does_not_focus_it_without_an_explicit_request() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
