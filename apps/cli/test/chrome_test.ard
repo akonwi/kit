@@ -156,6 +156,24 @@ test fn turn_recovery_replaces_the_composer_mode_in_muted_text() Void!Str {
   )
 }
 
+test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let status = chrome::session_status("", 2)
+  try testing::assert(status == "2 queued · ↑ restore", status)
+  expect_rows(
+    render(80, 1, chrome::footer(themes, "", status, "bash", "~/kit")),
+    [" 2 queued · ↑ restore                                                     ~/kit"],
+  )
+}
+
+test fn turn_recovery_outranks_queued_follow_ups() Void!Str {
+  try testing::assert(
+    chrome::session_status("Reconnecting activity…", 2) == "Reconnecting activity…",
+    "recovery is shown",
+  )
+  testing::assert(chrome::session_status("", 0) == "", "nothing is queued")
+}
+
 test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
   try expect_rows(

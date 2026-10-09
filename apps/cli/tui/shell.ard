@@ -90,6 +90,7 @@ private fn inert_attachment_host() attached_session::Host {
     toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {},
     attach: fn(attached: bootstrap::Attached, location: Str) {},
     restore_draft: fn(text: Str) {},
+    prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
   }
 }
@@ -310,10 +311,14 @@ impl Shell {
       true => "",
       false => "Restart Kit to reconnect",
     }
+    let status = chrome::session_status(
+      self.attached.recovery_status(),
+      self.attached.follow_ups.Count,
+    )
     chrome::footer(
       self.props.themes,
       connection,
-      self.attached.recovery_status(),
+      status,
       self.composer_mode,
       self.attached.location,
     )
@@ -627,6 +632,13 @@ impl Shell {
         submit: fn(text: Str) Bool {
           self.request_composer_submit(text)
         },
+        follow_ups: self.attached.follow_ups.Count,
+        restore_follow_ups: fn() {
+          self.request_follow_ups(true)
+        },
+        send_follow_ups: fn() {
+          self.request_follow_ups(false)
+        },
         open_palette: fn() {
           self.request_composer_palette()
         },
@@ -650,6 +662,24 @@ impl Shell {
           true
         },
         _ => false,
+      }
+    }
+  }
+
+  // Restores queued follow-ups into the composer, or sends them to the
+  // running turn now.
+  fn mut request_follow_ups(restore: Bool) {
+    if self.phase == Phase::ready {
+      match self.context {
+        context => {
+          let _ = context.dispatch(fn() {
+            match restore {
+              true => self.attached.restore_follow_ups(),
+              false => self.attached.promote_follow_ups(),
+            }
+          })
+        },
+        _ => (),
       }
     }
   }
@@ -1289,6 +1319,9 @@ impl Shell {
       },
       restore_draft: fn(text: Str) {
         let _ = self.composer_control.restore_if_empty(text)
+      },
+      prepend_draft: fn(text: Str) {
+        let _ = self.composer_control.prepend(text)
       },
       show_latest: fn() {
         let _ = self.transcript_control.show_latest()

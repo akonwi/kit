@@ -11,6 +11,7 @@ struct Ref {
   clear_action: (fn() Bool)?,
   reset_action: (fn() Bool)?,
   restore_action: (fn(Str) Bool)?,
+  prepend_action: (fn(Str) Bool)?,
 }
 
 fn ref() mut Ref {
@@ -19,6 +20,7 @@ fn ref() mut Ref {
     clear_action: Maybe::new<fn() Bool>(),
     reset_action: Maybe::new<fn() Bool>(),
     restore_action: Maybe::new<fn(Str) Bool>(),
+    prepend_action: Maybe::new<fn(Str) Bool>(),
   })
 }
 
@@ -51,6 +53,15 @@ impl Ref {
       _ => false,
     }
   }
+
+  // prepend puts value before the draft, separated by a blank line, with the
+  // cursor at the end.
+  fn mut prepend(value: Str) Bool {
+    match self.prepend_action {
+      action => action(value),
+      _ => false,
+    }
+  }
 }
 
 // Props contains live Shell-owned dependencies. Composer owns its draft,
@@ -61,6 +72,12 @@ struct Props {
   focus_eligible: Bool,
   control: mut Ref,
   submit: fn(Str) Bool,
+  // The number of queued follow-ups. While any are queued, Up restores them
+  // into the draft.
+  follow_ups: Int,
+  restore_follow_ups: fn(),
+  // Enter on an empty draft sends queued follow-ups to the running turn.
+  send_follow_ups: fn(),
   open_palette: fn(),
   mode_changed: fn(Str),
 }
@@ -102,6 +119,9 @@ impl cui::Lifecycle for Composer {
     self.props.control.restore_action = Maybe::new(fn(value: Str) Bool {
       self.request_restore(value)
     })
+    self.props.control.prepend_action = Maybe::new(fn(value: Str) Bool {
+      self.request_prepend(value)
+    })
   }
 
   fn mut unmounting(context: cui::Context) {
@@ -109,6 +129,7 @@ impl cui::Lifecycle for Composer {
     self.props.control.clear_action = Maybe::new<fn() Bool>()
     self.props.control.reset_action = Maybe::new<fn() Bool>()
     self.props.control.restore_action = Maybe::new<fn(Str) Bool>()
+    self.props.control.prepend_action = Maybe::new<fn(Str) Bool>()
   }
 }
 
@@ -175,6 +196,24 @@ impl Composer {
     }
   }
 
+  private fn mut request_prepend(value: Str) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          let parts = mut List::new<Str>()
+          for part in [value, self.draft] {
+            if part != "" {
+              parts.push(part)
+            }
+          }
+          self.change(strings::Join(parts, "\n\n"))
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
   private fn mut change(value: Str) {
     self.draft = value
     let next = mode(value)
@@ -189,8 +228,26 @@ impl Composer {
       context => {
         let _ = context.dispatch(fn() {
           let text = strings::TrimSpace(self.draft)
-          if self.props.enabled and text != "" and (self.props.submit)(text) {
-            self.change("")
+          if self.props.enabled {
+            if text == "" {
+              (self.props.send_follow_ups)()
+            } else if (self.props.submit)(text) {
+              self.change("")
+            }
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_restore_follow_ups() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.props.enabled and self.props.follow_ups > 0 {
+            (self.props.restore_follow_ups)()
           }
         })
         true
@@ -228,10 +285,20 @@ impl cui::Component for Composer {
     let open_palette = keymap::simple_command("palette.open", "Open command palette", fn() Bool {
       self.request_palette()
     })
+    let restore = keymap::simple_command(
+      "composer.restore_follow_ups",
+      "Restore queued follow-ups",
+      fn() Bool {
+        self.request_restore_follow_ups()
+      },
+    )
     let bindings = mut List::new<keymap::Binding>()
     bindings.push(keymap::binding(keymap::key("return"), send.with()))
     if self.draft == "" {
       bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
+    }
+    if self.props.follow_ups > 0 {
+      bindings.push(keymap::binding(keymap::key("up"), restore.with()))
     }
     cui::text_area(
       // Autofocus is mount-only. Live renders never assert focused=true, so
@@ -261,7 +328,7 @@ impl cui::Component for Composer {
         self.change(value)
       },
       key_bindings: editing,
-      commands: [send, open_palette],
+      commands: [send, open_palette, restore],
       bindings: bindings.@,
     )
   }

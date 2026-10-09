@@ -121,26 +121,36 @@ fn header(themes: theme::Context, spec: Header) cui::View {
   )
 }
 
-// footer shows, on the left, the session's connection problem, else the
-// active turn's stream recovery, else the composer's current mode; the working
-// location is on the right.
-fn footer(themes: theme::Context, connection: Str, recovery: Str, mode: Str, location: Str) cui::View {
-  let colors = themes.current()
-  let status = match {
-    connection != "" => connection,
+// The footer's session status: the active turn's stream recovery, which
+// outranks the queue that turn would drain, else the queued follow-ups.
+fn session_status(recovery: Str, follow_ups: Int) Str {
+  match {
     recovery != "" => recovery,
+    follow_ups > 0 => "{follow_ups} queued · ↑ restore",
+    _ => "",
+  }
+}
+
+// footer shows, on the left, the session's connection problem, else a
+// session status such as stream recovery or queued follow-ups, else the
+// composer's current mode; the working location is on the right.
+fn footer(themes: theme::Context, connection: Str, status: Str, mode: Str, location: Str) cui::View {
+  let colors = themes.current()
+  let shown = match {
+    connection != "" => connection,
+    status != "" => status,
     _ => mode,
   }
   let tone = match {
     connection != "" => colors.warning_text,
-    recovery != "" => colors.muted,
+    status != "" => colors.muted,
     mode != "" => colors.success_text,
     _ => colors.muted,
   }
   cui::box(
     [
       cui::box(
-        [layout::line(status, ui::text_style(foreground: tone))],
+        [layout::line(shown, ui::text_style(foreground: tone))],
         styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       ),
       cui::box(

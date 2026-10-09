@@ -40,6 +40,8 @@ struct Host {
   attach: fn(bootstrap::Attached, Str),
   // Returns a failed prompt to the composer when it has not been reused.
   restore_draft: fn(Str),
+  // Puts restored follow-ups before the composer's draft.
+  prepend_draft: fn(Str),
   // Returns the transcript to its end after a local submission.
   show_latest: fn(),
 }
@@ -57,6 +59,8 @@ struct Controller {
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
   follow_ups: protocol::FollowUpQueue,
+  // Whether the follow-up queue is being restored or sent.
+  follow_ups_changing: Bool,
   messages: [transcript::Message],
   // Earlier transcript pages. The cursor is the oldest loaded message;
   // `history_scope` advances whenever the cursor is replaced so an in-flight
@@ -148,6 +152,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
       Previews: [],
       AnnotationIDs: [],
     },
+    follow_ups_changing: false,
     messages: [],
     history_initialized: false,
     history_cursor: "",
@@ -308,6 +313,7 @@ impl Controller {
       self.abort_after_start = false
       self.compact_pending = false
       self.compact_operation_id = ""
+      self.follow_ups_changing = false
       self.reload_pending = false
       self.new_session_pending = false
       self.history_loading = false
@@ -1580,6 +1586,124 @@ impl Controller {
     }
   }
 
+  // Returns queued follow-ups to the composer, before its draft. The server
+  // removes them from the queue.
+  fn mut restore_follow_ups() {
+    if self.can_submit() and self.follow_ups.Count > 0 and (not self.follow_ups_changing) {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              self.follow_ups_changing = true
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.RestoreFollowUps(ctx)
+                let _ = dispatch(fn() {
+                  if self.active {
+                    self.follow_ups_changing = false
+                    match result {
+                      ok(restored) => self.apply_restored_follow_ups(restored),
+                      err(failure) => {
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Could not restore follow-ups",
+                            failure.error(),
+                            toast::Variant::error,
+                            false,
+                          )
+                        }
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut apply_restored_follow_ups(restored: protocol::RestoreFollowUpsResult) {
+    self.follow_ups = restored.Queue
+    let texts = mut List::new<Str>()
+    for message in restored.Messages {
+      if message.Text != "" {
+        texts.push(message.Text)
+      }
+    }
+    if texts.size() > 0 {
+      (self.host.prepend_draft)(strings::Join(texts, "\n\n"))
+    }
+  }
+
+  // Sends queued follow-ups to the running turn now instead of after it.
+  fn mut promote_follow_ups() {
+    if self.can_submit() and self.busy() and self.follow_ups.Count > 0 and (not self.follow_ups_changing) {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              self.follow_ups_changing = true
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = session.PromoteFollowUps(ctx)
+                // After a failure the queue may have changed anyway.
+                let current = match result {
+                  ok(_) => Maybe::new<protocol::FollowUpQueue>(),
+                  err(_) => {
+                    match session.Snapshot(ctx) {
+                      ok(snapshot) => Maybe::new(snapshot.FollowUps),
+                      err(_) => Maybe::new<protocol::FollowUpQueue>(),
+                    }
+                  },
+                }
+                let _ = dispatch(fn() {
+                  if self.active {
+                    self.follow_ups_changing = false
+                    match result {
+                      ok(promoted) => self.apply_promoted_follow_ups(promoted),
+                      err(failure) => {
+                        match current {
+                          queue => { self.follow_ups = queue },
+                          _ => (),
+                        }
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Could not send follow-ups now",
+                            failure.error(),
+                            toast::Variant::error,
+                            false,
+                          )
+                        }
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  fn mut apply_promoted_follow_ups(promoted: protocol::PromoteFollowUpsResult) {
+    self.follow_ups = promoted.Queue
+    (self.host.toast)(
+      "Follow-ups sent",
+      "Promoted {promoted.Promoted} queued messages.",
+      toast::Variant::info,
+      false,
+    )
+  }
+
   // Starts the optimistic live turn for a local submission when no other turn
   // is active. Returns whether the live transcript must be rolled back on
   // rejection.
@@ -1754,6 +1878,7 @@ impl Controller {
 
 struct Effects {
   toasts: [Str],
+  drafts: [Str],
 }
 
 private fn test_host(effects: mut Effects) Host {
@@ -1767,6 +1892,9 @@ private fn test_host(effects: mut Effects) Host {
     },
     attach: fn(attached: bootstrap::Attached, location: Str) {},
     restore_draft: fn(text: Str) {},
+    prepend_draft: fn(text: Str) {
+      effects.drafts.push(text)
+    },
     show_latest: fn() {},
   }
 }
@@ -1778,7 +1906,7 @@ private fn active_controller(effects: mut Effects) mut Controller {
 }
 
 test fn a_detached_controller_ignores_session_operations() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = detached(cli::TUIOptions{}, test_host(effects))
   subject.submit("hello")
   subject.reload()
@@ -1791,7 +1919,7 @@ test fn a_detached_controller_ignores_session_operations() Void!Str {
 }
 
 test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   let snapshot = protocol::SessionSnapshot{
     Session: protocol::SessionInfo{ID: "session-1", Name: "Notes"},
@@ -1822,7 +1950,7 @@ test fn snapshots_project_session_state_and_report_each_mcp_warning_once() Void!
 }
 
 test fn session_records_only_update_the_attached_session() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1", Name: "Before"}},
@@ -1852,6 +1980,7 @@ private fn queued_host(queue: mut Queue) Host {
     toast: fn(title: Str, detail: Str, variant: toast::Variant, persistent: Bool) {},
     attach: fn(attached: bootstrap::Attached, location: Str) {},
     restore_draft: fn(text: Str) {},
+    prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
   }
 }
@@ -1894,7 +2023,7 @@ test fn dialog_records_apply_through_the_host_and_only_while_attached() Void!Str
 
 test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached() Void!Str {
   let queue = mut Queue{actions: []}
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let host = Host{
     dispatch: fn(action: fn()) Void!event::DispatchError {
       queue.actions.push(action)
@@ -1905,6 +2034,7 @@ test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached
     },
     attach: fn(attached: bootstrap::Attached, location: Str) {},
     restore_draft: fn(text: Str) {},
+    prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
   }
   let subject = controller(cli::TUIOptions{}, host, 1, "")
@@ -1947,7 +2077,7 @@ test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached
 }
 
 test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_events(
     [
@@ -1975,7 +2105,7 @@ test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
 }
 
 test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.run_id = "turn-1"
   subject.live.activity = "Working…"
@@ -2003,7 +2133,7 @@ test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
 }
 
 test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
   subject.run_id = "turn-1"
@@ -2034,7 +2164,7 @@ test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!
 }
 
 test fn a_persisted_failure_is_not_reported_twice() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.run_id = "turn-a"
   subject.settle_run(
@@ -2060,7 +2190,7 @@ test fn a_persisted_failure_is_not_reported_twice() Void!Str {
 }
 
 test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.run_id = "turn-1"
   subject.live.submit("hello")
@@ -2103,8 +2233,56 @@ test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
   )
 }
 
+test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.follow_ups = protocol::FollowUpQueue{Count: 3, Previews: ["a", "b", "c"]}
+  subject.apply_restored_follow_ups(
+    protocol::RestoreFollowUpsResult{
+      Messages: [
+        protocol::PromptInput{Text: "first"},
+        protocol::PromptInput{AttachmentIDs: ["attachment-1"]},
+        protocol::PromptInput{Text: "second"},
+      ],
+      Queue: protocol::FollowUpQueue{Count: 0},
+    },
+  )
+  try testing::assert(subject.follow_ups.Count == 0, "the queue is emptied")
+  testing::assert(
+    effects.drafts.size() == 1 and effects.drafts.at(0).or("") == "first\n\nsecond",
+    "the texts are joined by blank lines: {effects.drafts.size()}",
+  )
+}
+
+test fn promoted_follow_ups_update_the_queue_and_are_acknowledged() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.follow_ups = protocol::FollowUpQueue{Count: 2}
+  subject.apply_promoted_follow_ups(
+    protocol::PromoteFollowUpsResult{Promoted: 2, Queue: protocol::FollowUpQueue{Count: 0}},
+  )
+  try testing::assert(subject.follow_ups.Count == 0, "the queue is emptied")
+  testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Follow-ups sent: Promoted 2 queued messages.",
+    "the promotion is acknowledged",
+  )
+}
+
+test fn follow_ups_change_only_on_a_connected_session() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.run_id = "turn-1"
+  subject.follow_ups = protocol::FollowUpQueue{Count: 1}
+  subject.restore_follow_ups()
+  subject.promote_follow_ups()
+  testing::assert(
+    (not subject.follow_ups_changing) and effects.toasts.size() == 0,
+    "nothing is requested without a session",
+  )
+}
+
 test fn disposal_ends_the_attachment_scope() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
   subject.dispose()
@@ -2116,7 +2294,7 @@ test fn disposal_ends_the_attachment_scope() Void!Str {
 }
 
 test fn a_fork_waits_only_for_work_that_replaces_the_attachment() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, ActiveTurnID: "turn-1"},
@@ -2165,6 +2343,7 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
     restore_draft: fn(text: Str) {
       drafts.push(text)
     },
+    prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
   }
   let subject = controller(cli::TUIOptions{}, host, 1, "")
@@ -2180,7 +2359,7 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
 }
 
 test fn a_snapshot_after_a_stream_replacement_rebases_the_live_turn() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
   subject.apply_events(
@@ -2240,7 +2419,7 @@ private fn model_request(id: Str) protocol::InteractionRequest {
 }
 
 test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   let first = model_request("interaction_1")
   let second = model_request("interaction_2")
@@ -2336,7 +2515,7 @@ test fn pending_requests_queue_in_order_and_settle_by_id() Void!Str {
 }
 
 test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   let request = model_request("interaction_1")
   subject.apply_events(
@@ -2373,7 +2552,7 @@ test fn a_late_copy_of_a_settled_request_does_not_reopen_it() Void!Str {
 }
 
 test fn snapshots_replace_pending_requests() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2424,7 +2603,7 @@ private fn shown(subject: mut Controller) Str {
 }
 
 test fn earlier_history_continues_from_the_snapshot_and_survives_later_snapshots() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2463,7 +2642,7 @@ test fn earlier_history_continues_from_the_snapshot_and_survives_later_snapshots
 }
 
 test fn a_snapshot_that_replaces_history_restarts_its_cursor() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2488,7 +2667,7 @@ test fn a_snapshot_that_replaces_history_restarts_its_cursor() Void!Str {
 }
 
 test fn a_page_that_overlaps_the_transcript_is_reported_and_not_applied() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2514,7 +2693,7 @@ test fn a_page_that_overlaps_the_transcript_is_reported_and_not_applied() Void!S
 }
 
 test fn an_expired_cursor_recovers_from_a_fresh_snapshot() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2545,7 +2724,7 @@ private fn reported(result: Void!Error) Error {
 }
 
 test fn an_incompatible_server_freezes_the_attachment_once() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.apply_snapshot(
     protocol::SessionSnapshot{
@@ -2579,7 +2758,7 @@ test fn an_incompatible_server_freezes_the_attachment_once() Void!Str {
 }
 
 test fn ordinary_failures_are_reported_by_their_operation() Void!Str {
-  let effects = mut Effects{toasts: []}
+  let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   try testing::assert(
     not subject.absorbs(reported(errors::New("connection refused"))),

@@ -77,10 +77,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   the top, including when the first page does not fill the view, keeping
   loaded pages across later snapshots. The vaxis reading-section strip and
   "Beginning of conversation" row are intentionally not ported.
-- [~] TUI-COOPER-004 — Composer: prompt submission and Escape abort are
-  complete. Remaining: editing bindings, bracketed paste, history recall,
-  follow-up queue, bash mode and history, attachments, file and session
-  mentions, and annotation chips.
+- [~] TUI-COOPER-004 — Composer: prompt submission, Escape abort, Cooper's
+  editing bindings, and the follow-up queue are complete. ↑ restores queued
+  follow-ups before the draft, Enter on an empty draft sends them to the
+  running turn, and the footer shows `N queued · ↑ restore` below stream
+  recovery. Remaining: Ctrl+Shift+W, a composer paste test, history recall,
+  bash mode and history, attachments (including those of restored
+  follow-ups, which are dropped until then), file and session mentions, and
+  annotation chips.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
