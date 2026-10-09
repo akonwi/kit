@@ -18,6 +18,9 @@ let max_per_prompt = 8
 // Upload timeout in milliseconds.
 let upload_timeout = 45000
 
+// Marks an attached file, in staged chips and in the transcript.
+let glyph = "📎"
+
 // One attachment staged for the next prompt.
 struct Staged {
   // Identifies the staged row while its upload runs.
