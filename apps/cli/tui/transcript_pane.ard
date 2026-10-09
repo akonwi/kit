@@ -107,6 +107,15 @@ struct Work {
   // Opens the chip with the key, or closes it when open (the second
   // argument).
   toggle: fn(Str, Bool),
+  // The selected tool row's key (see `tool_key`), or empty.
+  selected: Str,
+  // Selects the tool row with the key.
+  select_tool: fn(Str),
+}
+
+// The key of a tool row, unique in the session.
+fn tool_key(turn_id: Str, call_id: Str) Str {
+  "{turn_id}:{call_id}"
 }
 
 // A running chip opens on its own until it has more calls than this.
@@ -572,6 +581,8 @@ private fn entry_view(
             themes: themes,
             call: transcript::tool_call(message.tool_call_id, message.tool_name),
             result: message,
+            selected: false,
+            on_select: fn() {},
           },
         ),
       )
@@ -1076,11 +1087,17 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
         // Thinking lines up with the tool rows' titles.
         let content = match step.result {
           result => {
+            let row = tool_key(run.turn_id, result.tool_call_id)
+            let choose = work.select_tool
             tool_row::view(
               tool_row::Props{
                 themes: themes,
                 call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
                 result: result,
+                selected: work.selected == row,
+                on_select: fn() {
+                  choose(row)
+                },
               },
             )
           },

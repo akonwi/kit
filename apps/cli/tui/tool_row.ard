@@ -1,5 +1,6 @@
 use ard/testing
 
+use cooper
 use cooper/cui
 use cooper/ui
 use go:github.com/akonwi/vaxis
@@ -13,7 +14,8 @@ use go:strings
 // One tool call in an open work chip, as the vaxis client draws it: a state
 // icon, the title in an accent column, and the summary in a chip. A row
 // narrower than `narrow_width` puts the chip on its own line and keeps the
-// end of a path that leads its summary.
+// end of a path that leads its summary. Clicking a row selects it; the
+// selected row is filled.
 
 // Rows narrower than this put the summary on a second line.
 let narrow_width = 60
@@ -115,6 +117,9 @@ struct Props {
   themes: theme::Context,
   call: transcript::ToolCall,
   result: transcript::Message,
+  selected: Bool,
+  // Called when the row is clicked.
+  on_select: fn(),
 }
 
 fn view(props: Props) cui::View {
@@ -250,7 +255,21 @@ impl cui::Component for Row {
         ]
       },
     }
-    cui::box(rows, ref: self.frame, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    let chosen = self.props.on_select
+    cui::box(
+      rows,
+      ref: self.frame,
+      styles: match self.props.selected {
+        true => ui::style(flex_direction: ui::FlexDirection::column, background: colors.surface_pressed),
+        false => ui::style(flex_direction: ui::FlexDirection::column),
+      },
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          chosen()
+          received.prevent_default()
+        }
+      },
+    )
   }
 }
 
