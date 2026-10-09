@@ -1472,6 +1472,7 @@ fn bash_row(id: Str, command: Str, status: Str, exit_code: Int, output: Str) tra
       ExitCode: exit_code,
       HasExitCode: status == "completed",
       TimedOut: false,
+      Exclude: false,
       Output: output,
     },
   )

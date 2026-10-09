@@ -104,8 +104,11 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     from the session's persisted context, so they keep their place across
     snapshots and reattaching; `!!` runs are not persisted and leave at the
     next snapshot.
-  - [ ] Bash history: ↑/↓ in bash mode open earlier commands in an inline
-    picker.
+  - [x] Bash history: ↑/↓ in bash mode open earlier commands in an inline
+    picker, listed as `!command` or `!!command` and filtered by the command
+    after the prefix. It opens on the finished commands shown, then the
+    session's ten newest replace them; moving up past the oldest reads older
+    pages of 100, up to five, before wrapping. Leaving bash mode closes it.
   - [ ] File mentions: `@` opens an inline file picker that inserts
     `@path`.
   - [ ] Session mentions: `#` opens an inline session picker that inserts

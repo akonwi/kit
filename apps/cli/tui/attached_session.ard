@@ -2003,6 +2003,75 @@ impl Controller {
     }
   }
 
+  // The finished commands shown in the transcript, newest first, which
+  // command history lists until the session's history loads.
+  fn shown_commands() [sessionbridge::BashHistoryItem] {
+    let messages = self.transcript_messages()
+    let items = mut List::new<sessionbridge::BashHistoryItem>()
+    mut index = messages.size() - 1
+    while index >= 0 {
+      let message = messages.at(index).expect("message")
+      match message.bash {
+        run => {
+          if (not run.Running()) and strings::TrimSpace(run.Command) != "" {
+            items.push(
+              sessionbridge::BashHistoryItem{
+                ID: run.ID,
+                Command: run.Command,
+                Exclude: run.Exclude,
+              },
+            )
+          }
+        },
+        _ => (),
+      }
+      index = index - 1
+    }
+    items.@
+  }
+
+  // Reads up to limit commands run before the cursor before, newest first,
+  // for the composer's command history; a zero cursor reads the newest. A read
+  // that fails is reported and answers with nothing; one that times out after
+  // three seconds answers with nothing quietly.
+  fn mut load_bash_history(before: Int64, limit: Int, answer: fn(sessionbridge::BashHistoryPage?)) {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            async::start(fn() {
+              let bounded = contextbridge::WithTimeout(ctx, 3000)
+              let result = sessionbridge::BashHistory(bounded.Context, session, before, limit)
+              let timed_out = contextbridge::Done(bounded.Context) and not contextbridge::Done(ctx)
+              bounded.Cancel()
+              let _ = dispatch(fn() {
+                if self.active {
+                  match result {
+                    ok(page) => answer(Maybe::new(page)),
+                    err(failure) => {
+                      answer(Maybe::new<sessionbridge::BashHistoryPage>())
+                      if (not timed_out) and not self.absorbs(failure) {
+                        let title = match before == Int64::from(0) {
+                          true => "Could not load bash history",
+                          false => "Could not load older bash history",
+                        }
+                        (self.host.toast)(title, failure.error(), toast::Variant::error, true)
+                      }
+                    },
+                  }
+                }
+              })
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
   // Loads the session's earlier prompts, newest first, for the composer's
   // history picker. Nothing opens until they load; a failure or an empty
   // history is reported instead.
@@ -3005,6 +3074,7 @@ private fn run(id: Str, status: Str) sessionbridge::Bash {
     ExitCode: 0,
     HasExitCode: status == "completed",
     TimedOut: false,
+    Exclude: false,
     Output: "",
   }
 }
@@ -3070,6 +3140,22 @@ test fn a_snapshot_keeps_the_running_command_and_replaces_finished_ones() Void!S
   testing::assert(
     shown(subject) == "a bash_2" and subject.messages.at(1).expect("row").pending,
     "got {shown(subject)}",
+  )
+}
+
+test fn command_history_starts_from_the_finished_commands_shown() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.show_bash(run("bash_1", "completed"))
+  let excluded = mut run("bash_2", "completed")
+  excluded.Exclude = true
+  subject.show_bash(excluded.@)
+  subject.show_bash(run("bash_3", "running"))
+  let commands = subject.shown_commands()
+  let first = commands.at(0).expect("newest")
+  testing::assert(
+    commands.size() == 2 and first.ID == "bash_2" and first.Exclude and commands.at(1).expect("older").ID == "bash_1",
+    "newest first, without the running command",
   )
 }
 

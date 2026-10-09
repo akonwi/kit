@@ -20,6 +20,8 @@ type Bash struct {
 	ExitCode    int
 	HasExitCode bool
 	TimedOut    bool
+	// Exclude reports that the result was kept out of the model's context.
+	Exclude bool
 	// Output is what the transcript shows: the command's output followed by
 	// timeout and truncation notices, or the failure when there is no output.
 	Output string
@@ -47,7 +49,7 @@ func BashOf(execution protocol.BashExecution) Bash {
 	}
 	projected := Bash{
 		ID: execution.ID, Command: execution.Command, Status: string(execution.Status),
-		TimedOut: execution.TimedOut, Output: output,
+		TimedOut: execution.TimedOut, Exclude: execution.ExcludeFromContext, Output: output,
 	}
 	if execution.ExitCode != nil {
 		projected.ExitCode, projected.HasExitCode = *execution.ExitCode, true
