@@ -67,6 +67,8 @@ fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message) 
         themes: theme::context(theme::store(theme::system())),
         call: called,
         result: outcome,
+        selected: false,
+        on_select: fn() {},
       },
     ),
   )

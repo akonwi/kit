@@ -32,6 +32,8 @@ struct Model {
   expanded_plugins: [Str: Bool],
   // Work chips opened or closed by a click, by work key.
   open_work: [Str: Bool],
+  // The selected tool row, as the attachment holds it.
+  selected_tool: Str,
 }
 
 // Every message is shown; there is no earlier history.
@@ -106,6 +108,11 @@ impl cui::Component for Host {
               self.model.open_work.set(other, false)
             }
             self.model.open_work.set(key, not open)
+            self.model.selected_tool = ""
+          },
+          selected: self.model.selected_tool,
+          select_tool: fn(key: Str) {
+            self.model.selected_tool = key
           },
         },
         load_older: fn() {
@@ -223,6 +230,7 @@ fn render(count: Int) [Str] {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -253,6 +261,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -314,6 +323,7 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -386,6 +396,7 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -439,6 +450,7 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -498,6 +510,7 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -560,6 +573,7 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -624,6 +638,7 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -674,6 +689,7 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -737,6 +753,7 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -794,6 +811,7 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -879,6 +897,7 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -916,6 +935,7 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -957,6 +977,7 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -998,6 +1019,7 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1041,6 +1063,7 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1126,6 +1149,7 @@ test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1169,6 +1193,7 @@ test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1210,6 +1235,7 @@ test fn a_prepended_page_keeps_the_reading_position() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1266,6 +1292,7 @@ test fn a_failed_page_pauses_loading_until_retried() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1303,6 +1330,7 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1380,6 +1408,7 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -1473,6 +1502,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   }
   let renderer = cui::mount(
     app,
@@ -1561,6 +1591,7 @@ fn bash_model(messages: [transcript::Message]) mut Model {
     folded: [:],
     expanded_plugins: [:],
     open_work: [:],
+    selected_tool: "",
   })
 }
 
@@ -2040,4 +2071,61 @@ test fn an_open_chip_lists_thinking_before_each_messages_tool_rows() Void!Str {
     same_color(cell.style.foreground, colors.muted) and cell.style.italic,
     "thinking is muted italic",
   )
+}
+
+test fn clicking_a_tool_row_selects_it_until_its_chip_closes() Void!Str {
+  let terminal = headless::new(70, 5)
+  defer terminal.destroy()
+  let model = bash_model(tool_run("t1", states(transcript::ToolState::completed, 2)))
+  model.open_work = ["work:t1:t1-call-0": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let filled = fn(column: Int, row: Int, color: ui::Color) Bool {
+    same_color(terminal.frame().cell(column, row).expect("cell").style.background, color)
+  }
+  // Nothing is selected until a row is clicked.
+  try testing::assert(not filled(5, 2, colors.surface_pressed), "no row starts selected")
+  terminal.click(5, 3)
+  settle(terminal)
+  try testing::assert(model.selected_tool == "t1:t1-call-1", "selected {model.selected_tool}")
+  // The selected row is filled across, around its summary chip.
+  try testing::assert(filled(3, 3, colors.surface_pressed), "the row's start is filled")
+  try testing::assert(filled(5, 3, colors.surface_pressed), "the title is filled")
+  try testing::assert(filled(60, 3, colors.surface_pressed), "the row's end is filled")
+  try testing::assert(filled(25, 3, colors.surface), "the summary keeps its chip")
+  try testing::assert(not filled(5, 2, colors.surface_pressed), "the other row is not")
+  terminal.click(5, 2)
+  settle(terminal)
+  try testing::assert(filled(5, 2, colors.surface_pressed), "a click moves the selection")
+  try testing::assert(not filled(5, 3, colors.surface_pressed), "from the row selected before")
+  // Closing the chip clears the selection.
+  terminal.click(3, 1)
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", " ▸ 2 tool calls", ""])
+  terminal.click(3, 3)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "",
+    ],
+  )
+  try testing::assert(not filled(5, 2, colors.surface_pressed), "the reopened chip has no selection")
+  testing::assert(model.selected_tool == "", "selected {model.selected_tool}")
 }

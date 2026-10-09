@@ -101,7 +101,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     not run), the title in the accent color (danger when failed, muted when
     aborted), and a summary chip. Below 60 columns the chip takes a second
     line and paths are cut from the start.
-  - [ ] Row selection: clicking a row highlights it.
+  - [x] Row selection: clicking a row fills it; closing or opening a chip
+    clears the selection. Unlike vaxis, opening a chip selects nothing.
   - [x] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
     `command`, `path`, or `agent` argument, else compact arguments, "no
     arguments", or "arguments truncated".
