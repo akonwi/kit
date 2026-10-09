@@ -79,8 +79,15 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   "Beginning of conversation" row are intentionally not ported.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, tool-result image previews, and file navigation from tool results.
-- [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
+- [~] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.
+  The palette lists built-in, prompt (user, project, and Claude Code
+  project), and plugin commands with argument hints, fuzzy search over names
+  and aliases, Tab completion, and feedback for commands unavailable while
+  busy or without a compatible server. The theme, model, and thinking pickers
+  and the composer's inline picker are complete. Remaining: the `diff`,
+  `files`, and `tabs` commands (TUI-COOPER-008), the `subagents` command
+  (TUI-COOPER-009), and shortcuts discovered from Cooper keymaps.
 - [x] TUI-COOPER-007 — Interaction dock for pending server-owned requests:
   model confirm, input, select, and guided requests, and plugin confirm,
   input, and select requests with their labels, default choice, initial
@@ -96,12 +103,19 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   opens the annotation picker.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
   dismissal.
-- [ ] TUI-COOPER-010 — Sessions: picker and explorer (`kit sessions`), rename,
-  delete, details, and forking.
+- [~] TUI-COOPER-010 — Sessions: picker and explorer (`kit sessions`), rename,
+  delete, details, and forking. In a session, the `sessions` explorer searches
+  sessions as a fork tree that Left and Right fold, switches to the chosen
+  session, and renames (Ctrl+R) and deletes (Ctrl+D) sessions; `name`
+  renames, `fork` forks with an optional first message, and `debug` shows
+  session details. Remaining: the standalone `kit sessions` picker, which
+  still reports that it is unavailable (`pick_session` in `tui.ard`).
 - [~] TUI-COOPER-011 — Provider login flows and API-key entry. The signed-out
   provider picker, Codex device login, Claude browser/manual-code login, and
-  Anthropic, OpenAI, and OpenCode Go API-key entry are complete. Remaining:
-  connect another provider from an already-ready session.
+  Anthropic, OpenAI, and OpenCode Go API-key entry are complete, and `login`
+  opens the same flow from a ready session. Remaining: connecting from a ready
+  session restarts session startup; as in the vaxis client, it should return
+  to the session and report "Connected to <provider>".
 - [~] TUI-COOPER-012 — Toasts, terminal title, progress, notifications,
   selection copy, and link opening. The terminal title and Ghostty progress
   report the session name, directory, a running turn or manual compaction, and
@@ -115,8 +129,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   derivation comes from Cooper's terminal-theme service, including live host
   updates. Remaining: use the derived surfaces for filled controls such as the
   signed-out "Connect a provider" button.
-- [ ] TUI-COOPER-014 — MCP status, plugin footer contributions, and plugin
-  commands.
+- [~] TUI-COOPER-014 — MCP status, plugin footer contributions, and plugin
+  commands. The `mcp` dialog lists configured servers with their state, each
+  MCP configuration warning is shown once as a toast, plugin commands run
+  from the palette with their arguments, and plugin notifications, requests
+  (TUI-COOPER-007), and session messages are shown. Remaining: plugin footer
+  contributions (the snapshot's `PluginFooter` items, which can hide the
+  location), and the footer's VCS branch and pull-request link that share the
+  footer's right side.
 - [ ] TUI-COOPER-015 — Replace `internal/tui` and `cmd/kit`: build releases
   from `apps/cli`, run its checks in CI, and remove the vaxis client.
 
