@@ -60,7 +60,7 @@ func historyEntries(messages []protocol.TranscriptMessage) []HistoryEntry {
 		if message.Role != "user" {
 			continue
 		}
-		text := strings.TrimSpace(message.TextContent())
+		text := strings.TrimSpace(userText(message))
 		if text == "" {
 			continue
 		}
@@ -71,4 +71,22 @@ func historyEntries(messages []protocol.TranscriptMessage) []HistoryEntry {
 		entries = append(entries, HistoryEntry{ID: message.ID, Text: text})
 	}
 	return entries
+}
+
+// userText is the recalled text of a user message: its text blocks and a
+// prompt command's invocation, in content order. Submitting a recalled
+// invocation runs the command again with its current template.
+func userText(message protocol.TranscriptMessage) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, block := range message.Content {
+		switch value := block.Payload.(type) {
+		case protocol.TextContent:
+			if value.Text != "" {
+				parts = append(parts, value.Text)
+			}
+		case protocol.PromptCommandContent:
+			parts = append(parts, value.InvocationText())
+		}
+	}
+	return strings.Join(parts, "\n")
 }

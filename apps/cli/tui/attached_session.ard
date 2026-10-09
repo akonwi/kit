@@ -13,6 +13,7 @@ use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/attachmentbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
+use go:kit/ffi/promptcommand
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/bootstrap
@@ -2481,8 +2482,10 @@ impl Controller {
   }
 
   // Submits a discovered prompt command. The server queues it behind active
-  // work and retains the /command invocation as the follow-up preview.
-  fn mut submit_prompt_command(name: Str, args: Str) {
+  // work and retains the /command invocation as the follow-up preview. A
+  // command run from the composer returns its draft when it fails; the
+  // palette leaves the draft alone and passes an empty one.
+  fn mut submit_prompt_command(name: Str, args: Str, draft: Str) {
     if self.active {
       match self.lifetime {
         lifetime => {
@@ -2507,7 +2510,12 @@ impl Controller {
                           "Prompt command did not start a turn",
                         )
                       },
-                      err(failure) => self.reject_submission(optimistic, failure),
+                      err(failure) => {
+                        if draft != "" {
+                          (self.host.restore_draft)(draft)
+                        }
+                        self.reject_submission(optimistic, failure)
+                      },
                     }
                   }
                 })
@@ -2582,6 +2590,9 @@ impl Controller {
         self.promote_follow_ups()
       } else if bash.is_some() {
         self.start_bash(bash.expect("bash command"))
+      } else if self.prompt_invocation(text).is_some() {
+        let invocation = self.prompt_invocation(text).expect("prompt command")
+        self.submit_prompt_command(invocation.Name, invocation.Arguments, text)
       } else {
         match self.lifetime {
           lifetime => {
@@ -2624,7 +2635,7 @@ impl Controller {
   }
 
   // Why the staged attachments cannot be sent yet, if they cannot.
-  fn send_blocker() Blocker? {
+  fn send_blocker(text: Str) Blocker? {
     mut uploading = false
     mut failed = false
     mut image = false
@@ -2661,7 +2672,33 @@ impl Controller {
           },
         )
       },
+      self.attachments.size() > 0 and self.prompt_invocation(text).is_some() => {
+        Maybe::new(
+          Blocker{
+            title: "Prompt commands do not accept attachments",
+            detail: "",
+            variant: toast::Variant::warning,
+          },
+        )
+      },
       _ => Maybe::new<Blocker>(),
+    }
+  }
+
+  // The prompt command that composer text invokes: "/<name>" for a discovered
+  // command, followed by optional arguments. Text recalled from history or
+  // restored from the follow-up queue runs the command again.
+  fn prompt_invocation(text: Str) promptcommand::Invocation? {
+    let parsed = promptcommand::Parse(text)
+    mut discovered = false
+    for command in self.prompt_commands {
+      if command.Name == parsed.Name {
+        discovered = true
+      }
+    }
+    match parsed.OK and discovered {
+      true => Maybe::new(parsed),
+      false => Maybe::new<promptcommand::Invocation>(),
     }
   }
 
@@ -3658,6 +3695,50 @@ test fn finished_uploads_update_only_their_row() Void!Str {
   testing::assert(not subject.clear_attachments(), "nothing is left to clear")
 }
 
+test fn only_discovered_prompt_commands_are_run_from_composer_text() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.prompt_commands = [
+    protocol::PromptCommand{Name: "claude-fix", Source: protocol::PromptCommandSourceClaudeProject},
+  ]
+  let invoked = fn(subject: mut Controller, text: Str) Str {
+    match subject.prompt_invocation(text) {
+      invocation => "{invocation.Name}|{invocation.Arguments}",
+      _ => "",
+    }
+  }
+  try testing::assert(
+    invoked(subject, "/claude-fix\n\"auth module\" now") == "claude-fix|\"auth module\" now",
+    "arguments keep their quotes and line breaks",
+  )
+  try testing::assert(invoked(subject, "/claude-fix") == "claude-fix|", "arguments are optional")
+  try testing::assert(invoked(subject, "/unknown 123") == "", "an unknown command is text")
+  testing::assert(invoked(subject, "claude-fix 123") == "", "an invocation starts with a slash")
+}
+
+test fn a_prompt_command_with_staged_files_is_refused() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.prompt_commands = [
+    protocol::PromptCommand{Name: "review", Source: protocol::PromptCommandSourceProject},
+  ]
+  subject.attachments = [
+    attachments::uploaded(
+      protocol::AttachmentInfo{
+        ID: "attachment-1",
+        Filename: "notes.txt",
+        MediaType: "text/plain",
+      },
+    ),
+  ]
+  let blocked = match subject.send_blocker("/review --staged") {
+    blocker => blocker.title,
+    _ => "",
+  }
+  try testing::assert(blocked == "Prompt commands do not accept attachments", blocked)
+  testing::assert(subject.send_blocker("review the notes").is_none(), "a prompt can carry them")
+}
+
 test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
   let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
@@ -3669,7 +3750,7 @@ test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
     },
   )
   let blocked = fn(subject: mut Controller) Str {
-    match subject.send_blocker() {
+    match subject.send_blocker("") {
       blocker => "{blocker.title}|{blocker.detail}",
       _ => "",
     }

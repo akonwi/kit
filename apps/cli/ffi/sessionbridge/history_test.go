@@ -83,3 +83,21 @@ func TestMessageHistoryReportsAFailedPage(t *testing.T) {
 		t.Fatalf("err = %v, want %v", err, failure)
 	}
 }
+
+func TestMessageHistoryRecallsPromptCommandInvocations(t *testing.T) {
+	command := protocol.TranscriptMessage{ID: "2", Role: "user", Content: []protocol.TranscriptContent{
+		protocol.NewTranscriptContent(protocol.PromptCommandContent{
+			Name: "claude-fix", Arguments: "123 high", Source: protocol.PromptCommandSourceClaudeProject,
+			Text: "Fix issue #123 at high priority.",
+		}),
+	}}
+	pager := &scriptedPager{pages: []protocol.MessagePage{{Messages: []protocol.TranscriptMessage{command, userMessage("1", "typed prompt")}}}}
+	entries, err := messageHistory(context.Background(), pager)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []HistoryEntry{{ID: "2", Text: "/claude-fix 123 high"}, {ID: "1", Text: "typed prompt"}}
+	if !reflect.DeepEqual(entries, want) {
+		t.Fatalf("entries = %+v, want %+v", entries, want)
+	}
+}

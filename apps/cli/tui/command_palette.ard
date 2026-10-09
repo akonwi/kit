@@ -55,6 +55,15 @@ private fn command_item_with_hint(
   }
 }
 
+// The palette label of a prompt command source: `user`, `project`, or
+// `claude` for Claude Code project commands.
+fn source_label(source: Str) Str {
+  match source == protocol::PromptCommandSourceClaudeProject {
+    true => "claude",
+    false => source,
+  }
+}
+
 private fn command_item(key: Str, description: Str, terms: Str, disabled_reason: Str) palette::Item {
   palette::Item{
     key: key,
@@ -216,8 +225,8 @@ private fn available_catalog(
           label: command.Name,
           description: command.Description,
           hint: command.ArgumentHint,
-          meta: command.Source,
-          search_terms: [command.Source, command.Location],
+          meta: source_label(command.Source),
+          search_terms: [source_label(command.Source), command.Location],
           disabled_reason: "",
         },
       )

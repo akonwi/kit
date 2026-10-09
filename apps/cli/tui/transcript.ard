@@ -162,6 +162,10 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     for block in source.Content {
       match {
         block.Kind == "text" => text_parts.push(block.Text),
+        user and block.Kind == "promptCommand" => {
+          // A prompt command's message reads as its invocation.
+          text_parts.push(block.Text)
+        },
         block.Kind == "thinking" => thinking_parts.push(block.Text),
         block.Kind == "toolCall" => calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName}),
         user and block.AttachmentID != "" and (block.Kind == "image" or block.Kind == "file") => {

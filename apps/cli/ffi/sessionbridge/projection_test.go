@@ -77,3 +77,17 @@ func TestMessagesProjectPersistedPluginMessages(t *testing.T) {
 		t.Fatalf("Messages() = %#v, want %#v", got, []Message{want})
 	}
 }
+
+func TestMessagesProjectAPromptCommandAsItsInvocation(t *testing.T) {
+	got := Messages([]protocol.TranscriptMessage{{
+		ID: "message_command", TurnID: "turn_command", Role: "user",
+		Content: []protocol.TranscriptContent{protocol.NewTranscriptContent(protocol.PromptCommandContent{
+			Name: "claude-fix", Arguments: "123 high", Source: protocol.PromptCommandSourceClaudeProject,
+			Text: "Pretend to fix issue #123 at high priority.",
+		})},
+	}})
+	want := []Content{{Kind: "promptCommand", Text: "/claude-fix 123 high"}}
+	if len(got) != 1 || !reflect.DeepEqual(got[0].Content, want) {
+		t.Fatalf("Messages() = %#v, want content %#v", got, want)
+	}
+}
