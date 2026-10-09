@@ -90,8 +90,12 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     keeps its state when persisted. While open it lists the plain tool rows
     until the activity list replaces them. (vaxis's `N steps` label is not
     ported: a run always starts with a tool call.)
-  - [ ] Activity list: an expanded group shows its tool rows interleaved
-    with the model's thinking and prose.
+  - [x] Activity list: an open chip lists, for each of the run's messages,
+    its thinking (muted italic Markdown, aligned with the tool rows) and then
+    a row per tool call. Rows come from the calls, so a call without a result
+    reads planned, or not run after an abort. Prose ends a run and stays
+    outside it, as in vaxis; unlike vaxis, a message with only thinking
+    stays in its run and its thinking is listed.
   - [ ] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
     not run), the title in the accent color (danger when failed, muted when
     aborted), and a summary chip. Below 60 columns the chip takes a second
