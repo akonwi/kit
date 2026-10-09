@@ -685,6 +685,9 @@ impl Shell {
         restore_follow_ups: fn() {
           self.request_follow_up_restore()
         },
+        recall_history: fn() {
+          self.request_message_history()
+        },
         open_palette: fn() {
           self.request_composer_palette()
         },
@@ -720,6 +723,23 @@ impl Shell {
           }
         },
       }
+    }
+  }
+
+  // Opens the composer's history picker once the session's earlier prompts
+  // load.
+  fn mut request_message_history() {
+    if self.phase == Phase::ready {
+      let control = self.composer_control
+      self.dispatch(fn() {
+        self.attached.load_message_history(fn(entries: [sessionbridge::HistoryEntry]) {
+          let recalled = mut List::new<composer::HistoryEntry>()
+          for entry in entries {
+            recalled.push(composer::HistoryEntry{id: entry.ID, text: entry.Text})
+          }
+          let _ = control.open_history(recalled.@)
+        })
+      })
     }
   }
 

@@ -3,6 +3,7 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use kit/tui/attachments
+use kit/tui/inline_picker
 use kit/tui/theme
 use go:strings
 
@@ -14,6 +15,13 @@ struct Ref {
   reset_action: (fn() Bool)?,
   restore_action: (fn(Str) Bool)?,
   prepend_action: (fn(Str) Bool)?,
+  history_action: (fn([HistoryEntry]) Bool)?,
+}
+
+// HistoryEntry is one earlier prompt that message history can recall.
+struct HistoryEntry {
+  id: Str,
+  text: Str,
 }
 
 fn ref() mut Ref {
@@ -23,6 +31,7 @@ fn ref() mut Ref {
     reset_action: Maybe::new<fn() Bool>(),
     restore_action: Maybe::new<fn(Str) Bool>(),
     prepend_action: Maybe::new<fn(Str) Bool>(),
+    history_action: Maybe::new<fn([HistoryEntry]) Bool>(),
   })
 }
 
@@ -64,6 +73,16 @@ impl Ref {
       _ => false,
     }
   }
+
+  // open_history lists entries, newest first, above the composer, filtered
+  // by the draft with the newest match selected. Enter puts the selected
+  // prompt in the composer.
+  fn mut open_history(entries: [HistoryEntry]) Bool {
+    match self.history_action {
+      action => action(entries),
+      _ => false,
+    }
+  }
 }
 
 // Props contains live Shell-owned dependencies. Composer owns its draft,
@@ -83,6 +102,9 @@ struct Props {
   // into the draft.
   follow_ups: Int,
   restore_follow_ups: fn(),
+  // Up on a blank draft, with nothing queued, asks for earlier prompts; the
+  // Shell answers through `Ref.open_history`.
+  recall_history: fn(),
   open_palette: fn(),
   mode_changed: fn(Str),
 }
@@ -93,6 +115,10 @@ struct Composer {
   editor: mut cui::TextAreaRef,
   draft: Str,
   mode: Str,
+  // Message history, newest first, while its picker is open.
+  history: [HistoryEntry],
+  history_open: Bool,
+  history_selection: Str,
 }
 
 fn view(props: Props) cui::View {
@@ -106,6 +132,9 @@ private fn new(props: mut Props) mut Composer {
     editor: cui::text_area_ref(),
     draft: "",
     mode: "",
+    history: [],
+    history_open: false,
+    history_selection: "",
   })
 }
 
@@ -126,6 +155,9 @@ impl cui::Lifecycle for Composer {
     })
     self.props.control.prepend_action = Maybe::new(fn(value: Str) Bool {
       self.request_prepend(value)
+    })
+    self.props.control.history_action = Maybe::new(fn(entries: [HistoryEntry]) Bool {
+      self.request_history(entries)
     })
     // Pastes reach this listener before the focused editor inserts them.
     let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
@@ -148,6 +180,7 @@ impl cui::Lifecycle for Composer {
     self.props.control.reset_action = Maybe::new<fn() Bool>()
     self.props.control.restore_action = Maybe::new<fn(Str) Bool>()
     self.props.control.prepend_action = Maybe::new<fn(Str) Bool>()
+    self.props.control.history_action = Maybe::new<fn([HistoryEntry]) Bool>()
   }
 }
 
@@ -179,6 +212,7 @@ impl Composer {
       match self.context {
         context => {
           let _ = context.dispatch(fn() {
+            self.close_history()
             self.change("")
           })
           true
@@ -192,6 +226,7 @@ impl Composer {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
+          self.close_history()
           self.change("")
         })
         true
@@ -247,7 +282,119 @@ impl Composer {
     }
   }
 
+  // Opens message history unless a prompt was typed or queued meanwhile; a
+  // query typed while it loaded filters it.
+  private fn mut request_history(entries: [HistoryEntry]) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.props.enabled and self.props.follow_ups == 0 and entries.size() > 0 {
+            self.history = entries
+            self.history_open = true
+            self.history_selection = inline_picker::last_key(self.history_matches())
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  // Message history listed oldest first, so the newest prompt sits nearest
+  // the composer. Multi-line prompts show on one line.
+  private fn history_catalog() [inline_picker::Item] {
+    let items = mut List::new<inline_picker::Item>()
+    mut index = self.history.size() - 1
+    while index >= 0 {
+      let entry = self.history.at(index).expect("history entry")
+      items.push(inline_picker::Item{key: entry.id, label: one_line(entry.text)})
+      index = index - 1
+    }
+    items.@
+  }
+
+  private fn history_matches() [inline_picker::Item] {
+    inline_picker::filter(self.history_catalog(), self.draft)
+  }
+
+  private fn mut close_history() {
+    self.history_open = false
+    self.history = []
+    self.history_selection = ""
+  }
+
+  private fn mut move_history(delta: Int) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.history_selection = inline_picker::move(
+            self.history_matches(),
+            self.history_selection,
+            delta,
+          )
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  // Puts the prompt with id in the composer, from Enter or a click.
+  private fn mut choose_history(id: Str) {
+    if self.history_open and inline_picker::contains(self.history_matches(), id) {
+      for entry in self.history {
+        if entry.id == id {
+          self.close_history()
+          self.change(entry.text)
+        }
+      }
+    }
+  }
+
+  private fn mut request_history_choice() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.choose_history(self.history_selection)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_history_dismissal() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.close_history()
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_recall() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          if self.props.enabled and strings::TrimSpace(self.draft) == "" and self.props.follow_ups == 0 {
+            (self.props.recall_history)()
+          }
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
   private fn mut change(value: Str) {
+    // An open history picker follows the draft, selecting the newest match.
+    if self.history_open {
+      self.draft = value
+      self.history_selection = inline_picker::last_key(self.history_matches())
+    }
     self.draft = value
     let next = mode(value)
     if next != self.mode {
@@ -310,6 +457,11 @@ impl Composer {
 impl cui::Component for Composer {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
+    // A dialog, the interaction dock, or another session takes the composer's
+    // input, closing its picker.
+    if not self.props.enabled {
+      self.close_history()
+    }
     // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W, as in the
     // vaxis client.
     let editing = keymap::rebind(
@@ -330,15 +482,53 @@ impl cui::Component for Composer {
         self.request_restore_follow_ups()
       },
     )
+    let recall = keymap::simple_command(
+      "composer.recall_history",
+      "Recall earlier prompts",
+      fn() Bool {
+        self.request_recall()
+      },
+    )
+    let previous = keymap::simple_command(
+      "composer.history.previous",
+      "Previous prompt",
+      fn() Bool {
+        self.move_history(-1)
+      },
+    )
+    let next = keymap::simple_command("composer.history.next", "Next prompt", fn() Bool {
+      self.move_history(1)
+    })
+    let choose = keymap::simple_command("composer.history.choose", "Use prompt", fn() Bool {
+      self.request_history_choice()
+    })
+    let dismiss = keymap::simple_command("composer.history.dismiss", "Close history", fn() Bool {
+      self.request_history_dismissal()
+    })
     let bindings = mut List::new<keymap::Binding>()
-    bindings.push(keymap::binding(keymap::key("return"), send.with()))
-    if self.draft == "" {
-      bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
+    if self.history_open {
+      // The open picker takes the keys it navigates by; typing still edits
+      // the draft, which is its query.
+      bindings.push(
+        keymap::binding(keymap::key("up"), previous.with(), keymap::Trigger::press_or_repeat),
+      )
+      bindings.push(
+        keymap::binding(keymap::key("down"), next.with(), keymap::Trigger::press_or_repeat),
+      )
+      bindings.push(keymap::binding(keymap::key("return"), choose.with()))
+      bindings.push(keymap::binding(keymap::key("escape"), dismiss.with()))
+    } else {
+      bindings.push(keymap::binding(keymap::key("return"), send.with()))
+      if self.draft == "" {
+        bindings.push(keymap::binding(keymap::key("/"), open_palette.with()))
+      }
+      if self.props.follow_ups > 0 {
+        bindings.push(keymap::binding(keymap::key("up"), restore.with()))
+      } else if strings::TrimSpace(self.draft) == "" {
+        bindings.push(keymap::binding(keymap::key("up"), recall.with()))
+      }
     }
-    if self.props.follow_ups > 0 {
-      bindings.push(keymap::binding(keymap::key("up"), restore.with()))
-    }
-    cui::text_area(
+    let editor = cui::text_area(
       // Autofocus is mount-only. Live renders never assert focused=true, so
       // Shell, dialogs, panes, and pointer interactions keep their focus.
       self.draft,
@@ -366,10 +556,42 @@ impl cui::Component for Composer {
         self.input(value)
       },
       key_bindings: editing,
-      commands: [send, open_palette, restore],
+      commands: [send, open_palette, restore, recall, previous, next, choose, dismiss],
       bindings: bindings.@,
     )
+    let children = mut List::new<cui::View>()
+    children.push(editor)
+    if self.history_open {
+      children.push(
+        inline_picker::view(
+          inline_picker::Props{
+            themes: self.props.themes,
+            items: self.history_matches(),
+            selection: self.history_selection,
+            activate: fn(id: Str) {
+              self.choose_history(id)
+            },
+          },
+        ),
+      )
+    }
+    // The picker is positioned against this box and rests on its top edge.
+    cui::box(
+      children.@,
+      key: "composer.surface",
+      styles: ui::style(
+        position: ui::Position::relative,
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::column,
+      ),
+    )
   }
+}
+
+// value with each run of whitespace, including line breaks, as one space.
+private fn one_line(value: Str) Str {
+  let words = mut strings::Fields(value)
+  strings::Join(words, " ")
 }
 
 private fn mode(value: Str) Str {

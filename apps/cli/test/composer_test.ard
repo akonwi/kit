@@ -3,6 +3,7 @@ use ard/testing
 use cooper
 use cooper/cui
 use cooper/event
+use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
 use kit/tui/attachments
@@ -10,6 +11,7 @@ use kit/tui/composer
 use kit/tui/theme
 use go:os
 use go:path/filepath
+use go:strings
 
 struct Model {
   enabled: Bool,
@@ -21,6 +23,9 @@ struct Model {
   palette_opens: Int,
   follow_ups: Int,
   restores: Int,
+  recalls: Int,
+  // Escapes reaching the application, as the Shell's turn abort does.
+  aborts: Int,
   submissions: Int,
   // Whether pasted paths are accepted, and those accepted.
   accept_attachments: Bool,
@@ -54,8 +59,15 @@ impl cui::Lifecycle for Host {
 impl cui::Component for Host {
   fn mut render() cui::View {
     let model = self.props.model
+    let abort = keymap::simple_command("test.abort", "Abort", fn() Bool {
+      model.aborts =+ 1
+      true
+    })
+    // The composer rests at the bottom, as in the Shell, so pickers that grow
+    // upward from it are on screen.
     cui::box(
       [
+        cui::box([], styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
         composer::view(
           composer::Props{
             themes: self.props.themes,
@@ -81,6 +93,9 @@ impl cui::Component for Host {
             restore_follow_ups: fn() {
               model.restores =+ 1
             },
+            recall_history: fn() {
+              model.recalls =+ 1
+            },
             open_palette: fn() {
               model.palette_opens =+ 1
             },
@@ -104,6 +119,9 @@ impl cui::Component for Host {
         height: ui::percent(100.0),
         flex_direction: ui::FlexDirection::column,
       ),
+      commands: [abort],
+      bindings: [keymap::binding(keymap::key("escape"), abort.with())],
+      binding_scope: keymap::ScopeMode::application,
     )
   }
 }
@@ -119,6 +137,8 @@ fn model() mut Model {
     palette_opens: 0,
     follow_ups: 0,
     restores: 0,
+    recalls: 0,
+    aborts: 0,
     submissions: 0,
     accept_attachments: true,
     attached: [],
@@ -591,4 +611,212 @@ test fn a_path_completed_across_changes_is_attached() Void!Str {
   terminal.key(key("return"))
   terminal.flush()
   testing::assert(value.submitted == "hi", "the draft is cleared of the path: {value.submitted}")
+}
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn history() [composer::HistoryEntry] {
+  [
+    composer::HistoryEntry{id: "3", text: "run the tests"},
+    composer::HistoryEntry{id: "2", text: "fix the\n  flaky test"},
+    composer::HistoryEntry{id: "1", text: "explain the repo"},
+  ]
+}
+
+test fn up_on_a_blank_draft_asks_for_message_history() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character(" "))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.recalls == 1, "a blank draft recalls history")
+
+  terminal.key(character("draft"))
+  terminal.key(key("up"))
+  terminal.flush()
+  try testing::assert(value.recalls == 1, "a draft keeps Up for the cursor")
+
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.follow_ups = 1
+  })
+  terminal.flush()
+  let _ = value.control.clear()
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  testing::assert(
+    value.recalls == 1 and value.restores == 1,
+    "queued follow-ups are restored first",
+  )
+}
+
+test fn message_history_lists_prompts_oldest_first_above_the_composer() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  try testing::assert(value.control.open_history(history()), "history is scheduled")
+  terminal.flush()
+  // The newest prompt sits nearest the composer, selected; a multi-line
+  // prompt shows on one line.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │ explain the repo                             │",
+      " │ fix the flaky test                           │",
+      " │▌run the tests                                │",
+      " └──────────────────────────────────────────────┘",
+      " Ask kit to do something…",
+      "",
+    ],
+  )
+}
+
+test fn the_draft_filters_message_history_and_enter_recalls_the_selection() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.key(character("ts"))
+  terminal.flush()
+  terminal.key(key("up"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌fix the flaky test                           │",
+      " │ run the tests                                │",
+      " └──────────────────────────────────────────────┘",
+      " ts",
+      "",
+    ],
+  )
+  // Moving wraps at both ends: down to the last, past it to the first, and
+  // back up past the first to the last.
+  terminal.key(key("down"))
+  terminal.key(key("down"))
+  terminal.key(key("up"))
+  terminal.key(key("up"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter recalls instead of sending")
+  terminal.key(character("!"))
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "fix the\n  flaky test!",
+    "the whole prompt is recalled with the cursor at its end: {value.submitted}",
+  )
+}
+
+test fn escape_closes_message_history_and_keeps_the_draft() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.key(character("zzz"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(6).or("") == " │ No results                                   │",
+    "nothing matches",
+  )
+  // Enter with nothing selected does nothing.
+  terminal.key(key("return"))
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " zzz", ""])
+  try testing::assert(value.aborts == 0, "Escape closes the picker without aborting the turn")
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(value.aborts == 1, "without the picker Escape aborts again")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "zzz", "Enter sends again")
+}
+
+test fn clicking_a_prompt_recalls_it() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  terminal.click(5, 4)
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "explain the repo", "got {value.submitted}")
+}
+
+test fn a_disabled_composer_closes_message_history() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  let _ = value.control.open_history(history())
+  terminal.flush()
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.enabled = false
+  })
+  terminal.flush()
+  let _ = context.dispatch(fn() {
+    value.enabled = true
+  })
+  terminal.flush()
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
 }

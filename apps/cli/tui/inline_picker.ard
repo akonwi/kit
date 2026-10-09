@@ -1,0 +1,417 @@
+use ard/testing
+
+use cooper/cui
+use cooper/event
+use cooper/ui
+use kit/tui/palette
+use kit/tui/theme
+use go:strings
+
+// The canonical non-modal list attached to the composer, as in the vaxis
+// client. The composer keeps focus and its text is the query, so an inline
+// picker has no title, search field, or hints; the composer routes Up, Down,
+// Enter, and Escape to it. It rests on the composer's top edge, as wide as a
+// palette picker, fits up to `max_rows` rows, and grows upward, so its bottom
+// edge stays put while filtering.
+
+// The most rows an inline picker lists; longer lists scroll behind ⋯ rows.
+let max_rows = 10
+
+// Item is one picker row.
+struct Item {
+  key: Str,
+  label: Str,
+}
+
+// filter returns the items matching query in catalog order, using the
+// palette's fuzzy matcher. A blank query matches everything.
+fn filter(catalog: [Item], query: Str) [Item] {
+  let needle = strings::ToLower(strings::TrimSpace(query))
+  match needle == "" {
+    true => catalog,
+    false => {
+      let matches = mut List::new<Item>()
+      for item in catalog {
+        if palette::string_score(strings::ToLower(item.label), needle) > 0 {
+          matches.push(item)
+        }
+      }
+      matches.@
+    },
+  }
+}
+
+// The key of the last item, or empty without items.
+fn last_key(items: [Item]) Str {
+  match items.at(items.size() - 1) {
+    item => item.key,
+    _ => "",
+  }
+}
+
+// The key of the item delta rows from selection, wrapping at both ends. A
+// selection that is not listed moves from the first item.
+fn move(items: [Item], selection: Str, delta: Int) Str {
+  match items.size() == 0 {
+    true => selection,
+    false => {
+      let index = index_of(items, selection)
+      let count = items.size()
+      mut next = 0
+      if index >= 0 {
+        next = (index + delta) % count
+        if next < 0 {
+          next = next + count
+        }
+      }
+      items.at(next).expect("picker item").key
+    },
+  }
+}
+
+// Whether key is listed.
+fn contains(items: [Item], key: Str) Bool {
+  index_of(items, key) >= 0
+}
+
+private fn index_of(items: [Item], key: Str) Int {
+  mut found = -1
+  for item, index in items {
+    if item.key == key {
+      found = index
+    }
+  }
+  found
+}
+
+// Window is the part of a long list that is shown. An edge with hidden items
+// gives its row to a ⋯ marker.
+struct Window {
+  start: Int,
+  count: Int,
+  above: Bool,
+  below: Bool,
+}
+
+// window fits total items in up to max_rows rows, starting near start and
+// keeping the item at reveal in view; a negative reveal keeps start.
+fn window(total: Int, start: Int, reveal: Int) Window {
+  match total <= max_rows {
+    true => {
+      Window{
+        start: 0,
+        count: total,
+        above: false,
+        below: false,
+      }
+    },
+    false => {
+      // A list scrolled past its first item always shows a full window.
+      mut first = clamp(start, 0, total - max_rows + 1)
+      mut shown = Window{
+        start: 0,
+        count: 0,
+        above: false,
+        below: false,
+      }
+      mut settled = false
+      mut attempts = 0
+      while (not settled) and attempts < 4 {
+        let above = first > 0
+        mut count = match above {
+          true => max_rows - 1,
+          false => max_rows,
+        }
+        let below = first + count < total
+        if below {
+          count = count - 1
+        }
+        shown = Window{
+          start: first,
+          count: count,
+          above: above,
+          below: below,
+        }
+        settled = true
+        if reveal >= 0 and reveal < first {
+          first = reveal
+          settled = false
+        } else if reveal >= first + count {
+          first = reveal - count + 1
+          settled = false
+        }
+        attempts = attempts + 1
+      }
+      shown
+    },
+  }
+}
+
+private fn clamp(value: Int, low: Int, high: Int) Int {
+  match {
+    value < low => low,
+    value > high => high,
+    _ => value,
+  }
+}
+
+// The rows an inline picker occupies, frame included.
+fn height(items: [Item]) Int {
+  let rows = match {
+    items.size() == 0 => 1,
+    items.size() > max_rows => max_rows,
+    _ => items.size(),
+  }
+  rows + 2
+}
+
+struct Props {
+  themes: theme::Context,
+  // The rows matching the query, in display order.
+  items: [Item],
+  selection: Str,
+  // A click activates the clicked row.
+  activate: fn(Str),
+}
+
+// view renders the picker above the top edge of its parent, level with the
+// composer's text. The parent must be positioned and span the composer.
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "inline-picker")
+}
+
+private struct Picker {
+  props: mut Props,
+  start: Int,
+  hovered: Str,
+  // The selection and rows last brought into view. Scrolling keeps its
+  // place until either changes.
+  revealed: Str,
+  revealed_count: Int,
+}
+
+private fn new(props: mut Props) mut Picker {
+  (mut Picker{
+    props: props,
+    start: 0,
+    hovered: "",
+    revealed: "",
+    revealed_count: -1,
+  })
+}
+
+impl Picker {
+  private fn mut scroll(delta: Int) {
+    let total = self.props.items.size()
+    self.start = window(total, self.start + delta, -1).start
+  }
+}
+
+impl cui::Component for Picker {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let items = self.props.items
+    let selection = self.props.selection
+    let reveal = match selection != self.revealed or items.size() != self.revealed_count {
+      true => index_of(items, selection),
+      false => -1,
+    }
+    let shown = window(items.size(), self.start, reveal)
+    self.start = shown.start
+    self.revealed = selection
+    self.revealed_count = items.size()
+    let rows = mut List::new<cui::View>()
+    if items.size() == 0 {
+      rows.push(
+        cui::text(
+          " No results",
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: colors.muted),
+        ),
+      )
+    } else {
+      if shown.above {
+        rows.push(self.overflow_row("above", -1))
+      }
+      for item, index in items {
+        if index >= shown.start and index < shown.start + shown.count {
+          rows.push(self.row(item))
+        }
+      }
+      if shown.below {
+        rows.push(self.overflow_row("below", 1))
+      }
+    }
+    cui::box(
+      rows.@,
+      key: "inline-picker.panel",
+      styles: ui::style(
+        position: ui::Position::absolute,
+        bottom: ui::percent(100.0),
+        left: ui::cells(1),
+        width: ui::percent(80.0),
+        min_width: ui::cells(48),
+        max_width: ui::cells(96),
+        height: ui::cells(height(items)),
+        flex_direction: ui::FlexDirection::column,
+        background: colors.background,
+        foreground: colors.foreground,
+        border: ui::Border::single,
+        border_color: colors.border,
+        z_index: 50,
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        if received.event_type == event::MouseEventType::scroll and received.scroll_y != 0 {
+          self.scroll(received.scroll_y)
+          received.prevent_default()
+          received.stop_propagation()
+        }
+      },
+    )
+  }
+}
+
+impl Picker {
+  private fn mut row(item: Item) cui::View {
+    let colors = self.props.themes.current()
+    let active = item.key == self.props.selection
+    let fill = match {
+      active => colors.picker_selected,
+      item.key == self.hovered => colors.picker_hovered,
+      _ => colors.background,
+    }
+    let activate = self.props.activate
+    cui::box(
+      [
+        cui::text(
+          match active {
+            true => "▌",
+            false => " ",
+          },
+          text_style: ui::text_style(foreground: colors.primary),
+        ),
+        cui::text(
+          item.label,
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      ],
+      key: "inline-picker.row.{item.key}",
+      styles: ui::style(
+        background: fill,
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        flex_direction: ui::FlexDirection::row,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+        },
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        match received.event_type {
+          event::MouseEventType::over => { self.hovered = item.key },
+          event::MouseEventType::move => { self.hovered = item.key },
+          event::MouseEventType::out => {
+            if self.hovered == item.key {
+              self.hovered = ""
+            }
+          },
+          event::MouseEventType::up => {
+            if received.button == event::MouseButton::left {
+              activate(item.key)
+              received.prevent_default()
+            }
+          },
+          _ => (),
+        }
+      },
+    )
+  }
+
+  // A ⋯ row marks hidden items; clicking it scrolls a page toward them.
+  private fn mut overflow_row(key: Str, direction: Int) cui::View {
+    let colors = self.props.themes.current()
+    cui::box(
+      [cui::text("⋯", text_style: ui::text_style(foreground: colors.muted))],
+      key: "inline-picker.overflow.{key}",
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_shrink: 0.0,
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+        if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+          self.scroll(direction * (max_rows - 2))
+          received.prevent_default()
+          received.stop_propagation()
+        }
+      },
+    )
+  }
+}
+
+private fn items(labels: [Str]) [Item] {
+  let result = mut List::new<Item>()
+  for label in labels {
+    result.push(Item{key: label, label: label})
+  }
+  result.@
+}
+
+private fn keys(items: [Item]) Str {
+  let parts = mut List::new<Str>()
+  for item in items {
+    parts.push(item.key)
+  }
+  strings::Join(parts, " ")
+}
+
+test fn filtering_keeps_catalog_order() Void!Str {
+  let catalog = items(["fix tests", "write docs", "fix lint"])
+  try testing::assert(keys(filter(catalog, "  ")) == "fix tests write docs fix lint", "blank keeps all")
+  testing::assert(
+    keys(filter(catalog, "Fix")) == "fix tests fix lint",
+    keys(filter(catalog, "Fix")),
+  )
+}
+
+test fn moving_wraps_at_both_ends() Void!Str {
+  let catalog = items(["a", "b", "c"])
+  try testing::assert(move(catalog, "c", 1) == "a", "Down from the last wraps to the first")
+  try testing::assert(move(catalog, "a", -1) == "c", "Up from the first wraps to the last")
+  testing::assert(move(catalog, "gone", -1) == "a", "an unlisted selection starts at the first")
+}
+
+test fn a_short_list_shows_every_row() Void!Str {
+  let shown = window(4, 3, 2)
+  testing::assert(
+    shown.start == 0 and shown.count == 4 and (not shown.above) and (not shown.below),
+    "all four rows",
+  )
+}
+
+test fn a_long_list_marks_hidden_rows_and_keeps_the_selection_in_view() Void!Str {
+  // Revealing the last of 20 items fills the window from the bottom.
+  let bottom = window(20, 0, 19)
+  try testing::assert(
+    bottom.above and (not bottom.below) and bottom.start == 11 and bottom.count == 9,
+    "start {bottom.start} count {bottom.count}",
+  )
+  // Revealing an item above the window scrolls to it, with ⋯ rows on both edges.
+  let middle = window(20, 11, 5)
+  try testing::assert(
+    middle.above and middle.below and middle.start == 5 and middle.count == 8,
+    "start {middle.start} count {middle.count}",
+  )
+  // Scrolling past the end keeps a full window.
+  let past = window(20, 40, -1)
+  testing::assert(past.start == 11 and past.count == 9, "start {past.start}")
+}

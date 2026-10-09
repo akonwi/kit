@@ -1611,6 +1611,51 @@ impl Controller {
     }
   }
 
+  // Loads the session's earlier prompts, newest first, for the composer's
+  // history picker. Nothing opens until they load; a failure or an empty
+  // history is reported instead.
+  fn mut load_message_history(loaded: fn([sessionbridge::HistoryEntry])) {
+    if self.can_submit() {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              async::start(fn() {
+                let result = sessionbridge::MessageHistory(ctx, session)
+                let _ = dispatch(fn() {
+                  if self.active {
+                    match result {
+                      ok(entries) => {
+                        match entries.size() == 0 {
+                          true => (self.host.toast)("No message history", "", toast::Variant::info, false),
+                          false => loaded(entries),
+                        }
+                      },
+                      err(failure) => {
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Could not load message history",
+                            failure.error(),
+                            toast::Variant::error,
+                            false,
+                          )
+                        }
+                      },
+                    }
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
   // Returns queued follow-ups to the composer, before its draft. The server
   // removes them from the queue.
   fn mut restore_follow_ups() {
