@@ -82,11 +82,12 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   restores queued follow-ups (and their attachments) before the draft, Enter
   on an empty draft sends them to the running turn, and the footer shows
   `N queued · ↑ restore` below stream recovery. A pasted or dropped file list
-  uploads as attachments listed above the composer (removed with `×` or
-  Ctrl+C) and named in the user's transcript row. Remaining: Ctrl+Shift+W, a
-  composer paste test, history recall, bash mode and history, inline image
-  previews that open on click (needs a Cooper `cui::image`), file and session
-  mentions, and annotation chips.
+  uploads as attachments shown as chips above the composer (removed with `×`
+  or Ctrl+C) and named in the user's transcript row; as in the vaxis client,
+  a file list that arrives as an ordinary text change, or a path completed
+  across changes, is attached too. Remaining: Ctrl+Shift+W, history recall,
+  bash mode and history, inline image previews that open on click (needs a
+  Cooper `cui::image`), file and session mentions, and annotation chips.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
