@@ -133,20 +133,17 @@ fn session_status(recovery: Str, follow_ups: Int) Str {
 }
 
 // footer shows, on the left, the session's connection problem, else a
-// session status such as stream recovery or queued follow-ups, else the
-// composer's current mode; the working location is on the right.
-fn footer(themes: theme::Context, connection: Str, status: Str, mode: Str, location: Str) cui::View {
+// session status such as stream recovery or queued follow-ups; the working
+// location is on the right.
+fn footer(themes: theme::Context, connection: Str, status: Str, location: Str) cui::View {
   let colors = themes.current()
-  let shown = match {
-    connection != "" => connection,
-    status != "" => status,
-    _ => mode,
+  let shown = match connection != "" {
+    true => connection,
+    false => status,
   }
-  let tone = match {
-    connection != "" => colors.warning_text,
-    status != "" => colors.muted,
-    mode != "" => colors.success_text,
-    _ => colors.muted,
+  let tone = match connection != "" {
+    true => colors.warning_text,
+    false => colors.muted,
   }
   cui::box(
     [

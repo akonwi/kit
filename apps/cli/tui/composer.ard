@@ -154,15 +154,25 @@ struct Props {
   // Moving up past the oldest command asks for the page before the cursor.
   older_bash: fn(Int64),
   open_palette: fn(),
-  mode_changed: fn(Str),
+  // Reports when a draft that runs a shell command starts or stops. The
+  // composer then draws itself as the Bash panel, in the interaction dock's
+  // frame, so the Shell drops the rules that would border it.
+  bash_changed: fn(Bool),
 }
 
 struct Composer {
   props: mut Props,
   context: cui::Context?,
   editor: mut cui::TextAreaRef,
+  // The positioned box pickers rest against.
+  surface: mut cui::BoxRef,
+  // The draft, including the `!` or `!!` that the Bash panel's field hides.
   draft: Str,
-  mode: Str,
+  bash: Bool,
+  // Where command history rests, above the caret, as of the last layout.
+  anchor: inline_picker::Anchor,
+  // Whether the pointer is over the Bash panel's context switch.
+  context_hovered: Bool,
   // The open history picker's entries, newest first.
   history: [HistoryEntry],
   history_kind: Recall,
@@ -183,8 +193,15 @@ private fn new(props: mut Props) mut Composer {
     props: props,
     context: Maybe::new<cui::Context>(),
     editor: cui::text_area_ref(),
+    surface: cui::box_ref(),
     draft: "",
-    mode: "",
+    bash: false,
+    anchor: inline_picker::Anchor{
+      left: 0,
+      bottom: 0,
+      width: 0,
+    },
+    context_hovered: false,
     history: [],
     history_kind: Recall::none,
     history_selection: "",
@@ -221,6 +238,11 @@ impl cui::Lifecycle for Composer {
     })
     self.props.control.bash_page_action = Maybe::new(fn(page: BashPage?, older: Bool) Bool {
       self.request_bash_page(page, older)
+    })
+    // Command history follows the caret. Laying out again before painting
+    // keeps it from trailing the caret by a frame.
+    let _ = context.internal_layout(fn() Bool {
+      self.settle_anchor()
     })
     // Pastes reach this listener before the focused editor inserts them.
     let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
@@ -335,7 +357,15 @@ impl Composer {
   // Some terminals deliver a paste as an ordinary text change, so a change
   // that names files is offered as attachments too; accepted paths leave the
   // draft.
-  private fn mut input(value: Str) {
+  // 
+  // The field holds the draft after its `!` or `!!`. A `!` typed at the start
+  // of the field joins that prefix, leaving the field at once, so keys that
+  // arrive before the next render edit what the field shows; the caret moves
+  // back by the characters that left.
+  private fn mut input(field: Str) {
+    let prefix = bash_prefix(self.draft)
+    let value = "{prefix}{field}"
+    let moved = bash_prefix(value).size() - prefix.size()
     match attachments::changed_paths(self.draft, value) {
       found => {
         match (self.props.attach)(found.paths) {
@@ -344,6 +374,97 @@ impl Composer {
         }
       },
       _ => self.change(value),
+    }
+    if moved > 0 {
+      match self.editor.current {
+        editor => {
+          let caret = editor.cursor() - moved
+          // The field reports this value back; it leaves the draft as is.
+          editor.set_value(bash_command(self.draft))
+          editor.set_cursor(
+            match caret < 0 {
+              true => 0,
+              false => caret,
+            },
+          )
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Backspace at the start of the Bash panel's field puts a `!!` command
+  // back in context, and leaves the panel when there is no command.
+  // Otherwise it edits the field.
+  private fn mut erase_prefix() Bool {
+    let prefix = bash_prefix(self.draft)
+    let command = bash_command(self.draft)
+    let at_start = match self.editor.current {
+      editor => editor.cursor() == 0 and editor.selected_text() == "",
+      _ => false,
+    }
+    match self.props.enabled and at_start and (prefix == "!!" or command == "") {
+      true => {
+        self.edit_now(fn() {
+          match prefix == "!!" {
+            true => self.change("!{command}"),
+            false => self.change(""),
+          }
+        })
+      },
+      false => false,
+    }
+  }
+
+  // Escape leaves the Bash panel, keeping the command as a prompt draft.
+  private fn mut request_leave_bash() Bool {
+    self.edit_now(fn() {
+      if self.props.enabled and self.bash {
+        self.change(bash_command(self.draft))
+      }
+    })
+  }
+
+  // Changes the draft before the next key arrives, as typing does, then
+  // renders it. These edits keep the field's text, so it stays current.
+  private fn mut edit_now(edit: fn()) Bool {
+    match self.context {
+      context => {
+        edit()
+        let _ = context.dispatch(fn() {})
+        true
+      },
+      _ => false,
+    }
+  }
+
+  // The header's context link switches between `!` and `!!`.
+  private fn mut toggle_context() {
+    if self.props.enabled and self.bash {
+      self.change(bash_text(bash_command(self.draft), bash_prefix(self.draft) == "!"))
+    }
+  }
+
+  // Rests command history above the caret. Returns whether it moved.
+  private fn mut settle_anchor() Bool {
+    match self.history_kind == Recall::commands {
+      false => false,
+      true => {
+        match self.editor.caret() {
+          caret => {
+            match self.surface.current {
+              surface => {
+                let next = inline_picker::anchor_at(caret, surface.layout().screen)
+                let moved = next.left != self.anchor.left or next.bottom != self.anchor.bottom or next.width != self.anchor.width
+                self.anchor = next
+                moved
+              },
+              _ => false,
+            }
+          },
+          _ => false,
+        }
+      },
     }
   }
 
@@ -592,10 +713,10 @@ impl Composer {
       self.history_selection = inline_picker::last_key(self.history_matches())
     }
     self.draft = value
-    let next = mode(value)
-    if next != self.mode {
-      self.mode = next
-      (self.props.mode_changed)(next)
+    let next = bash_prefix(value) != ""
+    if next != self.bash {
+      self.bash = next
+      (self.props.bash_changed)(next)
     }
   }
 
@@ -708,8 +829,23 @@ impl cui::Component for Composer {
         self.request_bash_recall()
       },
     )
+    let erase = keymap::simple_command(
+      "composer.bash.erase_prefix",
+      "Leave the Bash panel",
+      fn() Bool {
+        self.erase_prefix()
+      },
+    )
+    let leave = keymap::simple_command("composer.bash.leave", "Leave the Bash panel", fn() Bool {
+      self.request_leave_bash()
+    })
     let bindings = mut List::new<keymap::Binding>()
-    let bash_mode = strings::HasPrefix(self.draft, "!")
+    let bash_mode = self.bash
+    if bash_mode {
+      bindings.push(
+        keymap::binding(keymap::key("backspace"), erase.with(), keymap::Trigger::press_or_repeat),
+      )
+    }
     if self.history_kind != Recall::none {
       // The open picker takes the keys it navigates by; typing still edits
       // the draft, which is its query.
@@ -735,12 +871,13 @@ impl cui::Component for Composer {
       }
       if bash_mode {
         bindings.push(keymap::binding(keymap::key("down"), recall_bash.with()))
+        bindings.push(keymap::binding(keymap::key("escape"), leave.with()))
       }
     }
     let editor = cui::text_area(
       // Autofocus is mount-only. Live renders never assert focused=true, so
       // Shell, dialogs, panes, and pointer interactions keep their focus.
-      self.draft,
+      bash_command(self.draft),
       key: "composer.editor",
       styles: ui::style(
         flex_shrink: 0.0,
@@ -752,7 +889,10 @@ impl cui::Component for Composer {
           left: ui::cells(1),
         },
       ),
-      placeholder: "Ask kit to do something…",
+      placeholder: match bash_mode {
+        true => "Run a command…",
+        false => "Ask kit to do something…",
+      },
       placeholder_style: ui::text_style(foreground: colors.muted),
       selection_style: theme::selection_style(colors),
       autofocus: self.props.enabled and self.props.focus_eligible,
@@ -765,11 +905,54 @@ impl cui::Component for Composer {
         self.input(value)
       },
       key_bindings: editing,
-      commands: [send, open_palette, restore, recall, recall_bash, previous, next, choose, dismiss],
+      commands: [
+        send,
+        open_palette,
+        restore,
+        recall,
+        recall_bash,
+        previous,
+        next,
+        choose,
+        dismiss,
+        erase,
+        leave,
+      ],
       bindings: bindings.@,
     )
+    // The field keeps its place in the tree as the Bash panel's frame comes
+    // and goes, so it keeps focus and its caret.
+    let frame = mut List::new<cui::View>()
+    if bash_mode {
+      frame.push(self.bash_header())
+      frame.push(
+        cui::divider(
+          key: "composer.bash.rule",
+          styles: ui::style(flex_shrink: 0.0, border_color: colors.border),
+        ),
+      )
+    }
+    frame.push(editor)
     let children = mut List::new<cui::View>()
-    children.push(editor)
+    children.push(
+      cui::box(
+        frame.@,
+        key: "composer.frame",
+        styles: match bash_mode {
+          true => {
+            ui::style(
+              flex_shrink: 0.0,
+              flex_direction: ui::FlexDirection::column,
+              background: colors.background,
+              foreground: colors.foreground,
+              border: ui::Border::single,
+              border_color: colors.border,
+            )
+          },
+          false => ui::style(flex_shrink: 0.0, flex_direction: ui::FlexDirection::column),
+        },
+      ),
+    )
     if self.history_kind != Recall::none {
       // The session's commands are still loading when none are known yet.
       let empty = match self.bash_loading {
@@ -779,6 +962,7 @@ impl cui::Component for Composer {
       children.push(
         inline_picker::view(
           inline_picker::Props{
+            // Command history rests above the caret, over the panel's header.
             themes: self.props.themes,
             items: self.history_matches(),
             selection: self.history_selection,
@@ -786,14 +970,20 @@ impl cui::Component for Composer {
             activate: fn(id: Str) {
               self.choose_history(id)
             },
+            anchor: match self.history_kind == Recall::commands {
+              true => Maybe::new(self.anchor),
+              false => Maybe::new<inline_picker::Anchor>(),
+            },
           },
         ),
       )
     }
-    // The picker is positioned against this box and rests on its top edge.
+    // Pickers are positioned against this box; message history rests on its
+    // top edge.
     cui::box(
       children.@,
       key: "composer.surface",
+      ref: self.surface,
       styles: ui::style(
         position: ui::Position::relative,
         flex_shrink: 0.0,
@@ -803,14 +993,81 @@ impl cui::Component for Composer {
   }
 }
 
+impl Composer {
+  // The Bash panel's title, and on the right whether the command's result
+  // joins the conversation. That meta is a compact control: clicking it
+  // switches, and hovering it shows the control fill.
+  private fn mut bash_header() cui::View {
+    let colors = self.props.themes.current()
+    let included = bash_prefix(self.draft) == "!"
+    cui::box(
+      [
+        cui::text(
+          "Bash",
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          text_style: ui::text_style(foreground: colors.success_text, bold: true),
+          wrap: ui::TextWrap::none,
+        ),
+        cui::box(
+          [
+            cui::text(
+              match included {
+                true => "In context",
+                false => "Not in context",
+              },
+              text_style: ui::text_style(
+                foreground: match self.context_hovered {
+                  true => colors.primary_text,
+                  false => colors.muted,
+                },
+              ),
+              wrap: ui::TextWrap::none,
+            ),
+          ],
+          key: "composer.bash.context",
+          styles: ui::style(
+            flex_shrink: 0.0,
+            background: match self.context_hovered {
+              true => colors.surface_hovered,
+              false => colors.background,
+            },
+          ),
+          on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+            match received.event_type {
+              event::MouseEventType::over => { self.context_hovered = true },
+              event::MouseEventType::move => { self.context_hovered = true },
+              event::MouseEventType::out => { self.context_hovered = false },
+              event::MouseEventType::up => {
+                if received.button == event::MouseButton::left {
+                  self.toggle_context()
+                  received.prevent_default()
+                }
+              },
+              _ => (),
+            }
+          },
+        ),
+      ],
+      key: "composer.bash.header",
+      styles: ui::style(
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+        gap: ui::cells(2),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(1),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+    )
+  }
+}
+
 // The command a bash draft names, without its `!` or `!!` and the spaces
 // after it.
 fn bash_query(value: Str) Str {
-  let command = match strings::HasPrefix(value, "!!") {
-    true => strings::TrimPrefix(value, "!!"),
-    false => strings::TrimPrefix(value, "!"),
-  }
-  strings::TrimLeft(command, " \t")
+  strings::TrimLeft(bash_command(value), " \t")
 }
 
 // The composer text that runs command again in its context mode.
@@ -821,20 +1078,22 @@ fn bash_text(command: Str, exclude: Bool) Str {
   }
 }
 
+// The `!` or `!!` that makes a draft run a shell command, or nothing.
+fn bash_prefix(value: Str) Str {
+  match {
+    strings::HasPrefix(value, "!!") => "!!",
+    strings::HasPrefix(value, "!") => "!",
+    _ => "",
+  }
+}
+
+// The draft after its `!` or `!!`, as the Bash panel's field shows it.
+fn bash_command(value: Str) Str {
+  strings::TrimPrefix(value, bash_prefix(value))
+}
+
 // value with each run of whitespace, including line breaks, as one space.
 private fn one_line(value: Str) Str {
   let words = mut strings::Fields(value)
   strings::Join(words, " ")
-}
-
-private fn mode(value: Str) Str {
-  match strings::HasPrefix(value, "!!") {
-    true => "bash · not in context",
-    false => {
-      match strings::HasPrefix(value, "!") {
-        true => "bash · in context",
-        false => "",
-      }
-    },
-  }
 }

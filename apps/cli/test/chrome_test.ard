@@ -92,24 +92,19 @@ test fn header_without_a_session_shows_the_product_name() Void!Str {
   expect_rows(render(40, 1, header_for(Maybe::new<protocol::SessionInfo>(), 0, 0)), [" kit"])
 }
 
-test fn footer_shows_the_composer_mode_and_location() Void!Str {
+test fn footer_shows_the_location_on_the_right() Void!Str {
   expect_rows(
-    render(
-      40,
-      1,
-      chrome::footer(theme::context(theme::store(theme::system())), "", "", "bash", "~/kit"),
-    ),
-    [" bash                             ~/kit"],
+    render(40, 1, chrome::footer(theme::context(theme::store(theme::system())), "", "", "~/kit")),
+    ["                                  ~/kit"],
   )
 }
 
-test fn a_connection_problem_replaces_the_composer_mode() Void!Str {
+test fn a_connection_problem_replaces_the_session_status() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
   let footer = chrome::footer(
     themes,
     "Restart Kit to reconnect",
     "Reconnecting activity…",
-    "bash",
     "~/kit",
   )
   try expect_rows(
@@ -133,9 +128,9 @@ test fn a_connection_problem_replaces_the_composer_mode() Void!Str {
   )
 }
 
-test fn turn_recovery_replaces_the_composer_mode_in_muted_text() Void!Str {
+test fn turn_recovery_shows_in_muted_text() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let footer = chrome::footer(themes, "", "Syncing final transcript…", "bash", "~/kit")
+  let footer = chrome::footer(themes, "", "Syncing final transcript…", "~/kit")
   try expect_rows(
     render(80, 1, footer),
     [" Syncing final transcript…                                                ~/kit"],
@@ -162,7 +157,7 @@ test fn queued_follow_ups_show_how_to_restore_them() Void!Str {
   let status = chrome::session_status("", 2)
   try testing::assert(status == "2 queued · ↑ restore", status)
   expect_rows(
-    render(80, 1, chrome::footer(themes, "", status, "bash", "~/kit")),
+    render(80, 1, chrome::footer(themes, "", status, "~/kit")),
     [" 2 queued · ↑ restore                                                     ~/kit"],
   )
 }

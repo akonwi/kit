@@ -19,7 +19,7 @@ struct Model {
   submitted: Str,
   accept_submission: Bool,
   other: Str,
-  mode: Str,
+  bash: Bool,
   palette_opens: Int,
   follow_ups: Int,
   restores: Int,
@@ -108,8 +108,8 @@ impl cui::Component for Host {
             open_palette: fn() {
               model.palette_opens =+ 1
             },
-            mode_changed: fn(mode: Str) {
-              model.mode = mode
+            bash_changed: fn(bash: Bool) {
+              model.bash = bash
             },
           },
         ),
@@ -142,7 +142,7 @@ fn model() mut Model {
     submitted: "",
     accept_submission: true,
     other: "",
-    mode: "",
+    bash: false,
     palette_opens: 0,
     follow_ups: 0,
     restores: 0,
@@ -312,10 +312,10 @@ test fn clear_and_restore_mutate_the_draft_through_the_composer_owner() Void!Str
 
   terminal.key(character("!"))
   terminal.flush()
-  try testing::assert(value.mode != "", "draft mode is reported to Shell chrome")
+  try testing::assert(value.bash, "the Bash panel is reported to the Shell")
   try testing::assert(value.control.clear(), "clear handles a non-empty draft")
   terminal.flush()
-  try testing::assert(value.mode == "", "clear resets the reported mode")
+  try testing::assert(not value.bash, "clearing the draft closes the Bash panel")
   try testing::assert(
     value.control.restore_if_empty("restored"),
     "restore is scheduled through the owner",
@@ -832,7 +832,45 @@ test fn a_disabled_composer_closes_message_history() Void!Str {
   expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
 }
 
-test fn bash_drafts_report_whether_the_result_joins_the_context() Void!Str {
+test fn typing_bang_opens_the_bash_panel_with_the_prefix_out_of_the_field() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  try testing::assert(value.bash, "the composer reports the Bash panel")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "┌──────────────────────────────────────────────┐",
+      "│ Bash                              In context │",
+      "├──────────────────────────────────────────────┤",
+      "│ Run a command…                               │",
+      "└──────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  terminal.key(character("ls"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ ls                                           │",
+    "got {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "!ls" and not value.bash,
+    "the command runs with its prefix: {value.submitted}",
+  )
+}
+
+test fn a_bang_at_the_start_keeps_the_result_out_of_context_until_backspace() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
   let value = model()
@@ -841,15 +879,190 @@ test fn bash_drafts_report_whether_the_result_joins_the_context() Void!Str {
   terminal.flush()
 
   terminal.key(character("!ls"))
-  terminal.flush()
-  try testing::assert(value.mode == "bash · in context", "got {value.mode}")
   terminal.key(key("home"))
   terminal.key(character("!"))
   terminal.flush()
-  try testing::assert(value.mode == "bash · not in context", "got {value.mode}")
-  let _ = value.control.clear()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "┌──────────────────────────────────────────────┐",
+      "│ Bash                          Not in context │",
+      "├──────────────────────────────────────────────┤",
+      "│ ls                                           │",
+      "└──────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  // The caret stays before the command, so Backspace puts it back in
+  // context, and what is typed next goes before it.
+  terminal.key(key("backspace"))
+  terminal.key(character("x"))
   terminal.flush()
-  testing::assert(value.mode == "", "an ordinary draft has no mode")
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                              In context │" and rows(terminal).at(5).or("") == "│ xls                                          │",
+    "got {rows(terminal).at(3).or("")} / {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!xls", "got {value.submitted}")
+}
+
+test fn backspace_edits_the_command_and_leaves_the_panel_once_it_is_empty() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!!l"))
+  terminal.flush()
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(
+    value.bash and rows(terminal).at(3).or("") == "│ Bash                          Not in context │",
+    "deleting the command keeps the panel and its mode",
+  )
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(
+    value.bash and rows(terminal).at(3).or("") == "│ Bash                              In context │",
+    "the first Backspace at the start puts the result in context",
+  )
+  terminal.key(key("backspace"))
+  terminal.flush()
+  try testing::assert(not value.bash, "the next one leaves the panel")
+  expect_rows(rows(terminal), ["", "", "", "", "", "", " Ask kit to do something…", ""])
+}
+
+test fn escape_leaves_the_panel_keeping_the_command_as_a_prompt() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!!git log"))
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(not value.bash and value.aborts == 0, "Escape leaves the panel first")
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", " git log", ""])
+  // Typing continues the prompt.
+  terminal.key(character("!"))
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(value.aborts == 1, "an ordinary draft passes Escape on")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "git log!", "got {value.submitted}")
+}
+
+test fn escape_closes_command_history_then_the_panel_then_reaches_the_turn() Void!Str {
+  let terminal = headless::new(56, 10)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!ls"))
+  terminal.flush()
+  let _ = value.control.open_bash_history(commands())
+  terminal.flush()
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "┌──────────────────────────────────────────────────────┐",
+      "│ Bash                                      In context │",
+      "├──────────────────────────────────────────────────────┤",
+      "│ ls                                                   │",
+      "└──────────────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  terminal.key(key("escape"))
+  terminal.flush()
+  try testing::assert(not value.bash and value.aborts == 0, "the second Escape leaves the panel")
+  terminal.key(key("escape"))
+  terminal.flush()
+  testing::assert(value.aborts == 1, "the third reaches the application")
+}
+
+fn same(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+test fn the_context_switch_is_muted_meta_that_fills_on_hover() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+  let colors = theme::context(theme::store(theme::system())).current()
+
+  terminal.key(character("!"))
+  terminal.flush()
+  // It was once underlined like a URL; underlines are only for navigable
+  // links.
+  let resting = terminal.frame().cell(40, 3).expect("context label").style
+  try testing::assert(
+    same(resting.foreground, colors.muted) and same(resting.background, colors.background) and (not resting.underline),
+    "the label rests as plain muted meta",
+  )
+  terminal.mouse_move(40, 3)
+  terminal.flush()
+  let hovered = terminal.frame().cell(40, 3).expect("context label").style
+  try testing::assert(
+    same(hovered.foreground, colors.primary_text) and same(hovered.background, colors.surface_hovered),
+    "hovering shows the control fill",
+  )
+  terminal.mouse_move(10, 3)
+  terminal.flush()
+  let left = terminal.frame().cell(40, 3).expect("context label").style
+  testing::assert(same(left.foreground, colors.muted), "leaving restores the rest style")
+}
+
+test fn clicking_the_context_switches_where_the_result_goes() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!pwd"))
+  terminal.flush()
+  terminal.click(40, 3)
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                          Not in context │",
+    "got {rows(terminal).at(3).or("")}",
+  )
+  terminal.click(40, 3)
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(3).or("") == "│ Bash                              In context │",
+    "got {rows(terminal).at(3).or("")}",
+  )
+  // The field keeps focus.
+  terminal.key(character(" -P"))
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "!pwd -P", "got {value.submitted}")
 }
 
 fn commands() [composer::HistoryEntry] {
@@ -900,7 +1113,7 @@ test fn up_and_down_in_bash_mode_ask_for_earlier_commands() Void!Str {
   )
 }
 
-test fn command_history_lists_commands_with_their_mode_and_filters_by_command() Void!Str {
+test fn command_history_rests_above_the_caret_and_filters_by_command() Void!Str {
   let terminal = headless::new(56, 10)
   defer terminal.destroy()
   let value = model()
@@ -912,30 +1125,48 @@ test fn command_history_lists_commands_with_their_mode_and_filters_by_command() 
   terminal.flush()
   let _ = value.control.open_bash_history(commands())
   terminal.flush()
+  // The list sits on the row above the caret's line, from the caret's
+  // column, over the panel's header. Rows keep their `!` or `!!`.
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "  ┌──────────────────────────────────────────────┐",
+      "  │ !ls                                          │",
+      "┌─│ !!make test                                  │─────┐",
+      "│ │▌!git status                                  │text │",
+      "├─└──────────────────────────────────────────────┘─────┤",
+      "│ Run a command…                                       │",
+      "└──────────────────────────────────────────────────────┘",
+      "",
+    ],
+  )
+  // The command after `!` is the query, and the list follows the caret.
+  terminal.key(character("ma"))
+  terminal.flush()
   try expect_rows(
     rows(terminal),
     [
       "",
       "",
       "",
-      " ┌──────────────────────────────────────────────┐",
-      " │ !ls                                          │",
-      " │ !!make test                                  │",
-      " │▌!git status                                  │",
-      " └──────────────────────────────────────────────┘",
-      " !",
+      "",
+      "┌───┌──────────────────────────────────────────────┐───┐",
+      "│ Ba│▌!!make test                                  │xt │",
+      "├───└──────────────────────────────────────────────┘───┤",
+      "│ ma                                                   │",
+      "└──────────────────────────────────────────────────────┘",
       "",
     ],
   )
-  // The command after `!` is the query; `!` itself matches nothing extra.
-  terminal.key(character("ma"))
-  terminal.flush()
-  try testing::assert(
-    rows(terminal).at(6).or("") == " │▌!!make test                                  │",
-    "got {rows(terminal).at(6).or("")}",
-  )
+  // Choosing a command sets its mode.
   terminal.key(key("return"))
   terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == "│ Bash                                  Not in context │" and rows(terminal).at(7).or("") == "│ make test                                            │",
+    "got {rows(terminal).at(5).or("")} / {rows(terminal).at(7).or("")}",
+  )
   terminal.key(key("return"))
   terminal.flush()
   testing::assert(value.submitted == "!!make test", "the command keeps its mode: {value.submitted}")
@@ -954,7 +1185,7 @@ test fn the_sessions_commands_replace_the_known_ones_as_they_load() Void!Str {
   let _ = value.control.open_bash_history(commands())
   terminal.flush()
   try testing::assert(
-    rows(terminal).at(6).or("") == " │ Loading history…                             │",
+    rows(terminal).at(5).or("") == "│ Ba│ Loading history…                             │xt │",
     "nothing known matches while history loads",
   )
   let _ = value.control.answer_bash_history(
@@ -963,14 +1194,15 @@ test fn the_sessions_commands_replace_the_known_ones_as_they_load() Void!Str {
   )
   terminal.flush()
   try testing::assert(
-    rows(terminal).at(6).or("") == " │▌!zz top                                      │",
-    "got {rows(terminal).at(6).or("")}",
+    rows(terminal).at(5).or("") == "│ Ba│▌!zz top                                      │xt │",
+    "got {rows(terminal).at(5).or("")}",
   )
-  // Leaving bash mode closes the picker.
-  terminal.key(key("home"))
-  terminal.key(key("delete"))
+  // Leaving the Bash panel closes the picker.
+  terminal.key(key("backspace"))
+  terminal.key(key("backspace"))
+  terminal.key(key("backspace"))
   terminal.flush()
-  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " zz", ""])
+  expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
 }
 
 test fn moving_up_past_the_oldest_command_reads_older_pages() Void!Str {
@@ -1004,7 +1236,7 @@ test fn moving_up_past_the_oldest_command_reads_older_pages() Void!Str {
   )
   terminal.flush()
   try testing::assert(
-    rows(terminal).at(5).or("") == " │ !pwd                                         │" and rows(terminal).at(6).or("") == " │▌!ls                                          │",
+    rows(terminal).at(4).or("") == "  │ !pwd                                         │" and rows(terminal).at(5).or("") == "  │▌!ls                                          │",
     "the older page goes above the selection, which stays",
   )
   // With no older page left, Up wraps.
@@ -1012,8 +1244,8 @@ test fn moving_up_past_the_oldest_command_reads_older_pages() Void!Str {
   terminal.key(key("up"))
   terminal.flush()
   testing::assert(
-    value.older.size() == 1 and rows(terminal).at(8).or("") == " │▌!git status                                  │",
-    "got {rows(terminal).at(8).or("")}",
+    value.older.size() == 1 and rows(terminal).at(7).or("") == "│ │▌!git status                                  │text │",
+    "got {rows(terminal).at(7).or("")}",
   )
 }
 
@@ -1040,7 +1272,7 @@ test fn a_failed_older_page_ends_paging() Void!Str {
   terminal.key(key("up"))
   terminal.flush()
   testing::assert(
-    value.older.size() == 1 and rows(terminal).at(8).or("") == " │▌!git status                                  │",
-    "Up wraps instead: {rows(terminal).at(8).or("")}",
+    value.older.size() == 1 and rows(terminal).at(7).or("") == "│ │▌!git status                                  │text │",
+    "Up wraps instead: {rows(terminal).at(7).or("")}",
   )
 }

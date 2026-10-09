@@ -17,6 +17,10 @@ use go:strings
 // The most rows an inline picker lists; longer lists scroll behind ⋯ rows.
 let max_rows = 10
 
+// A picker resting on the composer's top edge is 80% as wide, within these.
+let min_width = 48
+let max_width = 96
+
 // Item is one picker row.
 struct Item {
   key: Str,
@@ -171,6 +175,34 @@ fn height(items: [Item]) Int {
   rows + 2
 }
 
+// Anchor places a picker by its bottom-left corner, in cells from the
+// bottom-left corner of its positioned parent, at a fixed width.
+struct Anchor {
+  left: Int,
+  bottom: Int,
+  width: Int,
+}
+
+// anchor_at rests a picker on the row above the caret's line, as wide as a
+// picker resting on parent's top edge, with its left edge at the caret's
+// column, moved left only as far as it must to stay within parent. caret and
+// parent are screen cells.
+fn anchor_at(caret: ui::Point, parent: ui::Rect) Anchor {
+  mut width = clamp(parent.width * 4 / 5, min_width, max_width)
+  if width > parent.width {
+    width = parent.width
+  }
+  let edge = match parent.width - width > 0 {
+    true => parent.width - width,
+    false => 0,
+  }
+  Anchor{
+    left: clamp(caret.x - parent.x, 0, edge),
+    bottom: clamp(parent.y + parent.height - caret.y, 0, parent.height),
+    width: width,
+  }
+}
+
 struct Props {
   themes: theme::Context,
   // The rows matching the query, in display order.
@@ -180,10 +212,13 @@ struct Props {
   empty: Str,
   // A click activates the clicked row.
   activate: fn(Str),
+  // Where the picker rests, when not on its parent's top edge.
+  anchor: Anchor?,
 }
 
 // view renders the picker above the top edge of its parent, level with the
-// composer's text. The parent must be positioned and span the composer.
+// composer's text, or at its anchor. The parent must be positioned and span
+// the composer.
 fn view(props: Props) cui::View {
   cui::child(new, props, key: "inline-picker")
 }
@@ -255,11 +290,32 @@ impl cui::Component for Picker {
       key: "inline-picker.panel",
       styles: ui::style(
         position: ui::Position::absolute,
-        bottom: ui::percent(100.0),
-        left: ui::cells(1),
-        width: ui::percent(80.0),
-        min_width: ui::cells(48),
-        max_width: ui::cells(96),
+        bottom: match self.props.anchor {
+          anchor => ui::cells(anchor.bottom),
+          _ => ui::percent(100.0),
+        },
+        left: ui::cells(
+          match self.props.anchor {
+            anchor => anchor.left,
+            _ => 1,
+          },
+        ),
+        width: match self.props.anchor {
+          anchor => ui::cells(anchor.width),
+          _ => ui::percent(80.0),
+        },
+        min_width: ui::cells(
+          match self.props.anchor {
+            anchor => anchor.width,
+            _ => min_width,
+          },
+        ),
+        max_width: ui::cells(
+          match self.props.anchor {
+            anchor => anchor.width,
+            _ => max_width,
+          },
+        ),
         height: ui::cells(height(items)),
         flex_direction: ui::FlexDirection::column,
         background: colors.background,
@@ -444,4 +500,36 @@ test fn a_long_list_marks_hidden_rows_and_keeps_the_selection_in_view() Void!Str
   // Scrolling past the end keeps a full window.
   let past = window(20, 40, -1)
   testing::assert(past.start == 11 and past.count == 9, "start {past.start}")
+}
+
+test fn an_anchored_picker_rests_above_the_caret_and_stays_within_its_parent() Void!Str {
+  let parent = ui::Rect{
+    x: 0,
+    y: 10,
+    width: 80,
+    height: 4,
+  }
+  // A caret on the parent's third row, eight cells in.
+  let near = anchor_at(ui::Point{x: 8, y: 12}, parent)
+  try testing::assert(
+    near.left == 8 and near.bottom == 2 and near.width == 64,
+    "left {near.left} bottom {near.bottom} width {near.width}",
+  )
+  // Far right, the picker moves left until its right edge meets the parent's.
+  let far = anchor_at(ui::Point{x: 70, y: 12}, parent)
+  try testing::assert(far.left == 16, "left {far.left}")
+  // A narrow parent bounds the width.
+  let narrow = anchor_at(
+    ui::Point{x: 30, y: 12},
+    ui::Rect{
+      x: 0,
+      y: 10,
+      width: 40,
+      height: 4,
+    },
+  )
+  testing::assert(
+    narrow.left == 0 and narrow.width == 40,
+    "left {narrow.left} width {narrow.width}",
+  )
 }
