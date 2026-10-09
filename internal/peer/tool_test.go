@@ -5,7 +5,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 type fakeService struct{ call droids.ToolContext }

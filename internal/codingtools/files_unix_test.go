@@ -10,7 +10,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 	"golang.org/x/sys/unix"
 )
 

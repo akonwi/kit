@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/codingtools"
-	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/subagent"
 	"github.com/akonwi/kit/internal/systemprompt"
 )

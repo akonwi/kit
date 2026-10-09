@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/systemprompt"
 )
 

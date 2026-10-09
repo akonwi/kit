@@ -5,7 +5,7 @@ import (
 	"errors"
 	"testing"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 	kitsession "github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/sessiontool"
 )

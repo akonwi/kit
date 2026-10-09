@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // Service is the server-owned capability exposed to one session's model tool.

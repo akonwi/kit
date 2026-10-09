@@ -36,11 +36,12 @@ asked.
 ## Architecture rules
 
 - The Go server is authoritative for sessions and shared state.
-- Clients consume server/session-client contracts; they do not import
-  `internal/droids`, SQLite implementations, or concrete server internals.
-- `internal/droids` is Kit's private agent core, seeded from the standalone
-  repository at the commit recorded in its README. There is no implicit
-  upstream sync; reconcile changes deliberately.
+- Maintained Kit clients consume server/session-client contracts; they do not
+  import the droids runtime, SQLite implementations, or concrete server internals.
+- `droids` is Kit's public, application-neutral agent runtime, seeded from the
+  standalone repository at the commit recorded in its README. It must not
+  depend on Kit's `internal` packages. There is no implicit upstream sync;
+  reconcile changes deliberately.
 - `internal/auth` owns machine-managed provider credentials. Keep auth files
   private, locked, atomically replaced, and generation-checked.
 - Runtime, persistence, protocol, client, and renderer types have distinct

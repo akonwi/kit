@@ -16,11 +16,11 @@ import (
 	"strings"
 	"time"
 
+	"github.com/akonwi/kit/droids"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/githubpr"
 	"github.com/akonwi/kit/internal/httpapi"
 	"github.com/akonwi/kit/internal/mcpconfig"

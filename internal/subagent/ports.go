@@ -4,7 +4,7 @@ import (
 	"context"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // ParentToolFactory constructs the asynchronous delegation tool for one owner.

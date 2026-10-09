@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"testing"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 func TestCompactionFailureClassification(t *testing.T) {

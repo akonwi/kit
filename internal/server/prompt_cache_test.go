@@ -5,8 +5,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/droids"
 )
 
 func TestPromptCacheRetentionFollowsSettings(t *testing.T) {

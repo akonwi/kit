@@ -42,7 +42,7 @@ without requiring changes to the droid state machine.
 
 ## Package layout
 
-The target package shape is:
+The public package shape is:
 
 ```text
 droids
@@ -52,12 +52,18 @@ droids/sqlitestore
   CGO-free SQLite Store implementation and migrations
 
 droids/droidstest
-  reusable Store and provider conformance suites
+  reusable Store and provider conformance support
+
+droids/mcp
+  MCP namespace tools and transport contracts
+
+droids/anthropicoauth and droids/openaicodex
+  provider OAuth protocol helpers
 ```
 
-While droids remains private to Kit, these packages live below
-`internal/droids`. Their APIs must not depend on Kit packages so they can be
-extracted later without semantic redesign.
+These packages are importable from the `github.com/akonwi/kit/droids` package
+family and do not depend on Kit's private packages. Packages below
+`droids/internal` are implementation details.
 
 The root package never imports `sqlitestore`. Applications choose and construct
 the adapter at composition time.

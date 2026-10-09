@@ -3,7 +3,7 @@ package session
 import (
 	"context"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // MCPTools resolves the MCP namespace tools owned by one session runtime so its

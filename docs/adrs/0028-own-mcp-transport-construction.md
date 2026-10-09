@@ -7,7 +7,7 @@ Accepted
 ## Context
 
 Kit reaches Model Context Protocol servers through the progressively disclosed
-namespace tools in `internal/droids/mcp`. A namespace connects lazily, and
+namespace tools in `droids/mcp`. A namespace connects lazily, and
 `mcp.Server.Transport` is a `TransportFactory` that the embedding application
 supplies:
 
@@ -24,13 +24,13 @@ the MCP specification, and `github.com/modelcontextprotocol/go-sdk` already
 provides the protocol-generic `CommandTransport` and
 `StreamableClientTransport`.
 
-`internal/droids` is a reviewed source seed with a deliberately narrow
-dependency surface, and ADR 0004 draws the boundary as: a droid owns when and
+`droids` has a deliberately narrow, application-neutral dependency surface,
+and ADR 0004 draws the boundary as: a droid owns when and
 why a capability is used, while adapters own its physical implementation.
 
 ## Decision
 
-`internal/droids/mcp` owns protocol-shaped concerns only: the namespace tool
+`droids/mcp` owns protocol-shaped concerns only: the namespace tool
 surface, lazy connection lifetime, tool metadata caching, result conversion, and
 bounds. `TransportFactory` is its sole transport contract, and it remains
 testable entirely over in-memory transports.
@@ -89,7 +89,7 @@ Trade-offs:
 `internal/mcpconfig` resolves the Kit user `mcp.json`, `.mcp.json`, and
 `.agents/mcp.json` with deterministic precedence. Kit-owned transport
 construction includes OAuth acquisition and private credential persistence;
-protocol-facing namespace behavior remains in `internal/droids/mcp`. Canonical
+protocol-facing namespace behavior remains in `droids/mcp`. Canonical
 status projection is a separate server/client protocol concern.
 
 ## Related

@@ -10,8 +10,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/droids/sqlitestore"
+	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/securefs"
 	"github.com/akonwi/kit/internal/subagent"

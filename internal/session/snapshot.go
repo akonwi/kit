@@ -11,8 +11,8 @@ import (
 	"time"
 	"unicode/utf8"
 
-	"github.com/akonwi/kit/internal/droids"
-	droidsmcp "github.com/akonwi/kit/internal/droids/mcp"
+	"github.com/akonwi/kit/droids"
+	droidsmcp "github.com/akonwi/kit/droids/mcp"
 	"github.com/akonwi/kit/internal/scratchpad"
 	"github.com/akonwi/kit/internal/showimage"
 	"github.com/akonwi/kit/internal/subagent"

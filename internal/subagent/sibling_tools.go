@@ -8,7 +8,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // SiblingToolService binds request and reply capabilities to one child.

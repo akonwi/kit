@@ -16,10 +16,10 @@ import (
 	"unicode"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/droids/sqlitestore"
 	kitannotation "github.com/akonwi/kit/internal/annotation"
 	"github.com/akonwi/kit/internal/attachment"
-	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/droids/sqlitestore"
 	"github.com/akonwi/kit/internal/identifier"
 	"github.com/akonwi/kit/internal/mcpruntime"
 	"github.com/akonwi/kit/internal/peer"

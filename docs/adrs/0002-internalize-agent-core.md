@@ -2,7 +2,7 @@
 
 ## Status
 
-Accepted
+Superseded by [ADR 0043](./0043-publish-droids-from-the-kit-module.md)
 
 ## Context
 
@@ -31,7 +31,7 @@ runtime packages import `github.com/akonwi/kit/internal/droids`; clients still
 consume only Kit-owned session contracts and wire projections.
 
 This is a source fork, not vendoring with an implicit update mechanism. The
-source commit is recorded in `internal/droids/README.md`. Future upstream or
+source commit is now retained in `droids/README.md`. Future upstream or
 outbound synchronization must be explicit and reviewed rather than performed
 by an automated dependency update.
 
@@ -103,13 +103,12 @@ Trade-offs:
 
 ## Scope boundaries
 
-Credential presentation and the long-term ownership of droids are outside this
-architecture decision. Outstanding work is tracked by `TUI-AUTH-001`,
-`WEB-AUTH-001`, and `CORE-DROIDS-001` in the
-[backlog](../../backlog/README.md).
+Credential presentation is outside this architecture decision. ADR 0043 later
+resolved the long-term ownership of droids.
 
 ## Related
 
 - [0001: Native Go application architecture](./0001-native-go-architecture.md)
-- [`../../internal/droids/README.md`](../../internal/droids/README.md)
+- [0043: Publish droids from the Kit module](./0043-publish-droids-from-the-kit-module.md)
+- [`../../droids/README.md`](../../droids/README.md)
 - External source commit `github.com/akonwi/droids@69dc707`

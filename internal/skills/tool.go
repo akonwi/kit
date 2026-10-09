@@ -6,7 +6,7 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 const (

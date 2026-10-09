@@ -14,8 +14,8 @@ import (
 	"sync"
 	"time"
 
+	droidsmcp "github.com/akonwi/kit/droids/mcp"
 	kitauth "github.com/akonwi/kit/internal/auth"
-	droidsmcp "github.com/akonwi/kit/internal/droids/mcp"
 	sdkauth "github.com/modelcontextprotocol/go-sdk/auth"
 	"github.com/modelcontextprotocol/go-sdk/oauthex"
 	"golang.org/x/oauth2"

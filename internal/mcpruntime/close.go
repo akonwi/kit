@@ -5,7 +5,7 @@ import (
 	"errors"
 	"fmt"
 
-	"github.com/akonwi/kit/internal/droids/mcp"
+	"github.com/akonwi/kit/droids/mcp"
 )
 
 // CloseManager closes an MCP manager without exceeding the caller's deadline.

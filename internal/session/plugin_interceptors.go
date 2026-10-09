@@ -6,7 +6,7 @@ import (
 	"errors"
 	"sync/atomic"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // PluginInterceptorHost exposes generation-fenced tool policy without IPC types.

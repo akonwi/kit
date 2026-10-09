@@ -5,7 +5,7 @@ import (
 	"slices"
 	"strings"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 // resolveSubagentModel permits bare frontmatter model IDs to choose the first

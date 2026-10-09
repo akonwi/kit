@@ -7,7 +7,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 const maxEditFileBytes = 32 << 20

@@ -7,7 +7,7 @@ import (
 	"errors"
 	"strings"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 const ToolName = "create_session"

@@ -8,8 +8,8 @@ import (
 	"io"
 	"strings"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
-	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/localimage"
 	"github.com/akonwi/kit/internal/modelimage"
 )

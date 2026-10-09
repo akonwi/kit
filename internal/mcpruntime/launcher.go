@@ -17,9 +17,9 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/akonwi/kit/droids"
+	"github.com/akonwi/kit/droids/mcp"
 	kitauth "github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/droids"
-	"github.com/akonwi/kit/internal/droids/mcp"
 	"github.com/akonwi/kit/internal/mcpconfig"
 )
 

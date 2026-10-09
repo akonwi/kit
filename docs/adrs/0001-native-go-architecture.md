@@ -23,8 +23,8 @@ implementation.
 The rewrite has these hard constraints:
 
 - users install one Go executable and do not need Bun or Node;
-- the agent core is the Kit-private `internal/droids` package, initially seeded
-  from `github.com/akonwi/droids`;
+- the agent core is the public, application-neutral `droids` package, initially
+  seeded from `github.com/akonwi/droids` and importable from this module;
 - subagents are concurrent supervised executions, not blocking nested tool
   calls;
 - Kit retains a native TUI and semantic browser client, but drops `web-tui`;
@@ -168,9 +168,9 @@ There is no process-global active session or cwd.
 
 ### Agent runtime
 
-Kit composes its agent loop through the private `internal/droids` package,
-seeded from the standalone droids repository and allowed to evolve with the
-rewrite. Droids provider, message, stream, tool, and event types remain behind
+Kit composes its agent loop through the public `droids` package, seeded from
+the standalone droids repository and maintained in this module. Droids provider,
+message, stream, tool, and event types remain behind
 Kit's runtime boundary. The server projects droids events into Kit-owned session
 events and persists Kit-owned records. See
 [ADR 0002](./0002-internalize-agent-core.md) for provenance and synchronization
@@ -420,9 +420,9 @@ to hold shared types.
 - Browser development still needs Bun even though users do not.
 - Legacy history cannot be opened or continued in native Kit; users retain the
   old data separately while starting fresh native sessions.
-- Internalizing droids increases Kit's source and test surface; the ownership
-  decision is tracked by `CORE-DROIDS-001` in the
-  [core backlog](../../backlog/core.md).
+- Maintaining droids in this module increases Kit's source, compatibility, and
+  test surface; its public ownership is defined by
+  [ADR 0043](./0043-publish-droids-from-the-kit-module.md).
 
 ## Scope boundaries
 

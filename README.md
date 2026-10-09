@@ -11,7 +11,8 @@ and release scope is tracked in [`backlog/README.md`](backlog/README.md).
 ## Architecture
 
 - one Go executable for the CLI, daemon/server, agent orchestration, and TUI
-- a Kit-private [`internal/droids`](./internal/droids) agent core, seeded from
+- a reusable public [`droids`](./droids) agent runtime, importable as
+  `github.com/akonwi/kit/droids` and seeded from
   [`github.com/akonwi/droids`](https://github.com/akonwi/droids)
 - `vaxis/ui` for the native terminal client
 - SQLite for authoritative session/runtime state

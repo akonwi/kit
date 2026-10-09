@@ -14,8 +14,8 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
-	"github.com/akonwi/kit/internal/droids"
 )
 
 func TestExecutePersistsRelativeImageAndReturnsTextOnlyPresentation(t *testing.T) {

@@ -184,8 +184,6 @@ Process ownership and plugin UI routing follow
   session eligibility, cycle, retention, and capacity limits. Verify delayed and
   out-of-order replies, duplicate suppression, restart recovery, and concurrent
   conversations between the same peers.
-- [ ] CORE-DROIDS-001 — Decide whether to keep droids internal, maintain an
-  independent fork, or extract selected changes after the rewrite stabilizes.
 - [ ] CORE-LIFE-007 — Add bounded idle session and daemon eviction policies.
 - [ ] CORE-INT-003 — Recover pending user interactions across server restarts.
 - [ ] CORE-THREAD-001 — Expand bounded `#thread` references with escaping and

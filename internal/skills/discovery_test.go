@@ -11,8 +11,8 @@ import (
 	"testing"
 	"unicode/utf8"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/droids"
 )
 
 func TestFilesystemLoaderDiscoversGlobalAndProjectSkillsWithPrecedence(t *testing.T) {

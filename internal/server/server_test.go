@@ -12,9 +12,9 @@ import (
 	"testing"
 	"time"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
 	"github.com/akonwi/kit/internal/auth"
-	"github.com/akonwi/kit/internal/droids"
 )
 
 func TestProvidersFromEnvironmentIncludesOpenAICodex(t *testing.T) {

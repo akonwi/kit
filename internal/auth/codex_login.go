@@ -7,8 +7,8 @@ import (
 	"net/http"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
-	codexauth "github.com/akonwi/kit/internal/droids/openaicodex"
+	"github.com/akonwi/kit/droids"
+	codexauth "github.com/akonwi/kit/droids/openaicodex"
 )
 
 // OpenAICodexDeviceInstructions are safe, non-secret values an application can

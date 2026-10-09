@@ -6,9 +6,9 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/attachment"
 	"github.com/akonwi/kit/internal/codingtools"
-	"github.com/akonwi/kit/internal/droids"
 	"github.com/akonwi/kit/internal/inspectimage"
 	"github.com/akonwi/kit/internal/session"
 	"github.com/akonwi/kit/internal/showimage"

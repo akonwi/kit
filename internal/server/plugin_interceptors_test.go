@@ -15,8 +15,8 @@ import (
 	"time"
 
 	protocol "github.com/akonwi/kit/api/contract"
+	"github.com/akonwi/kit/droids"
 	"github.com/akonwi/kit/internal/apphome"
-	"github.com/akonwi/kit/internal/droids"
 )
 
 type interceptionProviders struct {

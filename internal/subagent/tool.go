@@ -10,7 +10,7 @@ import (
 	"sync"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
+	"github.com/akonwi/kit/droids"
 )
 
 var internalIdentityPattern = regexp.MustCompile(`\b(?:subagent|task|turn|message|mailbox|subreceipt)_[[:alnum:]]+\b`)

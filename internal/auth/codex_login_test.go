@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/akonwi/kit/internal/droids"
-	codexauth "github.com/akonwi/kit/internal/droids/openaicodex"
+	"github.com/akonwi/kit/droids"
+	codexauth "github.com/akonwi/kit/droids/openaicodex"
 )
 
 func TestOpenAICodexDeviceLoginPersistsCompletedCredentials(t *testing.T) {
