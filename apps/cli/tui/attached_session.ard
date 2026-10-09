@@ -127,6 +127,8 @@ struct Controller {
   bash_failure: Str,
   // Bash rows whose output is folded, by execution ID.
   folded_bash: [Str: Bool],
+  // Plugin messages shown in full, by turn ID.
+  expanded_plugins: [Str: Bool],
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
@@ -274,6 +276,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     bash_abort_requested: false,
     bash_failure: "",
     folded_bash: [:],
+    expanded_plugins: [:],
     interactions: [],
     settled_interactions: [],
     interaction_responding: "",
@@ -1037,6 +1040,11 @@ impl Controller {
         false => self.messages.push(row),
       }
     }
+  }
+
+  // Expands or collapses the plugin message that started turn_id.
+  fn mut toggle_plugin_message(turn_id: Str) {
+    self.expanded_plugins.set(turn_id, not self.expanded_plugins.get(turn_id).or(false))
   }
 
   // Folds or unfolds a finished command's output.

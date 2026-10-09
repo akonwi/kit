@@ -608,6 +608,14 @@ impl Shell {
             })
           },
         },
+        plugins: transcript_pane::Plugins{
+          expanded: self.attached.expanded_plugins,
+          toggle: fn(turn_id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_plugin_message(turn_id)
+            })
+          },
+        },
         load_older: fn() {
           self.request_older_history()
         },

@@ -8,10 +8,12 @@ use go:strings
 // live messages of the active run, built from its streamed events.
 
 enum Role {
+  // A message a plugin submitted to start the turn.
   user,
   assistant,
   tool,
   bash,
+  plugin,
   other,
 }
 
@@ -49,6 +51,8 @@ struct Message {
   attachments: [Attachment],
   // The direct shell run of a bash message.
   bash: sessionbridge::Bash?,
+  // The plugin that submitted a plugin message.
+  plugin_id: Str,
 }
 
 // A file attached to a user message, shown by name. Images can be previewed.
@@ -62,6 +66,7 @@ struct Attachment {
 enum Event {
   run_started,
   user_message,
+  plugin_message,
   assistant_started,
   text_delta,
   thinking_delta,
@@ -83,6 +88,7 @@ fn classify(kind: Str) Event {
   match kind {
     "turn.started" => Event::run_started,
     "user.message.added" => Event::user_message,
+    "plugin.message.added" => Event::plugin_message,
     "assistant.started" => Event::assistant_started,
     "assistant.text.delta" => Event::text_delta,
     "assistant.thinking.delta" => Event::thinking_delta,
@@ -107,6 +113,7 @@ fn role(value: Str) Role {
     "assistant" => Role::assistant,
     "tool" => Role::tool,
     "bash" => Role::bash,
+    "plugin" => Role::plugin,
     _ => Role::other,
   }
 }
@@ -129,6 +136,7 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     pending: false,
     attachments: [],
     bash: Maybe::new<sessionbridge::Bash>(),
+    plugin_id: "",
   }
 }
 
@@ -202,6 +210,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.aborted = source.StopReason == "aborted"
       projected.sequence = source.Sequence
       projected.attachments = attached.@
+      projected.plugin_id = source.PluginID
       if not unsafe::is_nil(source.Bash) {
         let run = source.Bash.@
         projected.text = run.Command
@@ -652,6 +661,26 @@ impl Live {
               current.text = event.Text
             })
           },
+        }
+        true
+      },
+      Event::plugin_message => {
+        // A plugin message starts its turn in place of a user prompt.
+        if self.activity == "" {
+          self.activity = "Working…"
+        }
+        let id = "live-plugin:{event.TurnID}"
+        mut present = false
+        for current in self.messages {
+          if current.id == id {
+            present = true
+          }
+        }
+        if not present {
+          let row = mut message(id, event.TurnID, Role::plugin)
+          row.text = event.Text
+          row.plugin_id = event.PluginID
+          self.messages.push(row.@)
         }
         true
       },

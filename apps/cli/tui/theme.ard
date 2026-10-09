@@ -22,6 +22,9 @@ struct Theme {
   // This is Cooper's vaxis-compatible terminal-derived selection fill.
   selection: ui::Color,
   primary_text: ui::Color,
+  // Accent-colored text, such as the identity of a plugin message, as vaxis's
+  // AccentText. User themes set it with the same token as primary_text.
+  accent_text: ui::Color,
   success_text: ui::Color,
   warning_text: ui::Color,
   danger_text: ui::Color,
@@ -276,6 +279,7 @@ fn resolve(definition: kittheme::Definition, base: ctheme::Theme) Theme {
     border: color(tokens, kittheme::TokenBorderDefault, from_ui(base.border), backdrop),
     selection: to_ui(from_ui(base.selection)),
     primary_text: to_ui(primary_text),
+    accent_text: color(tokens, kittheme::TokenBorderAccent, from_ui(base.accent_text), backdrop),
     success_text: color(tokens, kittheme::TokenToolText, from_ui(base.success_text), backdrop),
     warning_text: color(tokens, kittheme::TokenWarningText, from_ui(base.warning_text), backdrop),
     danger_text: color(tokens, kittheme::TokenErrorText, from_ui(base.danger_text), backdrop),

@@ -47,6 +47,7 @@ fn describe(messages: [transcript::Message]) Str {
       transcript::Role::assistant => "assistant",
       transcript::Role::tool => "tool",
       transcript::Role::bash => "bash",
+      transcript::Role::plugin => "plugin",
       transcript::Role::other => "other",
     }
     out = out + "[{role} {message.id} {message.text}]"
@@ -121,6 +122,54 @@ test fn a_watched_turn_from_another_client_shows_its_prompt_and_thinking() Void!
   testing::assert(
     live.activity == "Creating the commit",
     "remote thinking updates the shared working UX",
+  )
+}
+
+test fn a_plugin_message_starts_its_turn_in_place_of_a_prompt() Void!Str {
+  let live = mut transcript::live()
+  let plugin = sessionbridge::Event{
+    Kind: "plugin.message.added",
+    TurnID: "turn-1",
+    PluginID: "autoresearch",
+    Text: "Continue the experiment loop.",
+  }
+  let _ = live.apply(sequenced([event("turn.started"), plugin]))
+  try testing::assert(
+    describe(live.messages) == "[plugin live-plugin:turn-1 Continue the experiment loop.]",
+    describe(live.messages),
+  )
+  try testing::assert(
+    live.messages.at(0).expect("plugin row").plugin_id == "autoresearch",
+    "the row names its plugin",
+  )
+  try testing::assert(live.activity == "Working…", "the turn shows activity")
+  // A replayed copy from a reconnected stream adds no second row.
+  let replayed = mut plugin
+  replayed.Sequence = 3
+  let _ = live.apply([replayed.@])
+  testing::assert(live.messages.size() == 1, "one row per turn")
+}
+
+test fn a_persisted_plugin_message_projects_with_its_plugin() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "pluginmsg_1",
+        TurnID: "turn-1",
+        Role: "context",
+        BoundaryKind: protocol::PluginMessageBoundaryKind,
+        BoundarySource: "autoresearch",
+        Content: [protocol::TextBlock("Continue the experiment loop.")],
+      },
+    ],
+  )
+  try testing::assert(
+    describe(projected) == "[plugin pluginmsg_1 Continue the experiment loop.]",
+    describe(projected),
+  )
+  testing::assert(
+    projected.at(0).expect("plugin row").plugin_id == "autoresearch",
+    "the plugin is kept",
   )
 }
 

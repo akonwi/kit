@@ -94,6 +94,31 @@ test fn dark_primary_hover_lifts_a_custom_picker_fill() Void!Str {
   check("primary hovered", colors.primary_hovered, ui::rgb(68, 103, 138))
 }
 
+test fn accent_text_is_the_terminal_magenta_unless_the_theme_sets_its_accent() Void!Str {
+  // The palette's magenta, rgb(198, 120, 221), lifted for contrast on the
+  // dark background, as vaxis's AccentText.
+  try check(
+    "accent_text",
+    theme::resolve(kittheme::Definition{}, dark()).accent_text,
+    ui::rgb(209, 139, 230),
+  )
+  let tokens = mut Map::new<kittheme::Color>()
+  tokens.set(
+    kittheme::TokenBorderAccent,
+    kittheme::Color{
+      R: 230,
+      G: 150,
+      B: 60,
+      A: 255,
+    },
+  )
+  // As in the vaxis client, the theme's accent sets both accent-colored and
+  // primary text.
+  let colors = theme::resolve(kittheme::Definition{Tokens: tokens.@}, dark())
+  try check("accent_text", colors.accent_text, ui::rgb(230, 150, 60))
+  check("primary_text", colors.primary_text, ui::rgb(230, 150, 60))
+}
+
 test fn translucent_tokens_blend_over_the_background() Void!Str {
   let tokens = mut Map::new<kittheme::Color>()
   tokens.set(
