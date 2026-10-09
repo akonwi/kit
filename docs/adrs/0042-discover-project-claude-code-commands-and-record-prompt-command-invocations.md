@@ -94,8 +94,8 @@ do not change recorded history.
   prompt. The model does not receive the command name or a framing marker.
 - Transcript projections expose the block as a `promptCommand` content kind
   with `name`, `arguments`, `source`, and `text`. Clients present the user
-  message as the invocation, `/<name> <arguments>`, and show the expanded text
-  on demand.
+  message as the invocation, `/<name> <arguments>`, styled as ordinary user
+  text.
 - Prompt history recall restores the invocation text, so submitting a recalled
   invocation runs the command again with the current template.
 - The follow-up queue preview of a queued prompt command is the same invocation

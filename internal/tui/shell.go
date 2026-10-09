@@ -942,6 +942,7 @@ func (w shellView) transcriptWorkEntry(theme ui.Theme, item transcriptDisplayIte
 func transcriptUserEntry(theme ui.Theme, message protocol.TranscriptMessage, attachments AttachmentSession, annotationsExpanded bool, toggleAnnotations ui.VoidCallback) ui.Widget {
 	children := make([]ui.Widget, 0, len(message.Content)+1)
 	fill := userMessageBackground(theme)
+	// A prompt command message reads as the invocation the user typed.
 	if text := userMessageText(message); text != "" {
 		children = append(children, markdownView{ID: "transcript-user:" + message.ID, Source: text, BaseStyle: ui.Style{Foreground: theme.Foreground, Background: fill}})
 	}

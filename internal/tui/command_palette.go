@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"unicode"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis"
@@ -351,6 +352,24 @@ func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
 		})
 	}
 	return result
+}
+
+// composerPromptCommand parses composer text that invokes a discovered prompt
+// command: "/<name>" followed by optional arguments after whitespace.
+func composerPromptCommand(text string, contributions []paletteCommand) (name, args string, ok bool) {
+	rest, slash := strings.CutPrefix(text, "/")
+	if !slash {
+		return "", "", false
+	}
+	end := strings.IndexFunc(rest, unicode.IsSpace)
+	if end < 0 {
+		end = len(rest)
+	}
+	name, args = rest[:end], strings.TrimLeftFunc(rest[end:], unicode.IsSpace)
+	if name == "" || !paletteCommandExists(paletteCommandID("prompt:"+name), contributions) {
+		return "", "", false
+	}
+	return name, args, true
 }
 
 // promptCommandSourceLabel is the palette label of a prompt command source.

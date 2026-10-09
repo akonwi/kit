@@ -154,8 +154,9 @@ func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
 	}
 }
 
-// userMessageText is the visible text of a user message: its text blocks and
-// the expansion of a prompt command invocation, in content order.
+// userMessageText is the visible and recalled text of a user message: its text
+// blocks and a prompt command's invocation, in content order. Submitting a
+// recalled invocation runs the command again with its current template.
 func userMessageText(message protocol.TranscriptMessage) string {
 	parts := make([]string, 0, len(message.Content))
 	for _, block := range message.Content {
@@ -165,7 +166,7 @@ func userMessageText(message protocol.TranscriptMessage) string {
 				parts = append(parts, value.Text)
 			}
 		case protocol.PromptCommandContent:
-			parts = append(parts, value.Text)
+			parts = append(parts, value.InvocationText())
 		}
 	}
 	return strings.Join(parts, "\n")

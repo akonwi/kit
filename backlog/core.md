@@ -207,8 +207,8 @@ Process ownership and plugin UI routing follow
   its user message, per
   [ADR 0042](../docs/adrs/0042-discover-project-claude-code-commands-and-record-prompt-command-invocations.md).
   Session protocol 46 publishes the `promptCommand` transcript content kind and
-  the `claude_project` source. Until `TUI-CMD-011` and `MAC-CMD-001`, clients
-  show a prompt command message as its expansion.
+  the `claude_project` source. Until `MAC-CMD-001`, the macOS app shows a
+  prompt command message as its expansion.
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical
   ownership and generations.
 - [ ] CORE-CONFIG-001 — Support Markdown template overrides with project/global

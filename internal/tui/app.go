@@ -4525,7 +4525,7 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	s.inputGeneration++
 	s.SetState(func() { s.palette.Close() })
 	if name, ok := promptPaletteCommandName(commandID); ok {
-		s.submitPromptCommand(name, args)
+		s.runPromptCommand(name, args, false)
 		return
 	}
 	switch commandID {
@@ -7178,6 +7178,16 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.startDirectBash(value, command, excludeFromContext)
 		return
 	}
+	// A composed invocation of a discovered prompt command, such as one recalled
+	// from history or restored from the follow-up queue, runs the command.
+	if name, args, ok := composerPromptCommand(text, s.palette.Contributions); ok {
+		if len(attachmentIDs) > 0 || len(annotationIDs) > 0 || len(s.composerAttachments) > 0 {
+			s.showToast(toastInput{Title: "Prompt commands do not accept attachments or annotations", Variant: toastWarning})
+			return
+		}
+		s.runPromptCommand(name, args, true)
+		return
+	}
 	if s.turnPending {
 		s.queueFollowUp(text, s.Context().Runtime())
 		return
@@ -7407,7 +7417,9 @@ func (s *appState) promoteFollowUps() {
 	}()
 }
 
-func (s *appState) submitPromptCommand(name, args string) {
+// runPromptCommand submits a prompt command. fromComposer reports that the
+// composer draft is the command's invocation, which a queued command clears.
+func (s *appState) runPromptCommand(name, args string, fromComposer bool) {
 	if s.bound == nil || s.daemonIncompatible {
 		return
 	}
@@ -7417,18 +7429,27 @@ func (s *appState) submitPromptCommand(name, args string) {
 	}
 	bound := s.bound
 	if s.turnPending {
-		// The palette query is not the composer draft, so a queued command
-		// leaves the draft alone.
 		if s.followUpMutationPending || !supportsPromptCommandQueue(bound) {
 			s.showToast(toastInput{Title: "Run in progress", Subtitle: "Run the command when the session is idle.", Variant: toastInfo})
 			return
+		}
+		// A palette query is not the composer draft, so a command run from
+		// the palette leaves the draft alone.
+		accepted := func() {}
+		if fromComposer {
+			submittedDraft, submittedGeneration := s.composer, s.composerDraftGeneration
+			accepted = func() {
+				if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
+					s.composer = ""
+				}
+			}
 		}
 		s.queueSubmission(queuedSubmission{
 			display: display, failureTitle: "Could not queue prompt command",
 			submit: func(ctx context.Context) (PromptSubmission, error) {
 				return submitPromptCommand(ctx, bound, name, args)
 			},
-			accepted: func() {}, rejected: func() {},
+			accepted: accepted, rejected: func() {},
 		}, s.Context().Runtime())
 		return
 	}

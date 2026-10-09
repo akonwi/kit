@@ -112,7 +112,7 @@ func TestPromptCommandDuringActiveTurnQueuesWithoutTouchingTheDraft(t *testing.T
 	state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, turnPending: true, composer: "unsent draft"}}
 	application := uitest.New(followUpHarness{state})
 	application.Pump(80, 24)
-	state.submitPromptCommand("review", "--staged")
+	state.runPromptCommand("review", "--staged", false)
 	deadline := time.Now().Add(time.Second)
 	for state.followUpMutationPending || state.followUps.Count == 0 {
 		if time.Now().After(deadline) {
@@ -127,5 +127,25 @@ func TestPromptCommandDuringActiveTurnQueuesWithoutTouchingTheDraft(t *testing.T
 	want := protocol.FollowUpQueue{Count: 1, Previews: []string{"/review"}}
 	if !reflect.DeepEqual(state.followUps, want) || state.composer != "unsent draft" || !state.turnPending {
 		t.Fatalf("queue = %+v composer = %q turnPending = %v", state.followUps, state.composer, state.turnPending)
+	}
+}
+
+func TestComposedPromptCommandInvocationRunsTheCommand(t *testing.T) {
+	bound := &promptCommandQueueSession{}
+	state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, phase: phaseReady, turnPending: true, composer: "/review --staged"}}
+	state.palette.Contributions = promptPaletteCommands([]protocol.PromptCommand{{Name: "review", Description: "Review", Source: "project", Location: "/repo/.agents/prompts/review.md"}})
+	application := uitest.New(followUpHarness{state})
+	application.Pump(80, 24)
+	state.submit(ui.EventContext{}, state.composer)
+	deadline := time.Now().Add(time.Second)
+	for state.followUpMutationPending || state.followUps.Count == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("composed prompt command did not settle")
+		}
+		time.Sleep(5 * time.Millisecond)
+		application.Pump(80, 24)
+	}
+	if bound.name != "review" || bound.args != "--staged" || state.composer != "" {
+		t.Fatalf("command = %q %q composer = %q", bound.name, bound.args, state.composer)
 	}
 }
