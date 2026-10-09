@@ -2,6 +2,7 @@ package droids
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -195,10 +196,33 @@ func validateEntryImagePolicies(entry providerEntry) error {
 	return nil
 }
 
+// ModelCatalogCache persists the latest validated models.dev catalog.
+// Implementations must make Store atomic for concurrent readers.
+type ModelCatalogCache interface {
+	Load(context.Context) ([]byte, error)
+	Store(context.Context, []byte) error
+}
+
+// RegistryOptions configures optional model-registry behavior.
+type RegistryOptions struct {
+	// ModelCatalogCache is loaded during construction and updated after a
+	// successful model-catalog refresh. Cache load failures never prevent startup.
+	ModelCatalogCache ModelCatalogCache
+}
+
+type modelCatalogTarget struct {
+	providerID  string
+	catalogID   string
+	baseURL     string
+	imagePolicy func(Model) ImagePolicy
+}
+
 type registry struct {
 	mu      sync.RWMutex
+	commit  chan struct{}
 	entries map[string]providerEntry // by provider id
 	order   []string                 // provider registration order
+	cache   ModelCatalogCache
 	// index maps a bare model id to its owning provider id. Ambiguous ids
 	// (served by multiple providers) are omitted; callers must namespace.
 	index     map[string]string
@@ -207,13 +231,20 @@ type registry struct {
 
 // NewProviders composes provider configs into a single routing Providers registry.
 func NewProviders(configs ...ProviderConfig) (Providers, error) {
+	return NewProvidersWithOptions(context.Background(), RegistryOptions{}, configs...)
+}
+
+// NewProvidersWithOptions composes provider configs with optional registry behavior.
+func NewProvidersWithOptions(ctx context.Context, options RegistryOptions, configs ...ProviderConfig) (Providers, error) {
 	if len(configs) == 0 {
 		return nil, fmt.Errorf("droids: NewProviders requires at least one Provider")
 	}
 	r := &registry{
+		commit:    make(chan struct{}, 1),
 		entries:   map[string]providerEntry{},
 		index:     map[string]string{},
 		ambiguous: map[string]bool{},
+		cache:     options.ModelCatalogCache,
 	}
 	for _, cfg := range configs {
 		entry, err := cfg.build()
@@ -228,6 +259,13 @@ func NewProviders(configs ...ProviderConfig) (Providers, error) {
 		}
 		r.entries[entry.id] = entry
 		r.order = append(r.order, entry.id)
+	}
+	if r.cache != nil {
+		if data, err := r.cache.Load(ctx); err == nil {
+			if catalog, err := parseModelCatalog(data); err == nil {
+				r.applyCatalogUpdates(buildCatalogUpdates(catalog, r.catalogTargets()))
+			}
+		}
 	}
 	r.rebuildIndex()
 	return r, nil
@@ -337,23 +375,7 @@ func (r *registry) RefreshModels(ctx context.Context) error {
 }
 
 func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
-	type target struct {
-		providerID string
-		catalogID  string
-		baseURL    string
-	}
-	r.mu.RLock()
-	targets := make([]target, 0, len(r.entries))
-	for _, entry := range r.entries {
-		if entry.catalogID != "" {
-			targets = append(targets, target{
-				providerID: entry.id,
-				catalogID:  entry.catalogID,
-				baseURL:    entry.baseURL,
-			})
-		}
-	}
-	r.mu.RUnlock()
+	targets := r.catalogTargets()
 	if len(targets) == 0 {
 		return nil
 	}
@@ -362,35 +384,84 @@ func (r *registry) refreshModels(ctx context.Context, catalogURL string) error {
 	if err != nil {
 		return err
 	}
-
-	// Translation and sorting can be substantial for a remote catalog. Build
-	// overlays without blocking model lookup or streaming.
-	updates := make(map[string][]Model, len(targets))
-	for _, target := range targets {
-		models := catalogModels(catalog, target.catalogID, target.providerID)
-		setModelBaseURL(models, target.baseURL)
-		updates[target.providerID] = models
+	updates := buildCatalogUpdates(catalog, targets)
+	select {
+	case r.commit <- struct{}{}:
+		defer func() { <-r.commit }()
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	if r.cache != nil && hasCatalogUpdates(updates) {
+		if data, err := json.Marshal(catalog); err == nil {
+			// Persistence is best-effort: a cache failure must not discard a
+			// successfully fetched and validated catalog.
+			_ = r.cache.Store(ctx, data)
+		}
 	}
 
 	r.mu.Lock()
 	defer r.mu.Unlock()
+	r.applyCatalogUpdates(updates)
+	r.rebuildIndex()
+	return nil
+}
+
+func (r *registry) catalogTargets() []modelCatalogTarget {
+	r.mu.RLock()
+	defer r.mu.RUnlock()
+	targets := make([]modelCatalogTarget, 0, len(r.entries))
+	for _, entry := range r.entries {
+		if entry.catalogID != "" {
+			targets = append(targets, modelCatalogTarget{
+				providerID:  entry.id,
+				catalogID:   entry.catalogID,
+				baseURL:     entry.baseURL,
+				imagePolicy: entry.imagePolicy,
+			})
+		}
+	}
+	return targets
+}
+
+func buildCatalogUpdates(catalog modelsDevCatalog, targets []modelCatalogTarget) map[string][]Model {
+	updates := make(map[string][]Model, len(targets))
+	for _, target := range targets {
+		models := catalogModels(catalog, target.catalogID, target.providerID)
+		setModelBaseURL(models, target.baseURL)
+		valid := models[:0]
+		for _, model := range models {
+			if validateModelImagePolicy(model, target.imagePolicy(model)) == nil {
+				valid = append(valid, model)
+			}
+		}
+		updates[target.providerID] = valid
+	}
+	return updates
+}
+
+func hasCatalogUpdates(updates map[string][]Model) bool {
+	for _, models := range updates {
+		if len(models) > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+func (r *registry) applyCatalogUpdates(updates map[string][]Model) {
 	for providerID, models := range updates {
 		entry, ok := r.entries[providerID]
 		if !ok || len(models) == 0 {
 			continue
 		}
 		for _, model := range models {
-			// A refreshed model the provider cannot describe consistently is
-			// skipped; the previous catalog entry, if any, remains usable.
-			if validateModelImagePolicy(model, entry.imagePolicy(model)) != nil {
-				continue
-			}
 			entry.models[model.ID] = model
 		}
 		r.entries[providerID] = entry
 	}
-	r.rebuildIndex()
-	return nil
 }
 
 func (r *registry) rebuildIndex() {

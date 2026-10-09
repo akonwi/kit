@@ -510,7 +510,7 @@ func promptCacheRetention(paths apphome.Paths) func() droids.PromptCacheRetentio
 	}
 }
 
-func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
+func providersFromEnvironment(ctx context.Context, paths apphome.Paths) (droids.Providers, map[string]CredentialSource, error) {
 	store := auth.NewStore(paths.Auth)
 	openAIKey, openAIKeySource, openAISource := providerAPIKey(store, auth.OpenAIProviderID, os.Getenv("OPENAI_API_KEY"))
 	anthropicSource := CredentialSourceStore
@@ -558,7 +558,9 @@ func providersFromEnvironment(_ context.Context, paths apphome.Paths) (droids.Pr
 	} else {
 		configs = append(configs, droids.OpenAICodex{CredentialStore: store, Originator: "kit"})
 	}
-	providers, err := droids.NewProviders(configs...)
+	providers, err := droids.NewProvidersWithOptions(ctx, droids.RegistryOptions{
+		ModelCatalogCache: droids.FileModelCatalogCache{Path: paths.ModelCatalogCache},
+	}, configs...)
 	if err != nil {
 		return nil, nil, fmt.Errorf("configure droids providers: %w", err)
 	}

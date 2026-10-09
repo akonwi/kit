@@ -63,6 +63,8 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 		"database":   filepath.Join(home, "kit.db"),
 		"auth":       filepath.Join(home, "auth.json"),
 		"settings":   filepath.Join(home, "settings.json"),
+		"cache":      filepath.Join(home, "cache"),
+		"models":     filepath.Join(home, ".cache", "models.dev.json"),
 		"droids":     filepath.Join(home, "droids"),
 		"executable": filepath.Join(home, "run", "kit-daemon"),
 		"registry":   filepath.Join(home, "run", "server.json"),
@@ -73,6 +75,8 @@ func TestFromHomeBuildsLayout(t *testing.T) {
 		"database":   paths.Database,
 		"auth":       paths.Auth,
 		"settings":   paths.Settings,
+		"cache":      paths.Cache,
+		"models":     paths.ModelCatalogCache,
 		"droids":     paths.Droids,
 		"executable": paths.ServerExecutable,
 		"registry":   paths.ServerRegistry,
@@ -94,7 +98,7 @@ func TestEnsureCreatesPrivateDirectories(t *testing.T) {
 		t.Fatalf("Ensure() error = %v", err)
 	}
 
-	for _, directory := range []string{paths.Home, paths.Droids, paths.Run, paths.Logs, paths.Plugins} {
+	for _, directory := range []string{paths.Home, paths.Cache, filepath.Dir(paths.ModelCatalogCache), paths.Droids, paths.Run, paths.Logs, paths.Plugins} {
 		info, err := os.Stat(directory)
 		if err != nil {
 			t.Fatalf("stat %q: %v", directory, err)

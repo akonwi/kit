@@ -11,7 +11,10 @@ import (
 	"strings"
 )
 
-const modelsDevCatalogURL = "https://models.dev/api.json"
+const (
+	modelsDevCatalogURL = "https://models.dev/api.json"
+	maxModelCatalogSize = 20 << 20
+)
 
 //go:generate go run ./internal/cmd/modelcatalog
 
@@ -64,11 +67,22 @@ type modelsDevModel struct {
 var builtinModelCatalog = mustParseModelCatalog(embeddedModelCatalog)
 
 func mustParseModelCatalog(data []byte) modelsDevCatalog {
-	var catalog modelsDevCatalog
-	if err := json.Unmarshal(data, &catalog); err != nil {
+	catalog, err := parseModelCatalog(data)
+	if err != nil {
 		panic(fmt.Sprintf("droids: parse embedded model catalog: %v", err))
 	}
 	return catalog
+}
+
+func parseModelCatalog(data []byte) (modelsDevCatalog, error) {
+	if len(data) > maxModelCatalogSize {
+		return nil, fmt.Errorf("droids: model catalog exceeds 20 MiB")
+	}
+	var catalog modelsDevCatalog
+	if err := json.Unmarshal(data, &catalog); err != nil {
+		return nil, fmt.Errorf("droids: parse model catalog: %w", err)
+	}
+	return catalog, nil
 }
 
 // OpenAIModels returns a fresh copy of the built-in OpenAI model catalog.
@@ -355,18 +369,11 @@ func fetchModelCatalogWithClient(ctx context.Context, rawURL string, baseClient 
 		_, _ = io.Copy(io.Discard, io.LimitReader(resp.Body, 4096))
 		return nil, fmt.Errorf("droids: fetch model catalog: HTTP %d", resp.StatusCode)
 	}
-	data, err := io.ReadAll(io.LimitReader(resp.Body, (20<<20)+1))
+	data, err := io.ReadAll(io.LimitReader(resp.Body, maxModelCatalogSize+1))
 	if err != nil {
 		return nil, fmt.Errorf("droids: read model catalog: %w", err)
 	}
-	if len(data) > 20<<20 {
-		return nil, fmt.Errorf("droids: model catalog exceeds 20 MiB")
-	}
-	var catalog modelsDevCatalog
-	if err := json.Unmarshal(data, &catalog); err != nil {
-		return nil, fmt.Errorf("droids: parse model catalog: %w", err)
-	}
-	return catalog, nil
+	return parseModelCatalog(data)
 }
 
 // catalogTemperaturePolicy applies reviewed public OpenAI compatibility rules.

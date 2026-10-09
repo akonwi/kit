@@ -2,6 +2,7 @@ package droids
 
 import (
 	"context"
+	"errors"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -222,7 +223,8 @@ func TestRefreshModelsOverlaysCompleteCatalogEntries(t *testing.T) {
 	}))
 	defer server.Close()
 
-	providers, err := NewProviders(OpenAI{ID: "gateway", BaseURL: "https://gateway.example/v1"})
+	cache := &memoryModelCatalogCache{}
+	providers, err := NewProvidersWithOptions(context.Background(), RegistryOptions{ModelCatalogCache: cache}, OpenAI{ID: "gateway", BaseURL: "https://gateway.example/v1"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -259,6 +261,17 @@ func TestRefreshModelsOverlaysCompleteCatalogEntries(t *testing.T) {
 	}
 	if _, ok := providers.Model("gateway/incomplete"); ok {
 		t.Fatal("incomplete dynamic model should not be registered")
+	}
+	cached, err := parseModelCatalog(cache.data)
+	if err != nil {
+		t.Fatalf("parse stored cache: %v", err)
+	}
+	if _, ok := cached["openai"].Models["gpt-new"]; !ok {
+		t.Fatal("refreshed catalog was not stored")
+	}
+	cache.storeErr = errors.New("read-only cache")
+	if err := registry.refreshModels(context.Background(), server.URL); err != nil {
+		t.Fatalf("optional cache failure blocked refresh: %v", err)
 	}
 }
 
@@ -306,6 +319,25 @@ func TestModelCatalogRejectsHTTPSDowngradeRedirect(t *testing.T) {
 	_, err := fetchModelCatalogWithClient(context.Background(), secure.URL, secure.Client())
 	if err == nil || !strings.Contains(err.Error(), "downgraded") {
 		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestRefreshModelsEmptyCatalogPreservesCache(t *testing.T) {
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		_, _ = w.Write([]byte(`{}`))
+	}))
+	defer server.Close()
+
+	cache := &memoryModelCatalogCache{data: []byte(cachedCatalogFixture)}
+	providers, err := NewProvidersWithOptions(context.Background(), RegistryOptions{ModelCatalogCache: cache}, OpenAI{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := providers.(*registry).refreshModels(context.Background(), server.URL); err != nil {
+		t.Fatal(err)
+	}
+	if string(cache.data) != cachedCatalogFixture {
+		t.Fatalf("empty catalog replaced cache: %s", cache.data)
 	}
 }
 

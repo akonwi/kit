@@ -27,16 +27,17 @@ type Paths struct {
 	Settings  string
 	MCPConfig string
 
-	Agents      string
-	Attachments string
-	Cache       string
-	Droids      string
-	Logs        string
-	Plugins     string
-	Prompts     string
-	Scratchpads string
-	Skills      string
-	Themes      string
+	Agents            string
+	Attachments       string
+	Cache             string
+	ModelCatalogCache string
+	Droids            string
+	Logs              string
+	Plugins           string
+	Prompts           string
+	Scratchpads       string
+	Skills            string
+	Themes            string
 
 	Run              string
 	ServerExecutable string
@@ -73,6 +74,7 @@ func FromHome(home string) Paths {
 	home = filepath.Clean(home)
 	run := filepath.Join(home, "run")
 	logs := filepath.Join(home, "logs")
+	modelCache := filepath.Join(home, ".cache")
 	return Paths{
 		Home: home,
 
@@ -82,16 +84,17 @@ func FromHome(home string) Paths {
 		Settings:  filepath.Join(home, "settings.json"),
 		MCPConfig: filepath.Join(home, "mcp.json"),
 
-		Agents:      filepath.Join(home, "agents"),
-		Attachments: filepath.Join(home, "attachments"),
-		Cache:       filepath.Join(home, "cache"),
-		Droids:      filepath.Join(home, "droids"),
-		Logs:        logs,
-		Plugins:     filepath.Join(home, "plugins"),
-		Prompts:     filepath.Join(home, "prompts"),
-		Scratchpads: filepath.Join(home, "scratchpads"),
-		Skills:      filepath.Join(home, "skills"),
-		Themes:      filepath.Join(home, "themes"),
+		Agents:            filepath.Join(home, "agents"),
+		Attachments:       filepath.Join(home, "attachments"),
+		Cache:             filepath.Join(home, "cache"),
+		ModelCatalogCache: filepath.Join(modelCache, "models.dev.json"),
+		Droids:            filepath.Join(home, "droids"),
+		Logs:              logs,
+		Plugins:           filepath.Join(home, "plugins"),
+		Prompts:           filepath.Join(home, "prompts"),
+		Scratchpads:       filepath.Join(home, "scratchpads"),
+		Skills:            filepath.Join(home, "skills"),
+		Themes:            filepath.Join(home, "themes"),
 
 		Run:              run,
 		ServerExecutable: filepath.Join(run, "kit-daemon"),
@@ -114,6 +117,7 @@ func (p Paths) Ensure() error {
 		p.Agents,
 		p.Attachments,
 		p.Cache,
+		filepath.Dir(p.ModelCatalogCache),
 		p.Droids,
 		p.Logs,
 		p.Plugins,
