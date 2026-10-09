@@ -46,6 +46,85 @@ func TestFilesystemLoaderDiscoversGlobalThenProjectNonRecursively(t *testing.T) 
 	}
 }
 
+func TestFilesystemLoaderDiscoversProjectClaudeCommandsLast(t *testing.T) {
+	base := t.TempDir()
+	paths := apphome.FromHome(filepath.Join(base, "kit-home"))
+	cwd := filepath.Join(base, "project")
+	claudeCommands := filepath.Join(cwd, claudeCommandsPath)
+	writeTemplate(t, paths.Prompts, "review.md", "Global review")
+	writeTemplate(t, filepath.Join(cwd, projectPromptsPath), "summary.md", "Project summary")
+	writeTemplate(t, claudeCommands, "review.md", "Claude review")
+	writeTemplate(t, claudeCommands, "summary.md", "Claude summary")
+	commit := writeTemplate(t, claudeCommands, "commit.md", strings.Join([]string{
+		"---",
+		"allowed-tools: Bash(git add:*), Bash(git status:*)",
+		"argument-hint: [message]",
+		"description: 'Create a git commit'",
+		"model: claude-sonnet-4",
+		"  description: nested value is ignored",
+		"---",
+		"## Context",
+		"",
+		"- Status: !`git status`",
+		"- Guide: @CONTRIBUTING.md",
+		"",
+		"Commit with message: $ARGUMENTS",
+	}, "\n"))
+	issue := writeTemplate(t, claudeCommands, "fix-issue.md", "---\nargument-hint: [pr-number] [priority] [assignee]\n---\nFix issue #$1 with priority $2.")
+	writeTemplate(t, filepath.Join(claudeCommands, "frontend"), "component.md", "Namespaced")
+
+	loader, err := NewFilesystemLoader(paths)
+	if err != nil {
+		t.Fatal(err)
+	}
+	enabled := true
+	loader.ReadClaudeCommands = func() bool { return enabled }
+	registry, err := loader.Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := commandNames(registry.Commands()), []string{"commit", "fix-issue", "review", "summary"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands = %#v, want %#v", got, want)
+	}
+	for name, source := range map[string]Source{"review": SourceUser, "summary": SourceProject, "commit": SourceClaudeProject, "fix-issue": SourceClaudeProject} {
+		if command, _ := registry.Lookup(name); command.Source != source {
+			t.Errorf("%s source = %q, want %q", name, command.Source, source)
+		}
+	}
+	got, _ := registry.Lookup("commit")
+	want := Command{
+		Name: "commit", Description: "Create a git commit", ArgumentHint: "[message]", Location: commit, Source: SourceClaudeProject,
+		Content: "## Context\n\n- Status: !`git status`\n- Guide: @CONTRIBUTING.md\n\nCommit with message: $ARGUMENTS",
+	}
+	if got != want {
+		t.Fatalf("commit command = %#v, want %#v", got, want)
+	}
+	expanded, err := got.Expand(`"fix: handle empty input"`)
+	if err != nil || expanded != "## Context\n\n- Status: !`git status`\n- Guide: @CONTRIBUTING.md\n\nCommit with message: fix: handle empty input" {
+		t.Fatalf("commit expansion = %q, %v", expanded, err)
+	}
+	if got, _ := registry.Lookup("fix-issue"); got.ArgumentHint != "[pr-number] [priority] [assignee]" || got.Description != "Fix issue #$1 with priority $2." || got.Location != issue {
+		t.Fatalf("fix-issue command = %#v", got)
+	}
+
+	enabled = false
+	registry, err = loader.Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := commandNames(registry.Commands()), []string{"review", "summary"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands with Claude configs disabled = %#v, want %#v", got, want)
+	}
+	loader.ReadClaudeCommands = nil
+	registry, err = loader.Load(t.Context(), cwd)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, want := commandNames(registry.Commands()), []string{"review", "summary"}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("commands without a Claude policy = %#v, want %#v", got, want)
+	}
+}
+
 func TestCommandExpandMatchesQuotedMainWorktreeBehavior(t *testing.T) {
 	command := Command{Content: "Review $1 and $2. All: $@ / $ARGUMENTS. Tail: ${@:2}. Slice: ${@:1:2}. Missing: $9"}
 	expanded, err := command.Expand(`"auth module" carefully extra`)

@@ -28,6 +28,8 @@ private final class ComposerResponse: URLProtocol, @unchecked Sendable {
                 body = query.contains(URLQueryItem(name: "before", value: "2"))
                     ? #"{"SessionID":"session_test","Messages":[{"id":"message_1","turnId":"turn_1","sequence":1,"role":"user","content":[{"kind":"text","text":"older"}],"createdAt":"2026-09-13T00:00:00Z"}],"HasMore":false}"#
                     : #"{"SessionID":"session_test","Messages":[{"id":"message_2","turnId":"turn_2","sequence":2,"role":"user","content":[{"kind":"text","text":"newer"}],"createdAt":"2026-09-13T00:00:00Z"}],"nextCursor":"2","HasMore":true}"#
+            } else if url.port == 19312 {
+                body = #"{"SessionID":"session_test","Messages":[{"id":"message_2","turnId":"turn_2","sequence":2,"role":"user","content":[{"kind":"promptCommand","name":"fix","arguments":"123 high","source":"claude_project","text":"Fix issue #123 at high priority."}],"createdAt":"2026-09-13T00:00:00Z"}],"HasMore":false}"#
             } else if url.port == 19304 {
                 body = #"{"SessionID":"session_test","Messages":[{"id":"message_2","turnId":"turn_2","sequence":2,"role":"user","content":[{"kind":"text","text":"repeat"}],"createdAt":"2026-09-13T00:00:00Z"}],"nextCursor":"1","HasMore":true}"#
             } else if url.port == 19306 {
@@ -117,6 +119,7 @@ struct ComposerTransportTests {
         await #expect(throws: ClientError.self) { try await client(19308).messageHistory("session_test", before: nil) }
         #expect(try await client(19309).messageHistory("session_test", before: nil).entries == [.init(id: "message_2", text: "with image")])
         await #expect(throws: ClientError.self) { try await client(19310).messageHistory("session_test", before: nil) }
+        #expect(try await client(19312).messageHistory("session_test", before: nil).entries == [.init(id: "message_2", text: "Fix issue #123 at high priority.")])
     }
     @Test func attachmentUploadUsesMultipartAndReturnsTheServerIdentity() async throws {
         let info = try await client().upload("session_test", filename: "note.txt", data: Data("hello".utf8))

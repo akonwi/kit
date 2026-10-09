@@ -6128,6 +6128,81 @@ extension Components {
                 ])
             }
         }
+        /// - Remark: Generated from `#/components/schemas/PromptCommandContent`.
+        internal struct PromptCommandContent: Codable, Hashable, Sendable {
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/arguments`.
+            internal var arguments: Swift.String?
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/kind`.
+            internal enum KindPayload: String, Codable, Hashable, Sendable, CaseIterable {
+                case promptCommand = "promptCommand"
+            }
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/kind`.
+            internal var kind: Components.Schemas.PromptCommandContent.KindPayload
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/name`.
+            internal var name: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/source`.
+            internal var source: Swift.String
+            /// - Remark: Generated from `#/components/schemas/PromptCommandContent/text`.
+            internal var text: Swift.String
+            /// Creates a new `PromptCommandContent`.
+            ///
+            /// - Parameters:
+            ///   - arguments:
+            ///   - kind:
+            ///   - name:
+            ///   - source:
+            ///   - text:
+            internal init(
+                arguments: Swift.String? = nil,
+                kind: Components.Schemas.PromptCommandContent.KindPayload,
+                name: Swift.String,
+                source: Swift.String,
+                text: Swift.String
+            ) {
+                self.arguments = arguments
+                self.kind = kind
+                self.name = name
+                self.source = source
+                self.text = text
+            }
+            internal enum CodingKeys: String, CodingKey {
+                case arguments
+                case kind
+                case name
+                case source
+                case text
+            }
+            internal init(from decoder: any Swift.Decoder) throws {
+                let container = try decoder.container(keyedBy: CodingKeys.self)
+                self.arguments = try container.decodeIfPresent(
+                    Swift.String.self,
+                    forKey: .arguments
+                )
+                self.kind = try container.decode(
+                    Components.Schemas.PromptCommandContent.KindPayload.self,
+                    forKey: .kind
+                )
+                self.name = try container.decode(
+                    Swift.String.self,
+                    forKey: .name
+                )
+                self.source = try container.decode(
+                    Swift.String.self,
+                    forKey: .source
+                )
+                self.text = try container.decode(
+                    Swift.String.self,
+                    forKey: .text
+                )
+                try decoder.ensureNoAdditionalProperties(knownKeys: [
+                    "arguments",
+                    "kind",
+                    "name",
+                    "source",
+                    "text"
+                ])
+            }
+        }
         /// - Remark: Generated from `#/components/schemas/PromptCommandInput`.
         internal struct PromptCommandInput: Codable, Hashable, Sendable {
             /// - Remark: Generated from `#/components/schemas/PromptCommandInput/args`.
@@ -10093,6 +10168,8 @@ extension Components {
             case file(Components.Schemas.FileContent)
             /// - Remark: Generated from `#/components/schemas/TranscriptContent/ImageContent`.
             case image(Components.Schemas.ImageContent)
+            /// - Remark: Generated from `#/components/schemas/TranscriptContent/PromptCommandContent`.
+            case promptCommand(Components.Schemas.PromptCommandContent)
             /// - Remark: Generated from `#/components/schemas/TranscriptContent/TextContent`.
             case text(Components.Schemas.TextContent)
             /// - Remark: Generated from `#/components/schemas/TranscriptContent/ThinkingContent`.
@@ -10115,6 +10192,8 @@ extension Components {
                     self = .file(try .init(from: decoder))
                 case "image":
                     self = .image(try .init(from: decoder))
+                case "promptCommand":
+                    self = .promptCommand(try .init(from: decoder))
                 case "text":
                     self = .text(try .init(from: decoder))
                 case "thinking":
@@ -10136,6 +10215,8 @@ extension Components {
                 case let .file(value):
                     try value.encode(to: encoder)
                 case let .image(value):
+                    try value.encode(to: encoder)
+                case let .promptCommand(value):
                     try value.encode(to: encoder)
                 case let .text(value):
                     try value.encode(to: encoder)

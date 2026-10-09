@@ -26,5 +26,7 @@ const (
 	// reports a first turn that could not start without failing the fork.
 	// 45: Plugin-submitted messages: transcript plugin_message context boundaries
 	// and the turn-scoped plugin.message.added live event.
-	SessionProtocolVersion = 45
+	// 46: Prompt command invocations: the promptCommand transcript content kind
+	// and the claude_project prompt command source (ADR 0042).
+	SessionProtocolVersion = 46
 )

@@ -96,14 +96,15 @@ type BoundaryMessageWire struct {
 }
 
 type wireInputContent struct {
-	Type         string                `json:"type"`
-	Text         string                `json:"text,omitempty"`
-	Filename     string                `json:"filename,omitempty"`
-	MediaType    string                `json:"media_type,omitempty"`
-	URL          string                `json:"url,omitempty"`
-	AttachmentID string                `json:"attachment_id,omitempty"`
-	Annotations  []SubmittedAnnotation `json:"annotations,omitempty"`
-	SubmissionID string                `json:"submission_id,omitempty"`
+	Type          string                `json:"type"`
+	Text          string                `json:"text,omitempty"`
+	Filename      string                `json:"filename,omitempty"`
+	MediaType     string                `json:"media_type,omitempty"`
+	URL           string                `json:"url,omitempty"`
+	AttachmentID  string                `json:"attachment_id,omitempty"`
+	Annotations   []SubmittedAnnotation `json:"annotations,omitempty"`
+	SubmissionID  string                `json:"submission_id,omitempty"`
+	PromptCommand *wirePromptCommand    `json:"prompt_command,omitempty"`
 }
 
 type durableDroidError struct {
@@ -450,6 +451,11 @@ func inputToMessage(input Input) (UserMessage, error) {
 			}
 			value.Annotations = append([]SubmittedAnnotation(nil), value.Annotations...)
 			content = append(content, value)
+		case PromptCommandInput:
+			if err := validatePromptCommandInput(value); err != nil {
+				return UserMessage{}, err
+			}
+			content = append(content, value)
 		case FileInput:
 			mediaType, err := validateMediaType(value.MediaType)
 			if err != nil {
@@ -483,6 +489,11 @@ func inputToWire(content []InputContent) ([]wireInputContent, error) {
 				return nil, err
 			}
 			out = append(out, wireInputContent{Type: "annotations", Text: value.Text, Annotations: append([]SubmittedAnnotation(nil), value.Annotations...), SubmissionID: value.SubmissionID})
+		case PromptCommandInput:
+			if err := validatePromptCommandInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, wireInputContent{Type: "prompt_command", Text: value.Text, PromptCommand: promptCommandToWire(value)})
 		case FileInput:
 			if _, err := NewFileInputURL(value.Filename, value.MediaType, value.URL); err != nil {
 				return nil, fmt.Errorf("droids: invalid file input: %w", err)
@@ -506,6 +517,12 @@ func inputFromWire(content []wireInputContent) ([]InputContent, error) {
 		case "annotations":
 			value := AnnotationInput{SubmissionID: block.SubmissionID, Text: block.Text, Annotations: append([]SubmittedAnnotation(nil), block.Annotations...)}
 			if err := validateAnnotationInput(value); err != nil {
+				return nil, err
+			}
+			out = append(out, value)
+		case "prompt_command":
+			value, err := promptCommandFromWire(block.Text, block.PromptCommand)
+			if err != nil {
 				return nil, err
 			}
 			out = append(out, value)

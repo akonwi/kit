@@ -934,12 +934,13 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		t.Fatal(err)
 	}
 	commandUser := commandSnapshot.Messages[len(commandSnapshot.Messages)-2]
-	if commandUser.Role != "user" || commandUser.TextContent() != "Summarize auth module with auth module carefully." {
-		t.Fatalf("expanded prompt command message = %+v", commandUser)
+	wantCommand := protocol.PromptCommandContent{Name: "summarize", Arguments: `"auth module" carefully`, Source: "project", Text: "Summarize auth module with auth module carefully."}
+	if commandUser.Role != "user" || len(commandUser.Content) != 1 || commandUser.Content[0].Payload != wantCommand {
+		t.Fatalf("prompt command message = %+v, want %+v", commandUser, wantCommand)
 	}
 
 	messagePage, err := client.transport.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 2, Roles: []string{"user"}})
-	if err != nil || len(messagePage.Messages) != 2 || !messagePage.HasMore || messagePage.Messages[0].TextContent() != "Summarize auth module with auth module carefully." {
+	if err != nil || len(messagePage.Messages) != 2 || !messagePage.HasMore || messagePage.Messages[0].Content[0].Payload != wantCommand {
 		t.Fatalf("GetMessagePage() = %+v, %v", messagePage, err)
 	}
 	if messagePage.NextCursor != strconv.FormatInt(messagePage.Messages[len(messagePage.Messages)-1].Sequence, 10) {

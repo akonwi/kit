@@ -16,12 +16,15 @@ const (
 	TranscriptContentImage       TranscriptContentKind = "image"
 	TranscriptContentFile        TranscriptContentKind = "file"
 	TranscriptContentAnnotations TranscriptContentKind = "annotations"
+	// TranscriptContentPromptCommand is a prompt command invocation and the
+	// expansion submitted for it (ADR 0042).
+	TranscriptContentPromptCommand TranscriptContentKind = "promptCommand"
 )
 
 // TranscriptContent is one ordered presentation content block of a message, a
 // discriminated union by kind (ADR 0032). Payload is one of TextContent,
-// ThinkingContent, ToolCallContent, ImageContent, FileContent, or
-// AnnotationsContent.
+// ThinkingContent, ToolCallContent, ImageContent, FileContent,
+// AnnotationsContent, or PromptCommandContent.
 type TranscriptContent struct {
 	Payload TranscriptContentPayload `json:"-"`
 }
@@ -69,6 +72,26 @@ type AnnotationsContent struct {
 	Annotations []SubmittedAnnotation `json:"annotations"`
 }
 
+// PromptCommandContent is a user prompt submitted by invoking a prompt command.
+// Name, Arguments, and Source record the invocation; Text is the expansion the
+// model received, fixed when the prompt was submitted. Clients present the
+// invocation as "/<name> <arguments>" and show the expansion on demand.
+type PromptCommandContent struct {
+	Name      string `json:"name"`
+	Arguments string `json:"arguments,omitempty"`
+	Source    string `json:"source"`
+	Text      string `json:"text"`
+}
+
+// InvocationText returns the invocation as the user would type it.
+func (c PromptCommandContent) InvocationText() string {
+	text := "/" + c.Name
+	if arguments := strings.TrimSpace(c.Arguments); arguments != "" {
+		text += " " + arguments
+	}
+	return text
+}
+
 func (TextContent) transcriptContentKind() TranscriptContentKind { return TranscriptContentText }
 func (ThinkingContent) transcriptContentKind() TranscriptContentKind {
 	return TranscriptContentThinking
@@ -80,6 +103,9 @@ func (ImageContent) transcriptContentKind() TranscriptContentKind { return Trans
 func (FileContent) transcriptContentKind() TranscriptContentKind  { return TranscriptContentFile }
 func (AnnotationsContent) transcriptContentKind() TranscriptContentKind {
 	return TranscriptContentAnnotations
+}
+func (PromptCommandContent) transcriptContentKind() TranscriptContentKind {
+	return TranscriptContentPromptCommand
 }
 
 // NewTranscriptContent wraps a payload as a content block.
@@ -121,6 +147,8 @@ type transcriptContentWire struct {
 	MediaType          string                `json:"mediaType,omitempty"`
 	AttachmentID       string                `json:"attachmentId,omitempty"`
 	Annotations        []SubmittedAnnotation `json:"annotations,omitempty"`
+	Name               string                `json:"name,omitempty"`
+	Source             string                `json:"source,omitempty"`
 }
 
 var transcriptContentCodec = newUnionCodec[TranscriptContent, transcriptContentWire]([]UnionVariant{
@@ -130,6 +158,7 @@ var transcriptContentCodec = newUnionCodec[TranscriptContent, transcriptContentW
 	{Kind: string(TranscriptContentImage), Payload: ImageContent{}},
 	{Kind: string(TranscriptContentFile), Payload: FileContent{}},
 	{Kind: string(TranscriptContentAnnotations), Payload: AnnotationsContent{}},
+	{Kind: string(TranscriptContentPromptCommand), Payload: PromptCommandContent{}},
 })
 
 // MarshalJSON encodes the block as one flat object discriminated by kind.
@@ -208,6 +237,8 @@ func transcriptContentSize(content TranscriptContent) int {
 			return MaxAnnotationsPerPrompt * MaxAnnotationBodyBytes
 		}
 		return len(encoded)
+	case PromptCommandContent:
+		return len(block.Name) + len(block.Arguments) + len(block.Source) + len(block.Text)
 	}
 	return 0
 }
@@ -255,6 +286,11 @@ func (c TranscriptContent) validate() error {
 			if err := annotation.Validate(); err != nil {
 				return err
 			}
+		}
+	case PromptCommandContent:
+		if !validPromptCommandName(block.Name) || !ValidPromptCommandSource(block.Source) ||
+			!validProtocolText(block.Arguments, maxPromptCommandArgumentsBytes) || strings.TrimSpace(block.Text) == "" {
+			return fmt.Errorf("prompt command content requires a valid name, source, and expansion")
 		}
 	case nil:
 		return fmt.Errorf("content block has no kind")

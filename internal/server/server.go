@@ -166,6 +166,16 @@ func Run(ctx context.Context, options RunOptions) error {
 	if err != nil {
 		return fmt.Errorf("create settings store: %w", err)
 	}
+	// Claude Code command discovery follows the setting at each discovery, so a
+	// change applies when a runtime next loads or reloads.
+	promptCommandLoader.ReadClaudeCommands = func() bool {
+		current, _, loadErr := settingsStore.Load()
+		if loadErr != nil {
+			logger.Warn("load Claude Code configuration setting", "error", loadErr)
+			return true
+		}
+		return current.ReadClaudeConfigs
+	}
 	modelContextWindow := func(selector string) int {
 		current, _, loadErr := settingsStore.Load()
 		if loadErr != nil {

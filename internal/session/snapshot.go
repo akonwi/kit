@@ -27,6 +27,9 @@ const (
 	TranscriptContentImage       TranscriptContentKind = "image"
 	TranscriptContentFile        TranscriptContentKind = "file"
 	TranscriptContentAnnotations TranscriptContentKind = "annotations"
+	// TranscriptContentPromptCommand is a prompt command invocation and the
+	// expansion submitted for it.
+	TranscriptContentPromptCommand TranscriptContentKind = "promptCommand"
 )
 
 type TranscriptContent struct {
@@ -40,6 +43,8 @@ type TranscriptContent struct {
 	MediaType          string                       `json:"mediaType,omitempty"`
 	AttachmentID       string                       `json:"attachmentId,omitempty"`
 	Annotations        []droids.SubmittedAnnotation `json:"annotations,omitempty"`
+	Name               string                       `json:"name,omitempty"`
+	Source             string                       `json:"source,omitempty"`
 }
 
 type TranscriptMessage struct {
@@ -861,6 +866,8 @@ func contentText[T any](content []T) string {
 			parts = append(parts, block.Text)
 		case droids.AnnotationInput:
 			parts = append(parts, fmt.Sprintf("[annotations: %d]", len(block.Annotations)))
+		case droids.PromptCommandInput:
+			parts = append(parts, (&promptCommandInvocation{name: block.Name, arguments: block.Arguments}).text())
 		case droids.TextContent:
 			parts = append(parts, block.Text)
 		case droids.FileInput:
@@ -884,6 +891,8 @@ func projectDroidContent[T any](content []T) ([]TranscriptContent, error) {
 			} else if block.Text != "" {
 				result = append(result, TranscriptContent{Kind: TranscriptContentText, Text: block.Text})
 			}
+		case droids.PromptCommandInput:
+			result = append(result, TranscriptContent{Kind: TranscriptContentPromptCommand, Name: block.Name, Arguments: block.Arguments, Source: block.Source, Text: block.Text})
 		case droids.AnnotationInput:
 			if len(block.Annotations) > 0 {
 				result = append(result, TranscriptContent{Kind: TranscriptContentAnnotations, Annotations: append([]droids.SubmittedAnnotation(nil), block.Annotations...)})

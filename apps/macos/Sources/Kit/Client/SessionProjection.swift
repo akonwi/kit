@@ -145,6 +145,9 @@ enum SessionProjection {
         content.compactMap { block -> String? in
             switch block.kind.rawValue {
             case "text": return block.text
+            // Until prompt command invocations have their own presentation
+            // (MAC-CMD-001), a prompt command shows its expansion.
+            case "promptCommand": return block.text
             default: return nil
             }
         }.filter { !$0.isEmpty }.joined(separator: "\n\n")

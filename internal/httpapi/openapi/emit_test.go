@@ -304,8 +304,8 @@ func TestDocumentEmitsTranscriptContentUnion(t *testing.T) {
 	}
 	schema := decoded.Components.Schemas["TranscriptContent"]
 	variants, ok := schema["oneOf"].([]any)
-	if !ok || len(variants) != 6 {
-		t.Fatalf("oneOf = %#v; want six variants", schema["oneOf"])
+	if !ok || len(variants) != 7 {
+		t.Fatalf("oneOf = %#v; want seven variants", schema["oneOf"])
 	}
 	discriminator, _ := schema["discriminator"].(map[string]any)
 	if discriminator["propertyName"] != "kind" {
@@ -320,15 +320,15 @@ func TestSchemaForTestingEmitsTranscriptContentUnion(t *testing.T) {
 		t.Fatalf("SchemaForTesting() error = %v", err)
 	}
 	variants, ok := schema["oneOf"].([]any)
-	if !ok || len(variants) != 6 {
-		t.Fatalf("oneOf = %#v; want six variants", schema["oneOf"])
+	if !ok || len(variants) != 7 {
+		t.Fatalf("oneOf = %#v; want seven variants", schema["oneOf"])
 	}
 	discriminator, _ := schema["discriminator"].(map[string]any)
 	if discriminator["propertyName"] != "kind" {
 		t.Fatalf("discriminator = %#v", discriminator)
 	}
 	mapping, _ := discriminator["mapping"].(map[string]any)
-	if len(mapping) != 6 || mapping["toolCall"] == nil {
+	if len(mapping) != 7 || mapping["toolCall"] == nil || mapping["promptCommand"] == nil {
 		t.Fatalf("mapping = %#v", mapping)
 	}
 }

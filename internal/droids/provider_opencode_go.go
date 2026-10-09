@@ -430,6 +430,8 @@ func openCodeChatMessages(system string, messages []Message) ([]any, error) {
 					parts = append(parts, map[string]any{"type": "text", "text": item.Text})
 				case AnnotationInput:
 					parts = append(parts, map[string]any{"type": "text", "text": item.Text})
+				case PromptCommandInput:
+					parts = append(parts, map[string]any{"type": "text", "text": item.Text})
 				case FileInput:
 					if !strings.HasPrefix(strings.ToLower(item.MediaType), "image/") {
 						return nil, fmt.Errorf("droids: OpenCode Go Chat Completions supports only text and image input")

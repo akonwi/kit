@@ -290,7 +290,10 @@ func projectPluginTurnMessage(message droids.Message) (PluginTurnMessage, bool) 
 	case droids.UserMessage:
 		result.Role = string(droids.RoleUser)
 		for _, content := range value.Content {
-			if text, ok := content.(droids.TextInput); ok {
+			switch text := content.(type) {
+			case droids.TextInput:
+				result.Content = append(result.Content, text.Text)
+			case droids.PromptCommandInput:
 				result.Content = append(result.Content, text.Text)
 			}
 		}

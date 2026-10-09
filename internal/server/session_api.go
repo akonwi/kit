@@ -1287,6 +1287,10 @@ func projectSessionUsagePointer(usage *kitsession.SessionUsage) *protocol.Sessio
 }
 
 func transcriptContentFromFields(kind protocol.TranscriptContentKind, text, callID, toolName, arguments string, argumentsTruncated bool, filename, mediaType, attachmentID string) protocol.TranscriptContent {
+	return transcriptContentFromFieldsWithInvocation(kind, text, callID, toolName, arguments, argumentsTruncated, filename, mediaType, attachmentID, "", "")
+}
+
+func transcriptContentFromFieldsWithInvocation(kind protocol.TranscriptContentKind, text, callID, toolName, arguments string, argumentsTruncated bool, filename, mediaType, attachmentID, name, source string) protocol.TranscriptContent {
 	switch kind {
 	case protocol.TranscriptContentText:
 		return protocol.NewTranscriptContent(protocol.TextContent{Text: text})
@@ -1300,6 +1304,8 @@ func transcriptContentFromFields(kind protocol.TranscriptContentKind, text, call
 		return protocol.NewTranscriptContent(protocol.FileContent{Filename: filename, MediaType: mediaType, AttachmentID: attachmentID})
 	case protocol.TranscriptContentAnnotations:
 		return protocol.NewTranscriptContent(protocol.AnnotationsContent{})
+	case protocol.TranscriptContentPromptCommand:
+		return protocol.NewTranscriptContent(protocol.PromptCommandContent{Name: name, Arguments: arguments, Source: source, Text: text})
 	}
 	return protocol.TranscriptContent{}
 }
@@ -1307,7 +1313,7 @@ func transcriptContentFromFields(kind protocol.TranscriptContentKind, text, call
 func projectTranscriptContent(content []kitsession.TranscriptContent) []protocol.TranscriptContent {
 	result := make([]protocol.TranscriptContent, 0, len(content))
 	for _, block := range content {
-		projected := transcriptContentFromFields(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, block.AttachmentID)
+		projected := transcriptContentFromFieldsWithInvocation(protocol.TranscriptContentKind(block.Kind), block.Text, block.ToolCallID, block.ToolName, block.Arguments, block.ArgumentsTruncated, block.Filename, block.MediaType, block.AttachmentID, block.Name, block.Source)
 		annotationsContent, annotationsOK := projected.Payload.(protocol.AnnotationsContent)
 		for _, annotation := range block.Annotations {
 			if !annotationsOK {

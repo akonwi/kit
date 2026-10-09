@@ -26,6 +26,9 @@ type Settings struct {
 	ModelOverrides map[string]ModelOverride
 	// PromptCacheRetention is "short" (the default) or "long".
 	PromptCacheRetention string
+	// ReadClaudeConfigs enables discovery of Claude Code configuration, which is
+	// a project's .claude/commands directory. It defaults to true.
+	ReadClaudeConfigs bool
 
 	fields map[string]json.RawMessage
 }
@@ -198,7 +201,7 @@ func (s *Store) load() (Settings, []Warning, error) {
 	if err != nil {
 		return Settings{}, nil, fmt.Errorf("decode settings %q: %w", s.path, err)
 	}
-	result := Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, fields: fields}
+	result := Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: fields}
 	var warnings []Warning
 	if raw, ok := fields["theme"]; ok {
 		var name string
@@ -230,6 +233,12 @@ func (s *Store) load() (Settings, []Warning, error) {
 			warnings = append(warnings, Warning{Field: "promptCacheRetention", Err: errors.New(`must be "short" or "long"; using short`)})
 		} else {
 			result.PromptCacheRetention = retention
+		}
+	}
+	if raw, ok := fields["readClaudeConfigs"]; ok {
+		if err := json.Unmarshal(raw, &result.ReadClaudeConfigs); err != nil {
+			warnings = append(warnings, Warning{Field: "readClaudeConfigs", Err: errors.New("must be a boolean; using true")})
+			result.ReadClaudeConfigs = true
 		}
 	}
 	if raw, ok := fields["modelOverrides"]; ok {
@@ -290,12 +299,12 @@ func (s *Store) write(fields map[string]json.RawMessage) error {
 }
 
 func defaultSettings() Settings {
-	return Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, fields: make(map[string]json.RawMessage)}
+	return Settings{Theme: theme.SystemName, PromptCacheRetention: PromptCacheShort, ReadClaudeConfigs: true, fields: make(map[string]json.RawMessage)}
 }
 
 func cloneSettings(source Settings) Settings {
 	result := Settings{Theme: source.Theme, DefaultModel: source.DefaultModel, DiffWrapLines: source.DiffWrapLines,
-		PromptCacheRetention: source.PromptCacheRetention, fields: make(map[string]json.RawMessage, len(source.fields))}
+		PromptCacheRetention: source.PromptCacheRetention, ReadClaudeConfigs: source.ReadClaudeConfigs, fields: make(map[string]json.RawMessage, len(source.fields))}
 	if source.ModelOverrides != nil {
 		result.ModelOverrides = make(map[string]ModelOverride, len(source.ModelOverrides))
 		for selector, override := range source.ModelOverrides {

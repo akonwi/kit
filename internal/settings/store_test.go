@@ -389,3 +389,47 @@ func TestLoadMissingSettingsUsesShortPromptCacheRetention(t *testing.T) {
 		t.Fatalf("Load() retention = %q, %v; want %q", settings.PromptCacheRetention, err, PromptCacheShort)
 	}
 }
+
+func TestLoadReadClaudeConfigs(t *testing.T) {
+	t.Parallel()
+
+	for _, test := range []struct {
+		name     string
+		document string
+		want     bool
+		warning  string
+	}{
+		{name: "default", document: `{}`, want: true},
+		{name: "enabled", document: `{"readClaudeConfigs":true}`, want: true},
+		{name: "disabled", document: `{"readClaudeConfigs":false}`, want: false},
+		{name: "wrong type", document: `{"readClaudeConfigs":"no"}`, want: true, warning: `settings field "readClaudeConfigs": must be a boolean; using true`},
+	} {
+		t.Run(test.name, func(t *testing.T) {
+			t.Parallel()
+			path := filepath.Join(t.TempDir(), "settings.json")
+			if err := os.WriteFile(path, []byte(test.document), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			settings, warnings, err := newTestStore(t, path).Load()
+			if err != nil {
+				t.Fatalf("Load() error = %v", err)
+			}
+			var gotWarning string
+			if len(warnings) == 1 {
+				gotWarning = warnings[0].Error()
+			}
+			if settings.ReadClaudeConfigs != test.want || gotWarning != test.warning || len(warnings) > 1 {
+				t.Fatalf("Load() readClaudeConfigs = %v, warnings = %v; want %v, %q", settings.ReadClaudeConfigs, warnings, test.want, test.warning)
+			}
+		})
+	}
+}
+
+func TestLoadMissingSettingsReadsClaudeConfigs(t *testing.T) {
+	t.Parallel()
+
+	settings, _, err := newTestStore(t, filepath.Join(t.TempDir(), "settings.json")).Load()
+	if err != nil || !settings.ReadClaudeConfigs {
+		t.Fatalf("Load() readClaudeConfigs = %v, %v; want true", settings.ReadClaudeConfigs, err)
+	}
+}

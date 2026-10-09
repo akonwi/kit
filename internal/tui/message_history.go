@@ -96,7 +96,7 @@ func messageHistoryEntries(messages []protocol.TranscriptMessage) []messageHisto
 		if message.Role != "user" {
 			continue
 		}
-		text := strings.TrimSpace(message.TextContent())
+		text := strings.TrimSpace(userMessageText(message))
 		if text == "" {
 			continue
 		}
@@ -152,4 +152,21 @@ func (w messageHistorySurface) Build(ui.BuildContext) ui.Widget {
 		OnActivate: w.OnSelect,
 		Anchor:     w.Anchor,
 	}
+}
+
+// userMessageText is the visible text of a user message: its text blocks and
+// the expansion of a prompt command invocation, in content order.
+func userMessageText(message protocol.TranscriptMessage) string {
+	parts := make([]string, 0, len(message.Content))
+	for _, block := range message.Content {
+		switch value := block.Payload.(type) {
+		case protocol.TextContent:
+			if value.Text != "" {
+				parts = append(parts, value.Text)
+			}
+		case protocol.PromptCommandContent:
+			parts = append(parts, value.Text)
+		}
+	}
+	return strings.Join(parts, "\n")
 }

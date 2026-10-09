@@ -130,6 +130,8 @@ func estimateContentBytes[T any](content []T) int {
 			for _, annotation := range value.Annotations {
 				bytes += len(annotation.Kind) + len(annotation.WorkspaceID) + len(annotation.Path) + len(annotation.FileRevision) + len(annotation.Preview) + len(annotation.Body) + 64
 			}
+		case PromptCommandInput:
+			bytes += len(value.Text) + len(value.Name) + len(value.Arguments) + len(value.Source)
 		case FileInput:
 			bytes += estimateFileBytes(value.Filename, value.MediaType, value.URL)
 		case TextContent:

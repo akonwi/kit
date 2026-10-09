@@ -34,6 +34,18 @@ type AnnotationInput struct {
 	Annotations  []SubmittedAnnotation
 }
 
+// PromptCommandInput is a user prompt expanded from a prompt command. Text is
+// the expansion sent to the model; Name, Arguments, and Source record what the
+// user invoked. The expansion is fixed when the prompt is submitted.
+type PromptCommandInput struct {
+	Name      string
+	Arguments string
+	Source    string
+	Text      string
+}
+
+func (PromptCommandInput) isInputContent() {}
+
 // SubmittedAnnotation is immutable evidence accepted with one user message.
 type SubmittedAnnotation struct {
 	ID                uint64 `json:"id"`

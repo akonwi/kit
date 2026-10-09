@@ -569,6 +569,26 @@ func (input PromptCommandInput) Validate() error {
 	return nil
 }
 
+// Prompt command sources: Kit prompts in the Kit home or the session cwd, and
+// Claude Code commands in the session cwd (ADR 0042).
+const (
+	PromptCommandSourceUser          = "user"
+	PromptCommandSourceProject       = "project"
+	PromptCommandSourceClaudeProject = "claude_project"
+)
+
+const maxPromptCommandArgumentsBytes = 128 << 10
+
+// ValidPromptCommandSource reports whether source names a prompt command
+// discovery location.
+func ValidPromptCommandSource(source string) bool {
+	switch source {
+	case PromptCommandSourceUser, PromptCommandSourceProject, PromptCommandSourceClaudeProject:
+		return true
+	}
+	return false
+}
+
 func validPromptCommandName(name string) bool {
 	if !validProtocolText(name, 128) {
 		return false
