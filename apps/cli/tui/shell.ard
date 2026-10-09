@@ -310,7 +310,13 @@ impl Shell {
       true => "",
       false => "Restart Kit to reconnect",
     }
-    chrome::footer(self.props.themes, connection, self.composer_mode, self.attached.location)
+    chrome::footer(
+      self.props.themes,
+      connection,
+      self.attached.recovery_status(),
+      self.composer_mode,
+      self.attached.location,
+    )
   }
 }
 

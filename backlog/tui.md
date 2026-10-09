@@ -60,14 +60,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   loading, failed (with `r` retry), and signed-out states; Ctrl+C clear and
   detach. Ctrl+C acts only outside modals and text fields other than the
   composer, where it clears a draft or detaches.
-- [~] TUI-COOPER-002 — Live session: `Watch` bridge, batched event dispatch to
+- [x] TUI-COOPER-002 — Live session: `Watch` bridge, batched event dispatch to
   the UI thread, run lifecycle, reconnect and recovery footer states, and the
-  incompatible-daemon state. The watch bridge, turn lifecycle, and
-  incompatible-server state are complete: an incompatible server freezes the
-  attachment, keeping its transcript and draft, and the footer asks for a
-  restart; there is no recheck. Remaining: the `Reconnecting activity…` and
-  `Syncing final transcript…` footer states, with retried final-snapshot
-  settlement.
+  incompatible-daemon state. An incompatible server freezes the attachment,
+  keeping its transcript and draft, and the footer asks for a restart; there
+  is no recheck. A lost turn stream is recovered as in the vaxis client: with
+  backoff while the turn runs, showing `Reconnecting activity…` while the
+  server is unreachable, and through `Syncing final transcript…` with up to six
+  final-snapshot attempts before the turn is settled from its status.
 - [x] TUI-COOPER-003 — Transcript: port the transcript projection
   (`transcript_model.go`) to Ard; render user, assistant, thinking, and bash
   entries with Markdown and highlighted code in a virtual list; follow the

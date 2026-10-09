@@ -15,6 +15,7 @@ use go:kit/ffi/sessionbridge
 use kit/tui/bootstrap
 use kit/tui/toast
 use kit/tui/transcript
+use kit/tui/turn_follower
 use go:strings
 
 // The attached-session owner. One Controller represents one client-side
@@ -68,6 +69,10 @@ struct Controller {
   history_scope: Int,
   live: transcript::Live,
   run_id: Str,
+  // How the stream of `recovering_run` is being recovered. It is shown only
+  // while that turn is the active one.
+  recovery: turn_follower::Recovery,
+  recovering_run: Str,
   context_tokens: Int,
   context_window: Int,
   usage: protocol::SessionUsage,
@@ -152,6 +157,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     history_scope: 0,
     live: transcript::live(),
     run_id: "",
+    recovery: turn_follower::Recovery::healthy,
+    recovering_run: "",
     context_tokens: 0,
     context_window: 0,
     usage: empty_usage(),
@@ -232,17 +239,6 @@ private fn attach_new_session(
   }
 }
 
-// Backs off reconnection to a running turn: 100ms doubling to 1.6s.
-private fn retry_delay(failures: Int) Int64 {
-  mut delay = 100
-  mut step = 1
-  while step < failures and step < 5 {
-    delay = delay * 2
-    step = step + 1
-  }
-  Int64::from(delay)
-}
-
 // The fork's first message when the server published the child without
 // starting it.
 private fn failed_first_message(message: Str, forked: protocol::ForkSessionResult) bootstrap::FailedFirstMessage? {
@@ -306,6 +302,7 @@ impl Controller {
         _ => (),
       }
       self.run_id = ""
+      self.recovery = turn_follower::Recovery::healthy
       self.start_pending = false
       self.abort_pending = false
       self.abort_after_start = false
@@ -676,8 +673,7 @@ impl Controller {
   // Follows turns initiated locally or found in the attachment snapshot. The
   // session-wide watch also applies every live batch, while this turn stream
   // supplies replay needed when attaching in the middle of an active turn. A
-  // stream that ends early is recovered from a snapshot and reopened while the
-  // turn runs; only an unrecoverable session is reported.
+  // lost stream is recovered by `turn_follower::follow`.
   private fn mut follow_run(run_id: Str) {
     if run_id != "" {
       if run_id == self.run_id {
@@ -695,78 +691,9 @@ impl Controller {
           lifetime => {
             match self.session {
               session => {
-                let ctx = lifetime.Context
-                let dispatch = self.host.dispatch
+                let follower = self.turn_follower(session, lifetime.Context)
                 async::start(fn() {
-                  mut failures = 0
-                  mut following = true
-                  while following {
-                    let failure = match session.Stream(ctx, run_id) {
-                      ok(stream) => {
-                        let updates = stream.Updates()
-                        mut open = true
-                        while open {
-                          match updates.recv() {
-                            batch => {
-                              failures = 0
-                              let _ = dispatch(fn() {
-                                if self.active and self.run_id == run_id {
-                                  self.apply_watched_events(batch)
-                                }
-                              })
-                            },
-                            _ => { open = false },
-                          }
-                        }
-                        stream.Err()
-                      },
-                      err(failure) => Result::err(failure),
-                    }
-                    if failure.is_ok() {
-                      following = false
-                    } else {
-                      // A lost turn stream, including a server-requested
-                      // resynchronization, is recovered from an authoritative
-                      // snapshot. The turn is followed again while it runs.
-                      failures = failures + 1
-                      match session.Snapshot(ctx) {
-                        ok(current) => {
-                          let running = current.ActiveTurnID == run_id
-                          let _ = dispatch(fn() {
-                            if self.active and self.run_id == run_id {
-                              if not running {
-                                self.live.reset()
-                                self.run_id = ""
-                              }
-                              self.apply_snapshot(current)
-                            }
-                          })
-                          following = running and contextbridge::Wait(ctx, retry_delay(failures))
-                        },
-                        err(snapshot_failure) => {
-                          following = false
-                          let _ = dispatch(fn() {
-                            if self.active and self.run_id == run_id {
-                              self.live.reset()
-                              self.run_id = ""
-                              let lost = match failure {
-                                err(stream_failure) => stream_failure,
-                                ok(_) => snapshot_failure,
-                              }
-                              if not self.absorbs(lost) or self.absorbs(snapshot_failure) {
-                                (self.host.toast)(
-                                  "Turn stream lost",
-                                  lost.error(),
-                                  toast::Variant::error,
-                                  true,
-                                )
-                              }
-                            }
-                          })
-                        },
-                      }
-                    }
-                  }
+                  turn_follower::follow(follower, run_id)
                 })
               },
               _ => (),
@@ -775,6 +702,172 @@ impl Controller {
           _ => (),
         }
       }
+    }
+  }
+
+  // The session requests a turn follower makes and the attachment updates it
+  // schedules. Updates apply only while their turn is still the active one.
+  private fn mut turn_follower(session: mut api::Session, ctx: context::Context) turn_follower::Follower {
+    let dispatch = self.host.dispatch
+    turn_follower::Follower{
+      stream: fn(run_id: Str, received: fn()) Void!Error {
+        match session.Stream(ctx, run_id) {
+          ok(stream) => {
+            let updates = stream.Updates()
+            mut open = true
+            while open {
+              match updates.recv() {
+                batch => {
+                  received()
+                  let _ = dispatch(fn() {
+                    if self.active and self.run_id == run_id {
+                      self.show_recovery(run_id, turn_follower::Recovery::healthy)
+                      self.apply_watched_events(batch)
+                    }
+                  })
+                },
+                _ => { open = false },
+              }
+            }
+            stream.Err()
+          },
+          err(failure) => Result::err(failure),
+        }
+      },
+      snapshot: fn() protocol::SessionSnapshot!Error {
+        session.Snapshot(ctx)
+      },
+      status: fn(run_id: Str) protocol::TurnInfo!Error {
+        session.Turn(ctx, run_id)
+      },
+      wait: fn(milliseconds: Int64) Bool {
+        contextbridge::Wait(ctx, milliseconds)
+      },
+      ended: fn() Bool {
+        contextbridge::Done(ctx)
+      },
+      rebase: fn(run_id: Str, snapshot: protocol::SessionSnapshot) {
+        let _ = dispatch(fn() {
+          if self.active and self.run_id == run_id {
+            self.apply_snapshot(snapshot)
+          }
+        })
+      },
+      recover: fn(run_id: Str, recovery: turn_follower::Recovery) {
+        let _ = dispatch(fn() {
+          if self.active {
+            self.show_recovery(run_id, recovery)
+          }
+        })
+      },
+      settle: fn(info: protocol::TurnInfo, snapshot: protocol::SessionSnapshot) {
+        let _ = dispatch(fn() {
+          if self.active {
+            self.settle_run(info, snapshot)
+          }
+        })
+      },
+      abandon: fn(info: protocol::TurnInfo, failure: Error) {
+        let _ = dispatch(fn() {
+          if self.active {
+            self.abandon_run(info, failure)
+          }
+        })
+      },
+      incompatible: fn(failure: Error) {
+        let _ = dispatch(fn() {
+          if self.active {
+            let _ = self.absorbs(failure)
+          }
+        })
+      },
+    }
+  }
+
+  // The footer text for the active turn's stream recovery, if any.
+  fn recovery_status() Str {
+    match self.run_id != "" and self.recovering_run == self.run_id {
+      true => turn_follower::recovery_text(self.recovery),
+      false => "",
+    }
+  }
+
+  // Shows how the active turn's stream is being recovered. Seeing the turn
+  // run again clears only reconnection; a final transcript sync is resolved by
+  // the snapshot that settles the turn.
+  fn mut show_recovery(run_id: Str, recovery: turn_follower::Recovery) {
+    if self.run_id == run_id {
+      if recovery != turn_follower::Recovery::healthy or self.recovery == turn_follower::Recovery::reconnecting {
+        self.recovery = recovery
+        self.recovering_run = run_id
+      }
+      // A turn whose final transcript is syncing no longer runs.
+      if recovery == turn_follower::Recovery::syncing {
+        self.live.activity = ""
+        self.live.thinking = ""
+      }
+    }
+  }
+
+  // Settles a turn that finished while its stream was lost, from the final
+  // snapshot. The snapshot may report a successor, which becomes active.
+  fn mut settle_run(info: protocol::TurnInfo, snapshot: protocol::SessionSnapshot) {
+    if self.run_id == info.TurnID {
+      self.release_run()
+      self.apply_snapshot(snapshot)
+      mut persisted = false
+      for message in snapshot.Messages {
+        if message.TurnID == info.TurnID and message.IsError {
+          persisted = true
+        }
+      }
+      if not persisted {
+        self.report_unsuccessful(info)
+      }
+      self.run_id = snapshot.ActiveTurnID
+    }
+  }
+
+  // Settles a turn that finished while its stream was lost when its final
+  // snapshot could not be fetched. The next snapshot replaces what is shown.
+  fn mut abandon_run(info: protocol::TurnInfo, failure: Error) {
+    if self.run_id == info.TurnID {
+      self.live.settle()
+      for message in self.live.messages {
+        self.messages.push(message)
+      }
+      self.release_run()
+      self.report_unsuccessful(info)
+      (self.host.toast)(
+        "Transcript refresh failed",
+        "The next turn will retry. {failure.error()}",
+        toast::Variant::error,
+        true,
+      )
+    }
+  }
+
+  private fn mut release_run() {
+    self.live.reset()
+    self.run_id = ""
+    self.abort_pending = false
+    self.abort_after_start = false
+    self.recovery = turn_follower::Recovery::healthy
+    self.recovering_run = ""
+  }
+
+  // Adds an error row for a turn that did not complete.
+  private fn mut report_unsuccessful(info: protocol::TurnInfo) {
+    let status = info.Status.to_str()
+    if status != "completed" {
+      let row = mut transcript::message("", info.TurnID, transcript::Role::assistant)
+      row.text = match info.ErrorMessage == "" {
+        true => "Run {status}",
+        false => info.ErrorMessage,
+      }
+      row.error_message = info.ErrorMessage
+      row.is_error = true
+      self.messages.push(row.@)
     }
   }
 
@@ -1881,6 +1974,135 @@ test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
   )
 }
 
+test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.run_id = "turn-1"
+  subject.live.activity = "Working…"
+  subject.show_recovery("turn-0", turn_follower::Recovery::reconnecting)
+  try testing::assert(subject.recovery_status() == "", "an earlier turn shows nothing")
+
+  subject.show_recovery("turn-1", turn_follower::Recovery::reconnecting)
+  try testing::assert(subject.recovery_status() == "Reconnecting activity…", subject.recovery_status())
+  subject.show_recovery("turn-1", turn_follower::Recovery::healthy)
+  try testing::assert(subject.recovery_status() == "", "a running turn clears reconnection")
+
+  subject.show_recovery("turn-1", turn_follower::Recovery::syncing)
+  try testing::assert(
+    subject.recovery_status() == "Syncing final transcript…" and subject.activity() == "",
+    "a finished turn syncs without activity",
+  )
+  subject.show_recovery("turn-1", turn_follower::Recovery::healthy)
+  try testing::assert(
+    subject.recovery_status() == "Syncing final transcript…",
+    "only the final snapshot ends syncing",
+  )
+
+  subject.run_id = "turn-2"
+  testing::assert(subject.recovery_status() == "", "a later turn shows nothing")
+}
+
+test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.run_id = "turn-1"
+  subject.live.submit("a")
+  subject.show_recovery("turn-1", turn_follower::Recovery::syncing)
+
+  subject.settle_run(
+    protocol::TurnInfo{
+      TurnID: "turn-1",
+      Status: protocol::TurnStatusFailed,
+      ErrorMessage: "provider failed",
+    },
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a"], 1),
+      ActiveTurnID: "turn-2",
+    },
+  )
+  try testing::assert(shown(subject) == "a ", "the snapshot and an error row: {shown(subject)}")
+  let error_row = subject.messages.at(1).expect("error row")
+  try testing::assert(
+    error_row.is_error and error_row.text == "provider failed",
+    "the turn's failure is reported",
+  )
+  try testing::assert(subject.live.messages.size() == 0, "the live turn is replaced")
+  try testing::assert(subject.run_id == "turn-2", "the successor becomes active")
+  testing::assert(subject.recovery_status() == "", "syncing ends")
+}
+
+test fn a_persisted_failure_is_not_reported_twice() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.run_id = "turn-a"
+  subject.settle_run(
+    protocol::TurnInfo{TurnID: "turn-a", Status: protocol::TurnStatusFailed},
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: [
+        protocol::TranscriptMessage{
+          ID: "a",
+          TurnID: "turn-a",
+          Sequence: Int64::from(1),
+          Role: "assistant",
+          IsError: true,
+          ErrorMessage: "provider failed",
+        },
+      ],
+    },
+  )
+  testing::assert(
+    shown(subject) == "a" and subject.run_id == "",
+    "only the persisted row: {shown(subject)}",
+  )
+}
+
+test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.run_id = "turn-1"
+  subject.live.submit("hello")
+  subject.apply_events(
+    [
+      sessionbridge::Event{
+        Kind: "tool.started",
+        TurnID: "turn-1",
+        ToolCallID: "call-1",
+        ToolName: "bash",
+        Sequence: 1,
+      },
+    ],
+  )
+  subject.show_recovery("turn-1", turn_follower::Recovery::syncing)
+
+  subject.abandon_run(
+    protocol::TurnInfo{TurnID: "turn-1", Status: protocol::TurnStatusInterrupted},
+    Error::new("connection refused"),
+  )
+  // The prompt, the assistant message that called the tool, the tool, and
+  // the error row.
+  try testing::assert(subject.messages.size() == 4, "the streamed rows and an error row")
+  let tool = subject.messages.at(2).expect("tool row")
+  try testing::assert(
+    tool.tool_state == transcript::ToolState::completed and not tool.pending,
+    "the running tool is settled",
+  )
+  try testing::assert(
+    subject.messages.at(3).expect("error row").text == "Run interrupted",
+    "the status explains the turn",
+  )
+  try testing::assert(
+    subject.run_id == "" and subject.live.messages.size() == 0 and subject.recovery_status() == "",
+    "the turn is released",
+  )
+  testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Transcript refresh failed: The next turn will retry. connection refused",
+    "the missing transcript is explained: {effects.toasts.size()}",
+  )
+}
+
 test fn disposal_ends_the_attachment_scope() Void!Str {
   let effects = mut Effects{toasts: []}
   let subject = active_controller(effects)
@@ -1955,12 +2177,6 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
     "the message returns to the composer",
   )
   testing::assert(subject.notice == "session is unavailable", "the reason is shown as the notice")
-}
-
-test fn reconnecting_to_a_running_turn_backs_off_to_a_ceiling() Void!Str {
-  try testing::assert(retry_delay(1) == Int64::from(100), "the first retry is prompt")
-  try testing::assert(retry_delay(3) == Int64::from(400), "retries double")
-  testing::assert(retry_delay(12) == Int64::from(1600), "retries stop doubling at 1.6s")
 }
 
 test fn a_snapshot_after_a_stream_replacement_rebases_the_live_turn() Void!Str {
