@@ -128,8 +128,13 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     working directory changes; the picker shows loading, a load failure, a
     failed refresh, and a partial index. Requires Cooper's
     `TextArea.cell()`.
-  - [ ] Session mentions: `#` opens an inline session picker that inserts
-    `#[session:<id>]`.
+  - [x] Session mentions: a typed `#` at the start of the draft or after
+    whitespace lists every other session afresh in an inline picker resting
+    above the `#`, by name with its working directory and age, ranked by the
+    query (which also matches IDs and full directories) with the best match
+    selected. Enter or a click replaces the mention with
+    `#[session:<id>] `; the picker shows loading, a failed load, and "No
+    sessions found", and a load taking over ten seconds fails.
   - [ ] Annotation chips: pending annotations show above the composer and
     are sent with the prompt; queued ones return with restored follow-ups.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output

@@ -6,8 +6,10 @@ use go:kit/ffi/mention
 use kit/tui/attachments
 use kit/tui/file_index
 use kit/tui/inline_picker
+use kit/tui/session_mentions
 use kit/tui/theme
 use go:strings
+use go:time
 
 // Ref is the Shell's narrow control surface for explicit focus and draft
 // lifecycle events. Its actions always dispatch through the retained Composer.
@@ -160,10 +162,28 @@ struct Props {
   // for them through `load_files`; they arrive here.
   files: file_index::Index,
   load_files: fn(),
+  // The other sessions, which `#` mentions list. Typing `#` asks for them
+  // afresh through `load_sessions`; they arrive here.
+  sessions: session_mentions::Source,
+  load_sessions: fn(),
   // Reports when a draft that runs a shell command starts or stops. The
   // composer then draws itself as the Bash panel, in the interaction dock's
   // frame, so the Shell drops the rules that would border it.
   bash_changed: fn(Bool),
+}
+
+// What a mention references: a project file, typed as `@`, or another
+// session, typed as `#`.
+enum Mention {
+  file,
+  session,
+}
+
+private fn trigger(kind: Mention) Str {
+  match kind {
+    Mention::file => "@",
+    Mention::session => "#",
+  }
 }
 
 struct Composer {
@@ -188,9 +208,11 @@ struct Composer {
   bash_more: Bool,
   bash_before: Int64,
   bash_pages: Int,
-  // The `@` mention being typed, its matching paths, and the selected one.
-  // Matches are ranked again only when the query or the index changes.
+  // The `@` or `#` mention being typed, its matching paths or sessions, and
+  // the selected one. Matches are ranked again only when the query or the
+  // listed paths or sessions change.
   mention: mention::State,
+  mention_kind: Mention,
   mention_matches: [inline_picker::Item],
   mention_selection: Str,
   mention_query: Str,
@@ -227,6 +249,7 @@ private fn new(props: mut Props) mut Composer {
     bash_before: Int64::from(0),
     bash_pages: 0,
     mention: mention::State{},
+    mention_kind: Mention::file,
     mention_matches: [],
     mention_selection: "",
     mention_query: "",
@@ -613,13 +636,7 @@ impl Composer {
         true => one_line(bash_query(entry.text)),
         false => "",
       }
-      items.push(
-        inline_picker::Item{
-          key: entry.id,
-          label: one_line(entry.text),
-          search: search,
-        },
-      )
+      items.push(inline_picker::item(entry.id, one_line(entry.text), search: search))
       index = index - 1
     }
     items.@
@@ -762,28 +779,71 @@ impl Composer {
     self.observe_mention(previous, value)
   }
 
-  // A typed `@` at the start of the draft or after whitespace opens a file
-  // mention, and typing after it is the query. Any other edit closes it, as
-  // does an open history picker, which owns the draft as its query.
+  // A typed `@` or `#` at the start of the draft or after whitespace opens a
+  // file or session mention, and typing after it is the query. Any other
+  // edit closes it, as does an open history picker, which owns the draft as
+  // its query.
   private fn mut observe_mention(previous: Str, value: Str) {
     match self.history_kind == Recall::none {
       false => self.close_mention(),
       true => {
-        let observed = mention::Observe(self.mention, previous, value, not self.typing, "@")
-        self.mention = observed.State
-        if observed.Opened {
-          self.mention_selection = ""
-          self.mention_query = ""
-          self.mention_generation = -1
-          (self.props.load_files)()
+        let pasted = not self.typing
+        match self.mention.Open {
+          true => {
+            self.mention = mention::Observe(
+              self.mention,
+              previous,
+              value,
+              pasted,
+              trigger(self.mention_kind),
+            ).State
+          },
+          false => {
+            for kind in [Mention::file, Mention::session] {
+              let observed = mention::Observe(self.mention, previous, value, pasted, trigger(kind))
+              if observed.Opened and not self.mention.Open {
+                self.mention = observed.State
+                self.mention_kind = kind
+                self.mention_selection = ""
+                self.mention_query = ""
+                self.mention_generation = -1
+                match kind {
+                  Mention::file => (self.props.load_files)(),
+                  Mention::session => (self.props.load_sessions)(),
+                }
+              }
+            }
+          },
         }
         self.refresh_mention()
       },
     }
   }
 
-  // Ranks the indexed paths for the mention's query when either changed, and
-  // keeps the selection while it matches, else selects the best match.
+  // The listed paths or sessions, and their generation.
+  private fn mention_catalog() [inline_picker::Item] {
+    match self.mention_kind {
+      Mention::file => {
+        let catalog = mut List::new<inline_picker::Item>()
+        for path in self.props.files.paths {
+          catalog.push(inline_picker::item(path, path))
+        }
+        catalog.@
+      },
+      Mention::session => session_mentions::catalog(self.props.sessions, time::Now()),
+    }
+  }
+
+  private fn mention_source_generation() Int {
+    match self.mention_kind {
+      Mention::file => self.props.files.generation,
+      Mention::session => self.props.sessions.generation,
+    }
+  }
+
+  // Ranks the listed paths or sessions for the mention's query when either
+  // changed, and keeps the selection while it matches, else selects the best
+  // match.
   private fn mut refresh_mention() {
     match self.mention.Open {
       false => {
@@ -791,21 +851,11 @@ impl Composer {
         self.mention_selection = ""
       },
       true => {
-        let files = self.props.files
-        if self.mention_query != self.mention.Query or self.mention_generation != files.generation {
-          let catalog = mut List::new<inline_picker::Item>()
-          for path in files.paths {
-            catalog.push(
-              inline_picker::Item{
-                key: path,
-                label: path,
-                search: "",
-              },
-            )
-          }
-          self.mention_matches = inline_picker::rank(catalog.@, self.mention.Query)
+        let generation = self.mention_source_generation()
+        if self.mention_query != self.mention.Query or self.mention_generation != generation {
+          self.mention_matches = inline_picker::rank(self.mention_catalog(), self.mention.Query)
           self.mention_query = self.mention.Query
-          self.mention_generation = files.generation
+          self.mention_generation = generation
         }
         if not inline_picker::contains(self.mention_matches, self.mention_selection) {
           self.mention_selection = match self.mention_matches.at(0) {
@@ -822,20 +872,25 @@ impl Composer {
     self.refresh_mention()
   }
 
-  // Replaces the mention with `@path ` and places the caret after it, from
-  // Enter or a click.
-  private fn mut choose_mention(path: Str) {
-    if self.mention.Open and inline_picker::contains(self.mention_matches, path) {
-      let inserted = mention::Insert(self.mention, self.draft, "@{path} ")
+  // Replaces the mention with `@path ` or `#[session:<id>] ` and places the
+  // caret after it, from Enter or a click.
+  private fn mut choose_mention(key: Str) {
+    if self.mention.Open and inline_picker::contains(self.mention_matches, key) {
+      let token = match self.mention_kind {
+        Mention::file => "@{key} ",
+        Mention::session => "#[session:{key}] ",
+      }
+      let inserted = mention::Insert(self.mention, self.draft, token)
       if inserted.OK {
         self.close_mention()
         self.change(inserted.Text)
-        match self.context {
-          context => {
-            let _ = self.editor.set_cursor(
-              context,
-              inserted.Cursor - bash_prefix(self.draft).size(),
-            )
+        // Place the caret once, on the field itself. The ref's deferred
+        // placement stays registered after every later commit, which would
+        // pull the caret back while typing continues.
+        match self.editor.current {
+          editor => {
+            editor.set_value(bash_command(self.draft))
+            editor.set_cursor(inserted.Cursor - bash_prefix(self.draft).size())
           },
           _ => (),
         }
@@ -943,7 +998,7 @@ impl cui::Component for Composer {
       self.close_history()
       self.close_mention()
     }
-    // Paths that load while a mention is open are ranked for it.
+    // Paths or sessions that load while a mention is open are ranked for it.
     self.refresh_mention()
     // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W, as in the
     // vaxis client.
@@ -1007,24 +1062,24 @@ impl cui::Component for Composer {
     })
     let mention_previous = keymap::simple_command(
       "composer.mention.previous",
-      "Previous path",
+      "Previous match",
       fn() Bool {
         self.move_mention(-1)
       },
     )
-    let mention_next = keymap::simple_command("composer.mention.next", "Next path", fn() Bool {
+    let mention_next = keymap::simple_command("composer.mention.next", "Next match", fn() Bool {
       self.move_mention(1)
     })
     let mention_choose = keymap::simple_command(
       "composer.mention.choose",
-      "Mention path",
+      "Insert mention",
       fn() Bool {
         self.request_mention_choice()
       },
     )
     let mention_dismiss = keymap::simple_command(
       "composer.mention.dismiss",
-      "Close file mention",
+      "Close mention",
       fn() Bool {
         self.request_mention_dismissal()
       },
@@ -1180,6 +1235,7 @@ impl cui::Component for Composer {
             status: "",
             status_tone: inline_picker::Tone::muted,
             keep_end: false,
+            columns: Maybe::new<inline_picker::Columns>(),
             activate: fn(id: Str) {
               self.choose_history(id)
             },
@@ -1210,10 +1266,17 @@ impl cui::Component for Composer {
 }
 
 impl Composer {
-  // The mention's paths rest above its `@`. Until paths load, one row says
-  // they are loading or could not load; a failed refresh or a partial index
-  // is noted below listed paths.
+  // The mention's paths or sessions rest above its `@` or `#`.
   private fn mut mention_picker() cui::View {
+    match self.mention_kind {
+      Mention::file => self.file_picker(),
+      Mention::session => self.session_picker(),
+    }
+  }
+
+  // Until paths load, one row says they are loading or could not load; a
+  // failed refresh or a partial index is noted below listed paths.
+  private fn mut file_picker() cui::View {
     let files = self.props.files
     let listed = files.paths.size() > 0
     let failed = (not listed) and (not files.loading) and files.failure != ""
@@ -1240,8 +1303,40 @@ impl Composer {
           false => inline_picker::Tone::muted,
         },
         keep_end: true,
+        columns: Maybe::new<inline_picker::Columns>(),
         activate: fn(path: Str) {
           self.choose_mention(path)
+        },
+        anchor: Maybe::new(self.anchor),
+      },
+    )
+  }
+
+  // Sessions show their name, directory, and age in columns. Until they
+  // load, one row says they are loading, could not load, or that there are
+  // no other sessions.
+  private fn mut session_picker() cui::View {
+    let sessions = self.props.sessions
+    let listed = sessions.sessions.size() > 0
+    inline_picker::view(
+      inline_picker::Props{
+        themes: self.props.themes,
+        items: self.mention_matches,
+        selection: self.mention_selection,
+        empty: match listed {
+          true => "No results",
+          false => session_mentions::empty(sessions),
+        },
+        empty_tone: match (not listed) and sessions.failure != "" {
+          true => inline_picker::Tone::danger,
+          false => inline_picker::Tone::muted,
+        },
+        status: "",
+        status_tone: inline_picker::Tone::muted,
+        keep_end: false,
+        columns: Maybe::new(inline_picker::columns(self.mention_catalog())),
+        activate: fn(id: Str) {
+          self.choose_mention(id)
         },
         anchor: Maybe::new(self.anchor),
       },

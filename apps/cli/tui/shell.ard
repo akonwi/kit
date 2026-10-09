@@ -695,6 +695,12 @@ impl Shell {
             self.attached.load_files()
           })
         },
+        sessions: self.attached.mentionable,
+        load_sessions: fn() {
+          self.dispatch(fn() {
+            self.attached.load_mentionable_sessions()
+          })
+        },
         recall_history: fn() {
           self.request_message_history()
         },

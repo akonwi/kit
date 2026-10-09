@@ -19,6 +19,7 @@ use kit/tui/bootstrap
 use kit/tui/file_index
 use kit/tui/format
 use kit/tui/image_preview
+use kit/tui/session_mentions
 use kit/tui/toast
 use kit/tui/transcript
 use kit/tui/turn_follower
@@ -135,6 +136,9 @@ struct Controller {
   incompatible: Str,
   // The session's indexed project paths, for file mentions.
   files: file_index::Source,
+  // The other sessions, for session mentions, and their running load.
+  mentionable: session_mentions::Source,
+  mentionable_load: contextbridge::Cancellation?,
   // Pending model and plugin requests in arrival order. The oldest is
   // presented.
   interactions: [protocol::InteractionRequest],
@@ -278,6 +282,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     scratchpad_failure: "",
     incompatible: "",
     files: file_index::source(),
+    mentionable: session_mentions::source(),
+    mentionable_load: Maybe::new<contextbridge::Cancellation>(),
   })
 }
 
@@ -2127,6 +2133,53 @@ impl Controller {
         }
       },
       _ => (),
+    }
+  }
+
+  // Lists the other sessions for a session mention that just opened. Each
+  // mention lists them afresh, replacing an earlier load; one that takes
+  // more than ten seconds fails.
+  fn mut load_mentionable_sessions() {
+    if self.can_submit() {
+      match self.lifetime {
+        lifetime => {
+          match self.mentionable_load {
+            previous => previous.Cancel(),
+            _ => (),
+          }
+          let load = contextbridge::WithTimeout(lifetime.Context, Int64::from(10000))
+          self.mentionable_load = Maybe::new(load)
+          self.mentionable = session_mentions::begin(self.mentionable)
+          let generation = self.mentionable.generation
+          let attached = self.session_id()
+          let client = self.options.Client
+          let dispatch = self.host.dispatch
+          async::start(fn() {
+            let result = client.ListSessions(load.Context, api::ListSessionsOptions{CWD: ""})
+            load.Cancel()
+            let _ = dispatch(fn() {
+              if self.active {
+                let listed: [protocol::SessionInfo]!Str = match result {
+                  ok(sessions) => Result::ok(sessions),
+                  err(failure) => {
+                    match self.absorbs(failure) {
+                      true => Result::err(""),
+                      false => Result::err(failure.error()),
+                    }
+                  },
+                }
+                self.mentionable = session_mentions::finish(
+                  self.mentionable,
+                  generation,
+                  listed,
+                  attached,
+                )
+              }
+            })
+          })
+        },
+        _ => (),
+      }
     }
   }
 
