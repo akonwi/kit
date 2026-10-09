@@ -23,6 +23,7 @@ use kit/tui/chrome
 use kit/tui/command_palette
 use kit/tui/composer
 use kit/tui/controls
+use kit/tui/image_preview
 use kit/tui/interaction_dock
 use kit/tui/layout
 use kit/tui/mcp
@@ -93,6 +94,12 @@ private fn inert_attachment_host() attached_session::Host {
     restore_draft: fn(text: Str) {},
     prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
   }
 }
 
@@ -105,6 +112,8 @@ struct Props {
   attach: fn(context::Context, cli::TUIOptions) bootstrap::Attached!Str,
   // Publishes the session's status to the hosting terminal.
   terminal: terminal_status::Terminal,
+  // Opens a file or URL with the system's default application.
+  open_url: fn(Str) Void!Error,
 }
 
 struct Shell {
@@ -577,6 +586,22 @@ impl Shell {
           more: self.attached.history_more,
           loading: self.attached.history_loading,
           failure: self.attached.history_failure,
+        },
+        images: transcript_pane::Images{
+          expanded: self.attached.expanded_image,
+          preview: fn(id: Str) image_preview::Preview? {
+            self.attached.preview(id)
+          },
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_image(id)
+            })
+          },
+          open: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.open_image(id)
+            })
+          },
         },
         load_older: fn() {
           self.request_older_history()
@@ -1372,6 +1397,12 @@ impl Shell {
       show_latest: fn() {
         let _ = self.transcript_control.show_latest()
       },
+      open_url: fn(target: Str) Void!Error {
+        (self.props.open_url)(target)
+      },
+      image_matte: fn() ui::Color {
+        self.props.themes.current().user_fill
+      },
     }
   }
 
@@ -1455,6 +1486,9 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
     },
   )
   let previous = subject.attached
@@ -1492,6 +1526,9 @@ test fn rename_requests_carry_their_opening_settings_with_the_dialog() Void!Str 
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
     },
   )
   subject.attached.apply_snapshot(
@@ -1548,6 +1585,9 @@ test fn ctrl_c_clears_staged_files_before_quitting() Void!Str {
       },
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
     },
   )
   subject.phase = Phase::ready
@@ -1612,6 +1652,9 @@ test fn a_pending_request_replaces_the_composer_until_it_settles() Void!Str {
       quit: fn() {},
       attach: bootstrap::attach,
       terminal: terminal_status::detached(),
+      open_url: fn(target: Str) Void!Error {
+        Result::ok(())
+      },
     },
   )
   // An attached session without a server handle; mounting skips bootstrap.

@@ -5,6 +5,7 @@ use cooper
 use cooper/cui
 use cooper/testing as headless
 use cooper/ui
+use kit/tui/image_preview
 use kit/tui/theme
 use kit/tui/transcript
 use kit/tui/transcript_pane
@@ -17,6 +18,12 @@ struct Model {
   history: transcript_pane::History,
   // Earlier-page requests the pane made while the owner was idle.
   requests: Int,
+  // The expanded image, its loaded previews, and the images toggled and
+  // opened, in order.
+  expanded: Str,
+  previews: [Str: image_preview::Preview],
+  toggled: [Str],
+  opened: [Str],
 }
 
 // Every message is shown; there is no earlier history.
@@ -60,6 +67,18 @@ impl cui::Component for Host {
         messages: self.model.messages,
         control: self.model.control,
         history: self.model.history,
+        images: transcript_pane::Images{
+          expanded: self.model.expanded,
+          preview: fn(id: Str) image_preview::Preview? {
+            self.model.previews.get(id)
+          },
+          toggle: fn(id: Str) {
+            self.model.toggled.push(id)
+          },
+          open: fn(id: Str) {
+            self.model.opened.push(id)
+          },
+        },
         load_older: fn() {
           // Like the attachment, an owner already loading ignores requests.
           let model = self.model
@@ -165,6 +184,10 @@ fn render(count: Int) [Str] {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -188,6 +211,10 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -239,6 +266,10 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -304,6 +335,10 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -350,6 +385,10 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -402,6 +441,10 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -457,6 +500,10 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -514,6 +561,10 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -557,6 +608,10 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -613,6 +668,10 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -663,6 +722,10 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -741,6 +804,10 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -771,6 +838,10 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -805,6 +876,10 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -839,6 +914,10 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -875,6 +954,10 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -953,6 +1036,10 @@ test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str
     control: transcript_pane::control(),
     history: more_history(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -989,6 +1076,10 @@ test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
     control: transcript_pane::control(),
     history: more_history(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1023,6 +1114,10 @@ test fn a_prepended_page_keeps_the_reading_position() Void!Str {
     control: transcript_pane::control(),
     history: more_history(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1072,6 +1167,10 @@ test fn a_failed_page_pauses_loading_until_retried() Void!Str {
       failure: "connection refused",
     },
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1102,6 +1201,10 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
       failure: "",
     },
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1147,17 +1250,35 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let with_text = mut identified_message("user-1", transcript::Role::user, "look at these", false)
   with_text.attachments = [
-    transcript::Attachment{image: true, filename: "shot.png"},
-    transcript::Attachment{image: false, filename: "notes.txt"},
+    transcript::Attachment{
+      id: "attachment-1",
+      image: true,
+      filename: "shot.png",
+    },
+    transcript::Attachment{
+      id: "attachment-2",
+      image: false,
+      filename: "notes.txt",
+    },
   ]
   let only_file = mut identified_message("user-2", transcript::Role::user, "", false)
-  only_file.attachments = [transcript::Attachment{image: false, filename: "only.txt"}]
+  only_file.attachments = [
+    transcript::Attachment{
+      id: "attachment-3",
+      image: false,
+      filename: "only.txt",
+    },
+  ]
   let model = mut Model{
     messages: [with_text.@, only_file.@],
     scope_id: 1,
     control: transcript_pane::control(),
     history: complete(),
     requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
   }
   let renderer = cui::mount(
     app,
@@ -1173,25 +1294,27 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     [
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
       "   look at these             ┃",
-      "   image shot.png            ┃",
-      "   file notes.txt            ┃",
+      "   ▸ image shot.png          ┃",
+      "     file notes.txt          ┃",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
       "                             ┃",
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ┃",
-      "   file only.txt             ┃",
+      "     file only.txt           ┃",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
       "                             ┃",
     ],
   )
   let colors = theme::context(theme::store(theme::system())).current()
-  let kind = terminal.frame().cell(3, 2).expect("kind").style
-  let name = terminal.frame().cell(9, 2).expect("name").style
+  let marker = terminal.frame().cell(3, 2).expect("marker").style
+  let kind = terminal.frame().cell(5, 2).expect("kind").style
+  let name = terminal.frame().cell(11, 2).expect("name").style
   let same = fn(left: ui::Color?, right: ui::Color) Bool {
     match left {
       color => color.red == right.red and color.green == right.green and color.blue == right.blue,
       _ => false,
     }
   }
+  try testing::assert(same(marker.foreground, colors.muted), "the disclosure marker is muted")
   try testing::assert(
     same(kind.foreground, colors.primary_text) and same(kind.background, colors.user_fill),
     "the kind is accented on the wash",
@@ -1199,5 +1322,112 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
   testing::assert(
     same(name.foreground, colors.muted) and same(name.background, colors.user_fill),
     "the name is muted on the wash",
+  )
+}
+
+fn image_message() transcript::Message {
+  let message = mut identified_message("user-1", transcript::Role::user, "", false)
+  message.attachments = [
+    transcript::Attachment{
+      id: "attachment-1",
+      image: true,
+      filename: "shot.png",
+    },
+    transcript::Attachment{
+      id: "attachment-2",
+      image: true,
+      filename: "other.png",
+    },
+  ]
+  message.@
+}
+
+fn red_preview() image_preview::Preview {
+  let bytes = mut List::new<Byte>()
+  mut index = 0
+  while index < 32 {
+    bytes.push(Byte::from(255))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(255))
+    index =+ 1
+  }
+  image_preview::Preview{
+    stage: image_preview::Stage::ready,
+    image: Maybe::new(ui::image_rgba(8, 4, bytes.@, Maybe::new<ui::Color>())),
+    failure: "",
+  }
+}
+
+test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
+  let terminal = headless::new(40, 18)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let model = mut Model{
+    messages: [image_message()],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "attachment-1",
+    previews: [:],
+    toggled: [],
+    opened: [],
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
+      "   ▾ image shot.png",
+      "   loading preview…",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "",
+      "   ▸ image other.png",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
+      "",
+    ],
+  )
+
+  renderer.update(fn() {
+    model.previews.set("attachment-1", red_preview())
+  })
+  terminal.flush()
+  let image_rows = rows(terminal)
+  let painted = "   " + strings::Repeat("▀", 33)
+  try testing::assert(
+    image_rows.at(5).or("") == painted and image_rows.at(12).or("") == painted and image_rows.at(4).or("") == "" and image_rows.at(13).or("") == "",
+    "a 2:1 image narrowed to the wash keeps its shape, centred in the reserved rows:\n{strings::Join(mut image_rows, "|\n")}",
+  )
+  try testing::assert(
+    terminal.frame().text().contains("▸ image other.png"),
+    "loading does not move the next row",
+  )
+
+  terminal.click(4, 8)
+  terminal.flush()
+  terminal.click(8, 15)
+  terminal.flush()
+  testing::assert(
+    model.opened.size() == 1 and model.opened.at(0).or("") == "attachment-1" and model.toggled.size() == 1 and model.toggled.at(0).or("") == "attachment-2",
+    "clicking the image opens it and clicking a row toggles it",
   )
 }

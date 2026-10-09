@@ -1,7 +1,9 @@
+use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
 use kit/tui/controls
+use kit/tui/image_preview
 use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/spinner
@@ -63,11 +65,25 @@ struct History {
   failure: Str,
 }
 
+// Images attached to user messages. Each is a disclosure row; at most one is
+// expanded to show its preview.
+struct Images {
+  // The attachment ID of the expanded image, if any.
+  expanded: Str,
+  // The expanded image's preview, once requested.
+  preview: fn(Str) image_preview::Preview?,
+  // Expands an image, or collapses the expanded one.
+  toggle: fn(Str),
+  // Opens an image in the system's default application.
+  open: fn(Str),
+}
+
 struct Props {
   themes: theme::Context,
   messages: [transcript::Message],
   control: mut Control,
   history: History,
+  images: Images,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
   load_older: fn(),
@@ -235,6 +251,7 @@ impl Pane {
 
   private fn mut list() cui::View {
     let themes = self.props.themes
+    let images = self.props.images
     let colors = themes.current()
     self.tail_key = ""
     self.tail_is_reply = false
@@ -289,7 +306,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, entry),
+              false => transcript_row(themes, images, entry),
             }
           },
           estimated_height: 4,
@@ -415,13 +432,13 @@ impl cui::Component for Pane {
 }
 
 // Each row keeps a blank row above it; the last also keeps one below.
-private fn transcript_row(themes: theme::Context, entry: Entry) cui::View {
+private fn transcript_row(themes: theme::Context, images: Images, entry: Entry) cui::View {
   let bottom = match entry.last {
     true => 1,
     false => 0,
   }
   cui::box(
-    [entry_view(themes, entry.key, entry.message).or(layout::blank())],
+    [entry_view(themes, images, entry.key, entry.message).or(layout::blank())],
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -447,10 +464,15 @@ private fn renders(message: transcript::Message) Bool {
   }
 }
 
-private fn entry_view(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+private fn entry_view(
+  themes: theme::Context,
+  images: Images,
+  key: Str,
+  message: transcript::Message,
+) cui::View? {
   let colors = themes.current()
   match message.role {
-    transcript::Role::user => user_entry(themes, key, message),
+    transcript::Role::user => user_entry(themes, images, key, message),
     transcript::Role::assistant => {
       let tone = match {
         message.aborted => colors.muted,
@@ -488,7 +510,12 @@ private fn entry_view(themes: theme::Context, key: Str, message: transcript::Mes
 }
 
 // A user turn: a tinted wash with half-block edges and two-cell padding.
-private fn user_entry(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
+private fn user_entry(
+  themes: theme::Context,
+  images: Images,
+  key: Str,
+  message: transcript::Message,
+) cui::View? {
   let colors = themes.current()
   match message.text == "" and message.attachments.size() == 0 {
     true => Maybe::new<cui::View>(),
@@ -505,7 +532,18 @@ private fn user_entry(themes: theme::Context, key: Str, message: transcript::Mes
         )
       }
       for attachment in message.attachments {
-        body.push(attachment_label(colors, attachment))
+        let expanded = attachment.image and attachment.id != "" and images.expanded == attachment.id
+        body.push(attachment_label(colors, images, attachment, expanded))
+        if expanded {
+          let preview = (images.preview)(attachment.id).or(image_preview::loading())
+          let open = images.open
+          let id = attachment.id
+          body.push(
+            image_preview::view(themes, id, preview, fn() {
+              open(id)
+            }),
+          )
+        }
       }
       let edge = fn(glyph: Str) cui::View {
         cui::text(
@@ -541,14 +579,34 @@ private fn user_entry(themes: theme::Context, key: Str, message: transcript::Mes
   }
 }
 
-// One attached file in a user message: its kind and name.
-private fn attachment_label(colors: theme::Theme, attachment: transcript::Attachment) cui::View {
+// One attached file in a user message: its kind and name. An image's row is a
+// disclosure that shows or hides its preview.
+private fn attachment_label(
+  colors: theme::Theme,
+  images: Images,
+  attachment: transcript::Attachment,
+  expanded: Bool,
+) cui::View {
+  let previewable = attachment.image and attachment.id != ""
+  let marker = match {
+    previewable and expanded => "▾ ",
+    previewable => "▸ ",
+    _ => "  ",
+  }
   let kind = match attachment.image {
     true => "image",
     false => "file",
   }
+  let toggle = images.toggle
+  let id = attachment.id
   cui::box(
     [
+      cui::text(
+        marker,
+        text_style: ui::text_style(foreground: colors.muted, background: colors.user_fill),
+        wrap: ui::TextWrap::none,
+        styles: ui::style(flex_shrink: 0.0),
+      ),
       cui::text(
         "{kind} ",
         text_style: ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
@@ -565,6 +623,12 @@ private fn attachment_label(colors: theme::Theme, attachment: transcript::Attach
       flex_shrink: 0.0,
       flex_direction: ui::FlexDirection::row,
     ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if previewable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(id)
+        received.prevent_default()
+      }
+    },
   )
 }
 

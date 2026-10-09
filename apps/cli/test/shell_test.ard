@@ -87,6 +87,9 @@ fn mount(terminal: headless::TestApp, quits: mut Quits, authenticated: Bool, att
         terminal.context.progress(state, Maybe::new<Int>())
       },
     },
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
   }
   let app = cooper::App{context: terminal.context, root: terminal.root}
   cui::mount(app, cui::child(shell::new, props))

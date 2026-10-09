@@ -6,15 +6,18 @@ use go:api
 use go:api/contract as protocol
 use go:context
 use cooper/event
+use cooper/ui
 use go:errors
 use go:fmt
 use go:github.com/akonwi/kit/internal/identifier
+use go:kit/ffi/attachmentbridge
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/bootstrap
 use kit/tui/format
+use kit/tui/image_preview
 use kit/tui/toast
 use kit/tui/transcript
 use kit/tui/turn_follower
@@ -48,6 +51,11 @@ struct Host {
   prepend_draft: fn(Str),
   // Returns the transcript to its end after a local submission.
   show_latest: fn(),
+  // Opens a file or URL with the system's default application.
+  open_url: fn(Str) Void!Error,
+  // The color image previews are composited over where the terminal cannot
+  // draw images natively.
+  image_matte: fn() ui::Color,
 }
 
 struct Controller {
@@ -68,6 +76,11 @@ struct Controller {
   // Files staged for the next prompt, and the last staged row's token.
   attachments: [attachments::Staged],
   attachment_token: Int,
+  // The attachment ID of the image whose preview is expanded, if any, and
+  // the most recently expanded previews, newest last.
+  expanded_image: Str,
+  previews: [Str: image_preview::Preview],
+  preview_order: [Str],
   messages: [transcript::Message],
   // Earlier transcript pages. The cursor is the oldest loaded message;
   // `history_scope` advances whenever the cursor is replaced so an in-flight
@@ -162,6 +175,9 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     follow_ups_changing: false,
     attachments: [],
     attachment_token: 0,
+    expanded_image: "",
+    previews: [:],
+    preview_order: [],
     messages: [],
     history_initialized: false,
     history_cursor: "",
@@ -1739,7 +1755,13 @@ impl Controller {
       let shown = mut List::new<transcript::Attachment>()
       for item in staged {
         if item.sendable() {
-          shown.push(transcript::Attachment{image: item.is_image(), filename: item.filename})
+          shown.push(
+            transcript::Attachment{
+              id: item.id,
+              image: item.is_image(),
+              filename: item.filename,
+            },
+          )
         }
       }
       self.live.submit(display, shown.@)
@@ -1889,6 +1911,7 @@ impl Controller {
                 let staged = self.attachments
                 self.attachments = []
                 let optimistic = self.begin_submission(text, staged)
+                self.expand_sent_image(staged)
                 let ctx = lifetime.Context
                 let dispatch = self.host.dispatch
                 async::start(fn() {
@@ -2105,6 +2128,141 @@ impl Controller {
   }
 }
 
+// Previews kept decoded; the expanded one is never evicted.
+let kept_previews = 4
+
+impl Controller {
+  // The preview of an image, once requested.
+  fn preview(attachment_id: Str) image_preview::Preview? {
+    self.previews.get(attachment_id)
+  }
+
+  // Expands an image's preview, collapsing any other, or collapses it when it
+  // is already expanded.
+  fn mut toggle_image(attachment_id: Str) {
+    match self.expanded_image == attachment_id {
+      true => { self.expanded_image = "" },
+      false => {
+        self.expanded_image = attachment_id
+        self.request_preview(attachment_id)
+      },
+    }
+  }
+
+  // A prompt's first image starts expanded; restored history stays collapsed.
+  fn mut expand_sent_image(staged: [attachments::Staged]) {
+    mut first = ""
+    for item in staged {
+      if first == "" and item.sendable() and item.is_image() {
+        first = item.id
+      }
+    }
+    if first != "" {
+      self.expanded_image = first
+      self.request_preview(first)
+    }
+  }
+
+  private fn mut request_preview(attachment_id: Str) {
+    self.remember_preview(attachment_id)
+    if self.previews.get(attachment_id).is_none() {
+      self.previews.set(attachment_id, image_preview::loading())
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              let ctx = lifetime.Context
+              let dispatch = self.host.dispatch
+              let matte = (self.host.image_matte)()
+              async::start(fn() {
+                let loaded = image_preview::load(session, ctx, attachment_id, matte)
+                let _ = dispatch(fn() {
+                  if self.active and self.previews.get(attachment_id).is_some() {
+                    self.previews.set(attachment_id, loaded)
+                  }
+                })
+              })
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Marks a preview as most recently used and forgets the oldest beyond
+  // `kept_previews`, except the expanded one.
+  fn mut remember_preview(attachment_id: Str) {
+    let order = mut List::new<Str>()
+    for id in self.preview_order {
+      if id != attachment_id {
+        order.push(id)
+      }
+    }
+    order.push(attachment_id)
+    let kept = mut List::new<Str>()
+    mut excess = order.size() - kept_previews
+    for id in order.@ {
+      if excess > 0 and id != self.expanded_image {
+        self.previews.delete(id)
+        excess = excess - 1
+      } else {
+        kept.push(id)
+      }
+    }
+    self.preview_order = kept.@
+  }
+
+  // Opens an image in the system's default application from a private
+  // temporary copy.
+  fn mut open_image(attachment_id: Str) {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            async::start(fn() {
+              let saved = match attachmentbridge::Open(session, ctx, attachment_id) {
+                ok(download) => {
+                  let path = image_preview::materialize(download)
+                  let _ = download.Content.Close()
+                  path
+                },
+                err(failure) => Result::err(failure),
+              }
+              let _ = dispatch(fn() {
+                if self.active {
+                  let opened = match saved {
+                    ok(path) => (self.host.open_url)(path),
+                    err(failure) => Result::err(failure),
+                  }
+                  match opened {
+                    err(failure) => {
+                      if not self.absorbs(failure) {
+                        (self.host.toast)(
+                          "Could not open image",
+                          failure.error(),
+                          toast::Variant::error,
+                          false,
+                        )
+                      }
+                    },
+                    ok(_) => (),
+                  }
+                }
+              })
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+}
+
 // A staged file to upload.
 struct Upload {
   token: Int,
@@ -2173,6 +2331,12 @@ private fn test_host(effects: mut Effects) Host {
       effects.drafts.push(text)
     },
     show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
   }
 }
 
@@ -2259,6 +2423,12 @@ private fn queued_host(queue: mut Queue) Host {
     restore_draft: fn(text: Str) {},
     prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
   }
 }
 
@@ -2313,6 +2483,12 @@ test fn scratchpad_editor_reports_apply_through_the_host_and_only_while_attached
     restore_draft: fn(text: Str) {},
     prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
   }
   let subject = controller(cli::TUIOptions{}, host, 1, "")
   subject.active = true
@@ -2708,6 +2884,79 @@ test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
   testing::assert(blocked(subject) == "", "an unresolved restored file is still sent")
 }
 
+test fn at_most_one_image_preview_is_expanded() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.toggle_image("attachment-1")
+  try testing::assert(
+    subject.expanded_image == "attachment-1" and subject.preview("attachment-1").is_some(),
+    "expanding requests the preview",
+  )
+  subject.toggle_image("attachment-2")
+  try testing::assert(subject.expanded_image == "attachment-2", "another image replaces it")
+  subject.toggle_image("attachment-2")
+  testing::assert(subject.expanded_image == "", "toggling again collapses it")
+}
+
+test fn a_sent_prompt_expands_its_first_image() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  let failed = mut attachments::uploaded(
+    protocol::AttachmentInfo{
+      ID: "attachment-0",
+      Filename: "bad.png",
+      MediaType: "image/png",
+    },
+  )
+  failed.failure = "too large"
+  subject.expand_sent_image(
+    [
+      attachments::uploaded(
+        protocol::AttachmentInfo{
+          ID: "attachment-1",
+          Filename: "a.txt",
+          MediaType: "text/plain",
+        },
+      ),
+      failed.@,
+      attachments::uploaded(
+        protocol::AttachmentInfo{
+          ID: "attachment-2",
+          Filename: "b.png",
+          MediaType: "image/png",
+        },
+      ),
+      attachments::uploaded(
+        protocol::AttachmentInfo{
+          ID: "attachment-3",
+          Filename: "c.png",
+          MediaType: "image/png",
+        },
+      ),
+    ],
+  )
+  testing::assert(
+    subject.expanded_image == "attachment-2",
+    "the first sent image: {subject.expanded_image}",
+  )
+}
+
+test fn only_recent_previews_stay_decoded() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.toggle_image("attachment-1")
+  for id in ["attachment-2", "attachment-3", "attachment-4", "attachment-5"] {
+    subject.remember_preview(id)
+    subject.previews.set(id, image_preview::loading())
+  }
+  try testing::assert(subject.preview("attachment-1").is_some(), "the expanded preview is kept")
+  try testing::assert(subject.preview("attachment-2").is_none(), "the oldest other preview is dropped")
+  testing::assert(
+    subject.preview_order.size() == 4,
+    "four previews are kept: {subject.preview_order.size()}",
+  )
+}
+
 test fn disposal_ends_the_attachment_scope() Void!Str {
   let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
@@ -2772,6 +3021,12 @@ test fn a_failed_first_message_is_presented_like_a_failed_prompt() Void!Str {
     },
     prepend_draft: fn(text: Str) {},
     show_latest: fn() {},
+    open_url: fn(target: Str) Void!Error {
+      Result::ok(())
+    },
+    image_matte: fn() ui::Color {
+      ui::rgb(0, 0, 0)
+    },
   }
   let subject = controller(cli::TUIOptions{}, host, 1, "")
   subject.active = true
