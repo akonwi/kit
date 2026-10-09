@@ -119,8 +119,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   - [ ] `read_scratchpad` (new title): Read scratchpad.
   - [ ] `edit_scratchpad`: Update scratchpad · N edits.
   - [ ] `confirm_from_user`, `input_from_user`, `select_from_user`,
-    `guided_questions` (new titles): Ask to confirm, Ask for input, Ask to
-    choose, Ask questions · the request's title. The request itself is in the
+    `guided_questions` (new titles): Confirm, Ask (input and select), and
+    Ask questions · the request's title. The request itself is in the
     interaction dock (TUI-COOPER-007).
   - [ ] `create_session`: Create session · `name · cwd`.
   - [ ] `activate_skill`: Load skill · name.
