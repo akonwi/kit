@@ -178,8 +178,22 @@ Upstream dependencies:
   fallback, or adopt an explicitly reviewed native equivalent.
 - [ ] TUI-IMAGE-001 — Add retained `vaxis/ui` image paint operations upstream
   and use them for native Kitty/Sixel transcript rendering with clipping.
-- [ ] TUI-ATT-003 — Add bounded binary clipboard image ingestion when vaxis
-  exposes a typed clipboard payload contract.
+- [ ] TUI-ATT-003 — Read an image from the system clipboard into a bounded
+  temporary file for attachment. Terminals paste only text and Cooper's
+  clipboard is text-only (OSC 52), so this uses `osascript` on macOS and
+  `wl-paste` or `xclip` on Linux when installed, and reports when no reader
+  or image is available. Shared by TUI-ATT-005 and TUI-ATT-006.
+- [ ] TUI-ATT-004 — When a paste consists only of absolute paths and any of
+  them no longer exists, explain it (for example, "Device Hub-001023.png no
+  longer exists") instead of silently inserting the paths as text. Screenshot
+  tools such as CleanShot put a temporary file on the clipboard and delete it
+  shortly after, so the pasted path is often stale.
+- [ ] TUI-ATT-005 — When a pasted image path no longer exists, attach the
+  image still on the clipboard instead, through TUI-ATT-003.
+- [ ] TUI-ATT-006 — Ctrl+V attaches an image from the clipboard through
+  TUI-ATT-003. Copying image data alone (from a browser, or a screenshot sent
+  to the clipboard) makes the terminal paste nothing, so a key is the only
+  way in; Cmd+V never reaches the app.
 - [ ] TUI-THREAD-001 — Present cached `#thread` suggestions, escaping, bounded
   expansion, and cancellation. Depends on `CORE-THREAD-001`.
 - [ ] TUI-PAGER-001 — Implement pager sectioning, auto-open behavior, notes,
