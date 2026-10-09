@@ -1,3 +1,5 @@
+use ard/unsafe
+
 use go:api/contract as protocol
 use go:kit/ffi/sessionbridge
 use go:strings
@@ -45,6 +47,8 @@ struct Message {
   pending: Bool,
   // Files attached to a user message.
   attachments: [Attachment],
+  // The direct shell run of a bash message.
+  bash: sessionbridge::Bash?,
 }
 
 // A file attached to a user message, shown by name. Images can be previewed.
@@ -124,7 +128,17 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     aborted: false,
     pending: false,
     attachments: [],
+    bash: Maybe::new<sessionbridge::Bash>(),
   }
+}
+
+// A bash message showing run, keyed by its execution.
+fn bash_message(run: sessionbridge::Bash) Message {
+  let shown = mut message(run.ID, "", Role::bash)
+  shown.text = run.Command
+  shown.pending = run.Running()
+  shown.bash = Maybe::new(run)
+  shown.@
 }
 
 // Projects persisted transcript messages into displayable messages, skipping
@@ -188,6 +202,11 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.aborted = source.StopReason == "aborted"
       projected.sequence = source.Sequence
       projected.attachments = attached.@
+      if not unsafe::is_nil(source.Bash) {
+        let run = source.Bash.@
+        projected.text = run.Command
+        projected.bash = Maybe::new(run)
+      }
       result.push(projected.@)
     }
   }

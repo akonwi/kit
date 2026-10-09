@@ -443,9 +443,17 @@ impl Shell {
     if self.workspace == WorkspacePane::agent and not docked {
       children.push(self.pending_row())
     }
-    // The dock's frame separates it from the workspace and footer.
+    // The dock's frame separates it from the workspace and footer. A draft
+    // that runs a shell command tints the composer's divider.
     if not docked {
-      children.push(layout::divider(colors.border))
+      children.push(
+        layout::divider(
+          match self.composer_mode != "" {
+            true => colors.success_text,
+            false => colors.border,
+          },
+        ),
+      )
     }
     // The composer stays mounted behind the dock so its draft survives.
     children.push(
@@ -600,6 +608,14 @@ impl Shell {
           open: fn(id: Str) {
             self.dispatch(fn() {
               self.attached.open_image(id)
+            })
+          },
+        },
+        bash: transcript_pane::Bash{
+          folded: self.attached.folded_bash,
+          toggle: fn(id: Str) {
+            self.dispatch(fn() {
+              self.attached.toggle_bash(id)
             })
           },
         },
@@ -833,10 +849,11 @@ impl cui::Component for Shell {
       commands.push(open_palette)
       bindings.push(keymap::binding(keymap::key("p", ctrl: true), open_palette.with()))
     }
-    // While a request is pending, the dock's Escape cancels it instead.
-    if self.phase == Phase::ready and self.modal_closed() and (not self.attached.feedback_pending()) and self.attached.can_abort() {
+    // While a request is pending, the dock's Escape cancels it instead. A
+    // running shell command is stopped before the turn.
+    if self.phase == Phase::ready and self.modal_closed() and (not self.attached.feedback_pending()) and self.attached.can_interrupt() {
       let abort = keymap::simple_command("run.abort", "Abort run", fn() Bool {
-        self.attached.abort_run()
+        self.attached.interrupt()
       })
       commands.push(abort)
       bindings.push(keymap::binding(keymap::key("escape"), abort.with()))
@@ -952,8 +969,11 @@ impl Shell {
         terminal: self.props.terminal,
         session_name: info.Name,
         cwd: cwd,
-        running: self.attached.busy() or self.attached.feedback_pending(),
-        work_id: self.attached.run_id,
+        running: self.attached.working() or self.attached.feedback_pending(),
+        work_id: match self.attached.run_id != "" {
+          true => self.attached.run_id,
+          false => self.attached.bash_id,
+        },
         feedback: self.attached.feedback_pending(),
         frame_duration: Maybe::new<time::Duration>(),
       },
@@ -1237,7 +1257,7 @@ impl Shell {
     command_palette::view(
       command_palette::Props{
         themes: self.props.themes,
-        busy: self.attached.busy(),
+        busy: self.attached.working(),
         connected: self.attached.connected(),
         prompt_commands: self.attached.prompt_commands,
         plugin_commands: self.attached.plugin_commands,
@@ -1393,7 +1413,7 @@ impl Shell {
       location,
     )
     self.phase = Phase::ready
-    self.attached.start(attached.snapshot.ActiveTurnID)
+    self.attached.start(attached.snapshot.ActiveTurnID, attached.snapshot.ActiveBashExecutionID)
   }
 
   // The root effects an attachment may request. Each callback runs inside the

@@ -596,10 +596,10 @@ private fn one_line(value: Str) Str {
 
 private fn mode(value: Str) Str {
   match strings::HasPrefix(value, "!!") {
-    true => "bash command · result excluded from context",
+    true => "bash · not in context",
     false => {
       match strings::HasPrefix(value, "!") {
-        true => "bash command · result will be added to context",
+        true => "bash · in context",
         false => "",
       }
     },

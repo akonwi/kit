@@ -96,8 +96,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   click recalls a prompt and Escape closes it. Tool-result image previews
   belong to TUI-COOPER-005 and a workspace image pane to TUI-COOPER-008.
   Outstanding:
-  - [ ] Bash mode: `!command` runs directly as a transcript bash entry whose
-    result is added to context; `!!command` excludes the result.
+  - [x] Bash mode: `!command` runs directly as a transcript bash entry whose
+    result is added to context; `!!command` excludes the result. One command
+    runs at a time, alongside a turn; Escape stops it before the turn, a
+    failed start returns it to the composer, and a command running at attach
+    is followed again. Unlike the vaxis client, finished `!` runs are drawn
+    from the session's persisted context, so they keep their place across
+    snapshots and reattaching; `!!` runs are not persisted and leave at the
+    next snapshot.
   - [ ] Bash history: ↑/↓ in bash mode open earlier commands in an inline
     picker.
   - [ ] File mentions: `@` opens an inline file picker that inserts

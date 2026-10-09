@@ -820,3 +820,23 @@ test fn a_disabled_composer_closes_message_history() Void!Str {
   terminal.flush()
   expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", " Ask kit to do something…", ""])
 }
+
+test fn bash_drafts_report_whether_the_result_joins_the_context() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("!ls"))
+  terminal.flush()
+  try testing::assert(value.mode == "bash · in context", "got {value.mode}")
+  terminal.key(key("home"))
+  terminal.key(character("!"))
+  terminal.flush()
+  try testing::assert(value.mode == "bash · not in context", "got {value.mode}")
+  let _ = value.control.clear()
+  terminal.flush()
+  testing::assert(value.mode == "", "an ordinary draft has no mode")
+}
