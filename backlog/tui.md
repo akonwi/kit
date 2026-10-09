@@ -79,6 +79,70 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   "Beginning of conversation" row are intentionally not ported.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, tool-result image previews, and file navigation from tool results.
+  Rows follow the vaxis client (`presentToolCall` in
+  `internal/tui/transcript_model.go`) unless marked new. Every tool call
+  shows as `• <name> <state>` today.
+  Shared:
+  - [ ] Work chip: one row per group of tool calls (`▸ 3 tool calls · 1
+    failed`, or `N steps` without calls), a spinner while running, and a
+    click to expand. A running group of up to five calls opens on its own.
+  - [ ] Activity list: an expanded group shows its tool rows interleaved
+    with the model's thinking and prose.
+  - [ ] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
+    not run), the title in the accent color (danger when failed, muted when
+    aborted), and a summary chip. Below 60 columns the chip takes a second
+    line and paths are cut from the start.
+  - [ ] Row selection: clicking a row highlights it.
+  - [ ] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
+    `command`, `path`, or `agent` argument, else compact arguments, "no
+    arguments", or "arguments truncated".
+  - [ ] Output (new; vaxis has unused output wells and previews): expanding
+    a row shows its result in a bounded, scrollable well that hands
+    scrolling back to the transcript at its edges, with truncated-output
+    and omitted-details notices.
+  Coding tools:
+  - [ ] `bash`: Run command · the command (multi-line commands summarized).
+    Output: the command's output.
+  - [ ] `read`: Read file · `path:start–end`, `· empty`, `· truncated`.
+    Output: the lines read, highlighted, with line numbers.
+  - [ ] `write`: Write N lines · path. Output: the written content,
+    highlighted.
+  - [ ] `edit`: Edit N sections · path. Output: a diff of each edit.
+  - [ ] `read`, `write`, `edit`: clicking the path opens the File pane, at
+    the lines read for `read` (TUI-COOPER-008).
+  - [ ] `ls`: List directory · path.
+  - [ ] `grep`: Search · `pattern in path`.
+  - [ ] `find`: Find files · `pattern in path`.
+  Session tools:
+  - [ ] `change_cwd`: Change directory · path, with the working-directory
+    toast and location refresh.
+  - [ ] `read_scratchpad` (new title): Read scratchpad.
+  - [ ] `edit_scratchpad`: Update scratchpad · N edits.
+  - [ ] `confirm_from_user`, `input_from_user`, `select_from_user`,
+    `guided_questions` (new titles): Ask to confirm, Ask for input, Ask to
+    choose, Ask questions · the request's title. The request itself is in the
+    interaction dock (TUI-COOPER-007).
+  - [ ] `create_session`: Create session · `name · cwd`.
+  - [ ] `activate_skill`: Load skill · name.
+  - [ ] `peer_session`: Discover sessions, Ask session, Inspect peer query,
+    or Wait for peer query by action · the message, request, or session.
+  - [ ] `subagent`: Start, Message, Wait for, Cancel, Dismiss, or Inspect
+    agent by action · the agent name, which opens its conversation tab
+    (TUI-COOPER-009).
+  - [ ] `show_image` (new title): Show image · path or caption, with the
+    image previewed below the group.
+  - [ ] `inspect_image` (new title): Inspect image · path. The image goes to
+    the model only.
+  Subagent tools, shown in subagent conversation tabs (TUI-COOPER-009):
+  - [ ] `subagent_inbox`, `subagent_send`, `subagent_reply`,
+    `subagent_inspect` (new titles): Check inbox, Message sibling, Reply,
+    Inspect request · the agent or receipt.
+  Runtime tools:
+  - [ ] MCP namespaces, one tool per server named after it (new titles): List
+    `<server>` tools, Search `<server>` tools · query, Describe or Call
+    `<server>` · tool, Log out of `<server>`.
+  - [ ] Plugin tools, named `<plugin>__<tool>` (new titles): the humanized
+    tool name · the plugin.
 - [~] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.
   The palette lists built-in, prompt (user, project, and Claude Code
