@@ -20,6 +20,10 @@ in this branch. Items marked **Server-ready** do not require new server function
   client between polling intervals. Requires server shell lifecycle events or an
   execution list/cursor endpoint; the current protocol exposes only the active
   ID and lookup by ID. Depends on `CORE-BASH-001`. See [direct shell notes](../docs/design/macos-client.md#direct-shell-execution).
+- [ ] MAC-CMD-001 — Present prompt command user messages as their invocation,
+  `/<name> <arguments>`, with the expanded text shown on demand; recall the
+  invocation from composer history; and label Claude Code commands in the
+  palette by their `claude_project` source. Depends on `CORE-CMD-001`.
 
 ## Plugin contributions
 

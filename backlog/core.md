@@ -201,8 +201,11 @@ Process ownership and plugin UI routing follow
   navigation without replacing Kit's exact patch data or making an external
   binary a required dependency. See the
   [focused integration note](ataraxy-review-integration.md).
-- [ ] CORE-CMD-001 — Add compact synthetic transcript identity for discovered
-  prompt commands and Claude-compatible command discovery/namespacing.
+- [ ] CORE-CMD-001 — Discover project Claude Code commands from
+  `<cwd>/.claude/commands/` behind the `readClaudeConfigs` setting, and record
+  each prompt command invocation (name, arguments, source, and expansion) in
+  its user message, per
+  [ADR 0042](../docs/adrs/0042-discover-project-claude-code-commands-and-record-prompt-command-invocations.md).
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical
   ownership and generations.
 - [ ] CORE-CONFIG-001 — Support Markdown template overrides with project/global
