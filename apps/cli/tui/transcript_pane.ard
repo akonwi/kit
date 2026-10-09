@@ -2,6 +2,7 @@ use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/image_preview
 use kit/tui/layout
@@ -65,8 +66,8 @@ struct History {
   failure: Str,
 }
 
-// Images attached to user messages. Each is a disclosure row; at most one is
-// expanded to show its preview.
+// Images attached to user messages. Clicking an image's row toggles its
+// preview; at most one is expanded.
 struct Images {
   // The attachment ID of the expanded image, if any.
   expanded: Str,
@@ -533,7 +534,7 @@ private fn user_entry(
       }
       for attachment in message.attachments {
         let expanded = attachment.image and attachment.id != "" and images.expanded == attachment.id
-        body.push(attachment_label(colors, images, attachment, expanded))
+        body.push(attachment_label(colors, images, attachment))
         if expanded {
           let preview = (images.preview)(attachment.id).or(image_preview::loading())
           let open = images.open
@@ -579,43 +580,20 @@ private fn user_entry(
   }
 }
 
-// One attached file in a user message: its kind and name. An image's row is a
-// disclosure that shows or hides its preview.
+// One attached file in a user message. An image's row toggles its preview.
 private fn attachment_label(
   colors: theme::Theme,
   images: Images,
   attachment: transcript::Attachment,
-  expanded: Bool,
 ) cui::View {
   let previewable = attachment.image and attachment.id != ""
-  let marker = match {
-    previewable and expanded => "▾ ",
-    previewable => "▸ ",
-    _ => "  ",
-  }
-  let kind = match attachment.image {
-    true => "image",
-    false => "file",
-  }
   let toggle = images.toggle
   let id = attachment.id
   cui::box(
     [
-      cui::text(
-        marker,
-        text_style: ui::text_style(foreground: colors.muted, background: colors.user_fill),
-        wrap: ui::TextWrap::none,
-        styles: ui::style(flex_shrink: 0.0),
-      ),
-      cui::text(
-        "{kind} ",
-        text_style: ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
-        wrap: ui::TextWrap::none,
-        styles: ui::style(flex_shrink: 0.0),
-      ),
       layout::line(
-        attachment.filename,
-        ui::text_style(foreground: colors.muted, background: colors.user_fill),
+        "{attachments::glyph} {attachment.filename}",
+        ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
       ),
     ],
     styles: ui::style(

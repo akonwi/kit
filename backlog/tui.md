@@ -85,11 +85,11 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   uploads as attachments shown as chips above the composer (removed with `×`
   or Ctrl+C) and named in the user's transcript row; as in the vaxis client,
   a file list that arrives as an ordinary text change, or a path completed
-  across changes, is attached too. Each image in a user message is a `▸`/`▾`
-  disclosure row with a 12-row inline preview (one expanded at a time; a
-  just-sent prompt's first image starts expanded, history starts collapsed);
-  clicking the preview opens a private temporary copy in the default
-  application. Remaining: Ctrl+Shift+W, history recall, bash mode and
+  across changes, is attached too. Attachments in a user message are
+  `📎 name` rows; clicking an image's row toggles a 12-row inline preview
+  (one expanded at a time; a just-sent prompt's first image starts expanded,
+  history starts collapsed), and clicking the preview opens a private
+  temporary copy in the default application. Remaining: Ctrl+Shift+W, history recall, bash mode and
   history, file and session mentions, and annotation chips. Tool-result image
   previews belong to TUI-COOPER-005 and a workspace image pane to
   TUI-COOPER-008.

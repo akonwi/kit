@@ -5,6 +5,7 @@ use cooper
 use cooper/cui
 use cooper/testing as headless
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/image_preview
 use kit/tui/theme
 use kit/tui/transcript
@@ -1294,34 +1295,29 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     [
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
       "   look at these             ┃",
-      "   ▸ image shot.png          ┃",
-      "     file notes.txt          ┃",
+      "   📎 shot.png               ┃",
+      "   📎 notes.txt              ┃",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
       "                             ┃",
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ┃",
-      "     file only.txt           ┃",
+      "   📎 only.txt               ┃",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
       "                             ┃",
     ],
   )
   let colors = theme::context(theme::store(theme::system())).current()
-  let marker = terminal.frame().cell(3, 2).expect("marker").style
-  let kind = terminal.frame().cell(5, 2).expect("kind").style
-  let name = terminal.frame().cell(11, 2).expect("name").style
+  let glyph = terminal.frame().cell(3, 2).expect("glyph")
+  let name = terminal.frame().cell(6, 2).expect("name")
   let same = fn(left: ui::Color?, right: ui::Color) Bool {
     match left {
       color => color.red == right.red and color.green == right.green and color.blue == right.blue,
       _ => false,
     }
   }
-  try testing::assert(same(marker.foreground, colors.muted), "the disclosure marker is muted")
-  try testing::assert(
-    same(kind.foreground, colors.primary_text) and same(kind.background, colors.user_fill),
-    "the kind is accented on the wash",
-  )
+  try testing::assert(glyph.grapheme == attachments::glyph, "each file is marked like its chip")
   testing::assert(
-    same(name.foreground, colors.muted) and same(name.background, colors.user_fill),
-    "the name is muted on the wash",
+    name.grapheme == "s" and same(name.style.foreground, colors.primary_text) and same(name.style.background, colors.user_fill),
+    "the name is primary text on the wash",
   )
 }
 
@@ -1388,7 +1384,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     [
       "",
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄",
-      "   ▾ image shot.png",
+      "   📎 shot.png",
       "   loading preview…",
       "",
       "",
@@ -1401,7 +1397,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
       "",
       "",
       "",
-      "   ▸ image other.png",
+      "   📎 other.png",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀",
       "",
     ],
@@ -1418,7 +1414,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     "a 2:1 image narrowed to the wash keeps its shape, centred in the reserved rows:\n{strings::Join(mut image_rows, "|\n")}",
   )
   try testing::assert(
-    terminal.frame().text().contains("▸ image other.png"),
+    terminal.frame().text().contains("📎 other.png"),
     "loading does not move the next row",
   )
 

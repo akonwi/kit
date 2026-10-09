@@ -245,9 +245,6 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
   )
 }
 
-// Marks a staged file in its chip.
-let attachment_glyph = "📎"
-
 // One staged file as a chip: the glyph and name, a spinner while it uploads,
 // and a × that removes it, like a closable workspace tab. A failed upload is
 // tinted as danger and an image the model cannot receive as a warning.
@@ -268,7 +265,7 @@ private fn attachment_chip(
   let label = mut List::new<cui::View>()
   label.push(
     cui::text(
-      "{attachment_glyph} {item.filename}",
+      "{attachments::glyph} {item.filename}",
       text_style: ui::text_style(foreground: tone),
       wrap: ui::TextWrap::none,
     ),
