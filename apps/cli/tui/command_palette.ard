@@ -102,10 +102,37 @@ private fn sorted_catalog(items: [palette::Item]) [palette::Item] {
   result.@
 }
 
+// Commands that need no server: diagnostics and MCP status read the last
+// snapshot, and login, themes, and quitting are local.
+let local_commands = ["debug", "login", "mcp", "quit", "theme"]
+
 // command_catalog preserves the established command vocabulary while this
 // client reaches feature parity. Commands whose owning surface is not ported
-// yet stay discoverable but cannot be activated.
+// yet stay discoverable but cannot be activated. Once the server can no longer
+// serve the attachment, only local commands remain.
 fn command_catalog(
+  running: Bool,
+  connected: Bool,
+  prompt_commands: [protocol::PromptCommand],
+  plugin_commands: [protocol::PluginCommand],
+) [palette::Item] {
+  match connected {
+    true => available_catalog(running, prompt_commands, plugin_commands),
+    false => {
+      let local = mut List::new<palette::Item>()
+      for item in available_catalog(running, [], []) {
+        for key in local_commands {
+          if item.key == key {
+            local.push(item)
+          }
+        }
+      }
+      local.@
+    },
+  }
+}
+
+private fn available_catalog(
   running: Bool,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
@@ -260,6 +287,9 @@ struct Notice {
 struct Props {
   themes: theme::Context,
   busy: Bool,
+  // Whether the server can still serve the attachment. Without it, only
+  // commands that work locally are offered.
+  connected: Bool,
   prompt_commands: [protocol::PromptCommand],
   plugin_commands: [protocol::PluginCommand],
   dismiss: fn() Bool,
@@ -294,7 +324,9 @@ private fn new(props: mut Props) mut Palette {
     search: cui::input_ref(),
     list: cui::virtual_list_ref(),
     query: "",
-    selection: palette::first_enabled(command_catalog(props.busy, props.prompt_commands, props.plugin_commands)),
+    selection: palette::first_enabled(
+      command_catalog(props.busy, props.connected, props.prompt_commands, props.plugin_commands),
+    ),
     hovered: "",
     hidden_above: false,
     hidden_below: false,
@@ -396,7 +428,12 @@ impl cui::Lifecycle for Palette {
 
 impl Palette {
   private fn mut catalog() [palette::Item] {
-    command_catalog(self.props.busy, self.props.prompt_commands, self.props.plugin_commands)
+    command_catalog(
+      self.props.busy,
+      self.props.connected,
+      self.props.prompt_commands,
+      self.props.plugin_commands,
+    )
   }
 
   private fn mut visible() [palette::Item] {

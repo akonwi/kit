@@ -66,6 +66,7 @@ impl Host {
       command_palette::Props{
         themes: self.props.themes,
         busy: model.busy,
+        connected: true,
         prompt_commands: [
           protocol::PromptCommand{
             Name: "review",
@@ -249,7 +250,7 @@ test fn resolution_validates_builtins_and_preserves_extension_arguments() Void!S
 
 test fn fork_stays_available_during_a_turn_and_carries_a_first_message() Void!Str {
   mut fork = Maybe::new<palette::Item>()
-  for candidate in command_palette::command_catalog(true, [], []) {
+  for candidate in command_palette::command_catalog(true, true, [], []) {
     if candidate.key == "fork" {
       fork = Maybe::new(candidate)
     }
@@ -406,4 +407,27 @@ test fn gapped_command_words_rank_the_command_and_keep_arguments() Void!Str {
     action.kind == command_palette::ActionKind::rename and action.argument == "Release notes",
     "the best fuzzy command activates with its literal argument",
   )
+}
+
+test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
+  let catalog = command_palette::command_catalog(
+    false,
+    false,
+    [
+      protocol::PromptCommand{
+        Name: "review",
+        Description: "Review changes",
+        Source: "project",
+      },
+    ],
+    [],
+  )
+  mut keys = ""
+  for item in catalog {
+    keys = match keys == "" {
+      true => item.key,
+      false => "{keys} {item.key}",
+    }
+  }
+  testing::assert(keys == "debug login mcp quit theme", keys)
 }

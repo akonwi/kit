@@ -93,8 +93,36 @@ test fn header_without_a_session_shows_the_product_name() Void!Str {
 
 test fn footer_shows_the_composer_mode_and_location() Void!Str {
   expect_rows(
-    render(40, 1, chrome::footer(theme::context(theme::store(theme::system())), "bash", "~/kit")),
+    render(
+      40,
+      1,
+      chrome::footer(theme::context(theme::store(theme::system())), "", "bash", "~/kit"),
+    ),
     [" bash                             ~/kit"],
+  )
+}
+
+test fn a_connection_problem_replaces_the_composer_mode() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let footer = chrome::footer(themes, "Restart Kit to reconnect", "bash", "~/kit")
+  try expect_rows(
+    render(80, 1, footer),
+    [" Restart Kit to reconnect                                                 ~/kit"],
+  )
+  let terminal = headless::new(80, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, footer)
+  defer renderer.destroy()
+  terminal.flush()
+  let color = terminal.frame().cell(
+    1,
+    0,
+  ).expect("footer status").style.foreground.expect("status color")
+  let warning = themes.current().warning_text
+  testing::assert(
+    color.red == warning.red and color.green == warning.green and color.blue == warning.blue,
+    "the connection problem uses the warning color",
   )
 }
 

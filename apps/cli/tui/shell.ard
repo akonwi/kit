@@ -304,7 +304,13 @@ impl Shell {
   }
 
   fn footer() cui::View {
-    chrome::footer(self.props.themes, self.composer_mode, self.attached.location)
+    let connection = match self.attached.connected() {
+      // The footer's left third must fit this; the persistent toast explains
+      // what changed.
+      true => "",
+      false => "Restart Kit to reconnect",
+    }
+    chrome::footer(self.props.themes, connection, self.composer_mode, self.attached.location)
   }
 }
 
@@ -1105,6 +1111,7 @@ impl Shell {
       command_palette::Props{
         themes: self.props.themes,
         busy: self.attached.busy(),
+        connected: self.attached.connected(),
         prompt_commands: self.attached.prompt_commands,
         plugin_commands: self.attached.plugin_commands,
         dismiss: fn() Bool {
