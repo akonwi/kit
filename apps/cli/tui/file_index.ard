@@ -1,0 +1,202 @@
+use ard/testing
+
+use go:api/contract as protocol
+
+// The attached session's indexed project paths, shared by the composer's file
+// mentions. As in the vaxis client, one index serves a session and working
+// directory: it loads when first needed, again after five minutes, and from
+// a forced server refresh when the working directory changes. Only the
+// latest request's result is kept.
+
+// How long loaded paths stay fresh, in milliseconds.
+let refresh_after = Int64::from(300000)
+
+// Index is what file pickers show.
+struct Index {
+  // Project-relative paths; directories end in "/".
+  paths: [Str],
+  loading: Bool,
+  // Why the latest load failed, if it did.
+  failure: Str,
+  // Whether the server listed only its first entries.
+  truncated: Bool,
+  // Changes whenever paths change.
+  generation: Int,
+}
+
+// Load is a request to make: its number, and whether the server must index
+// the directory again.
+struct Load {
+  request: Int,
+  force: Bool,
+}
+
+struct Source {
+  index: Index,
+  session_id: Str,
+  cwd: Str,
+  // When paths last loaded, in Unix milliseconds; zero before then.
+  loaded_at: Int64,
+  // The request whose result is accepted.
+  request: Int,
+}
+
+fn source() Source {
+  Source{
+    index: Index{
+      paths: [],
+      loading: false,
+      failure: "",
+      truncated: false,
+      generation: 0,
+    },
+    session_id: "",
+    cwd: "",
+    loaded_at: Int64::from(0),
+    request: 0,
+  }
+}
+
+// The status a picker shows below listed paths: a failed refresh, or that the
+// list is incomplete.
+fn status(index: Index) Str {
+  match {
+    index.failure != "" => "Refresh failed: {index.failure}",
+    index.truncated => "Showing first 4,000 indexed paths",
+    _ => "",
+  }
+}
+
+impl Source {
+  // Starts loading unless the index for this session and directory is
+  // loading or fresh. Another session starts over; another directory keeps
+  // its paths until the forced refresh replaces them.
+  fn mut begin(session_id: Str, cwd: Str, now: Int64) Load? {
+    if session_id == "" or cwd == "" {
+      Maybe::new<Load>()
+    } else {
+      let moved = self.session_id == session_id and self.cwd != "" and self.cwd != cwd
+      if self.session_id != session_id {
+        let empty = source()
+        self.index = empty.index
+        self.cwd = ""
+        self.loaded_at = empty.loaded_at
+      }
+      let stale = self.loaded_at == Int64::from(0) or now - self.loaded_at >= refresh_after
+      match moved or (not self.index.loading) and stale {
+        false => Maybe::new<Load>(),
+        true => {
+          self.session_id = session_id
+          self.cwd = cwd
+          self.request = self.request + 1
+          self.index.loading = true
+          self.index.failure = ""
+          Maybe::new(Load{request: self.request, force: moved})
+        },
+      }
+    }
+  }
+
+  // Applies a load's result unless a later request replaced it.
+  fn mut finish(request: Int, result: protocol::SessionFileIndex!Str, now: Int64) {
+    if request == self.request {
+      self.index.loading = false
+      match result {
+        ok(listed) => {
+          match listed.SessionID == self.session_id and listed.CWD == self.cwd {
+            false => { self.index.failure = "File index identity changed" },
+            true => {
+              let paths = mut List::new<Str>()
+              for entry in listed.Entries {
+                paths.push(entry.Path)
+              }
+              self.index.paths = paths.@
+              self.index.truncated = listed.Truncated
+              self.index.failure = ""
+              self.index.generation = self.index.generation + 1
+              self.loaded_at = now
+            },
+          }
+        },
+        err(failure) => { self.index.failure = failure },
+      }
+    }
+  }
+}
+
+private fn listing(session_id: Str, cwd: Str, paths: [Str]) protocol::SessionFileIndex!Str {
+  let entries = mut List::new<protocol::FileIndexEntry>()
+  for path in paths {
+    entries.push(protocol::FileIndexEntry{Path: path})
+  }
+  Result::ok(
+    protocol::SessionFileIndex{
+      SessionID: session_id,
+      CWD: cwd,
+      Entries: entries.@,
+    },
+  )
+}
+
+private fn started(load: Load?) Int {
+  match load {
+    started => started.request,
+    _ => 0,
+  }
+}
+
+test fn the_index_loads_once_and_again_when_stale() Void!Str {
+  let files = mut source()
+  let first = started(files.begin("session-1", "/repo", Int64::from(1000)))
+  try testing::assert(first == 1 and files.index.loading, "the first use loads")
+  try testing::assert(
+    started(files.begin("session-1", "/repo", Int64::from(1001))) == 0,
+    "a second use shares the load",
+  )
+  files.finish(first, listing("session-1", "/repo", ["go.mod", "src/"]), Int64::from(2000))
+  try testing::assert(
+    files.index.paths.size() == 2 and files.index.generation == 1 and (not files.index.loading),
+    "the listing is kept",
+  )
+  try testing::assert(
+    started(files.begin("session-1", "/repo", Int64::from(2000 + 299999))) == 0,
+    "fresh paths are reused",
+  )
+  let stale = files.begin("session-1", "/repo", Int64::from(2000 + 300000))
+  testing::assert(started(stale) == 2 and not stale.expect("load").force, "stale paths reload")
+}
+
+test fn a_new_directory_forces_a_refresh_and_keeps_paths_meanwhile() Void!Str {
+  let files = mut source()
+  let first = started(files.begin("session-1", "/repo", Int64::from(0)))
+  files.finish(first, listing("session-1", "/repo", ["go.mod"]), Int64::from(1))
+  let moved = files.begin("session-1", "/repo/sub", Int64::from(2))
+  try testing::assert(moved.expect("load").force, "the server indexes the new directory")
+  try testing::assert(files.index.paths.size() == 1, "earlier paths show until it loads")
+  // The earlier directory's result arrives late and is ignored.
+  files.finish(first, listing("session-1", "/repo", ["stale"]), Int64::from(3))
+  try testing::assert(files.index.loading, "a superseded result is ignored")
+  files.finish(started(moved), listing("session-1", "/repo", ["x"]), Int64::from(4))
+  testing::assert(
+    files.index.failure == "File index identity changed" and files.index.paths.at(0).or("") == "go.mod",
+    "a listing for another directory is rejected",
+  )
+}
+
+test fn a_failed_load_is_reported_and_keeps_earlier_paths() Void!Str {
+  let files = mut source()
+  let first = started(files.begin("session-1", "/repo", Int64::from(0)))
+  files.finish(first, listing("session-1", "/repo", ["go.mod"]), Int64::from(1))
+  let again = started(files.begin("session-1", "/repo", Int64::from(400000)))
+  files.finish(again, Result::err("connection refused"), Int64::from(400001))
+  try testing::assert(
+    status(files.index) == "Refresh failed: connection refused" and files.index.paths.size() == 1,
+    status(files.index),
+  )
+  files.index.failure = ""
+  files.index.truncated = true
+  testing::assert(
+    status(files.index) == "Showing first 4,000 indexed paths",
+    "a partial list says so",
+  )
+}

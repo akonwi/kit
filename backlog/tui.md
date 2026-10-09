@@ -118,8 +118,16 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     commands shown, then the session's ten newest replace them; moving up
     past the oldest reads older pages of 100, up to five, before wrapping.
     Leaving bash mode closes it.
-  - [ ] File mentions: `@` opens an inline file picker that inserts
-    `@path`.
+  - [x] File mentions: a typed `@` at the start of the draft or after
+    whitespace opens the session's indexed paths in an inline picker resting
+    above the `@`, ranked by the query typed after it with the best match
+    selected; long paths keep their file name. Enter or a click replaces the
+    mention with `@path ` and places the caret after it; Escape, whitespace,
+    a paste, or an edit elsewhere closes it. The index loads when first
+    needed, again after five minutes, and from a forced refresh when the
+    working directory changes; the picker shows loading, a load failure, a
+    failed refresh, and a partial index. Requires Cooper's
+    `TextArea.cell()`.
   - [ ] Session mentions: `#` opens an inline session picker that inserts
     `#[session:<id>]`.
   - [ ] Annotation chips: pending annotations show above the composer and

@@ -51,6 +51,66 @@ fn filter(catalog: [Item], query: Str) [Item] {
   }
 }
 
+// rank returns the items matching query, best first with ties in catalog
+// order, scored as the palette scores labels. A blank query matches every
+// item in catalog order.
+fn rank(catalog: [Item], query: Str) [Item] {
+  let needle = strings::ToLower(strings::TrimSpace(query))
+  match needle == "" {
+    true => catalog,
+    false => {
+      let ranked = mut List::new<Ranked>()
+      for item, position in catalog {
+        let score = palette::string_score(strings::ToLower(item.label), needle)
+        if score > 0 {
+          ranked.push(
+            Ranked{
+              item: item,
+              score: score,
+              position: position,
+            },
+          )
+        }
+      }
+      ranked.sort(fn(left: Ranked, right: Ranked) Bool {
+        match left.score == right.score {
+          true => left.position < right.position,
+          false => left.score > right.score,
+        }
+      })
+      let result = mut List::new<Item>()
+      for entry in ranked {
+        result.push(entry.item)
+      }
+      result.@
+    },
+  }
+}
+
+private struct Ranked {
+  item: Item,
+  score: Int,
+  position: Int,
+}
+
+// keep_end fits label in width cells by dropping its start behind "…", so a
+// long path keeps its file name. Each character takes one cell.
+fn keep_end(label: Str, width: Int) Str {
+  let characters = strings::Split(label, "")
+  match characters.size() <= width or width < 1 {
+    true => label,
+    false => {
+      let kept = mut List::new<Str>()
+      for character, index in characters {
+        if index > characters.size() - width {
+          kept.push(character)
+        }
+      }
+      "…{strings::Join(kept, "")}"
+    },
+  }
+}
+
 // The key of the last item, or empty without items.
 fn last_key(items: [Item]) Str {
   match items.at(items.size() - 1) {
@@ -165,14 +225,23 @@ private fn clamp(value: Int, low: Int, high: Int) Int {
   }
 }
 
-// The rows an inline picker occupies, frame included.
-fn height(items: [Item]) Int {
+// The rows an inline picker occupies, frame and any status included.
+fn height(items: [Item], status: Str) Int {
   let rows = match {
     items.size() == 0 => 1,
     items.size() > max_rows => max_rows,
     _ => items.size(),
   }
-  rows + 2
+  match status == "" {
+    true => rows + 2,
+    false => rows + 4,
+  }
+}
+
+// How a message reads: muted, or as a failure.
+enum Tone {
+  muted,
+  danger,
 }
 
 // Anchor places a picker by its bottom-left corner, in cells from the
@@ -208,8 +277,15 @@ struct Props {
   // The rows matching the query, in display order.
   items: [Item],
   selection: Str,
-  // The row shown when no item matches, such as "No results".
+  // The row shown when no item matches, such as "No results", and its tone.
   empty: Str,
+  empty_tone: Tone,
+  // A message below the rows, behind a divider, such as a failed refresh.
+  status: Str,
+  status_tone: Tone,
+  // Whether long labels drop their start instead of their end, as paths do.
+  // It applies to anchored pickers, whose width is known.
+  keep_end: Bool,
   // A click activates the clicked row.
   activate: fn(Str),
   // Where the picker rests, when not on its parent's top edge.
@@ -269,7 +345,9 @@ impl cui::Component for Picker {
         cui::text(
           " {self.props.empty}",
           styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
-          text_style: ui::text_style(foreground: colors.muted),
+          text_style: ui::text_style(foreground: tone(colors, self.props.empty_tone)),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
         ),
       )
     } else {
@@ -284,6 +362,18 @@ impl cui::Component for Picker {
       if shown.below {
         rows.push(self.overflow_row("below", 1))
       }
+    }
+    if self.props.status != "" {
+      rows.push(cui::divider(styles: ui::style(flex_shrink: 0.0, border_color: colors.border)))
+      rows.push(
+        cui::text(
+          " {self.props.status}",
+          styles: ui::style(height: ui::cells(1), flex_shrink: 0.0),
+          text_style: ui::text_style(foreground: tone(colors, self.props.status_tone)),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        ),
+      )
     }
     cui::box(
       rows.@,
@@ -316,7 +406,7 @@ impl cui::Component for Picker {
             _ => max_width,
           },
         ),
-        height: ui::cells(height(items)),
+        height: ui::cells(height(items, self.props.status)),
         flex_direction: ui::FlexDirection::column,
         background: colors.background,
         foreground: colors.foreground,
@@ -355,7 +445,16 @@ impl Picker {
           text_style: ui::text_style(foreground: colors.primary),
         ),
         cui::text(
-          item.label,
+          match self.props.anchor {
+            // The frame, the selection gutter, and the right padding.
+            anchor => {
+              match self.props.keep_end {
+                true => keep_end(item.label, anchor.width - 4),
+                false => item.label,
+              }
+            },
+            _ => item.label,
+          },
           styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
           wrap: ui::TextWrap::none,
           overflow: ui::TextOverflow::ellipsis,
@@ -531,5 +630,34 @@ test fn an_anchored_picker_rests_above_the_caret_and_stays_within_its_parent() V
   testing::assert(
     narrow.left == 0 and narrow.width == 40,
     "left {narrow.left} width {narrow.width}",
+  )
+}
+
+private fn tone(colors: theme::Theme, value: Tone) ui::Color {
+  match value {
+    Tone::muted => colors.muted,
+    Tone::danger => colors.danger_text,
+  }
+}
+
+test fn ranking_puts_the_best_match_first() Void!Str {
+  let catalog = items(["docs/tui.md", "internal/tui/app.go", "tui.go"])
+  try testing::assert(
+    keys(rank(catalog, " ")) == "docs/tui.md internal/tui/app.go tui.go",
+    "blank keeps all",
+  )
+  // An exact match outranks a scattered one, and a path without the
+  // characters is left out.
+  testing::assert(
+    keys(rank(catalog, "TUI.go")) == "tui.go internal/tui/app.go",
+    keys(rank(catalog, "TUI.go")),
+  )
+}
+
+test fn keeping_the_end_drops_the_start_of_a_long_label() Void!Str {
+  try testing::assert(keep_end("src/main.go", 11) == "src/main.go", "a label that fits is kept")
+  testing::assert(
+    keep_end("internal/tui/app.go", 10) == "…ui/app.go",
+    keep_end("internal/tui/app.go", 10),
   )
 }
