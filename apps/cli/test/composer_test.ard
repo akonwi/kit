@@ -5,8 +5,11 @@ use cooper/cui
 use cooper/event
 use cooper/testing as headless
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/composer
 use kit/tui/theme
+use go:os
+use go:path/filepath
 
 struct Model {
   enabled: Bool,
@@ -18,7 +21,10 @@ struct Model {
   palette_opens: Int,
   follow_ups: Int,
   restores: Int,
-  sends: Int,
+  submissions: Int,
+  // Whether pasted paths are accepted, and those accepted.
+  accept_attachments: Bool,
+  attached: [Str],
   context: cui::Context?,
   control: mut composer::Ref,
   other_input: mut cui::InputRef,
@@ -57,17 +63,23 @@ impl cui::Component for Host {
             focus_eligible: model.focus_eligible,
             control: model.control,
             submit: fn(text: Str) Bool {
+              model.submissions =+ 1
               if model.accept_submission {
                 model.submitted = text
               }
               model.accept_submission
             },
             follow_ups: model.follow_ups,
+            attach: fn(paths: [Str]) Bool {
+              if model.accept_attachments {
+                for path in paths {
+                  model.attached.push(path)
+                }
+              }
+              model.accept_attachments
+            },
             restore_follow_ups: fn() {
               model.restores =+ 1
-            },
-            send_follow_ups: fn() {
-              model.sends =+ 1
             },
             open_palette: fn() {
               model.palette_opens =+ 1
@@ -107,7 +119,9 @@ fn model() mut Model {
     palette_opens: 0,
     follow_ups: 0,
     restores: 0,
-    sends: 0,
+    submissions: 0,
+    accept_attachments: true,
+    attached: [],
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),
     other_input: cui::input_ref(),
@@ -250,7 +264,7 @@ test fn clear_and_restore_mutate_the_draft_through_the_composer_owner() Void!Str
   terminal.flush()
   terminal.key(key("return"))
   terminal.flush()
-  testing::assert(value.submitted == "restored", "session reset clears the child-owned draft")
+  testing::assert(value.submitted == "", "session reset clears the child-owned draft")
 }
 
 test fn rejected_submission_keeps_the_draft_until_shell_can_accept_it() Void!Str {
@@ -408,10 +422,11 @@ test fn up_restores_queued_follow_ups_only_while_any_are_queued() Void!Str {
   testing::assert(value.restores == 1, "Up restores the queue, even with a draft")
 }
 
-test fn enter_on_an_empty_draft_sends_queued_follow_ups() Void!Str {
+test fn enter_offers_a_blank_draft_as_empty() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
   let value = model()
+  value.submitted = "unchanged"
   let renderer = mount(terminal, value)
   defer renderer.destroy()
   terminal.flush()
@@ -420,13 +435,48 @@ test fn enter_on_an_empty_draft_sends_queued_follow_ups() Void!Str {
   terminal.flush()
   terminal.key(key("return"))
   terminal.flush()
-  try testing::assert(value.sends == 1 and value.submitted == "", "a blank draft sends the queue")
+  testing::assert(
+    value.submissions == 1 and value.submitted == "",
+    "the shell decides what an empty draft sends",
+  )
+}
 
-  terminal.key(character("hi"))
+test fn a_pasted_file_list_is_attached_instead_of_typed() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("see "))
+  terminal.flush()
+  terminal.paste(event::paste("{notes}\n"))
   terminal.flush()
   terminal.key(key("return"))
   terminal.flush()
-  testing::assert(value.sends == 1 and value.submitted == "hi", "a draft is submitted")
+  try testing::assert(
+    value.attached.size() == 1 and value.attached.at(0).or("") == notes,
+    "the file is attached",
+  )
+  try testing::assert(value.submitted == "see", "the path stays out of the draft: {value.submitted}")
+
+  terminal.paste(event::paste("look at {notes}"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.attached.size() == 1, "prose is not attached")
+  try testing::assert(value.submitted == "look at {notes}", "prose is typed: {value.submitted}")
+
+  value.accept_attachments = false
+  terminal.paste(event::paste(notes))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == notes, "a refused attachment stays text: {value.submitted}")
 }
 
 test fn restored_text_goes_before_the_draft_with_the_cursor_at_the_end() Void!Str {

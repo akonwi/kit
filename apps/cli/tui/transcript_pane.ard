@@ -439,7 +439,7 @@ private fn renders(message: transcript::Message) Bool {
   match message.role {
     // Buffer streamed prose in the model, but reveal it only after the
     // assistant message settles so incomplete Markdown never reaches layout.
-    transcript::Role::user => message.text != "",
+    transcript::Role::user => message.text != "" or message.attachments.size() > 0,
     transcript::Role::assistant => message.text != "" and not message.pending,
     transcript::Role::tool => true,
     transcript::Role::bash => true,
@@ -490,9 +490,23 @@ private fn entry_view(themes: theme::Context, key: Str, message: transcript::Mes
 // A user turn: a tinted wash with half-block edges and two-cell padding.
 private fn user_entry(themes: theme::Context, key: Str, message: transcript::Message) cui::View? {
   let colors = themes.current()
-  match message.text == "" {
+  match message.text == "" and message.attachments.size() == 0 {
     true => Maybe::new<cui::View>(),
     false => {
+      let body = mut List::new<cui::View>()
+      if message.text != "" {
+        body.push(
+          markdown::view(
+            themes,
+            key,
+            message.text,
+            base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
+          ),
+        )
+      }
+      for attachment in message.attachments {
+        body.push(attachment_label(colors, attachment))
+      }
       let edge = fn(glyph: Str) cui::View {
         cui::text(
           strings::Repeat(glyph, 1024),
@@ -506,15 +520,9 @@ private fn user_entry(themes: theme::Context, key: Str, message: transcript::Mes
           [
             edge("▄"),
             cui::box(
-              [
-                markdown::view(
-                  themes,
-                  key,
-                  message.text,
-                  base: ui::text_style(foreground: colors.foreground, background: colors.user_fill),
-                ),
-              ],
+              body.@,
               styles: ui::style(
+                flex_direction: ui::FlexDirection::column,
                 background: colors.user_fill,
                 padding: ui::Edges{
                   top: ui::cells(0),
@@ -531,6 +539,33 @@ private fn user_entry(themes: theme::Context, key: Str, message: transcript::Mes
       )
     },
   }
+}
+
+// One attached file in a user message: its kind and name.
+private fn attachment_label(colors: theme::Theme, attachment: transcript::Attachment) cui::View {
+  let kind = match attachment.image {
+    true => "image",
+    false => "file",
+  }
+  cui::box(
+    [
+      cui::text(
+        "{kind} ",
+        text_style: ui::text_style(foreground: colors.primary_text, background: colors.user_fill),
+        wrap: ui::TextWrap::none,
+        styles: ui::style(flex_shrink: 0.0),
+      ),
+      layout::line(
+        attachment.filename,
+        ui::text_style(foreground: colors.muted, background: colors.user_fill),
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
+    ),
+  )
 }
 
 private fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {

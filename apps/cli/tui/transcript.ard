@@ -43,6 +43,14 @@ struct Message {
   is_error: Bool,
   aborted: Bool,
   pending: Bool,
+  // Files attached to a user message.
+  attachments: [Attachment],
+}
+
+// A file attached to a user message, shown by name.
+struct Attachment {
+  image: Bool,
+  filename: Str,
 }
 
 // The session event kinds this model distinguishes.
@@ -114,6 +122,7 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     is_error: false,
     aborted: false,
     pending: false,
+    attachments: [],
   }
 }
 
@@ -125,11 +134,16 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     let text_parts = mut List::new<Str>()
     let thinking_parts = mut List::new<Str>()
     let calls = mut List::new<ToolCall>()
+    let attached = mut List::new<Attachment>()
+    let user = source.Role == "user"
     for block in source.Content {
       match {
         block.Kind == "text" => text_parts.push(block.Text),
         block.Kind == "thinking" => thinking_parts.push(block.Text),
         block.Kind == "toolCall" => calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName}),
+        user and block.AttachmentID != "" and (block.Kind == "image" or block.Kind == "file") => {
+          attached.push(Attachment{image: block.Kind == "image", filename: block.Filename})
+        },
         block.Kind == "image" => {
           if block.AttachmentID == "" {
             text_parts.push("[image]")
@@ -144,7 +158,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
     if text == "" and source.ErrorMessage != "" {
       text = source.ErrorMessage
     }
-    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0
+    let empty = strings::TrimSpace(text) == "" and strings::TrimSpace(thinking) == "" and source.ToolName == "" and calls.size() == 0 and source.Content.size() == 0 and attached.size() == 0
     if not empty {
       let kind = role(source.Role)
       let projected = mut message(source.ID, source.TurnID, kind)
@@ -166,6 +180,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.is_error = source.IsError
       projected.aborted = source.StopReason == "aborted"
       projected.sequence = source.Sequence
+      projected.attachments = attached.@
       result.push(projected.@)
     }
   }
@@ -334,7 +349,8 @@ impl Live {
   // while its stream was lost. Planned tools never ran; running tools are
   // shown as done because their outcome is unknown.
   fn mut settle() {
-    for index in 0..self.messages.size() {
+    mut index = 0
+    while index < self.messages.size() {
       self.edit(index, fn(current: mut Message) {
         current.pending = false
         current.tool_state = match current.tool_state {
@@ -343,6 +359,7 @@ impl Live {
           _ => current.tool_state,
         }
       })
+      index =+ 1
     }
     self.thinking = ""
     self.activity = ""
@@ -376,11 +393,12 @@ impl Live {
   }
 
   // Shows a submitted prompt before the server accepts it.
-  fn mut submit(text: Str) {
+  fn mut submit(text: Str, attachments: [Attachment]) {
     self.reset()
     self.activity = "Working…"
     let user = mut message("", "", Role::user)
     user.text = text
+    user.attachments = attachments
     self.messages.push(user.@)
     self.has_user = true
   }

@@ -1,7 +1,9 @@
 use go:api/contract as protocol
 use cooper/cui
+use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/format
 use kit/tui/layout
@@ -172,16 +174,22 @@ fn footer(themes: theme::Context, connection: Str, status: Str, mode: Str, locat
   )
 }
 
-// Pending projects the attachment's status line and queued follow-ups.
-// A notice takes precedence over activity.
+// Pending projects the attachment's status line, queued follow-ups, and the
+// files staged for the next prompt. A notice takes precedence over activity.
 struct Pending {
   notice: Str,
   activity: Str,
   follow_ups: protocol::FollowUpQueue,
+  attachments: [attachments::Staged],
+  // The session's model name when it cannot receive images.
+  rejecting_model: Str,
+  // Removes the staged file at an index.
+  remove_attachment: fn(Int),
 }
 
 // pending_row shows the status line followed by up to three follow-up
-// previews; when more are queued, two previews and a remainder line.
+// previews (when more are queued, two previews and a remainder line), then
+// one row per staged file.
 fn pending_row(themes: theme::Context, spec: Pending) cui::View {
   let colors = themes.current()
   let content = match spec.notice != "" {
@@ -216,12 +224,68 @@ fn pending_row(themes: theme::Context, spec: Pending) cui::View {
       ),
     )
   }
+  for item, index in spec.attachments {
+    rows.push(attachment_row(colors, item, index, spec.rejecting_model, spec.remove_attachment))
+  }
   cui::box(
     rows.@,
     styles: ui::style(
       flex_shrink: 0.0,
       flex_direction: ui::FlexDirection::column,
       padding: layout::inset(),
+    ),
+  )
+}
+
+// One staged file: its name and upload state, and a × that removes it.
+private fn attachment_row(
+  colors: theme::Theme,
+  item: attachments::Staged,
+  index: Int,
+  rejecting_model: Str,
+  remove: fn(Int),
+) cui::View {
+  let state = match {
+    item.failure != "" => "upload failed",
+    rejecting_model != "" and item.is_image() => "not supported by {rejecting_model}",
+    item.uploading => "uploading…",
+    _ => "",
+  }
+  let tone = match {
+    item.failure != "" => colors.danger_text,
+    rejecting_model != "" and item.is_image() => colors.warning_text,
+    _ => colors.muted,
+  }
+  cui::box(
+    [
+      cui::text(
+        "attachment ",
+        text_style: ui::text_style(foreground: colors.primary_text),
+        wrap: ui::TextWrap::none,
+        styles: ui::style(flex_shrink: 0.0),
+      ),
+      cui::box(
+        [layout::line(strings::TrimSpace("{item.filename} {state}"), ui::text_style(foreground: tone))],
+        styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+      ),
+      cui::box(
+        [
+          cui::text("  ×", text_style: ui::text_style(foreground: colors.muted), wrap: ui::TextWrap::none),
+        ],
+        key: "remove-attachment-{index}",
+        styles: ui::style(flex_shrink: 0.0),
+        on_mouse: fn(received: mut event::MouseEvent, ctx: cui::Context) {
+          if received.event_type == event::MouseEventType::up and received.button == event::MouseButton::left {
+            remove(index)
+            received.prevent_default()
+          }
+        },
+      ),
+    ],
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_shrink: 0.0,
+      flex_direction: ui::FlexDirection::row,
     ),
   )
 }
