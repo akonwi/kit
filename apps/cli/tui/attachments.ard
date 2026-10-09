@@ -176,6 +176,72 @@ fn pasted_paths(text: Str) [Str]? {
   }
 }
 
+// Files named by a change to the composer, and the composer text without
+// them.
+struct Inserted {
+  paths: [Str],
+  remainder: Str,
+}
+
+// The files a composer change names when a paste arrives as an ordinary text
+// change instead of a paste event, as some terminals deliver it: either the
+// inserted text alone, or, when a terminal splits one paste or drop into
+// several changes, the whole composer.
+fn changed_paths(previous: Str, next: Str) Inserted? {
+  match inserted_paths(previous, next) {
+    found => Maybe::new(found),
+    _ => inserted_paths("", next),
+  }
+}
+
+// The files a pure insertion names, and the text around it.
+private fn inserted_paths(previous: Str, next: Str) Inserted? {
+  let before = strings::Split(previous, "")
+  let after = strings::Split(next, "")
+  mut start = 0
+  mut matching = true
+  while matching and start < before.size() and start < after.size() {
+    matching = before.at(start).or("") == after.at(start).or("")
+    if matching {
+      start =+ 1
+    }
+  }
+  mut before_end = before.size()
+  mut after_end = after.size()
+  matching = true
+  while matching and before_end > start and after_end > start {
+    matching = before.at(before_end - 1).or("") == after.at(after_end - 1).or("")
+    if matching {
+      before_end = before_end - 1
+      after_end = after_end - 1
+    }
+  }
+  match before_end == start and after_end > start {
+    false => Maybe::new<Inserted>(),
+    true => {
+      match pasted_paths(span(after, start, after_end)) {
+        paths => {
+          Maybe::new(
+            Inserted{paths: paths, remainder: span(after, 0, start) + span(after, after_end, after.size())},
+          )
+        },
+        _ => Maybe::new<Inserted>(),
+      }
+    },
+  }
+}
+
+// The characters from start up to end, joined.
+private fn span(characters: [Str], start: Int, end: Int) Str {
+  mut joined = ""
+  mut index = start
+  while index < end {
+    joined = joined + characters.at(index).or("")
+    index =+ 1
+  }
+  joined
+}
+
 // The files one line names: a single path that may contain unescaped spaces,
 // or a shell-style list of quoted and backslash-escaped paths, which is how
 // terminals report dropped files whose names contain spaces.
@@ -450,4 +516,48 @@ test fn models_without_listed_inputs_accept_images() Void!Str {
     "an image model",
   )
   testing::assert(not accepts_images([protocol::ModelInputText]), "a text-only model")
+}
+
+test fn an_inserted_file_list_is_found_in_a_text_change() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let image = filepath::Join(directory, "image.png")
+  let previous = "before after"
+  match changed_paths(previous, "before {notes}\nfile://{image}after") {
+    found => {
+      try testing::assert(
+        joined(Maybe::new(found.paths)) == "{notes}|{image}",
+        joined(Maybe::new(found.paths)),
+      )
+      try testing::assert(found.remainder == previous, "the paths leave the text: {found.remainder}")
+    },
+    _ => try testing::assert(false, "the inserted paths are found"),
+  }
+  try testing::assert(changed_paths(previous, "before after!").is_none(), "typed text")
+  testing::assert(changed_paths("{notes} x", "{notes}x").is_none(), "a deletion")
+}
+
+test fn a_paste_split_across_changes_is_found_in_the_whole_composer() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  let path = filepath::Join(directory, "notes.txt")
+  let characters = strings::Split(path, "")
+  mut previous = ""
+  mut index = 1
+  while index < characters.size() {
+    let next = span(characters, 0, index)
+    try testing::assert(changed_paths(previous, next).is_none(), "a partial path: {next}")
+    previous = next
+    index =+ 1
+  }
+  match changed_paths(previous, path) {
+    found => {
+      testing::assert(
+        joined(Maybe::new(found.paths)) == path and found.remainder == "",
+        "the completed path: {found.remainder}",
+      )
+    },
+    _ => testing::assert(false, "the completed path is found"),
+  }
 }

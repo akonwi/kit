@@ -232,6 +232,21 @@ impl Composer {
     }
   }
 
+  // Some terminals deliver a paste as an ordinary text change, so a change
+  // that names files is offered as attachments too; accepted paths leave the
+  // draft.
+  private fn mut input(value: Str) {
+    match attachments::changed_paths(self.draft, value) {
+      found => {
+        match (self.props.attach)(found.paths) {
+          true => self.change(found.remainder),
+          false => self.change(value),
+        }
+      },
+      _ => self.change(value),
+    }
+  }
+
   private fn mut change(value: Str) {
     self.draft = value
     let next = mode(value)
@@ -346,7 +361,7 @@ impl cui::Component for Composer {
       },
       ref: self.editor,
       on_input: fn(value: Str, context: cui::Context) {
-        self.change(value)
+        self.input(value)
       },
       key_bindings: editing,
       commands: [send, open_palette, restore],

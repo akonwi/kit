@@ -506,3 +506,53 @@ test fn restored_text_goes_before_the_draft_with_the_cursor_at_the_end() Void!St
   terminal.flush()
   testing::assert(value.submitted == "only", "an empty draft takes the text alone")
 }
+
+test fn a_file_list_inserted_as_text_is_attached() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("see "))
+  terminal.flush()
+  // A terminal that does not mark pastes inserts the text as one change.
+  terminal.key(character(notes))
+  terminal.flush()
+  terminal.key(character("!"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(
+    value.attached.size() == 1 and value.attached.at(0).or("") == notes,
+    "the file is attached",
+  )
+  testing::assert(value.submitted == "see !", "the path leaves the draft: {value.submitted}")
+}
+
+test fn a_path_completed_across_changes_is_attached() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  for part in [filepath::Dir(notes), "/notes", ".txt"] {
+    terminal.key(character(part))
+    terminal.flush()
+  }
+  try testing::assert(value.attached.size() == 1, "the completed path is attached")
+  terminal.key(character("hi"))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "hi", "the draft is cleared of the path: {value.submitted}")
+}
