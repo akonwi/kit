@@ -46,6 +46,37 @@ func TestTranscriptPluginMessageEntryTruncatesItsSummaryToTheRow(t *testing.T) {
 	}
 }
 
+func TestPluginMessageSummaryIsTheFirstVisibleLineAsPlainText(t *testing.T) {
+	t.Parallel()
+	for name, test := range map[string]struct{ text, want string }{
+		"plain":            {"Continue the experiment loop.\n\nLog each result.", "Continue the experiment loop."},
+		"inline markup":    {"Read `autoresearch.md`, then **log** the _result_.", "Read autoresearch.md, then log the result."},
+		"link label":       {"See [the plan](https://example.com/plan) first.", "See the plan first."},
+		"leading heading":  {"\n\n## Next experiment\n\nTry parallel builds.", "Next experiment"},
+		"wrapped line":     {"Continue the loop\nwith the next idea.", "Continue the loop"},
+		"list item":        {"- [ ] Run the benchmark\n- [ ] Log it", "Run the benchmark"},
+		"quote":            {"> Keep the baseline.", "Keep the baseline."},
+		"fenced code":      {"```sh\ngo test ./...\n```", "go test ./..."},
+		"table header row": {"| Experiment | Result |\n| --- | --- |\n| 3 | kept |", "Experiment · Result"},
+		"rule then text":   {"---\n\nAfter the rule.", "After the rule."},
+	} {
+		if got := pluginMessageSummary(test.text); got != test.want {
+			t.Errorf("%s: pluginMessageSummary(%q) = %q, want %q", name, test.text, got, test.want)
+		}
+	}
+}
+
+func TestTranscriptPluginMessageEntryShowsMarkdownSummaryAsPlainText(t *testing.T) {
+	t.Parallel()
+	message := pluginMessageForTest()
+	message.Content = []protocol.TranscriptContent{protocol.TextBlock("Read `autoresearch.md` and **log** each result.\n\nThen continue.")}
+	app := uitest.New(transcriptPluginMessageEntry(ui.DefaultTheme(), message, false, nil))
+	app.Pump(64, 1)
+	if got, want := strings.TrimRight(blankCells(app, 64, 0), " "), "◆ autoresearch · Read autoresearch.md and log each result. ▸"; got != want {
+		t.Fatalf("collapsed row = %q, want %q", got, want)
+	}
+}
+
 func TestTranscriptPluginMessageEntryExpandsBeneathALeftRule(t *testing.T) {
 	t.Parallel()
 	theme := ui.DefaultTheme()
