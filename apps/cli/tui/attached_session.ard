@@ -96,6 +96,10 @@ struct Controller {
   history_scope: Int,
   live: transcript::Live,
   run_id: Str,
+  // The turn whose events come from its own turn stream, which replays it
+  // from its start. The session watch skips that turn's events, so a replay
+  // that arrives after later watched events is not mistaken for a duplicate.
+  followed_run: Str,
   // How the stream of `recovering_run` is being recovered. It is shown only
   // while that turn is the active one.
   recovery: turn_follower::Recovery,
@@ -254,6 +258,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     history_scope: 0,
     live: transcript::live(),
     run_id: "",
+    followed_run: "",
     recovery: turn_follower::Recovery::healthy,
     recovering_run: "",
     context_tokens: 0,
@@ -411,6 +416,7 @@ impl Controller {
         _ => (),
       }
       self.run_id = ""
+      self.followed_run = ""
       self.recovery = turn_follower::Recovery::healthy
       self.start_pending = false
       self.abort_pending = false
@@ -525,6 +531,7 @@ impl Controller {
       // even when a terminal stream event was missed during reconnection.
       if snapshot.ActiveTurnID == "" and self.live.activity == "" {
         self.run_id = ""
+        self.followed_run = ""
         self.abort_pending = false
         self.abort_after_start = false
       }
@@ -584,8 +591,41 @@ impl Controller {
     }
   }
 
-  // Applies the authoritative batch already delivered by Session.Watch.
+  // Applies a batch delivered by Session.Watch, except the followed turn's
+  // events, which its own stream delivers. A turn started elsewhere is
+  // followed so its stream replays it from its start.
   fn mut apply_watched_events(batch: [protocol::SessionEvent]) {
+    let kept = mut List::new<sessionbridge::Event>()
+    mut started = ""
+    for event in sessionbridge::Events(mut batch) {
+      if event.TurnID == "" or event.TurnID != self.followed_run {
+        kept.push(event)
+        if transcript::classify(event.Kind) == transcript::Event::run_started {
+          started = event.TurnID
+        }
+      }
+    }
+    self.apply_events(kept.@)
+    if started != "" and started == self.run_id and (not self.start_pending) {
+      self.follow_run(started)
+    }
+  }
+
+  // Applies a snapshot delivered by Session.Watch. Each turn starts a new
+  // event stream, so the watch learns of a turn started elsewhere, such as by
+  // a plugin's message, from a snapshot after the turn's first events; the
+  // turn is followed so its stream replays them. A submission in flight is
+  // followed when the server accepts it.
+  fn mut apply_watch_snapshot(snapshot: protocol::SessionSnapshot) {
+    self.apply_snapshot(snapshot)
+    let active = snapshot.ActiveTurnID
+    if active != "" and active != self.followed_run and (not self.start_pending) and (self.run_id == "" or self.run_id == active) {
+      self.follow_run(active)
+    }
+  }
+
+  // Applies a batch from the followed turn's own stream.
+  fn mut apply_followed_events(batch: [protocol::SessionEvent]) {
     self.apply_events(sessionbridge::Events(mut batch))
   }
 
@@ -610,6 +650,9 @@ impl Controller {
       }
       // A transcript pinned to its end follows new content on its own.
       let _ = self.live.apply_event(event)
+      if kind == transcript::Event::run_finished and event.TurnID == self.followed_run {
+        self.followed_run = ""
+      }
       if kind == transcript::Event::run_finished and event.TurnID == self.run_id {
         self.run_id = ""
         self.abort_pending = false
@@ -738,7 +781,7 @@ impl Controller {
                               ok(settled) => {
                                 let _ = dispatch(fn() {
                                   if self.active {
-                                    self.apply_snapshot(settled)
+                                    self.apply_watch_snapshot(settled)
                                   }
                                 })
                               },
@@ -749,7 +792,7 @@ impl Controller {
                           let snapshot = update.Snapshot.@
                           let _ = dispatch(fn() {
                             if self.active {
-                              self.apply_snapshot(snapshot)
+                              self.apply_watch_snapshot(snapshot)
                             }
                           })
                         }
@@ -803,19 +846,19 @@ impl Controller {
     }
   }
 
-  // Follows turns initiated locally or found in the attachment snapshot. The
-  // session-wide watch also applies every live batch, while this turn stream
-  // supplies replay needed when attaching in the middle of an active turn. A
-  // lost stream is recovered by `turn_follower::follow`.
+  // Follows a turn through its own stream, which replays it from its start:
+  // turns submitted here, found when attaching, or discovered by the session
+  // watch. A lost stream is recovered by `turn_follower::follow`.
   private fn mut follow_run(run_id: Str) {
     if run_id != "" {
-      if run_id == self.run_id {
+      if run_id == self.followed_run {
         if self.abort_after_start {
           self.abort_after_start = false
           self.abort_run()
         }
       } else {
         self.run_id = run_id
+        self.followed_run = run_id
         if self.abort_after_start {
           self.abort_after_start = false
           self.abort_run()
@@ -844,6 +887,12 @@ impl Controller {
     let dispatch = self.host.dispatch
     turn_follower::Follower{
       stream: fn(run_id: Str, received: fn()) Void!Error {
+        // A successor reported by a final snapshot is followed too.
+        let _ = dispatch(fn() {
+          if self.active and self.run_id == run_id {
+            self.followed_run = run_id
+          }
+        })
         match session.Stream(ctx, run_id) {
           ok(stream) => {
             let updates = stream.Updates()
@@ -855,7 +904,7 @@ impl Controller {
                   let _ = dispatch(fn() {
                     if self.active and self.run_id == run_id {
                       self.show_recovery(run_id, turn_follower::Recovery::healthy)
-                      self.apply_watched_events(batch)
+                      self.apply_followed_events(batch)
                     }
                   })
                 },
@@ -958,6 +1007,7 @@ impl Controller {
         self.report_unsuccessful(info)
       }
       self.run_id = snapshot.ActiveTurnID
+      self.followed_run = snapshot.ActiveTurnID
     }
   }
 
@@ -983,6 +1033,7 @@ impl Controller {
   private fn mut release_run() {
     self.live.reset()
     self.run_id = ""
+    self.followed_run = ""
     self.abort_pending = false
     self.abort_after_start = false
     self.recovery = turn_follower::Recovery::healthy
@@ -4225,4 +4276,106 @@ test fn ordinary_failures_are_reported_by_their_operation() Void!Str {
     subject.connected() and effects.toasts.size() == 0,
     "the attachment stays connected",
   )
+}
+
+private fn wire(sequence: Int, turn_id: Str, payload: protocol::SessionEventPayload) protocol::SessionEvent {
+  protocol::SessionEvent{
+    StreamID: "stream-2",
+    Sequence: Int64::from(sequence),
+    SessionID: "session-1",
+    TurnID: turn_id,
+    Payload: payload,
+  }
+}
+
+private fn shown_roles(subject: mut Controller) Str {
+  mut joined = ""
+  for message in subject.transcript_messages() {
+    let role = match message.role {
+      transcript::Role::user => "user",
+      transcript::Role::assistant => "assistant",
+      transcript::Role::tool => "tool",
+      transcript::Role::bash => "bash",
+      transcript::Role::plugin => "plugin:{message.text}",
+      transcript::Role::other => "other",
+    }
+    joined = match joined == "" {
+      true => role,
+      false => "{joined} {role}",
+    }
+  }
+  joined
+}
+
+// Each turn starts a new event stream, so the watch learns of a turn started
+// elsewhere, here by a plugin's message, from a snapshot taken after the
+// turn's first events.
+test fn a_turn_found_in_a_watch_snapshot_is_followed_from_its_start() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.apply_watch_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      ActiveTurnID: "turn-1",
+      EventStreamID: "stream-2",
+      EventCursor: Int64::from(2),
+      EventReplayAvailable: true,
+    },
+  )
+  try testing::assert(
+    subject.followed_run == "turn-1" and subject.run_id == "turn-1" and subject.busy(),
+    "the turn is claimed and followed",
+  )
+
+  // The watch resumes after the snapshot; the followed turn's events are left
+  // to its stream, even when they arrive first.
+  subject.apply_watched_events(
+    [wire(3, "turn-1", protocol::AssistantStartedEvent{MessageID: "assistant-1"})],
+  )
+  try testing::assert(subject.transcript_messages().size() == 0, "the watch defers to the turn stream")
+
+  // The turn stream replays the turn from its start.
+  subject.apply_followed_events(
+    [
+      wire(1, "turn-1", protocol::TurnStartedEvent{Status: protocol::TurnStatusRunning}),
+      wire(2, "turn-1", protocol::PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue."}),
+      wire(3, "turn-1", protocol::AssistantStartedEvent{MessageID: "assistant-1"}),
+    ],
+  )
+  try testing::assert(
+    shown_roles(subject) == "plugin:Continue. assistant",
+    "the plugin's message shows while the turn runs: {shown_roles(subject)}",
+  )
+  try testing::assert(subject.can_abort(), "Escape can stop the turn")
+
+  subject.apply_followed_events(
+    [wire(4, "turn-1", protocol::TurnCompletedEvent{Status: protocol::TurnStatusCompleted})],
+  )
+  testing::assert(
+    subject.followed_run == "" and subject.run_id == "" and (not subject.busy()),
+    "completion releases the turn",
+  )
+}
+
+test fn a_submission_in_flight_is_followed_when_accepted() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.start_pending = true
+  subject.apply_watch_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, ActiveTurnID: "turn-1"},
+  )
+  testing::assert(subject.followed_run == "", "the submission's response follows the turn")
+}
+
+test fn another_turn_being_followed_is_not_replaced_by_a_lagging_snapshot() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
+  subject.follow_run("turn-2")
+  subject.apply_watch_snapshot(
+    protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}, ActiveTurnID: "turn-1"},
+  )
+  testing::assert(subject.followed_run == "turn-2", "the newer turn stays followed")
 }
