@@ -83,9 +83,13 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   `internal/tui/transcript_model.go`) unless marked new. Every tool call
   shows as `• <name> <state>` today.
   Shared:
-  - [ ] Work chip: one row per group of tool calls (`▸ 3 tool calls · 1
-    failed`, or `N steps` without calls), a spinner while running, and a
-    click to expand. A running group of up to five calls opens on its own.
+  - [x] Work chip: one row per run of tool calls (`▸ 3 tool calls · 1
+    failed`), a spinner while running and closed, and a click to open it,
+    closing any other. A running run of up to five calls opens on its own
+    until clicked. Runs are keyed by turn and first call, so a live run
+    keeps its state when persisted. While open it lists the plain tool rows
+    until the activity list replaces them. (vaxis's `N steps` label is not
+    ported: a run always starts with a tool call.)
   - [ ] Activity list: an expanded group shows its tool rows interleaved
     with the model's thinking and prose.
   - [ ] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`

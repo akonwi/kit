@@ -305,6 +305,136 @@ fn prepend_history(older: [Message], existing: [Message]) [Message]!Str {
   }
 }
 
+// Work is a run of tool calls from one turn, shown as one work chip. It is
+// keyed by its turn and first call, which stay the same when a live turn is
+// persisted under new message IDs.
+struct Work {
+  key: Str,
+  turn_id: Str,
+  // The calls' result rows, in order.
+  tools: [Message],
+  calls: Int,
+  failed: Int,
+  // Whether any call is still planned or running in a turn that was not
+  // aborted.
+  running: Bool,
+}
+
+// Row is one transcript row: a message, or a run of tool calls.
+struct Row {
+  message: Message,
+  work: Work?,
+}
+
+// Whether an assistant message's prose is shown. Streamed prose is revealed
+// only once its message settles, so incomplete Markdown never reaches layout.
+fn shows_prose(message: Message) Bool {
+  message.role == Role::assistant and message.text != "" and (not message.pending)
+}
+
+// A run of tool calls being collected into a Work.
+private struct Batch {
+  turn_id: Str,
+  first_call: Str,
+  calls: [Str: Bool],
+  tools: [Message],
+  aborted: Bool,
+}
+
+private fn batch(turn_id: Str) mut Batch {
+  (mut Batch{
+    turn_id: turn_id,
+    first_call: "",
+    calls: [:],
+    tools: [],
+    aborted: false,
+  })
+}
+
+impl Batch {
+  fn mut call(id: Str) {
+    if id != "" {
+      if self.first_call == "" {
+        self.first_call = id
+      }
+      self.calls.set(id, true)
+    }
+  }
+
+  fn work() Work {
+    mut failed = 0
+    mut pending = false
+    for tool in self.tools {
+      if tool.tool_state == ToolState::failed {
+        failed =+ 1
+      }
+      if tool.tool_state == ToolState::planned or tool.tool_state == ToolState::running {
+        pending = true
+      }
+    }
+    Work{
+      key: "work:{self.turn_id}:{self.first_call}",
+      turn_id: self.turn_id,
+      tools: self.tools,
+      calls: self.calls.size(),
+      failed: failed,
+      running: pending and not self.aborted,
+    }
+  }
+}
+
+// rows groups the tool calls of each turn into work rows, as the vaxis
+// client does. A run starts at an assistant message that calls tools, after
+// any prose of that message, and continues through the turn's later calls
+// until prose, another kind of row, or another turn ends it. Messages that
+// show nothing, such as thinking alone, do not end a run.
+fn rows(messages: [Message]) [Row] {
+  let result = mut List::new<Row>()
+  mut current = batch("")
+  mut open = false
+  for message in messages {
+    let calls_tools = message.role == Role::assistant and message.tool_calls.size() > 0
+    let joins = message.role == Role::tool or calls_tools
+    let ends = message.role != Role::assistant and message.role != Role::tool or shows_prose(message)
+    // An aborted reply stops the run it follows.
+    if open and message.role == Role::assistant and message.aborted and message.turn_id == current.turn_id {
+      current.aborted = true
+    }
+    if open and (ends or joins and message.turn_id != current.turn_id) {
+      result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+      open = false
+    }
+    if ends {
+      result.push(Row{message: message, work: Maybe::new<Work>()})
+    }
+    if joins {
+      if not open {
+        current = batch(message.turn_id)
+        open = true
+      }
+      if message.aborted {
+        current.aborted = true
+      }
+      for call in message.tool_calls {
+        current.call(call.id)
+      }
+      if message.role == Role::tool {
+        current.call(message.tool_call_id)
+        current.tools.push(message)
+      }
+    }
+  }
+  if open {
+    result.push(Row{message: message_for(current.@), work: Maybe::new(current.work())})
+  }
+  result.@
+}
+
+// The message a work row stands in for, which identifies its turn.
+private fn message_for(work: Batch) Message {
+  message("", work.turn_id, Role::other)
+}
+
 // One streamed content block of the live assistant message.
 struct Block {
   thinking: Bool,

@@ -134,6 +134,8 @@ struct Controller {
   folded_bash: [Str: Bool],
   // Plugin messages shown in full, by turn ID.
   expanded_plugins: [Str: Bool],
+  // Work chips opened or closed by a click, by work key.
+  open_work: [Str: Bool],
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
@@ -283,6 +285,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     bash_failure: "",
     folded_bash: [:],
     expanded_plugins: [:],
+    open_work: [:],
     interactions: [],
     settled_interactions: [],
     interaction_responding: "",
@@ -1097,6 +1100,15 @@ impl Controller {
   // Expands or collapses the plugin message that started turn_id.
   fn mut toggle_plugin_message(turn_id: Str) {
     self.expanded_plugins.set(turn_id, not self.expanded_plugins.get(turn_id).or(false))
+  }
+
+  // Opens the work chip with key, closing every other one, or closes it when
+  // it is open.
+  fn mut toggle_work(key: Str, open: Bool) {
+    for other in self.open_work.keys() {
+      self.open_work.set(other, false)
+    }
+    self.open_work.set(key, not open)
   }
 
   // Folds or unfolds a finished command's output.

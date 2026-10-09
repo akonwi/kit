@@ -97,6 +97,29 @@ struct Plugins {
   toggle: fn(Str),
 }
 
+// Runs of tool calls, shown as work chips. Clicking a chip opens or closes
+// it; at most one is open.
+struct Work {
+  // Chips opened or closed by a click, by work key. Without one, a running
+  // chip of up to `work_auto_open` calls is open.
+  open: [Str: Bool],
+  // Opens the chip with the key, or closes it when open (the second
+  // argument).
+  toggle: fn(Str, Bool),
+}
+
+// A running chip opens on its own until it has more calls than this.
+let work_auto_open = 5
+
+// Whether a work chip is open: as last clicked, else while it runs with few
+// enough calls to follow.
+fn work_is_open(work: Work, run: transcript::Work) Bool {
+  match work.open.get(run.key) {
+    open => open,
+    _ => run.running and run.calls <= work_auto_open,
+  }
+}
+
 // Output lines a bash row shows before summarizing the rest.
 let bash_visible_lines = 20
 
@@ -108,6 +131,7 @@ struct Props {
   images: Images,
   bash: Bash,
   plugins: Plugins,
+  work: Work,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
   load_older: fn(),
@@ -136,11 +160,12 @@ struct Pane {
   head_status: Bool,
 }
 
-// One transcript row: a message, or the earlier-history status, and its
-// stable virtual-list key.
+// One transcript row: a message, a run of tool calls, or the
+// earlier-history status, and its stable virtual-list key.
 struct Entry {
   key: Str,
   message: transcript::Message,
+  work: transcript::Work?,
   last: Bool,
   status: Bool,
 }
@@ -278,13 +303,14 @@ impl Pane {
     let images = self.props.images
     let bash = self.props.bash
     let plugins = self.props.plugins
+    let work = self.props.work
     let colors = themes.current()
     self.tail_key = ""
     self.tail_is_reply = false
-    let shown = mut List::new<transcript::Message>()
-    for message in self.props.messages {
-      if renders(message) {
-        shown.push(message)
+    let shown = mut List::new<transcript::Row>()
+    for row in transcript::rows(self.props.messages) {
+      if row.work.is_some() or renders(row.message) {
+        shown.push(row)
       }
     }
     match shown.size() == 0 {
@@ -298,21 +324,25 @@ impl Pane {
             Entry{
               key: history_status_key,
               message: transcript::message("", "", transcript::Role::other),
+              work: Maybe::new<transcript::Work>(),
               last: false,
               status: true,
             },
           )
         }
         mut position = 0
-        for message in shown {
-          let key = match message.id == "" {
-            true => "pending:{position}",
-            false => message.id,
+        for row in shown {
+          let message = row.message
+          let key = match {
+            row.work.is_some() => row.work.expect("work").key,
+            message.id == "" => "pending:{position}",
+            _ => message.id,
           }
           entries.push(
             Entry{
               key: key,
               message: message,
+              work: row.work,
               last: position == shown.size() - 1,
               status: false,
             },
@@ -322,7 +352,7 @@ impl Pane {
           }
           position =+ 1
           self.tail_key = key
-          self.tail_is_reply = message.role == transcript::Role::assistant
+          self.tail_is_reply = row.work.is_none() and message.role == transcript::Role::assistant
         }
         cui::virtual_list(
           entries.@,
@@ -332,7 +362,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, images, bash, plugins, entry),
+              false => transcript_row(themes, images, bash, plugins, work, entry),
             }
           },
           estimated_height: 4,
@@ -463,14 +493,19 @@ private fn transcript_row(
   images: Images,
   bash: Bash,
   plugins: Plugins,
+  work: Work,
   entry: Entry,
 ) cui::View {
   let bottom = match entry.last {
     true => 1,
     false => 0,
   }
+  let view = match entry.work {
+    run => work_view(themes.current(), work, run),
+    _ => entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank()),
+  }
   cui::box(
-    [entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank())],
+    [view],
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -978,6 +1013,69 @@ private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome 
     run.Status == "aborted" or run.Status == "interrupted" => Outcome{glyph: "⊘", color: colors.muted},
     run.Succeeded() => Outcome{glyph: "✓", color: colors.success_text},
     _ => Outcome{glyph: "✗", color: colors.danger_text},
+  }
+}
+
+// A run of tool calls: a chip counting its calls and failures, followed by
+// its tool rows while open. While closed, a spinner shows the run working.
+fn work_view(colors: theme::Theme, work: Work, run: transcript::Work) cui::View {
+  let open = work_is_open(work, run)
+  let muted = ui::text_style(foreground: colors.muted)
+  let count = match run.calls == 1 {
+    true => "1 tool call",
+    false => "{run.calls} tool calls",
+  }
+  let header = mut List::new<cui::View>()
+  header.push(
+    match {
+      open => layout::line("▾", muted),
+      run.running => spinner::spinner(styles: ui::style(foreground: colors.muted)),
+      _ => layout::line("▸", muted),
+    },
+  )
+  header.push(layout::line(" {count}", muted))
+  if run.failed > 0 {
+    header.push(layout::line(" · ", muted))
+    header.push(layout::line("{run.failed} failed", ui::text_style(foreground: colors.danger_text)))
+  }
+  let toggle = work.toggle
+  let key = run.key
+  let chip = cui::box(
+    header.@,
+    styles: ui::style(
+      height: ui::cells(1),
+      flex_direction: ui::FlexDirection::row,
+      flex_shrink: 0.0,
+    ),
+    on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+      if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+        toggle(key, open)
+        received.prevent_default()
+      }
+    },
+  )
+  match open {
+    false => chip,
+    true => {
+      let rows = mut List::new<cui::View>()
+      rows.push(chip)
+      for tool in run.tools {
+        rows.push(
+          cui::box(
+            [tool_entry(colors, tool)],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(0),
+                bottom: ui::cells(0),
+                left: ui::cells(2),
+              },
+            ),
+          ),
+        )
+      }
+      cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
+    },
   }
 }
 
