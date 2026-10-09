@@ -4525,7 +4525,7 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	s.inputGeneration++
 	s.SetState(func() { s.palette.Close() })
 	if name, ok := promptPaletteCommandName(commandID); ok {
-		s.runPromptCommand(name, args, false)
+		s.runPromptCommand(name, args, false, s.Context().Runtime())
 		return
 	}
 	switch commandID {
@@ -7185,7 +7185,7 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 			s.showToast(toastInput{Title: "Prompt commands do not accept attachments or annotations", Variant: toastWarning})
 			return
 		}
-		s.runPromptCommand(name, args, true)
+		s.runPromptCommand(name, args, true, s.Context().Runtime())
 		return
 	}
 	if s.turnPending {
@@ -7419,7 +7419,8 @@ func (s *appState) promoteFollowUps() {
 
 // runPromptCommand submits a prompt command. fromComposer reports that the
 // composer draft is the command's invocation, which a queued command clears.
-func (s *appState) runPromptCommand(name, args string, fromComposer bool) {
+// runtime receives the result of a command queued behind an active turn.
+func (s *appState) runPromptCommand(name, args string, fromComposer bool, runtime ui.Runtime) {
 	if s.bound == nil || s.daemonIncompatible {
 		return
 	}
@@ -7450,7 +7451,7 @@ func (s *appState) runPromptCommand(name, args string, fromComposer bool) {
 				return submitPromptCommand(ctx, bound, name, args)
 			},
 			accepted: accepted, rejected: func() {},
-		}, s.Context().Runtime())
+		}, runtime)
 		return
 	}
 	s.startPromptSubmission(display, func(ctx context.Context) (Turn, error) {
