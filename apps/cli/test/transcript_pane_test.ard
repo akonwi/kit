@@ -161,6 +161,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
     attachments: [],
     bash: Maybe::new<sessionbridge::Bash>(),
     plugin_id: "",
+    details: "",
   }
 }
 
@@ -282,6 +283,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
         attachments: [],
         bash: Maybe::new<sessionbridge::Bash>(),
         plugin_id: "",
+        details: "",
       },
     ]
   })
@@ -1828,7 +1830,9 @@ fn tool_run(turn_id: Str, states: [transcript::ToolState]) [transcript::Message]
   let messages = mut List::new<transcript::Message>()
   let calls = mut List::new<transcript::ToolCall>()
   for state, index in states {
-    calls.push(transcript::ToolCall{id: "{turn_id}-call-{index}", name: "read"})
+    let call = mut transcript::tool_call("{turn_id}-call-{index}", "read")
+    call.arguments = "{{\"path\":\"src/{index}.go\"}}"
+    calls.push(call.@)
   }
   let reply = mut transcript::message("{turn_id}-reply", turn_id, transcript::Role::assistant)
   reply.tool_calls = calls.@
@@ -1842,6 +1846,7 @@ fn tool_run(turn_id: Str, states: [transcript::ToolState]) [transcript::Message]
     result.tool_call_id = "{turn_id}-call-{index}"
     result.tool_name = "read"
     result.tool_state = state
+    result.text = "one\ntwo"
     messages.push(result.@)
   }
   messages.@
@@ -1889,7 +1894,7 @@ test fn a_finished_run_of_tool_calls_is_one_chip_counting_failures() Void!Str {
 }
 
 test fn clicking_a_chip_opens_its_tool_rows_and_closes_the_other_chip() Void!Str {
-  let terminal = headless::new(40, 8)
+  let terminal = headless::new(70, 8)
   defer terminal.destroy()
   let first = tool_run("t1", [transcript::ToolState::completed])
   let second = tool_run("t2", states(transcript::ToolState::completed, 2))
@@ -1902,13 +1907,31 @@ test fn clicking_a_chip_opens_its_tool_rows_and_closes_the_other_chip() Void!Str
   settle(terminal)
   try expect_rows(
     rows(terminal),
-    ["", "", "", " ▾ 1 tool call", "   • read done", "", " ▸ 2 tool calls", ""],
+    [
+      "",
+      "",
+      "",
+      " ▾ 1 tool call",
+      "     Read file           src/0.go:1–2",
+      "",
+      " ▸ 2 tool calls",
+      "",
+    ],
   )
   terminal.click(3, 6)
   settle(terminal)
   try expect_rows(
     rows(terminal),
-    ["", "", " ▸ 1 tool call", "", " ▾ 2 tool calls", "   • read done", "   • read done", ""],
+    [
+      "",
+      "",
+      " ▸ 1 tool call",
+      "",
+      " ▾ 2 tool calls",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "",
+    ],
   )
   terminal.click(3, 4)
   settle(terminal)
@@ -1916,7 +1939,7 @@ test fn clicking_a_chip_opens_its_tool_rows_and_closes_the_other_chip() Void!Str
 }
 
 test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
-  let terminal = headless::new(40, 12)
+  let terminal = headless::new(70, 12)
   defer terminal.destroy()
   let model = bash_model(
     tool_run("t1", [transcript::ToolState::completed, transcript::ToolState::running]),
@@ -1936,8 +1959,8 @@ test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
       "",
       "",
       " ▾ 2 tool calls",
-      "   • read done",
-      "   • read running…",
+      "     Read file           src/0.go:1–2",
+      "   ⠋ Read file           src/1.go",
       "",
     ],
   )
@@ -1961,12 +1984,12 @@ test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
       "",
       "",
       " ▾ 6 tool calls",
-      "   • read done",
-      "   • read done",
-      "   • read done",
-      "   • read done",
-      "   • read done",
-      "   • read running…",
+      "     Read file           src/0.go:1–2",
+      "     Read file           src/1.go:1–2",
+      "     Read file           src/2.go:1–2",
+      "     Read file           src/3.go:1–2",
+      "     Read file           src/4.go:1–2",
+      "   ⠋ Read file           src/5.go",
       "",
     ],
   )
@@ -1976,18 +1999,21 @@ test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
 }
 
 test fn an_open_chip_lists_thinking_before_each_messages_tool_rows() Void!Str {
-  let terminal = headless::new(48, 10)
+  let terminal = headless::new(70, 10)
   defer terminal.destroy()
   let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
   reply.thinking = "Read the *parser* first."
-  reply.tool_calls = [
-    transcript::ToolCall{id: "c1", name: "read"},
-    transcript::ToolCall{id: "c2", name: "grep"},
-  ]
+  reply.tool_calls = [transcript::tool_call("c1", "read"), transcript::tool_call("c2", "grep")]
+  let read = mut reply.tool_calls.at(0).expect("read")
+  read.arguments = "{{\"path\":\"tokenize.go\"}}"
+  let search = mut reply.tool_calls.at(1).expect("search")
+  search.arguments = "{{\"pattern\":\"Token\"}}"
+  reply.tool_calls = [read.@, search.@]
   let result = mut transcript::message("t1-result", "t1", transcript::Role::tool)
   result.tool_call_id = "c1"
   result.tool_name = "read"
   result.tool_state = transcript::ToolState::completed
+  result.text = "package parser"
   let model = bash_model([reply.@, result.@])
   model.open_work = ["work:t1:c1": true]
   let renderer = mount_messages(terminal, model)
@@ -2003,8 +2029,8 @@ test fn an_open_chip_lists_thinking_before_each_messages_tool_rows() Void!Str {
       "",
       " ▾ 2 tool calls",
       "   Read the parser first.",
-      "   • read done",
-      "   • grep planned",
+      "     Read file           tokenize.go:1–1",
+      "   ⠋ Search              Token in .",
       "",
     ],
   )

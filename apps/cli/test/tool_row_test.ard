@@ -1,0 +1,134 @@
+use ard/testing
+
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use kit/tui/theme
+use kit/tui/tool_row
+use kit/tui/transcript
+use go:strings
+
+fn rows(terminal: headless::TestApp) [Str] {
+  let trimmed = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    trimmed.push(strings::TrimRight(row, " "))
+  }
+  trimmed.@
+}
+
+fn expect_rows(actual: [Str], expected: [Str]) Void!Str {
+  let shown = strings::Join(mut actual, "|\n")
+  try testing::assert(actual.size() == expected.size(), "row count {actual.size()}:\n{shown}|")
+  mut index = 0
+  while index < expected.size() {
+    let want = expected.at(index).or("")
+    let got = actual.at(index).or("")
+    try testing::assert(got == want, "row {index}: got {got}|, want {want}|\n{shown}|")
+    index =+ 1
+  }
+  testing::pass()
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+fn call(name: Str, arguments: Str) transcript::ToolCall {
+  let made = mut transcript::tool_call("c1", name)
+  made.arguments = arguments
+  made.@
+}
+
+fn result(state: transcript::ToolState, text: Str) transcript::Message {
+  let made = mut transcript::message("r1", "t1", transcript::Role::tool)
+  made.tool_call_id = "c1"
+  made.tool_state = state
+  made.text = text
+  made.@
+}
+
+struct Shown {
+  terminal: headless::TestApp,
+  renderer: cui::Renderer,
+}
+
+// Mounts one row in a terminal width cells wide and lets it measure itself.
+fn show(width: Int, called: transcript::ToolCall, outcome: transcript::Message) Shown {
+  let terminal = headless::new(width, 2)
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(
+    app,
+    tool_row::view(
+      tool_row::Props{
+        themes: theme::context(theme::store(theme::system())),
+        call: called,
+        result: outcome,
+      },
+    ),
+  )
+  terminal.flush()
+  terminal.flush()
+  terminal.flush()
+  Shown{terminal: terminal, renderer: renderer}
+}
+
+test fn a_wide_row_shows_its_title_column_and_summary_chip() Void!Str {
+  let shown = show(
+    64,
+    call("edit", "{{\"path\":\"internal/parser/tokenize.go\"}}"),
+    result(transcript::ToolState::completed, "Edited"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["  Edit file           internal/parser/tokenize.go", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  try testing::assert(same_color(title.style.foreground, colors.accent_text), "the title is accented")
+  let chip = shown.terminal.frame().cell(21, 0).expect("chip")
+  testing::assert(same_color(chip.style.background, colors.surface), "the summary sits on a chip")
+}
+
+test fn a_failed_call_marks_its_title_as_failed() Void!Str {
+  let shown = show(
+    64,
+    call("bash", "{{\"command\":\"go test ./...\"}}"),
+    result(transcript::ToolState::failed, "exit status 1"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["✗ Run command         go test ./...", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let icon = shown.terminal.frame().cell(0, 0).expect("icon")
+  try testing::assert(same_color(icon.style.foreground, colors.danger_text), "the mark is red")
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  testing::assert(same_color(title.style.foreground, colors.danger_text), "the title is red")
+}
+
+test fn a_call_that_did_not_run_is_muted() Void!Str {
+  let shown = show(
+    64,
+    call("read", "{{\"path\":\"go.mod\"}}"),
+    result(transcript::ToolState::not_run, ""),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  try expect_rows(rows(shown.terminal), ["⊘ Read file           go.mod", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let title = shown.terminal.frame().cell(2, 0).expect("title")
+  testing::assert(same_color(title.style.foreground, colors.muted), "the title is muted")
+}
+
+test fn a_narrow_row_moves_its_summary_below_and_keeps_the_path_end() Void!Str {
+  let shown = show(
+    34,
+    call("read", "{{\"path\":\"docs/design/0012-native-macos-client.md\"}}"),
+    result(transcript::ToolState::completed, "one\ntwo"),
+  )
+  defer shown.terminal.destroy()
+  defer shown.renderer.destroy()
+  expect_rows(rows(shown.terminal), ["  Read file", "   …/native-macos-client.md:1–2"])
+}

@@ -29,6 +29,19 @@ enum ToolState {
 struct ToolCall {
   id: Str,
   name: Str,
+  // The call's JSON arguments, unless the server omitted them.
+  arguments: Str,
+  arguments_truncated: Bool,
+}
+
+// A tool call whose arguments are not known.
+fn tool_call(id: Str, name: Str) ToolCall {
+  ToolCall{
+    id: id,
+    name: name,
+    arguments: "",
+    arguments_truncated: false,
+  }
 }
 
 struct Message {
@@ -53,6 +66,8 @@ struct Message {
   bash: sessionbridge::Bash?,
   // The plugin that submitted a plugin message.
   plugin_id: Str,
+  // A tool result's raw JSON details.
+  details: Str,
 }
 
 // A file attached to a user message, shown by name. Images can be previewed.
@@ -137,6 +152,7 @@ fn message(id: Str, turn_id: Str, role: Role) Message {
     attachments: [],
     bash: Maybe::new<sessionbridge::Bash>(),
     plugin_id: "",
+    details: "",
   }
 }
 
@@ -167,7 +183,16 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
           text_parts.push(block.Text)
         },
         block.Kind == "thinking" => thinking_parts.push(block.Text),
-        block.Kind == "toolCall" => calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName}),
+        block.Kind == "toolCall" => {
+          calls.push(
+            ToolCall{
+              id: block.ToolCallID,
+              name: block.ToolName,
+              arguments: block.Arguments,
+              arguments_truncated: block.ArgumentsTruncated,
+            },
+          )
+        },
         user and block.AttachmentID != "" and (block.Kind == "image" or block.Kind == "file") => {
           attached.push(
             Attachment{
@@ -215,6 +240,7 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
       projected.sequence = source.Sequence
       projected.attachments = attached.@
       projected.plugin_id = source.PluginID
+      projected.details = source.Details
       if not unsafe::is_nil(source.Bash) {
         let run = source.Bash.@
         projected.text = run.Command
@@ -498,7 +524,7 @@ fn rows(messages: [Message]) [Row] {
         current.call(call)
       }
       if message.role == Role::tool {
-        current.call(ToolCall{id: message.tool_call_id, name: message.tool_name})
+        current.call(tool_call(message.tool_call_id, message.tool_name))
         current.tools.push(message)
       }
     } else if open and message.role == Role::assistant and message.turn_id == current.turn_id and (not ends) {
@@ -765,17 +791,32 @@ impl Live {
   // arrives before any assistant content for the turn.
   private fn mut ensure_tool_call(event: sessionbridge::Event) {
     mut known = false
-    for current in self.messages {
+    let informed = event.Arguments != "" or event.ArgumentsTruncated
+    for current, index in self.messages {
       if current.role == Role::assistant and current.turn_id == event.TurnID {
-        for call in current.tool_calls {
+        for call, position in current.tool_calls {
           if call.id == event.ToolCallID {
             known = true
+            // A started call can bring arguments its plan did not have.
+            if informed {
+              self.edit(index, fn(owner: mut Message) {
+                let updated = mut call
+                updated.arguments = event.Arguments
+                updated.arguments_truncated = event.ArgumentsTruncated
+                owner.tool_calls.set(position, updated.@)
+              })
+            }
           }
         }
       }
     }
     if not known {
-      let call = ToolCall{id: event.ToolCallID, name: event.ToolName}
+      let call = ToolCall{
+        id: event.ToolCallID,
+        name: event.ToolName,
+        arguments: event.Arguments,
+        arguments_truncated: event.ArgumentsTruncated,
+      }
       mut owner = -1
       mut index = self.messages.size() - 1
       while index >= 0 and owner < 0 {
@@ -970,6 +1011,7 @@ impl Live {
         }
         self.edit(index, fn(current: mut Message) {
           current.text = text
+          current.details = event.Details
           current.is_error = event.IsError
           current.pending = false
           current.tool_state = match event.IsError {

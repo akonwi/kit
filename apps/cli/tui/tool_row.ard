@@ -1,0 +1,271 @@
+use ard/testing
+
+use cooper/cui
+use cooper/ui
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/toolpresentation
+use kit/tui/layout
+use kit/tui/spinner
+use kit/tui/theme
+use kit/tui/transcript
+use go:strings
+
+// One tool call in an open work chip, as the vaxis client draws it: a state
+// icon, the title in an accent column, and the summary in a chip. A row
+// narrower than `narrow_width` puts the chip on its own line and keeps the
+// end of a path that leads its summary.
+
+// Rows narrower than this put the summary on a second line.
+let narrow_width = 60
+
+// The width of the title column in a wide row.
+let title_width = 18
+
+// How a call's state is shown.
+enum Mark {
+  working,
+  done,
+  failed,
+  skipped,
+}
+
+fn mark(result: transcript::Message) Mark {
+  match result.tool_state {
+    transcript::ToolState::planned => Mark::working,
+    transcript::ToolState::running => Mark::working,
+    transcript::ToolState::failed => Mark::failed,
+    transcript::ToolState::not_run => Mark::skipped,
+    _ => Mark::done,
+  }
+}
+
+// The call's title and summary.
+fn presentation(call: transcript::ToolCall, result: transcript::Message) toolpresentation::Presentation {
+  toolpresentation::Present(
+    toolpresentation::Call{
+      Name: call.name,
+      Arguments: call.arguments,
+      ArgumentsTruncated: call.arguments_truncated,
+    },
+    toolpresentation::Result{
+      Succeeded: result.tool_state == transcript::ToolState::completed,
+      Text: result.text,
+      Details: result.details,
+    },
+  )
+}
+
+fn display_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+// value cut to its last cells within limit, behind `…/`. A value that fits,
+// or a limit under two cells, is unchanged.
+fn path_tail(value: Str, limit: Int) Str {
+  match limit < 2 or display_width(value) <= limit {
+    true => value,
+    false => {
+      let budget = limit - display_width("…/")
+      let characters = vaxis::Characters(value)
+      mut start = characters.size()
+      mut used = 0
+      mut fitting = true
+      while fitting and start > 0 {
+        let width = characters.at(start - 1).expect("character").Width
+        if used + width > budget {
+          fitting = false
+        } else {
+          used =+ width
+          start =- 1
+        }
+      }
+      let kept = mut List::new<Str>()
+      for character, index in characters {
+        if index >= start {
+          kept.push(character.Grapheme)
+        }
+      }
+      "…/" + strings::TrimLeft(strings::Join(kept, ""), "/")
+    },
+  }
+}
+
+// summary shortened to limit cells. A summary that starts with path keeps the
+// rest after it and the end of the path; otherwise it keeps its own end.
+fn shorten(summary: Str, path: Str, limit: Int) Str {
+  match path != "" and strings::HasPrefix(summary, path) {
+    true => {
+      let suffix = strings::TrimPrefix(summary, path)
+      let budget = limit - display_width(suffix)
+      let room = match budget < 2 {
+        true => 2,
+        false => budget,
+      }
+      path_tail(path, room) + suffix
+    },
+    false => path_tail(summary, limit),
+  }
+}
+
+struct Props {
+  themes: theme::Context,
+  call: transcript::ToolCall,
+  result: transcript::Message,
+}
+
+fn view(props: Props) cui::View {
+  cui::child(new, props, key: "tool-row:{props.call.id}")
+}
+
+private struct Row {
+  props: mut Props,
+  frame: mut cui::BoxRef,
+  // The row's width as last laid out; zero until then, when it is wide.
+  width: Int,
+}
+
+private fn new(props: mut Props) mut Row {
+  (mut Row{
+    props: props,
+    frame: cui::box_ref(),
+    width: 0,
+  })
+}
+
+impl cui::Lifecycle for Row {
+  fn mut mounted(context: cui::Context) {
+    // Measured after each layout and before painting, so a row never paints
+    // a layout for a width it no longer has.
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl Row {
+  // Records the row's width. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.frame.current {
+      frame => {
+        let width = frame.layout().local.width
+        let changed = width != self.width
+        self.width = width
+        changed
+      },
+      _ => false,
+    }
+  }
+
+  private fn narrow() Bool {
+    self.width > 0 and self.width < narrow_width
+  }
+}
+
+impl cui::Component for Row {
+  fn mut render() cui::View {
+    let colors = self.props.themes.current()
+    let shown = mark(self.props.result)
+    let presented = presentation(self.props.call, self.props.result)
+    let narrow = self.narrow()
+    let summary = match narrow and presented.PathFirst {
+      true => {
+        let limit = match self.width - 6 < 2 {
+          true => 2,
+          false => self.width - 6,
+        }
+        shorten(presented.Summary, presented.Path, limit)
+      },
+      false => presented.Summary,
+    }
+    let title_color = match shown {
+      Mark::failed => colors.danger_text,
+      Mark::skipped => colors.muted,
+      _ => colors.accent_text,
+    }
+    let icon = match shown {
+      Mark::working => spinner::spinner(styles: ui::style(foreground: colors.muted, flex_shrink: 0.0)),
+      Mark::done => layout::line(" ", ui::text_style()),
+      Mark::failed => layout::line("✗", ui::text_style(foreground: colors.danger_text)),
+      Mark::skipped => layout::line("⊘", ui::text_style(foreground: colors.muted)),
+    }
+    let chip = cui::text(
+      " {summary} ",
+      styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+      text_style: ui::text_style(
+        foreground: match shown {
+          Mark::skipped => colors.muted,
+          _ => colors.foreground,
+        },
+        background: colors.surface,
+      ),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::ellipsis,
+    )
+    let title = cui::text(
+      presented.Title,
+      styles: match narrow {
+        true => ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+        false => ui::style(width: ui::cells(title_width), flex_shrink: 0.0),
+      },
+      text_style: ui::text_style(foreground: title_color),
+      wrap: ui::TextWrap::none,
+      overflow: ui::TextOverflow::clip,
+    )
+    let line = fn(children: [cui::View]) cui::View {
+      cui::box(
+        children,
+        styles: ui::style(
+          height: ui::cells(1),
+          flex_direction: ui::FlexDirection::row,
+          flex_shrink: 0.0,
+        ),
+      )
+    }
+    let rows = match narrow {
+      true => {
+        [
+          line([icon, layout::line(" ", ui::text_style()), title]),
+          cui::box(
+            [line([chip])],
+            styles: ui::style(
+              padding: ui::Edges{
+                top: ui::cells(0),
+                right: ui::cells(0),
+                bottom: ui::cells(0),
+                left: ui::cells(2),
+              },
+            ),
+          ),
+        ]
+      },
+      false => {
+        [
+          line([icon, layout::line(" ", ui::text_style()), title, layout::line(" ", ui::text_style()), chip]),
+        ]
+      },
+    }
+    cui::box(rows, ref: self.frame, styles: ui::style(flex_direction: ui::FlexDirection::column))
+  }
+}
+
+test fn a_path_keeps_its_informative_end() Void!Str {
+  testing::assert(
+    path_tail("docs/design/0012-native-macos-client.md", 24) == "…/native-macos-client.md",
+    path_tail("docs/design/0012-native-macos-client.md", 24),
+  )
+}
+
+test fn a_path_led_summary_keeps_what_follows_the_path() Void!Str {
+  let shortened = shorten("internal/parser/tokenize.go:1–120", "internal/parser/tokenize.go", 26)
+  try testing::assert(shortened == "…/parser/tokenize.go:1–120", shortened)
+  testing::assert(
+    shorten("short.go:1–2", "short.go", 26) == "short.go:1–2",
+    "a summary that fits is kept",
+  )
+}

@@ -80,8 +80,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, tool-result image previews, and file navigation from tool results.
   Rows follow the vaxis client (`presentToolCall` in
-  `internal/tui/transcript_model.go`) unless marked new. Every tool call
-  shows as `• <name> <state>` today.
+  `internal/tui/transcript_model.go`) unless marked new. Titles and
+  summaries of the tools vaxis knows are ported as `ffi/toolpresentation`;
+  the open items below are what remains for each tool.
   Shared:
   - [x] Work chip: one row per run of tool calls (`▸ 3 tool calls · 1
     failed`), a spinner while running and closed, and a click to open it,
@@ -96,12 +97,12 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     reads planned, or not run after an abort. Prose ends a run and stays
     outside it, as in vaxis; unlike vaxis, a message with only thinking
     stays in its run and its thinking is listed.
-  - [ ] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
+  - [x] Tool row: a state icon (spinner, blank when done, `✗` failed, `⊘`
     not run), the title in the accent color (danger when failed, muted when
     aborted), and a summary chip. Below 60 columns the chip takes a second
     line and paths are cut from the start.
   - [ ] Row selection: clicking a row highlights it.
-  - [ ] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
+  - [x] Unknown tools: the humanized name (`my_tool` → "My Tool") with the
     `command`, `path`, or `agent` argument, else compact arguments, "no
     arguments", or "arguments truncated".
   - [ ] Output (new; vaxis has unused output wells and previews): expanding
@@ -109,33 +110,36 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     scrolling back to the transcript at its edges, with truncated-output
     and omitted-details notices.
   Coding tools:
-  - [ ] `bash`: Run command · the command (multi-line commands summarized).
-    Output: the command's output.
-  - [ ] `read`: Read file · `path:start–end`, `· empty`, `· truncated`.
-    Output: the lines read, highlighted, with line numbers.
-  - [ ] `write`: Write N lines · path. Output: the written content,
-    highlighted.
-  - [ ] `edit`: Edit N sections · path. Output: a diff of each edit.
+  - [x] `bash`: Run command · the command (multi-line commands summarized).
+  - [ ] `bash` output: the command's output.
+  - [x] `read`: Read file · `path:start–end`, `· empty`, `· truncated`.
+  - [ ] `read` output: the lines read, highlighted, with line numbers.
+  - [x] `write`: Write N lines · path.
+  - [ ] `write` output: the written content, highlighted.
+  - [x] `edit`: Edit N sections · path.
+  - [ ] `edit` output: a diff of each edit.
   - [ ] `read`, `write`, `edit`: clicking the path opens the File pane, at
     the lines read for `read` (TUI-COOPER-008).
-  - [ ] `ls`: List directory · path.
-  - [ ] `grep`: Search · `pattern in path`.
-  - [ ] `find`: Find files · `pattern in path`.
+  - [x] `ls`: List directory · path.
+  - [x] `grep`: Search · `pattern in path`.
+  - [x] `find`: Find files · `pattern in path`.
   Session tools:
-  - [ ] `change_cwd`: Change directory · path, with the working-directory
-    toast and location refresh.
+  - [x] `change_cwd`: Change directory · path.
+  - [ ] `change_cwd`: check the working-directory toast and location
+    refresh.
   - [ ] `read_scratchpad` (new title): Read scratchpad.
-  - [ ] `edit_scratchpad`: Update scratchpad · N edits.
+  - [x] `edit_scratchpad`: Update scratchpad · N edits.
   - [ ] `confirm_from_user`, `input_from_user`, `select_from_user`,
     `guided_questions` (new titles): Confirm, Ask (input and select), and
     Ask questions · the request's title. The request itself is in the
     interaction dock (TUI-COOPER-007).
-  - [ ] `create_session`: Create session · `name · cwd`.
-  - [ ] `activate_skill`: Load skill · name.
-  - [ ] `peer_session`: Discover sessions, Ask session, Inspect peer query,
+  - [x] `create_session`: Create session · `name · cwd`.
+  - [x] `activate_skill`: Load skill · name.
+  - [x] `peer_session`: Discover sessions, Ask session, Inspect peer query,
     or Wait for peer query by action · the message, request, or session.
-  - [ ] `subagent`: Start, Message, Wait for, Cancel, Dismiss, or Inspect
-    agent by action · the agent name, which opens its conversation tab
+  - [x] `subagent`: Start, Message, Wait for, Cancel, Dismiss, or Inspect
+    agent by action · the agent name.
+  - [ ] `subagent`: the agent name opens its conversation tab
     (TUI-COOPER-009).
   - [ ] `show_image` (new title): Show image · path or caption, with the
     image previewed below the group.
