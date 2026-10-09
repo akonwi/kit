@@ -12,6 +12,7 @@ use kit/tui/layout
 use kit/tui/markdown
 use kit/tui/spinner
 use kit/tui/theme
+use kit/tui/tool_row
 use kit/tui/transcript
 use go:strings
 
@@ -564,7 +565,17 @@ private fn entry_view(
         },
       }
     },
-    transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
+    transcript::Role::tool => {
+      Maybe::new(
+        tool_row::view(
+          tool_row::Props{
+            themes: themes,
+            call: transcript::tool_call(message.tool_call_id, message.tool_name),
+            result: message,
+          },
+        ),
+      )
+    },
     transcript::Role::bash => {
       match message.bash {
         run => Maybe::new(bash_entry(colors, bash, run)),
@@ -1064,7 +1075,15 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
       for step in run.steps {
         // Thinking lines up with the tool rows' titles.
         let content = match step.result {
-          result => tool_entry(colors, result),
+          result => {
+            tool_row::view(
+              tool_row::Props{
+                themes: themes,
+                call: step.call.or(transcript::tool_call(result.tool_call_id, result.tool_name)),
+                result: result,
+              },
+            )
+          },
           _ => {
             markdown::view(
               themes,
@@ -1093,20 +1112,4 @@ fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::Vie
       cui::box(rows.@, styles: ui::style(flex_direction: ui::FlexDirection::column))
     },
   }
-}
-
-private fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {
-  let state = match message.tool_state {
-    transcript::ToolState::planned => "planned",
-    transcript::ToolState::running => "running…",
-    transcript::ToolState::completed => "done",
-    transcript::ToolState::failed => "failed",
-    transcript::ToolState::not_run => "not run",
-    transcript::ToolState::none => "",
-  }
-  let tone = match message.tool_state == transcript::ToolState::failed {
-    true => colors.danger_text,
-    false => colors.muted,
-  }
-  layout::line("• {message.tool_name} {state}", ui::text_style(foreground: tone))
 }

@@ -543,7 +543,7 @@ fn reply(id: Str, turn_id: Str, text: Str, calls: [Str]) transcript::Message {
   built.text = text
   let listed = mut List::new<transcript::ToolCall>()
   for call in calls {
-    listed.push(transcript::ToolCall{id: call, name: "read"})
+    listed.push(transcript::tool_call(call, "read"))
   }
   built.tool_calls = listed.@
   built.@

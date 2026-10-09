@@ -91,3 +91,30 @@ func TestMessagesProjectAPromptCommandAsItsInvocation(t *testing.T) {
 		t.Fatalf("Messages() = %#v, want content %#v", got, want)
 	}
 }
+
+func TestToolCallsCarryTheirArgumentsAndResultsTheirDetails(t *testing.T) {
+	t.Parallel()
+
+	messages := Messages([]protocol.TranscriptMessage{
+		{ID: "assistant_1", TurnID: "turn_1", Role: "assistant", Content: []protocol.TranscriptContent{
+			protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"a.go"}`}),
+			protocol.NewTranscriptContent(protocol.ToolCallContent{ToolCallID: "call_2", ToolName: "write", ArgumentsTruncated: true}),
+		}},
+		{ID: "result_1", TurnID: "turn_1", Role: "tool", ToolCallID: "call_1", ToolName: "read", Details: []byte(`{"lines":2}`)},
+	})
+	calls := messages[0].Content
+	if calls[0].Arguments != `{"path":"a.go"}` || calls[0].ArgumentsTruncated || !calls[1].ArgumentsTruncated {
+		t.Fatalf("calls = %+v, want their arguments", calls)
+	}
+	if messages[1].Details != `{"lines":2}` {
+		t.Fatalf("result details = %q", messages[1].Details)
+	}
+
+	events := Events([]protocol.SessionEvent{
+		{Sequence: 1, TurnID: "turn_1", Payload: protocol.ToolStartedEvent{ToolCallID: "call_1", ToolName: "read", Arguments: `{"path":"a.go"}`}},
+		{Sequence: 2, TurnID: "turn_1", Payload: protocol.ToolCompletedEvent{ToolCallID: "call_1", ToolName: "read", Details: []byte(`{"lines":2}`)}},
+	})
+	if events[0].Arguments != `{"path":"a.go"}` || events[1].Details != `{"lines":2}` {
+		t.Fatalf("events = %+v, want the arguments and details", events)
+	}
+}
