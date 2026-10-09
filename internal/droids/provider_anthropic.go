@@ -876,6 +876,8 @@ func anthropicParts[T any](role string, content []T) ([]anthropicPart, error) {
 			value = item.Text
 		case AnnotationInput:
 			value = item.Text
+		case PromptCommandInput:
+			value = item.Text
 		case FileInput:
 			file, isFile = FileContent{Filename: item.Filename, MediaType: item.MediaType, URL: item.URL}, true
 		case FileContent:

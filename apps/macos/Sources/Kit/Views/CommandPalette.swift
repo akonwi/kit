@@ -130,12 +130,17 @@ struct CommandPalette: View {
                         Spacer()
                         if let reason = unavailableReason(action.id) {
                             Text(reason).font(.kit(size: 11)).foregroundStyle(theme.muted)
-                        } else if selection == index { Text("↵").foregroundStyle(theme.muted) }
+                        } else {
+                            if let source = action.prompt?.sourceLabel {
+                                Text(source).font(.kit(size: 11)).foregroundStyle(theme.muted)
+                            }
+                            if selection == index { Text("↵").foregroundStyle(theme.muted) }
+                        }
                     }.padding(.horizontal, 12).padding(.vertical, 9).frame(minHeight: 52)
                         .background(selection == index ? theme.hover : Color.clear)
                         .contentShape(Rectangle())
                 }.buttonStyle(.plain).disabled(unavailableReason(action.id) != nil).padding(.horizontal, 8).id(action.id)
-                    .help(action.prompt.map { $0.source + " · " + $0.location } ?? action.description)
+                    .help(action.prompt.map { $0.sourceLabel + " · " + $0.location } ?? action.description)
             }
             } }
             .onChange(of: selection) {

@@ -27,6 +27,7 @@ enum WireTranscriptContentKind: String, Codable, Sendable {
     case value3 = "image"
     case value4 = "file"
     case value5 = "annotations"
+    case value6 = "promptCommand"
 }
 
 enum WireAnnotationAnchorKind: String, Codable, Sendable {
@@ -96,6 +97,16 @@ struct WireTranscriptContent: Codable, Sendable {
     let `mediaType`: String?
     let `attachmentId`: String?
     let `annotations`: [WireSubmittedAnnotation]?
+    /// The invoked command name and its discovery source of a promptCommand block.
+    var `name`: String? = nil
+    var `source`: String? = nil
+
+    /// The "/<name> <arguments>" invocation of a promptCommand block.
+    var promptCommandInvocation: String? {
+        guard kind == .value6, let name, !name.isEmpty else { return nil }
+        let arguments = (self.arguments ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
+        return "/" + name + (arguments.isEmpty ? "" : " " + arguments)
+    }
 }
 
 struct WireTranscriptMessage: Codable, Sendable {

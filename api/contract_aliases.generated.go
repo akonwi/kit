@@ -111,6 +111,7 @@ type (
 	PluginToastVariant                = contract.PluginToastVariant
 	PromoteFollowUpsResult            = contract.PromoteFollowUpsResult
 	PromptCommand                     = contract.PromptCommand
+	PromptCommandContent              = contract.PromptCommandContent
 	PromptCommandInput                = contract.PromptCommandInput
 	PromptDiagnostic                  = contract.PromptDiagnostic
 	PromptInput                       = contract.PromptInput
@@ -330,6 +331,9 @@ const (
 	PluginToastError                      = contract.PluginToastError
 	PluginToastInfo                       = contract.PluginToastInfo
 	PluginToastWarning                    = contract.PluginToastWarning
+	PromptCommandSourceClaudeProject      = contract.PromptCommandSourceClaudeProject
+	PromptCommandSourceProject            = contract.PromptCommandSourceProject
+	PromptCommandSourceUser               = contract.PromptCommandSourceUser
 	PromptSectionContext                  = contract.PromptSectionContext
 	PromptSectionCore                     = contract.PromptSectionCore
 	PromptSectionFeature                  = contract.PromptSectionFeature
@@ -403,6 +407,7 @@ const (
 	TranscriptContentAnnotations          = contract.TranscriptContentAnnotations
 	TranscriptContentFile                 = contract.TranscriptContentFile
 	TranscriptContentImage                = contract.TranscriptContentImage
+	TranscriptContentPromptCommand        = contract.TranscriptContentPromptCommand
 	TranscriptContentText                 = contract.TranscriptContentText
 	TranscriptContentThinking             = contract.TranscriptContentThinking
 	TranscriptContentToolCall             = contract.TranscriptContentToolCall

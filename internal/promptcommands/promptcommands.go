@@ -22,6 +22,7 @@ import (
 
 const (
 	projectPromptsPath   = ".agents/prompts"
+	claudeCommandsPath   = ".claude/commands"
 	maxCommands          = 128
 	maxDirectoryEntries  = 1024
 	maxTemplateBytes     = 128 << 10
@@ -37,6 +38,9 @@ type Source string
 const (
 	SourceUser    Source = "user"
 	SourceProject Source = "project"
+	// SourceClaudeProject is a Claude Code custom command from the project's
+	// .claude/commands directory.
+	SourceClaudeProject Source = "claude_project"
 )
 
 // Command is one immutable prompt template exposed as a palette command.
@@ -99,10 +103,14 @@ type Loader interface {
 	Load(context.Context, string) (*Registry, error)
 }
 
-// FilesystemLoader discovers user-global and project-local prompt commands.
+// FilesystemLoader discovers user-global and project-local prompt commands,
+// and optionally the project's Claude Code commands.
 type FilesystemLoader struct {
 	userHome     string
 	userHomeInfo os.FileInfo
+	// ReadClaudeCommands reports, at each discovery, whether to include
+	// <cwd>/.claude/commands. A nil func excludes them.
+	ReadClaudeCommands func() bool
 }
 
 // NewFilesystemLoader constructs a loader rooted in resolved Kit paths.
@@ -124,7 +132,8 @@ func NewFilesystemLoader(paths apphome.Paths) (*FilesystemLoader, error) {
 	return &FilesystemLoader{userHome: userHome, userHomeInfo: info}, nil
 }
 
-// Load scans global prompts first, followed by project prompts. First name wins.
+// Load scans global prompts first, followed by project prompts and then the
+// project's Claude Code commands. First name wins.
 func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (*Registry, error) {
 	if ctx == nil {
 		ctx = context.Background()
@@ -147,6 +156,9 @@ func (l *FilesystemLoader) Load(ctx context.Context, cwd string) (*Registry, err
 	commands := make([]Command, 0)
 	commands = l.scanRoot(ctx, l.userHome, l.userHomeInfo, "prompts", SourceUser, commands, seen)
 	commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, projectPromptsPath, SourceProject, commands, seen)
+	if l.ReadClaudeCommands != nil && l.ReadClaudeCommands() {
+		commands = l.scanRoot(ctx, canonicalCWD, cwdInfo, claudeCommandsPath, SourceClaudeProject, commands, seen)
+	}
 	if err := ctx.Err(); err != nil {
 		return nil, err
 	}
@@ -272,7 +284,11 @@ func loadCommand(root *os.Root, relative, path string, source Source) (Command, 
 	if readErr != nil || len(raw) > maxTemplateBytes || !utf8.Valid(raw) || strings.IndexByte(string(raw), 0) >= 0 {
 		return Command{}, false
 	}
-	metadata, body, err := parseTemplate(string(raw))
+	parse := parseTemplate
+	if source == SourceClaudeProject {
+		parse = parseClaudeTemplate
+	}
+	metadata, body, err := parse(string(raw))
 	if err != nil || strings.TrimSpace(body) == "" {
 		return Command{}, false
 	}
@@ -311,6 +327,50 @@ func parseTemplate(content string) (templateFrontmatter, string, error) {
 		bodyStart++
 	}
 	return metadata, strings.TrimSpace(remainder[bodyStart:]), nil
+}
+
+// parseClaudeTemplate reads a Claude Code command. Its frontmatter is not
+// required to be valid YAML: Claude Code documents hints such as
+// "argument-hint: [pr-number] [priority]". Only top-level description and
+// argument-hint lines are read, as literal text; every other line is ignored.
+func parseClaudeTemplate(content string) (templateFrontmatter, string, error) {
+	normalized := strings.ReplaceAll(strings.ReplaceAll(content, "\r\n", "\n"), "\r", "\n")
+	if !strings.HasPrefix(normalized, "---\n") {
+		return templateFrontmatter{}, normalized, nil
+	}
+	remainder := normalized[4:]
+	end := delimiterOffset(remainder)
+	if end < 0 {
+		return templateFrontmatter{}, "", errors.New("closing frontmatter delimiter is missing")
+	}
+	var metadata templateFrontmatter
+	for line := range strings.SplitSeq(remainder[:end], "\n") {
+		key, value, ok := strings.Cut(line, ":")
+		if !ok || key != strings.TrimSpace(key) {
+			continue
+		}
+		switch key {
+		case "description":
+			metadata.Description = unquoteFrontmatterValue(value)
+		case "argument-hint":
+			metadata.ArgumentHint = unquoteFrontmatterValue(value)
+		}
+	}
+	bodyStart := end + 3
+	if bodyStart < len(remainder) && remainder[bodyStart] == '\n' {
+		bodyStart++
+	}
+	return metadata, strings.TrimSpace(remainder[bodyStart:]), nil
+}
+
+// unquoteFrontmatterValue trims a literal frontmatter value and removes one
+// pair of matching surrounding quotes.
+func unquoteFrontmatterValue(value string) string {
+	value = strings.TrimSpace(value)
+	if len(value) >= 2 && (value[0] == '"' || value[0] == '\'') && value[len(value)-1] == value[0] {
+		value = value[1 : len(value)-1]
+	}
+	return value
 }
 
 func delimiterOffset(content string) int {
@@ -362,7 +422,7 @@ func normalize(command Command) (Command, error) {
 	if command.Content == "" || len(command.Content) > maxTemplateBytes || !validText(command.Content) {
 		return Command{}, fmt.Errorf("prompt command %q has invalid content", command.Name)
 	}
-	if command.Source != SourceUser && command.Source != SourceProject {
+	if command.Source != SourceUser && command.Source != SourceProject && command.Source != SourceClaudeProject {
 		return Command{}, fmt.Errorf("prompt command %q has invalid source", command.Name)
 	}
 	if !filepath.IsAbs(command.Location) || len(command.Location) > maxLocationBytes || !validRendererText(command.Location) {

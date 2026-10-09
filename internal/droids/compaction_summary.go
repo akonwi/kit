@@ -75,6 +75,8 @@ func compactionInputText(content []InputContent) string {
 			parts = append(parts, value.Text)
 		case AnnotationInput:
 			parts = append(parts, value.Text)
+		case PromptCommandInput:
+			parts = append(parts, value.Text)
 		case FileInput:
 			// Do not embed binary data or expiring/signed source URLs in a summary.
 			parts = append(parts, fmt.Sprintf("[Attachment: %s (%s)]", value.Filename, value.MediaType))

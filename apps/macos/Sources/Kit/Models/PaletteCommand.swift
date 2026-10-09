@@ -32,7 +32,7 @@ struct PaletteCommand: Identifiable {
 
     static func promptCatalog(_ commands: [PromptCommand]) -> [Self] {
         commands.map { .init(id: "prompt:" + $0.name, name: $0.name, description: $0.description,
-                             icon: "text.bubble", aliases: ["/" + $0.name, $0.source, $0.location], prompt: $0) }
+                             icon: "text.bubble", aliases: ["/" + $0.name, $0.sourceLabel, $0.location], prompt: $0) }
     }
 
     static func pluginCatalog(_ commands: [PluginCommand]) -> [Self] {

@@ -177,7 +177,7 @@ func TestCommandPaletteModelFiltersAliasesArgumentsAndWindows(t *testing.T) {
 
 }
 
-func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
+func TestPromptCommandsContributeToPaletteWithArguments(t *testing.T) {
 	t.Parallel()
 	contributions := promptPaletteCommands([]protocol.PromptCommand{{
 		Name: "review", Description: "Review recent changes", ArgumentHint: "<scope>", Source: "project", Location: "/repo/.agents/prompts/review.md",
@@ -195,8 +195,8 @@ func TestPromptCommandsContributeToIdlePaletteWithArguments(t *testing.T) {
 	if !ok || name != "review" || args != `"auth module" carefully` {
 		t.Fatalf("prompt execution = name:%q args:%q found:%v", name, args, ok)
 	}
-	if paletteCommandAvailable(command.ID, true, contributions) {
-		t.Fatal("prompt command remained available during active work")
+	if !paletteCommandAvailable(command.ID, true, contributions) {
+		t.Fatal("prompt command was unavailable during active work")
 	}
 	if commands := paletteCommands([]paletteCommand{{ID: "prompt:quit", Name: "quit"}}); len(commands) != 19 {
 		t.Fatalf("prompt command shadowed a built-in: %#v", commands)
@@ -431,13 +431,28 @@ func TestDisabledCommandReasonSurvivesNarrowLongContribution(t *testing.T) {
 	name := "extraordinarily-long-project-review-command"
 	application := uitest.New(shellView{Snapshot: shellSnapshot{
 		Phase: phaseReady, PaletteOpen: true, PaletteQuery: name, Running: true,
-		PaletteCommands: []paletteCommand{{ID: paletteCommandID("prompt:" + name), Name: name, Description: "Review the current project thoroughly"}},
+		PaletteCommands: []paletteCommand{{ID: paletteCommandID("plugin:review:" + name), Name: name, Description: "Review the current project thoroughly", DisabledReason: "idle only"}},
 		Scroll:          &ui.ScrollController{},
 	}})
 	application.Pump(width, height)
 	rows := paintedRows(application, width, height)
 	// At narrow widths the label yields a third of the row so the reason stays visible.
 	assertDialogRow(t, rows, "extraordinarily", "│▌extraordinarily-long-…  "+glyphCircleSlash+" idle only… │")
+}
+
+func TestClaudeCodePromptCommandsShowClaudeSource(t *testing.T) {
+	t.Parallel()
+	contributions := promptPaletteCommands([]protocol.PromptCommand{{
+		Name: "claude-fix", Description: "Fix a GitHub issue", ArgumentHint: "[issue] [priority]", Source: protocol.PromptCommandSourceClaudeProject, Location: "/repo/.claude/commands/claude-fix.md",
+	}})
+	state := &paletteHarnessState{}
+	state.palette.SetContributions(contributions, true)
+	state.palette.OpenFor(true)
+	state.palette.SetQuery(true, "claude")
+	application := uitest.New(paletteHarness{State: state})
+	application.Pump(80, 24)
+	rows := paintedRows(application, 80, 24)
+	assertDialogRow(t, rows, "Fix a GitHub issue", "│▌claude-fix      [issue] [prior…  Fix a GitHub issue   claude │")
 }
 
 func TestAppDisabledCommandActivationKeepsPaletteOpenAndPresentsToast(t *testing.T) {

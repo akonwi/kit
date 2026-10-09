@@ -121,6 +121,10 @@ private func validUserHistoryMessage(_ message: WireTranscriptMessage) -> Bool {
                   block.argumentsTruncated != true, empty(block.filename), empty(block.mediaType),
                   let annotations = block.annotations, !annotations.isEmpty, annotations.count <= 64 else { return false }
             return (try? annotations.forEach { _ = try FileAnnotation($0) }) != nil
+        case "promptCommand":
+            return block.text?.isEmpty == false && block.name?.isEmpty == false && block.source?.isEmpty == false &&
+                empty(block.toolCallId) && empty(block.toolName) && block.argumentsTruncated != true &&
+                empty(block.filename) && empty(block.mediaType) && (block.annotations?.isEmpty ?? true)
         default:
             return false
         }

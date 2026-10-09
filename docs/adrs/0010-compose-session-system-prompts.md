@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Prompt command discovery sources and invocation records are
+governed by [ADR 0042](0042-discover-project-claude-code-commands-and-record-prompt-command-invocations.md).
 
 ## Context
 
@@ -123,7 +124,7 @@ catalog and activation tool are always derived from the same immutable discovery
 snapshot.
 
 The runtime bundle also carries an immutable registry of user-global and
-project-local prompt commands. Prompt templates are not system-prompt sections:
+project-local prompt commands, including Claude Code commands (ADR 0042). Prompt templates are not system-prompt sections:
 the server exposes renderer-safe command metadata to clients and expands a
 selected template as an ordinary user prompt against the same runtime snapshot.
 Reload replaces prompt commands atomically with prompt, skills, and tools.

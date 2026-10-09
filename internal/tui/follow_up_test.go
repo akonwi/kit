@@ -106,3 +106,48 @@ func TestQueueFollowUpRetainsAnnotationsAndAttachments(t *testing.T) {
 		})
 	}
 }
+
+func TestPromptCommandDuringActiveTurnQueuesWithoutTouchingTheDraft(t *testing.T) {
+	bound := &promptCommandQueueSession{}
+	state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, turnPending: true, composer: "unsent draft"}}
+	application := uitest.New(followUpHarness{state})
+	application.Pump(80, 24)
+	runtime := followUpTestRuntime{callbacks: make(chan func(), 1)}
+	state.runPromptCommand("review", "--staged", false, runtime)
+	select {
+	case apply := <-runtime.callbacks:
+		apply()
+	case <-time.After(time.Second):
+		t.Fatal("queued prompt command did not return")
+	}
+	if bound.name != "review" || bound.args != "--staged" {
+		t.Fatalf("command = %q %q", bound.name, bound.args)
+	}
+	want := protocol.FollowUpQueue{Count: 1, Previews: []string{"/review"}}
+	if !reflect.DeepEqual(state.followUps, want) || state.composer != "unsent draft" || !state.turnPending || state.followUpMutationPending {
+		t.Fatalf("queue = %+v composer = %q turnPending = %v pending = %v", state.followUps, state.composer, state.turnPending, state.followUpMutationPending)
+	}
+}
+
+func TestComposedPromptCommandInvocationRunsTheCommand(t *testing.T) {
+	bound := &promptCommandQueueSession{}
+	state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, turnPending: true, composer: "/review --staged"}}
+	state.palette.Contributions = promptPaletteCommands([]protocol.PromptCommand{{Name: "review", Description: "Review", Source: "project", Location: "/repo/.agents/prompts/review.md"}})
+	application := uitest.New(followUpHarness{state})
+	application.Pump(80, 24)
+	name, args, ok := composerPromptCommand(state.composer, state.palette.Contributions)
+	if !ok {
+		t.Fatalf("composer %q did not invoke a discovered prompt command", state.composer)
+	}
+	runtime := followUpTestRuntime{callbacks: make(chan func(), 1)}
+	state.runPromptCommand(name, args, true, runtime)
+	select {
+	case apply := <-runtime.callbacks:
+		apply()
+	case <-time.After(time.Second):
+		t.Fatal("composed prompt command did not return")
+	}
+	if bound.name != "review" || bound.args != "--staged" || state.composer != "" || state.followUps.Count != 1 {
+		t.Fatalf("command = %q %q composer = %q queue = %+v", bound.name, bound.args, state.composer, state.followUps)
+	}
+}

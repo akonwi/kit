@@ -262,11 +262,45 @@ func (r *runtime) signalEventChangedLocked() {
 // PromptInput is one ordered prompt with optional durable attachments.
 type PromptInput struct {
 	queuedAnnotations *kitannotation.QueuedSubmission
-	followUpPreview   string
+	promptCommand     *promptCommandInvocation
 	fromQueue         bool
 	Text              string
 	AttachmentIDs     []string
 	AnnotationIDs     []uint64
+}
+
+// promptCommandInvocation records the prompt command whose expansion is a
+// prompt's Text. It is immutable once constructed.
+type promptCommandInvocation struct {
+	name      string
+	arguments string
+	source    string
+}
+
+// text is the invocation as the user would type it: "/<name> <arguments>".
+func (invocation *promptCommandInvocation) text() string {
+	text := "/" + invocation.name
+	if arguments := strings.TrimSpace(invocation.arguments); arguments != "" {
+		text += " " + arguments
+	}
+	return text
+}
+
+// expandPromptCommand expands one command from a runtime's immutable snapshot.
+// The caller holds loaded.mu.
+func expandPromptCommand(loaded *runtime, name, args string) (PromptInput, error) {
+	if loaded.bundle.PromptCommands == nil {
+		return PromptInput{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
+	}
+	command, ok := loaded.bundle.PromptCommands.Lookup(name)
+	if !ok {
+		return PromptInput{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
+	}
+	expanded, err := command.Expand(args)
+	if err != nil {
+		return PromptInput{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, name, err)
+	}
+	return PromptInput{Text: expanded, promptCommand: &promptCommandInvocation{name: command.Name, arguments: args, source: string(command.Source)}}, nil
 }
 
 // FollowUpQueue is the renderer-safe state of one session's deferred prompts.
@@ -1539,6 +1573,12 @@ func (m *Manager) RestoreFollowUps(ctx context.Context, sessionID string) (Follo
 			messages[index].queuedAnnotations.Release()
 			messages[index].queuedAnnotations = nil
 		}
+		// A restored prompt command returns as its invocation, so submitting
+		// it again expands the command's current template.
+		if invocation := messages[index].promptCommand; invocation != nil {
+			messages[index].Text = invocation.text()
+			messages[index].promptCommand = nil
+		}
 	}
 	loaded.mu.Lock()
 	loaded.followUps = nil
@@ -1669,7 +1709,7 @@ func validatePromptInput(input PromptInput) error {
 func clonePromptInputs(inputs []PromptInput) []PromptInput {
 	cloned := make([]PromptInput, len(inputs))
 	for index, input := range inputs {
-		cloned[index] = PromptInput{queuedAnnotations: input.queuedAnnotations, fromQueue: input.fromQueue, Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
+		cloned[index] = PromptInput{queuedAnnotations: input.queuedAnnotations, promptCommand: input.promptCommand, fromQueue: input.fromQueue, Text: input.Text, AttachmentIDs: append([]string(nil), input.AttachmentIDs...), AnnotationIDs: append([]uint64(nil), input.AnnotationIDs...)}
 	}
 	return cloned
 }
@@ -1692,7 +1732,9 @@ func (m *Manager) prepareAnnotations(ctx context.Context, loaded *runtime, sessi
 
 func (m *Manager) resolvePromptContent(ctx context.Context, sessionID string, model droids.Model, input PromptInput, annotations []kitannotation.Record, annotationSubmissionID string) ([]droids.InputContent, error) {
 	content := make([]droids.InputContent, 0, len(input.AttachmentIDs)+2)
-	if strings.TrimSpace(input.Text) != "" {
+	if invocation := input.promptCommand; invocation != nil {
+		content = append(content, droids.PromptCommandInput{Name: invocation.name, Arguments: invocation.arguments, Source: invocation.source, Text: input.Text})
+	} else if strings.TrimSpace(input.Text) != "" {
 		content = append(content, droids.TextInput{Text: input.Text})
 	}
 	if len(annotations) > 0 {
@@ -1795,9 +1837,9 @@ func projectFollowUpQueue(messages []PromptInput) FollowUpQueue {
 				seenAnnotations[id] = true
 			}
 		}
-		preview := message.followUpPreview
-		if preview == "" {
-			preview = strings.Join(strings.Fields(message.Text), " ")
+		preview := strings.Join(strings.Fields(message.Text), " ")
+		if message.promptCommand != nil {
+			preview = strings.Join(strings.Fields(message.promptCommand.text()), " ")
 		}
 		if preview == "" && len(message.AttachmentIDs) > 0 {
 			preview = "Attachment"
@@ -1844,25 +1886,12 @@ func (m *Manager) SubmitPromptCommand(ctx context.Context, sessionID, name, args
 		return PromptSubmission{}, err
 	}
 	loaded.mu.Lock()
-	if loaded.bundle.PromptCommands == nil {
-		loaded.mu.Unlock()
-		return PromptSubmission{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
-	}
-	command, ok := loaded.bundle.PromptCommands.Lookup(name)
-	if !ok {
-		loaded.mu.Unlock()
-		return PromptSubmission{}, fmt.Errorf("prompt command %q: %w", name, ErrNotFound)
-	}
-	expanded, err := command.Expand(args)
+	input, err := expandPromptCommand(loaded, name, args)
 	loaded.mu.Unlock()
 	if err != nil {
-		return PromptSubmission{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, name, err)
+		return PromptSubmission{}, err
 	}
-	preview := "/" + name
-	if trimmed := strings.TrimSpace(args); trimmed != "" {
-		preview += " " + trimmed
-	}
-	return m.SubmitPromptInput(ctx, sessionID, PromptInput{Text: expanded, followUpPreview: preview})
+	return m.SubmitPromptInput(ctx, sessionID, input)
 }
 
 func validatePromptCommand(name, args string) error {
@@ -1906,21 +1935,12 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 		return RunReservation{}, fmt.Errorf("%w: restore pending follow-ups before starting a new prompt", ErrBusy)
 	}
 	if commandName != "" {
-		if loaded.bundle.PromptCommands == nil {
-			release()
-			return RunReservation{}, fmt.Errorf("prompt command %q: %w", commandName, ErrNotFound)
-		}
-		command, ok := loaded.bundle.PromptCommands.Lookup(commandName)
-		if !ok {
-			release()
-			return RunReservation{}, fmt.Errorf("prompt command %q: %w", commandName, ErrNotFound)
-		}
-		expanded, err := command.Expand(commandArgs)
+		expanded, err := expandPromptCommand(loaded, commandName, commandArgs)
 		if err != nil {
 			release()
-			return RunReservation{}, fmt.Errorf("%w: expand prompt command %q: %v", ErrInvalidInput, commandName, err)
+			return RunReservation{}, err
 		}
-		input = PromptInput{Text: expanded}
+		input = expanded
 	}
 	snapshot, err := loaded.droid.Snapshot(ctx, droids.SnapshotOptions{RecentMessageLimit: 1})
 	if err != nil {
@@ -2020,6 +2040,9 @@ func (m *Manager) startPrompt(ctx context.Context, sessionID string, input Promp
 	turnID := string(handle.TurnID())
 	mailboxErr := m.acknowledgeConsumedSubagentMailbox(ctx, loaded.droid, turnID, pendingMailbox)
 	livePromptText := input.Text
+	if input.promptCommand != nil {
+		livePromptText = input.promptCommand.text()
+	}
 	if strings.TrimSpace(livePromptText) == "" {
 		if len(input.AnnotationIDs) > 0 {
 			livePromptText = "Annotations"

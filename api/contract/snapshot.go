@@ -388,7 +388,7 @@ func (snapshot SessionSnapshot) Validate() error {
 	for index, command := range snapshot.PromptCommands {
 		if !validPromptCommandName(command.Name) || !validRendererText(command.Description, 1024) ||
 			(command.ArgumentHint != "" && !validRendererText(command.ArgumentHint, 1024)) ||
-			(command.Source != "user" && command.Source != "project") || !filepath.IsAbs(command.Location) || !validRendererText(command.Location, 4096) {
+			!ValidPromptCommandSource(command.Source) || !filepath.IsAbs(command.Location) || !validRendererText(command.Location, 4096) {
 			return fmt.Errorf("snapshot prompt command %d is invalid", index)
 		}
 		if _, duplicate := seenCommands[command.Name]; duplicate {
@@ -672,7 +672,7 @@ func validatePluginMessageDetails(source string, details json.RawMessage) error 
 func contentAllowedForRole(role string, kind TranscriptContentKind) bool {
 	switch role {
 	case "user":
-		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile || kind == TranscriptContentAnnotations
+		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile || kind == TranscriptContentAnnotations || kind == TranscriptContentPromptCommand
 	case "context":
 		return kind == TranscriptContentText || kind == TranscriptContentImage || kind == TranscriptContentFile
 	case "assistant":

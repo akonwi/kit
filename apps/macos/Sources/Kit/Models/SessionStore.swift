@@ -572,7 +572,8 @@ final class SessionStore {
         if !(catalogClient is any PromptCommandClient) { return "Unavailable for this connection" }
         if unavailable { return "Session unavailable" }
         if connectionState != .connected { return "Connect to run" }
-        if running || operations.sending || operations.uncertain || operations.queuePending { return "Idle only" }
+        // During a turn a prompt command joins the follow-up queue.
+        if operations.sending || operations.uncertain || operations.queuePending { return "Wait for the current message" }
         if directoryChange.pending || reloadOperation.pending || compactionOperation.pending || configuration.changing {
             return "Wait for the current change"
         }
@@ -633,7 +634,6 @@ final class SessionStore {
             guard (selected?.promptCommands ?? []).contains(where: { $0.name == command.name }) else {
                 operations.reject("Unknown prompt command: /" + command.name); return
             }
-            guard !running else { operations.reject("Wait for the current turn before running a prompt command."); return }
             guard attachmentIDs.isEmpty, notes.isEmpty, annotationIDs.isEmpty else {
                 operations.reject("Prompt commands do not accept attachments or annotations."); return
             }

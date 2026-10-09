@@ -4525,7 +4525,7 @@ func (s *appState) runPaletteCommand(ctx ui.EventContext, commandID paletteComma
 	s.inputGeneration++
 	s.SetState(func() { s.palette.Close() })
 	if name, ok := promptPaletteCommandName(commandID); ok {
-		s.submitPromptCommand(name, args)
+		s.runPromptCommand(name, args, false, s.Context().Runtime())
 		return
 	}
 	switch commandID {
@@ -7178,6 +7178,16 @@ func (s *appState) submit(_ ui.EventContext, value string) {
 		s.startDirectBash(value, command, excludeFromContext)
 		return
 	}
+	// A composed invocation of a discovered prompt command, such as one recalled
+	// from history or restored from the follow-up queue, runs the command.
+	if name, args, ok := composerPromptCommand(text, s.palette.Contributions); ok {
+		if len(attachmentIDs) > 0 || len(annotationIDs) > 0 || len(s.composerAttachments) > 0 {
+			s.showToast(toastInput{Title: "Prompt commands do not accept attachments or annotations", Variant: toastWarning})
+			return
+		}
+		s.runPromptCommand(name, args, true, s.Context().Runtime())
+		return
+	}
 	if s.turnPending {
 		s.queueFollowUp(text, s.Context().Runtime())
 		return
@@ -7213,21 +7223,54 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 	if s.followUpMutationPending || !supportsFollowUps(s.bound) {
 		return
 	}
-	bound, operation, submittedDraft := s.bound, s.operation, s.composer
+	bound, submittedDraft := s.bound, s.composer
 	submittedGeneration := s.composerDraftGeneration
 	submittedAttachments := s.composerPromptAttachmentIDs()
 	submittedAnnotations := s.annotationIDs()
 	submittedRows := append([]stagedAttachment(nil), s.composerAttachments...)
-	ctx := s.ctx
+	clearSubmittedDraft := func() {
+		if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
+			s.composer = ""
+			s.composerAttachmentIDs = nil
+			s.composerAttachments = nil
+		}
+	}
+	s.queueSubmission(queuedSubmission{
+		display: text, failureTitle: "Could not queue follow-up",
+		submit: func(ctx context.Context) (PromptSubmission, error) {
+			if supportsStructuredPrompts(bound) {
+				return submitPromptInput(ctx, bound, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
+			}
+			return submitFollowUp(ctx, bound, text)
+		},
+		accepted: clearSubmittedDraft,
+		rejected: func() {
+			if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
+				s.composerAttachments = submittedRows
+			}
+		},
+	}, runtime)
+}
+
+// queuedSubmission is a prompt submitted while a turn is active. The server
+// queues it as a follow-up, or starts it when the active turn already ended.
+type queuedSubmission struct {
+	// display is the live user message shown if the submission starts a turn.
+	display      string
+	failureTitle string
+	submit       func(context.Context) (PromptSubmission, error)
+	// accepted runs inside SetState once the server queued or started it.
+	accepted func()
+	// rejected runs inside SetState when the submission failed.
+	rejected func()
+}
+
+func (s *appState) queueSubmission(submission queuedSubmission, runtime ui.Runtime) {
+	bound, operation, ctx := s.bound, s.operation, s.ctx
+	text := submission.display
 	s.SetState(func() { s.followUpMutationPending = true })
 	go func() {
-		var result PromptSubmission
-		var err error
-		if supportsStructuredPrompts(bound) {
-			result, err = submitPromptInput(ctx, bound, protocol.PromptInput{Text: text, AttachmentIDs: submittedAttachments, AnnotationIDs: submittedAnnotations})
-		} else {
-			result, err = submitFollowUp(ctx, bound, text)
-		}
+		result, err := submission.submit(ctx)
 		var snapshot protocol.SessionSnapshot
 		var snapshotErr error
 		if err == nil && !result.Queued {
@@ -7248,11 +7291,7 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 				}
 				if result.Queued {
 					s.followUps = result.Queue
-					if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
-						s.composer = ""
-						s.composerAttachmentIDs = nil
-						s.composerAttachments = nil
-					}
+					submission.accepted()
 					return
 				}
 				if snapshotErr == nil {
@@ -7266,19 +7305,11 @@ func (s *appState) queueFollowUp(text string, runtime ui.Runtime) {
 				}
 				s.activeTurn = result.Turn
 				s.activeTurnID = result.Turn.ID()
-				if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
-					s.composer = ""
-					s.composerAttachmentIDs = nil
-					s.composerAttachments = nil
-				}
+				submission.accepted()
 			})
 			if err != nil {
-				s.SetState(func() {
-					if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
-						s.composerAttachments = submittedRows
-					}
-				})
-				s.showToast(toastInput{Title: "Could not queue follow-up", Subtitle: err.Error(), Variant: toastError})
+				s.SetState(submission.rejected)
+				s.showToast(toastInput{Title: submission.failureTitle, Subtitle: err.Error(), Variant: toastError})
 				return
 			}
 			if !result.Queued {
@@ -7386,7 +7417,10 @@ func (s *appState) promoteFollowUps() {
 	}()
 }
 
-func (s *appState) submitPromptCommand(name, args string) {
+// runPromptCommand submits a prompt command. fromComposer reports that the
+// composer draft is the command's invocation, which a queued command clears.
+// runtime receives the result of a command queued behind an active turn.
+func (s *appState) runPromptCommand(name, args string, fromComposer bool, runtime ui.Runtime) {
 	if s.bound == nil || s.daemonIncompatible {
 		return
 	}
@@ -7395,6 +7429,31 @@ func (s *appState) submitPromptCommand(name, args string) {
 		display += " " + trimmed
 	}
 	bound := s.bound
+	if s.turnPending {
+		if s.followUpMutationPending || !supportsPromptCommandQueue(bound) {
+			s.showToast(toastInput{Title: "Run in progress", Subtitle: "Run the command when the session is idle.", Variant: toastInfo})
+			return
+		}
+		// A palette query is not the composer draft, so a command run from
+		// the palette leaves the draft alone.
+		accepted := func() {}
+		if fromComposer {
+			submittedDraft, submittedGeneration := s.composer, s.composerDraftGeneration
+			accepted = func() {
+				if s.composer == submittedDraft && s.composerDraftGeneration == submittedGeneration {
+					s.composer = ""
+				}
+			}
+		}
+		s.queueSubmission(queuedSubmission{
+			display: display, failureTitle: "Could not queue prompt command",
+			submit: func(ctx context.Context) (PromptSubmission, error) {
+				return submitPromptCommand(ctx, bound, name, args)
+			},
+			accepted: accepted, rejected: func() {},
+		}, runtime)
+		return
+	}
 	s.startPromptSubmission(display, func(ctx context.Context) (Turn, error) {
 		result, err := submitPromptCommand(ctx, bound, name, args)
 		if err != nil {

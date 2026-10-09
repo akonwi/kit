@@ -3,6 +3,7 @@ package tui
 import (
 	"sort"
 	"strings"
+	"unicode"
 
 	protocol "github.com/akonwi/kit/api/contract"
 	"go.rockorager.dev/vaxis"
@@ -299,9 +300,6 @@ func paletteCommandDisabledReason(commandID paletteCommandID, running bool, cont
 	if !running {
 		return ""
 	}
-	if _, prompt := promptPaletteCommandName(commandID); prompt {
-		return "idle only"
-	}
 	switch commandID {
 	case paletteCommandCD, paletteCommandCompact:
 		return "idle only"
@@ -349,11 +347,37 @@ func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
 	result := make([]paletteCommand, 0, len(commands))
 	for _, command := range commands {
 		result = append(result, paletteCommand{
-			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name, Source: string(command.Source),
-			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{command.Source, command.Location},
+			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name, Source: promptCommandSourceLabel(command.Source),
+			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{promptCommandSourceLabel(command.Source), command.Location},
 		})
 	}
 	return result
+}
+
+// composerPromptCommand parses composer text that invokes a discovered prompt
+// command: "/<name>" followed by optional arguments after whitespace.
+func composerPromptCommand(text string, contributions []paletteCommand) (name, args string, ok bool) {
+	rest, slash := strings.CutPrefix(text, "/")
+	if !slash {
+		return "", "", false
+	}
+	end := strings.IndexFunc(rest, unicode.IsSpace)
+	if end < 0 {
+		end = len(rest)
+	}
+	name, args = rest[:end], strings.TrimLeftFunc(rest[end:], unicode.IsSpace)
+	if name == "" || !paletteCommandExists(paletteCommandID("prompt:"+name), contributions) {
+		return "", "", false
+	}
+	return name, args, true
+}
+
+// promptCommandSourceLabel is the palette label of a prompt command source.
+func promptCommandSourceLabel(source string) string {
+	if source == protocol.PromptCommandSourceClaudeProject {
+		return "claude"
+	}
+	return source
 }
 
 func promptPaletteCommandName(id paletteCommandID) (string, bool) {

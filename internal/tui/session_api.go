@@ -165,6 +165,18 @@ func promoteFollowUps(ctx context.Context, bound boundSession) (protocol.Promote
 	return bound.(FollowUpSession).PromoteFollowUps(ctx)
 }
 
+// supportsPromptCommandQueue reports whether a session queues prompt commands
+// submitted during an active turn.
+func supportsPromptCommandQueue(bound boundSession) bool {
+	if _, ok := bound.(*kit.Session); ok {
+		return true
+	}
+	_, ok := bound.(interface {
+		SubmitPromptCommand(context.Context, string, string) (PromptSubmission, error)
+	})
+	return ok
+}
+
 func submitPromptCommand(ctx context.Context, bound boundSession, name, args string) (PromptSubmission, error) {
 	if public, ok := bound.(*kit.Session); ok {
 		result, err := public.SubmitPromptCommand(ctx, name, args)

@@ -145,6 +145,9 @@ enum SessionProjection {
         content.compactMap { block -> String? in
             switch block.kind.rawValue {
             case "text": return block.text
+            // A prompt command reads, and is recalled, as the invocation the
+            // user typed; its expansion is model input only.
+            case "promptCommand": return block.promptCommandInvocation
             default: return nil
             }
         }.filter { !$0.isEmpty }.joined(separator: "\n\n")
