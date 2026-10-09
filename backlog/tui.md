@@ -90,8 +90,11 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   (one expanded at a time; a just-sent prompt's first image starts expanded,
   history starts collapsed), and clicking the preview opens a private
   temporary copy in the default application. Ctrl+Shift+W deletes the next
-  word. Remaining: history recall, bash mode and history, file and session
-  mentions, and annotation chips. Tool-result image
+  word. ↑ on a blank draft with nothing queued opens message history in an
+  inline picker above the composer: up to 500 recent prompts without repeats,
+  oldest first with the newest selected, filtered by the draft; Enter or a
+  click recalls a prompt and Escape closes it. Remaining: bash mode and
+  history, file and session mentions, and annotation chips. Tool-result image
   previews belong to TUI-COOPER-005 and a workspace image pane to
   TUI-COOPER-008.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
