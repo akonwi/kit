@@ -1562,7 +1562,7 @@ test fn ctrl_c_clears_staged_files_before_quitting() Void!Str {
   let renderer = mount_ready(terminal, subject)
   defer renderer.destroy()
   terminal.flush()
-  try testing::assert(terminal.frame().text().contains("attachment notes.txt"), "the file is staged")
+  try testing::assert(terminal.frame().text().contains("📎 notes.txt"), "the file is staged")
 
   terminal.key(
     event::key(
@@ -1583,7 +1583,7 @@ test fn ctrl_c_clears_staged_files_before_quitting() Void!Str {
     quits.size() == 0 and subject.attached.attachments.size() == 0,
     "the first Ctrl+C clears the staged file",
   )
-  try testing::assert(not terminal.frame().text().contains("attachment notes.txt"), "the chip is gone")
+  try testing::assert(not terminal.frame().text().contains("📎 notes.txt"), "the chip is gone")
 
   terminal.key(
     event::key(
