@@ -129,7 +129,8 @@ struct Shell {
   session_scope_id: Int,
   // The current attachment owns session state and session-scoped operations.
   attached: mut attached_session::Controller,
-  composer_mode: Str,
+  // Whether the composer is the Bash panel, which brings its own frame.
+  composer_bash: Bool,
   composer_control: mut composer::Ref,
   dock_control: mut interaction_dock::Ref,
   // Whether the last render presented the interaction dock, so focus can
@@ -169,7 +170,7 @@ fn new(props: mut Props) mut Shell {
     pending_attachment_location: "",
     session_scope_id: 0,
     attached: attached_session::detached(props.options, inert_attachment_host()),
-    composer_mode: "",
+    composer_bash: false,
     composer_control: composer::ref(),
     dock_control: interaction_dock::ref(),
     dock_shown: false,
@@ -338,13 +339,7 @@ impl Shell {
       self.attached.recovery_status(),
       self.attached.follow_ups.Count,
     )
-    chrome::footer(
-      self.props.themes,
-      connection,
-      status,
-      self.composer_mode,
-      self.attached.location,
-    )
+    chrome::footer(self.props.themes, connection, status, self.attached.location)
   }
 }
 
@@ -443,17 +438,10 @@ impl Shell {
     if self.workspace == WorkspacePane::agent and not docked {
       children.push(self.pending_row())
     }
-    // The dock's frame separates it from the workspace and footer. A draft
-    // that runs a shell command tints the composer's divider.
-    if not docked {
-      children.push(
-        layout::divider(
-          match self.composer_mode != "" {
-            true => colors.success_text,
-            false => colors.border,
-          },
-        ),
-      )
+    // The dock's frame, or the Bash panel's, separates it from the
+    // workspace and footer.
+    if not self.framed() {
+      children.push(layout::divider(colors.border))
     }
     // The composer stays mounted behind the dock so its draft survives.
     children.push(
@@ -713,8 +701,8 @@ impl Shell {
         open_palette: fn() {
           self.request_composer_palette()
         },
-        mode_changed: fn(mode: Str) {
-          self.apply_composer_mode(mode)
+        bash_changed: fn(bash: Bool) {
+          self.apply_composer_bash(bash)
         },
       },
     )
@@ -854,11 +842,11 @@ impl Shell {
     }
   }
 
-  fn mut apply_composer_mode(mode: Str) {
+  fn mut apply_composer_bash(bash: Bool) {
     match self.context {
       context => {
         let _ = context.dispatch(fn() {
-          self.composer_mode = mode
+          self.composer_bash = bash
         })
       },
       _ => (),
@@ -1034,9 +1022,10 @@ impl Shell {
     self.notifications.show(title, detail, variant, persistent)
   }
 
-  // The rule above the footer; the interaction dock's frame replaces it.
+  // The rule above the footer; the interaction dock's frame, or the Bash
+  // panel's, replaces it.
   fn footer_rule(colors: theme::Theme) cui::View {
-    match self.docked() {
+    match self.framed() {
       true => cui::box([], styles: ui::style(height: ui::cells(0), flex_shrink: 0.0)),
       false => layout::divider(colors.border),
     }
@@ -1045,6 +1034,12 @@ impl Shell {
   // Whether the interaction dock replaces the composer.
   fn docked() Bool {
     self.phase == Phase::ready and self.attached.interaction().is_some()
+  }
+
+  // Whether the dock or the Bash panel is drawn in its own frame, in place of
+  // the rules around the composer.
+  fn framed() Bool {
+    self.docked() or self.phase == Phase::ready and self.composer_bash
   }
 
   // Whether no root dialog is open.
@@ -1492,7 +1487,7 @@ impl Shell {
     self.pending_attachment_location = ""
     self.session_scope_id = self.session_scope_id + 1
     self.transcript_control = transcript_pane::control()
-    self.composer_mode = ""
+    self.composer_bash = false
     let _ = self.composer_control.reset()
     self.notifications.clear()
     self.workspace = WorkspacePane::agent
@@ -1571,7 +1566,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
   let previous = subject.attached
   previous.active = true
   let first_scope = subject.session_scope_id
-  subject.composer_mode = "old mode"
+  subject.composer_bash = true
   subject.notify("Old session warning", "", toast::Variant::warning, true)
   subject.workspace = WorkspacePane::scratchpad
   subject.scratchpad_open = true
@@ -1580,7 +1575,7 @@ test fn a_new_session_scope_disposes_the_attachment_and_resets_root_presentation
 
   try testing::assert(subject.session_scope_id != first_scope, "reattachment starts a new scope")
   try testing::assert(not previous.active, "the previous attachment rejects late completions")
-  try testing::assert(subject.composer_mode == "", "the previous composer mode resets")
+  try testing::assert(not subject.composer_bash, "the previous Bash panel closes")
   try testing::assert(subject.notifications.pending_count() == 0, "session notifications reset")
   testing::assert(
     subject.workspace == WorkspacePane::agent and not subject.scratchpad_open,

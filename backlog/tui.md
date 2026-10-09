@@ -104,11 +104,20 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
     from the session's persisted context, so they keep their place across
     snapshots and reattaching; `!!` runs are not persisted and leave at the
     next snapshot.
+  - [x] Bash panel: as in the macOS app, a draft starting with `!` turns the
+    composer into a Bash panel in the interaction dock's frame, with a title
+    row, a rule, and the field, in place of the rules around the composer.
+    The field hides the `!`; the header's clickable "In context" / "Not in
+    context" switches to `!!` and back, as do `!` and Backspace at the start
+    of the field. Escape leaves the panel, keeping the command as a prompt
+    draft, and Backspace on an empty command leaves it too. Escape closes
+    history, then the panel, then stops a command, then the turn.
   - [x] Bash history: ↑/↓ in bash mode open earlier commands in an inline
-    picker, listed as `!command` or `!!command` and filtered by the command
-    after the prefix. It opens on the finished commands shown, then the
-    session's ten newest replace them; moving up past the oldest reads older
-    pages of 100, up to five, before wrapping. Leaving bash mode closes it.
+    picker resting above the caret, listed as `!command` or `!!command` and
+    filtered by the command after the prefix. It opens on the finished
+    commands shown, then the session's ten newest replace them; moving up
+    past the oldest reads older pages of 100, up to five, before wrapping.
+    Leaving bash mode closes it.
   - [ ] File mentions: `@` opens an inline file picker that inserts
     `@path`.
   - [ ] Session mentions: `#` opens an inline session picker that inserts
