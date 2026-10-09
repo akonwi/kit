@@ -236,93 +236,87 @@ fn same(left: ui::Color, right: ui::Color) Bool {
   left.red == right.red and left.green == right.green and left.blue == right.blue
 }
 
-test fn staged_files_show_their_state_and_remove_on_click() Void!Str {
-  let themes = theme::context(theme::store(theme::system()))
-  let colors = themes.current()
-  let removed = mut List::new<Int>()
+fn staged(rejecting_model: Str, removed: mut [Int]) chrome::Pending {
   let failed = mut attachments::uploading(3, "/tmp/big.log", "text/plain")
   failed.uploading = false
   failed.failure = "too large"
-  let view = chrome::pending_row(
-    themes,
-    chrome::Pending{
-      notice: "",
-      activity: "",
-      follow_ups: protocol::FollowUpQueue{Count: 0},
-      attachments: [
-        attachments::uploaded(
-          protocol::AttachmentInfo{
-            ID: "attachment-1",
-            Filename: "screenshot.png",
-            MediaType: "image/png",
-          },
-        ),
-        attachments::uploading(2, "/tmp/notes.txt", "text/plain"),
-        failed.@,
-      ],
-      rejecting_model: "",
-      remove_attachment: fn(index: Int) {
-        removed.push(index)
-      },
+  chrome::Pending{
+    notice: "",
+    activity: "",
+    follow_ups: protocol::FollowUpQueue{Count: 0},
+    attachments: [
+      attachments::uploaded(
+        protocol::AttachmentInfo{
+          ID: "attachment-1",
+          Filename: "screenshot.png",
+          MediaType: "image/png",
+        },
+      ),
+      attachments::uploading(2, "/tmp/notes.txt", "text/plain"),
+      failed.@,
+    ],
+    rejecting_model: rejecting_model,
+    remove_attachment: fn(index: Int) {
+      removed.push(index)
     },
-  )
-  let terminal = headless::new(40, 4)
+  }
+}
+
+test fn staged_files_are_chips_that_wrap() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let removed = mut List::new<Int>()
+  let terminal = headless::new(44, 4)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let renderer = cui::mount(app, view)
+  let renderer = cui::mount(app, chrome::pending_row(themes, staged("", removed)))
   defer renderer.destroy()
   terminal.flush()
   try expect_rows(
     rows(terminal),
-    [
-      "",
-      " attachment screenshot.png            ×",
-      " attachment notes.txt uploading…      ×",
-      " attachment big.log upload failed     ×",
-    ],
+    ["", "  📎 screenshot.png ×   📎 notes.txt ⠋ ×", "  📎 big.log ×", ""],
   )
-  try testing::assert(same(color_at(terminal, 1, 1), colors.primary_text), "the marker is accented")
-  try testing::assert(same(color_at(terminal, 12, 2), colors.muted), "an upload is muted")
-  try testing::assert(same(color_at(terminal, 12, 3), colors.danger_text), "a failure is dangerous")
+  let colors = themes.current()
+  let cell = fn(x: Int, y: Int) ui::TextStyle {
+    terminal.frame().cell(x, y).expect("cell").style
+  }
+  let is = fn(color: ui::Color?, expected: ui::Color) Bool {
+    match color {
+      value => same(value, expected),
+      _ => false,
+    }
+  }
+  try testing::assert(
+    is(cell(1, 1).background, colors.surface) and is(cell(21, 1).background, colors.surface),
+    "a chip is filled from its glyph through its ×",
+  )
+  try testing::assert(not is(cell(22, 1).background, colors.surface), "chips are separated by a gap")
+  try testing::assert(is(cell(5, 1).foreground, colors.foreground), "an uploaded file")
+  try testing::assert(is(cell(27, 1).foreground, colors.muted), "an upload in progress")
+  try testing::assert(is(cell(5, 2).foreground, colors.danger_text), "a failed upload")
+  try testing::assert(is(cell(20, 1).foreground, colors.muted), "a muted ×")
 
-  terminal.click(38, 2)
+  terminal.click(39, 1)
   terminal.flush()
   testing::assert(
     removed.size() == 1 and removed.at(0).or(-1) == 1,
-    "clicking × removes that file",
+    "each chip's × removes that file: {removed.size()}",
   )
 }
 
-test fn staged_images_warn_when_the_model_cannot_receive_them() Void!Str {
+test fn a_staged_image_the_model_cannot_receive_is_a_warning() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let view = chrome::pending_row(
-    themes,
-    chrome::Pending{
-      notice: "",
-      activity: "",
-      follow_ups: protocol::FollowUpQueue{Count: 0},
-      attachments: [
-        attachments::uploaded(
-          protocol::AttachmentInfo{
-            ID: "attachment-1",
-            Filename: "a.png",
-            MediaType: "image/png",
-          },
-        ),
-      ],
-      rejecting_model: "GPT 5.6 Sol",
-      remove_attachment: fn(index: Int) {},
-    },
-  )
-  let terminal = headless::new(52, 2)
+  let removed = mut List::new<Int>()
+  let terminal = headless::new(60, 2)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
-  let renderer = cui::mount(app, view)
+  let renderer = cui::mount(app, chrome::pending_row(themes, staged("GPT 5.6 Sol", removed)))
   defer renderer.destroy()
   terminal.flush()
-  try expect_rows(rows(terminal), ["", " attachment a.png not supported by GPT 5.6 Sol    ×"])
+  let colors = themes.current()
+  let image = terminal.frame().cell(5, 1).expect("image").style.foreground.expect("color")
+  let text = terminal.frame().cell(27, 1).expect("text").style.foreground.expect("color")
   testing::assert(
-    same(color_at(terminal, 12, 1), themes.current().warning_text),
-    "the unsupported image is a warning",
+    same(image, colors.warning_text) and same(text, colors.muted),
+    "only the image is a warning",
   )
 }
