@@ -52,3 +52,28 @@ func TestMessagesCarryTheirSessionSequence(t *testing.T) {
 		t.Fatalf("Messages() = %#v, want %#v", got, []Message{want})
 	}
 }
+
+func TestEventsProjectsPluginMessages(t *testing.T) {
+	projected := Events([]protocol.SessionEvent{{
+		Sequence: 2, TurnID: "turn_1",
+		Payload: protocol.PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue the experiment loop."},
+	}})
+	if len(projected) != 1 || projected[0].Kind != "plugin.message.added" || projected[0].PluginID != "autoresearch" || projected[0].Text != "Continue the experiment loop." {
+		t.Fatalf("Events() = %+v, want the plugin message", projected)
+	}
+}
+
+func TestMessagesProjectPersistedPluginMessages(t *testing.T) {
+	got := Messages([]protocol.TranscriptMessage{{
+		ID: "pluginmsg_1", TurnID: "turn_1", Sequence: 1, Role: "context",
+		BoundaryID: "pluginmsg_1", BoundaryKind: protocol.PluginMessageBoundaryKind, BoundarySource: "autoresearch",
+		Content: []protocol.TranscriptContent{protocol.TextBlock("Continue the experiment loop.")},
+	}})
+	want := Message{
+		ID: "pluginmsg_1", TurnID: "turn_1", Sequence: 1, Role: "plugin", PluginID: "autoresearch",
+		Content: []Content{{Kind: "text", Text: "Continue the experiment loop."}},
+	}
+	if len(got) != 1 || !reflect.DeepEqual(got[0], want) {
+		t.Fatalf("Messages() = %#v, want %#v", got, []Message{want})
+	}
+}

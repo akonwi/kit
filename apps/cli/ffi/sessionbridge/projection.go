@@ -28,6 +28,8 @@ type Event struct {
 	Scratchpad       *protocol.Scratchpad
 	Interaction      *protocol.InteractionRequest
 	InteractionID    string
+	// PluginID identifies the plugin that submitted a plugin message.
+	PluginID string
 }
 
 // Content is the client-owned flat projection of transcript content.
@@ -56,6 +58,9 @@ type Message struct {
 	StopReason   string
 	// Bash is set for a persisted bash run, whose Role is then "bash".
 	Bash *Bash
+	// PluginID identifies the plugin that submitted a message whose Role is
+	// "plugin".
+	PluginID string
 }
 
 // Events projects canonical event unions for the Ard client.
@@ -66,6 +71,8 @@ func Events(source []protocol.SessionEvent) []Event {
 		switch payload := event.Payload.(type) {
 		case protocol.UserMessageAddedEvent:
 			projected.Text = payload.Text
+		case protocol.PluginMessageAddedEvent:
+			projected.Text, projected.PluginID = payload.Text, payload.PluginID
 		case protocol.AssistantStartedEvent:
 			projected.MessageID, projected.Text, projected.Thinking = payload.MessageID, payload.Text, payload.Thinking
 		case protocol.AssistantTextDeltaEvent:
@@ -114,6 +121,8 @@ func Messages(source []protocol.TranscriptMessage) []Message {
 		if message.Role == "context" {
 			if bash, ok := bashBoundary(message.BoundaryID, message.BoundaryKind, message.Content, message.Details); ok {
 				projected.Role, projected.Bash = "bash", &bash
+			} else if message.BoundaryKind == protocol.PluginMessageBoundaryKind {
+				projected.Role, projected.PluginID = "plugin", message.BoundarySource
 			}
 		}
 		result = append(result, projected)

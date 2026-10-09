@@ -2,6 +2,8 @@ use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:github.com/akonwi/vaxis
+use go:kit/ffi/pluginmessage
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/controls
@@ -87,6 +89,14 @@ struct Bash {
   toggle: fn(Str),
 }
 
+// Plugin-submitted messages. Clicking one's row expands or collapses it.
+struct Plugins {
+  // Turn IDs whose plugin message is expanded. A plugin message keeps its
+  // turn ID from the live event through the persisted transcript.
+  expanded: [Str: Bool],
+  toggle: fn(Str),
+}
+
 // Output lines a bash row shows before summarizing the rest.
 let bash_visible_lines = 20
 
@@ -97,6 +107,7 @@ struct Props {
   history: History,
   images: Images,
   bash: Bash,
+  plugins: Plugins,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
   load_older: fn(),
@@ -266,6 +277,7 @@ impl Pane {
     let themes = self.props.themes
     let images = self.props.images
     let bash = self.props.bash
+    let plugins = self.props.plugins
     let colors = themes.current()
     self.tail_key = ""
     self.tail_is_reply = false
@@ -320,7 +332,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, images, bash, entry),
+              false => transcript_row(themes, images, bash, plugins, entry),
             }
           },
           estimated_height: 4,
@@ -446,13 +458,19 @@ impl cui::Component for Pane {
 }
 
 // Each row keeps a blank row above it; the last also keeps one below.
-private fn transcript_row(themes: theme::Context, images: Images, bash: Bash, entry: Entry) cui::View {
+private fn transcript_row(
+  themes: theme::Context,
+  images: Images,
+  bash: Bash,
+  plugins: Plugins,
+  entry: Entry,
+) cui::View {
   let bottom = match entry.last {
     true => 1,
     false => 0,
   }
   cui::box(
-    [entry_view(themes, images, bash, entry.key, entry.message).or(layout::blank())],
+    [entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank())],
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -474,6 +492,7 @@ private fn renders(message: transcript::Message) Bool {
     transcript::Role::assistant => message.text != "" and not message.pending,
     transcript::Role::tool => true,
     transcript::Role::bash => message.bash.is_some(),
+    transcript::Role::plugin => message.text != "",
     transcript::Role::other => false,
   }
 }
@@ -482,6 +501,7 @@ private fn entry_view(
   themes: theme::Context,
   images: Images,
   bash: Bash,
+  plugins: Plugins,
   key: Str,
   message: transcript::Message,
 ) cui::View? {
@@ -516,6 +536,7 @@ private fn entry_view(
         _ => Maybe::new<cui::View>(),
       }
     },
+    transcript::Role::plugin => Maybe::new(plugin_entry(themes, plugins, message)),
     transcript::Role::other => Maybe::new<cui::View>(),
   }
 }
@@ -750,6 +771,199 @@ private fn bash_entry(colors: theme::Theme, bash: Bash, run: sessionbridge::Bash
       overflow: ui::Overflow::hidden,
     ),
   )
+}
+
+// A plugin-submitted message, as in the vaxis client: one quiet row naming
+// the plugin and summarizing the message's first line. A message of several
+// lines, or one line too long for the row, expands to show it in full beneath
+// a left rule; a single line that fits is shown whole and does not expand.
+// The message is context the plugin gave the agent, so it stays subordinate
+// to user and assistant messages.
+fn plugin_entry(themes: theme::Context, plugins: Plugins, message: transcript::Message) cui::View {
+  cui::child(
+    new_plugin_row,
+    PluginRowProps{
+      themes: themes,
+      plugins: plugins,
+      message: message,
+    },
+    key: "plugin",
+  )
+}
+
+private struct PluginRowProps {
+  themes: theme::Context,
+  plugins: Plugins,
+  message: transcript::Message,
+}
+
+private struct PluginRow {
+  props: mut PluginRowProps,
+  header: mut cui::BoxRef,
+  // Whether the one-line row cuts the message's summary, as last laid out.
+  overflows: Bool,
+}
+
+private fn new_plugin_row(props: mut PluginRowProps) mut PluginRow {
+  (mut PluginRow{
+    props: props,
+    header: cui::box_ref(),
+    overflows: false,
+  })
+}
+
+impl cui::Lifecycle for PluginRow {
+  fn mut mounted(context: cui::Context) {
+    // Measured after each layout and before painting, so a row never paints
+    // with a toggle it no longer needs, or without one it now needs.
+    let _ = context.internal_layout(fn() Bool {
+      self.measure()
+    })
+  }
+
+  fn mut unmounting(context: cui::Context) {}
+}
+
+impl PluginRow {
+  // Updates whether the summary overflows the row. Returns whether it changed.
+  private fn mut measure() Bool {
+    match self.header.current {
+      header => {
+        let width = header.layout().local.width
+        let message = self.props.message
+        let summary = pluginmessage::Summary(strings::TrimSpace(message.text))
+        let overflows = width > 0 and display_width("◆ {message.plugin_id} · {summary}") > width
+        let changed = overflows != self.overflows
+        self.overflows = overflows
+        changed
+      },
+      _ => false,
+    }
+  }
+}
+
+private fn display_width(value: Str) Int {
+  mut width = 0
+  for character in vaxis::Characters(value) {
+    width =+ character.Width
+  }
+  width
+}
+
+impl cui::Component for PluginRow {
+  fn mut render() cui::View {
+    let themes = self.props.themes
+    let plugins = self.props.plugins
+    let message = self.props.message
+    let colors = themes.current()
+    let turn_id = message.turn_id
+    let text = strings::TrimSpace(message.text)
+    let foldable = strings::Contains(text, "\n") or self.overflows
+    let expanded = foldable and plugins.expanded.get(turn_id).or(false)
+    let identity = ui::text_style(foreground: colors.accent_text)
+    let muted = ui::text_style(foreground: colors.muted)
+    let fixed = fn(value: Str, style: ui::TextStyle) cui::View {
+      cui::text(
+        value,
+        styles: ui::style(flex_shrink: 0.0),
+        text_style: style,
+        wrap: ui::TextWrap::none,
+      )
+    }
+    let toggle = plugins.toggle
+    let row = mut List::new<cui::View>()
+    row.push(fixed("◆ ", identity))
+    row.push(fixed(message.plugin_id, identity))
+    row.push(fixed(" · ", muted))
+    row.push(
+      cui::text(
+        pluginmessage::Summary(text),
+        styles: ui::style(flex_shrink: 1.0, min_width: ui::cells(0)),
+        text_style: muted,
+        wrap: ui::TextWrap::none,
+        overflow: ui::TextOverflow::ellipsis,
+      ),
+    )
+    if foldable {
+      row.push(
+        fixed(
+          match expanded {
+            true => " ▾",
+            false => " ▸",
+          },
+          muted,
+        ),
+      )
+    }
+    let header = cui::box(
+      row.@,
+      ref: self.header,
+      styles: ui::style(
+        height: ui::cells(1),
+        flex_direction: ui::FlexDirection::row,
+        flex_shrink: 0.0,
+      ),
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if foldable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          toggle(turn_id)
+          received.prevent_default()
+        }
+      },
+    )
+    match expanded {
+      false => header,
+      true => {
+        cui::box(
+          [
+            header,
+            cui::box(
+              [
+                // The rule spans the message without adding to its height.
+                cui::text(
+                  strings::Repeat("│\n", 1023) + "│",
+                  styles: ui::style(
+                    position: ui::Position::absolute,
+                    top: ui::cells(0),
+                    bottom: ui::cells(0),
+                    left: ui::cells(0),
+                    width: ui::cells(1),
+                    overflow: ui::Overflow::hidden,
+                  ),
+                  text_style: ui::text_style(foreground: colors.border),
+                  wrap: ui::TextWrap::none,
+                ),
+                cui::box(
+                  [markdown::view(themes, "transcript-plugin:{turn_id}", text, base: muted)],
+                  styles: ui::style(
+                    flex_direction: ui::FlexDirection::column,
+                    padding: ui::Edges{
+                      top: ui::cells(0),
+                      right: ui::cells(0),
+                      bottom: ui::cells(0),
+                      left: ui::cells(2),
+                    },
+                  ),
+                ),
+              ],
+              styles: ui::style(
+                position: ui::Position::relative,
+                flex_direction: ui::FlexDirection::column,
+                flex_shrink: 0.0,
+                overflow: ui::Overflow::hidden,
+                margin: ui::Edges{
+                  top: ui::cells(0),
+                  right: ui::cells(0),
+                  bottom: ui::cells(0),
+                  left: ui::cells(2),
+                },
+              ),
+            ),
+          ],
+          styles: ui::style(flex_direction: ui::FlexDirection::column, flex_shrink: 0.0),
+        )
+      },
+    }
+  }
 }
 
 private struct Outcome {

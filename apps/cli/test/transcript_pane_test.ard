@@ -28,6 +28,8 @@ struct Model {
   opened: [Str],
   // Bash rows whose output is folded.
   folded: [Str: Bool],
+  // Plugin messages shown in full, by turn ID.
+  expanded_plugins: [Str: Bool],
 }
 
 // Every message is shown; there is no earlier history.
@@ -89,6 +91,12 @@ impl cui::Component for Host {
             self.model.folded.set(id, not self.model.folded.get(id).or(false))
           },
         },
+        plugins: transcript_pane::Plugins{
+          expanded: self.model.expanded_plugins,
+          toggle: fn(turn_id: Str) {
+            self.model.expanded_plugins.set(turn_id, not self.model.expanded_plugins.get(turn_id).or(false))
+          },
+        },
         load_older: fn() {
           // Like the attachment, an owner already loading ignores requests.
           let model = self.model
@@ -141,6 +149,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
     pending: pending,
     attachments: [],
     bash: Maybe::new<sessionbridge::Bash>(),
+    plugin_id: "",
   }
 }
 
@@ -200,6 +209,7 @@ fn render(count: Int) [Str] {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -228,6 +238,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -257,6 +268,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
         pending: false,
         attachments: [],
         bash: Maybe::new<sessionbridge::Bash>(),
+        plugin_id: "",
       },
     ]
   })
@@ -285,6 +297,7 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -355,6 +368,7 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -406,6 +420,7 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -463,6 +478,7 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -523,6 +539,7 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -585,6 +602,7 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -633,6 +651,7 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -694,6 +713,7 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -749,6 +769,7 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -832,6 +853,7 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -867,6 +889,7 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -906,6 +929,7 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -945,6 +969,7 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -986,6 +1011,7 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1069,6 +1095,7 @@ test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1110,6 +1137,7 @@ test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1149,6 +1177,7 @@ test fn a_prepended_page_keeps_the_reading_position() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1203,6 +1232,7 @@ test fn a_failed_page_pauses_loading_until_retried() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1238,6 +1268,7 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1313,6 +1344,7 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -1404,6 +1436,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   }
   let renderer = cui::mount(
     app,
@@ -1490,6 +1523,7 @@ fn bash_model(messages: [transcript::Message]) mut Model {
     toggled: [],
     opened: [],
     folded: [:],
+    expanded_plugins: [:],
   })
 }
 
@@ -1613,4 +1647,143 @@ test fn long_output_shows_its_first_lines_and_counts_the_rest() Void!Str {
   expected.push(" │   … (7 more lines)")
   expected.push("")
   expect_rows(rows(terminal), expected.@)
+}
+
+fn plugin_message(text: Str) [transcript::Message] {
+  transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "pluginmsg_1",
+        TurnID: "turn_1",
+        Sequence: Int64::from(1),
+        Role: "context",
+        BoundaryID: "pluginmsg_1",
+        BoundaryKind: protocol::PluginMessageBoundaryKind,
+        BoundarySource: "autoresearch",
+        Content: [protocol::TextBlock(text)],
+      },
+    ],
+  )
+}
+
+let plugin_text = "Continue the experiment loop.\n\nLog each result before the next run."
+
+test fn a_plugin_message_collapses_to_one_row_naming_its_plugin() Void!Str {
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop. ▸", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(1, 1).expect("diamond").style.foreground, colors.accent_text) and same_color(frame.cell(3, 1).expect("plugin").style.foreground, colors.accent_text),
+    "the plugin is named in the accent color",
+  )
+  testing::assert(
+    same_color(frame.cell(16, 1).expect("separator").style.foreground, colors.muted) and same_color(frame.cell(18, 1).expect("summary").style.foreground, colors.muted) and same_color(frame.cell(48, 1).expect("indicator").style.foreground, colors.muted),
+    "the summary is muted",
+  )
+}
+
+test fn a_single_line_plugin_message_does_not_expand() Void!Str {
+  let terminal = headless::new(60, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message("  Continue the **experiment** loop.\n"))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop.", ""])
+  terminal.click(20, 1)
+  settle(terminal)
+  try testing::assert(not model.expanded_plugins.get("turn_1").or(false), "a click does not expand it")
+  expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the experiment loop.", ""])
+}
+
+test fn a_single_line_too_long_for_the_row_keeps_the_toggle() Void!Str {
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message("Continue the experiment loop."))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", " ◆ autoresearch · Continue the expe… ▸", ""])
+  terminal.click(20, 2)
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    ["", " ◆ autoresearch · Continue the expe… ▾", "   │ Continue the experiment loop.", ""],
+  )
+  // Once the line fits, it is shown whole without a toggle.
+  terminal.resize(60, 4)
+  settle(terminal)
+  expect_rows(rows(terminal), ["", "", " ◆ autoresearch · Continue the experiment loop.", ""])
+}
+
+// Rows get the terminal width less the padding on each side and the
+// scrollbar column.
+test fn a_plugin_message_summary_is_cut_to_the_row() Void!Str {
+  let terminal = headless::new(35, 3)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(rows(terminal), ["", " ◆ autoresearch · Continue the… ▸", ""])
+}
+
+test fn a_plugin_message_summary_drops_markdown_syntax() Void!Str {
+  let terminal = headless::new(70, 3)
+  defer terminal.destroy()
+  let model = bash_model(
+    plugin_message("Read `autoresearch.md` and **log** each result.\n\nThen continue."),
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", " ◆ autoresearch · Read autoresearch.md and log each result. ▸", ""],
+  )
+}
+
+test fn clicking_a_plugin_message_shows_it_in_full_beneath_a_rule() Void!Str {
+  let terminal = headless::new(51, 6)
+  defer terminal.destroy()
+  let model = bash_model(plugin_message(plugin_text))
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  terminal.click(20, 4)
+  settle(terminal)
+  try testing::assert(model.expanded_plugins.get("turn_1").or(false), "the turn's message is expanded")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ◆ autoresearch · Continue the experiment loop. ▾",
+      "   │ Continue the experiment loop.",
+      "   │",
+      "   │ Log each result before the next run.",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(3, 3).expect("rule").style.foreground, colors.border),
+    "the rule uses the border color",
+  )
+  try testing::assert(
+    same_color(frame.cell(5, 2).expect("body").style.foreground, colors.muted),
+    "the full message is muted",
+  )
+  terminal.click(20, 1)
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", "", "", "", " ◆ autoresearch · Continue the experiment loop. ▸", ""],
+  )
 }
