@@ -77,8 +77,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   the top, including when the first page does not fill the view, keeping
   loaded pages across later snapshots. The vaxis reading-section strip and
   "Beginning of conversation" row are intentionally not ported.
-- [~] TUI-COOPER-004 — Composer: prompt submission, Escape abort, Cooper's
-  editing bindings, the follow-up queue, and attachments are complete. ↑
+- [~] TUI-COOPER-004 — Composer: prompt submission, Escape abort, editing
+  bindings, the follow-up queue, and attachments are complete. ↑
   restores queued follow-ups (and their attachments) before the draft, Enter
   on an empty draft sends them to the running turn, and the footer shows
   `N queued · ↑ restore` below stream recovery. A pasted or dropped file list
@@ -89,8 +89,9 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   `📎 name` rows; clicking an image's row toggles a 12-row inline preview
   (one expanded at a time; a just-sent prompt's first image starts expanded,
   history starts collapsed), and clicking the preview opens a private
-  temporary copy in the default application. Remaining: Ctrl+Shift+W, history recall, bash mode and
-  history, file and session mentions, and annotation chips. Tool-result image
+  temporary copy in the default application. Ctrl+Shift+W deletes the next
+  word. Remaining: history recall, bash mode and history, file and session
+  mentions, and annotation chips. Tool-result image
   previews belong to TUI-COOPER-005 and a workspace image pane to
   TUI-COOPER-008.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
