@@ -2,7 +2,9 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use go:kit/ffi/mention
 use kit/tui/attachments
+use kit/tui/file_index
 use kit/tui/inline_picker
 use kit/tui/theme
 use go:strings
@@ -154,6 +156,10 @@ struct Props {
   // Moving up past the oldest command asks for the page before the cursor.
   older_bash: fn(Int64),
   open_palette: fn(),
+  // The session's indexed paths, which `@` mentions list. Typing `@` asks
+  // for them through `load_files`; they arrive here.
+  files: file_index::Index,
+  load_files: fn(),
   // Reports when a draft that runs a shell command starts or stops. The
   // composer then draws itself as the Bash panel, in the interaction dock's
   // frame, so the Shell drops the rules that would border it.
@@ -182,6 +188,17 @@ struct Composer {
   bash_more: Bool,
   bash_before: Int64,
   bash_pages: Int,
+  // The `@` mention being typed, its matching paths, and the selected one.
+  // Matches are ranked again only when the query or the index changes.
+  mention: mention::State,
+  mention_matches: [inline_picker::Item],
+  mention_selection: Str,
+  mention_query: Str,
+  mention_generation: Int,
+  // Whether the edit being applied was typed, and whether a paste is
+  // arriving. Only typing opens or extends a mention.
+  typing: Bool,
+  pasting: Bool,
 }
 
 fn view(props: Props) cui::View {
@@ -209,6 +226,13 @@ private fn new(props: mut Props) mut Composer {
     bash_more: false,
     bash_before: Int64::from(0),
     bash_pages: 0,
+    mention: mention::State{},
+    mention_matches: [],
+    mention_selection: "",
+    mention_query: "",
+    mention_generation: -1,
+    typing: false,
+    pasting: false,
   })
 }
 
@@ -246,6 +270,12 @@ impl cui::Lifecycle for Composer {
     })
     // Pastes reach this listener before the focused editor inserts them.
     let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
+      // The editor applies the paste after this listener; the flag lasts
+      // until the next dispatch.
+      self.pasting = true
+      let _ = context.dispatch(fn() {
+        self.pasting = false
+      })
       if self.props.enabled and self.editor_focused() {
         match attachments::pasted_paths(paste.text) {
           paths => {
@@ -366,6 +396,7 @@ impl Composer {
     let prefix = bash_prefix(self.draft)
     let value = "{prefix}{field}"
     let moved = bash_prefix(value).size() - prefix.size()
+    self.typing = not self.pasting
     match attachments::changed_paths(self.draft, value) {
       found => {
         match (self.props.attach)(found.paths) {
@@ -375,6 +406,7 @@ impl Composer {
       },
       _ => self.change(value),
     }
+    self.typing = false
     if moved > 0 {
       match self.editor.current {
         editor => {
@@ -445,12 +477,18 @@ impl Composer {
     }
   }
 
-  // Rests command history above the caret. Returns whether it moved.
+  // Rests command history above the caret, and a mention's paths above its
+  // `@`. Returns whether the picker moved.
   private fn mut settle_anchor() Bool {
-    match self.history_kind == Recall::commands {
+    let point = match {
+      self.mention.Open => self.editor.cell(self.mention.Anchor - bash_prefix(self.draft).size()),
+      self.history_kind == Recall::commands => self.editor.caret(),
+      _ => Maybe::new<ui::Point>(),
+    }
+    match point.is_some() {
       false => false,
       true => {
-        match self.editor.caret() {
+        match point {
           caret => {
             match self.surface.current {
               surface => {
@@ -475,6 +513,7 @@ impl Composer {
       context => {
         let _ = context.dispatch(fn() {
           if self.props.enabled and self.history_kind == Recall::none and self.props.follow_ups == 0 and entries.size() > 0 {
+            self.close_mention()
             self.history = entries
             self.history_kind = Recall::prompts
             self.history_selection = inline_picker::last_key(self.history_matches())
@@ -493,6 +532,7 @@ impl Composer {
       context => {
         let _ = context.dispatch(fn() {
           if self.props.enabled and self.history_kind == Recall::none and strings::HasPrefix(self.draft, "!") {
+            self.close_mention()
             self.history = entries
             self.history_kind = Recall::commands
             self.bash_loading = true
@@ -703,6 +743,7 @@ impl Composer {
   }
 
   private fn mut change(value: Str) {
+    let previous = self.draft
     // An open history picker follows the draft, selecting the newest match.
     // Command history closes when the draft leaves bash mode.
     if self.history_kind == Recall::commands and not strings::HasPrefix(value, "!") {
@@ -717,6 +758,128 @@ impl Composer {
     if next != self.bash {
       self.bash = next
       (self.props.bash_changed)(next)
+    }
+    self.observe_mention(previous, value)
+  }
+
+  // A typed `@` at the start of the draft or after whitespace opens a file
+  // mention, and typing after it is the query. Any other edit closes it, as
+  // does an open history picker, which owns the draft as its query.
+  private fn mut observe_mention(previous: Str, value: Str) {
+    match self.history_kind == Recall::none {
+      false => self.close_mention(),
+      true => {
+        let observed = mention::Observe(self.mention, previous, value, not self.typing, "@")
+        self.mention = observed.State
+        if observed.Opened {
+          self.mention_selection = ""
+          self.mention_query = ""
+          self.mention_generation = -1
+          (self.props.load_files)()
+        }
+        self.refresh_mention()
+      },
+    }
+  }
+
+  // Ranks the indexed paths for the mention's query when either changed, and
+  // keeps the selection while it matches, else selects the best match.
+  private fn mut refresh_mention() {
+    match self.mention.Open {
+      false => {
+        self.mention_matches = []
+        self.mention_selection = ""
+      },
+      true => {
+        let files = self.props.files
+        if self.mention_query != self.mention.Query or self.mention_generation != files.generation {
+          let catalog = mut List::new<inline_picker::Item>()
+          for path in files.paths {
+            catalog.push(
+              inline_picker::Item{
+                key: path,
+                label: path,
+                search: "",
+              },
+            )
+          }
+          self.mention_matches = inline_picker::rank(catalog.@, self.mention.Query)
+          self.mention_query = self.mention.Query
+          self.mention_generation = files.generation
+        }
+        if not inline_picker::contains(self.mention_matches, self.mention_selection) {
+          self.mention_selection = match self.mention_matches.at(0) {
+            first => first.key,
+            _ => "",
+          }
+        }
+      },
+    }
+  }
+
+  private fn mut close_mention() {
+    self.mention = mention::State{}
+    self.refresh_mention()
+  }
+
+  // Replaces the mention with `@path ` and places the caret after it, from
+  // Enter or a click.
+  private fn mut choose_mention(path: Str) {
+    if self.mention.Open and inline_picker::contains(self.mention_matches, path) {
+      let inserted = mention::Insert(self.mention, self.draft, "@{path} ")
+      if inserted.OK {
+        self.close_mention()
+        self.change(inserted.Text)
+        match self.context {
+          context => {
+            let _ = self.editor.set_cursor(
+              context,
+              inserted.Cursor - bash_prefix(self.draft).size(),
+            )
+          },
+          _ => (),
+        }
+      }
+    }
+  }
+
+  private fn mut move_mention(delta: Int) Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.mention_selection = inline_picker::move(
+            self.mention_matches,
+            self.mention_selection,
+            delta,
+          )
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_mention_choice() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.choose_mention(self.mention_selection)
+        })
+        true
+      },
+      _ => false,
+    }
+  }
+
+  private fn mut request_mention_dismissal() Bool {
+    match self.context {
+      context => {
+        let _ = context.dispatch(fn() {
+          self.close_mention()
+        })
+        true
+      },
+      _ => false,
     }
   }
 
@@ -778,7 +941,10 @@ impl cui::Component for Composer {
     // input, closing its picker.
     if not self.props.enabled {
       self.close_history()
+      self.close_mention()
     }
+    // Paths that load while a mention is open are ranked for it.
+    self.refresh_mention()
     // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W, as in the
     // vaxis client.
     let editing = keymap::rebind(
@@ -839,6 +1005,30 @@ impl cui::Component for Composer {
     let leave = keymap::simple_command("composer.bash.leave", "Leave the Bash panel", fn() Bool {
       self.request_leave_bash()
     })
+    let mention_previous = keymap::simple_command(
+      "composer.mention.previous",
+      "Previous path",
+      fn() Bool {
+        self.move_mention(-1)
+      },
+    )
+    let mention_next = keymap::simple_command("composer.mention.next", "Next path", fn() Bool {
+      self.move_mention(1)
+    })
+    let mention_choose = keymap::simple_command(
+      "composer.mention.choose",
+      "Mention path",
+      fn() Bool {
+        self.request_mention_choice()
+      },
+    )
+    let mention_dismiss = keymap::simple_command(
+      "composer.mention.dismiss",
+      "Close file mention",
+      fn() Bool {
+        self.request_mention_dismissal()
+      },
+    )
     let bindings = mut List::new<keymap::Binding>()
     let bash_mode = self.bash
     if bash_mode {
@@ -846,7 +1036,22 @@ impl cui::Component for Composer {
         keymap::binding(keymap::key("backspace"), erase.with(), keymap::Trigger::press_or_repeat),
       )
     }
-    if self.history_kind != Recall::none {
+    if self.mention.Open {
+      // The mention's picker takes the keys it navigates by; typing still
+      // edits its query. Enter with no match does nothing.
+      bindings.push(
+        keymap::binding(
+          keymap::key("up"),
+          mention_previous.with(),
+          keymap::Trigger::press_or_repeat,
+        ),
+      )
+      bindings.push(
+        keymap::binding(keymap::key("down"), mention_next.with(), keymap::Trigger::press_or_repeat),
+      )
+      bindings.push(keymap::binding(keymap::key("return"), mention_choose.with()))
+      bindings.push(keymap::binding(keymap::key("escape"), mention_dismiss.with()))
+    } else if self.history_kind != Recall::none {
       // The open picker takes the keys it navigates by; typing still edits
       // the draft, which is its query.
       bindings.push(
@@ -917,6 +1122,10 @@ impl cui::Component for Composer {
         dismiss,
         erase,
         leave,
+        mention_previous,
+        mention_next,
+        mention_choose,
+        mention_dismiss,
       ],
       bindings: bindings.@,
     )
@@ -967,6 +1176,10 @@ impl cui::Component for Composer {
             items: self.history_matches(),
             selection: self.history_selection,
             empty: empty,
+            empty_tone: inline_picker::Tone::muted,
+            status: "",
+            status_tone: inline_picker::Tone::muted,
+            keep_end: false,
             activate: fn(id: Str) {
               self.choose_history(id)
             },
@@ -977,6 +1190,9 @@ impl cui::Component for Composer {
           },
         ),
       )
+    }
+    if self.mention.Open {
+      children.push(self.mention_picker())
     }
     // Pickers are positioned against this box; message history rests on its
     // top edge.
@@ -994,6 +1210,44 @@ impl cui::Component for Composer {
 }
 
 impl Composer {
+  // The mention's paths rest above its `@`. Until paths load, one row says
+  // they are loading or could not load; a failed refresh or a partial index
+  // is noted below listed paths.
+  private fn mut mention_picker() cui::View {
+    let files = self.props.files
+    let listed = files.paths.size() > 0
+    let failed = (not listed) and (not files.loading) and files.failure != ""
+    inline_picker::view(
+      inline_picker::Props{
+        themes: self.props.themes,
+        items: self.mention_matches,
+        selection: self.mention_selection,
+        empty: match {
+          (not listed) and files.loading => "Loading files…",
+          failed => "Could not load files: {files.failure}",
+          _ => "No results",
+        },
+        empty_tone: match failed {
+          true => inline_picker::Tone::danger,
+          false => inline_picker::Tone::muted,
+        },
+        status: match listed {
+          true => file_index::status(files),
+          false => "",
+        },
+        status_tone: match files.failure != "" {
+          true => inline_picker::Tone::danger,
+          false => inline_picker::Tone::muted,
+        },
+        keep_end: true,
+        activate: fn(path: Str) {
+          self.choose_mention(path)
+        },
+        anchor: Maybe::new(self.anchor),
+      },
+    )
+  }
+
   // The Bash panel's title, and on the right whether the command's result
   // joins the conversation. That meta is a compact control: clicking it
   // switches, and hovering it shows the control fill.

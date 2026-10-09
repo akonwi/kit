@@ -8,6 +8,7 @@ use cooper/testing as headless
 use cooper/ui
 use kit/tui/attachments
 use kit/tui/composer
+use kit/tui/file_index
 use kit/tui/theme
 use go:os
 use go:path/filepath
@@ -33,6 +34,9 @@ struct Model {
   // Whether pasted paths are accepted, and those accepted.
   accept_attachments: Bool,
   attached: [Str],
+  // The indexed paths mentions list, and how often they were asked for.
+  files: file_index::Index,
+  file_loads: Int,
   context: cui::Context?,
   control: mut composer::Ref,
   other_input: mut cui::InputRef,
@@ -73,6 +77,7 @@ impl cui::Component for Host {
         cui::box([], styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0))),
         composer::view(
           composer::Props{
+            // As the Shell's attachment does, the index starts loading.
             themes: self.props.themes,
             enabled: model.enabled,
             focus_eligible: model.focus_eligible,
@@ -107,6 +112,18 @@ impl cui::Component for Host {
             },
             open_palette: fn() {
               model.palette_opens =+ 1
+            },
+            files: model.files,
+            load_files: fn() {
+              model.file_loads =+ 1
+              match model.context {
+                context => {
+                  let _ = context.dispatch(fn() {
+                    model.files.loading = true
+                  })
+                },
+                _ => (),
+              }
             },
             bash_changed: fn(bash: Bool) {
               model.bash = bash
@@ -153,6 +170,14 @@ fn model() mut Model {
     submissions: 0,
     accept_attachments: true,
     attached: [],
+    files: file_index::Index{
+      paths: [],
+      loading: false,
+      failure: "",
+      truncated: false,
+      generation: 0,
+    },
+    file_loads: 0,
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),
     other_input: cui::input_ref(),
@@ -1274,5 +1299,213 @@ test fn a_failed_older_page_ends_paging() Void!Str {
   testing::assert(
     value.older.size() == 1 and rows(terminal).at(7).or("") == "│ │▌!git status                                  │text │",
     "Up wraps instead: {rows(terminal).at(7).or("")}",
+  )
+}
+
+// Types text one key at a time, as a person does.
+fn type_text(terminal: headless::TestApp, text: Str) {
+  for letter in strings::Split(text, "") {
+    terminal.key(character(letter))
+  }
+  terminal.flush()
+}
+
+fn indexed(paths: [Str]) file_index::Index {
+  file_index::Index{
+    paths: paths,
+    loading: false,
+    failure: "",
+    truncated: false,
+    generation: 1,
+  }
+}
+
+fn set_files(value: mut Model, files: file_index::Index) {
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.files = files
+  })
+}
+
+fn project() [Str] {
+  ["docs/", "internal/tui/app.go", "internal/tui/shell.go", "go.mod"]
+}
+
+test fn typing_at_after_a_space_asks_for_files_and_lists_them_above_it() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "mail@")
+  try testing::assert(value.file_loads == 0, "an @ inside a word is text")
+  type_text(terminal, " see @")
+  try testing::assert(value.file_loads == 1, "the mention asks for the index")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "        ┌──────────────────────────────────────────────┐",
+      "        │ Loading files…                               │",
+      "        └──────────────────────────────────────────────┘",
+      " mail@ see @",
+      "",
+    ],
+  )
+  set_files(value, indexed(project()))
+  terminal.flush()
+  // The picker rests on the line above the @, moved left only as far as the
+  // terminal requires, with the first path selected.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "        ┌──────────────────────────────────────────────┐",
+      "        │▌docs/                                        │",
+      "        │ internal/tui/app.go                          │",
+      "        │ internal/tui/shell.go                        │",
+      "        │ go.mod                                       │",
+      "        └──────────────────────────────────────────────┘",
+      " mail@ see @",
+      "",
+    ],
+  )
+}
+
+test fn the_query_ranks_paths_and_enter_mentions_the_selection_at_the_caret() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  // The mention is typed before existing text.
+  type_text(terminal, "x")
+  terminal.key(chord("a", false, true))
+  type_text(terminal, "@tui")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌internal/tui/app.go                          │",
+      " │ internal/tui/shell.go                        │",
+      " └──────────────────────────────────────────────┘",
+      " @tuix",
+      "",
+    ],
+  )
+  // Moving wraps, so Up from the first selects the last.
+  terminal.key(key("up"))
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter mentions instead of sending")
+  type_text(terminal, "y")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "@internal/tui/shell.go yx",
+    "the path replaces the query and the caret follows it: {value.submitted}",
+  )
+}
+
+test fn escape_and_whitespace_close_a_mention_and_keep_the_text() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@go")
+  terminal.key(key("escape"))
+  terminal.flush()
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", " @go", ""])
+  try testing::assert(value.aborts == 0, "Escape closes the picker without aborting the turn")
+  type_text(terminal, " @")
+  try testing::assert(rows(terminal).at(7).or("") == " @go @", "a second mention opens")
+  type_text(terminal, "do ")
+  try expect_rows(rows(terminal), ["", "", "", "", "", "", "", " @go @do", ""])
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "@go @do", "Enter sends once the mention closed")
+}
+
+test fn clicking_a_path_mentions_it() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  value.files = indexed(project())
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@")
+  terminal.click(4, 4)
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(value.submitted == "@internal/tui/shell.go", "got {value.submitted}")
+}
+
+test fn the_index_reports_failures_and_partial_lists() Void!Str {
+  let terminal = headless::new(56, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "@")
+  set_files(
+    value,
+    file_index::Index{
+      paths: [],
+      loading: false,
+      failure: "connection refused",
+      truncated: false,
+      generation: 0,
+    },
+  )
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == " │ Could not load files: connection refused     │",
+    "an index that never loaded explains why",
+  )
+  set_files(
+    value,
+    file_index::Index{
+      paths: ["internal/very/long/directory/structure/with/levels/tui/inline_picker.go", "go.mod"],
+      loading: false,
+      failure: "",
+      truncated: true,
+      generation: 2,
+    },
+  )
+  terminal.flush()
+  // A long path keeps its file name, and a partial index says so.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      " ┌──────────────────────────────────────────────┐",
+      " │▌…/structure/with/levels/tui/inline_picker.go │",
+      " │ go.mod                                       │",
+      " ├──────────────────────────────────────────────┤",
+      " │ Showing first 4,000 indexed paths            │",
+      " └──────────────────────────────────────────────┘",
+      " @",
+      "",
+    ],
   )
 }

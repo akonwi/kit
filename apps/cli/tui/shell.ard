@@ -689,6 +689,12 @@ impl Shell {
         restore_follow_ups: fn() {
           self.request_follow_up_restore()
         },
+        files: self.attached.files.index,
+        load_files: fn() {
+          self.dispatch(fn() {
+            self.attached.load_files()
+          })
+        },
         recall_history: fn() {
           self.request_message_history()
         },

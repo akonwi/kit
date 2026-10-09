@@ -16,6 +16,7 @@ use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/bootstrap
+use kit/tui/file_index
 use kit/tui/format
 use kit/tui/image_preview
 use kit/tui/toast
@@ -24,6 +25,7 @@ use kit/tui/turn_follower
 use go:os
 use go:path/filepath
 use go:strings
+use go:time
 
 // The attached-session owner. One Controller represents one client-side
 // attachment lifetime: its session handle and cancellation, authoritative
@@ -131,6 +133,8 @@ struct Controller {
   // attachment is then frozen: its transcript and draft stay visible, but it
   // makes no further requests.
   incompatible: Str,
+  // The session's indexed project paths, for file mentions.
+  files: file_index::Source,
   // Pending model and plugin requests in arrival order. The oldest is
   // presented.
   interactions: [protocol::InteractionRequest],
@@ -273,6 +277,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     scratchpad_loading: false,
     scratchpad_failure: "",
     incompatible: "",
+    files: file_index::source(),
   })
 }
 
@@ -2061,6 +2066,59 @@ impl Controller {
                       }
                     },
                   }
+                }
+              })
+            })
+          },
+          _ => (),
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Loads the indexed paths of the session's working directory unless they
+  // are loading or fresh. A new directory is indexed again by the server.
+  fn mut load_files() {
+    if self.can_submit() {
+      match self.info {
+        info => {
+          match self.files.begin(info.ID, info.CWD, time::Now().UnixMilli()) {
+            load => self.request_files(load),
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  private fn mut request_files(load: file_index::Load) {
+    match self.lifetime {
+      lifetime => {
+        match self.session {
+          session => {
+            let ctx = lifetime.Context
+            let dispatch = self.host.dispatch
+            async::start(fn() {
+              let result = match load.force {
+                true => session.RefreshFileIndex(ctx),
+                false => session.FileIndex(ctx),
+              }
+              let _ = dispatch(fn() {
+                if self.active {
+                  let listed: protocol::SessionFileIndex!Str = match result {
+                    ok(index) => Result::ok(index),
+                    err(failure) => {
+                      // A frozen attachment keeps what it shows.
+                      if self.absorbs(failure) {
+                        Result::err("")
+                      } else {
+                        Result::err(failure.error())
+                      }
+                    },
+                  }
+                  self.files.finish(load.request, listed, time::Now().UnixMilli())
                 }
               })
             })
