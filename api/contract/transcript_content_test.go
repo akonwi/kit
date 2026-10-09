@@ -55,6 +55,32 @@ func TestTranscriptContentRejectsInvalidUnionRecords(t *testing.T) {
 	}
 }
 
+func TestPromptCommandContentValidation(t *testing.T) {
+	t.Parallel()
+	valid := []PromptCommandContent{
+		{Name: "claude-fix", Arguments: "123 high", Source: PromptCommandSourceClaudeProject, Text: "Fix issue #123 at high priority."},
+		// A command run without arguments.
+		{Name: "claude-ping", Source: PromptCommandSourceClaudeProject, Text: "Reply with pong."},
+	}
+	for _, content := range valid {
+		if err := NewTranscriptContent(content).validate(); err != nil {
+			t.Errorf("validate(%+v) = %v", content, err)
+		}
+	}
+	invalid := map[string]PromptCommandContent{
+		"missing name":    {Source: PromptCommandSourceUser, Text: "Review."},
+		"spaced name":     {Name: "code review", Source: PromptCommandSourceUser, Text: "Review."},
+		"unknown source":  {Name: "review", Source: "claude", Text: "Review."},
+		"NUL arguments":   {Name: "review", Arguments: "a\x00b", Source: PromptCommandSourceUser, Text: "Review."},
+		"blank expansion": {Name: "review", Source: PromptCommandSourceUser, Text: " "},
+	}
+	for name, content := range invalid {
+		if err := NewTranscriptContent(content).validate(); err == nil {
+			t.Errorf("%s: validate(%+v) accepted", name, content)
+		}
+	}
+}
+
 func TestTranscriptContentUnionVariantsAreCopied(t *testing.T) {
 	variants := (TranscriptContent{}).UnionVariants()
 	variants[0].Kind = "mutated"

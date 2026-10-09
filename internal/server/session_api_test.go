@@ -952,6 +952,34 @@ func TestLocalSessionClientTurnsPersistedDroidsPrompt(t *testing.T) {
 		}
 	}
 
+	// A command run without arguments records no arguments, and its message
+	// remains valid in snapshots and message pages.
+	bareReservation, err := client.transport.StartPromptCommand(context.Background(), created.ID, protocol.PromptCommandInput{Name: "summarize"})
+	if err != nil {
+		t.Fatalf("StartPromptCommand() without arguments error = %v", err)
+	}
+	for bareDeadline := time.Now().Add(5 * time.Second); ; {
+		bareTurn, turnErr := client.transport.GetTurn(context.Background(), created.ID, bareReservation.TurnID)
+		if turnErr != nil {
+			t.Fatal(turnErr)
+		}
+		if bareTurn.Status == protocol.TurnStatusCompleted {
+			break
+		}
+		if time.Now().After(bareDeadline) {
+			t.Fatalf("prompt command without arguments did not complete: %+v", bareTurn)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := client.transport.GetSessionSnapshot(context.Background(), created.ID); err != nil {
+		t.Fatalf("GetSessionSnapshot() after a command without arguments: %v", err)
+	}
+	barePage, err := client.transport.GetMessagePage(context.Background(), created.ID, protocol.MessagePageQuery{Limit: 1, Roles: []string{"user"}})
+	wantBare := protocol.PromptCommandContent{Name: "summarize", Source: "project", Text: "Summarize  with ."}
+	if err != nil || len(barePage.Messages) != 1 || len(barePage.Messages[0].Content) != 1 || barePage.Messages[0].Content[0].Payload != wantBare {
+		t.Fatalf("GetMessagePage() after a command without arguments = %+v, %v; want %+v", barePage, err, wantBare)
+	}
+
 	bashID, err := identifier.New("bash_")
 	if err != nil {
 		t.Fatalf("identifier.New() bash error = %v", err)

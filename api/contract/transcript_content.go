@@ -289,7 +289,7 @@ func (c TranscriptContent) validate() error {
 		}
 	case PromptCommandContent:
 		if !validPromptCommandName(block.Name) || !ValidPromptCommandSource(block.Source) ||
-			!validProtocolText(block.Arguments, maxPromptCommandArgumentsBytes) || strings.TrimSpace(block.Text) == "" {
+			(block.Arguments != "" && !validProtocolText(block.Arguments, maxPromptCommandArgumentsBytes)) || strings.TrimSpace(block.Text) == "" {
 			return fmt.Errorf("prompt command content requires a valid name, source, and expansion")
 		}
 	case nil:
