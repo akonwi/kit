@@ -1246,7 +1246,7 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
 }
 
 test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
-  let terminal = headless::new(30, 10)
+  let terminal = headless::new(30, 11)
   defer terminal.destroy()
   let app = cooper::App{context: terminal.context, root: terminal.root}
   let with_text = mut identified_message("user-1", transcript::Role::user, "look at these", false)
@@ -1295,6 +1295,7 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     [
       " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
       "   look at these             ┃",
+      "                             ┃",
       "   📎 shot.png               ┃",
       "   📎 notes.txt              ┃",
       " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
@@ -1306,8 +1307,8 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     ],
   )
   let colors = theme::context(theme::store(theme::system())).current()
-  let glyph = terminal.frame().cell(3, 2).expect("glyph")
-  let name = terminal.frame().cell(6, 2).expect("name")
+  let glyph = terminal.frame().cell(3, 3).expect("glyph")
+  let name = terminal.frame().cell(6, 3).expect("name")
   let same = fn(left: ui::Color?, right: ui::Color) Bool {
     match left {
       color => color.red == right.red and color.green == right.green and color.blue == right.blue,

@@ -532,6 +532,9 @@ private fn user_entry(
           ),
         )
       }
+      if message.text != "" and message.attachments.size() > 0 {
+        body.push(cui::box([], styles: ui::style(height: ui::cells(1), flex_shrink: 0.0)))
+      }
       for attachment in message.attachments {
         let expanded = attachment.image and attachment.id != "" and images.expanded == attachment.id
         body.push(attachment_label(colors, images, attachment))
