@@ -12,3 +12,10 @@ import (
 func CursorUnavailable(err error) bool {
 	return errors.Is(err, kit.ErrTranscriptCursorUnavailable)
 }
+
+// Incompatible reports whether a request or stream failed because the server
+// can no longer serve this client, as after the daemon was replaced by another
+// release. Retrying cannot recover; the client must be restarted.
+func Incompatible(err error) bool {
+	return errors.Is(err, kit.ErrIncompatibleServer)
+}

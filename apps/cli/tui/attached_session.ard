@@ -6,6 +6,8 @@ use go:api
 use go:api/contract as protocol
 use go:context
 use cooper/event
+use go:errors
+use go:fmt
 use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
@@ -83,6 +85,10 @@ struct Controller {
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
+  // The server's explanation once it can no longer serve this client. The
+  // attachment is then frozen: its transcript and draft stay visible, but it
+  // makes no further requests.
+  incompatible: Str,
   // Pending model and plugin requests in arrival order. The oldest is
   // presented.
   interactions: [protocol::InteractionRequest],
@@ -99,6 +105,7 @@ private struct HistoryOutcome {
   page: protocol::TranscriptPage?,
   snapshot: protocol::SessionSnapshot?,
   failure: Str,
+  incompatible: Bool,
 }
 
 private fn empty_usage() protocol::SessionUsage {
@@ -165,6 +172,7 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     scratchpad_record: Maybe::new<protocol::Scratchpad>(),
     scratchpad_loading: false,
     scratchpad_failure: "",
+    incompatible: "",
   })
 }
 
@@ -268,7 +276,50 @@ impl Controller {
 
   // Whether a prompt can be submitted to this attachment.
   fn can_submit() Bool {
-    self.active and self.session.is_some() and self.lifetime.is_some()
+    self.active and self.connected() and self.session.is_some() and self.lifetime.is_some()
+  }
+
+  // Whether the server can still serve this attachment.
+  fn connected() Bool {
+    self.incompatible == ""
+  }
+
+  // Decides how a failed session operation is presented. A server that can
+  // no longer serve this client freezes the attachment instead of reporting
+  // the operation; once frozen, failures of the cancelled work are expected.
+  // Returns true when the caller should report nothing.
+  private fn mut absorbs(failure: Error) Bool {
+    if sessionbridge::Incompatible(failure) {
+      self.freeze(failure.error())
+    }
+    not self.connected()
+  }
+
+  // Stops this attachment's streams and requests while keeping what it shows.
+  // Restarting Kit is the recovery: the replacement server serves another
+  // release, so rechecking from this client cannot succeed.
+  private fn mut freeze(reason: Str) {
+    if self.active and self.connected() {
+      self.incompatible = reason
+      match self.lifetime {
+        lifetime => lifetime.Cancel(),
+        _ => (),
+      }
+      self.run_id = ""
+      self.start_pending = false
+      self.abort_pending = false
+      self.abort_after_start = false
+      self.compact_pending = false
+      self.compact_operation_id = ""
+      self.reload_pending = false
+      self.new_session_pending = false
+      self.history_loading = false
+      self.interactions = []
+      self.interaction_responding = ""
+      self.live.activity = ""
+      self.live.thinking = ""
+      (self.host.toast)("Server compatibility changed", reason, toast::Variant::error, true)
+    }
   }
 
   // Whether idle-only commands must wait for active session work.
@@ -487,7 +538,7 @@ impl Controller {
                   match stream.Err() {
                     err(failure) => {
                       let _ = dispatch(fn() {
-                        if self.active {
+                        if self.active and not self.absorbs(failure) {
                           (self.host.toast)(
                             "Plugin notifications unavailable",
                             failure.error(),
@@ -502,7 +553,7 @@ impl Controller {
                 },
                 err(failure) => {
                   let _ = dispatch(fn() {
-                    if self.active {
+                    if self.active and not self.absorbs(failure) {
                       (self.host.toast)(
                         "Plugin notifications unavailable",
                         failure.error(),
@@ -579,7 +630,7 @@ impl Controller {
                   match stream.Err() {
                     err(failure) => {
                       let _ = dispatch(fn() {
-                        if self.active {
+                        if self.active and not self.absorbs(failure) {
                           (self.host.toast)(
                             "Session connection lost",
                             failure.error(),
@@ -594,7 +645,7 @@ impl Controller {
                 },
                 err(failure) => {
                   let _ = dispatch(fn() {
-                    if self.active {
+                    if self.active and not self.absorbs(failure) {
                       (self.host.toast)(
                         "Session connection failed",
                         failure.error(),
@@ -667,14 +718,11 @@ impl Controller {
                             _ => { open = false },
                           }
                         }
-                        match stream.Err() {
-                          ok(_) => "",
-                          err(failure) => failure.error(),
-                        }
+                        stream.Err()
                       },
-                      err(failure) => failure.error(),
+                      err(failure) => Result::err(failure),
                     }
-                    if failure == "" {
+                    if failure.is_ok() {
                       following = false
                     } else {
                       // A lost turn stream, including a server-requested
@@ -695,18 +743,24 @@ impl Controller {
                           })
                           following = running and contextbridge::Wait(ctx, retry_delay(failures))
                         },
-                        err(_) => {
+                        err(snapshot_failure) => {
                           following = false
                           let _ = dispatch(fn() {
                             if self.active and self.run_id == run_id {
                               self.live.reset()
                               self.run_id = ""
-                              (self.host.toast)(
-                                "Turn stream lost",
-                                failure,
-                                toast::Variant::error,
-                                true,
-                              )
+                              let lost = match failure {
+                                err(stream_failure) => stream_failure,
+                                ok(_) => snapshot_failure,
+                              }
+                              if not self.absorbs(lost) or self.absorbs(snapshot_failure) {
+                                (self.host.toast)(
+                                  "Turn stream lost",
+                                  lost.error(),
+                                  toast::Variant::error,
+                                  true,
+                                )
+                              }
                             }
                           })
                         },
@@ -744,8 +798,14 @@ impl Controller {
                 let dispatch = self.host.dispatch
                 self.abort_pending = true
                 async::start(fn() {
-                  let _ = session.Abort(lifetime.Context, run_id)
+                  let result = session.Abort(lifetime.Context, run_id)
                   let _ = dispatch(fn() {
+                    match result {
+                      err(failure) => {
+                        let _ = self.absorbs(failure)
+                      },
+                      ok(_) => (),
+                    }
                     if self.active and self.run_id == run_id {
                       self.abort_pending = false
                     }
@@ -793,12 +853,14 @@ impl Controller {
                             match snapshot {
                               ok(current) => self.apply_snapshot(current),
                               err(failure) => {
-                                (self.host.toast)(
-                                  "Session compacted",
-                                  "Session context was compacted. {failure}",
-                                  toast::Variant::warning,
-                                  true,
-                                )
+                                if not self.absorbs(failure) {
+                                  (self.host.toast)(
+                                    "Session compacted",
+                                    "Session context was compacted. {failure}",
+                                    toast::Variant::warning,
+                                    true,
+                                  )
+                                }
                               },
                             }
                           }
@@ -810,12 +872,14 @@ impl Controller {
                           if self.active and self.compact_operation_id == operation_id {
                             self.compact_pending = false
                             self.compact_operation_id = ""
-                            (self.host.toast)(
-                              "Compaction failed",
-                              failure.error(),
-                              toast::Variant::error,
-                              true,
-                            )
+                            if not self.absorbs(failure) {
+                              (self.host.toast)(
+                                "Compaction failed",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
                           }
                         })
                       },
@@ -912,6 +976,7 @@ impl Controller {
                   page: Maybe::new<protocol::TranscriptPage>(),
                   snapshot: Maybe::new<protocol::SessionSnapshot>(),
                   failure: "",
+                  incompatible: false,
                 }
                 match session.TranscriptPage(attempt.Context, cursor) {
                   ok(page) => { outcome.page = Maybe::new(page) },
@@ -920,10 +985,16 @@ impl Controller {
                       true => {
                         match session.Snapshot(attempt.Context) {
                           ok(snapshot) => { outcome.snapshot = Maybe::new(snapshot) },
-                          err(refresh_failure) => { outcome.failure = refresh_failure.error() },
+                          err(refresh_failure) => {
+                            outcome.failure = refresh_failure.error()
+                            outcome.incompatible = sessionbridge::Incompatible(refresh_failure)
+                          },
                         }
                       },
-                      false => { outcome.failure = failure.error() },
+                      false => {
+                        outcome.failure = failure.error()
+                        outcome.incompatible = sessionbridge::Incompatible(failure)
+                      },
                     }
                   },
                 }
@@ -936,7 +1007,12 @@ impl Controller {
                       _ => {
                         match outcome.snapshot {
                           snapshot => self.recover_history(snapshot),
-                          _ => { self.history_failure = outcome.failure },
+                          _ => {
+                            match outcome.incompatible {
+                              true => self.freeze(outcome.failure),
+                              false => { self.history_failure = outcome.failure },
+                            }
+                          },
                         }
                       },
                     }
@@ -993,12 +1069,14 @@ impl Controller {
                     match result {
                       ok(_) => self.remove_interaction(id),
                       err(failure) => {
-                        (self.host.toast)(
-                          "Could not submit response",
-                          failure.error(),
-                          toast::Variant::error,
-                          false,
-                        )
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Could not submit response",
+                            failure.error(),
+                            toast::Variant::error,
+                            false,
+                          )
+                        }
                       },
                     }
                   }
@@ -1097,13 +1175,15 @@ impl Controller {
                         self.scratchpad_failure = ""
                       },
                       err(failure) => {
-                        self.scratchpad_failure = failure.error()
-                        (self.host.toast)(
-                          "Could not open scratchpad",
-                          failure.error(),
-                          toast::Variant::error,
-                          true,
-                        )
+                        if not self.absorbs(failure) {
+                          self.scratchpad_failure = failure.error()
+                          (self.host.toast)(
+                            "Could not open scratchpad",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
                       },
                     }
                   }
@@ -1161,12 +1241,14 @@ impl Controller {
                             )
                           },
                           err(failure) => {
-                            (self.host.toast)(
-                              "Session reload failed",
-                              "Session reloaded, but refresh failed: {failure}",
-                              toast::Variant::error,
-                              true,
-                            )
+                            if not self.absorbs(failure) {
+                              (self.host.toast)(
+                                "Session reload failed",
+                                "Session reloaded, but refresh failed: {failure}",
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
                           },
                         }
                       }
@@ -1177,12 +1259,14 @@ impl Controller {
                     let _ = dispatch(fn() {
                       if self.active {
                         self.reload_pending = false
-                        (self.host.toast)(
-                          "Session reload failed",
-                          failure.error(),
-                          toast::Variant::error,
-                          true,
-                        )
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Session reload failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
                       }
                     })
                   },
@@ -1256,12 +1340,14 @@ impl Controller {
                     let _ = dispatch(fn() {
                       if self.active {
                         self.new_session_pending = false
-                        (self.host.toast)(
-                          "New session failed",
-                          failure.error(),
-                          toast::Variant::error,
-                          true,
-                        )
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "New session failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            true,
+                          )
+                        }
                       }
                     })
                   },
@@ -1376,12 +1462,14 @@ impl Controller {
                             }
                           },
                           err(failure) => {
-                            (self.host.toast)(
-                              "Failed to change directory",
-                              failure.error(),
-                              toast::Variant::error,
-                              true,
-                            )
+                            if not self.absorbs(failure) {
+                              (self.host.toast)(
+                                "Failed to change directory",
+                                failure.error(),
+                                toast::Variant::error,
+                                true,
+                              )
+                            }
                           },
                         }
                       }
@@ -1435,13 +1523,15 @@ impl Controller {
     }
   }
 
-  private fn mut reject_submission(optimistic: Bool, message: Str) {
+  private fn mut reject_submission(optimistic: Bool, failure: Error) {
     if optimistic {
       self.live.reset()
       self.start_pending = false
       self.abort_after_start = false
     }
-    self.notice = message
+    if not self.absorbs(failure) {
+      self.notice = failure.error()
+    }
   }
 
   // Submits a discovered prompt command. The server queues it behind active
@@ -1471,7 +1561,7 @@ impl Controller {
                           "Prompt command did not start a turn",
                         )
                       },
-                      err(failure) => self.reject_submission(optimistic, failure.error()),
+                      err(failure) => self.reject_submission(optimistic, failure),
                     }
                   }
                 })
@@ -1513,12 +1603,14 @@ impl Controller {
                       // with a client-generated completion toast.
                       ok(_) => (),
                       err(failure) => {
-                        (self.host.toast)(
-                          "Plugin command failed",
-                          failure.error(),
-                          toast::Variant::error,
-                          false,
-                        )
+                        if not self.absorbs(failure) {
+                          (self.host.toast)(
+                            "Plugin command failed",
+                            failure.error(),
+                            toast::Variant::error,
+                            false,
+                          )
+                        }
                       },
                     }
                   }
@@ -1551,7 +1643,7 @@ impl Controller {
                       ok(submission) => self.accept_submission(submission, optimistic, "Prompt did not start a turn"),
                       err(failure) => {
                         (self.host.restore_draft)(text)
-                        self.reject_submission(optimistic, failure.error())
+                        self.reject_submission(optimistic, failure)
                       },
                     }
                   }
@@ -2226,4 +2318,59 @@ test fn an_expired_cursor_recovers_from_a_fresh_snapshot() Void!Str {
   )
   try testing::assert(shown(subject) == "summary d", "the fresh snapshot is shown: {shown(subject)}")
   testing::assert(subject.history_cursor == "20" and subject.history_more, "history restarts")
+}
+
+// The error a Go constructor reports.
+private fn reported(result: Void!Error) Error {
+  match result {
+    err(failure) => failure,
+    ok(_) => Error::new("no error was reported"),
+  }
+}
+
+test fn an_incompatible_server_freezes_the_attachment_once() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a", "b"], 1),
+    },
+  )
+  subject.run_id = "turn-1"
+  subject.live.activity = "Working…"
+  subject.interactions = [protocol::InteractionRequest{ID: "interaction_1"}]
+
+  let failure = reported(fmt::Errorf("watch session: %w", api::ErrIncompatibleServer))
+  try testing::assert(subject.absorbs(failure), "the failure is not reported by its operation")
+  try testing::assert(not subject.connected(), "the attachment is frozen")
+  try testing::assert(
+    subject.run_id == "" and (not subject.busy()) and subject.activity() == "" and (not subject.feedback_pending()),
+    "nothing is shown as running or waiting",
+  )
+  try testing::assert(shown(subject) == "a b", "the transcript stays: {shown(subject)}")
+  try testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("").starts_with("Server compatibility changed: "),
+    "one explanation: {effects.toasts.size()}",
+  )
+
+  // Work cancelled by the freeze fails quietly.
+  try testing::assert(
+    subject.absorbs(reported(errors::New("context canceled"))),
+    "later failures are quiet",
+  )
+  testing::assert(effects.toasts.size() == 1, "the explanation is shown once")
+}
+
+test fn ordinary_failures_are_reported_by_their_operation() Void!Str {
+  let effects = mut Effects{toasts: []}
+  let subject = active_controller(effects)
+  try testing::assert(
+    not subject.absorbs(reported(errors::New("connection refused"))),
+    "an ordinary failure",
+  )
+  testing::assert(
+    subject.connected() and effects.toasts.size() == 0,
+    "the attachment stays connected",
+  )
 }

@@ -121,18 +121,23 @@ fn header(themes: theme::Context, spec: Header) cui::View {
   )
 }
 
-// footer shows the composer's current mode on the left and the working
-// location on the right.
-fn footer(themes: theme::Context, mode: Str, location: Str) cui::View {
+// footer shows the session's connection problem or, without one, the
+// composer's current mode on the left, and the working location on the right.
+fn footer(themes: theme::Context, connection: Str, mode: Str, location: Str) cui::View {
   let colors = themes.current()
-  let tone = match mode != "" {
-    true => colors.success_text,
-    false => colors.muted,
+  let status = match connection != "" {
+    true => connection,
+    false => mode,
+  }
+  let tone = match {
+    connection != "" => colors.warning_text,
+    mode != "" => colors.success_text,
+    _ => colors.muted,
   }
   cui::box(
     [
       cui::box(
-        [layout::line(mode, ui::text_style(foreground: tone))],
+        [layout::line(status, ui::text_style(foreground: tone))],
         styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
       ),
       cui::box(
