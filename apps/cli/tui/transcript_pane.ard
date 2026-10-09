@@ -501,7 +501,7 @@ private fn transcript_row(
     false => 0,
   }
   let view = match entry.work {
-    run => work_view(themes.current(), work, run),
+    run => work_view(themes, work, run),
     _ => entry_view(themes, images, bash, plugins, entry.key, entry.message).or(layout::blank()),
   }
   cui::box(
@@ -1016,9 +1016,11 @@ private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome 
   }
 }
 
-// A run of tool calls: a chip counting its calls and failures, followed by
-// its tool rows while open. While closed, a spinner shows the run working.
-fn work_view(colors: theme::Theme, work: Work, run: transcript::Work) cui::View {
+// A run of tool calls: a chip counting its calls and failures, followed
+// while open by its activity: each message's thinking, then its tool rows.
+// While closed, a spinner shows the run working.
+fn work_view(themes: theme::Context, work: Work, run: transcript::Work) cui::View {
+  let colors = themes.current()
   let open = work_is_open(work, run)
   let muted = ui::text_style(foreground: colors.muted)
   let count = match run.calls == 1 {
@@ -1059,11 +1061,25 @@ fn work_view(colors: theme::Theme, work: Work, run: transcript::Work) cui::View 
     true => {
       let rows = mut List::new<cui::View>()
       rows.push(chip)
-      for tool in run.tools {
+      for step in run.steps {
+        // Thinking lines up with the tool rows' titles.
+        let content = match step.result {
+          result => tool_entry(colors, result),
+          _ => {
+            markdown::view(
+              themes,
+              "{run.key}:{step.key}",
+              step.thinking,
+              base: ui::text_style(foreground: colors.muted, italic: true),
+            )
+          },
+        }
         rows.push(
           cui::box(
-            [tool_entry(colors, tool)],
+            [content],
+            key: step.key,
             styles: ui::style(
+              flex_direction: ui::FlexDirection::column,
               padding: ui::Edges{
                 top: ui::cells(0),
                 right: ui::cells(0),

@@ -313,11 +313,23 @@ struct Work {
   turn_id: Str,
   // The calls' result rows, in order.
   tools: [Message],
+  // The run's thinking and calls, in order.
+  steps: [Step],
   calls: Int,
   failed: Int,
   // Whether any call is still planned or running in a turn that was not
   // aborted.
   running: Bool,
+}
+
+// Step is one entry of an open work row: a message's thinking, or a tool
+// call with its result once there is one. A call without a result is
+// planned, or not run when its turn was aborted.
+struct Step {
+  key: Str,
+  thinking: Str,
+  call: ToolCall?,
+  result: Message?,
 }
 
 // Row is one transcript row: a message, or a run of tool calls.
@@ -338,6 +350,8 @@ private struct Batch {
   first_call: Str,
   calls: [Str: Bool],
   tools: [Message],
+  // Thinking and calls in order; results are matched to calls by ID.
+  steps: [Step],
   aborted: Bool,
 }
 
@@ -347,18 +361,80 @@ private fn batch(turn_id: Str) mut Batch {
     first_call: "",
     calls: [:],
     tools: [],
+    steps: [],
     aborted: false,
   })
 }
 
 impl Batch {
-  fn mut call(id: Str) {
-    if id != "" {
+  fn mut call(call: ToolCall) {
+    if call.id != "" and not self.calls.has(call.id) {
       if self.first_call == "" {
-        self.first_call = id
+        self.first_call = call.id
       }
-      self.calls.set(id, true)
+      self.calls.set(call.id, true)
+      self.steps.push(
+        Step{
+          key: "call:{call.id}",
+          thinking: "",
+          call: Maybe::new(call),
+          result: Maybe::new<Message>(),
+        },
+      )
     }
+  }
+
+  fn mut think(message: Message) {
+    if strings::TrimSpace(message.thinking) != "" {
+      self.steps.push(
+        Step{
+          key: "thinking:{self.steps.size()}",
+          thinking: message.thinking,
+          call: Maybe::new<ToolCall>(),
+          result: Maybe::new<Message>(),
+        },
+      )
+    }
+  }
+
+  // The steps with each call's result, or a placeholder for a call without
+  // one.
+  private fn resolved() [Step] {
+    let results = mut Map::new<Message>()
+    for tool in self.tools {
+      results.set(tool.tool_call_id, tool)
+    }
+    let steps = mut List::new<Step>()
+    for step in self.steps {
+      match step.call {
+        call => {
+          let result = match results.get(call.id) {
+            found => found,
+            _ => {
+              let placeholder = mut message("", self.turn_id, Role::tool)
+              placeholder.tool_call_id = call.id
+              placeholder.tool_name = call.name
+              placeholder.pending = true
+              placeholder.tool_state = match self.aborted {
+                true => ToolState::not_run,
+                false => ToolState::planned,
+              }
+              placeholder.@
+            },
+          }
+          steps.push(
+            Step{
+              key: step.key,
+              thinking: "",
+              call: step.call,
+              result: Maybe::new(result),
+            },
+          )
+        },
+        _ => steps.push(step),
+      }
+    }
+    steps.@
   }
 
   fn work() Work {
@@ -376,6 +452,7 @@ impl Batch {
       key: "work:{self.turn_id}:{self.first_call}",
       turn_id: self.turn_id,
       tools: self.tools,
+      steps: self.resolved(),
       calls: self.calls.size(),
       failed: failed,
       running: pending and not self.aborted,
@@ -387,7 +464,8 @@ impl Batch {
 // client does. A run starts at an assistant message that calls tools, after
 // any prose of that message, and continues through the turn's later calls
 // until prose, another kind of row, or another turn ends it. Messages that
-// show nothing, such as thinking alone, do not end a run.
+// show nothing outside a run, such as thinking alone, do not end it; their
+// thinking is one of its steps.
 fn rows(messages: [Message]) [Row] {
   let result = mut List::new<Row>()
   mut current = batch("")
@@ -415,13 +493,17 @@ fn rows(messages: [Message]) [Row] {
       if message.aborted {
         current.aborted = true
       }
+      current.think(message)
       for call in message.tool_calls {
-        current.call(call.id)
+        current.call(call)
       }
       if message.role == Role::tool {
-        current.call(message.tool_call_id)
+        current.call(ToolCall{id: message.tool_call_id, name: message.tool_name})
         current.tools.push(message)
       }
+    } else if open and message.role == Role::assistant and message.turn_id == current.turn_id and (not ends) {
+      // Thinking between calls stays in its run.
+      current.think(message)
     }
   }
   if open {

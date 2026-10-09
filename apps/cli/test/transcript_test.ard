@@ -654,3 +654,73 @@ test fn a_live_run_keeps_its_key_when_the_turn_is_persisted() Void!Str {
     "the run keeps its key",
   )
 }
+
+// Steps as `thinking:<text>` and `<call>:<state>`.
+fn describe_steps(work: transcript::Work) Str {
+  mut out = ""
+  for step in work.steps {
+    let shown = match step.result {
+      result => {
+        let state = match result.tool_state {
+          transcript::ToolState::planned => "planned",
+          transcript::ToolState::running => "running",
+          transcript::ToolState::completed => "completed",
+          transcript::ToolState::failed => "failed",
+          transcript::ToolState::not_run => "not run",
+          transcript::ToolState::none => "none",
+        }
+        "{result.tool_call_id}:{state}"
+      },
+      _ => "thinking:{step.thinking}",
+    }
+    out = match out == "" {
+      true => shown,
+      false => "{out} | {shown}",
+    }
+  }
+  out
+}
+
+fn thinking(message: transcript::Message, text: Str) transcript::Message {
+  let built = mut message
+  built.thinking = text
+  built.@
+}
+
+test fn a_run_lists_each_messages_thinking_before_its_calls() Void!Str {
+  let completed = transcript::ToolState::completed
+  let rows = transcript::rows(
+    [
+      // Thinking alone stays in the run.
+      thinking(reply("a1", "t1", "Let me look.", ["c1", "c2"]), "Read it first."),
+      result("c1", "t1", completed),
+      result("c2", "t1", completed),
+      thinking(reply("a2", "t1", "", []), "That file is generated."),
+      thinking(reply("a3", "t1", "", ["c3"]), "Check the template."),
+      result("c3", "t1", transcript::ToolState::failed),
+    ],
+  )
+  try testing::assert(describe_rows(rows) == "a1 | work:t1:c1 3/1", describe_rows(rows))
+  let work = rows.at(1).expect("work").work.expect("run")
+  testing::assert(
+    describe_steps(work) == "thinking:Read it first. | c1:completed | c2:completed | thinking:That file is generated. | thinking:Check the template. | c3:failed",
+    describe_steps(work),
+  )
+}
+
+test fn calls_without_results_are_planned_or_not_run_after_an_abort() Void!Str {
+  let open = transcript::rows(
+    [reply("a1", "t1", "", ["c1", "c2"]), result("c1", "t1", transcript::ToolState::running)],
+  )
+  try testing::assert(
+    describe_steps(open.at(0).expect("run").work.expect("work")) == "c1:running | c2:planned",
+    describe_steps(open.at(0).expect("run").work.expect("work")),
+  )
+  let stopped = mut reply("a2", "t1", "Stopped.", [])
+  stopped.aborted = true
+  let aborted = transcript::rows([reply("a1", "t1", "", ["c1"]), stopped.@])
+  testing::assert(
+    describe_steps(aborted.at(0).expect("run").work.expect("work")) == "c1:not run",
+    describe_steps(aborted.at(0).expect("run").work.expect("work")),
+  )
+}

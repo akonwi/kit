@@ -1974,3 +1974,44 @@ test fn a_running_run_opens_on_its_own_until_it_has_six_calls() Void!Str {
   settle(terminal)
   expect_rows(rows(terminal), ["", "", "", "", "", "", "", "", "", "", " ⠋ 6 tool calls", ""])
 }
+
+test fn an_open_chip_lists_thinking_before_each_messages_tool_rows() Void!Str {
+  let terminal = headless::new(48, 10)
+  defer terminal.destroy()
+  let reply = mut transcript::message("t1-reply", "t1", transcript::Role::assistant)
+  reply.thinking = "Read the *parser* first."
+  reply.tool_calls = [
+    transcript::ToolCall{id: "c1", name: "read"},
+    transcript::ToolCall{id: "c2", name: "grep"},
+  ]
+  let result = mut transcript::message("t1-result", "t1", transcript::Role::tool)
+  result.tool_call_id = "c1"
+  result.tool_name = "read"
+  result.tool_state = transcript::ToolState::completed
+  let model = bash_model([reply.@, result.@])
+  model.open_work = ["work:t1:c1": true]
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "",
+      " ▾ 2 tool calls",
+      "   Read the parser first.",
+      "   • read done",
+      "   • grep planned",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let cell = terminal.frame().cell(3, 6).expect("thinking")
+  testing::assert(
+    same_color(cell.style.foreground, colors.muted) and cell.style.italic,
+    "thinking is muted italic",
+  )
+}
