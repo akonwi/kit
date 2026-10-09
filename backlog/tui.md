@@ -93,10 +93,19 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   word. ↑ on a blank draft with nothing queued opens message history in an
   inline picker above the composer: up to 500 recent prompts without repeats,
   oldest first with the newest selected, filtered by the draft; Enter or a
-  click recalls a prompt and Escape closes it. Remaining: bash mode and
-  history, file and session mentions, and annotation chips. Tool-result image
-  previews belong to TUI-COOPER-005 and a workspace image pane to
-  TUI-COOPER-008.
+  click recalls a prompt and Escape closes it. Tool-result image previews
+  belong to TUI-COOPER-005 and a workspace image pane to TUI-COOPER-008.
+  Outstanding:
+  - [ ] Bash mode: `!command` runs directly as a transcript bash entry whose
+    result is added to context; `!!command` excludes the result.
+  - [ ] Bash history: ↑/↓ in bash mode open earlier commands in an inline
+    picker.
+  - [ ] File mentions: `@` opens an inline file picker that inserts
+    `@path`.
+  - [ ] Session mentions: `#` opens an inline session picker that inserts
+    `#[session:<id>]`.
+  - [ ] Annotation chips: pending annotations show above the composer and
+    are sent with the prompt; queued ones return with restored follow-ups.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
   wells, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
