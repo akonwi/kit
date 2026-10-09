@@ -1,0 +1,129 @@
+use ard/testing
+
+use go:api/contract as protocol
+use kit/tui/format
+use kit/tui/inline_picker
+use go:time
+
+// The sessions a `#` mention can reference, as in the vaxis client: every
+// session but the attached one, listed afresh each time a mention opens.
+
+// Source is the listed sessions and the state of their latest load.
+// `generation` changes whenever the list or its state does, so the composer
+// knows to rank again.
+struct Source {
+  sessions: [protocol::SessionInfo],
+  loading: Bool,
+  failure: Str,
+  generation: Int,
+}
+
+fn source() Source {
+  Source{
+    sessions: [],
+    loading: false,
+    failure: "",
+    generation: 0,
+  }
+}
+
+// begin clears the list for a new load.
+fn begin(previous: Source) Source {
+  Source{
+    sessions: [],
+    loading: true,
+    failure: "",
+    generation: previous.generation + 1,
+  }
+}
+
+// finish records a load's result, unless a later load began. The attached
+// session cannot mention itself.
+fn finish(previous: Source, generation: Int, listed: [protocol::SessionInfo]!Str, attached: Str) Source {
+  match generation == previous.generation {
+    false => previous,
+    true => {
+      match listed {
+        ok(sessions) => {
+          let mentionable = mut List::new<protocol::SessionInfo>()
+          for session in sessions {
+            if session.ID != attached {
+              mentionable.push(session)
+            }
+          }
+          Source{
+            sessions: mentionable.@,
+            loading: false,
+            failure: "",
+            generation: generation + 1,
+          }
+        },
+        err(failure) => {
+          Source{
+            sessions: [],
+            loading: false,
+            failure: failure,
+            generation: generation + 1,
+          }
+        },
+      }
+    },
+  }
+}
+
+// catalog lists sessions by name, then working directory and age. Their IDs
+// and full working directories are matched too.
+fn catalog(source: Source, now: time::Time) [inline_picker::Item] {
+  let items = mut List::new<inline_picker::Item>()
+  for session in source.sessions {
+    items.push(
+      inline_picker::item(
+        session.ID,
+        format::session_name(session),
+        detail: format::session_display_cwd(session.CWD, 40),
+        meta: format::format_session_updated(session.UpdatedAt, now),
+        aliases: [session.ID, session.CWD],
+      ),
+    )
+  }
+  items.@
+}
+
+// The row shown while no session is listed.
+fn empty(source: Source) Str {
+  match {
+    source.loading => "Loading sessions…",
+    source.failure != "" => "Could not load sessions: {source.failure}",
+    _ => "No sessions found",
+  }
+}
+
+private fn session(id: Str, name: Str) protocol::SessionInfo {
+  protocol::SessionInfo{ID: id, Name: name}
+}
+
+test fn a_load_lists_every_session_but_the_attached_one() Void!Str {
+  let loading = begin(source())
+  try testing::assert(loading.loading and empty(loading) == "Loading sessions…", "loading")
+  let loaded = finish(
+    loading,
+    loading.generation,
+    Result::ok([session("a", "Alpha"), session("self", "Here"), session("b", "")]),
+    "self",
+  )
+  let names = catalog(loaded, time::Now())
+  try testing::assert(
+    names.size() == 2 and names.at(1).expect("b").label == "Unnamed session",
+    "two sessions",
+  )
+  testing::assert(loaded.generation != loading.generation, "the change is visible")
+}
+
+test fn a_superseded_load_is_ignored() Void!Str {
+  let first = begin(source())
+  let second = begin(first)
+  let late = finish(second, first.generation, Result::ok([session("a", "Alpha")]), "self")
+  try testing::assert(late.loading and late.sessions.size() == 0, "the later load still runs")
+  let failed = finish(second, second.generation, Result::err("connection refused"), "self")
+  testing::assert(empty(failed) == "Could not load sessions: connection refused", empty(failed))
+}

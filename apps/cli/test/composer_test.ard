@@ -1,5 +1,6 @@
 use ard/testing
 
+use go:api/contract as protocol
 use cooper
 use cooper/cui
 use cooper/event
@@ -9,6 +10,7 @@ use cooper/ui
 use kit/tui/attachments
 use kit/tui/composer
 use kit/tui/file_index
+use kit/tui/session_mentions
 use kit/tui/theme
 use go:os
 use go:path/filepath
@@ -37,6 +39,9 @@ struct Model {
   // The indexed paths mentions list, and how often they were asked for.
   files: file_index::Index,
   file_loads: Int,
+  // The sessions `#` mentions list, and how often they were asked for.
+  sessions: session_mentions::Source,
+  session_loads: Int,
   context: cui::Context?,
   control: mut composer::Ref,
   other_input: mut cui::InputRef,
@@ -125,6 +130,18 @@ impl cui::Component for Host {
                 _ => (),
               }
             },
+            sessions: model.sessions,
+            load_sessions: fn() {
+              model.session_loads =+ 1
+              match model.context {
+                context => {
+                  let _ = context.dispatch(fn() {
+                    model.sessions = session_mentions::begin(model.sessions)
+                  })
+                },
+                _ => (),
+              }
+            },
             bash_changed: fn(bash: Bool) {
               model.bash = bash
             },
@@ -178,6 +195,8 @@ fn model() mut Model {
       generation: 0,
     },
     file_loads: 0,
+    sessions: session_mentions::source(),
+    session_loads: 0,
     context: Maybe::new<cui::Context>(),
     control: composer::ref(),
     other_input: cui::input_ref(),
@@ -1409,11 +1428,12 @@ test fn the_query_ranks_paths_and_enter_mentions_the_selection_at_the_caret() Vo
   terminal.key(key("return"))
   terminal.flush()
   try testing::assert(value.submissions == 0, "Enter mentions instead of sending")
-  type_text(terminal, "y")
+  // The caret keeps following what is typed after the mention.
+  type_text(terminal, "yz")
   terminal.key(key("return"))
   terminal.flush()
   testing::assert(
-    value.submitted == "@internal/tui/shell.go yx",
+    value.submitted == "@internal/tui/shell.go yzx",
     "the path replaces the query and the caret follows it: {value.submitted}",
   )
 }
@@ -1508,4 +1528,132 @@ test fn the_index_reports_failures_and_partial_lists() Void!Str {
       "",
     ],
   )
+}
+
+// Lists sessions as a finished load does, with the attached one excluded.
+fn list_sessions(value: mut Model, listed: [protocol::SessionInfo]!Str) {
+  let context = value.context.expect("mounted host")
+  let _ = context.dispatch(fn() {
+    value.sessions = session_mentions::finish(
+      value.sessions,
+      value.sessions.generation,
+      listed,
+      "attached",
+    )
+  })
+}
+
+fn other_sessions() [protocol::SessionInfo] {
+  [
+    protocol::SessionInfo{
+      ID: "attached",
+      Name: "This session",
+      CWD: "/srv/kit",
+    },
+    protocol::SessionInfo{
+      ID: "ses_release",
+      Name: "Release notes",
+      CWD: "/srv/kit",
+    },
+    protocol::SessionInfo{
+      ID: "ses_flaky",
+      Name: "",
+      CWD: "/srv/api",
+    },
+  ]
+}
+
+test fn typing_hash_after_a_space_lists_the_other_sessions_above_it() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "issue#")
+  try testing::assert(value.session_loads == 0, "a # inside a word is text")
+  type_text(terminal, " see #")
+  try testing::assert(value.session_loads == 1, "the mention asks for sessions")
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "",
+      "            ┌───────────────────────────────────────────────────────┐",
+      "            │ Loading sessions…                                     │",
+      "            └───────────────────────────────────────────────────────┘",
+      " issue# see #",
+      "",
+    ],
+  )
+  list_sessions(value, Result::ok(other_sessions()))
+  terminal.flush()
+  // Each session shows its name, then its directory and age, with the first
+  // selected.
+  expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      "            ┌───────────────────────────────────────────────────────┐",
+      "            │▌Release notes    /srv/kit                     unknown │",
+      "            │ Unnamed session  /srv/api                     unknown │",
+      "            └───────────────────────────────────────────────────────┘",
+      " issue# see #",
+      "",
+    ],
+  )
+}
+
+test fn a_session_id_matches_and_enter_inserts_a_session_reference() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "compare #")
+  list_sessions(value, Result::ok(other_sessions()))
+  terminal.flush()
+  type_text(terminal, "flaky")
+  try testing::assert(
+    rows(terminal).at(5).or("") == "         │▌Unnamed session  /srv/api                     unknown │",
+    "the ID matches: {rows(terminal).at(5).or("")}",
+  )
+  terminal.key(key("return"))
+  terminal.flush()
+  try testing::assert(value.submissions == 0, "Enter mentions instead of sending")
+  type_text(terminal, "now")
+  terminal.key(key("return"))
+  terminal.flush()
+  testing::assert(
+    value.submitted == "compare #[session:ses_flaky] now",
+    "the reference replaces the query and the caret follows it: {value.submitted}",
+  )
+}
+
+test fn a_failed_session_load_is_shown_in_the_picker() Void!Str {
+  let terminal = headless::new(72, 9)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  type_text(terminal, "#")
+  list_sessions(value, Result::err("connection refused"))
+  terminal.flush()
+  try testing::assert(
+    rows(terminal).at(5).or("") == " │ Could not load sessions: connection refused           │",
+    rows(terminal).at(5).or(""),
+  )
+  // Escape closes it; a new mention lists sessions afresh.
+  terminal.key(key("escape"))
+  type_text(terminal, " #")
+  testing::assert(value.session_loads == 2, "each mention lists sessions again")
 }

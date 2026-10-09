@@ -21,12 +21,59 @@ let max_rows = 10
 let min_width = 48
 let max_width = 96
 
-// Item is one picker row.
+// Item is one picker row: a label, then an optional muted detail and a
+// right-aligned meta, as session rows show their directory and age.
 struct Item {
   key: Str,
   label: Str,
   // The text the query matches, when it is not the label.
   search: Str,
+  detail: Str,
+  meta: Str,
+  // Further text a ranked query matches, such as a session's ID.
+  aliases: [Str],
+}
+
+// item is a row with only the parts given.
+fn item(key: Str, label: Str, search: Str?, detail: Str?, meta: Str?, aliases: [Str]?) Item {
+  Item{
+    key: key,
+    label: label,
+    search: search.or(""),
+    detail: detail.or(""),
+    meta: meta.or(""),
+    aliases: aliases.or([]),
+  }
+}
+
+// Columns sizes the label and meta of rows with details, from the whole
+// catalog so filtering never shifts them, within the palette's caps.
+struct Columns {
+  label: Int,
+  meta: Int,
+}
+
+fn columns(catalog: [Item]) Columns {
+  mut label = 1
+  mut meta = 0
+  for entry in catalog {
+    if entry.label.size() > label {
+      label = entry.label.size()
+    }
+    if entry.meta.size() > meta {
+      meta = entry.meta.size()
+    }
+  }
+  Columns{
+    label: match label > 32 {
+      true => 32,
+      false => label,
+    },
+    meta: match meta > 20 {
+      true => 20,
+      false => meta,
+    },
+  }
 }
 
 // filter returns the items matching query in catalog order, using the
@@ -52,20 +99,31 @@ fn filter(catalog: [Item], query: Str) [Item] {
 }
 
 // rank returns the items matching query, best first with ties in catalog
-// order, scored as the palette scores labels. A blank query matches every
-// item in catalog order.
+// order, scored as the palette scores rows: the label above the detail and
+// the aliases. A blank query matches every item in catalog order.
 fn rank(catalog: [Item], query: Str) [Item] {
   let needle = strings::ToLower(strings::TrimSpace(query))
   match needle == "" {
     true => catalog,
     false => {
       let ranked = mut List::new<Ranked>()
-      for item, position in catalog {
-        let score = palette::string_score(strings::ToLower(item.label), needle)
+      for entry, position in catalog {
+        let score = palette::item_score(
+          palette::Item{
+            key: entry.key,
+            label: entry.label,
+            hint: "",
+            description: entry.detail,
+            meta: "",
+            search_terms: entry.aliases,
+            disabled_reason: "",
+          },
+          needle,
+        )
         if score > 0 {
           ranked.push(
             Ranked{
-              item: item,
+              item: entry,
               score: score,
               position: position,
             },
@@ -286,6 +344,8 @@ struct Props {
   // Whether long labels drop their start instead of their end, as paths do.
   // It applies to anchored pickers, whose width is known.
   keep_end: Bool,
+  // Rows with details align their labels and metas in these columns.
+  columns: Columns?,
   // A click activates the clicked row.
   activate: fn(Str),
   // Where the picker rests, when not on its parent's top edge.
@@ -444,21 +504,7 @@ impl Picker {
           },
           text_style: ui::text_style(foreground: colors.primary),
         ),
-        cui::text(
-          match self.props.anchor {
-            // The frame, the selection gutter, and the right padding.
-            anchor => {
-              match self.props.keep_end {
-                true => keep_end(item.label, anchor.width - 4),
-                false => item.label,
-              }
-            },
-            _ => item.label,
-          },
-          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
-          wrap: ui::TextWrap::none,
-          overflow: ui::TextOverflow::ellipsis,
-        ),
+        self.label(item),
       ],
       key: "inline-picker.row.{item.key}",
       styles: ui::style(
@@ -494,6 +540,71 @@ impl Picker {
     )
   }
 
+  // The row's label alone, or its label, detail, and meta in columns.
+  private fn label(item: Item) cui::View {
+    let colors = self.props.themes.current()
+    let text = match self.props.anchor {
+      // The frame, the selection gutter, and the right padding.
+      anchor => {
+        match self.props.keep_end {
+          true => keep_end(item.label, anchor.width - 4),
+          false => item.label,
+        }
+      },
+      _ => item.label,
+    }
+    match self.props.columns {
+      columns => {
+        cui::box(
+          [
+            cui::text(
+              text,
+              styles: ui::style(width: ui::cells(columns.label + 2), flex_shrink: 0.0),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+            cui::text(
+              item.detail,
+              styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+              text_style: ui::text_style(foreground: colors.muted),
+              wrap: ui::TextWrap::none,
+              overflow: ui::TextOverflow::ellipsis,
+            ),
+            cui::box(
+              [
+                cui::text(
+                  item.meta,
+                  text_style: ui::text_style(foreground: colors.muted),
+                  wrap: ui::TextWrap::none,
+                  overflow: ui::TextOverflow::ellipsis,
+                ),
+              ],
+              styles: ui::style(
+                width: ui::cells(columns.meta + 2),
+                flex_shrink: 0.0,
+                flex_direction: ui::FlexDirection::row,
+                justify_content: ui::Justify::end,
+              ),
+            ),
+          ],
+          styles: ui::style(
+            flex_grow: 1.0,
+            flex_basis: ui::cells(0),
+            flex_direction: ui::FlexDirection::row,
+          ),
+        )
+      },
+      _ => {
+        cui::text(
+          text,
+          styles: ui::style(flex_grow: 1.0, flex_basis: ui::cells(0)),
+          wrap: ui::TextWrap::none,
+          overflow: ui::TextOverflow::ellipsis,
+        )
+      },
+    }
+  }
+
   // A ⋯ row marks hidden items; clicking it scrolls a page toward them.
   private fn mut overflow_row(key: Str, direction: Int) cui::View {
     let colors = self.props.themes.current()
@@ -524,13 +635,7 @@ impl Picker {
 private fn items(labels: [Str]) [Item] {
   let result = mut List::new<Item>()
   for label in labels {
-    result.push(
-      Item{
-        key: label,
-        label: label,
-        search: "",
-      },
-    )
+    result.push(item(label, label))
   }
   result.@
 }
@@ -553,18 +658,7 @@ test fn filtering_keeps_catalog_order() Void!Str {
 }
 
 test fn a_search_text_replaces_the_label_for_matching() Void!Str {
-  let catalog = [
-    Item{
-      key: "1",
-      label: "!!make test",
-      search: "make test",
-    },
-    Item{
-      key: "2",
-      label: "!ls",
-      search: "ls",
-    },
-  ]
+  let catalog = [item("1", "!!make test", search: "make test"), item("2", "!ls", search: "ls")]
   testing::assert(keys(filter(catalog, "!")) == "", "the label's prefix is not searched")
 }
 
