@@ -54,6 +54,8 @@ type Message struct {
 	ToolName     string
 	IsError      bool
 	StopReason   string
+	// Bash is set for a persisted bash run, whose Role is then "bash".
+	Bash *Bash
 }
 
 // Events projects canonical event unions for the Ard client.
@@ -104,11 +106,17 @@ func Events(source []protocol.SessionEvent) []Event {
 func Messages(source []protocol.TranscriptMessage) []Message {
 	result := make([]Message, 0, len(source))
 	for _, message := range source {
-		result = append(result, Message{
+		projected := Message{
 			ID: message.ID, TurnID: message.TurnID, Sequence: int(message.Sequence), Role: message.Role, Content: content(message.Content),
 			ErrorMessage: message.ErrorMessage, ToolCallID: message.ToolCallID, ToolName: message.ToolName,
 			IsError: message.IsError, StopReason: message.StopReason,
-		})
+		}
+		if message.Role == "context" {
+			if bash, ok := bashBoundary(message.BoundaryID, message.BoundaryKind, message.Content, message.Details); ok {
+				projected.Role, projected.Bash = "bash", &bash
+			}
+		}
+		result = append(result, projected)
 	}
 	return result
 }

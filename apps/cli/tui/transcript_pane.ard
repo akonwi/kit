@@ -2,6 +2,7 @@ use cooper
 use cooper/cui
 use cooper/keymap
 use cooper/ui
+use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/controls
 use kit/tui/image_preview
@@ -79,12 +80,23 @@ struct Images {
   open: fn(Str),
 }
 
+// Direct shell runs. A finished run's header folds and unfolds its output.
+struct Bash {
+  // Execution IDs whose output is folded.
+  folded: [Str: Bool],
+  toggle: fn(Str),
+}
+
+// Output lines a bash row shows before summarizing the rest.
+let bash_visible_lines = 20
+
 struct Props {
   themes: theme::Context,
   messages: [transcript::Message],
   control: mut Control,
   history: History,
   images: Images,
+  bash: Bash,
   // Requests the next earlier page. Repeated requests while one is in flight
   // are ignored by the owner.
   load_older: fn(),
@@ -253,6 +265,7 @@ impl Pane {
   private fn mut list() cui::View {
     let themes = self.props.themes
     let images = self.props.images
+    let bash = self.props.bash
     let colors = themes.current()
     self.tail_key = ""
     self.tail_is_reply = false
@@ -307,7 +320,7 @@ impl Pane {
           render_item: fn(entry: Entry) cui::View {
             match entry.status {
               true => self.history_row(),
-              false => transcript_row(themes, images, entry),
+              false => transcript_row(themes, images, bash, entry),
             }
           },
           estimated_height: 4,
@@ -433,13 +446,13 @@ impl cui::Component for Pane {
 }
 
 // Each row keeps a blank row above it; the last also keeps one below.
-private fn transcript_row(themes: theme::Context, images: Images, entry: Entry) cui::View {
+private fn transcript_row(themes: theme::Context, images: Images, bash: Bash, entry: Entry) cui::View {
   let bottom = match entry.last {
     true => 1,
     false => 0,
   }
   cui::box(
-    [entry_view(themes, images, entry.key, entry.message).or(layout::blank())],
+    [entry_view(themes, images, bash, entry.key, entry.message).or(layout::blank())],
     styles: ui::style(
       flex_direction: ui::FlexDirection::column,
       padding: ui::Edges{
@@ -460,7 +473,7 @@ private fn renders(message: transcript::Message) Bool {
     transcript::Role::user => message.text != "" or message.attachments.size() > 0,
     transcript::Role::assistant => message.text != "" and not message.pending,
     transcript::Role::tool => true,
-    transcript::Role::bash => true,
+    transcript::Role::bash => message.bash.is_some(),
     transcript::Role::other => false,
   }
 }
@@ -468,6 +481,7 @@ private fn renders(message: transcript::Message) Bool {
 private fn entry_view(
   themes: theme::Context,
   images: Images,
+  bash: Bash,
   key: Str,
   message: transcript::Message,
 ) cui::View? {
@@ -497,14 +511,10 @@ private fn entry_view(
     },
     transcript::Role::tool => Maybe::new(tool_entry(colors, message)),
     transcript::Role::bash => {
-      Maybe::new(
-        cui::text(
-          "$ {message.text}",
-          text_style: ui::text_style(foreground: colors.muted),
-          selectable: true,
-          selection_style: theme::selection_style(colors),
-        ),
-      )
+      match message.bash {
+        run => Maybe::new(bash_entry(colors, bash, run)),
+        _ => Maybe::new<cui::View>(),
+      }
     },
     transcript::Role::other => Maybe::new<cui::View>(),
   }
@@ -611,6 +621,150 @@ private fn attachment_label(
       }
     },
   )
+}
+
+// A shell command typed in the composer, as in the vaxis client: a success
+// rule on the left, a spinner while it runs and then its outcome, the command,
+// and its muted output. Clicking a finished header folds the output.
+private fn bash_entry(colors: theme::Theme, bash: Bash, run: sessionbridge::Bash) cui::View {
+  let output: [Str] = match run.Output == "" {
+    true => [],
+    false => strings::Split(run.Output, "\n"),
+  }
+  let foldable = (not run.Running()) and output.size() > 0
+  let folded = bash.folded.get(run.ID).or(false)
+  let header = mut List::new<cui::View>()
+  if run.Running() {
+    header.push(spinner::spinner(styles: ui::style(foreground: colors.success_text)))
+  } else {
+    let outcome = bash_outcome(colors, run)
+    header.push(cui::text(outcome.glyph, text_style: ui::text_style(foreground: outcome.color)))
+  }
+  header.push(
+    cui::text(
+      strings::ReplaceAll(run.Command, "\t", "  "),
+      styles: ui::style(
+        flex_grow: 1.0,
+        flex_basis: ui::cells(0),
+        min_width: ui::cells(0),
+        padding: ui::Edges{
+          top: ui::cells(0),
+          right: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(1),
+        },
+      ),
+      text_style: ui::text_style(foreground: colors.foreground),
+      selectable: true,
+      selection_style: theme::selection_style(colors),
+    ),
+  )
+  if foldable {
+    header.push(
+      cui::text(
+        match folded {
+          true => " ▸",
+          false => " ▾",
+        },
+        text_style: ui::text_style(foreground: colors.muted),
+      ),
+    )
+  }
+  let toggle = bash.toggle
+  let id = run.ID
+  let body = mut List::new<cui::View>()
+  body.push(
+    cui::box(
+      header.@,
+      styles: ui::style(flex_direction: ui::FlexDirection::row, flex_shrink: 0.0),
+      on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+        if foldable and received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+          toggle(id)
+          received.prevent_default()
+        }
+      },
+    ),
+  )
+  if foldable and not folded {
+    mut shown = output
+    if output.size() > bash_visible_lines {
+      let kept = mut List::new<Str>()
+      for line, index in output {
+        if index < bash_visible_lines - 2 {
+          kept.push(line)
+        }
+      }
+      kept.push("… ({output.size() - (bash_visible_lines - 2)} more lines)")
+      shown = kept.@
+    }
+    body.push(
+      cui::text(
+        strings::Join(mut shown, "\n"),
+        styles: ui::style(
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(2),
+          },
+        ),
+        text_style: ui::text_style(foreground: colors.muted),
+        selectable: true,
+        selection_style: theme::selection_style(colors),
+      ),
+    )
+  }
+  cui::box(
+    [
+      // The rule spans the entry without adding to its height.
+      cui::text(
+        strings::Repeat("│\n", 1023) + "│",
+        styles: ui::style(
+          position: ui::Position::absolute,
+          top: ui::cells(0),
+          bottom: ui::cells(0),
+          left: ui::cells(0),
+          width: ui::cells(1),
+          overflow: ui::Overflow::hidden,
+        ),
+        text_style: ui::text_style(foreground: colors.success_text),
+        wrap: ui::TextWrap::none,
+      ),
+      cui::box(
+        body.@,
+        styles: ui::style(
+          flex_direction: ui::FlexDirection::column,
+          padding: ui::Edges{
+            top: ui::cells(0),
+            right: ui::cells(0),
+            bottom: ui::cells(0),
+            left: ui::cells(2),
+          },
+        ),
+      ),
+    ],
+    styles: ui::style(
+      position: ui::Position::relative,
+      flex_direction: ui::FlexDirection::column,
+      flex_shrink: 0.0,
+      overflow: ui::Overflow::hidden,
+    ),
+  )
+}
+
+private struct Outcome {
+  glyph: Str,
+  color: ui::Color,
+}
+
+// A finished command's glyph: ✓ for exit code zero, ⊘ when it was stopped,
+// and ✗ for any other result.
+private fn bash_outcome(colors: theme::Theme, run: sessionbridge::Bash) Outcome {
+  match {
+    run.Status == "aborted" or run.Status == "interrupted" => Outcome{glyph: "⊘", color: colors.muted},
+    run.Succeeded() => Outcome{glyph: "✓", color: colors.success_text},
+    _ => Outcome{glyph: "✗", color: colors.danger_text},
+  }
 }
 
 private fn tool_entry(colors: theme::Theme, message: transcript::Message) cui::View {

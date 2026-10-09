@@ -5,6 +5,7 @@ use cooper
 use cooper/cui
 use cooper/testing as headless
 use cooper/ui
+use go:kit/ffi/sessionbridge
 use kit/tui/attachments
 use kit/tui/image_preview
 use kit/tui/theme
@@ -25,6 +26,8 @@ struct Model {
   previews: [Str: image_preview::Preview],
   toggled: [Str],
   opened: [Str],
+  // Bash rows whose output is folded.
+  folded: [Str: Bool],
 }
 
 // Every message is shown; there is no earlier history.
@@ -80,6 +83,12 @@ impl cui::Component for Host {
             self.model.opened.push(id)
           },
         },
+        bash: transcript_pane::Bash{
+          folded: self.model.folded,
+          toggle: fn(id: Str) {
+            self.model.folded.set(id, not self.model.folded.get(id).or(false))
+          },
+        },
         load_older: fn() {
           // Like the attachment, an owner already loading ignores requests.
           let model = self.model
@@ -131,6 +140,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
     aborted: false,
     pending: pending,
     attachments: [],
+    bash: Maybe::new<sessionbridge::Bash>(),
   }
 }
 
@@ -189,6 +199,7 @@ fn render(count: Int) [Str] {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -216,6 +227,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -244,6 +256,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
         aborted: false,
         pending: false,
         attachments: [],
+        bash: Maybe::new<sessionbridge::Bash>(),
       },
     ]
   })
@@ -271,6 +284,7 @@ test fn pending_assistant_prose_is_revealed_only_after_completion() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -340,6 +354,7 @@ test fn virtual_list_updates_report_when_the_latest_message_leaves_view() Void!S
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -390,6 +405,7 @@ test fn a_transcript_at_its_end_follows_new_messages() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -446,6 +462,7 @@ test fn sticky_tail_follows_markdown_height_changes_and_resize() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -505,6 +522,7 @@ test fn scrolled_transcript_preserves_its_keyed_reading_anchor_during_reflow() V
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -566,6 +584,7 @@ test fn markdown_selection_survives_transcript_reflow() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -613,6 +632,7 @@ test fn selected_transcript_row_remains_retained_when_height_growth_moves_it_off
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -673,6 +693,7 @@ test fn the_latest_control_returns_a_scrolled_transcript_to_its_tail() Void!Str 
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -727,6 +748,7 @@ test fn a_new_attachment_scope_remounts_the_transcript_at_its_tail() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -809,6 +831,7 @@ test fn attaching_opens_a_tall_final_reply_at_its_start() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -843,6 +866,7 @@ test fn a_tall_reply_arriving_at_the_end_opens_at_its_start() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -881,6 +905,7 @@ test fn a_reply_that_fits_keeps_following_the_end() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -919,6 +944,7 @@ test fn a_tall_reply_arriving_while_scrolled_away_leaves_the_view_alone() Void!S
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -959,6 +985,7 @@ test fn a_tall_prompt_follows_the_end() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_messages(terminal, model)
   defer renderer.destroy()
@@ -1041,6 +1068,7 @@ test fn a_first_page_too_short_to_fill_the_view_loads_earlier_history() Void!Str
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1081,6 +1109,7 @@ test fn earlier_history_loads_within_forty_rows_of_the_top() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1119,6 +1148,7 @@ test fn a_prepended_page_keeps_the_reading_position() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1172,6 +1202,7 @@ test fn a_failed_page_pauses_loading_until_retried() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1206,6 +1237,7 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = mount_history(terminal, model)
   defer renderer.destroy()
@@ -1280,6 +1312,7 @@ test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -1370,6 +1403,7 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     previews: [:],
     toggled: [],
     opened: [],
+    folded: [:],
   }
   let renderer = cui::mount(
     app,
@@ -1427,4 +1461,155 @@ test fn an_expanded_image_shows_its_preview_below_its_row() Void!Str {
     model.opened.size() == 1 and model.opened.at(0).or("") == "attachment-1" and model.toggled.size() == 1 and model.toggled.at(0).or("") == "attachment-2",
     "clicking the image opens it and clicking a row toggles it",
   )
+}
+
+fn bash_row(id: Str, command: Str, status: Str, exit_code: Int, output: Str) transcript::Message {
+  transcript::bash_message(
+    sessionbridge::Bash{
+      ID: id,
+      Command: command,
+      Status: status,
+      ExitCode: exit_code,
+      HasExitCode: status == "completed",
+      TimedOut: false,
+      Output: output,
+    },
+  )
+}
+
+fn bash_model(messages: [transcript::Message]) mut Model {
+  (mut Model{
+    messages: messages,
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+    expanded: "",
+    previews: [:],
+    toggled: [],
+    opened: [],
+    folded: [:],
+  })
+}
+
+fn same_color(left: ui::Color?, right: ui::Color) Bool {
+  match left {
+    color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+    _ => false,
+  }
+}
+
+test fn bash_runs_show_their_outcome_command_and_output_beside_a_rule() Void!Str {
+  let terminal = headless::new(32, 12)
+  defer terminal.destroy()
+  let model = bash_model(
+    [
+      bash_row("bash_1", "ls", "completed", 0, "a.txt\nb.txt"),
+      bash_row("bash_2", "false", "completed", 1, ""),
+      bash_row("bash_3", "make", "aborted", 0, "aborted by user"),
+    ],
+  )
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      "",
+      "",
+      " │ ✓ ls                      ▾",
+      " │   a.txt",
+      " │   b.txt",
+      "",
+      " │ ✗ false",
+      "",
+      " │ ⊘ make                    ▾",
+      " │   aborted by user",
+      "",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let frame = terminal.frame()
+  try testing::assert(
+    same_color(frame.cell(1, 5).expect("rule").style.foreground, colors.success_text),
+    "the rule spans the run in the success color",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 3).expect("check").style.foreground, colors.success_text),
+    "exit code zero succeeds",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 7).expect("cross").style.foreground, colors.danger_text),
+    "another exit code fails",
+  )
+  try testing::assert(
+    same_color(frame.cell(3, 9).expect("stopped").style.foreground, colors.muted),
+    "a stopped run is muted",
+  )
+  testing::assert(
+    same_color(frame.cell(5, 3).expect("command").style.foreground, colors.foreground) and same_color(frame.cell(5, 4).expect("output").style.foreground, colors.muted),
+    "the command is plain and its output muted",
+  )
+}
+
+test fn a_running_command_shows_a_spinner_and_no_output() Void!Str {
+  let terminal = headless::new(32, 4)
+  defer terminal.destroy()
+  let model = bash_model([bash_row("bash_1", "sleep 5", "running", 0, "")])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  // The first spinner frame.
+  try expect_rows(rows(terminal), ["", "", " │ ⠋ sleep 5", ""])
+  let colors = theme::context(theme::store(theme::system())).current()
+  testing::assert(
+    same_color(terminal.frame().cell(3, 2).expect("spinner").style.foreground, colors.success_text),
+    "the spinner uses the success color",
+  )
+}
+
+test fn clicking_a_finished_command_folds_its_output() Void!Str {
+  let terminal = headless::new(32, 6)
+  defer terminal.destroy()
+  let model = bash_model([bash_row("bash_1", "ls", "completed", 0, "a.txt\nb.txt")])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  terminal.click(10, 2)
+  settle(terminal)
+  try expect_rows(rows(terminal), ["", "", "", "", " │ ✓ ls                      ▸", ""])
+  terminal.click(10, 4)
+  settle(terminal)
+  expect_rows(
+    rows(terminal),
+    ["", "", " │ ✓ ls                      ▾", " │   a.txt", " │   b.txt", ""],
+  )
+}
+
+test fn long_output_shows_its_first_lines_and_counts_the_rest() Void!Str {
+  let terminal = headless::new(32, 24)
+  defer terminal.destroy()
+  let lines = mut List::new<Str>()
+  mut index = 1
+  while index <= 25 {
+    lines.push("line {index}")
+    index =+ 1
+  }
+  let model = bash_model([bash_row("bash_1", "seq 25", "completed", 0, strings::Join(lines, "\n"))])
+  let renderer = mount_messages(terminal, model)
+  defer renderer.destroy()
+  settle(terminal)
+  let expected = mut List::new<Str>()
+  for row in ["", "", "", " │ ✓ seq 25                  ▾"] {
+    expected.push(row)
+  }
+  mut line = 1
+  while line <= 18 {
+    expected.push(" │   line {line}")
+    line =+ 1
+  }
+  expected.push(" │   … (7 more lines)")
+  expected.push("")
+  expect_rows(rows(terminal), expected.@)
 }

@@ -111,6 +111,19 @@ struct Controller {
   compact_operation_id: Str,
   abort_pending: Bool,
   abort_after_start: Bool,
+  // Direct shell work, one run at a time: `bash_starting` while the server
+  // accepts a run, then `bash_id` until it settles.
+  bash_starting: Bool,
+  bash_id: Str,
+  // The run being started. Retrying the same command after a failed start
+  // reuses its execution ID, so a run the server did accept is not repeated.
+  bash_admission: Admission?,
+  // Escape asked to stop a run that was still starting.
+  bash_abort_requested: Bool,
+  // The last reported failure to follow a run, so retries do not repeat it.
+  bash_failure: Str,
+  // Bash rows whose output is folded, by execution ID.
+  folded_bash: [Str: Bool],
   scratchpad_record: protocol::Scratchpad?,
   scratchpad_loading: Bool,
   scratchpad_failure: Str,
@@ -126,6 +139,50 @@ struct Controller {
   settled_interactions: [Str],
   // The request whose response is being submitted, if any.
   interaction_responding: Str,
+}
+
+// A direct shell command typed in the composer: `!command` adds its result to
+// the model's context, and `!!command` keeps it out.
+struct Admission {
+  id: Str,
+  value: Str,
+  command: Str,
+  exclude: Bool,
+}
+
+// The command a draft runs directly, if it is one. A bare `!` or `!!` is an
+// ordinary prompt.
+fn parse_bash(value: Str) Admission? {
+  let exclude = strings::HasPrefix(value, "!!")
+  let command = match {
+    exclude => strings::TrimSpace(strings::TrimPrefix(value, "!!")),
+    strings::HasPrefix(value, "!") => strings::TrimSpace(strings::TrimPrefix(value, "!")),
+    _ => "",
+  }
+  match command == "" {
+    true => Maybe::new<Admission>(),
+    false => {
+      Maybe::new(
+        Admission{
+          id: "",
+          value: value,
+          command: command,
+          exclude: exclude,
+        },
+      )
+    },
+  }
+}
+
+// Whether messages include the bash row of execution id.
+private fn lists_bash(messages: [transcript::Message], id: Str) Bool {
+  mut found = false
+  for message in messages {
+    if message.role == transcript::Role::bash and message.id == id {
+      found = true
+    }
+  }
+  found
 }
 
 // The result of one earlier-transcript request: a page, a fresh snapshot
@@ -203,6 +260,12 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
     compact_operation_id: "",
     abort_pending: false,
     abort_after_start: false,
+    bash_starting: false,
+    bash_id: "",
+    bash_admission: Maybe::new<Admission>(),
+    bash_abort_requested: false,
+    bash_failure: "",
+    folded_bash: [:],
     interactions: [],
     settled_interactions: [],
     interaction_responding: "",
@@ -283,11 +346,13 @@ private fn failed_first_message(message: Str, forked: protocol::ForkSessionResul
 }
 
 impl Controller {
-  // start opens the session watches and follows a turn already in progress.
-  fn mut start(active_turn_id: Str) {
+  // start opens the session watches and follows a turn and a shell command
+  // already in progress.
+  fn mut start(active_turn_id: Str, active_bash_id: Str) {
     self.watch()
     self.watch_plugin_toasts()
     self.follow_run(active_turn_id)
+    self.resume_bash(active_bash_id)
   }
 
   // dispose cancels this attachment's requests and streams. Queued
@@ -338,6 +403,9 @@ impl Controller {
       self.abort_after_start = false
       self.compact_pending = false
       self.compact_operation_id = ""
+      self.bash_starting = false
+      self.bash_id = ""
+      self.bash_abort_requested = false
       self.follow_ups_changing = false
       self.reload_pending = false
       self.new_session_pending = false
@@ -353,6 +421,11 @@ impl Controller {
   // Whether idle-only commands must wait for active session work.
   fn busy() Bool {
     self.run_id != "" or self.start_pending or self.compact_pending
+  }
+
+  // Whether any session work is in progress, including a shell command.
+  fn working() Bool {
+    self.busy() or self.bash_starting or self.bash_id != ""
   }
 
   // The oldest pending request that this client presents.
@@ -464,11 +537,26 @@ impl Controller {
       // that happens to include the user event can still omit later live
       // content and must not replace it.
       if snapshot.ActiveTurnID == "" or not self.live.blocks_snapshot_replacement() {
-        let merged = transcript::merge_snapshot(
-          self.messages,
-          transcript::project(snapshot.Messages),
-        )
+        let running = self.running_bash()
+        let projected = mut List::new<transcript::Message>()
+        for message in transcript::project(snapshot.Messages) {
+          projected.push(message)
+        }
+        // Finished runs the model has not seen yet follow the transcript.
+        for run in sessionbridge::PendingBash(mut snapshot.PendingBoundaries) {
+          projected.push(transcript::bash_message(run))
+        }
+        let merged = transcript::merge_snapshot(self.messages, projected.@)
         self.messages = merged.messages
+        // A running command is not in the snapshot until it settles.
+        match running {
+          row => {
+            if not lists_bash(self.messages, row.id) {
+              self.messages.push(row)
+            }
+          },
+          _ => (),
+        }
         if not merged.preserved {
           self.reset_history(snapshot)
         }
@@ -899,6 +987,310 @@ impl Controller {
       row.error_message = info.ErrorMessage
       row.is_error = true
       self.messages.push(row.@)
+    }
+  }
+
+  // The row of the running shell command, if one is shown.
+  private fn running_bash() transcript::Message? {
+    mut found = Maybe::new<transcript::Message>()
+    if self.bash_id != "" {
+      for message in self.transcript_messages() {
+        if message.role == transcript::Role::bash and message.id == self.bash_id {
+          found = Maybe::new(message)
+        }
+      }
+    }
+    found
+  }
+
+  // Shows the latest state of a shell command: in place when its row is
+  // shown, otherwise after the active turn's rows or the transcript.
+  fn mut show_bash(run: sessionbridge::Bash) {
+    let row = transcript::bash_message(run)
+    mut replaced = false
+    for message, index in self.messages {
+      if message.role == transcript::Role::bash and message.id == run.ID {
+        self.messages.set(index, row)
+        replaced = true
+      }
+    }
+    for message, index in self.live.messages {
+      if message.role == transcript::Role::bash and message.id == run.ID {
+        self.live.messages.set(index, row)
+        replaced = true
+      }
+    }
+    if not replaced {
+      match self.run_id != "" {
+        true => self.live.messages.push(row),
+        false => self.messages.push(row),
+      }
+    }
+  }
+
+  // Folds or unfolds a finished command's output.
+  fn mut toggle_bash(id: Str) {
+    self.folded_bash.set(id, not self.folded_bash.get(id).or(false))
+  }
+
+  // Runs a shell command typed in the composer. One runs at a time; it may
+  // run alongside a turn.
+  fn mut start_bash(typed: Admission) {
+    if self.bash_starting or self.bash_id != "" {
+      (self.host.toast)("Bash already running", "", toast::Variant::info, false)
+    } else {
+      // Retrying a command whose start failed reuses its execution ID.
+      let previous = self.bash_admission
+      let reused = match previous {
+        earlier => {
+          match earlier.value == typed.value and earlier.command == typed.command and earlier.exclude == typed.exclude {
+            true => earlier.id,
+            false => "",
+          }
+        },
+        _ => "",
+      }
+      let id = match reused != "" {
+        true => Result::ok(reused),
+        false => identifier::New("bash_"),
+      }
+      match id {
+        err(failure) => (self.host.toast)("Bash failed", failure.error(), toast::Variant::error, true),
+        ok(execution_id) => {
+          match self.lifetime {
+            lifetime => {
+              match self.session {
+                session => {
+                  let admission = Admission{
+                    id: execution_id,
+                    value: typed.value,
+                    command: typed.command,
+                    exclude: typed.exclude,
+                  }
+                  self.bash_admission = Maybe::new(admission)
+                  self.bash_starting = true
+                  self.bash_abort_requested = false
+                  let ctx = lifetime.Context
+                  let dispatch = self.host.dispatch
+                  async::start(fn() {
+                    let started = session.StartBash(
+                      ctx,
+                      execution_id,
+                      admission.command,
+                      admission.exclude,
+                    )
+                    let _ = dispatch(fn() {
+                      if self.active {
+                        self.bash_starting = false
+                        match started {
+                          ok(execution) => self.adopt_bash(session, ctx, execution),
+                          err(failure) => self.reject_bash(session, ctx, admission, failure),
+                        }
+                      }
+                    })
+                  })
+                },
+                _ => (),
+              }
+            },
+            _ => (),
+          }
+        },
+      }
+    }
+  }
+
+  // Follows a command the server accepted, stopping it when Escape was
+  // pressed while it started.
+  private fn mut adopt_bash(
+    session: mut api::Session,
+    ctx: context::Context,
+    execution: mut api::BashExecution,
+  ) {
+    self.bash_admission = Maybe::new<Admission>()
+    let id = execution.ID()
+    self.bash_id = id
+    self.show_bash(sessionbridge::BashOf(execution.State()))
+    if self.bash_abort_requested {
+      self.bash_abort_requested = false
+      self.abort_bash()
+    }
+    self.follow_bash(session, ctx, id, Maybe::new(execution))
+  }
+
+  // A command that did not start returns to the composer. A start that was
+  // being stopped is stopped on the server too, in case it did start.
+  private fn mut reject_bash(
+    session: mut api::Session,
+    ctx: context::Context,
+    admission: Admission,
+    failure: Error,
+  ) {
+    if self.bash_abort_requested {
+      self.bash_abort_requested = false
+      self.bash_admission = Maybe::new<Admission>()
+      let id = admission.id
+      async::start(fn() {
+        mut attempt = 0
+        mut stopped = false
+        while (not stopped) and attempt < 6 {
+          let bounded = contextbridge::WithTimeout(context::Background(), 3000)
+          stopped = session.AbortBash(bounded.Context, id).is_ok()
+          bounded.Cancel()
+          if not stopped {
+            let _ = contextbridge::Wait(
+              context::Background(),
+              turn_follower::retry_delay(attempt + 1) / Int64::from(2),
+            )
+          }
+          attempt = attempt + 1
+        }
+      })
+    } else {
+      (self.host.restore_draft)(admission.value)
+      if not self.absorbs(failure) {
+        (self.host.toast)("Bash failed", failure.error(), toast::Variant::error, true)
+      }
+    }
+  }
+
+  // Picks up a command that was running when this session was attached.
+  private fn mut resume_bash(id: Str) {
+    if id != "" {
+      match self.lifetime {
+        lifetime => {
+          match self.session {
+            session => {
+              self.bash_id = id
+              self.follow_bash(session, lifetime.Context, id, Maybe::new<mut api::BashExecution>())
+            },
+            _ => (),
+          }
+        },
+        _ => (),
+      }
+    }
+  }
+
+  // Waits for a command to settle. A lost connection is reported once and the
+  // command is looked up again every second until it can be followed.
+  private fn mut follow_bash(
+    session: mut api::Session,
+    ctx: context::Context,
+    id: Str,
+    known: (mut api::BashExecution)?,
+  ) {
+    let dispatch = self.host.dispatch
+    async::start(fn() {
+      mut handle = known
+      mut following = true
+      while following {
+        match handle {
+          execution => {
+            match execution.Wait(ctx) {
+              ok(outcome) => {
+                following = false
+                let _ = dispatch(fn() {
+                  if self.active {
+                    self.settle_bash(sessionbridge::BashOf(outcome))
+                  }
+                })
+              },
+              err(failure) => {
+                handle = Maybe::new<mut api::BashExecution>()
+                following = self.keep_following_bash(ctx, id, "Bash update failed", failure)
+              },
+            }
+          },
+          _ => {
+            match session.Bash(ctx, id) {
+              ok(found) => {
+                let state = found.State()
+                handle = Maybe::new(found)
+                let _ = dispatch(fn() {
+                  if self.active and self.bash_id == id {
+                    self.show_bash(sessionbridge::BashOf(state))
+                  }
+                })
+              },
+              err(failure) => { following = self.keep_following_bash(ctx, id, "Could not resume bash", failure) },
+            }
+          },
+        }
+      }
+    })
+  }
+
+  // Reports a failure to follow command id and waits to retry. Returns false
+  // when following should stop. Called from a follower's goroutine.
+  private fn mut keep_following_bash(ctx: context::Context, id: Str, title: Str, failure: Error) Bool {
+    match contextbridge::Done(ctx) {
+      true => false,
+      false => {
+        let _ = (self.host.dispatch)(
+          fn() {
+            if self.active and self.bash_id == id and (not self.absorbs(failure)) {
+              let reported = "{id}: {title}: {failure.error()}"
+              if reported != self.bash_failure {
+                self.bash_failure = reported
+                (self.host.toast)(title, failure.error(), toast::Variant::error, true)
+              }
+            }
+          },
+        )
+        (not sessionbridge::Incompatible(failure)) and contextbridge::Wait(ctx, 1000)
+      },
+    }
+  }
+
+  // Shows a settled command and releases Escape for the turn.
+  fn mut settle_bash(run: sessionbridge::Bash) {
+    if self.bash_id == run.ID {
+      self.bash_id = ""
+      self.bash_failure = ""
+    }
+    self.show_bash(run)
+  }
+
+  // Whether Escape stops a shell command, which takes precedence over a turn.
+  fn can_abort_bash() Bool {
+    self.active and (self.bash_id != "" or self.bash_starting and (not self.bash_abort_requested))
+  }
+
+  // Whether Escape has something to stop.
+  fn can_interrupt() Bool {
+    self.can_abort_bash() or self.can_abort()
+  }
+
+  // Stops the shell command if one runs, otherwise the turn.
+  fn mut interrupt() Bool {
+    match self.can_abort_bash() {
+      true => self.abort_bash(),
+      false => self.abort_run(),
+    }
+  }
+
+  // Asks the server to stop the running command; its settled state reports
+  // the outcome. A command still starting is stopped once it starts.
+  fn mut abort_bash() Bool {
+    if self.bash_starting {
+      self.bash_abort_requested = true
+      true
+    } else if self.bash_id != "" {
+      match self.session {
+        session => {
+          let id = self.bash_id
+          async::start(fn() {
+            let bounded = contextbridge::WithTimeout(context::Background(), 3000)
+            let _ = session.AbortBash(bounded.Context, id)
+            bounded.Cancel()
+          })
+          true
+        },
+        _ => false,
+      }
+    } else {
+      false
     }
   }
 
@@ -1946,8 +2338,11 @@ impl Controller {
   fn mut submit(text: Str) {
     if self.can_submit() {
       let ids = attachments::prompt_ids(self.attachments)
+      let bash = parse_bash(text)
       if text == "" and ids.size() == 0 {
         self.promote_follow_ups()
+      } else if bash.is_some() {
+        self.start_bash(bash.expect("bash command"))
       } else {
         match self.lifetime {
           lifetime => {
@@ -2600,6 +2995,125 @@ test fn watched_turn_lifecycle_tracks_and_releases_the_active_turn() Void!Str {
     subject.run_id == "" and not subject.busy(),
     "turn completion releases idle commands",
   )
+}
+
+private fn run(id: Str, status: Str) sessionbridge::Bash {
+  sessionbridge::Bash{
+    ID: id,
+    Command: "ls",
+    Status: status,
+    ExitCode: 0,
+    HasExitCode: status == "completed",
+    TimedOut: false,
+    Output: "",
+  }
+}
+
+private fn bash_ids(messages: [transcript::Message]) Str {
+  let ids = mut List::new<Str>()
+  for message in messages {
+    if message.role == transcript::Role::bash {
+      ids.push(message.id)
+    }
+  }
+  strings::Join(ids, " ")
+}
+
+test fn only_a_bang_with_a_command_runs_directly() Void!Str {
+  let included = parse_bash("!  git status ").expect("!command")
+  try testing::assert(
+    included.command == "git status" and (not included.exclude) and included.value == "!  git status ",
+    "the result is added to context",
+  )
+  let excluded = parse_bash("!!ls").expect("!!command")
+  try testing::assert(excluded.command == "ls" and excluded.exclude, "the result is kept out")
+  testing::assert(
+    parse_bash("!").is_none() and parse_bash("!! ").is_none() and parse_bash("run !ls").is_none(),
+    "anything else is a prompt",
+  )
+}
+
+test fn a_command_shows_after_the_transcript_or_the_active_turn() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.show_bash(run("bash_1", "running"))
+  try testing::assert(bash_ids(subject.messages) == "bash_1", "idle runs follow the transcript")
+  subject.show_bash(run("bash_1", "completed"))
+  try testing::assert(
+    subject.messages.size() == 1 and not subject.messages.at(0).expect("row").pending,
+    "a later state replaces the row",
+  )
+
+  subject.run_id = "turn-1"
+  subject.live.submit("hello", [])
+  subject.show_bash(run("bash_2", "running"))
+  testing::assert(
+    bash_ids(subject.live.messages) == "bash_2" and bash_ids(subject.messages) == "bash_1",
+    "a run during a turn follows the turn's rows",
+  )
+}
+
+test fn a_snapshot_keeps_the_running_command_and_replaces_finished_ones() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.show_bash(run("bash_1", "completed"))
+  subject.bash_id = "bash_2"
+  subject.show_bash(run("bash_2", "running"))
+  subject.apply_snapshot(
+    protocol::SessionSnapshot{
+      Session: protocol::SessionInfo{ID: "session-1"},
+      Messages: transcript_messages(["a"], 1),
+    },
+  )
+  // A finished run the server kept returns with the snapshot; one it did not
+  // keep, as with `!!`, is gone.
+  testing::assert(
+    shown(subject) == "a bash_2" and subject.messages.at(1).expect("row").pending,
+    "got {shown(subject)}",
+  )
+}
+
+test fn one_command_runs_at_a_time() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.bash_id = "bash_1"
+  subject.start_bash(parse_bash("!ls").expect("command"))
+  testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Bash already running: " and subject.bash_id == "bash_1",
+    "the second command waits",
+  )
+}
+
+test fn escape_stops_a_command_before_the_turn() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.run_id = "turn-1"
+  subject.live.activity = "Working…"
+  subject.bash_starting = true
+  try testing::assert(subject.can_interrupt() and subject.can_abort_bash(), "a starting command")
+  try testing::assert(subject.interrupt(), "Escape is handled")
+  try testing::assert(
+    subject.bash_abort_requested and (not subject.abort_pending) and (not subject.can_abort_bash()),
+    "the command stops once it starts; the turn keeps running",
+  )
+  try testing::assert(subject.can_interrupt(), "the next Escape stops the turn")
+
+  subject.bash_starting = false
+  subject.bash_abort_requested = false
+  subject.settle_bash(run("bash_1", "aborted"))
+  testing::assert(
+    (not subject.can_abort_bash()) and bash_ids(subject.transcript_messages()) == "bash_1",
+    "a settled command releases Escape",
+  )
+}
+
+test fn a_running_command_counts_as_work() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.bash_id = "bash_1"
+  try testing::assert(subject.working() and not subject.busy(), "work, but not a turn")
+  subject.settle_bash(run("bash_1", "completed"))
+  testing::assert(not subject.working(), "settling ends the work")
 }
 
 test fn turn_recovery_is_shown_only_for_the_active_turn() Void!Str {
