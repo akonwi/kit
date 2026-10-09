@@ -119,7 +119,7 @@ struct ComposerTransportTests {
         await #expect(throws: ClientError.self) { try await client(19308).messageHistory("session_test", before: nil) }
         #expect(try await client(19309).messageHistory("session_test", before: nil).entries == [.init(id: "message_2", text: "with image")])
         await #expect(throws: ClientError.self) { try await client(19310).messageHistory("session_test", before: nil) }
-        #expect(try await client(19312).messageHistory("session_test", before: nil).entries == [.init(id: "message_2", text: "Fix issue #123 at high priority.")])
+        #expect(try await client(19312).messageHistory("session_test", before: nil).entries == [.init(id: "message_2", text: "/fix 123 high")])
     }
     @Test func attachmentUploadUsesMultipartAndReturnsTheServerIdentity() async throws {
         let info = try await client().upload("session_test", filename: "note.txt", data: Data("hello".utf8))

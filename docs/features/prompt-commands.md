@@ -73,6 +73,6 @@ The user message of a prompt command stores the command name, its raw arguments,
 
 Transcripts expose the message as a `promptCommand` content block with `name`, `arguments`, `source`, and `text`. The live user message event, the follow-up queue preview, and a restored follow-up show the invocation, `/<name> <arguments>`. Submitting a restored invocation runs the command again with its current template. Messages recorded before invocation records existed remain plain text.
 
-In the TUI, a prompt command message shows its invocation as ordinary user text. Prompt history (↑) recalls the invocation, and submitting composer text that starts with `/<name>` for a discovered command runs that command rather than sending the text to the model.
+The TUI and macOS app show a prompt command message as its invocation, styled as ordinary user text. Prompt history recalls the invocation, and submitting composer text that starts with `/<name>` for a discovered command runs that command rather than sending the text to the model.
 
 Discovery is bounded to 128 commands, 1,024 entries per prompt directory, 128 KiB per template, 1,024 bytes per description, and 4 KiB per absolute source location. Traversal is constrained to the resolved Kit home or explicit session cwd; symlinked prompt files and search directories are omitted.

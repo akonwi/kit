@@ -42,6 +42,16 @@ struct SessionProjectionTests {
         #expect(rows[0].tools[0].arguments == "{}")
         #expect(rows[1].text == "Done")
     }
+    @Test func promptCommandMessagesShowTheirInvocation() throws {
+        let rows = try SessionProjection.transcript([
+            message("command", role: "user", content: [["kind": "promptCommand", "name": "claude-fix", "arguments": "123 high",
+                "source": "claude_project", "text": "Pretend to fix issue #123 at high priority."]]),
+            message("bare", turn: "next", role: "user", content: [["kind": "promptCommand", "name": "claude-ping",
+                "source": "claude_project", "text": "Reply with pong."]])
+        ])
+        #expect(rows.map(\.role) == ["user", "user"])
+        #expect(rows.map(\.text) == ["/claude-fix 123 high", "/claude-ping"])
+    }
     @Test func textAndTurnBoundariesPreserveOrder() throws {
         let rows = try SessionProjection.transcript([
             message("a", content: [call("one"), ["kind": "text", "text": "Next step"], call("two")]),
