@@ -310,11 +310,13 @@ impl Composer {
 impl cui::Component for Composer {
   fn mut render() cui::View {
     let colors = self.props.themes.current()
+    // Ctrl+Shift+W deletes the next word, pairing with Ctrl+W, as in the
+    // vaxis client.
     let editing = keymap::rebind(
       ui::default_text_area_bindings(),
       ui::TextAreaAction::insert_newline,
       [keymap::key("return", shift: true)],
-    )
+    ).bind(keymap::key("w", shift: true, ctrl: true), ui::TextAreaAction::delete_word_forward)
     let send = keymap::simple_command("composer.submit", "Send", fn() Bool {
       self.request_submit()
     })

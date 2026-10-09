@@ -153,6 +153,42 @@ fn character(value: Str) mut event::KeyEvent {
   key(value, text: value)
 }
 
+fn chord(name: Str, shift: Bool, ctrl: Bool) mut event::KeyEvent {
+  event::key(
+    name,
+    "",
+    event::KeyEventType::press,
+    event::Modifiers{
+      shift: shift,
+      ctrl: ctrl,
+      alt: false,
+      super: false,
+    },
+  )
+}
+
+test fn ctrl_w_and_ctrl_shift_w_delete_the_word_before_and_after_the_cursor() Void!Str {
+  let terminal = headless::new(48, 8)
+  defer terminal.destroy()
+  let value = model()
+  let renderer = mount(terminal, value)
+  defer renderer.destroy()
+  terminal.flush()
+
+  terminal.key(character("one two three"))
+  terminal.flush()
+  terminal.key(chord("w", false, true))
+  terminal.flush()
+  terminal.key(chord("a", false, true))
+  terminal.flush()
+  terminal.key(chord("w", true, true))
+  terminal.flush()
+  terminal.key(key("return"))
+  terminal.flush()
+  // Submission trims the spaces left around the remaining word.
+  testing::assert(value.submitted == "two", "got \"{value.submitted}\"")
+}
+
 test fn parent_renders_do_not_make_the_composer_reclaim_focus() Void!Str {
   let terminal = headless::new(48, 8)
   defer terminal.destroy()
