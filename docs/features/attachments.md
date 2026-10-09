@@ -151,6 +151,6 @@ launch failures are shown to the user.
 
 ## Outstanding work
 
-Native Kitty/Sixel rendering and binary clipboard ingestion are tracked by
-`TUI-IMAGE-001` and `TUI-ATT-003` in the
+Native Kitty/Sixel rendering and clipboard image ingestion are tracked by
+`TUI-IMAGE-001` and `TUI-ATT-003` through `TUI-ATT-006` in the
 [native TUI backlog](../../backlog/tui.md).
