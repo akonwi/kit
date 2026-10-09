@@ -2,6 +2,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/after_commit
 use kit/tui/modal
 use kit/tui/theme
 use go:strings
@@ -691,13 +692,11 @@ impl cui::Lifecycle for Picker {
     self.context = Maybe::new(ctx)
     let list = self.list
     let selection = self.props.selection
-    (ctx.internal_commit)(
-      fn() {
-        let _ = list.current.map(fn(current) {
-          current.reveal(selection)
-        })
-      },
-    )
+    let _ = after_commit::once(ctx, fn() {
+      let _ = list.current.map(fn(current) {
+        current.reveal(selection)
+      })
+    })
   }
 
   fn mut unmounting(ctx: cui::Context) {}
@@ -744,13 +743,11 @@ impl Picker {
     match self.context {
       context => {
         let list = self.list
-        (context.internal_commit)(
-          fn() {
-            let _ = list.current.map(fn(current) {
-              current.reveal(selection)
-            })
-          },
-        )
+        let _ = after_commit::once(context, fn() {
+          let _ = list.current.map(fn(current) {
+            current.reveal(selection)
+          })
+        })
       },
       _ => (),
     }

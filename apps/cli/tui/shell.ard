@@ -15,6 +15,7 @@ use go:github.com/akonwi/kit/internal/theme as kittheme
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
+use kit/tui/after_commit
 use kit/tui/attached_session
 use kit/tui/attachments
 use kit/tui/auth
@@ -1111,11 +1112,9 @@ impl Shell {
     self.active_modal = NoModal{}
     if self.phase == Phase::auth {
       let connect = self.connect_button
-      (context.internal_commit)(
-        fn() {
-          connect.focus(context)
-        },
-      )
+      let _ = after_commit::once(context, fn() {
+        connect.focus(context)
+      })
     } else if self.phase == Phase::ready and self.attached.feedback_pending() {
       let _ = self.dock_control.focus()
     } else if self.phase == Phase::ready {

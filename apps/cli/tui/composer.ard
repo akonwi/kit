@@ -3,6 +3,7 @@ use cooper/event
 use cooper/keymap
 use cooper/ui
 use go:kit/ffi/mention
+use kit/tui/after_commit
 use kit/tui/attachments
 use kit/tui/file_index
 use kit/tui/inline_picker
@@ -333,7 +334,7 @@ impl Composer {
           // Resolve eligibility after the parent and retained child reconcile:
           // one parent transition may both request focus and replace the
           // Composer with a modal or workspace focus owner.
-          context.internal_commit(fn() {
+          let _ = after_commit::once(context, fn() {
             if self.props.enabled and self.props.focus_eligible {
               editor.focus(context)
             }
@@ -884,13 +885,12 @@ impl Composer {
       if inserted.OK {
         self.close_mention()
         self.change(inserted.Text)
-        // Place the caret once, on the field itself. The ref's deferred
-        // placement stays registered after every later commit, which would
-        // pull the caret back while typing continues.
-        match self.editor.current {
-          editor => {
-            editor.set_value(bash_command(self.draft))
-            editor.set_cursor(inserted.Cursor - bash_prefix(self.draft).size())
+        match self.context {
+          context => {
+            let _ = self.editor.set_cursor(
+              context,
+              inserted.Cursor - bash_prefix(self.draft).size(),
+            )
           },
           _ => (),
         }

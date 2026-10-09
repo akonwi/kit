@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/after_commit
 use kit/tui/controls
 use kit/tui/markdown
 use kit/tui/theme
@@ -75,6 +76,10 @@ struct Dock {
   list: mut cui::VirtualListRef,
   hidden_above: Int,
   hidden_below: Int,
+  // Whether the highlight is being brought into view. Revealing it can show
+  // an overflow row that shrinks the list and hides it again, so the reveal
+  // repeats until the list settles with the highlight visible.
+  revealing: Bool,
   focus: mut cui::BoxRef,
   input: mut cui::InputRef,
 }
@@ -98,6 +103,7 @@ private fn new(props: mut Props) mut Dock {
     list: cui::virtual_list_ref(),
     hidden_above: 0,
     hidden_below: 0,
+    revealing: false,
     focus: cui::box_ref(),
     input: cui::input_ref(),
   })
@@ -417,17 +423,16 @@ impl Dock {
 
   // Keeps the highlighted option in view once the list has laid out.
   private fn mut reveal() {
+    self.revealing = true
     match self.context {
       ctx => {
         let list = self.list
         let key = option_key(self.cursor)
-        (ctx.internal_commit)(
-          fn() {
-            let _ = list.current.map(fn(current) {
-              current.reveal(key)
-            })
-          },
-        )
+        let _ = after_commit::once(ctx, fn() {
+          let _ = list.current.map(fn(current) {
+            current.reveal(key)
+          })
+        })
       },
       _ => (),
     }
@@ -792,8 +797,32 @@ impl Dock {
           key: "interaction.options.{self.step}",
           ref: self.list,
           on_update: fn(update: cui::VirtualListUpdate, ctx: cui::Context) {
-            self.hidden_above = update.state.visible_range.start
-            self.hidden_below = count - update.state.visible_range.end
+            let shown = update.state.visible_range
+            // An overflow row appearing or leaving resizes the list.
+            let above = shown.start > 0
+            let below = shown.end < count
+            let was_above = self.hidden_above > 0
+            let was_below = self.hidden_below > 0
+            let resized = above != was_above or below != was_below
+            self.hidden_above = shown.start
+            self.hidden_below = count - shown.end
+            if self.revealing {
+              // The list has laid out, so the reveal can repeat now. It ends
+              // once the highlight is shown by a list that keeps its size.
+              match self.cursor >= shown.start and self.cursor < shown.end {
+                true => {
+                  if not resized {
+                    self.revealing = false
+                  }
+                },
+                false => {
+                  let key = option_key(self.cursor)
+                  let _ = self.list.current.map(fn(current) {
+                    current.reveal(key)
+                  })
+                },
+              }
+            }
           },
           styles: ui::style(
             height: ui::cells(count),

@@ -89,10 +89,21 @@ fn mount(terminal: headless::TestApp, state: mut Model) cui::Renderer {
 
 // Windowed lists report their visible range after a commit, and the overflow
 // rows that range adds lay the list out once more.
+// Draws frames until the screen stops changing, as a live terminal does. A
+// list revealing its highlight can take several frames when overflow rows
+// appear and resize it.
 fn settle(terminal: headless::TestApp) {
   terminal.flush()
-  terminal.flush()
-  terminal.flush()
+  mut previous = terminal.frame().text()
+  mut frames = 1
+  mut stable = false
+  while (not stable) and frames < 12 {
+    terminal.flush()
+    let current = terminal.frame().text()
+    stable = current == previous
+    previous = current
+    frames =+ 1
+  }
 }
 
 fn press(terminal: headless::TestApp, name: Str, shift: Bool?) {
