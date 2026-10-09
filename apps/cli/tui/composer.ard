@@ -1,6 +1,8 @@
 use cooper/cui
+use cooper/event
 use cooper/keymap
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/theme
 use go:strings
 
@@ -71,13 +73,16 @@ struct Props {
   enabled: Bool,
   focus_eligible: Bool,
   control: mut Ref,
+  // Enter offers the trimmed draft, which may be empty; accepting it clears
+  // the draft.
   submit: fn(Str) Bool,
+  // A paste that names files offers their paths; accepting them keeps the
+  // paste out of the draft.
+  attach: fn([Str]) Bool,
   // The number of queued follow-ups. While any are queued, Up restores them
   // into the draft.
   follow_ups: Int,
   restore_follow_ups: fn(),
-  // Enter on an empty draft sends queued follow-ups to the running turn.
-  send_follow_ups: fn(),
   open_palette: fn(),
   mode_changed: fn(Str),
 }
@@ -121,6 +126,19 @@ impl cui::Lifecycle for Composer {
     })
     self.props.control.prepend_action = Maybe::new(fn(value: Str) Bool {
       self.request_prepend(value)
+    })
+    // Pastes reach this listener before the focused editor inserts them.
+    let _ = context.on_paste(fn(paste: mut event::PasteEvent) {
+      if self.props.enabled and self.editor_focused() {
+        match attachments::pasted_paths(paste.text) {
+          paths => {
+            if (self.props.attach)(paths) {
+              paste.stop_propagation()
+            }
+          },
+          _ => (),
+        }
+      }
     })
   }
 
@@ -228,16 +246,19 @@ impl Composer {
       context => {
         let _ = context.dispatch(fn() {
           let text = strings::TrimSpace(self.draft)
-          if self.props.enabled {
-            if text == "" {
-              (self.props.send_follow_ups)()
-            } else if (self.props.submit)(text) {
-              self.change("")
-            }
+          if self.props.enabled and (self.props.submit)(text) {
+            self.change("")
           }
         })
         true
       },
+      _ => false,
+    }
+  }
+
+  private fn editor_focused() Bool {
+    match self.editor.current {
+      editor => editor.is_focused(),
       _ => false,
     }
   }

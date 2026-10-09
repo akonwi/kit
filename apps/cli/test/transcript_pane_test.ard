@@ -4,6 +4,7 @@ use go:api/contract as protocol
 use cooper
 use cooper/cui
 use cooper/testing as headless
+use cooper/ui
 use kit/tui/theme
 use kit/tui/transcript
 use kit/tui/transcript_pane
@@ -109,6 +110,7 @@ fn identified_message(id: Str, role: transcript::Role, text: Str, pending: Bool)
     is_error: false,
     aborted: false,
     pending: pending,
+    attachments: [],
   }
 }
 
@@ -213,6 +215,7 @@ test fn an_optimistic_user_message_replaces_the_empty_transcript_immediately() V
         is_error: false,
         aborted: false,
         pending: false,
+        attachments: [],
       },
     ]
   })
@@ -1135,5 +1138,66 @@ test fn a_page_prepended_at_the_very_top_keeps_the_oldest_message_in_place() Voi
   expect_rows(
     content_rows(terminal),
     ["", " reply 11", "", " reply 12", "                          ↓ Latest", " reply 13"],
+  )
+}
+
+test fn user_messages_list_their_attachments_inside_the_wash() Void!Str {
+  let terminal = headless::new(30, 10)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let with_text = mut identified_message("user-1", transcript::Role::user, "look at these", false)
+  with_text.attachments = [
+    transcript::Attachment{image: true, filename: "shot.png"},
+    transcript::Attachment{image: false, filename: "notes.txt"},
+  ]
+  let only_file = mut identified_message("user-2", transcript::Role::user, "", false)
+  only_file.attachments = [transcript::Attachment{image: false, filename: "only.txt"}]
+  let model = mut Model{
+    messages: [with_text.@, only_file.@],
+    scope_id: 1,
+    control: transcript_pane::control(),
+    history: complete(),
+    requests: 0,
+  }
+  let renderer = cui::mount(
+    app,
+    cui::child(
+      host,
+      HostProps{model: model, themes: theme::context(theme::store(theme::system()))},
+    ),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ │",
+      "   look at these             ┃",
+      "   image shot.png            ┃",
+      "   file notes.txt            ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                             ┃",
+      " ▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄▄ ┃",
+      "   file only.txt             ┃",
+      " ▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀▀ ┃",
+      "                             ┃",
+    ],
+  )
+  let colors = theme::context(theme::store(theme::system())).current()
+  let kind = terminal.frame().cell(3, 2).expect("kind").style
+  let name = terminal.frame().cell(9, 2).expect("name").style
+  let same = fn(left: ui::Color?, right: ui::Color) Bool {
+    match left {
+      color => color.red == right.red and color.green == right.green and color.blue == right.blue,
+      _ => false,
+    }
+  }
+  try testing::assert(
+    same(kind.foreground, colors.primary_text) and same(kind.background, colors.user_fill),
+    "the kind is accented on the wash",
+  )
+  testing::assert(
+    same(name.foreground, colors.muted) and same(name.background, colors.user_fill),
+    "the name is muted on the wash",
   )
 }

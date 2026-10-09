@@ -56,7 +56,7 @@ fn describe(messages: [transcript::Message]) Str {
 
 test fn a_streamed_reply_replaces_the_submitted_prompt_and_settles() Void!Str {
   let live = mut transcript::live()
-  live.submit("hi")
+  live.submit("hi", [])
   try testing::assert(live.activity == "Working…", "submission shows activity")
   let stream = sequenced(
     [
@@ -154,7 +154,7 @@ test fn watched_batches_reconcile_the_user_of_a_queued_successor() Void!Str {
 
 test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Void!Str {
   let live = mut transcript::live()
-  live.submit("hi")
+  live.submit("hi", [])
   try testing::assert(live.blocks_snapshot_replacement(), "new local prompt blocks stale snapshots")
   let _ = live.apply(
     sequenced(
@@ -170,6 +170,27 @@ test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Vo
   testing::assert(
     live.blocks_snapshot_replacement(),
     "durable user identity must not let an active snapshot erase the live tail",
+  )
+}
+
+test fn a_submitted_prompt_keeps_its_attachments_when_the_server_confirms_it() Void!Str {
+  let live = mut transcript::live()
+  live.submit("look", [transcript::Attachment{image: true, filename: "shot.png"}])
+  let _ = live.apply(
+    sequenced(
+      [
+        sessionbridge::Event{
+          Kind: "user.message.added",
+          TurnID: "turn-1",
+          Text: "look",
+        },
+      ],
+    ),
+  )
+  let user = live.messages.at(0).expect("user")
+  testing::assert(
+    user.turn_id == "turn-1" and user.attachments.size() == 1 and user.attachments.at(0).expect("file").filename == "shot.png",
+    "the confirmed prompt still lists its file",
   )
 }
 
@@ -310,6 +331,61 @@ test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
   testing::assert(
     projected.at(2).expect("tool").tool_state == transcript::ToolState::failed,
     "failed tool result",
+  )
+}
+
+test fn user_attachments_project_as_labels() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "user-1",
+        Role: "user",
+        Content: [
+          protocol::TextBlock("look"),
+          protocol::NewTranscriptContent(
+            protocol::ImageContent{
+              Filename: "shot.png",
+              MediaType: "image/png",
+              AttachmentID: "attachment-1",
+            },
+          ),
+          protocol::NewTranscriptContent(
+            protocol::FileContent{
+              Filename: "notes.txt",
+              MediaType: "text/plain",
+              AttachmentID: "attachment-2",
+            },
+          ),
+        ],
+      },
+      protocol::TranscriptMessage{
+        ID: "user-2",
+        Role: "user",
+        Content: [
+          protocol::NewTranscriptContent(
+            protocol::FileContent{
+              Filename: "only.txt",
+              MediaType: "text/plain",
+              AttachmentID: "attachment-3",
+            },
+          ),
+        ],
+      },
+    ],
+  )
+  let first = projected.at(0).expect("first")
+  try testing::assert(first.text == "look" and first.attachments.size() == 2, "text and two files")
+  try testing::assert(
+    first.attachments.at(0).expect("image").image and first.attachments.at(0).expect("image").filename == "shot.png",
+    "the image",
+  )
+  try testing::assert(
+    (not first.attachments.at(1).expect("file").image) and first.attachments.at(1).expect("file").filename == "notes.txt",
+    "the file",
+  )
+  testing::assert(
+    projected.size() == 2 and projected.at(1).expect("second").attachments.size() == 1,
+    "a message of only attachments is kept",
   )
 }
 

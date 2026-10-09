@@ -12,10 +12,14 @@ use go:github.com/akonwi/kit/internal/identifier
 use go:kit/ffi/cli
 use go:kit/ffi/contextbridge
 use go:kit/ffi/sessionbridge
+use kit/tui/attachments
 use kit/tui/bootstrap
+use kit/tui/format
 use kit/tui/toast
 use kit/tui/transcript
 use kit/tui/turn_follower
+use go:os
+use go:path/filepath
 use go:strings
 
 // The attached-session owner. One Controller represents one client-side
@@ -61,6 +65,9 @@ struct Controller {
   follow_ups: protocol::FollowUpQueue,
   // Whether the follow-up queue is being restored or sent.
   follow_ups_changing: Bool,
+  // Files staged for the next prompt, and the last staged row's token.
+  attachments: [attachments::Staged],
+  attachment_token: Int,
   messages: [transcript::Message],
   // Earlier transcript pages. The cursor is the oldest loaded message;
   // `history_scope` advances whenever the cursor is replaced so an in-flight
@@ -153,6 +160,8 @@ private fn controller(options: cli::TUIOptions, host: Host, scope_id: Int, locat
       AnnotationIDs: [],
     },
     follow_ups_changing: false,
+    attachments: [],
+    attachment_token: 0,
     messages: [],
     history_initialized: false,
     history_cursor: "",
@@ -1599,11 +1608,15 @@ impl Controller {
               let dispatch = self.host.dispatch
               async::start(fn() {
                 let result = session.RestoreFollowUps(ctx)
+                let restored_attachments: [attachments::Staged] = match result {
+                  ok(restored) => resolve(session, ctx, restored.Messages),
+                  err(_) => [],
+                }
                 let _ = dispatch(fn() {
                   if self.active {
                     self.follow_ups_changing = false
                     match result {
-                      ok(restored) => self.apply_restored_follow_ups(restored),
+                      ok(restored) => self.apply_restored_follow_ups(restored, restored_attachments),
                       err(failure) => {
                         if not self.absorbs(failure) {
                           (self.host.toast)(
@@ -1627,8 +1640,20 @@ impl Controller {
     }
   }
 
-  fn mut apply_restored_follow_ups(restored: protocol::RestoreFollowUpsResult) {
+  fn mut apply_restored_follow_ups(
+    restored: protocol::RestoreFollowUpsResult,
+    restored_attachments: [attachments::Staged],
+  ) {
     self.follow_ups = restored.Queue
+    for item in restored_attachments {
+      mut present = false
+      for existing in self.attachments {
+        present = present or existing.id == item.id
+      }
+      if not present {
+        self.attachments.push(item)
+      }
+    }
     let texts = mut List::new<Str>()
     for message in restored.Messages {
       if message.Text != "" {
@@ -1707,11 +1732,17 @@ impl Controller {
   // Starts the optimistic live turn for a local submission when no other turn
   // is active. Returns whether the live transcript must be rolled back on
   // rejection.
-  private fn mut begin_submission(display: Str) Bool {
+  private fn mut begin_submission(display: Str, staged: [attachments::Staged]) Bool {
     self.notice = ""
     let optimistic = self.live.activity == "" and not self.start_pending
     if optimistic {
-      self.live.submit(display)
+      let shown = mut List::new<transcript::Attachment>()
+      for item in staged {
+        if item.sendable() {
+          shown.push(transcript::Attachment{image: item.is_image(), filename: item.filename})
+        }
+      }
+      self.live.submit(display, shown.@)
       self.start_pending = true
       (self.host.show_latest)()
     }
@@ -1763,7 +1794,7 @@ impl Controller {
                 true => " {args}",
                 false => "",
               }
-              let optimistic = self.begin_submission("/{name}{suffix}")
+              let optimistic = self.begin_submission("/{name}{suffix}", [])
               let ctx = lifetime.Context
               let dispatch = self.host.dispatch
               async::start(fn() {
@@ -1843,29 +1874,127 @@ impl Controller {
   }
 
   // Submits a prompt, queuing it when another turn is active.
+  // Submits the composer's text with its staged attachments. Without
+  // either, Enter sends queued follow-ups to the running turn.
   fn mut submit(text: Str) {
-    if self.can_submit() and text != "" {
+    if self.can_submit() {
+      let ids = attachments::prompt_ids(self.attachments)
+      if text == "" and ids.size() == 0 {
+        self.promote_follow_ups()
+      } else {
+        match self.lifetime {
+          lifetime => {
+            match self.session {
+              session => {
+                let staged = self.attachments
+                self.attachments = []
+                let optimistic = self.begin_submission(text, staged)
+                let ctx = lifetime.Context
+                let dispatch = self.host.dispatch
+                async::start(fn() {
+                  let result = session.SubmitPromptInput(
+                    ctx,
+                    protocol::PromptInput{Text: text, AttachmentIDs: ids},
+                  )
+                  let _ = dispatch(fn() {
+                    if self.active {
+                      match result {
+                        ok(submission) => self.accept_submission(submission, optimistic, "Prompt did not start a turn"),
+                        err(failure) => {
+                          (self.host.restore_draft)(text)
+                          if self.attachments.size() == 0 {
+                            self.attachments = staged
+                          }
+                          self.reject_submission(optimistic, failure)
+                        },
+                      }
+                    }
+                  })
+                })
+              },
+              _ => (),
+            }
+          },
+          _ => (),
+        }
+      }
+    }
+  }
+
+  // Why the staged attachments cannot be sent yet, if they cannot.
+  fn send_blocker() Blocker? {
+    mut uploading = false
+    mut failed = false
+    mut image = false
+    for item in self.attachments {
+      uploading = uploading or item.uploading
+      failed = failed or item.failure != "" and (not item.preserve_id)
+      image = image or item.is_image()
+    }
+    match {
+      uploading => {
+        Maybe::new(
+          Blocker{
+            title: "Wait for attachments to upload",
+            detail: "",
+            variant: toast::Variant::info,
+          },
+        )
+      },
+      failed => {
+        Maybe::new(
+          Blocker{
+            title: "Remove failed attachments before sending",
+            detail: "",
+            variant: toast::Variant::info,
+          },
+        )
+      },
+      image and self.rejecting_model() != "" => {
+        Maybe::new(
+          Blocker{
+            title: "Remove images before sending",
+            detail: "{self.rejecting_model()} doesn't accept images.",
+            variant: toast::Variant::warning,
+          },
+        )
+      },
+      _ => Maybe::new<Blocker>(),
+    }
+  }
+
+  // The session's model name when it cannot receive images.
+  fn rejecting_model() Str {
+    match self.info {
+      info => {
+        match attachments::accepts_images(info.Inputs) {
+          true => "",
+          false => format::model_name(info.Model),
+        }
+      },
+      _ => "",
+    }
+  }
+
+  // Uploads pasted files for the next prompt.
+  fn mut stage_attachments(paths: [Str]) {
+    if self.can_submit() {
       match self.lifetime {
         lifetime => {
           match self.session {
             session => {
-              let optimistic = self.begin_submission(text)
               let ctx = lifetime.Context
               let dispatch = self.host.dispatch
-              async::start(fn() {
-                let result = session.SubmitPromptInput(ctx, protocol::PromptInput{Text: text})
-                let _ = dispatch(fn() {
-                  if self.active {
-                    match result {
-                      ok(submission) => self.accept_submission(submission, optimistic, "Prompt did not start a turn"),
-                      err(failure) => {
-                        (self.host.restore_draft)(text)
-                        self.reject_submission(optimistic, failure)
-                      },
+              for pending in self.admit_attachments(paths) {
+                async::start(fn() {
+                  let result = upload(session, ctx, pending.path)
+                  let _ = dispatch(fn() {
+                    if self.active {
+                      self.finish_upload(pending.token, result)
                     }
-                  }
+                  })
                 })
-              })
+              }
             },
             _ => (),
           }
@@ -1873,6 +2002,154 @@ impl Controller {
         _ => (),
       }
     }
+  }
+
+  // Stages pasted files as uploading rows and returns the uploads to start.
+  // Images the model cannot receive are refused, and a paste that would
+  // exceed a prompt's limit is rejected.
+  fn mut admit_attachments(paths: [Str]) [Upload] {
+    let accepted = mut List::new<Str>()
+    let types = mut List::new<Str>()
+    let refused = mut List::new<Str>()
+    let rejecting = self.rejecting_model()
+    for path in paths {
+      let media_type = attachments::media_type(path).or("")
+      if rejecting != "" and media_type.starts_with("image/") {
+        refused.push(filepath::Base(path))
+      } else {
+        accepted.push(path)
+        types.push(media_type)
+      }
+    }
+    if refused.size() > 0 {
+      (self.host.toast)(
+        "Images not attached",
+        "{rejecting} doesn't accept images: {strings::Join(refused, ", ")}.",
+        toast::Variant::warning,
+        false,
+      )
+    }
+    mut staged = 0
+    for item in self.attachments {
+      if item.failure == "" or item.preserve_id {
+        staged = staged + 1
+      }
+    }
+    let uploads = mut List::new<Upload>()
+    if staged + accepted.size() > attachments::max_per_prompt {
+      (self.host.toast)(
+        "Too many attachments",
+        "A prompt supports up to {attachments::max_per_prompt} files.",
+        toast::Variant::error,
+        false,
+      )
+    } else {
+      for path, index in accepted.@ {
+        self.attachment_token = self.attachment_token + 1
+        self.attachments.push(
+          attachments::uploading(self.attachment_token, path, types.at(index).or("")),
+        )
+        uploads.push(Upload{token: self.attachment_token, path: path})
+      }
+    }
+    uploads.@
+  }
+
+  // Records a finished upload on its staged row, unless the row was removed.
+  fn mut finish_upload(token: Int, result: protocol::AttachmentInfo!Error) {
+    let updated = mut List::new<attachments::Staged>()
+    mut failure = Maybe::new<Error>()
+    for item in self.attachments {
+      if item.token == token and item.uploading {
+        match result {
+          ok(info) => updated.push(attachments::uploaded(info)),
+          err(reason) => {
+            let failed = mut item
+            failed.uploading = false
+            failed.failure = reason.error()
+            updated.push(failed.@)
+            failure = Maybe::new(reason)
+          },
+        }
+      } else {
+        updated.push(item)
+      }
+    }
+    self.attachments = updated.@
+    match failure {
+      reason => {
+        if not self.absorbs(reason) {
+          (self.host.toast)("Could not attach file", reason.error(), toast::Variant::error, false)
+        }
+      },
+      _ => (),
+    }
+  }
+
+  // Removes one staged attachment.
+  fn mut remove_attachment(index: Int) {
+    let kept = mut List::new<attachments::Staged>()
+    for item, position in self.attachments {
+      if position != index {
+        kept.push(item)
+      }
+    }
+    self.attachments = kept.@
+  }
+
+  // Removes every staged attachment. Returns whether there were any.
+  fn mut clear_attachments() Bool {
+    let any = self.attachments.size() > 0
+    self.attachments = []
+    any
+  }
+}
+
+// A staged file to upload.
+struct Upload {
+  token: Int,
+  path: Str,
+}
+
+// Why a prompt cannot be sent yet.
+struct Blocker {
+  title: Str,
+  detail: Str,
+  variant: toast::Variant,
+}
+
+// Staged rows for the attachments of restored follow-ups.
+private fn resolve(
+  session: mut api::Session,
+  ctx: context::Context,
+  messages: [protocol::PromptInput],
+) [attachments::Staged] {
+  let ids = attachments::restored_ids(messages)
+  let rows: [attachments::Staged] = match ids.size() == 0 {
+    true => [],
+    false => {
+      let requested = mut ids
+      let resolution: protocol::AttachmentResolution!Str = match session.ResolveAttachments(ctx, requested) {
+        ok(resolved) => Result::ok(resolved),
+        err(failure) => Result::err(failure.error()),
+      }
+      attachments::restored(ids, resolution)
+    },
+  }
+  rows
+}
+
+// Uploads one file to the session.
+private fn upload(session: mut api::Session, ctx: context::Context, path: Str) protocol::AttachmentInfo!Error {
+  match os::Open(path) {
+    ok(file) => {
+      let timeout = contextbridge::WithTimeout(ctx, Int64::from(attachments::upload_timeout))
+      let result = session.UploadAttachment(timeout.Context, filepath::Base(path), file)
+      timeout.Cancel()
+      let _ = file.Close()
+      result
+    },
+    err(failure) => Result::err(failure),
   }
 }
 
@@ -2137,7 +2414,7 @@ test fn a_final_snapshot_settles_a_turn_that_finished_while_disconnected() Void!
   let subject = active_controller(effects)
   subject.apply_snapshot(protocol::SessionSnapshot{Session: protocol::SessionInfo{ID: "session-1"}})
   subject.run_id = "turn-1"
-  subject.live.submit("a")
+  subject.live.submit("a", [])
   subject.show_recovery("turn-1", turn_follower::Recovery::syncing)
 
   subject.settle_run(
@@ -2193,7 +2470,7 @@ test fn a_turn_without_a_final_snapshot_settles_what_streamed() Void!Str {
   let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.run_id = "turn-1"
-  subject.live.submit("hello")
+  subject.live.submit("hello", [])
   subject.apply_events(
     [
       sessionbridge::Event{
@@ -2237,6 +2514,9 @@ test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str 
   let effects = mut Effects{toasts: [], drafts: []}
   let subject = active_controller(effects)
   subject.follow_ups = protocol::FollowUpQueue{Count: 3, Previews: ["a", "b", "c"]}
+  subject.attachments = [
+    attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-0", Filename: "staged.txt"}),
+  ]
   subject.apply_restored_follow_ups(
     protocol::RestoreFollowUpsResult{
       Messages: [
@@ -2246,8 +2526,16 @@ test fn restored_follow_ups_go_before_the_draft_and_update_the_queue() Void!Str 
       ],
       Queue: protocol::FollowUpQueue{Count: 0},
     },
+    [
+      attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-0", Filename: "staged.txt"}),
+      attachments::uploaded(protocol::AttachmentInfo{ID: "attachment-1", Filename: "photo.png"}),
+    ],
   )
   try testing::assert(subject.follow_ups.Count == 0, "the queue is emptied")
+  try testing::assert(
+    staged_names(subject) == "staged.txt photo.png",
+    "restored files join the staged ones once: {staged_names(subject)}",
+  )
   testing::assert(
     effects.drafts.size() == 1 and effects.drafts.at(0).or("") == "first\n\nsecond",
     "the texts are joined by blank lines: {effects.drafts.size()}",
@@ -2279,6 +2567,145 @@ test fn follow_ups_change_only_on_a_connected_session() Void!Str {
     (not subject.follow_ups_changing) and effects.toasts.size() == 0,
     "nothing is requested without a session",
   )
+}
+
+private fn uploaded_rows(count: Int) [attachments::Staged] {
+  let rows = mut List::new<attachments::Staged>()
+  mut index = 0
+  while index < count {
+    rows.push(
+      attachments::uploaded(
+        protocol::AttachmentInfo{ID: "attachment-{index}", Filename: "f{index}.txt"},
+      ),
+    )
+    index =+ 1
+  }
+  rows.@
+}
+
+test fn staging_refuses_images_the_model_cannot_receive() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.info = Maybe::new(
+    protocol::SessionInfo{
+      ID: "session-1",
+      Model: "openai-codex/gpt-5.6-sol",
+      Inputs: [protocol::ModelInputText],
+    },
+  )
+  let uploads = subject.admit_attachments(
+    [filepath::Join(directory, "notes.txt"), filepath::Join(directory, "image.png")],
+  )
+  try testing::assert(
+    uploads.size() == 1 and staged_names(subject) == "notes.txt",
+    "only the text file uploads: {staged_names(subject)}",
+  )
+  let row = subject.attachments.at(0).expect("row")
+  try testing::assert(
+    row.uploading and row.media_type == "text/plain" and row.token == uploads.at(0).expect("upload").token,
+    "the row tracks its upload",
+  )
+  testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Images not attached: GPT 5.6 Sol doesn't accept images: image.png.",
+    "the refusal names the model and the files",
+  )
+}
+
+test fn a_paste_beyond_the_prompt_limit_is_rejected() Void!Str {
+  let directory = attachments::fixtures()
+  defer os::RemoveAll(directory)
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.attachments = uploaded_rows(7)
+  let notes = filepath::Join(directory, "notes.txt")
+  let uploads = subject.admit_attachments([notes, notes])
+  try testing::assert(uploads.size() == 0 and subject.attachments.size() == 7, "nothing is staged")
+  try testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Too many attachments: A prompt supports up to 8 files.",
+    "the limit is explained",
+  )
+  let _ = subject.admit_attachments([notes])
+  testing::assert(subject.attachments.size() == 8, "the eighth file is staged")
+}
+
+test fn finished_uploads_update_only_their_row() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.attachments = [
+    attachments::uploading(1, "/tmp/a.txt", "text/plain"),
+    attachments::uploading(2, "/tmp/b.png", "image/png"),
+  ]
+  subject.finish_upload(
+    1,
+    Result::ok(
+      protocol::AttachmentInfo{
+        ID: "attachment-a",
+        Filename: "a.txt",
+        MediaType: "text/plain",
+      },
+    ),
+  )
+  subject.finish_upload(2, Result::err(Error::new("too large")))
+  let first = subject.attachments.at(0).expect("first")
+  let second = subject.attachments.at(1).expect("second")
+  try testing::assert(first.id == "attachment-a" and not first.uploading, "the upload is recorded")
+  try testing::assert(
+    second.failure == "too large" and not second.uploading and second.id == "",
+    "the failure is recorded",
+  )
+  try testing::assert(
+    effects.toasts.size() == 1 and effects.toasts.at(0).or("") == "Could not attach file: too large",
+    "the failure is reported",
+  )
+
+  subject.remove_attachment(0)
+  subject.finish_upload(1, Result::err(Error::new("late")))
+  try testing::assert(staged_names(subject) == "b.png", "a removed row stays removed")
+  try testing::assert(subject.clear_attachments(), "clearing reports staged files")
+  testing::assert(not subject.clear_attachments(), "nothing is left to clear")
+}
+
+test fn staged_files_block_sending_until_they_can_be_sent() Void!Str {
+  let effects = mut Effects{toasts: [], drafts: []}
+  let subject = active_controller(effects)
+  subject.info = Maybe::new(
+    protocol::SessionInfo{
+      ID: "session-1",
+      Model: "openai-codex/gpt-5.6-sol",
+      Inputs: [protocol::ModelInputText],
+    },
+  )
+  let blocked = fn(subject: mut Controller) Str {
+    match subject.send_blocker() {
+      blocker => "{blocker.title}|{blocker.detail}",
+      _ => "",
+    }
+  }
+  try testing::assert(blocked(subject) == "", "nothing is staged")
+  subject.attachments = [attachments::uploading(1, "/tmp/a.png", "image/png")]
+  try testing::assert(blocked(subject) == "Wait for attachments to upload|", blocked(subject))
+
+  subject.finish_upload(1, Result::err(Error::new("too large")))
+  try testing::assert(blocked(subject) == "Remove failed attachments before sending|", blocked(subject))
+
+  subject.attachments = [
+    attachments::uploaded(
+      protocol::AttachmentInfo{
+        ID: "attachment-1",
+        Filename: "a.png",
+        MediaType: "image/png",
+      },
+    ),
+  ]
+  try testing::assert(
+    blocked(subject) == "Remove images before sending|GPT 5.6 Sol doesn't accept images.",
+    blocked(subject),
+  )
+
+  subject.attachments = attachments::restored(["attachment-1"], Result::err("timeout"))
+  testing::assert(blocked(subject) == "", "an unresolved restored file is still sent")
 }
 
 test fn disposal_ends_the_attachment_scope() Void!Str {
@@ -2589,6 +3016,17 @@ private fn transcript_messages(ids: [Str], first: Int) [protocol::TranscriptMess
     sequence =+ 1
   }
   result.@
+}
+
+private fn staged_names(subject: mut Controller) Str {
+  mut joined = ""
+  for item in subject.attachments {
+    joined = match joined == "" {
+      true => item.filename,
+      false => "{joined} {item.filename}",
+    }
+  }
+  joined
 }
 
 private fn shown(subject: mut Controller) Str {

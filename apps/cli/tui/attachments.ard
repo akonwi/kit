@@ -1,0 +1,453 @@
+use ard/testing
+
+use go:api/contract as protocol
+use go:io
+use go:net/http
+use go:net/url
+use go:os
+use go:path/filepath
+use go:strings
+
+// Files attached to the composer's next prompt. A paste of file paths, which
+// is also what a terminal produces when files are dropped on it, becomes
+// attachments uploaded to the session; the prompt then names them by ID.
+
+// The most files one prompt may carry.
+let max_per_prompt = 8
+
+// Upload timeout in milliseconds.
+let upload_timeout = 45000
+
+// One attachment staged for the next prompt.
+struct Staged {
+  // Identifies the staged row while its upload runs.
+  token: Int,
+  // The server's attachment ID once uploaded.
+  id: Str,
+  filename: Str,
+  media_type: Str,
+  uploading: Bool,
+  failure: Str,
+  // A row whose details could not be fetched still names a valid upload, so
+  // its ID is sent anyway.
+  preserve_id: Bool,
+}
+
+// A row for a file being uploaded.
+fn uploading(token: Int, path: Str, media_type: Str) Staged {
+  Staged{
+    token: token,
+    id: "",
+    filename: filepath::Base(path),
+    media_type: media_type,
+    uploading: true,
+    failure: "",
+    preserve_id: false,
+  }
+}
+
+// A row for an attachment the server already has.
+fn uploaded(info: protocol::AttachmentInfo) Staged {
+  Staged{
+    token: 0,
+    id: info.ID,
+    filename: info.Filename,
+    media_type: info.MediaType,
+    uploading: false,
+    failure: "",
+    preserve_id: false,
+  }
+}
+
+private fn unresolved(id: Str, failure: Str, preserve_id: Bool) Staged {
+  Staged{
+    token: 0,
+    id: id,
+    filename: "attachment",
+    media_type: "",
+    uploading: false,
+    failure: failure,
+    preserve_id: preserve_id,
+  }
+}
+
+impl Staged {
+  fn is_image() Bool {
+    self.media_type.starts_with("image/")
+  }
+
+  // Whether the prompt sends this attachment.
+  fn sendable() Bool {
+    self.id != "" and (self.failure == "" or self.preserve_id)
+  }
+}
+
+private fn includes(values: [Str], value: Str) Bool {
+  mut found = false
+  for candidate in values {
+    if candidate == value {
+      found = true
+    }
+  }
+  found
+}
+
+// The IDs a prompt sends for staged rows.
+fn prompt_ids(items: [Staged]) [Str] {
+  let ids = mut List::new<Str>()
+  for item in items {
+    if item.sendable() {
+      ids.push(item.id)
+    }
+  }
+  ids.@
+}
+
+// Whether the session's model may receive images. A server that omits the
+// model's inputs leaves the decision to its own submission check.
+fn accepts_images(inputs: [protocol::ModelInputKind]) Bool {
+  mut accepted = inputs.size() == 0
+  for input in inputs {
+    if input.to_str() == "image" {
+      accepted = true
+    }
+  }
+  accepted
+}
+
+// The attachment IDs queued messages carry, without duplicates.
+fn restored_ids(messages: [protocol::PromptInput]) [Str] {
+  let ids = mut List::new<Str>()
+  for message in messages {
+    for id in message.AttachmentIDs {
+      if not includes(ids.@, id) {
+        ids.push(id)
+      }
+    }
+  }
+  ids.@
+}
+
+// Rows for restored attachments, in order. Missing attachments are reported
+// and dropped from the prompt; when their details could not be fetched at
+// all, the IDs are still sent.
+fn restored(ids: [Str], resolution: protocol::AttachmentResolution!Str) [Staged] {
+  let rows = mut List::new<Staged>()
+  for id in ids {
+    let row = match resolution {
+      ok(resolved) => {
+        mut found = unresolved(id, "Attachment is unavailable", false)
+        for info in resolved.Attachments {
+          if info.ID == id {
+            found = uploaded(info)
+          }
+        }
+        found
+      },
+      err(failure) => unresolved(id, "Could not restore attachment details: {failure}", true),
+    }
+    rows.push(row)
+  }
+  rows.@
+}
+
+// The files a paste names, when every non-blank line of it names attachable
+// files. Anything else is ordinary text.
+fn pasted_paths(text: Str) [Str]? {
+  let lines = strings::Split(strings::ReplaceAll(text, "\r\n", "\n"), "\n")
+  let paths = mut List::new<Str>()
+  mut valid = true
+  for line in lines {
+    let trimmed = strings::TrimSpace(line)
+    if valid and trimmed != "" {
+      match paths_in_line(trimmed) {
+        found => {
+          for path in found {
+            paths.push(path)
+          }
+        },
+        _ => { valid = false },
+      }
+    }
+  }
+  match valid and paths.size() > 0 {
+    true => Maybe::new(paths.@),
+    false => Maybe::new<[Str]>(),
+  }
+}
+
+// The files one line names: a single path that may contain unescaped spaces,
+// or a shell-style list of quoted and backslash-escaped paths, which is how
+// terminals report dropped files whose names contain spaces.
+private fn paths_in_line(line: Str) [Str]? {
+  match pasted_path(line) {
+    path => Maybe::new([path]),
+    _ => {
+      match split_tokens(line) {
+        tokens => {
+          let paths = mut List::new<Str>()
+          mut valid = tokens.size() > 0
+          for token in tokens {
+            if valid {
+              match pasted_path(token) {
+                path => paths.push(path),
+                _ => { valid = false },
+              }
+            }
+          }
+          match valid {
+            true => Maybe::new(paths.@),
+            false => Maybe::new<[Str]>(),
+          }
+        },
+        _ => Maybe::new<[Str]>(),
+      }
+    },
+  }
+}
+
+// Splits a line on unquoted whitespace, honouring single quotes, double
+// quotes, and backslash escapes. Unterminated quoting or a trailing escape is
+// not a well-formed path list.
+private fn split_tokens(line: Str) [Str]? {
+  let tokens = mut List::new<Str>()
+  mut token = ""
+  mut quote = ""
+  mut escaped = false
+  mut started = false
+  // One string per character.
+  for character in strings::Split(line, "") {
+    if escaped {
+      token = token + character
+      escaped = false
+    } else if character == "\\" and quote != "'" {
+      escaped = true
+      started = true
+    } else if quote != "" {
+      if character == quote {
+        quote = ""
+      } else {
+        token = token + character
+      }
+    } else if character == "'" or character == "\"" {
+      quote = character
+      started = true
+    } else if character == " " or character == "\t" {
+      if started {
+        tokens.push(token)
+        token = ""
+        started = false
+      }
+    } else {
+      token = token + character
+      started = true
+    }
+  }
+  match quote != "" or escaped {
+    true => Maybe::new<[Str]>(),
+    false => {
+      if started {
+        tokens.push(token)
+      }
+      Maybe::new(tokens.@)
+    },
+  }
+}
+
+// The attachable file a pasted value names: an absolute path or a local
+// `file://` URL, optionally quoted.
+private fn pasted_path(pasted: Str) Str? {
+  mut value = pasted
+  for quote in ["'", "\""] {
+    if value.size() >= 2 and value.starts_with(quote) and value.ends_with(quote) {
+      value = strings::TrimSuffix(strings::TrimPrefix(value, quote), quote)
+    }
+  }
+  mut local = true
+  if value.starts_with("file://") {
+    match url::Parse(value) {
+      ok(parsed) => {
+        local = parsed.Host == "" or parsed.Host == "localhost"
+        value = parsed.Path
+      },
+      err(_) => { local = false },
+    }
+  }
+  let cleaned = filepath::Clean(value)
+  match local and filepath::IsAbs(value) and media_type(cleaned).is_some() {
+    true => Maybe::new(cleaned),
+    false => Maybe::new<Str>(),
+  }
+}
+
+// The media type of a regular file that can be attached, sniffed from its
+// first bytes. The server's validation of the upload is authoritative.
+fn media_type(path: Str) Str? {
+  match os::Stat(path) {
+    ok(info) => {
+      match info.Mode().IsRegular() {
+        true => {
+          match os::Open(path) {
+            ok(file) => {
+              let header = io::ReadAll(io::LimitReader(file, Int64::from(512)))
+              let _ = file.Close()
+              match header {
+                ok(bytes) => {
+                  let detected = strings::Split(
+                    http::DetectContentType(mut bytes),
+                    ";",
+                  ).at(0).or("")
+                  let supported = [
+                    "text/plain",
+                    "image/png",
+                    "image/jpeg",
+                    "image/gif",
+                    "image/webp",
+                  ]
+                  match bytes.size() > 0 and includes(supported, detected) {
+                    true => Maybe::new(detected),
+                    false => Maybe::new<Str>(),
+                  }
+                },
+                err(_) => Maybe::new<Str>(),
+              }
+            },
+            err(_) => Maybe::new<Str>(),
+          }
+        },
+        false => Maybe::new<Str>(),
+      }
+    },
+    err(_) => Maybe::new<Str>(),
+  }
+}
+
+// Test helper: a temporary directory of fixture files: `notes.txt`,
+// `image.png`, `binary.dat`, and `Application Support/screen shot.png` and
+// `Application Support/release notes.txt`.
+fn fixtures() Str {
+  let directory = os::MkdirTemp("", "kit-attachments").expect("temporary directory")
+  let nested = filepath::Join(directory, "Application Support")
+  os::MkdirAll(nested, os::FileMode(Uint32::from(448))).expect("nested directory")
+  let png = [
+    Byte::from(137),
+    Byte::from(80),
+    Byte::from(78),
+    Byte::from(71),
+    Byte::from(13),
+    Byte::from(10),
+    Byte::from(26),
+    Byte::from(10),
+    Byte::from(99),
+  ]
+  let text = [Byte::from(104), Byte::from(105), Byte::from(10)]
+  let binary = [Byte::from(0), Byte::from(1), Byte::from(2), Byte::from(3)]
+  write(filepath::Join(directory, "notes.txt"), text)
+  write(filepath::Join(directory, "image.png"), png)
+  write(filepath::Join(directory, "binary.dat"), binary)
+  write(filepath::Join(nested, "screen shot.png"), png)
+  write(filepath::Join(nested, "release notes.txt"), text)
+  directory
+}
+
+private fn write(path: Str, content: [Byte]) {
+  let bytes = mut content
+  os::WriteFile(path, bytes, os::FileMode(Uint32::from(384))).expect("fixture file")
+}
+
+private fn joined(paths: [Str]?) Str {
+  match paths {
+    found => strings::Join(mut found, "|"),
+    _ => "none",
+  }
+}
+
+test fn only_complete_pastes_of_supported_absolute_paths_are_attachments() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  let notes = filepath::Join(directory, "notes.txt")
+  let image = filepath::Join(directory, "image.png")
+  let pasted = joined(pasted_paths("{notes}\nfile://{image}\n"))
+  try testing::assert(pasted == "{notes}|{image}", pasted)
+  try testing::assert(pasted_paths("{notes}\nordinary text").is_none(), "mixed paths and text")
+  let working = os::Getwd().expect("working directory")
+  let relative = filepath::Rel(working, notes).expect("relative path")
+  try testing::assert(pasted_paths(relative).is_none(), "a relative path: {relative}")
+  try testing::assert(pasted_paths("file://elsewhere{notes}").is_none(), "a file URL on another host")
+  testing::assert(
+    pasted_paths(filepath::Join(directory, "binary.dat")).is_none(),
+    "an unsupported file",
+  )
+}
+
+test fn dropped_paths_may_be_escaped_or_quoted() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  let first = filepath::Join(directory, "Application Support", "screen shot.png")
+  let second = filepath::Join(directory, "Application Support", "release notes.txt")
+  for pasted in [strings::ReplaceAll(first, " ", "\\ "), "'{first}'", "\"{first}\"", first] {
+    try testing::assert(joined(pasted_paths(pasted)) == first, "recognized: {pasted}")
+  }
+  let both = joined(pasted_paths("'{first}' '{second}'"))
+  testing::assert(both == "{first}|{second}", "one line names several dropped files: {both}")
+}
+
+test fn prose_and_malformed_quoting_are_text() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  let path = filepath::Join(directory, "notes.txt")
+  for pasted in ["look at {path} please", "'{path}", "{path} \\", "just some words"] {
+    try testing::assert(pasted_paths(pasted).is_none(), "text: {pasted}")
+  }
+  Result::ok(())
+}
+
+test fn files_are_sniffed_by_content() Void!Str {
+  let directory = fixtures()
+  defer os::RemoveAll(directory)
+  try testing::assert(media_type(filepath::Join(directory, "image.png")).or("") == "image/png", "a PNG")
+  try testing::assert(media_type(filepath::Join(directory, "notes.txt")).or("") == "text/plain", "text")
+  testing::assert(media_type(directory).is_none(), "a directory")
+}
+
+test fn restored_attachments_report_missing_and_unresolved_files() Void!Str {
+  let found = protocol::AttachmentInfo{
+    ID: "attachment_1",
+    Filename: "photo.png",
+    MediaType: "image/png",
+  }
+  let rows = restored(
+    ["attachment_1", "attachment_2"],
+    Result::ok(
+      protocol::AttachmentResolution{Attachments: [found], MissingAttachmentIDs: ["attachment_2"]},
+    ),
+  )
+  try testing::assert(
+    rows.size() == 2 and rows.at(0).expect("found").filename == "photo.png" and rows.at(0).expect("found").failure == "",
+    "the found file",
+  )
+  let missing = rows.at(1).expect("missing")
+  try testing::assert(
+    missing.filename == "attachment" and missing.failure != "" and (not missing.preserve_id),
+    "a missing file is reported and not sent",
+  )
+  try testing::assert(
+    joined(Maybe::new(prompt_ids(rows))) == "attachment_1",
+    "only the found file is sent",
+  )
+
+  let unresolved_rows = restored(["attachment_1"], Result::err("timeout"))
+  testing::assert(
+    joined(Maybe::new(prompt_ids(unresolved_rows))) == "attachment_1" and unresolved_rows.at(0).expect("row").failure != "",
+    "an unresolved file is reported and still sent",
+  )
+}
+
+test fn models_without_listed_inputs_accept_images() Void!Str {
+  try testing::assert(accepts_images([]), "unknown inputs")
+  try testing::assert(
+    accepts_images([protocol::ModelInputText, protocol::ModelInputImage]),
+    "an image model",
+  )
+  testing::assert(not accepts_images([protocol::ModelInputText]), "a text-only model")
+}

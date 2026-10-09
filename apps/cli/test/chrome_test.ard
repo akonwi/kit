@@ -6,6 +6,7 @@ use cooper/cui
 use cooper/keymap
 use cooper/testing as headless
 use cooper/ui
+use kit/tui/attachments
 use kit/tui/chrome
 use kit/tui/theme
 use go:strings
@@ -190,6 +191,9 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
             Previews: ["one", "two", "three"],
             AnnotationIDs: [],
           },
+          attachments: [],
+          rejecting_model: "",
+          remove_attachment: fn(index: Int) {},
         },
       ),
     ),
@@ -209,6 +213,9 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
             Previews: ["one", "two", "three"],
             AnnotationIDs: [],
           },
+          attachments: [],
+          rejecting_model: "",
+          remove_attachment: fn(index: Int) {},
         },
       ),
     ),
@@ -218,5 +225,104 @@ test fn pending_row_previews_follow_ups_and_summarizes_the_rest() Void!Str {
       " Follow-up 2: two",
       " +3 more follow-ups",
     ],
+  )
+}
+
+fn color_at(terminal: headless::TestApp, x: Int, y: Int) ui::Color {
+  terminal.frame().cell(x, y).expect("cell").style.foreground.expect("foreground")
+}
+
+fn same(left: ui::Color, right: ui::Color) Bool {
+  left.red == right.red and left.green == right.green and left.blue == right.blue
+}
+
+test fn staged_files_show_their_state_and_remove_on_click() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let colors = themes.current()
+  let removed = mut List::new<Int>()
+  let failed = mut attachments::uploading(3, "/tmp/big.log", "text/plain")
+  failed.uploading = false
+  failed.failure = "too large"
+  let view = chrome::pending_row(
+    themes,
+    chrome::Pending{
+      notice: "",
+      activity: "",
+      follow_ups: protocol::FollowUpQueue{Count: 0},
+      attachments: [
+        attachments::uploaded(
+          protocol::AttachmentInfo{
+            ID: "attachment-1",
+            Filename: "screenshot.png",
+            MediaType: "image/png",
+          },
+        ),
+        attachments::uploading(2, "/tmp/notes.txt", "text/plain"),
+        failed.@,
+      ],
+      rejecting_model: "",
+      remove_attachment: fn(index: Int) {
+        removed.push(index)
+      },
+    },
+  )
+  let terminal = headless::new(40, 4)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, view)
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(
+    rows(terminal),
+    [
+      "",
+      " attachment screenshot.png            ×",
+      " attachment notes.txt uploading…      ×",
+      " attachment big.log upload failed     ×",
+    ],
+  )
+  try testing::assert(same(color_at(terminal, 1, 1), colors.primary_text), "the marker is accented")
+  try testing::assert(same(color_at(terminal, 12, 2), colors.muted), "an upload is muted")
+  try testing::assert(same(color_at(terminal, 12, 3), colors.danger_text), "a failure is dangerous")
+
+  terminal.click(38, 2)
+  terminal.flush()
+  testing::assert(
+    removed.size() == 1 and removed.at(0).or(-1) == 1,
+    "clicking × removes that file",
+  )
+}
+
+test fn staged_images_warn_when_the_model_cannot_receive_them() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let view = chrome::pending_row(
+    themes,
+    chrome::Pending{
+      notice: "",
+      activity: "",
+      follow_ups: protocol::FollowUpQueue{Count: 0},
+      attachments: [
+        attachments::uploaded(
+          protocol::AttachmentInfo{
+            ID: "attachment-1",
+            Filename: "a.png",
+            MediaType: "image/png",
+          },
+        ),
+      ],
+      rejecting_model: "GPT 5.6 Sol",
+      remove_attachment: fn(index: Int) {},
+    },
+  )
+  let terminal = headless::new(52, 2)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, view)
+  defer renderer.destroy()
+  terminal.flush()
+  try expect_rows(rows(terminal), ["", " attachment a.png not supported by GPT 5.6 Sol    ×"])
+  testing::assert(
+    same(color_at(terminal, 12, 1), themes.current().warning_text),
+    "the unsupported image is a warning",
   )
 }
