@@ -1,0 +1,275 @@
+use ard/testing
+
+use go:api
+use go:context
+use cooper
+use cooper/cui
+use cooper/testing as headless
+use cooper/ui
+use go:io
+use go:kit/ffi/attachmentbridge
+use kit/tui/layout
+use kit/tui/theme
+use go:os
+use go:path/filepath
+use go:strings
+use go:time
+
+// Previews of images attached to user messages. A preview reserves a fixed
+// number of rows before it loads, so loading cannot move the transcript, and
+// keeps the image's proportions within them. Clicking a preview opens the
+// image in the system's default application.
+
+// Rows a preview occupies, whatever its state.
+let rows = 12
+// The widest a preview may be, in cells.
+let max_columns = 72
+
+// Decoded previews are scaled to fit these pixel bounds, which match the
+// 72×12-cell preview area at twice a 1:2 cell's density. Larger images would
+// only cost memory.
+let max_width = 960
+let max_height = 320
+
+// A preview's progress.
+enum Stage {
+  loading,
+  ready,
+  failed,
+}
+
+// One attachment's preview.
+struct Preview {
+  stage: Stage,
+  image: ui::ImageData?,
+  failure: Str,
+}
+
+fn loading() Preview {
+  Preview{
+    stage: Stage::loading,
+    image: Maybe::new<ui::ImageData>(),
+    failure: "",
+  }
+}
+
+private fn failed(reason: Str) Preview {
+  Preview{
+    stage: Stage::failed,
+    image: Maybe::new<ui::ImageData>(),
+    failure: reason,
+  }
+}
+
+// Downloads, decodes, and scales an attachment's image. Transparent pixels
+// are composited over `matte` where the terminal cannot draw images natively.
+// It blocks, so call it off the UI thread.
+fn load(session: mut api::Session, ctx: context::Context, attachment_id: Str, matte: ui::Color) Preview {
+  match attachmentbridge::Open(session, ctx, attachment_id) {
+    ok(download) => {
+      let decoded = attachmentbridge::Decode(download.Content, max_width, max_height)
+      let _ = download.Content.Close()
+      match decoded {
+        ok(pixels) => {
+          let background = match matte.index.is_none() and not matte.terminal_default {
+            true => matte,
+            false => ui::rgb(0, 0, 0),
+          }
+          Preview{
+            stage: Stage::ready,
+            image: Maybe::new(ui::image_rgba(pixels.Width, pixels.Height, pixels.RGBA, Maybe::new(background))),
+            failure: "",
+          }
+        },
+        err(failure) => failed(failure.error()),
+      }
+    },
+    err(failure) => failed(failure.error()),
+  }
+}
+
+// The cells a ready image spans across its rows, keeping its proportions in
+// cells twice as tall as they are wide, and at most `available`.
+fn columns(image: ui::ImageData, available: Int) Int {
+  let wanted = (image.width * rows * 2 + image.height - 1) / image.height
+  let widest = match available < max_columns {
+    true => available,
+    false => max_columns,
+  }
+  match {
+    wanted < 1 => 1,
+    wanted > widest => widest,
+    _ => wanted,
+  }
+}
+
+// The preview area for one attachment; clicking a ready image calls `open`.
+// In a narrower container the image shrinks, keeping its proportions.
+fn view(themes: theme::Context, attachment_id: Str, preview: Preview, open: fn()) cui::View {
+  let colors = themes.current()
+  let content = match preview.stage {
+    Stage::loading => {
+      layout::line(
+        "loading preview…",
+        ui::text_style(foreground: colors.muted, background: colors.user_fill),
+      )
+    },
+    Stage::failed => {
+      layout::line(
+        "preview unavailable",
+        ui::text_style(foreground: colors.danger_text, background: colors.user_fill),
+      )
+    },
+    Stage::ready => {
+      let image = preview.image.expect("ready preview")
+      cui::box(
+        [
+          cui::image(
+            image,
+            attachment_id,
+            styles: ui::style(
+              width: ui::cells(columns(image, max_columns)),
+              max_width: ui::percent(100.0),
+              height: ui::cells(rows),
+            ),
+          ),
+        ],
+        on_mouse: fn(received: mut cooper::MouseEvent, ctx: cui::Context) {
+          if received.event_type == cooper::MouseEventType::up and received.button == cooper::MouseButton::left {
+            open()
+            received.prevent_default()
+          }
+        },
+      )
+    },
+  }
+  cui::box(
+    [content],
+    key: "preview-{attachment_id}",
+    styles: ui::style(height: ui::cells(rows), flex_shrink: 0.0),
+  )
+}
+
+// Saves an attachment to a private temporary file for another application to
+// open. Copies older than a day are removed first.
+fn materialize(download: attachmentbridge::Download) Str!Error {
+  let directory = filepath::Join(os::TempDir(), "kit-attachments")
+  try os::MkdirAll(directory, os::FileMode(Uint32::from(448)))
+  try os::Chmod(directory, os::FileMode(Uint32::from(448)))
+  match os::ReadDir(directory) {
+    ok(entries) => {
+      for entry in entries {
+        match entry.Info() {
+          ok(info) => {
+            if time::Since(info.ModTime()) > 24 * time::Hour {
+              let _ = os::Remove(filepath::Join(directory, entry.Name()))
+            }
+          },
+          err(_) => (),
+        }
+      }
+    },
+    err(_) => (),
+  }
+  let file = try os::CreateTemp(directory, "*-" + filepath::Base(download.Info.Filename))
+  let path = file.Name()
+  let written = match file.Chmod(os::FileMode(Uint32::from(384))) {
+    ok(_) => {
+      match io::Copy(file, download.Content) {
+        ok(_) => Result::ok(()),
+        err(failure) => Result::err(failure),
+      }
+    },
+    err(failure) => Result::err(failure),
+  }
+  let closed = file.Close()
+  match written {
+    err(failure) => {
+      let _ = os::Remove(path)
+      Result::err(failure)
+    },
+    ok(_) => {
+      match closed {
+        err(failure) => {
+          let _ = os::Remove(path)
+          Result::err(failure)
+        },
+        ok(_) => Result::ok(path),
+      }
+    },
+  }
+}
+
+private fn solid(width: Int, height: Int) ui::ImageData {
+  let bytes = mut List::new<Byte>()
+  mut index = 0
+  while index < width * height {
+    bytes.push(Byte::from(255))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(0))
+    bytes.push(Byte::from(255))
+    index =+ 1
+  }
+  ui::image_rgba(width, height, bytes.@, Maybe::new(ui::rgb(0, 0, 0)))
+}
+
+test fn previews_keep_proportions_within_their_rows() Void!Str {
+  try testing::assert(columns(solid(16, 9), 100) == 43, "a 16:9 image: {columns(solid(16, 9), 100)}")
+  try testing::assert(columns(solid(9, 16), 100) == 14, "a portrait image: {columns(solid(9, 16), 100)}")
+  try testing::assert(columns(solid(10, 1), 100) == 72, "a wide image stops at 72 cells")
+  try testing::assert(columns(solid(10, 1), 30) == 30, "and at the available width")
+  testing::assert(columns(solid(1, 1000), 100) == 1, "a sliver keeps one cell")
+}
+
+private fn rendered(width: Int, view: cui::View) [Str] {
+  let terminal = headless::new(width, rows)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, view)
+  defer renderer.destroy()
+  terminal.flush()
+  let shown = mut List::new<Str>()
+  for row in strings::Split(terminal.frame().text(), "\n") {
+    shown.push(strings::TrimSpace(row))
+  }
+  shown.@
+}
+
+test fn a_preview_reserves_its_rows_while_loading_and_after_failing() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let loading_rows = rendered(24, view(themes, "a", loading(), fn() {}))
+  try testing::assert(
+    loading_rows.size() == rows and loading_rows.at(0).or("") == "loading preview…",
+    "loading: {loading_rows.size()}",
+  )
+  let failed_rows = rendered(24, view(themes, "a", failed("bad"), fn() {}))
+  testing::assert(failed_rows.at(0).or("") == "preview unavailable", "failed")
+}
+
+test fn a_ready_preview_paints_its_image_across_the_reserved_rows() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let ready = Preview{
+    stage: Stage::ready,
+    image: Maybe::new(solid(4, 2)),
+    failure: "",
+  }
+  let terminal = headless::new(60, rows)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let opened = mut List::new<Int>()
+  let renderer = cui::mount(
+    app,
+    view(themes, "a", ready, fn() {
+      opened.push(1)
+    }),
+  )
+  defer renderer.destroy()
+  terminal.flush()
+  let first = terminal.frame().cell(0, 0).expect("top left")
+  let last = terminal.frame().cell(47, rows - 1).expect("bottom right")
+  try testing::assert(first.grapheme == "▀" and last.grapheme == "▀", "48 cells by 12 rows of image")
+  try testing::assert(terminal.frame().cell(48, 0).expect("beside").grapheme != "▀", "no wider")
+  terminal.click(10, 5)
+  terminal.flush()
+  testing::assert(opened.size() == 1, "clicking the image opens it")
+}

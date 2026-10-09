@@ -47,8 +47,9 @@ struct Message {
   attachments: [Attachment],
 }
 
-// A file attached to a user message, shown by name.
+// A file attached to a user message, shown by name. Images can be previewed.
 struct Attachment {
+  id: Str,
   image: Bool,
   filename: Str,
 }
@@ -142,7 +143,13 @@ fn project(messages: [protocol::TranscriptMessage]) [Message] {
         block.Kind == "thinking" => thinking_parts.push(block.Text),
         block.Kind == "toolCall" => calls.push(ToolCall{id: block.ToolCallID, name: block.ToolName}),
         user and block.AttachmentID != "" and (block.Kind == "image" or block.Kind == "file") => {
-          attached.push(Attachment{image: block.Kind == "image", filename: block.Filename})
+          attached.push(
+            Attachment{
+              id: block.AttachmentID,
+              image: block.Kind == "image",
+              filename: block.Filename,
+            },
+          )
         },
         block.Kind == "image" => {
           if block.AttachmentID == "" {

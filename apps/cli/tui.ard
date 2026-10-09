@@ -31,6 +31,9 @@ fn run(options: cli::TUIOptions) Void!Error {
         application.context.progress(state, Maybe::new<Int>())
       },
     },
+    open_url: fn(target: Str) Void!Error {
+      application.context.open_url(target)
+    },
   }
   let renderer = cui::mount(application, cui::child(shell::new, props))
   defer renderer.destroy()

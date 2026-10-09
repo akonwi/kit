@@ -175,7 +175,16 @@ test fn active_turn_blocks_snapshots_after_the_user_event_claims_the_prompt() Vo
 
 test fn a_submitted_prompt_keeps_its_attachments_when_the_server_confirms_it() Void!Str {
   let live = mut transcript::live()
-  live.submit("look", [transcript::Attachment{image: true, filename: "shot.png"}])
+  live.submit(
+    "look",
+    [
+      transcript::Attachment{
+        id: "attachment-1",
+        image: true,
+        filename: "shot.png",
+      },
+    ],
+  )
   let _ = live.apply(
     sequenced(
       [
@@ -376,7 +385,7 @@ test fn user_attachments_project_as_labels() Void!Str {
   let first = projected.at(0).expect("first")
   try testing::assert(first.text == "look" and first.attachments.size() == 2, "text and two files")
   try testing::assert(
-    first.attachments.at(0).expect("image").image and first.attachments.at(0).expect("image").filename == "shot.png",
+    first.attachments.at(0).expect("image").image and first.attachments.at(0).expect("image").filename == "shot.png" and first.attachments.at(0).expect("image").id == "attachment-1",
     "the image",
   )
   try testing::assert(
