@@ -36,3 +36,8 @@ func Wait(ctx context.Context, milliseconds int64) bool {
 		return false
 	}
 }
+
+// Done reports whether ctx has ended.
+func Done(ctx context.Context) bool {
+	return ctx.Err() != nil
+}

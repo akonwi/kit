@@ -96,7 +96,7 @@ test fn footer_shows_the_composer_mode_and_location() Void!Str {
     render(
       40,
       1,
-      chrome::footer(theme::context(theme::store(theme::system())), "", "bash", "~/kit"),
+      chrome::footer(theme::context(theme::store(theme::system())), "", "", "bash", "~/kit"),
     ),
     [" bash                             ~/kit"],
   )
@@ -104,7 +104,13 @@ test fn footer_shows_the_composer_mode_and_location() Void!Str {
 
 test fn a_connection_problem_replaces_the_composer_mode() Void!Str {
   let themes = theme::context(theme::store(theme::system()))
-  let footer = chrome::footer(themes, "Restart Kit to reconnect", "bash", "~/kit")
+  let footer = chrome::footer(
+    themes,
+    "Restart Kit to reconnect",
+    "Reconnecting activity…",
+    "bash",
+    "~/kit",
+  )
   try expect_rows(
     render(80, 1, footer),
     [" Restart Kit to reconnect                                                 ~/kit"],
@@ -123,6 +129,30 @@ test fn a_connection_problem_replaces_the_composer_mode() Void!Str {
   testing::assert(
     color.red == warning.red and color.green == warning.green and color.blue == warning.blue,
     "the connection problem uses the warning color",
+  )
+}
+
+test fn turn_recovery_replaces_the_composer_mode_in_muted_text() Void!Str {
+  let themes = theme::context(theme::store(theme::system()))
+  let footer = chrome::footer(themes, "", "Syncing final transcript…", "bash", "~/kit")
+  try expect_rows(
+    render(80, 1, footer),
+    [" Syncing final transcript…                                                ~/kit"],
+  )
+  let terminal = headless::new(80, 1)
+  defer terminal.destroy()
+  let app = cooper::App{context: terminal.context, root: terminal.root}
+  let renderer = cui::mount(app, footer)
+  defer renderer.destroy()
+  terminal.flush()
+  let color = terminal.frame().cell(
+    1,
+    0,
+  ).expect("footer status").style.foreground.expect("status color")
+  let muted = themes.current().muted
+  testing::assert(
+    color.red == muted.red and color.green == muted.green and color.blue == muted.blue,
+    "recovery uses the muted color",
   )
 }
 

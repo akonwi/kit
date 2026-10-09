@@ -1,0 +1,449 @@
+use ard/testing
+
+use go:api
+use go:api/contract as protocol
+use go:fmt
+use go:kit/ffi/sessionbridge
+use go:strings
+
+// Follows one active turn's event stream and recovers it when the stream is
+// lost. A lost stream is followed again while the turn runs; a turn that ended
+// meanwhile is settled from a final snapshot, retried a few times before the
+// turn is settled from its status alone. Recovery is shown as a footer state,
+// and only a server that can no longer serve this client stops it early.
+
+// The footer state of a turn whose stream was interrupted.
+enum Recovery {
+  healthy,
+  reconnecting,
+  syncing,
+}
+
+// The footer text for a recovery state.
+fn recovery_text(recovery: Recovery) Str {
+  match recovery {
+    Recovery::healthy => "",
+    Recovery::reconnecting => "Reconnecting activity…",
+    Recovery::syncing => "Syncing final transcript…",
+  }
+}
+
+// Final snapshot attempts before a finished turn is settled without one.
+let final_snapshot_attempts = 6
+
+// Follower is the I/O and UI effects a turn follower needs. The UI effects are
+// called from the follower's goroutine and must schedule their own updates.
+struct Follower {
+  // Follows the turn's stream until it ends, calling the second argument for
+  // every delivered batch. A clean end means the turn finished.
+  stream: fn(Str, fn()) Void!Error,
+  snapshot: fn() protocol::SessionSnapshot!Error,
+  status: fn(Str) protocol::TurnInfo!Error,
+  // Waits milliseconds; false when the attachment ended first.
+  wait: fn(Int64) Bool,
+  // Whether the attachment ended, which explains any failure.
+  ended: fn() Bool,
+  // A lost stream of a still-running turn that cannot be replayed is rebased
+  // on this snapshot before the turn is followed again.
+  rebase: fn(Str, protocol::SessionSnapshot),
+  recover: fn(Str, Recovery),
+  // A finished turn and the final snapshot that settles it.
+  settle: fn(protocol::TurnInfo, protocol::SessionSnapshot),
+  // A finished turn whose final snapshot could not be fetched.
+  abandon: fn(protocol::TurnInfo, Error),
+  incompatible: fn(Error),
+}
+
+// Backs off recovery attempts: 100ms doubling to 1.6s.
+fn retry_delay(failures: Int) Int64 {
+  mut delay = 100
+  mut step = 1
+  while step < failures and step < 5 {
+    delay = delay * 2
+    step = step + 1
+  }
+  Int64::from(delay)
+}
+
+private enum Step {
+  stream,
+  check,
+  settle,
+  done,
+}
+
+private struct Progress {
+  failures: Int,
+}
+
+// Whether a failure ends following: the attachment ended, or the server can
+// no longer serve it.
+private fn stops(follower: Follower, failure: Error) Bool {
+  match {
+    (follower.ended)() => true,
+    sessionbridge::Incompatible(failure) => {
+      (follower.incompatible)(failure)
+      true
+    },
+    _ => false,
+  }
+}
+
+private fn still_running(info: protocol::TurnInfo) Bool {
+  let status = info.Status.to_str()
+  status == "queued" or status == "running"
+}
+
+// Follows run_id, and each turn that a final snapshot reports as its
+// successor, until the turn finishes or the attachment ends.
+fn follow(follower: Follower, first: Str) {
+  mut run_id = first
+  let progress = mut Progress{failures: 0}
+  mut final_failures = 0
+  mut finished = protocol::TurnInfo{}
+  mut step = Step::stream
+  while step != Step::done {
+    step = match step {
+      Step::stream => {
+        let streamed = (follower.stream)(
+          run_id,
+          fn() {
+            progress.failures = 0
+          },
+        )
+        match streamed {
+          ok(_) => Step::done,
+          err(failure) => {
+            match stops(follower, failure) {
+              true => Step::done,
+              false => {
+                progress.failures = progress.failures + 1
+                match (follower.snapshot)() {
+                  ok(snapshot) => {
+                    if snapshot.ActiveTurnID == run_id {
+                      if not snapshot.EventReplayAvailable {
+                        (follower.rebase)(run_id, snapshot)
+                      }
+                    } else {
+                      (follower.recover)(run_id, Recovery::reconnecting)
+                    }
+                    Step::check
+                  },
+                  err(snapshot_failure) => {
+                    match stops(follower, snapshot_failure) {
+                      true => Step::done,
+                      false => {
+                        (follower.recover)(run_id, Recovery::reconnecting)
+                        Step::check
+                      },
+                    }
+                  },
+                }
+              },
+            }
+          },
+        }
+      },
+      Step::check => {
+        match (follower.wait)(retry_delay(progress.failures)) {
+          false => Step::done,
+          true => {
+            match (follower.status)(run_id) {
+              ok(info) => {
+                match still_running(info) {
+                  true => {
+                    (follower.recover)(run_id, Recovery::healthy)
+                    Step::stream
+                  },
+                  false => {
+                    finished = info
+                    Step::settle
+                  },
+                }
+              },
+              err(failure) => {
+                match stops(follower, failure) {
+                  true => Step::done,
+                  false => {
+                    progress.failures = progress.failures + 1
+                    (follower.recover)(run_id, Recovery::reconnecting)
+                    Step::check
+                  },
+                }
+              },
+            }
+          },
+        }
+      },
+      Step::settle => {
+        match (follower.snapshot)() {
+          ok(snapshot) => {
+            (follower.settle)(finished, snapshot)
+            match snapshot.ActiveTurnID == "" or snapshot.ActiveTurnID == run_id {
+              true => Step::done,
+              false => {
+                run_id = snapshot.ActiveTurnID
+                progress.failures = 0
+                final_failures = 0
+                Step::stream
+              },
+            }
+          },
+          err(failure) => {
+            match stops(follower, failure) {
+              true => Step::done,
+              false => {
+                final_failures = final_failures + 1
+                match final_failures >= final_snapshot_attempts {
+                  true => {
+                    (follower.abandon)(finished, failure)
+                    Step::done
+                  },
+                  false => {
+                    (follower.recover)(run_id, Recovery::syncing)
+                    match (follower.wait)(retry_delay(final_failures)) {
+                      true => Step::settle,
+                      false => Step::done,
+                    }
+                  },
+                }
+              },
+            }
+          },
+        }
+      },
+      Step::done => Step::done,
+    }
+  }
+}
+
+// A scripted server for follower tests. Each request takes the next scripted
+// result; an exhausted script fails like an unreachable server.
+private struct Script {
+  streams: [Str],
+  snapshots: [Str],
+  statuses: [Str],
+  stream_calls: Int,
+  snapshot_calls: Int,
+  status_calls: Int,
+  ended: Bool,
+  log: [Str],
+}
+
+private fn script(streams: [Str], snapshots: [Str], statuses: [Str]) mut Script {
+  (mut Script{
+    streams: streams,
+    snapshots: snapshots,
+    statuses: statuses,
+    stream_calls: 0,
+    snapshot_calls: 0,
+    status_calls: 0,
+    ended: false,
+    log: [],
+  })
+}
+
+// Snapshot scripts: "running:<turn>", "replayable:<turn>", "idle",
+// "next:<turn>" (a successor is active), "incompatible", or "down".
+private fn scripted_snapshot(entry: Str) protocol::SessionSnapshot!Error {
+  match {
+    entry.starts_with("running:") => {
+      Result::ok(protocol::SessionSnapshot{ActiveTurnID: strings::TrimPrefix(entry, "running:")})
+    },
+    entry.starts_with("replayable:") => {
+      Result::ok(
+        protocol::SessionSnapshot{ActiveTurnID: strings::TrimPrefix(entry, "replayable:"), EventReplayAvailable: true},
+      )
+    },
+    entry.starts_with("next:") => {
+      Result::ok(protocol::SessionSnapshot{ActiveTurnID: strings::TrimPrefix(entry, "next:")})
+    },
+    entry == "idle" => Result::ok(protocol::SessionSnapshot{}),
+    _ => Result::err(scripted_failure(entry)),
+  }
+}
+
+private fn scripted_failure(entry: Str) Error {
+  match entry == "incompatible" {
+    true => {
+      match fmt::Errorf("stream turn: %w", api::ErrIncompatibleServer) {
+        err(failure) => failure,
+        ok(_) => Error::new("incompatible"),
+      }
+    },
+    false => Error::new("connection refused"),
+  }
+}
+
+private fn scripted_status(entry: Str) protocol::TurnStatus {
+  match entry {
+    "running" => protocol::TurnStatusRunning,
+    "failed" => protocol::TurnStatusFailed,
+    _ => protocol::TurnStatusCompleted,
+  }
+}
+
+private fn scripted_follower(server: mut Script) Follower {
+  Follower{
+    stream: fn(run_id: Str, received: fn()) Void!Error {
+      let entry = server.streams.at(server.stream_calls).or("down")
+      server.stream_calls = server.stream_calls + 1
+      server.log.push("stream {run_id}")
+      if entry.starts_with("events") {
+        received()
+      }
+      match entry {
+        "done" => Result::ok(()),
+        "events-done" => Result::ok(()),
+        _ => Result::err(scripted_failure(entry)),
+      }
+    },
+    snapshot: fn() protocol::SessionSnapshot!Error {
+      let entry = server.snapshots.at(server.snapshot_calls).or("down")
+      server.snapshot_calls = server.snapshot_calls + 1
+      scripted_snapshot(entry)
+    },
+    status: fn(run_id: Str) protocol::TurnInfo!Error {
+      let entry = server.statuses.at(server.status_calls).or("down")
+      server.status_calls = server.status_calls + 1
+      match entry {
+        "down" => Result::err(scripted_failure(entry)),
+        "incompatible" => Result::err(scripted_failure(entry)),
+        _ => Result::ok(protocol::TurnInfo{TurnID: run_id, Status: scripted_status(entry)}),
+      }
+    },
+    wait: fn(milliseconds: Int64) Bool {
+      server.log.push("wait {milliseconds}")
+      not server.ended
+    },
+    ended: fn() Bool {
+      server.ended
+    },
+    rebase: fn(run_id: Str, snapshot: protocol::SessionSnapshot) {
+      server.log.push("rebase {run_id}")
+    },
+    recover: fn(run_id: Str, recovery: Recovery) {
+      server.log.push("footer {recovery_text(recovery)}")
+    },
+    settle: fn(info: protocol::TurnInfo, snapshot: protocol::SessionSnapshot) {
+      server.log.push("settle {info.TurnID} {info.Status.to_str()}")
+    },
+    abandon: fn(info: protocol::TurnInfo, failure: Error) {
+      server.log.push("abandon {info.TurnID} {info.Status.to_str()}")
+    },
+    incompatible: fn(failure: Error) {
+      server.log.push("incompatible")
+    },
+  }
+}
+
+private fn transcript_of(server: mut Script) Str {
+  let lines = server.log
+  mut joined = ""
+  for line in lines {
+    joined = match joined == "" {
+      true => line,
+      false => "{joined} | {line}",
+    }
+  }
+  joined
+}
+
+test fn retries_back_off_to_a_ceiling() Void!Str {
+  try testing::assert(retry_delay(1) == Int64::from(100), "the first retry is prompt")
+  try testing::assert(retry_delay(3) == Int64::from(400), "retries double")
+  testing::assert(retry_delay(12) == Int64::from(1600), "retries stop doubling at 1.6s")
+}
+
+test fn a_turn_stream_that_ends_cleanly_is_not_recovered() Void!Str {
+  let server = script(["done"], [], [])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(transcript_of(server) == "stream turn-1", transcript_of(server))
+}
+
+test fn a_lost_stream_of_a_running_turn_reconnects_quietly() Void!Str {
+  let server = script(["lost", "done"], ["replayable:turn-1"], ["running"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | wait 100 | footer  | stream turn-1",
+    transcript_of(server),
+  )
+}
+
+test fn a_running_turn_that_cannot_be_replayed_is_rebased_first() Void!Str {
+  let server = script(["lost", "done"], ["running:turn-1"], ["running"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | rebase turn-1 | wait 100 | footer  | stream turn-1",
+    transcript_of(server),
+  )
+}
+
+test fn an_unreachable_server_shows_reconnecting_until_the_turn_resumes() Void!Str {
+  let server = script(
+    ["lost", "lost", "events-done"],
+    ["down", "down"],
+    ["down", "running", "running"],
+  )
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | footer Reconnecting activity… | wait 200 | footer  | stream turn-1 | footer Reconnecting activity… | wait 400 | footer  | stream turn-1",
+    transcript_of(server),
+  )
+}
+
+test fn delivered_events_reset_the_backoff() Void!Str {
+  let server = script(["lost", "events-lost", "done"], ["down", "down"], ["running", "running"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | footer  | stream turn-1 | footer Reconnecting activity… | wait 100 | footer  | stream turn-1",
+    transcript_of(server),
+  )
+}
+
+test fn a_turn_that_finished_while_disconnected_settles_from_a_final_snapshot() Void!Str {
+  let server = script(["lost"], ["down", "down", "idle"], ["failed"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | footer Syncing final transcript… | wait 100 | settle turn-1 failed",
+    transcript_of(server),
+  )
+}
+
+test fn a_final_snapshot_is_retried_before_settling_from_the_status() Void!Str {
+  let server = script(
+    ["lost"],
+    ["idle", "down", "down", "down", "down", "down", "down"],
+    ["completed"],
+  )
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | footer Syncing final transcript… | wait 100 | footer Syncing final transcript… | wait 200 | footer Syncing final transcript… | wait 400 | footer Syncing final transcript… | wait 800 | footer Syncing final transcript… | wait 1600 | abandon turn-1 completed",
+    transcript_of(server),
+  )
+}
+
+test fn a_final_snapshot_with_a_successor_follows_it() Void!Str {
+  let server = script(["lost", "done"], ["idle", "next:turn-2"], ["completed"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | settle turn-1 completed | stream turn-2",
+    transcript_of(server),
+  )
+}
+
+test fn an_incompatible_server_stops_recovery() Void!Str {
+  let server = script(["lost"], ["down"], ["incompatible"])
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(
+    transcript_of(server) == "stream turn-1 | footer Reconnecting activity… | wait 100 | incompatible",
+    transcript_of(server),
+  )
+}
+
+test fn an_ended_attachment_stops_recovery_quietly() Void!Str {
+  let server = script(["lost"], [], [])
+  server.ended = true
+  follow(scripted_follower(server), "turn-1")
+  testing::assert(transcript_of(server) == "stream turn-1", transcript_of(server))
+}

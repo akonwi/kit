@@ -121,16 +121,19 @@ fn header(themes: theme::Context, spec: Header) cui::View {
   )
 }
 
-// footer shows the session's connection problem or, without one, the
-// composer's current mode on the left, and the working location on the right.
-fn footer(themes: theme::Context, connection: Str, mode: Str, location: Str) cui::View {
+// footer shows, on the left, the session's connection problem, else the
+// active turn's stream recovery, else the composer's current mode; the working
+// location is on the right.
+fn footer(themes: theme::Context, connection: Str, recovery: Str, mode: Str, location: Str) cui::View {
   let colors = themes.current()
-  let status = match connection != "" {
-    true => connection,
-    false => mode,
+  let status = match {
+    connection != "" => connection,
+    recovery != "" => recovery,
+    _ => mode,
   }
   let tone = match {
     connection != "" => colors.warning_text,
+    recovery != "" => colors.muted,
     mode != "" => colors.success_text,
     _ => colors.muted,
   }

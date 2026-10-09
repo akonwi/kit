@@ -330,6 +330,24 @@ impl Live {
     self.thinking = ""
   }
 
+  // Settles the live run without its final events, as when the turn finished
+  // while its stream was lost. Planned tools never ran; running tools are
+  // shown as done because their outcome is unknown.
+  fn mut settle() {
+    for index in 0..self.messages.size() {
+      self.edit(index, fn(current: mut Message) {
+        current.pending = false
+        current.tool_state = match current.tool_state {
+          ToolState::planned => ToolState::not_run,
+          ToolState::running => ToolState::completed,
+          _ => current.tool_state,
+        }
+      })
+    }
+    self.thinking = ""
+    self.activity = ""
+  }
+
   // Reports whether a snapshot predates events this live state has applied.
   fn supersedes(snapshot: protocol::SessionSnapshot) Bool {
     self.sequence > 0 and snapshot.EventStreamID == self.stream_id and snapshot.EventCursor < self.sequence
