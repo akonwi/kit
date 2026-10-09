@@ -70,7 +70,13 @@ func contributionText(value string, limit int, required bool) bool {
 }
 
 func contributionObject(raw json.RawMessage, allowed ...string) (map[string]json.RawMessage, error) {
-	if len(raw) > MaxContributionParamsBytes {
+	return boundedParamsObject(raw, MaxContributionParamsBytes, allowed...)
+}
+
+// boundedParamsObject decodes a strict JSON object whose encoding is at most
+// limit bytes and whose members are a unique subset of allowed.
+func boundedParamsObject(raw json.RawMessage, limit int, allowed ...string) (map[string]json.RawMessage, error) {
+	if len(raw) > limit {
 		return nil, rpcError(-32005, "Contribution parameters exceed protocol limits")
 	}
 	if !utf8.Valid(raw) {
@@ -202,6 +208,8 @@ func (h *Host) handleRequest(ctx context.Context, owner InstanceID, method strin
 		return h.handleFooter(ctx, owner, method, params)
 	case "kit/ui/confirm", "kit/ui/input", "kit/ui/select":
 		return h.handleInteraction(ctx, owner, method, params)
+	case submitMessageMethod:
+		return h.handleSubmitMessage(ctx, owner, params)
 	case "kit/commands/register":
 		command, err := parseCommand(params)
 		if err != nil {

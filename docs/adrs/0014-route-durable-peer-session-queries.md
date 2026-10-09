@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Autonomous turn chains are governed by
+[ADR 0040](0040-do-not-limit-autonomous-turn-chains.md).
 
 ## Context
 
@@ -130,8 +131,8 @@ delete, abort, retry, or otherwise control another session.
 
 ### Scheduling, loops, and bounds
 
-Peer-query execution participates in daemon-wide and per-session autonomous
-reaction limits. It also preserves each session's admission serialization and
+Peer-query execution participates in daemon-wide autonomous reaction
+concurrency. It also preserves each session's admission serialization and
 does not hold the sender's session mutation lock while the recipient executes.
 Mailbox workers and scans are bounded, cancellable, and restart-safe.
 
@@ -151,10 +152,10 @@ durable peer request. Provider or tool side effects are not claimed to be
 exactly resumable after interruption; recovery reports an interrupted terminal
 result when safe continuation cannot be proven.
 
-The autonomous reaction-chain policy in droids applies to peer-query boundaries
-as well as subagent-result boundaries. Droids exposes a generic or explicit
-policy for reaction-driving boundaries rather than requiring Kit to evade chain
-accounting with application-specific kinds.
+Peer-query boundaries use the same droids reaction admission as other context
+boundaries. Consecutive autonomous turns are not counted or limited
+([ADR 0040](0040-do-not-limit-autonomous-turn-chains.md)); cycle rejection and
+hop count bound peer routing.
 
 ### Events and presentation
 
@@ -208,7 +209,7 @@ The implementation must demonstrate:
 - Replies are eventual rather than synchronous and may wait behind recipient
   work.
 - Cross-store atomicity requires idempotent relay and reconciliation logic.
-- Explicit cycle and reaction limits are necessary because peer sessions form a
+- Explicit cycle and hop limits are necessary because peer sessions form a
   graph rather than an ownership tree.
 - Terminal mailbox records require a retention policy separate from transcript
   retention.

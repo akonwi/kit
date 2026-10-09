@@ -24,5 +24,7 @@ const (
 	// 44: The server chooses fork child IDs; fork requests no longer carry one.
 	// Forks accept an optional first prompt and return ForkSessionResult, which
 	// reports a first turn that could not start without failing the fork.
-	SessionProtocolVersion = 44
+	// 45: Plugin-submitted messages: transcript plugin_message context boundaries
+	// and the turn-scoped plugin.message.added live event.
+	SessionProtocolVersion = 45
 )

@@ -1460,6 +1460,8 @@ func (s runtimeSessionService) projectSessionEventPayload(event kitsession.Event
 		return protocol.TurnStartedEvent{Status: protocol.TurnStatus(event.Status)}
 	case kitsession.EventUserMessage:
 		return protocol.UserMessageAddedEvent{Text: event.Text}
+	case kitsession.EventPluginMessage:
+		return protocol.PluginMessageAddedEvent{PluginID: event.PluginID, Text: event.Text}
 	case kitsession.EventAssistantStarted:
 		return protocol.AssistantStartedEvent{MessageID: event.MessageID, Text: event.Text, Thinking: event.Thinking}
 	case kitsession.EventAssistantTextDelta:

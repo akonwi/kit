@@ -4,11 +4,13 @@ import Testing
 
 struct SessionProjectionTests {
     private func message(_ id: String, turn: String = "turn", role: String = "assistant",
-                         content: [[String: Any]] = [], callID: String? = nil, boundary: String? = nil) throws -> WireTranscriptMessage {
+                         content: [[String: Any]] = [], callID: String? = nil, boundary: String? = nil,
+                         source: String? = nil) throws -> WireTranscriptMessage {
         var value: [String: Any] = ["id": id, "turnId": turn, "sequence": 1, "role": role,
                                     "content": content, "createdAt": ""]
         if let callID { value["toolCallId"] = callID }
         if let boundary { value["boundaryKind"] = boundary }
+        if let source { value["boundarySource"] = source }
         return try JSONDecoder().decode(WireTranscriptMessage.self, from: JSONSerialization.data(withJSONObject: value))
     }
     private func call(_ id: String) -> [String: Any] {
@@ -80,6 +82,27 @@ struct SessionProjectionTests {
         ])
         #expect(rows.map(\.id) == ["user", "tools-review", "compact", "reply"])
         #expect(rows.map(\.text) == ["Review this", "", "Compaction summary", "Review complete"])
+    }
+
+    @Test func pluginMessagesProjectAsAttributedPluginRows() throws {
+        let rows = try SessionProjection.transcript([
+            message("pluginmsg_a", turn: "turn_plugin", role: "context",
+                    content: [["kind": "text", "text": "Continue the autoresearch loop.\n\nLog each result."]],
+                    boundary: "plugin_message", source: "autoresearch"),
+            message("call", turn: "turn_plugin", content: [call("read")]),
+            message("reply", turn: "turn_plugin", content: [["kind": "text", "text": "Experiment 3 kept."]])
+        ])
+        #expect(rows.map(\.id) == ["pluginmsg_a", "tools-read", "reply"])
+        #expect(rows.map(\.role) == ["plugin", "tools", "assistant"])
+        #expect(rows[0].text == "Continue the autoresearch loop.\n\nLog each result.")
+        #expect(rows[0].plugin == PluginMessageOrigin(pluginID: "autoresearch", turnID: "turn_plugin"))
+        #expect(PluginMessageRow.summary(rows[0].text) == "Continue the autoresearch loop.")
+        #expect(PluginMessageRow.summary("\n## Next step\n\nRead `autoresearch.md` first.") == "Next step")
+        #expect(PluginMessageRow.summary("Read `autoresearch.md` and **log** it.") == "Read autoresearch.md and log it.")
+        #expect(throws: ClientError.self) {
+            try SessionProjection.transcript([message("pluginmsg_b", role: "context",
+                content: [["kind": "text", "text": "Unattributed"]], boundary: "plugin_message")])
+        }
     }
 
 }

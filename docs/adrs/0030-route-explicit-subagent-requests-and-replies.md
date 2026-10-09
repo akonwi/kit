@@ -2,7 +2,8 @@
 
 ## Status
 
-Accepted
+Accepted. Autonomous turn chains are governed by
+[ADR 0040](0040-do-not-limit-autonomous-turn-chains.md).
 
 ## Context
 
@@ -108,10 +109,10 @@ child runtime admits a structured, idempotent droids boundary with a stable
 receipt, sender identity, and bounded lower-trust content,
 then starts an inbox reaction turn. The server, not the model's echoed receipt,
 is authoritative for envelope identity and reply permission. Boundary admission and durable task identity reconcile a crash between the
-shared store and the child droids store. Inbox turns do not participate in
-droids' conversation-wide autonomous reaction-chain counter: independently
-submitted requests must not become inadmissible after unrelated inbox traffic.
-The supervisor's queue and execution bounds still apply. A recipient can
+shared store and the child droids store. Inbox turns are not counted or limited
+by the number of preceding autonomous turns
+([ADR 0040](0040-do-not-limit-autonomous-turn-chains.md)). The supervisor's
+queue and execution bounds apply. A recipient can
 finish a turn without replying; the request stays open, and the child can reply
 in a later turn.
 
@@ -165,8 +166,7 @@ Routing respects the supervisor's per-conversation, per-session, and global
 queue and execution limits. Pending delivery remains durable when a queue is
 full and is retried on capacity changes and startup. Message/reply sizes,
 outstanding requests per owner and child, inbox backlog, and individual request
-deadlines are bounded. Requests do not carry a causal hop count and inbox turns
-do not consume the conversation-wide autonomous reaction counter. Models can
+deadlines are bounded. Requests do not carry a causal hop count. Models can
 choose to exchange successive requests indefinitely; these limits bound
 concurrent work, not the total number of sequential exchanges. Users can
 cancel or dismiss the participating children. Asynchronous sends never reserve

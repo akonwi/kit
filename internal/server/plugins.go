@@ -25,7 +25,7 @@ func pluginHostFactory(paths apphome.Paths, cache *githubpr.Cache, logger *slog.
 			name = &value
 		}
 		host := &sessionPluginHost{vcs: vcs.NewObserver(ctx, input.CWD, cache), logger: logger}
-		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction})
+		host.Host = plugin.NewHost(ctx, plugin.HostConfig{Home: paths, Session: plugin.SessionContext{ID: input.ID, Name: name}, CWD: input.CWD, ReservedIDs: protocol.ReservedCommandDomains(), ReservedSubagents: input.SubagentNames, Changed: changed, Project: host.projectContext, ProjectChanged: host.vcs.Updates(), Toast: host.publishToast, Failure: host.reportFailure, Interaction: host.requestInteraction, SubmitMessage: host.submitMessage})
 		return host
 	}
 }
@@ -37,8 +37,10 @@ type sessionPluginHost struct {
 	interactionMu       sync.RWMutex
 	interactionObserver func(context.Context, session.PluginInteractionInput, func() bool) (session.PluginInteractionResult, error)
 	*plugin.Host
-	toastMu       sync.RWMutex
-	toastObserver func(context.Context, session.PluginToast) error
+	toastMu         sync.RWMutex
+	toastObserver   func(context.Context, session.PluginToast) error
+	messageMu       sync.RWMutex
+	messageObserver func(context.Context, session.PluginMessageInput, func() bool) (session.PluginMessageResult, error)
 }
 
 func pluginCommandInstance(owner plugin.InstanceID) string {
@@ -162,6 +164,45 @@ func (h *sessionPluginHost) requestInteraction(ctx context.Context, input plugin
 		return plugin.InteractionResponse{}, &plugin.RPCError{Code: code, Message: message}
 	}
 	return plugin.InteractionResponse{Cancelled: result.Cancelled, Confirmed: result.Confirmed, Text: result.Text, OptionIndex: result.OptionIndex}, nil
+}
+
+func (h *sessionPluginHost) SetMessageObserver(observer func(context.Context, session.PluginMessageInput, func() bool) (session.PluginMessageResult, error)) {
+	h.messageMu.Lock()
+	defer h.messageMu.Unlock()
+	h.messageObserver = observer
+}
+
+// submitMessage admits a plugin message through the session and maps session
+// failures to the public plugin protocol without exposing internal detail.
+func (h *sessionPluginHost) submitMessage(ctx context.Context, request plugin.MessageRequest) (plugin.MessageResult, error) {
+	h.messageMu.RLock()
+	observer := h.messageObserver
+	h.messageMu.RUnlock()
+	if observer == nil {
+		return plugin.MessageResult{}, &plugin.RPCError{Code: -32601, Message: "Session message submission is unavailable"}
+	}
+	input := session.PluginMessageInput{PluginID: request.Owner.PluginID, Text: request.Text, IdempotencyKey: request.IdempotencyKey}
+	// The generation interaction fence also fences message admission.
+	result, err := observer(ctx, input, func() bool { return h.Host.InteractionOwnerActive(request.Owner) })
+	if err != nil {
+		switch {
+		case errors.Is(err, context.Canceled), errors.Is(err, context.DeadlineExceeded):
+			return plugin.MessageResult{}, err
+		case errors.Is(err, session.ErrBusy):
+			return plugin.MessageResult{}, &plugin.RPCError{Code: -32006, Message: "Session is busy", Data: json.RawMessage(`{"reason":"session_busy"}`)}
+		case errors.Is(err, session.ErrPluginMessageConflict):
+			return plugin.MessageResult{}, &plugin.RPCError{Code: -32003, Message: "Idempotency key was used with different text"}
+		case errors.Is(err, session.ErrClosed):
+			return plugin.MessageResult{}, &plugin.RPCError{Code: -32002, Message: "Plugin generation is unavailable"}
+		case errors.Is(err, session.ErrInvalidInput):
+			return plugin.MessageResult{}, &plugin.RPCError{Code: -32602, Message: "Invalid session message"}
+		}
+		if h.logger != nil {
+			h.logger.Error("plugin message submission failed", "session_id", request.Owner.SessionID, "plugin_id", request.Owner.PluginID, "error", err)
+		}
+		return plugin.MessageResult{}, &plugin.RPCError{Code: -32603, Message: "Session message submission failed"}
+	}
+	return plugin.MessageResult{MessageID: result.MessageID, TurnID: result.TurnID}, nil
 }
 
 func (h *sessionPluginHost) Footer() session.PluginFooter {

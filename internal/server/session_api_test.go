@@ -1337,6 +1337,25 @@ func TestProjectSessionEventPageCarriesProviderRetryLifecycle(t *testing.T) {
 	}
 }
 
+func TestProjectSessionEventPageCarriesPluginMessage(t *testing.T) {
+	t.Parallel()
+
+	projected := projectSessionEventPage(kitsession.EventPage{
+		StreamID: "stream_test", FirstSequence: 1, LastSequence: 1,
+		Events: []kitsession.Event{{StreamID: "stream_test", Sequence: 1, NewEvent: kitsession.NewEvent{
+			SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test",
+			Kind: kitsession.EventPluginMessage, PluginID: "autoresearch", Text: "Continue the experiment loop.",
+		}}},
+	})
+	if err := projected.Validate(); err != nil {
+		t.Fatalf("projected page Validate() error = %v", err)
+	}
+	want := protocol.PluginMessageAddedEvent{PluginID: "autoresearch", Text: "Continue the experiment loop."}
+	if got := projected.Events[0].Payload; got != want || projected.Events[0].TurnID != "turn_test" {
+		t.Fatalf("projected event = %+v, want %+v", projected.Events[0], want)
+	}
+}
+
 type forkRouteTestService struct {
 	sessionService
 	inputs         *[]protocol.ForkSessionInput

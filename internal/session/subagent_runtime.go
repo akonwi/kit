@@ -405,11 +405,11 @@ func (r *childRuntime) Run(ctx context.Context, task subagent.Task, admitted fun
 			}
 			if err == nil {
 				key := "inbox:" + string(task.ID)
-				handle, _, err = r.droid.ReactUncounted(ctx, key)
+				handle, _, err = r.droid.React(ctx, key)
 				if err != nil {
 					status, reconcileErr := r.droid.BoundaryStatus(context.Background(), boundaryID)
 					if reconcileErr == nil && status.TurnID != "" {
-						handle, _, err = r.droid.ReactUncounted(context.Background(), key)
+						handle, _, err = r.droid.React(context.Background(), key)
 					}
 				}
 			}

@@ -163,17 +163,9 @@ Process ownership and plugin UI routing follow
   generation cleanup, and behavior across detach, reload, and runtime disposal
   before adding a public protocol method.
 
-- [ ] CORE-PLUGIN-010 — Let plugins submit messages to their owning session to
-  start or queue model turns, enabling workflows such as autoresearch kickoff and
-  automatic continuation after a settled turn. This is distinct from the passive
-  information channel in CORE-PLUGIN-009. Define the supported replacement for
-  the currently unsupported `kit/session/submit-message` call used by dot-kit's
-  autoresearch plugin. Preserve plugin provenance rather than impersonating user
-  speech; enforce session/generation ownership, normal tool policy, bounded queues
-  and autonomous-loop limits. Specify busy-session admission, cancellation,
-  duplicate/retry handling, and detach/reload/restart behavior. Cover kickoff,
-  post-settlement continuation, stale-generation rejection, and concurrent-session
-  isolation with real subprocess tests and document the public RPC contract.
+- [x] CORE-PLUGIN-010 — Plugins submit attributed messages that start turns in
+  their idle owning session per
+  [ADR 0041](../docs/adrs/0041-let-plugins-submit-session-messages.md).
 
 ## Deferred workflows and compatibility
 
@@ -229,5 +221,3 @@ Process ownership and plugin UI routing follow
   session changes, and degrade silently when GitHub status is unavailable.
   Verify pending, successful, and failed check transitions plus reconnect and
   stale-update behavior.
-
-- [ ] PLUG-001 - allow plugins to submit messages and inform the session

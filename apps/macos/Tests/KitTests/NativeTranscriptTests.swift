@@ -119,6 +119,48 @@ import Testing
         _ = try await height { $0 < 80 }
     }
 
+    @Test func pluginMessageRowExpandsByTurnAcrossLiveAndPersistedRows() async throws {
+        let presentation = TranscriptPresentationState()
+        let workspace = WorkspaceState(demo: false)
+        let text = (1...12).map { "Line \($0) of the autoresearch instructions." }.joined(separator: "\n\n")
+        let origin = PluginMessageOrigin(pluginID: "autoresearch", turnID: "turn_plugin")
+        func input(_ id: String) -> NativeTranscript {
+            NativeTranscript(messages: [TranscriptMessage(id: id, role: "plugin", text: text, tools: [], plugin: origin)],
+                hasHistory: false, historyLoading: false, historyError: nil, active: false,
+                presentation: presentation, workspace: workspace, resumeRequest: 0,
+                latestOutOfView: .constant(false), loadHistory: {}, theme: MicaTheme(dark: false))
+        }
+        let adapter = NativeTranscriptCoordinator(input("live-plugin-turn_plugin"))
+        let window = NSWindow(contentRect: NSRect(x: 0, y: 0, width: 900, height: 700),
+                              styleMask: [.borderless], backing: .buffered, defer: false)
+        window.isReleasedWhenClosed = false
+        window.contentView = adapter.scroll
+        window.orderFront(nil)
+        defer { adapter.stop(); window.close() }
+        func height(matching predicate: (CGFloat) -> Bool) async throws -> CGFloat {
+            let deadline = ContinuousClock.now.advanced(by: .seconds(2))
+            while ContinuousClock.now < deadline {
+                let value = adapter.table.rect(ofRow: 0).height
+                if predicate(value) { return value }
+                try await Task.sleep(for: .milliseconds(20))
+            }
+            let value = adapter.table.rect(ofRow: 0).height
+            #expect(predicate(value), "Unexpected plugin message height: \(value)")
+            return value
+        }
+        adapter.receive(input("live-plugin-turn_plugin"))
+        #expect(adapter.messages.map(\.plugin) == [origin])
+        let collapsed = try await height { $0 > 0 && $0 < 70 }
+        presentation.drawer(for: "plugin:turn_plugin").expanded = true
+        let expanded = try await height { $0 > collapsed + 200 }
+        // The persisted row replaces the live one and keeps the turn's choice.
+        adapter.receive(input("pluginmsg_a"))
+        #expect(adapter.messages.map(\.id) == ["message:pluginmsg_a"])
+        _ = try await height { abs($0 - expanded) < 1 }
+        presentation.drawer(for: "plugin:turn_plugin").expanded = false
+        _ = try await height { abs($0 - collapsed) < 1 }
+    }
+
     @Test func longResponseStartsAtBeginningAndNavigatesRenderedHeadings() async throws {
         let reading = TranscriptReadingState()
         let presentation = TranscriptPresentationState()

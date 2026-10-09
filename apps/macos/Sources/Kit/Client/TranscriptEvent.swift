@@ -9,6 +9,7 @@ struct TranscriptEvent {
     var contentIndex: Int?
     var delta: String?
     var text: String?
+    var pluginId: String?
     var thinking: String?
     var toolCallId: String?
     var toolName: String?
@@ -35,7 +36,7 @@ struct TranscriptEvent {
         scratchpad = event.scratchpad
         kind = event.kind.rawValue; turnId = event.turnId ?? ""; runId = event.turnId ?? ""
         messageId = event.messageId; contentIndex = event.contentIndex
-        delta = event.delta; text = event.text; thinking = event.thinking
+        delta = event.delta; text = event.text; pluginId = event.pluginId; thinking = event.thinking
         toolCallId = event.toolCallId; toolName = event.toolName; arguments = event.arguments
         contentTruncated = event.contentTruncated
         content = event.content; isError = event.isError; sessionName = event.sessionName

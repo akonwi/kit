@@ -203,6 +203,19 @@ func (b *pluginTurnEventBridge) finalizeLocked(turnID string) bool {
 	return true
 }
 
+// completionDelivered reports whether turnID's completion has been claimed for
+// delivery to the plugin host. Plugins may react to that event before the
+// session finishes recording the turn as settled.
+func (b *pluginTurnEventBridge) completionDelivered(turnID string) bool {
+	if b == nil || turnID == "" {
+		return false
+	}
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	settlement := b.settled[turnID]
+	return settlement != nil && settlement.finalized
+}
+
 func (b *pluginTurnEventBridge) waitCompleted(turnID string) {
 	b.mu.Lock()
 	settlement := b.settled[turnID]

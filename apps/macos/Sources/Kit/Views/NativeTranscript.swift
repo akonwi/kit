@@ -288,7 +288,8 @@ struct NativeTranscript: NSViewRepresentable {
 
     static func row(from message: TranscriptMessage) -> TranscriptMessage {
         TranscriptMessage(id: "message:" + message.id, role: message.role, text: message.text,
-            tools: message.tools, attachments: message.attachments, annotations: message.annotations, bash: message.bash)
+            tools: message.tools, attachments: message.attachments, annotations: message.annotations, bash: message.bash,
+            plugin: message.plugin)
     }
 
     private var header: some View {
@@ -582,6 +583,9 @@ private struct NativeMessageRow: View {
     var body: some View {
         if let bash = message.bash {
             BashExecutionView(execution: bash)
+        } else if let origin = message.plugin {
+            PluginMessageRow(message: message, origin: origin,
+                             state: presentation.drawer(for: "plugin:" + origin.turnID), onExpand: onExpand)
         } else if message.role == "tools" {
             VStack(alignment: .leading, spacing: 12) {
                 ToolActivityView(tools: message.tools, workspace: workspace,

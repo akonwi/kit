@@ -84,6 +84,13 @@ enum SessionProjection {
                 flush()
                 continue
             }
+            if message.role == "context", message.boundaryKind == "plugin_message" {
+                guard let plugin = message.boundarySource, !plugin.isEmpty else { throw ClientError.invalidPayload }
+                flush()
+                messages.append(TranscriptMessage(id: message.id, role: "plugin", text: visibleText(message.content ?? []), tools: [],
+                    plugin: PluginMessageOrigin(pluginID: plugin, turnID: message.turnId)))
+                continue
+            }
             if message.role == "tool", let id = message.toolCallId {
                 pending.append(ToolActivity(id: id, name: message.toolName ?? "Tool", summary: message.toolName ?? "Tool",
                     output: visibleText(message.content ?? []), arguments: nil, failed: message.isError ?? false, attachments: attachments(message.content ?? [])))

@@ -43,6 +43,10 @@ type HostConfig struct {
 	// Interaction is supplied by the session owner, never by a client attachment.
 	// It must honor ctx cancellation; individual client detachment is not cancellation.
 	Interaction func(context.Context, InteractionRequest) (InteractionResponse, error)
+	// SubmitMessage is supplied by the session owner. It admits a plugin message
+	// into the owning session or returns an error without recording it, and must
+	// honor ctx cancellation before admission.
+	SubmitMessage func(context.Context, MessageRequest) (MessageResult, error)
 }
 
 type hostEntry struct {

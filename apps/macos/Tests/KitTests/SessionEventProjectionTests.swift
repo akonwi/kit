@@ -29,6 +29,31 @@ struct SessionEventProjectionTests {
         #expect(state.session.tabStatus == .idle)
     }
 
+    @Test func livePluginMessageAppearsOnceAndDefersToThePersistedRow() throws {
+        var state = try SessionEventProjection(snapshot())
+        try state.apply(event("turn.started", ["status": "running"]))
+        let added = try event("plugin.message.added", ["pluginId": "autoresearch", "text": "Continue the autoresearch loop."])
+        try state.apply(added)
+        try state.apply(added)
+        #expect(state.session.messages.map(\.id) == ["live-plugin-t"])
+        #expect(state.session.messages.map(\.role) == ["plugin"])
+        #expect(state.session.messages.first?.text == "Continue the autoresearch loop.")
+        #expect(state.session.messages.first?.plugin == PluginMessageOrigin(pluginID: "autoresearch", turnID: "t"))
+        #expect(throws: ClientError.self) { try state.apply(event("plugin.message.added", ["text": "Unattributed"])) }
+
+        var json = try #require(JSONSerialization.jsonObject(with: JSONEncoder().encode(snapshot())) as? [String: Any])
+        json["activeTurnId"] = "t"
+        json["messages"] = [["id": "pluginmsg_a", "turnId": "t", "sequence": 1, "role": "context", "createdAt": "",
+                             "boundaryId": "pluginmsg_a", "boundaryKind": "plugin_message", "boundarySource": "autoresearch",
+                             "details": ["version": 1, "pluginId": "autoresearch"],
+                             "content": [["kind": "text", "text": "Continue the autoresearch loop."]]]]
+        var refreshed = try SessionEventProjection(JSONDecoder().decode(WireSessionSnapshot.self,
+            from: JSONSerialization.data(withJSONObject: json)))
+        try refreshed.apply(added)
+        #expect(refreshed.session.messages.map(\.id) == ["pluginmsg_a"])
+        #expect(refreshed.session.messages.first?.plugin == PluginMessageOrigin(pluginID: "autoresearch", turnID: "t"))
+    }
+
     @Test func cumulativeUsageReplacesTotalsWithoutDependingOnLoadedMessages() throws {
         var state = try SessionEventProjection(snapshot())
         #expect(state.session.usage?.formattedCost == "$0.00")

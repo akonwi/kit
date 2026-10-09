@@ -44,6 +44,7 @@ messages, subagent tasks, and plugin notifications are keyed by that turn.
 |---|---|
 | Turn lifecycle | `turn.started`, `turn.completed` |
 | User input accepted into a turn | `user.message.added` |
+| Plugin message that started a turn | `plugin.message.added` |
 | Assistant output | `assistant.started`, `assistant.text.delta`, `assistant.thinking.delta`, `assistant.completed` |
 | Tool calls | `tool.planned`, `tool.started`, `tool.output.delta`, `tool.completed` |
 | Context compaction | `compaction.started`, `compaction.completed` |

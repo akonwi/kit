@@ -16,6 +16,7 @@ type sessionEventWire struct {
 	ContentIndex           int                 `json:"contentIndex,omitempty"`
 	Delta                  string              `json:"delta,omitempty"`
 	Text                   string              `json:"text,omitempty"`
+	PluginID               string              `json:"pluginId,omitempty"`
 	Thinking               string              `json:"thinking,omitempty"`
 	ToolCallID             string              `json:"toolCallId,omitempty"`
 	ToolName               string              `json:"toolName,omitempty"`

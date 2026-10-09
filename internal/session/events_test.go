@@ -39,6 +39,24 @@ func TestSessionRenamedEventIsSessionScoped(t *testing.T) {
 	}
 }
 
+func TestPluginMessageEventIsTurnScopedAndAttributed(t *testing.T) {
+	t.Parallel()
+	event := NewEvent{SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: EventPluginMessage, PluginID: "autoresearch", Text: "Continue."}
+	if err := event.Validate(); err != nil {
+		t.Fatal(err)
+	}
+	for name, invalid := range map[string]NewEvent{
+		"session scoped":    {SessionID: "session_test", Kind: EventPluginMessage, PluginID: "autoresearch", Text: "Continue."},
+		"blank text":        {SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: EventPluginMessage, PluginID: "autoresearch", Text: " "},
+		"invalid plugin id": {SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: EventPluginMessage, PluginID: "Auto Research", Text: "Continue."},
+		"user plugin id":    {SessionID: "session_test", TurnID: "turn_test", RunID: "turn_test", Kind: EventUserMessage, PluginID: "autoresearch", Text: "Continue."},
+	} {
+		if err := invalid.Validate(); err == nil {
+			t.Errorf("%s: Validate() accepted %+v", name, invalid)
+		}
+	}
+}
+
 func TestSubagentChangedEventIsSessionScoped(t *testing.T) {
 	t.Parallel()
 	event := NewEvent{

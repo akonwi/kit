@@ -406,7 +406,7 @@ func (snapshot SessionSnapshot) Validate() error {
 		if boundary.ID == "" || boundary.Kind == "" || len(boundary.Content) == 0 {
 			return fmt.Errorf("pending boundary %d requires identity, kind, and content", index)
 		}
-		if err := validateBoundaryDetails(boundary.Kind, boundary.Details); err != nil {
+		if err := validateBoundaryDetails(boundary.Kind, boundary.Source, boundary.Details); err != nil {
 			return fmt.Errorf("pending boundary %d: %w", index, err)
 		}
 		if _, err := time.Parse(time.RFC3339Nano, boundary.AcceptedAt); err != nil {
@@ -641,7 +641,7 @@ func (message TranscriptMessage) validate() error {
 		if message.BoundaryKind == "" || message.BoundaryKind != "summary" && message.BoundaryID == "" {
 			return fmt.Errorf("context message requires kind and external boundaries require identity")
 		}
-		if err := validateBoundaryDetails(message.BoundaryKind, message.Details); err != nil {
+		if err := validateBoundaryDetails(message.BoundaryKind, message.BoundarySource, message.Details); err != nil {
 			return err
 		}
 	case "tool":
@@ -651,6 +651,20 @@ func (message TranscriptMessage) validate() error {
 		if message.StopReason != "" || message.ErrorMessage != "" || message.BoundaryID != "" || message.BoundaryKind != "" || message.BoundarySource != "" {
 			return fmt.Errorf("tool result carries assistant metadata")
 		}
+	}
+	return nil
+}
+
+func validatePluginMessageDetails(source string, details json.RawMessage) error {
+	var payload struct {
+		Version  int    `json:"version"`
+		PluginID string `json:"pluginId"`
+	}
+	if err := json.Unmarshal(details, &payload); err != nil {
+		return fmt.Errorf("decode plugin message details: %w", err)
+	}
+	if payload.Version != 1 || !pluginCommandPluginID.MatchString(payload.PluginID) || payload.PluginID != source {
+		return fmt.Errorf("plugin message details require version 1 and the source plugin id")
 	}
 	return nil
 }
@@ -679,7 +693,14 @@ func validMediaType(raw string, imageOnly bool) bool {
 	return !imageOnly || strings.EqualFold(parts[0], "image")
 }
 
-func validateBoundaryDetails(kind string, details json.RawMessage) error {
+// PluginMessageBoundaryKind identifies a plugin-submitted context message.
+// Its source is the submitting plugin ID and its content is the submitted text.
+const PluginMessageBoundaryKind = "plugin_message"
+
+func validateBoundaryDetails(kind, source string, details json.RawMessage) error {
+	if kind == PluginMessageBoundaryKind {
+		return validatePluginMessageDetails(source, details)
+	}
 	if len(details) == 0 {
 		return nil // Grandfathered boundary records predate structured details.
 	}

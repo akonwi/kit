@@ -21,7 +21,6 @@ const (
 	maxSubscriptionReplay     = 1000
 	maxPendingSteering        = 64
 	maxPendingBoundaries      = 64
-	maxAutonomousReactions    = 15
 )
 
 type sdkRuntime struct {
@@ -460,24 +459,15 @@ func (d *Droid) Prompt(ctx context.Context, input Input, options PromptOptions) 
 		return nil, ErrConflict
 	}
 
-	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash, true)
+	return rt.startTurnLocked(ctx, &message, options.AdmissionKey, admissionHash, nil, nil)
 }
 
 // React durably starts a context-only turn from pending external boundaries.
 // admissionKey makes retries return the originally admitted turn. The replayed
 // result reports whether the handle belongs to an earlier admission.
+// Consecutive reactions are not counted or limited; callers own any stopping
+// policy for the work they schedule.
 func (d *Droid) React(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
-	return d.react(ctx, admissionKey, true)
-}
-
-// ReactUncounted admits independently scheduled boundary work without charging
-// the conversation-wide autonomous reaction limit. The caller must enforce
-// its own durable admission, concurrency, and loop policy.
-func (d *Droid) ReactUncounted(ctx context.Context, admissionKey string) (handle ExecutionHandle, replayed bool, err error) {
-	return d.react(ctx, admissionKey, false)
-}
-
-func (d *Droid) react(ctx context.Context, admissionKey string, countAutonomous bool) (handle ExecutionHandle, replayed bool, err error) {
 	if d == nil || d.sdk == nil {
 		return nil, false, fmt.Errorf("droids: React requires a droid opened with droids.Spawn")
 	}
@@ -511,14 +501,98 @@ func (d *Droid) react(ctx context.Context, admissionKey string, countAutonomous 
 	if len(rt.state.PendingBoundaries) == 0 {
 		return nil, false, ErrUnsafeContinuation
 	}
-	if countAutonomous && rt.state.AutonomousReactions >= maxAutonomousReactions {
-		return nil, false, ErrReactionLimit
-	}
-	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash, countAutonomous)
+	handle, err = rt.startTurnLocked(ctx, nil, admissionKey, admissionHash, nil, nil)
 	return handle, false, err
 }
 
-func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string, countAutonomous bool) (ExecutionHandle, error) {
+// ReactTo atomically records message and starts a context-only turn that
+// consumes it together with any already-pending boundaries. Nothing is recorded
+// unless the turn is admitted. It returns ErrBusy when a turn or context
+// operation occupies the conversation, ErrDuplicateBoundary when every receipt
+// of message was already accepted (BoundaryStatus reports the consuming turn),
+// and ErrConflict when only some of its receipts were accepted.
+func (d *Droid) ReactTo(ctx context.Context, message BoundaryMessage) (ExecutionHandle, error) {
+	if d == nil || d.sdk == nil {
+		return nil, fmt.Errorf("droids: ReactTo requires a droid opened with droids.Spawn")
+	}
+	if message.ID == "" {
+		return nil, fmt.Errorf("droids: ReactTo requires a boundary id")
+	}
+	wire, err := boundaryToWire(message)
+	if err != nil {
+		return nil, err
+	}
+	receiptIDs := append([]string(nil), message.ReceiptIDs...)
+	if len(receiptIDs) == 0 {
+		receiptIDs = []string{message.ID}
+	}
+	wire.ReceiptIDs = append([]string(nil), receiptIDs...)
+	rt := d.sdk
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.closed {
+		return nil, ErrClosed
+	}
+	seen := make(map[string]struct{}, len(receiptIDs))
+	accepted := 0
+	for _, receiptID := range receiptIDs {
+		if _, duplicate := seen[receiptID]; duplicate {
+			return nil, fmt.Errorf("droids: duplicate boundary receipt id %q", receiptID)
+		}
+		seen[receiptID] = struct{}{}
+		if _, received := rt.boundaryReceipts[receiptID]; received {
+			accepted++
+		}
+	}
+	if accepted == len(receiptIDs) {
+		return nil, ErrDuplicateBoundary
+	}
+	if accepted > 0 {
+		return nil, ErrConflict
+	}
+	if rt.contextFlight != nil || isOccupied(rt.state.Status) {
+		return nil, ErrBusy
+	}
+	if len(rt.state.PendingBoundaries) >= maxPendingBoundaries {
+		return nil, fmt.Errorf("%w: pending boundary capacity reached", ErrBusy)
+	}
+	now := time.Now().UTC()
+	var mutations []EncodedMutation
+	for _, receiptID := range receiptIDs {
+		payload, err := json.Marshal(map[string]any{"id": receiptID, "accepted_at": now})
+		if err != nil {
+			return nil, err
+		}
+		mutations = append(mutations, EncodedMutation{
+			Operation: MutationPut, RecordKind: boundaryReceiptKind, RecordID: receiptID,
+			Scope: RecordHistory, Version: recordVersion, Payload: payload,
+		})
+	}
+	event, _ := lifecycleEvent("boundary.accepted", rt.state.TurnID, rt.state.AttemptID, map[string]any{"id": message.ID, "kind": message.Kind, "source": message.Source})
+	pending := rt.state.PendingBoundaries
+	rt.state.PendingBoundaries = append(append([]durableBoundary(nil), pending...), durableBoundary{Message: wire, Accepted: now})
+	handle, err := rt.startTurnLocked(ctx, nil, "", "", mutations, []EncodedDurableEvent{event})
+	if err != nil {
+		rt.state.PendingBoundaries = pending
+		return nil, err
+	}
+	for _, receiptID := range receiptIDs {
+		rt.boundaryReceipts[receiptID] = struct{}{}
+	}
+	return handle, nil
+}
+
+// BoundaryFraming is the model-facing source line that precedes a boundary's
+// content when it is materialized into conversation context.
+func BoundaryFraming(kind, source string) string {
+	framing := "[" + kind
+	if source != "" {
+		framing += " from " + source
+	}
+	return framing + "]"
+}
+
+func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage, admissionKey, admissionHash string, extraMutations []EncodedMutation, extraEvents []EncodedDurableEvent) (ExecutionHandle, error) {
 	turnID, err := newTurnID()
 	if err != nil {
 		return nil, err
@@ -542,10 +616,6 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	rt.state.AdmissionKey = admissionKey
 	rt.state.AdmissionHash = admissionHash
 	if message == nil {
-		rt.state.AutonomousReactions = before.AutonomousReactions
-		if countAutonomous {
-			rt.state.AutonomousReactions++
-		}
 		rt.state.BoundaryReaction = true
 	}
 	rt.state.Status = ExecutionRunning
@@ -561,12 +631,7 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 			rt.state = before
 			return nil, err
 		}
-		prefix := fmt.Sprintf("[%s", pending.Message.Kind)
-		if pending.Message.Source != "" {
-			prefix += " from " + pending.Message.Source
-		}
-		prefix += "]"
-		content = append([]InputContent{TextInput{Text: prefix}}, content...)
+		content = append([]InputContent{TextInput{Text: BoundaryFraming(pending.Message.Kind, pending.Message.Source)}}, content...)
 		boundaryID, err := newMessageID()
 		if err != nil {
 			rt.state = before
@@ -640,8 +705,10 @@ func (rt *sdkRuntime) startTurnLocked(ctx context.Context, message *UserMessage,
 	admitted, _ := lifecycleEvent("turn.admitted", turnID, attemptID, admittedData)
 	started, _ := lifecycleEvent("execution.started", turnID, attemptID, nil)
 	attemptStarted, _ := lifecycleEvent("attempt.started", turnID, attemptID, nil)
-	events := append([]EncodedDurableEvent{admitted}, boundaryEvents...)
+	events := append(append([]EncodedDurableEvent(nil), extraEvents...), admitted)
+	events = append(events, boundaryEvents...)
 	events = append(events, started, attemptStarted)
+	mutations = append(mutations, extraMutations...)
 	if err := rt.commitLocked(ctx, mutations, events); err != nil {
 		rt.state = before
 		return nil, err

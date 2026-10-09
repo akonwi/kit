@@ -18,6 +18,7 @@ const (
 	transcriptItemUser      transcriptItemKind = "user"
 	transcriptItemAssistant transcriptItemKind = "assistant"
 	transcriptItemBash      transcriptItemKind = "bash"
+	transcriptItemPlugin    transcriptItemKind = "plugin"
 )
 
 type transcriptToolCall struct {
@@ -84,6 +85,8 @@ func buildTurnTranscriptItems(messages []protocol.TranscriptMessage, bashByID ma
 			kind = transcriptItemAssistant
 		case "bash":
 			kind = transcriptItemBash
+		case "plugin":
+			kind = transcriptItemPlugin
 		default:
 			continue
 		}
@@ -157,7 +160,7 @@ func groupTranscriptDisplayItems(items []turnTranscriptItem) []transcriptDisplay
 	}
 	for index := 0; index < len(items); {
 		item := items[index]
-		if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash {
+		if item.Kind == transcriptItemUser || item.Kind == transcriptItemBash || item.Kind == transcriptItemPlugin {
 			copy := item
 			result = append(result, transcriptDisplayItem{
 				Kind: transcriptDisplaySingle, ID: "single:" + item.ID,
@@ -421,7 +424,7 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 				bashByID[message.ID] = *message.Bash
 			}
 		} else if turnID == "" {
-			if message.Role == "user" || currentTurnID == "" {
+			if message.Role == "user" || message.Role == "plugin" || currentTurnID == "" {
 				turnID = "local-turn:" + strconv.Itoa(index)
 			} else {
 				turnID = currentTurnID
@@ -466,6 +469,10 @@ func presentTranscript(messages []transcriptMessage) transcriptPresentation {
 			StopReason: message.StopReason, ErrorMessage: message.ErrorMessage,
 			ToolCallID: message.ToolCallID, ToolName: message.ToolName, Details: message.ToolDetails,
 			IsError: message.IsError,
+		}
+		if role == "plugin" {
+			projected.BoundaryKind = protocol.PluginMessageBoundaryKind
+			projected.BoundarySource = message.PluginID
 		}
 		if role == "error" {
 			projected.Role = "assistant"
