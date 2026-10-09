@@ -11,7 +11,7 @@ private final class ScratchpadOpenAPIResponse: URLProtocol, @unchecked Sendable 
         #expect(url.path == "/v1/sessions/s/scratchpad")
         #expect(request.value(forHTTPHeaderField: "Authorization") == "Bearer test")
         #expect(request.value(forHTTPHeaderField: "X-Kit-Instance-ID") == "instance")
-        #expect(request.value(forHTTPHeaderField: "X-Kit-Protocol-Version") == "46")
+        #expect(request.value(forHTTPHeaderField: "X-Kit-Protocol-Version") == "45")
         var status = 200
         var headers = ["Content-Type": "application/json"]
         let body: String

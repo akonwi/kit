@@ -24,9 +24,9 @@ const (
 	// 44: The server chooses fork child IDs; fork requests no longer carry one.
 	// Forks accept an optional first prompt and return ForkSessionResult, which
 	// reports a first turn that could not start without failing the fork.
-	// 45: Plugin-submitted messages: transcript plugin_message context boundaries
-	// and the turn-scoped plugin.message.added live event.
-	// 46: Prompt command invocations: the promptCommand transcript content kind
-	// and the claude_project prompt command source (ADR 0042).
-	SessionProtocolVersion = 46
+	// 45: Plugin-submitted messages add transcript plugin_message context
+	// boundaries and the turn-scoped plugin.message.added live event. Prompt
+	// command invocations add the promptCommand transcript content kind and the
+	// claude_project prompt command source (ADRs 0041 and 0042).
+	SessionProtocolVersion = 45
 )

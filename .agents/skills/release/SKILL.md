@@ -31,14 +31,20 @@ formula. The `v*` tag workflow builds **only** CLI artifacts.
    minor for new capabilities; ask if ambiguous. Use a stable `vX.Y.Z` tag.
    The tag is the release version: there is no package.json version bump.
    `internal/version.Version` and `Commit` keep their development defaults;
-   the workflow overrides them with linker flags.
+   the workflow overrides them with linker flags. Compare the current session
+   protocol with the previous stable tag. All breaking wire changes since that
+   tag share one next protocol number; normalize accidental additional bumps
+   before release and regenerate maintained clients.
 
-3. Write curated notes in `docs/releases/vX.Y.Z.md` before publishing. Explain
-   user-facing changes, getting started, compatibility changes, platform limits,
-   and installation/upgrade instructions. For runtime or plugin changes, include
-   version-matched migration guidance that users and coding assistants can follow.
-   Review the notes against the shipped code; do not claim outstanding checks
-   have passed. The workflow requires this file and publishes it verbatim.
+3. Write release notes in `docs/releases/vX.Y.Z.md` before publishing, using
+   [`docs/releases/TEMPLATE.md`](../../../docs/releases/TEMPLATE.md). The
+   "What's changed" section may use the commits since the previous release as
+   its changelog. Include an "Upgrade guide" only when the release has breaking
+   changes; for runtime, protocol, SDK, or plugin breaks, give version-matched
+   migration guidance that users and coding assistants can follow. Document
+   relevant compatibility and platform limits. Review the notes against the
+   shipped code; do not claim outstanding checks have passed. The workflow
+   requires this file and publishes it verbatim.
 
    Validate before publishing:
    ```sh

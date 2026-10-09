@@ -54,6 +54,11 @@ For wire changes:
 Use stable error codes and closed discriminated unions. Clients must not infer
 behavior from error strings or unknown union shapes.
 
+`SessionProtocolVersion` identifies a released compatibility boundary, not each
+individual wire-changing commit. Multiple breaking changes merged after the
+latest stable release share one next protocol number. Increment it again only
+after a stable release has published the current number.
+
 ### 2. Update the public Go client
 
 Add the typed transport operation under `internal/clienttransport`, then expose

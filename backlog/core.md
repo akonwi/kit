@@ -206,7 +206,7 @@ Process ownership and plugin UI routing follow
   each prompt command invocation (name, arguments, source, and expansion) in
   its user message, per
   [ADR 0042](../docs/adrs/0042-discover-project-claude-code-commands-and-record-prompt-command-invocations.md).
-  Session protocol 46 publishes the `promptCommand` transcript content kind and
+  Session protocol 45 publishes the `promptCommand` transcript content kind and
   the `claude_project` source.
 - [ ] CORE-CMD-002 — Support dynamically registered commands with canonical
   ownership and generations.
