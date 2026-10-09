@@ -1102,10 +1102,21 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
 
     private struct StreamResync: Error {}
 
+    /// Upper bound on live transcript publication frequency. Each publication
+    /// drives main-thread transcript projection, so per-batch delivery during
+    /// streaming scales with transcript length.
+    static let liveDeliveryInterval: Duration = .milliseconds(100)
+
     func watch(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
         let projection = BashWatchProjection(receive: receive)
+        let publisher = LatestValuePublisher<SessionExcerpt>(interval: Self.liveDeliveryInterval) {
+            await projection.stream($0)
+        }
         try await withThrowingTaskGroup(of: Void.self) { group in
-            group.addTask { try await self.watchEvents(id) { await projection.stream($0) } }
+            group.addTask { await publisher.run() }
+            group.addTask {
+                try await self.watchEvents(id) { session, live in await publisher.send(session, coalesce: live) }
+            }
             group.addTask {
                 while !Task.isCancelled {
                     let snapshot = try await self.snapshot(id)
@@ -1124,16 +1135,18 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         }
     }
 
-    private func watchEvents(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
+    /// `live` marks per-batch event projections that may be coalesced;
+    /// authoritative snapshots are delivered with `live == false`.
+    private func watchEvents(_ id: String, receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
         var rapidResyncs = 0
         while !Task.isCancelled {
             let started = Date()
             do {
                 let generation = UUID().uuidString
-                try await watchStream(id) { snapshot in
+                try await watchStream(id) { snapshot, live in
                     var snapshot = snapshot
                     snapshot.watchGeneration = generation
-                    await receive(snapshot)
+                    await receive(snapshot, live)
                 }
                 return
             } catch is StreamResync {
@@ -1160,10 +1173,10 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
         return message
     }
 
-    private func watchStream(_ id: String, receive: @escaping @Sendable (SessionExcerpt) async -> Void) async throws {
+    private func watchStream(_ id: String, receive: @escaping @Sendable (SessionExcerpt, _ live: Bool) async -> Void) async throws {
         var snapshot = try await wireSnapshot(id)
         var projection = try SessionEventProjection(snapshot)
-        await receive(projection.session)
+        await receive(projection.session, false)
         var annotationGate = LiveAnnotationGate()
         let stream = snapshot.eventStreamId ?? ""
         var cursor = snapshot.eventReplayAvailable == true ? snapshot.eventReplayFrom ?? 0 : snapshot.eventCursor ?? 0
@@ -1218,12 +1231,12 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                 }
                 // Hold a possible synthetic user preview across frames. The
                 // accepted message above replaces it before any publication.
-                if publish { await receive(projection.session) }
+                if publish { await receive(projection.session, true) }
                 if refreshSubagents && !refresh {
                     let metadata = try await wireSnapshot(id)
                     guard metadata.eventStreamId == stream, (metadata.eventCursor ?? 0) >= cursor else { throw ClientError.disconnected }
                     try projection.updateSubagents(metadata)
-                    await receive(projection.session)
+                    await receive(projection.session, false)
                 }
                 if refresh {
                     snapshot = try await wireSnapshot(id)
@@ -1233,7 +1246,7 @@ final class HTTPClient: ScratchpadClient, DiffClient, AnnotationClient, Workspac
                     projection = try SessionEventProjection(snapshot, terminalError: projection.session.terminalError)
                     annotationGate = LiveAnnotationGate()
                     cursor = snapshot.eventCursor ?? cursor
-                    await receive(projection.session)
+                    await receive(projection.session, false)
                 }
             }
         }
