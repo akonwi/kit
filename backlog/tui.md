@@ -77,68 +77,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   the top, including when the first page does not fill the view, keeping
   loaded pages across later snapshots. The vaxis reading-section strip and
   "Beginning of conversation" row are intentionally not ported.
-- [~] TUI-COOPER-004 — Composer: prompt submission, Escape abort, editing
-  bindings, the follow-up queue, and attachments are complete. ↑
-  restores queued follow-ups (and their attachments) before the draft, Enter
-  on an empty draft sends them to the running turn, and the footer shows
-  `N queued · ↑ restore` below stream recovery. A pasted or dropped file list
-  uploads as attachments shown as chips above the composer (removed with `×`
-  or Ctrl+C) and named in the user's transcript row; as in the vaxis client,
-  a file list that arrives as an ordinary text change, or a path completed
-  across changes, is attached too. Attachments in a user message are
-  `📎 name` rows; clicking an image's row toggles a 12-row inline preview
-  (one expanded at a time; a just-sent prompt's first image starts expanded,
-  history starts collapsed), and clicking the preview opens a private
-  temporary copy in the default application. Ctrl+Shift+W deletes the next
-  word. ↑ on a blank draft with nothing queued opens message history in an
-  inline picker above the composer: up to 500 recent prompts without repeats,
-  oldest first with the newest selected, filtered by the draft; Enter or a
-  click recalls a prompt and Escape closes it. Tool-result image previews
-  belong to TUI-COOPER-005 and a workspace image pane to TUI-COOPER-008.
-  Outstanding:
-  - [x] Bash mode: `!command` runs directly as a transcript bash entry whose
-    result is added to context; `!!command` excludes the result. One command
-    runs at a time, alongside a turn; Escape stops it before the turn, a
-    failed start returns it to the composer, and a command running at attach
-    is followed again. Unlike the vaxis client, finished `!` runs are drawn
-    from the session's persisted context, so they keep their place across
-    snapshots and reattaching; `!!` runs are not persisted and leave at the
-    next snapshot.
-  - [x] Bash panel: as in the macOS app, a draft starting with `!` turns the
-    composer into a Bash panel in the interaction dock's frame, with a title
-    row, a rule, and the field, in place of the rules around the composer.
-    The field hides the `!`; the header's clickable "In context" / "Not in
-    context" switches to `!!` and back, as do `!` and Backspace at the start
-    of the field. Escape leaves the panel, keeping the command as a prompt
-    draft, and Backspace on an empty command leaves it too. Escape closes
-    history, then the panel, then stops a command, then the turn.
-  - [x] Bash history: ↑/↓ in bash mode open earlier commands in an inline
-    picker resting above the caret, listed as `!command` or `!!command` and
-    filtered by the command after the prefix. It opens on the finished
-    commands shown, then the session's ten newest replace them; moving up
-    past the oldest reads older pages of 100, up to five, before wrapping.
-    Leaving bash mode closes it.
-  - [x] File mentions: a typed `@` at the start of the draft or after
-    whitespace opens the session's indexed paths in an inline picker resting
-    above the `@`, ranked by the query typed after it with the best match
-    selected; long paths keep their file name. Enter or a click replaces the
-    mention with `@path ` and places the caret after it; Escape, whitespace,
-    a paste, or an edit elsewhere closes it. The index loads when first
-    needed, again after five minutes, and from a forced refresh when the
-    working directory changes; the picker shows loading, a load failure, a
-    failed refresh, and a partial index. Requires Cooper's
-    `TextArea.cell()`.
-  - [x] Session mentions: a typed `#` at the start of the draft or after
-    whitespace lists every other session afresh in an inline picker resting
-    above the `#`, by name with its working directory and age, ranked by the
-    query (which also matches IDs and full directories) with the best match
-    selected. Enter or a click replaces the mention with
-    `#[session:<id>] `; the picker shows loading, a failed load, and "No
-    sessions found", and a load taking over ten seconds fails.
-  - [ ] Annotation chips: pending annotations show above the composer and
-    are sent with the prompt; queued ones return with restored follow-ups.
 - [ ] TUI-COOPER-005 — Tool activity: work chips, inline activity, tool output
-  wells, and file navigation from tool results.
+  wells, tool-result image previews, and file navigation from tool results.
 - [ ] TUI-COOPER-006 — Command palette, inline pickers, and configuration,
   theme, and model pickers, with shortcuts discovered from Cooper keymaps.
 - [x] TUI-COOPER-007 — Interaction dock for pending server-owned requests:
@@ -146,8 +86,14 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
   input, and select requests with their labels, default choice, initial
   value, and empty answers. Filterable plugin selections use the plain list,
   as in the vaxis client.
-- [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, scratchpad, and
-  annotations.
+- [ ] TUI-COOPER-008 — Workspace panes: tabs, File, Diff, image, and
+  scratchpad.
+- [ ] TUI-COOPER-016 — Annotations on the File and Diff panes
+  (TUI-COOPER-008): create, edit, and delete annotations on file and diff
+  lines. Pending annotations show as chips above the composer and are sent
+  with the next prompt; queued ones return with restored follow-ups.
+  Activating a chip opens its pane at the annotated lines, and a stale one
+  opens the annotation picker.
 - [ ] TUI-COOPER-009 — Subagents: activity, picker, conversation tabs, and
   dismissal.
 - [ ] TUI-COOPER-010 — Sessions: picker and explorer (`kit sessions`), rename,
@@ -176,8 +122,8 @@ because Cooper rounds half-cell layout edges up (Cooper ADR 0020).
 
 Upstream dependencies:
 
-- Cooper: a CUI
-  `text_area` submit callback (TUI-COOPER-004; currently a keymap binding).
+- Cooper: a CUI `text_area` submit callback, in place of the composer's
+  Enter keymap binding.
 
 ## Scope decisions
 
