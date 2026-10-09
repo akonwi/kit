@@ -20,6 +20,8 @@ struct PromptCommand: Decodable, Sendable, Equatable, Identifiable {
     let location: String
     var argumentHint: String? = nil
     var id: String { name }
+    /// The presented source: Claude Code project commands show as "claude".
+    var sourceLabel: String { source == "claude_project" ? "claude" : source }
 
     static func validName(_ name: String) -> Bool {
         !name.isEmpty && name.utf8.count <= 128 && !name.unicodeScalars.contains {

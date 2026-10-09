@@ -68,6 +68,29 @@ private actor PalettePromptClient: PromptCommandClient {
         #expect(store.operations.acknowledgedDraft == nil)
     }
 
+    @Test func paletteRunsPromptDuringAnActiveTurn() async throws {
+        _ = NSApplication.shared // An active run reaches the app's attention request.
+        let prompt = PromptCommand(name: "claude-fix", description: "Fix an issue", source: "claude_project",
+                                   location: "/repo/.claude/commands/claude-fix.md")
+        #expect(prompt.sourceLabel == "claude")
+        #expect(PaletteCommand.promptCatalog([prompt]).first?.aliases == ["/claude-fix", "claude", "/repo/.claude/commands/claude-fix.md"])
+        var session = SessionExcerpt(id: "s", title: "Test", sourceTitle: "Test", model: "test/model", thinking: "off",
+                                     workspace: "Test", date: "", messages: [])
+        session.promptCommands = [prompt]
+        session.activeRunID = "turn_active"
+        let client = PalettePromptClient(session: session)
+        let store = SessionStore(fixture: Fixture(sessions: [session]), client: client)
+        store.attach()
+        defer { store.detach() }
+        for _ in 0..<100 where store.connectionState != .connected { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(store.running)
+        #expect(store.palettePromptUnavailableReason == nil)
+        store.runPalettePrompt(prompt, args: "123 high")
+        for _ in 0..<100 where (await client.requests).isEmpty { try await Task.sleep(for: .milliseconds(10)) }
+        #expect(await client.requests.first?.name == "claude-fix")
+        #expect(await client.requests.first?.args == "123 high")
+    }
+
     @Test func paletteAcknowledgementKeepsItsOriginalSession() async throws {
         let prompt = PromptCommand(name: "review", description: "Review changes", source: "project", location: "/repo/review.md")
         var first = SessionExcerpt(id: "a", title: "First", sourceTitle: "Test", model: "test/model", thinking: "off",

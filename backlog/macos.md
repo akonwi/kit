@@ -23,7 +23,7 @@ in this branch. Items marked **Server-ready** do not require new server function
 - [ ] MAC-CMD-001 — Present prompt command user messages as their invocation,
   `/<name> <arguments>`, with the expanded text shown on demand; recall the
   invocation from composer history; and label Claude Code commands in the
-  palette by their `claude_project` source. Depends on `CORE-CMD-001`.
+  palette as `claude`. Depends on `CORE-CMD-001`.
 
 ## Plugin contributions
 

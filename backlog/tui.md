@@ -31,8 +31,7 @@ in the [core backlog](core.md); dependencies below refer to its stable IDs.
   must both remain listed and runnable.
 - [ ] TUI-CMD-011 — Present prompt command user messages as their invocation,
   `/<name> <arguments>`, with the expanded text shown on demand; recall the
-  invocation from prompt history; and label Claude Code commands in the
-  palette by their `claude_project` source. Depends on `CORE-CMD-001`.
+  invocation from prompt history. Depends on `CORE-CMD-001`.
 - [ ] TUI-CMD-002 — Add production-release command surfaces for settings,
   MCP, logout, and release/update information with clear availability rules.
 - [ ] TUI-SET-001 — Present immediate setting changes, validation, and inline

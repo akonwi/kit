@@ -299,9 +299,6 @@ func paletteCommandDisabledReason(commandID paletteCommandID, running bool, cont
 	if !running {
 		return ""
 	}
-	if _, prompt := promptPaletteCommandName(commandID); prompt {
-		return "idle only"
-	}
 	switch commandID {
 	case paletteCommandCD, paletteCommandCompact:
 		return "idle only"
@@ -349,11 +346,19 @@ func promptPaletteCommands(commands []protocol.PromptCommand) []paletteCommand {
 	result := make([]paletteCommand, 0, len(commands))
 	for _, command := range commands {
 		result = append(result, paletteCommand{
-			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name, Source: string(command.Source),
-			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{command.Source, command.Location},
+			ID: paletteCommandID("prompt:" + command.Name), Name: command.Name, Source: promptCommandSourceLabel(command.Source),
+			Description: command.Description, ArgumentHint: command.ArgumentHint, Aliases: []string{promptCommandSourceLabel(command.Source), command.Location},
 		})
 	}
 	return result
+}
+
+// promptCommandSourceLabel is the palette label of a prompt command source.
+func promptCommandSourceLabel(source string) string {
+	if source == protocol.PromptCommandSourceClaudeProject {
+		return "claude"
+	}
+	return source
 }
 
 func promptPaletteCommandName(id paletteCommandID) (string, bool) {

@@ -63,7 +63,9 @@ Single and double quotes group arguments:
 
 Here `$1` is `auth module`, `$2` is `carefully`, and `$@` is `auth module carefully`.
 
-The command palette treats text after the first space as arguments. Prompt commands are available only while the session is idle and can be run with Enter or the primary mouse button.
+The command palette treats text after the first space as arguments. Prompt commands can be run with Enter or the primary mouse button. While a turn is active, a prompt command joins the follow-up queue like a typed message.
+
+The palette shows each command's source: `user`, `project`, or `claude` for Claude Code commands.
 
 ## Invocation record
 

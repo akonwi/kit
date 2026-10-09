@@ -106,3 +106,26 @@ func TestQueueFollowUpRetainsAnnotationsAndAttachments(t *testing.T) {
 		})
 	}
 }
+
+func TestPromptCommandDuringActiveTurnQueuesWithoutTouchingTheDraft(t *testing.T) {
+	bound := &promptCommandQueueSession{}
+	state := &followUpState{appState: appState{ctx: t.Context(), bound: bound, turnPending: true, composer: "unsent draft"}}
+	application := uitest.New(followUpHarness{state})
+	application.Pump(80, 24)
+	state.submitPromptCommand("review", "--staged")
+	deadline := time.Now().Add(time.Second)
+	for state.followUpMutationPending || state.followUps.Count == 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("queued prompt command did not settle")
+		}
+		time.Sleep(5 * time.Millisecond)
+		application.Pump(80, 24)
+	}
+	if bound.name != "review" || bound.args != "--staged" {
+		t.Fatalf("command = %q %q", bound.name, bound.args)
+	}
+	want := protocol.FollowUpQueue{Count: 1, Previews: []string{"/review"}}
+	if !reflect.DeepEqual(state.followUps, want) || state.composer != "unsent draft" || !state.turnPending {
+		t.Fatalf("queue = %+v composer = %q turnPending = %v", state.followUps, state.composer, state.turnPending)
+	}
+}

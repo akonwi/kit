@@ -67,7 +67,7 @@ are discovered last, they cannot displace Kit prompt commands from the limit.
 
 Prompt command metadata identifies Claude Code commands with the source value
 `claude_project`, alongside `user` and `project`. Clients may use the source to
-label or group commands.
+label or group commands; they present `claude_project` as `claude`.
 
 ### Setting
 
