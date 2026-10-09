@@ -431,3 +431,32 @@ test fn without_a_compatible_server_only_local_commands_remain() Void!Str {
   }
   testing::assert(keys == "debug login mcp quit theme", keys)
 }
+
+test fn prompt_commands_show_their_source_with_claude_code_commands_as_claude() Void!Str {
+  let catalog = command_palette::command_catalog(
+    false,
+    true,
+    [
+      protocol::PromptCommand{
+        Name: "review",
+        Description: "Review changes",
+        Source: protocol::PromptCommandSourceProject,
+        Location: "/repo/.agents/prompts/review.md",
+      },
+      protocol::PromptCommand{
+        Name: "claude-fix",
+        Description: "Fix an issue",
+        Source: protocol::PromptCommandSourceClaudeProject,
+        Location: "/repo/.claude/commands/claude-fix.md",
+      },
+    ],
+    [],
+  )
+  mut sources = ""
+  for item in catalog {
+    if item.key.starts_with("prompt:") {
+      sources = "{sources}{item.label}={item.meta} "
+    }
+  }
+  testing::assert(sources == "claude-fix=claude review=project ", sources)
+}

@@ -392,6 +392,32 @@ test fn projection_skips_empty_messages_and_marks_tool_results() Void!Str {
   )
 }
 
+test fn a_prompt_command_message_reads_as_its_invocation() Void!Str {
+  let projected = transcript::project(
+    [
+      protocol::TranscriptMessage{
+        ID: "message_command",
+        TurnID: "turn-1",
+        Role: "user",
+        Content: [
+          protocol::NewTranscriptContent(
+            protocol::PromptCommandContent{
+              Name: "claude-fix",
+              Arguments: "123 high",
+              Source: protocol::PromptCommandSourceClaudeProject,
+              Text: "Pretend to fix issue #123 at high priority.",
+            },
+          ),
+        ],
+      },
+    ],
+  )
+  testing::assert(
+    describe(projected) == "[user message_command /claude-fix 123 high]",
+    describe(projected),
+  )
+}
+
 test fn user_attachments_project_as_labels() Void!Str {
   let projected = transcript::project(
     [

@@ -735,7 +735,7 @@ impl Shell {
     if self.phase != Phase::ready or not self.attached.can_submit() {
       false
     } else {
-      match self.attached.send_blocker() {
+      match self.attached.send_blocker(text) {
         blocker => {
           self.dispatch(fn() {
             self.notify(blocker.title, blocker.detail, blocker.variant, false)
@@ -1390,7 +1390,7 @@ impl Shell {
       },
       command_palette::ActionKind::prompt_command => {
         self.finish_modal()
-        self.attached.submit_prompt_command(action.prompt_command, action.argument)
+        self.attached.submit_prompt_command(action.prompt_command, action.argument, "")
       },
       command_palette::ActionKind::plugin_command => {
         match action.plugin_command {

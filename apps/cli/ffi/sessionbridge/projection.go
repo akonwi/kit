@@ -145,6 +145,9 @@ func content(source []protocol.TranscriptContent) []Content {
 			projected.Filename, projected.AttachmentID = payload.Filename, payload.AttachmentID
 		case protocol.FileContent:
 			projected.Filename, projected.AttachmentID = payload.Filename, payload.AttachmentID
+		case protocol.PromptCommandContent:
+			// A prompt command's message reads as the invocation the user typed.
+			projected.Text = payload.InvocationText()
 		}
 		result = append(result, projected)
 	}
