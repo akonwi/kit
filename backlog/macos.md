@@ -89,7 +89,7 @@ validate registry/health identity and readiness and follow the Go protocol and
 stable-release compatibility contract without prescribing an exact CLI version.
 The app version is independent of its Kit client release identity: app `0.1.0`
 uses protocol 40 with identity `0.37.0`; apps `0.1.1` and `0.1.2` use protocol
-41 with identity `0.38.0`; app `0.1.3` uses protocol 42 with identity `0.39.0`.
+41 with identity `0.38.0`; app `0.1.3` uses protocol 45 with identity `0.42.0`.
 
 - [~] MAC-DIST-004 — Publish a Developer ID signed, notarized, stapled app
   ZIP with versioned metadata and SHA-256 on a regular GitHub Release. A

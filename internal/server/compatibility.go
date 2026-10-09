@@ -58,7 +58,7 @@ func (e *DaemonCompatibilityError) Unwrap() error { return ErrIncompatibleDaemon
 
 // CheckCompatibility compares the verified daemon registry with this client.
 // Callers must authenticate and verify the registry against daemon health first.
-// Stable releases starting at 0.39.0 share the protocol-42 compatibility promise;
+// Stable releases share compatibility only within an explicitly covered protocol;
 // development and prerelease builds do not establish that promise.
 func CheckCompatibility(registry Registry) error {
 	return compatibleWithVersion(registry, version.Version)
@@ -88,16 +88,25 @@ func compatibleWithVersion(registry Registry, clientVersion string) error {
 	return &base
 }
 
-// coveredSessionReleasePair limits cross-release attachment to the protocol
-// whose baseline contract begins with stable Kit 0.39.0. A future protocol
-// number must explicitly establish its own release eligibility.
+// coveredSessionReleasePair limits cross-release attachment to protocols with
+// an explicit stable-release baseline. A future protocol number must establish
+// its own release eligibility.
 func coveredSessionReleasePair(protocol int, clientVersion, daemonVersion string) bool {
-	return protocol == 42 && protocol42Release(clientVersion) && protocol42Release(daemonVersion)
+	var minimum [3]uint64
+	switch protocol {
+	case 42:
+		minimum = [3]uint64{0, 39, 0}
+	case 45:
+		minimum = [3]uint64{0, 42, 0}
+	default:
+		return false
+	}
+	return stableReleaseAtLeast(clientVersion, minimum) && stableReleaseAtLeast(daemonVersion, minimum)
 }
 
-// protocol42Release recognizes canonical stable releases covered by the first
-// protocol-42 release. RC and development labels remain outside the promise.
-func protocol42Release(release string) bool {
+// stableReleaseAtLeast recognizes canonical stable releases at or above a
+// protocol's first stable release. RC and development labels remain excluded.
+func stableReleaseAtLeast(release string, minimum [3]uint64) bool {
 	if len(release) == 0 || len(release) > 64 {
 		return false
 	}
@@ -121,5 +130,10 @@ func protocol42Release(release string) bool {
 		}
 		numbers[index] = number
 	}
-	return numbers[0] > 0 || numbers[0] == 0 && numbers[1] >= 39
+	for index := range numbers {
+		if numbers[index] != minimum[index] {
+			return numbers[index] > minimum[index]
+		}
+	}
+	return true
 }

@@ -1,6 +1,6 @@
 import Foundation
 
-/// Match the server's protocol-42 stable-release compatibility promise after
+/// Match the server's protocol-45 stable-release compatibility promise after
 /// authenticating health and verifying it against the discovered registry.
 enum DaemonCompatibility {
     enum Mismatch: String {
@@ -21,7 +21,8 @@ enum DaemonCompatibility {
         if daemonProtocol < clientProtocol { return .daemonProtocolOlder }
         if daemonProtocol > clientProtocol { return .clientProtocolOlder }
         if clientVersion == daemonVersion { return nil }
-        if clientProtocol == 42 && stableProtocol42Release(clientVersion) && stableProtocol42Release(daemonVersion) { return nil }
+        if clientProtocol == 45 && stableRelease(clientVersion, atLeast: [0, 42, 0]) &&
+            stableRelease(daemonVersion, atLeast: [0, 42, 0]) { return nil }
         return .releaseMismatch
     }
 
@@ -36,7 +37,7 @@ enum DaemonCompatibility {
         bundle.object(forInfoDictionaryKey: "KitClientRelease") as? String ?? "dev"
     }
 
-    private static func stableProtocol42Release(_ version: String) -> Bool {
+    private static func stableRelease(_ version: String, atLeast minimum: [UInt64]) -> Bool {
         guard !version.isEmpty, version.utf8.count <= 64 else { return false }
         let parts = version.split(separator: ".", omittingEmptySubsequences: false)
         guard parts.count == 3 else { return false }
@@ -46,6 +47,6 @@ enum DaemonCompatibility {
                   part.utf8.allSatisfy({ (48...57).contains($0) }), let number = UInt64(part) else { return false }
             numbers.append(number)
         }
-        return numbers[0] > 0 || numbers[1] >= 39
+        return numbers.lexicographicallyPrecedes(minimum) == false
     }
 }

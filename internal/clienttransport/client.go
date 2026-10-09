@@ -331,10 +331,19 @@ func CheckCompatibilityWithVersion(connection Connection, clientVersion string) 
 func compatible(connection Connection) error { return CheckCompatibility(connection) }
 
 func coveredReleasePair(protocol int, clientVersion, serverVersion string) bool {
-	return protocol == 42 && protocol42Release(clientVersion) && protocol42Release(serverVersion)
+	var minimum [3]uint64
+	switch protocol {
+	case 42:
+		minimum = [3]uint64{0, 39, 0}
+	case 45:
+		minimum = [3]uint64{0, 42, 0}
+	default:
+		return false
+	}
+	return stableReleaseAtLeast(clientVersion, minimum) && stableReleaseAtLeast(serverVersion, minimum)
 }
 
-func protocol42Release(release string) bool {
+func stableReleaseAtLeast(release string, minimum [3]uint64) bool {
 	if len(release) == 0 || len(release) > 64 {
 		return false
 	}
@@ -343,5 +352,14 @@ func protocol42Release(release string) bool {
 		return false
 	}
 	canonical := fmt.Sprintf("%d.%d.%d", major, minor, patch)
-	return canonical == release && (major > 0 || minor >= 39)
+	if canonical != release {
+		return false
+	}
+	numbers := [3]uint64{major, minor, patch}
+	for index := range numbers {
+		if numbers[index] != minimum[index] {
+			return numbers[index] > minimum[index]
+		}
+	}
+	return true
 }

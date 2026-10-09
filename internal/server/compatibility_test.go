@@ -44,9 +44,9 @@ func TestCompatibilityReasonAndDirection(t *testing.T) {
 		name, client, daemon string
 		compatible           bool
 	}{
-		{"protocol-42 baseline to next stable", "0.39.0", "0.39.1", false},
-		{"next stable to protocol-42 baseline", "0.39.1", "0.39.0", false},
-		{"future major to protocol-42 baseline", "1.0.0", "0.39.0", false},
+		{"protocol-45 baseline to next stable", "0.42.0", "0.42.1", true},
+		{"next stable to protocol-45 baseline", "0.42.1", "0.42.0", true},
+		{"future major to protocol-45 baseline", "1.0.0", "0.42.0", true},
 		{"same prerelease", "0.39.0-rc.1", "0.39.0-rc.1", true},
 		{"same dev label remains local-only", "dev", "dev", true},
 		{"rc to stable", "0.39.0-rc.1", "0.39.0", false},
@@ -84,27 +84,36 @@ func TestProtocol42RejectsReleasedProtocol41Daemon(t *testing.T) {
 	}
 }
 
-func TestProtocol42ReleaseScope(t *testing.T) {
+func TestStableReleaseScope(t *testing.T) {
 	t.Parallel()
+	minimum := [3]uint64{0, 42, 0}
 	for _, tc := range []struct {
 		release string
 		want    bool
 	}{
-		{"0.38.99", false}, {"0.39.0", true}, {"0.39.1", true},
-		{"0.40.0", true}, {"1.0.0", true}, {"dev", false},
-		{"0.39.0-rc.1", false}, {"0.39.0+local", false},
-		{"v0.39.0", false}, {"00.39.0", false}, {"0.039.0", false},
-		{"0.39.00", false}, {"0.37", false}, {"0.39.0.0", false},
-		{"0.39.-1", false}, {"0.39.9999999999999999999999999999999", false},
+		{"0.41.99", false}, {"0.42.0", true}, {"0.42.1", true},
+		{"0.43.0", true}, {"1.0.0", true}, {"dev", false},
+		{"0.42.0-rc.1", false}, {"0.42.0+local", false},
+		{"v0.42.0", false}, {"00.42.0", false}, {"0.042.0", false},
+		{"0.42.00", false}, {"0.42", false}, {"0.42.0.0", false},
+		{"0.42.-1", false}, {"0.42.9999999999999999999999999999999", false},
 	} {
-		if got := protocol42Release(tc.release); got != tc.want {
-			t.Errorf("protocol42Release(%q) = %t, want %t", tc.release, got, tc.want)
+		if got := stableReleaseAtLeast(tc.release, minimum); got != tc.want {
+			t.Errorf("stableReleaseAtLeast(%q) = %t, want %t", tc.release, got, tc.want)
 		}
 	}
-	for _, protocol := range []int{41, 42, 43} {
-		want := protocol == 42
-		if got := coveredSessionReleasePair(protocol, "0.39.0", "0.39.1"); got != want {
-			t.Errorf("protocol %d stable release skew = %t, want %t", protocol, got, want)
+	for _, tc := range []struct {
+		protocol       int
+		client, daemon string
+		want           bool
+	}{
+		{42, "0.39.0", "0.39.1", true},
+		{45, "0.42.0", "0.42.1", true},
+		{45, "0.41.0", "0.42.0", false},
+		{44, "0.42.0", "0.42.1", false},
+	} {
+		if got := coveredSessionReleasePair(tc.protocol, tc.client, tc.daemon); got != tc.want {
+			t.Errorf("protocol %d releases %q/%q = %t, want %t", tc.protocol, tc.client, tc.daemon, got, tc.want)
 		}
 	}
 }
