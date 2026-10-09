@@ -237,18 +237,22 @@ const pluginAdmissionSettleWait = 2 * time.Second
 
 // acquireSettledAdmission acquires shared transition authority and then
 // admission authority, in lock order, waiting briefly while they are held
-// without an active turn. On success the caller owns both. It fails without
-// contending while a turn is active or user follow-ups are queued, so a
-// settling turn's queued follow-ups are always admitted first. A runtime
-// transition that outlasts the wait makes the submission busy.
+// by a settling turn. On success the caller owns both. A turn settles once its
+// completion has been delivered to plugins, even while it is still recorded as
+// active. It fails without contending while a turn is running or user
+// follow-ups are queued, so a settling turn's queued follow-ups are always
+// admitted first. A runtime transition that outlasts the wait makes the
+// submission busy.
 func acquireSettledAdmission(ctx context.Context, loaded *runtime) bool {
 	deadline := time.Now().Add(pluginAdmissionSettleWait)
 	delay := time.Millisecond
 	for {
 		loaded.mu.Lock()
-		yield := loaded.activeRun != "" || len(loaded.followUps) > 0
+		activeRun, followUps := loaded.activeRun, len(loaded.followUps)
 		loaded.mu.Unlock()
-		if yield {
+		// A turn whose completion has reached plugins is settling, not running:
+		// a plugin that continues from that event waits for it to finish.
+		if followUps > 0 || activeRun != "" && !loaded.turnEvents.completionDelivered(activeRun) {
 			return false
 		}
 		if loaded.transitionMu.TryRLock() {
